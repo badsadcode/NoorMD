@@ -1553,6 +1553,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a click selects one track', JSON.stringify((await ms()).sel) === '[1]');
       await page.click(row(4), { modifiers: ['Shift'] });
       check('Shift+click selects the range from the clicked track', JSON.stringify((await ms()).sel) === '[1,2,3,4]');
+      check('…without highlighting the text of the rows', await page.evaluate(() => window.getSelection().toString() === ''));
       await page.click(row(7), { modifiers: ['Control'] });
       await page.click(row(2), { modifiers: ['Control'] });
       check('Ctrl+click adds and removes single tracks', JSON.stringify((await ms()).sel) === '[1,3,4,7]');
@@ -1922,6 +1923,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.vtrack[data-id="3"] .track-title');
       await page.click('.vtrack[data-id="4"] .track-title', { modifiers: ['Shift'] });
       check('Shift+click selects a range', JSON.stringify((await vs()).sel) === '[2,3]' && (await page.textContent('#vb-selcount')).includes('2 selected'));
+      check('…without highlighting the text of the rows', await page.evaluate(() => window.getSelection().toString() === ''));
       await page.click('.vtrack[data-id="4"] .track-title', { button: 'right' });
       await page.waitForSelector('.menu-popup');
       check('right-click opens the video menu', (await page.textContent('.menu-popup')).includes('Add to playlist'));

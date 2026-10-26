@@ -867,3 +867,5 @@ body.video-wide .videobench { width: var(--video-col); }
 .np-edit { flex: 0 0 auto; white-space: nowrap; }
 .music-toolbar { flex-wrap: wrap; }
 #np-title { cursor: pointer; }
+/* Lists where Shift/Ctrl+click selects rows: no text selection (it looked like a second, broken highlight). */
+.music-list, .vb-list, .music-queue, .music-playlists { user-select: none; -webkit-user-select: none; }

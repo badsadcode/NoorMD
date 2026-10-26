@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-preview.8
+
+- **Selecting several tracks or videos no longer highlights their text.** Shift+click and Ctrl+click
+  in the Music and Video lists used to select the row text too, which looked like a second, broken
+  highlight. Only the rows are highlighted now.
+
 ## 2.0.0-preview.7 — the Video Bench works like the Music Bench
 
 - **Video Bench, rebuilt like the Music Bench.** The picture sits where the cover art is, with the
