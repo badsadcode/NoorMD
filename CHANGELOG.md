@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-preview.6
+
+- **The Video Bench docks beside the editor** like the Music Bench, instead of covering it. The
+  editor, toolbar and Save button get narrower and stay usable. This also applies when the panel is
+  wide or resized. Opening the Music Bench closes the Video Bench, and the other way round.
+
 ## 2.0.0-preview.5 — fixes from trying preview.4
 
 - **Cover art in the Music Bench is small again.** The OBS overlay's styles leaked into the app

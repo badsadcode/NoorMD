@@ -844,3 +844,11 @@ body.video-wide .videobench { width: min(100vw, max(var(--video-w, 520px), 70vw)
 @media (max-width: 1000px) { .sd-grid, .sd-log { grid-template-columns: 1fr; } .sd-preview-col, .sd-history { position: static; } .sd-tr { grid-template-columns: 1fr 1.5fr .7fr; } }
 .vb-pane input[type=search], .vb-controls select, .vb-note-new textarea, .vb-note-edit { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; }
 .vb-pane input[type=search]:focus, .vb-controls select:focus, .vb-note-new textarea:focus, .vb-note-edit:focus { border-color: var(--accent); outline: 0; }
+/* The Video Bench docks like the Music Bench: the app gives it the right-hand column instead of being covered. */
+body.video-open { --video-col: min(100vw, var(--video-w, 520px)); }
+body.video-open.video-wide { --video-col: min(100vw, max(var(--video-w, 520px), 70vw)); }
+body.video-open .app { --mu-col: var(--video-col); }
+body.video-open .music, body.video-open .music-resizer { display: none !important; }
+.videobench { width: var(--video-col, min(100vw, var(--video-w, 520px))); }
+body.video-wide .videobench { width: var(--video-col); }
+@media (max-width: 760px) { body.video-open .app { --mu-col: 0px !important; } }

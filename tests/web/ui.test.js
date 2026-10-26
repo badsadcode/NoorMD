@@ -1806,8 +1806,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('episodes are listed in order for the series', JSON.stringify((await vs()).episodes) === '[1,2,3]');
       const box = await page.evaluate(() => { const r = document.querySelector('#vb-video').getBoundingClientRect(); const p = document.querySelector('#videobench').getBoundingClientRect(); return { w: r.width, h: r.height, panel: p.width, vw: window.innerWidth }; });
       check('the video picture is visible in a side panel (not squeezed by the episode list)', box.h > 150 && box.w > 300 && box.panel < box.vw * 0.6, box);
+      const dock = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
+      check('the video panel docks beside the editor instead of covering it', dock.editor <= dock.panel + 1, dock);
       check('the Music Bench closes when the Video Bench opens (music keeps playing)', !(await page.evaluate(() => window.NoorMusic.isOpen())));
       await page.click('#vb-wide');
+      const dockWide = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
+      check('…also when it is wide', dockWide.editor <= dockWide.panel + 1, dockWide);
       check('Wide makes the video panel larger', (await page.evaluate(() => document.querySelector('#videobench').getBoundingClientRect().width)) > box.panel + 100);
       await page.click('#vb-wide');
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3.5) < 0.3, null, { timeout: 6000 });

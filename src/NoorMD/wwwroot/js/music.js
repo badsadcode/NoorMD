@@ -107,6 +107,7 @@ window.NoorMusic = (() => {
   function togglePanel(force) {
     if (!enabled()) { notice('The Music Bench is turned off in Preferences.'); return; }
     const open = force ?? !document.body.classList.contains('music-open');
+    if (open && window.NoorVideo && NoorVideo.isOpen()) NoorVideo.close(); // one panel on the right at a time
     document.body.classList.toggle('music-open', open);
     if (open) { start().then(() => focusList()); }
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
