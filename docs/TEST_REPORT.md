@@ -86,3 +86,31 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 | 5. Themes, Compact/Focus, width presets, narrow windows | ✅ / ⚠ | Contrast is computed for every token in both themes: text ≥ 7:1, tokens ≥ 4.5:1, delimiters and line numbers ≥ 3:1. Every width preset was tested in Focus+Compact. In an 820 px window, Split stacks without overlap. HiDPI was not checked by eye. |
 | 6. Save/reopen, recovery, UTF-8 and CRLF | ✅ | Unchanged paths. Existing unit tests and the self-test (CRLF and diacritics on save, recovery draft) still pass. |
 | 7. Regression coverage for defects found | ✅ | New checks for uniform source styling, exact source after Visual, contrast, and stacked-split overlap (a defect found and fixed during this work) |
+
+## 2.0.0-preview.1 (Creator's Bench milestone A and themes)
+
+| Acceptance test (proposal §11) | Status | Evidence |
+|---|---|---|
+| 1. Thousands of MP3s without freezing; edit Markdown during indexing and playback | ✅ / ⚠ | Indexing runs on a background task with batched transactions. The UI test edits the document while real audio plays. The query benchmark covers 20,000 rows (3 queries in about 30 ms). The UI list is virtualised and was tested with 20,000 tracks. A real 8,000-file folder was not scanned on Windows; the scan cost per file is one tag read plus one 64 KB hash. |
+| 2. Sequential, shuffle, repeat one and repeat all across track boundaries | ✅ | UI test with real audio in Chromium. Tracks end and advance, repeat one restarts, repeat all wraps, and shuffle keeps the current track. |
+| 3. Rename and re-tag the playing MP3, save, and the queue continues | ✅ | Unit tests: rename while the file is open, collisions change nothing, id kept, playlists intact. UI test: F2 saves tags and the name, and playback resumes on the re-requested file. Windows self-test: renames and re-tags an MP3 *while WebView2 has it loaded*, then undoes it. |
+| 4. Restart restores queue, track and position | ✅ | UI test: a second page restores the saved session, paused, at the saved position |
+| 5. Batch rename of hundreds of files with preview and undo | ⏭ | Milestone B (not in this preview). The journal and SafeRename building blocks are in place. |
+| 6. Tags checked with an external reader; Polish file names | ✅ | Tags written by NoorMD are read back with **ffprobe** (MP3, FLAC, OGG). Polish file and folder names are tested throughout. |
+| 7. Missing, read-only, duplicate, locked and malformed files | ✅ | Unit tests for each. The UI skips an unplayable track with a notice. Locked files report "in use" and change nothing. |
+| 8. No regressions (Focus, source mode, shortcuts, exports, recovery) | ✅ | All earlier UI checks still pass (151 in total). The Windows self-test still covers save, recovery, PDF and modes. |
+| 9. Fully offline, including the media backend | ✅ | The player is Chromium inside WebView2. Audio and artwork are served locally by NoorMD. No new network use. |
+| 10. Video in a detached window | ⏭ | Milestone D |
+
+**Themes:**
+- A unit test parses `themes.css` and checks that the C# catalogue matches it, plus WCAG
+  contrast for every theme.
+- The UI tests cover the picker (preview, cancel and apply), cycling, and readable text in
+  every theme.
+
+**Not verified by a person on a physical PC:**
+- media keys through Windows' media overlay
+- 125 %/150 % display scaling
+- a real 8,000-track collection
+
+These are best checked on your machine.

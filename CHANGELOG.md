@@ -1,5 +1,70 @@
 # Changelog
 
+## 2.0.0-preview.1 — Creator's Bench (milestone A) and themes
+
+Based on *NoorMD 2.0 — Creator's Bench*. The engineering plan, decisions and conflicts are in
+[docs/CREATORS_BENCH_PLAN.md](docs/CREATORS_BENCH_PLAN.md).
+
+**Themes.** Nine colour themes:
+- Atelier Dark and Atelier Light (the originals)
+- Nocturne, Ember, Evergreen and Rosewood (dark)
+- Parchment and Glacier (light)
+- High Contrast
+
+Choose one with the **Theme** button, which previews on hover and applies on click, or cycle
+with **Ctrl+Shift+T**. The window title bar and dialogs follow the theme. Every theme is
+checked automatically for WCAG contrast; see the screenshots in
+[docs/themes-preview.png](docs/themes-preview.png).
+
+**Music Bench (Ctrl+Shift+M).** It is optional and starts nothing until you open it.
+- **Library:**
+  - Add folders, including subfolders. The index builds in the background while you keep
+    writing.
+  - Search ignores case and Polish diacritics ("zolw" finds "Żółw"). Filter by triage, sort,
+    and scroll a virtualised list (tested with 20,000 tracks).
+  - Missing files are marked, never deleted. Files moved outside NoorMD are relinked when
+    you rescan.
+  - NoorMD never moves or changes files on its own.
+- **Player:**
+  - Play/pause, seek, volume, previous/next, shuffle, and repeat (off, all or one). It plays
+    MP3, FLAC, WAV, OGG/Opus and M4A.
+  - An **Up next** queue, a **Now Playing** card, and a **mini-player** under the editor that
+    can be hidden.
+  - Playback continues while you write and switch documents.
+  - The last queue, track and position come back after a restart, paused.
+- **Edit current track (F2):**
+  - Edits title, artist, album, album artist, genre, year, track number and comment. Tags
+    that aren't present show as "— not set —"; nothing is invented.
+  - Updating the tags and renaming the file are separate choices. Use **Name from tags** for
+    a suggestion, then **Save**, **Save & Next** or **Cancel**.
+  - The file is validated before anything is touched: illegal characters, reserved names,
+    collisions (nothing is ever overwritten), read-only files.
+  - The playing file is released, edited and resumed at the same position.
+  - Every edit is journalled. **Undo last track edit** reverts the name and tags, and refuses
+    if the file was changed since.
+- **Triage while listening:** **Alt+1** Favorite, **Alt+2** Keep, **Alt+3** Maybe, **Alt+4**
+  Skip and **Alt+0** clear. These work from the editor without typing anything. In the
+  library list, plain 1–4 also work.
+- **Playlists:** create, rename, delete, play, "Save Up next as playlist", and import/export
+  `.m3u`/`.m3u8` with relative paths.
+- **Shortcuts:** **Ctrl+Alt+Space** play/pause and **Ctrl+Alt+→/←** next/previous. Media keys
+  work through the Media Session API.
+- **New components:** TagLib# (LGPL-2.1, as a separate DLL), Microsoft.Data.Sqlite (MIT),
+  SQLitePCLRaw (Apache-2.0) and SQLite (public domain). License texts ship in `licenses/`.
+- **Not in this preview:** the remaining phases from the proposal, each its own milestone:
+  - **B:** the batch organizer (mass rename and tag templates with preview and dry run)
+  - **C:** EQ and loudness
+  - **D:** the Video Bench
+
+  Streaming services stay out of scope.
+
+### Going back to 1.2.0
+
+Documents, recovery drafts, snapshots and settings are unaffected; older versions ignore the
+new settings keys. The music index is a separate file (`%LOCALAPPDATA%\NoorMD\Music\library.db`)
+that 1.x never reads. The 1.2.0 code is on **`noormd-1.2.0-baseline`** (commit `e6db7d3`).
+Older baselines: `noormd-1.1.0-baseline`, `noormd-1.0.0-baseline`.
+
 ## 1.2.0 — Markdown source editor
 
 Based on *NoorMD — Markdown Source Editing Improvements*.

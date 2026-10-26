@@ -35,6 +35,19 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Indent / outdent (lists, Markdown) | Tab / Shift+Tab |
 | Close dialog, find bar or focus mode | Esc |
 
+### Music Bench (Creator's Bench)
+
+| Action | Shortcut |
+|---|---|
+| Show / hide Music Bench | Ctrl+Shift+M |
+| Play / pause | Ctrl+Alt+Space (or the media keys) |
+| Next / previous track | Ctrl+Alt+→ / Ctrl+Alt+← |
+| Edit current track (or the selected one in the list) | F2 |
+| Triage the playing track: Favorite / Keep / Maybe / Skip / clear | Alt+1 / Alt+2 / Alt+3 / Alt+4 / Alt+0 |
+| In the track list: play, triage, add to Up next, play next | Enter, 1–4 (0 clears), Q, N |
+| In the edit dialog: Save / Save & Next / Cancel | Enter / Ctrl+Enter / Esc |
+| Next theme | Ctrl+Shift+T |
+
 Mouse and keyboard extras:
 
 - **Split divider:** drag it, double-click to reset it to 50/50, or focus it with Tab and

@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-1.2.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -57,6 +57,14 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   one size, with subtle syntax colours, line numbers, optional word wrap and a current-line
   highlight. Shortcuts for headings, links and code blocks, and Copy Markdown source.
   Switching modes never rewrites source you didn't edit in Visual mode.
+- **Nine colour themes** with a live-preview picker (Theme button, Ctrl+Shift+T to cycle).
+  All are contrast-checked.
+- **Creator's Bench: Music Bench** (Ctrl+Shift+M, optional):
+  - A local music library with fast search and triage (Favorite, Keep, Maybe, Skip).
+  - Playlists, an Up next queue, and a persistent mini-player.
+  - **Edit current track (F2)**: tags and/or file name, with safe renames and undo.
+  - Session resume.
+  - See [docs/CREATORS_BENCH_PLAN.md](docs/CREATORS_BENCH_PLAN.md).
 - **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
   (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
 - **Preferences:** writing font (Inter is bundled), text size, line width, layout,
@@ -86,8 +94,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-1.2.0-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-1.2.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -96,6 +104,7 @@ powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
 
 | Suite | What it covers | Command |
 |---|---|---|
+| `tests/NoorMD.Media.Tests` (xUnit) | tag reading and writing on real MP3/FLAC/OGG/WAV files (checked with ffprobe), safe renames, collisions, read-only and missing files, the index and relinking, a 20,000-track query benchmark, M3U, HTTP ranges | `dotnet test tests/NoorMD.Media.Tests` |
 | `tests/NoorMD.Core.Tests` (xUnit) | encodings and line endings, atomic writes, recovery locking, snapshots, path traversal, the link policy, HTML export, bridge protocol, settings | `dotnet test tests/NoorMD.Core.Tests` |
 | `tests/web` (Playwright) | the real editor UI against a mock host: modes, split divider, focus mode, themes, outline, find/replace, palette, XSS, offline loading, the round-trip guard | `cd tests/web && npm i && npx playwright install chromium && node ui.test.js` |
 | `NoorMD.exe --self-test <dir>` | the packaged app end to end on Windows: open → edit → recovery draft → save (CRLF and diacritics kept) → split → focus → theme → PDF, with screenshots | runs in CI ([.github/workflows/build.yml](.github/workflows/build.yml)) |
@@ -138,6 +147,7 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
 |---|---|
 | Your documents | wherever you save them |
 | Settings, recent files | `%APPDATA%\NoorMD\settings.json` |
+| Music index (paths, triage, playlists, queue; audio files are never copied) | `%LOCALAPPDATA%\NoorMD\Music\library.db` |
 | Recovery drafts | `%LOCALAPPDATA%\NoorMD\Recovery\` (deleted when you save or choose *Don't save*) |
 | Revision snapshots | `%LOCALAPPDATA%\NoorMD\Snapshots\` (50 per document) |
 | Backup of the previous version of each saved file | `%LOCALAPPDATA%\NoorMD\Backups\` |

@@ -64,7 +64,7 @@ existing app, the decisions I made, the conflicts I found, and what ships in whi
 
 | Phase | Contents | Status in this delivery |
 |---|---|---|
-| **A: Music Bench MVP** | Folders (recursive), background index, search/filter/sort, virtualized list, play/pause/seek/volume, queue, shuffle/repeat, persistent mini-player and Now Playing, **Edit current track** (tags and/or filename, Save, Save & Next, Cancel), triage, favorites, basic playlists and `.m3u8` import/export, session resume, single-edit undo | **Implemented** |
+| **A: Music Bench MVP** (2.0.0-preview.1) | Folders (recursive), background index, search/filter/sort, virtualized list, play/pause/seek/volume, queue, shuffle/repeat, persistent mini-player and Now Playing, **Edit current track** (tags and/or filename, Save, Save & Next, Cancel), triage, favorites, basic playlists and `.m3u8` import/export, session resume, single-edit undo | **Implemented** |
 | B: Batch Organizer | Multi-select batch tags, rename templates, before → after preview with collision checks, dry run, journal-based batch undo | Next. The journal, SafeRename and preview building blocks are already shared with A. |
 | C: Music polish | EQ and presets (WebAudio), loudness normalization, richer smart collections | Later |
 | D: Video Bench | Local video library, subtitles, resume, detachable always-on-top window, timestamped notes | Later. Engine re-evaluated first. |
