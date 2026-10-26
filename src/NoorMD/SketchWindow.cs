@@ -24,7 +24,7 @@ public sealed class SketchWindow : Window
 {
     private const string SketchFilter = "NoorSketch (*.noorsketch)|*.noorsketch";
     private readonly MainWindow _main;
-    private readonly WebView2 _web = new() { Visibility = Visibility.Hidden };
+    private readonly WebView2 _web = new(); // visible from the start: a WebView2 created hidden keeps a zero-size view until the window is resized
     private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
     private string? _openPath;
     private string? _path;
@@ -94,7 +94,7 @@ public sealed class SketchWindow : Window
             e.Response = core.Environment.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", headers);
         };
         core.NavigationStarting += (_, e) => { if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || !AssetResolver.IsSketchPage(u)) e.Cancel = true; };
-        core.NavigationCompleted += (_, e) => { _web.Visibility = Visibility.Visible; _web.Focus(); };
+        core.NavigationCompleted += (_, _) => { _web.Focus(); NudgeLayout(); };
         core.NewWindowRequested += (_, e) => e.Handled = true;
         core.DownloadStarting += (_, e) => e.Cancel = true;
         core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
@@ -217,4 +217,18 @@ public sealed class SketchWindow : Window
     internal async Task<string> EvalAsync(string script) => await _web.CoreWebView2.ExecuteScriptAsync(script);
 
     internal void CloseWithoutPrompt() { _closeConfirmed = true; Close(); }
+
+    /// <summary>
+    /// Makes WebView2 pick up the window's real size once the page is there (otherwise it can stay blank until the
+    /// user resizes the window): a one-pixel resize and back, plus a layout pass.
+    /// </summary>
+    private void NudgeLayout()
+    {
+        _web.InvalidateMeasure();
+        _web.UpdateLayout();
+        if (WindowState != WindowState.Normal) return;
+        var w = Width;
+        Width = w + 1;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => Width = w);
+    }
 }

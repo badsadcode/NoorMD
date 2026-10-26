@@ -37,7 +37,7 @@ window.NoorNowPlaying = (() => {
   function mount(root) {
     let cfg = clean();
     let track = null, hideTimer = 0, lastKey = '';
-    const box = node('div', 'np');
+    const box = node('div', 'ovnp');
     root.append(box);
 
     function style() {
@@ -48,39 +48,39 @@ window.NoorNowPlaying = (() => {
       s.setProperty('--np-font', FONTS[cfg.font]);
       s.setProperty('--np-scale', String(cfg.scale));
       s.setProperty('--np-radius', cfg.radius + 'px');
-      box.className = `np design-${cfg.design} pos-${cfg.position} anim-${cfg.animation}`;
+      box.className = `ovnp ovnp-design-${cfg.design} ovnp-pos-${cfg.position} ovnp-anim-${cfg.animation}`;
     }
 
     function render(changed) {
       style();
-      if (!track || !track.title) { box.classList.add('np-hidden'); box.replaceChildren(); return; }
+      if (!track || !track.title) { box.classList.add('ovnp-hidden'); box.replaceChildren(); return; }
       const art = cfg.showArt && cfg.design !== 'minimal' && cfg.design !== 'ticker';
       const parts = [];
       if (art) {
-        const a = node('div', 'np-art');
+        const a = node('div', 'ovnp-art');
         if (track.art) { const img = new Image(); img.alt = ''; img.src = track.art; img.onerror = () => img.remove(); a.append(img); }
-        else a.append(node('span', 'np-note', '♫'));
+        else a.append(node('span', 'ovnp-note', '♫'));
         parts.push(a);
       }
-      const text = node('div', 'np-text');
-      if (cfg.label && cfg.design !== 'ticker') text.append(node('div', 'np-label', cfg.label));
-      const title = node('div', 'np-title', cfg.design === 'ticker' ? `${cfg.label ? cfg.label + ': ' : ''}${track.title}${cfg.showArtist && track.artist ? ' — ' + track.artist : ''}` : cfg.design === 'minimal' ? `♪ ${track.title}${cfg.showArtist && track.artist ? ' — ' + track.artist : ''}` : track.title);
-      if (cfg.design === 'ticker') { const wrap = node('div', 'np-marquee'); wrap.append(title, title.cloneNode(true)); text.append(wrap); }
+      const text = node('div', 'ovnp-text');
+      if (cfg.label && cfg.design !== 'ticker') text.append(node('div', 'ovnp-label', cfg.label));
+      const title = node('div', 'ovnp-title', cfg.design === 'ticker' ? `${cfg.label ? cfg.label + ': ' : ''}${track.title}${cfg.showArtist && track.artist ? ' — ' + track.artist : ''}` : cfg.design === 'minimal' ? `♪ ${track.title}${cfg.showArtist && track.artist ? ' — ' + track.artist : ''}` : track.title);
+      if (cfg.design === 'ticker') { const wrap = node('div', 'ovnp-marquee'); wrap.append(title, title.cloneNode(true)); text.append(wrap); }
       else text.append(title);
-      if (cfg.showArtist && track.artist && cfg.design !== 'minimal' && cfg.design !== 'ticker') text.append(node('div', 'np-artist', track.artist));
-      if (cfg.showProgress && cfg.design !== 'minimal' && cfg.design !== 'ticker') { const bar = node('div', 'np-progress'); bar.append(node('span')); text.append(bar); }
+      if (cfg.showArtist && track.artist && cfg.design !== 'minimal' && cfg.design !== 'ticker') text.append(node('div', 'ovnp-artist', track.artist));
+      if (cfg.showProgress && cfg.design !== 'minimal' && cfg.design !== 'ticker') { const bar = node('div', 'ovnp-progress'); bar.append(node('span')); text.append(bar); }
       parts.push(text);
       box.replaceChildren(...parts);
-      box.classList.toggle('np-paused', !track.playing);
-      box.classList.toggle('np-hidden', cfg.hideWhenPaused && !track.playing);
-      if (changed && cfg.animation !== 'none') { box.classList.remove('np-enter'); void box.offsetWidth; box.classList.add('np-enter'); }
+      box.classList.toggle('ovnp-paused', !track.playing);
+      box.classList.toggle('ovnp-hidden', cfg.hideWhenPaused && !track.playing);
+      if (changed && cfg.animation !== 'none') { box.classList.remove('ovnp-enter'); void box.offsetWidth; box.classList.add('ovnp-enter'); }
       progress();
       clearTimeout(hideTimer);
-      if (cfg.autoHide > 0) hideTimer = setTimeout(() => box.classList.add('np-hidden'), cfg.autoHide * 1000);
+      if (cfg.autoHide > 0) hideTimer = setTimeout(() => box.classList.add('ovnp-hidden'), cfg.autoHide * 1000);
     }
 
     function progress() {
-      const bar = box.querySelector('.np-progress > span');
+      const bar = box.querySelector('.ovnp-progress > span');
       if (bar && track && track.duration > 0) bar.style.width = Math.min(100, (track.position / track.duration) * 100) + '%';
     }
 

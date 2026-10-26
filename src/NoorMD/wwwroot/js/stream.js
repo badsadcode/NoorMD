@@ -91,17 +91,19 @@ window.NoorStream = (() => {
     });
   }
 
+  let renderGen = 0; // async renders check this, so overlapping refreshes never draw a tab twice
   function setTab(id) {
     tab = id;
+    const gen = ++renderGen;
     document.querySelectorAll('[data-sdtab]').forEach((b) => { b.classList.toggle('active', b.dataset.sdtab === id); b.setAttribute('aria-selected', String(b.dataset.sdtab === id)); });
     if (crPreview) { crPreview.destroy(); crPreview = null; }
     npPreview = null;
     const body = $('#sd-body');
     body.replaceChildren();
     if (id === 'np') renderNowPlaying(body);
-    else if (id === 'credits') renderCredits(body);
-    else if (id === 'supporters') renderSupporters(body);
-    else renderLog(body);
+    else if (id === 'credits') renderCredits(body, gen);
+    else if (id === 'supporters') renderSupporters(body, gen);
+    else renderLog(body, gen);
   }
 
   function renderServer() {
@@ -217,8 +219,9 @@ window.NoorStream = (() => {
     catch { supporters = []; return false; }
   }
 
-  async function renderCredits(body) {
+  async function renderCredits(body, gen) {
     await loadSupporters();
+    if (gen !== renderGen) return;
     const save = () => { clearTimeout(saveCrTimer); saveCrTimer = setTimeout(() => req('stream.credits.config', { config: cr, effects }).catch(hooks.showError), 300); };
     const changed = () => { if (crPreview) crPreview.setConfig(cr, effects); save(); };
     const people = () => { const a = supporters.filter((s) => s.active); return a.length ? a : SAMPLE_PEOPLE; };
@@ -326,7 +329,7 @@ window.NoorStream = (() => {
 
   // ------------------------------------------------------------------ Supporters
 
-  async function renderSupporters(body) {
+  async function renderSupporters(body, gen) {
     if (!status.vault) {
       body.append(el('div', { class: 'vb-empty' }, el('h2', { text: 'Supporters live in your Vault' }),
         el('p', { text: 'NoorMD keeps the list as an ordinary note (a table) in the open Vault, so it stays yours and readable anywhere.' }),
@@ -334,6 +337,7 @@ window.NoorStream = (() => {
       return;
     }
     if (!supportersDirty) await loadSupporters();
+    if (gen !== renderGen) return;
     const table = el('div', { class: 'sd-table', id: 'sup-table', role: 'table', 'aria-label': 'Supporters' });
     const saveBtn = el('button', { class: 'action primary', id: 'sup-save', onclick: saveSupporters }, 'Save');
     const counts = el('span', { class: 'pref-hint', id: 'sup-counts' });
@@ -407,7 +411,7 @@ window.NoorStream = (() => {
 
   // ------------------------------------------------------------------ Stream log
 
-  async function renderLog(body) {
+  async function renderLog(body, gen) {
     if (!status.vault) {
       body.append(el('div', { class: 'vb-empty' }, el('h2', { text: 'Your stream history lives in your Vault' }),
         el('p', { text: 'Each stream becomes a note with its title, date, description, keywords, thumbnail and tracklist.' }),
@@ -416,6 +420,7 @@ window.NoorStream = (() => {
     }
     let history;
     try { history = await req('stream.log.list'); } catch (err) { hooks.showError(err); return; }
+    if (gen !== renderGen) return;
     if (!current) current = blank(history.nextNumber);
     const list = el('aside', { class: 'sd-history', id: 'log-history' },
       el('button', { class: 'action primary', id: 'log-new', onclick: () => { current = blank(history.nextNumber); setTab('log'); } }, '＋ New stream'),

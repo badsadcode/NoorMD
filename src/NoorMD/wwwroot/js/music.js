@@ -575,8 +575,9 @@ window.NoorMusic = (() => {
     if (auto && !afterError && q.repeat === 'one') { audio.currentTime = 0; audio.play().catch(() => {}); return; }
     let pos = q.pos + 1;
     if (pos >= q.order.length) {
-      if (q.repeat === 'all' || (!auto)) {
-        if (q.shuffle && q.repeat === 'all') q.order = shuffledOrder(q.ids.length, -1);
+      // Shuffle never runs dry: at the end it reshuffles and keeps playing random songs (repeat one/off aside).
+      if (q.repeat === 'all' || !auto || (q.shuffle && q.ids.length > 1)) {
+        if (q.shuffle) { const last = q.order[q.pos]; q.order = shuffledOrder(q.ids.length, -1); if (q.order[0] === last && q.order.length > 1) q.order.push(q.order.shift()); }
         pos = 0;
       } else { audio.pause(); audio.currentTime = 0; renderAll(); scheduleSave(); return; }
     }
@@ -1645,6 +1646,7 @@ window.NoorMusic = (() => {
     shuffleOn: () => !!q.shuffle,
     repeatMode: () => q.repeat,
     // test hooks (used by the automated UI tests and NoorMD.exe --self-test)
+    _testEnded: () => next(true),
     _testPlay: async (ids, index, muted) => { await start(); audio.muted = !!muted; await setQueue(ids, index, true); },
     _state: () => ({ q: { ...q, current: currentId() }, paused: audio.paused, time: audio.currentTime, duration: audio.duration, src: audio.getAttribute('src'), view: { ...view }, selected, sel: [...sel].sort((a, b) => a - b), rows: viewRows.size }),
   };

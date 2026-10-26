@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0-preview.5 — fixes from trying preview.4
+
+- **Cover art in the Music Bench is small again.** The OBS overlay's styles leaked into the app
+  and blew up the artwork. The overlay now uses its own class names.
+- **Shuffle keeps going.** With ⇄ on, when a song ends a random one follows. At the end of the
+  queue it reshuffles instead of stopping. The ⇄ button is clearly highlighted when on.
+- **Video Bench is a side panel** like the Music Bench: the picture on top, controls, then
+  *Episodes · Library · Notes*. Drag its left edge to resize, or use ⤢ for a wide panel. The picture
+  was missing before: the episode list squeezed it to zero height. Opening it tucks the Music Bench
+  away (the music keeps playing until a video starts).
+- **Pop-out player and NoorSketch windows show their content right away.** They used to stay blank
+  until the window was resized.
+- Stream Desk: overlapping refreshes no longer draw a tab twice.
+
 ## 2.0.0-preview.4 — Music Bench polish, Batch Organizer, Video Bench, Stream Desk
 
 Finishes the Creator's Bench milestones (B: Batch Organizer, C: music polish, D: Video Bench) and adds

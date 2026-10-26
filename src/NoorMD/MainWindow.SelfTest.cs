@@ -329,6 +329,9 @@ public partial class MainWindow
         string ready = "false";
         for (int i = 0; i < 50 && ready != "true"; i++) { await Task.Delay(200); try { ready = await w.EvalAsync("!!(window.NoorSketch && window.NoorSketch._state().W === 1920)"); } catch { } }
         Check("NoorSketch opens in its own window with a 1920×1080 canvas", ready == "true");
+        await Task.Delay(400);
+        var size = await w.EvalAsync("JSON.stringify([window.innerWidth, window.innerHeight, !!document.querySelector('.sk-bar') && document.querySelector('.sk-bar').getBoundingClientRect().height > 10])");
+        Check("the NoorSketch page fills its window right away (no resize needed)", size.Contains("true") && !size.StartsWith("\"[0,"), size);
         if (ready != "true") { w.CloseWithoutPrompt(); return; }
         await w.EvalAsync("window.NoorSketch._newCanvas(256, 128, 'transparent'); window.__png = null; window.NoorSketch._encode().then(p => window.__png = p)");
         string png = "null";
@@ -486,12 +489,26 @@ public partial class MainWindow
         {
             await Eval($"NoorVideo.select({v.Id}, {{ autoplay: true }})");
             await Task.Delay(2200);
-            var ok = await Eval("(() => { const v = document.querySelector('#vb-video'); return !v.paused && v.currentTime > 0.3 && v.videoWidth > 0; })()") == "true";
-            Check($"WebView2 plays {Path.GetExtension(v.Path)} video served by NoorMD", ok, await Eval("(() => { const v = document.querySelector('#vb-video'); return JSON.stringify([v.currentTime, v.videoWidth, v.error && v.error.code]); })()"));
+            var ok = await Eval("(() => { const v = document.querySelector('#vb-video'); const r = v.getBoundingClientRect(); return !v.paused && v.currentTime > 0.3 && v.videoWidth > 0 && r.height > 120 && r.width > 200; })()") == "true";
+            Check($"WebView2 plays {Path.GetExtension(v.Path)} video served by NoorMD", ok, await Eval("(() => { const v = document.querySelector('#vb-video'); const r = v.getBoundingClientRect(); return JSON.stringify([v.currentTime, v.videoWidth, v.error && v.error.code, Math.round(r.width), Math.round(r.height)]); })()"));
             var subs = NoorMD.Media.SubtitleConverter.Find(v.Path);
             if (subs.Count > 0)
                 Check($"subtitles of {v.FileName} load as WebVTT cues", await Eval("(() => { const t = document.querySelector('#vb-video').textTracks[0]; return !!t && t.mode === 'showing' && !!t.cues && t.cues.length > 0; })()") == "true");
         }
+        // Pop-out player: a separate window that shows the picture right away (no resize needed).
+        var first = Videos.Series().SelectMany(se => Videos.Episodes(se.Key)).First();
+        _videoWindow = new VideoWindow(this);
+        _videoWindow.Show();
+        _videoWindow.Play(first.Id, 0.5, false);
+        var vw = _videoWindow;
+        string pv = "";
+        for (var i = 0; i < 30; i++) { await Task.Delay(200); try { pv = await vw.EvalAsync("JSON.stringify([window.innerWidth, window.innerHeight, document.querySelector('#pv').videoWidth, document.querySelector('#pv').currentTime])"); } catch { } if (pv.Contains(",160,")) break; }
+        await Task.Delay(800);
+        try { pv = await vw.EvalAsync("JSON.stringify([window.innerWidth, window.innerHeight, document.querySelector('#pv').videoWidth, document.querySelector('#pv').currentTime])"); } catch { }
+        var parts = JsonSerializer.Deserialize<string>(pv)?.Trim('[', ']').Split(',') ?? [];
+        Check("the pop-out video window shows the video at its size and plays", parts.Length == 4 && double.Parse(parts[0], System.Globalization.CultureInfo.InvariantCulture) > 300 && parts[2] == "160" && double.Parse(parts[3], System.Globalization.CultureInfo.InvariantCulture) > 0.5, pv);
+        vw.Close();
+        await Task.Delay(300);
         await Capture("screenshot-video.png");
         await Eval("NoorVideo.close()");
         var saved = Videos.ContinueWatching().Count + Videos.Series().Sum(s => s.Watched);

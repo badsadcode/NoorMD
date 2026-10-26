@@ -1501,6 +1501,22 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       }
       check('🎲 always moves to a different track and reaches the whole library', seen.size === 4, [...seen]);
       check('🎲 keeps shuffle as it was', (await ms()).q.shuffle);
+      // Shuffle never runs dry: at the end of the queue, a random song follows (repeat off).
+      await page.evaluate(() => { while (window.NoorMusic._state().q.repeat !== 'off') window.NoorMusic.cycleRepeat(); });
+      const endless = await page.evaluate(async () => {
+        const s = window.NoorMusic._state();
+        for (let i = s.q.pos; i < s.q.order.length - 1; i++) window.NoorMusic.next();
+        const last = window.NoorMusic._state().q.current;
+        const a = document.querySelector('audio') || null;
+        return { last, pos: window.NoorMusic._state().q.pos, len: window.NoorMusic._state().q.order.length, a: !!a };
+      });
+      await page.evaluate(() => window.NoorMusic._testEnded && window.NoorMusic._testEnded());
+      await waitFn(page, (l) => window.NoorMusic._state().q.current !== l && !window.NoorMusic._state().paused, endless.last, { timeout: 6000 });
+      check('with shuffle on, the end of the queue continues with a random song', true);
+      await page.evaluate(() => window.NoorMusic.togglePanel(true));
+      await page.waitForSelector('#np-art');
+      const art = await page.evaluate(() => { const r = document.querySelector('#np-art').getBoundingClientRect(); return [r.width, r.height]; });
+      check('the Now Playing artwork keeps its small size (overlay styles do not leak in)', art[0] <= 80 && art[1] <= 80, art);
       await page.evaluate(() => window.NoorMusic.toggle());
       const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
       check('no page errors with shuffle and random', unexpected.length === 0, unexpected);
@@ -1788,6 +1804,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.NoorVideo._state().current != null);
       check('Ctrl+Alt+V opens the Video Bench and picks up where you left off', (await vs()).current.id === 2 && (await page.textContent('#vb-side')).includes('Continue watching'));
       check('episodes are listed in order for the series', JSON.stringify((await vs()).episodes) === '[1,2,3]');
+      const box = await page.evaluate(() => { const r = document.querySelector('#vb-video').getBoundingClientRect(); const p = document.querySelector('#videobench').getBoundingClientRect(); return { w: r.width, h: r.height, panel: p.width, vw: window.innerWidth }; });
+      check('the video picture is visible in a side panel (not squeezed by the episode list)', box.h > 150 && box.w > 300 && box.panel < box.vw * 0.6, box);
+      check('the Music Bench closes when the Video Bench opens (music keeps playing)', !(await page.evaluate(() => window.NoorMusic.isOpen())));
+      await page.click('#vb-wide');
+      check('Wide makes the video panel larger', (await page.evaluate(() => document.querySelector('#videobench').getBoundingClientRect().width)) > box.panel + 100);
+      await page.click('#vb-wide');
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3.5) < 0.3, null, { timeout: 6000 });
       check('the video resumes at the saved position', true);
       check('…and offers to start over', (await page.textContent('#vb-info')).includes('Start over'));
@@ -1848,6 +1870,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#vb-popout');
       await waitFn(page, () => window.__mock.state.video.popouts.length === 1);
       check('Pop out hands the video and position to the player window', (await V()).popouts[0].id === 2 && Math.abs((await V()).popouts[0].time - 2) < 0.6);
+      await waitFn(page, () => !document.querySelector('#vb-message').hidden, null, { timeout: 3000 }).catch(() => {});
       check('…and the bench stops playing it', (await page.isVisible('#vb-message')) && (await page.evaluate(() => !document.querySelector('#vb-video').getAttribute('src'))));
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'video.popin', payload: { id: 2, time: 3 } }));
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3) < 0.4, null, { timeout: 6000 });
@@ -1906,7 +1929,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the playing song is reported for overlays and the tracklist', (await S()).updates.find((t) => t && t.playing).title.length > 0);
       await page.keyboard.press('Control+Alt+b');
       await page.waitForSelector('#streamdesk:not([hidden])');
-      check('Ctrl+Alt+B opens the Stream Desk on Now Playing', await page.isVisible('#np-frame .np'));
+      check('Ctrl+Alt+B opens the Stream Desk on Now Playing', await page.isVisible('#np-frame .ovnp'));
       check('the preview shows the song that is playing', (await page.textContent('#np-frame')).length > 0 && !(await page.textContent('#np-frame')).includes('Night Drive'));
       await page.check('#sd-server-on');
       await waitFn(page, () => window.__mock.state.stream.running === true);
@@ -1919,10 +1942,10 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.fill('#streamdesk [data-key="label"]', 'On air');
       await page.selectOption('#streamdesk [data-key="position"]', 'top-right');
       await waitFn(page, () => window.__mock.state.stream.np && window.__mock.state.stream.np.design === 'neon' && window.__mock.state.stream.np.label === 'On air', null, { timeout: 3000 });
-      check('the Now Playing design updates the preview and is sent to the overlays', (await page.getAttribute('#np-frame .np', 'class')).includes('design-neon') && (await page.getAttribute('#np-frame .np', 'class')).includes('pos-top-right') && (await page.textContent('#np-frame .np-label')) === 'On air');
+      check('the Now Playing design updates the preview and is sent to the overlays', (await page.getAttribute('#np-frame .ovnp', 'class')).includes('ovnp-design-neon') && (await page.getAttribute('#np-frame .ovnp', 'class')).includes('ovnp-pos-top-right') && (await page.textContent('#np-frame .ovnp-label')) === 'On air');
       for (const d of ['glass', 'lowerthird', 'vinyl', 'minimal', 'ticker']) {
         await page.click(`[data-design="${d}"]`);
-        if (!(await page.getAttribute('#np-frame .np', 'class')).includes('design-' + d)) check(`design ${d} renders`, false);
+        if (!(await page.getAttribute('#np-frame .ovnp', 'class')).includes('ovnp-design-' + d)) check(`design ${d} renders`, false);
       }
       check('all six designs render', true);
 
@@ -1976,8 +1999,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#tpl-add');
       await page.click('#tpl-save');
       await waitFn(page, () => window.__mock.state.stream.templates.length === 1);
-      await page.selectOption('#log-template', '0');
-      await waitFn(page, () => /Suno music stream #1/.test(document.querySelector('#log-title').value));
+      // The form redraws after saving templates; choose from the redrawn one (retry once if it was replaced meanwhile).
+      for (let attempt = 0; attempt < 3; attempt++) {
+        await waitFn(page, () => !!document.querySelector('#log-template option[value="0"]') && !document.querySelector('.modal'));
+        await page.waitForTimeout(150);
+        await page.selectOption('#log-template', '0');
+        if (await waitFn(page, () => /Suno music stream #1/.test(document.querySelector('#log-title')?.value || ''), null, { timeout: 2000 }).then(() => true).catch(() => false)) break;
+      }
       check('a template fills the title, description and keywords', (await page.inputValue('#log-desc')).includes('{tracklist}') && (await page.inputValue('#log-keywords')).includes('suno'));
       await page.click('#log-record');
       await waitFn(page, () => !!window.__mock.state.stream.session);
@@ -2018,8 +2046,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         body: 'event: np.config\ndata: {"design":"glass","label":"Now playing","accent":"#ff00aa"}\n\nevent: np.track\ndata: {"id":3,"title":"Żółw nocą","artist":"Noor","hasArt":false,"playing":true,"position":10,"duration":100}\n\n' +
           'event: credits.config\ndata: {"config":{"title":"Thanks","effect":"starfield","autoStart":true,"startDelay":0,"speed":200},"effects":[]}\n\nevent: credits.data\ndata: {"supporters":[{"name":"Ania","tier":"Gold"}]}\n\n' }));
       await page.goto(url + '_noormd/overlay/now-playing.html');
-      await waitFn(page, () => document.querySelector('.np-title')?.textContent === 'Żółw nocą', null, { timeout: 5000 });
-      check('OBS Now Playing page renders the song from the event stream', (await page.textContent('.np-artist')) === 'Noor' && (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgba(0, 0, 0, 0)');
+      await waitFn(page, () => document.querySelector('.ovnp-title')?.textContent === 'Żółw nocą', null, { timeout: 5000 });
+      check('OBS Now Playing page renders the song from the event stream', (await page.textContent('.ovnp-artist')) === 'Noor' && (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgba(0, 0, 0, 0)');
       await page.goto(url + '_noormd/overlay/credits.html');
       await waitFn(page, () => document.querySelector('.cr-name')?.textContent === 'Ania', null, { timeout: 5000 });
       const t0 = await page.evaluate(() => document.querySelector('.cr-roll').style.transform);

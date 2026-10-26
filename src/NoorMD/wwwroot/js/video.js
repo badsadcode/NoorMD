@@ -48,6 +48,7 @@ window.NoorVideo = (() => {
 
   async function open() {
     if (!built) build();
+    if (window.NoorMusic && NoorMusic.isOpen()) NoorMusic.togglePanel(false); // both live on the right; the music keeps playing
     document.body.classList.add('video-open');
     $('#videobench').hidden = false;
     await refresh();
@@ -77,27 +78,59 @@ window.NoorVideo = (() => {
 
   // ------------------------------------------------------------------ layout
 
+  let pane = 'episodes';
+  const WIDTH_KEY = 'noormd.video.width';
+
+  /** A side panel like the Music Bench: the player on top, then Episodes / Library / Notes. "Wide" makes it bigger. */
   function build() {
     built = true;
+    const tab = (id, label) => el('button', { role: 'tab', 'data-vbpane': id, onclick: () => setPane(id) }, label);
     const root = el('section', { id: 'videobench', class: 'videobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Video Bench' },
+      el('div', { class: 'vb-resizer', id: 'vb-resizer', title: 'Drag to resize', 'aria-hidden': 'true' }),
       el('header', { class: 'vb-head' },
-        el('strong', { class: 'vb-title' }, '🎬 Video Bench'),
-        el('input', { type: 'search', id: 'vb-search', placeholder: 'Search videos…', 'aria-label': 'Search videos', autocomplete: 'off', spellcheck: 'false' }),
-        el('button', { class: 'utility-btn', onclick: showFolders }, '📁 Folders'),
+        el('strong', { class: 'vb-title' }, '🎬 Video'),
+        el('span', { class: 'sd-spacer' }),
+        el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!document.body.classList.contains('video-wide')) }, '⤢'),
+        el('button', { class: 'icon-btn', title: 'Video folders', 'aria-label': 'Video folders', onclick: showFolders }, '📁'),
         el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕')),
-      el('div', { class: 'vb-body' },
-        el('aside', { class: 'vb-side', id: 'vb-side', 'aria-label': 'Series' }),
-        el('main', { class: 'vb-main' },
-          el('div', { class: 'vb-stage', id: 'vb-stage' }, video, el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
-          el('div', { class: 'vb-info', id: 'vb-info' }),
-          el('div', { class: 'vb-controls', id: 'vb-controls' }),
-          el('div', { class: 'vb-episodes', id: 'vb-episodes', role: 'list', 'aria-label': 'Episodes' }),
-          el('div', { class: 'vb-empty', id: 'vb-empty', hidden: true })),
-        el('aside', { class: 'vb-notes', id: 'vb-notes', 'aria-label': 'Notes' })));
+      el('div', { class: 'vb-stage', id: 'vb-stage' }, video, el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
+      el('div', { class: 'vb-info', id: 'vb-info' }),
+      el('div', { class: 'vb-controls', id: 'vb-controls' }),
+      el('div', { class: 'vb-empty', id: 'vb-empty', hidden: true }),
+      el('div', { class: 'music-tabs vb-tabs', role: 'tablist' }, tab('episodes', 'Episodes'), tab('library', 'Library'), tab('notes', 'Notes')),
+      el('div', { class: 'vb-pane', 'data-pane': 'episodes' },
+        el('input', { type: 'search', id: 'vb-search', placeholder: 'Search videos…', 'aria-label': 'Search videos', autocomplete: 'off', spellcheck: 'false' }),
+        el('div', { class: 'vb-episodes', id: 'vb-episodes', role: 'list', 'aria-label': 'Episodes' })),
+      el('div', { class: 'vb-pane', 'data-pane': 'library' }, el('div', { class: 'vb-side', id: 'vb-side', 'aria-label': 'Series' })),
+      el('div', { class: 'vb-pane', 'data-pane': 'notes' }, el('div', { class: 'vb-notes', id: 'vb-notes', 'aria-label': 'Notes' })));
     document.body.append(root);
     root.addEventListener('keydown', onKey);
     let t;
     $('#vb-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { search = e.target.value.trim(); renderSearch(); }, 180); });
+    try { const w = Number(localStorage.getItem(WIDTH_KEY)); if (w >= 360) document.documentElement.style.setProperty('--video-w', w + 'px'); } catch { /* per-viewer convenience */ }
+    const rz = $('#vb-resizer');
+    rz.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      rz.setPointerCapture(e.pointerId);
+      const move = (ev) => document.documentElement.style.setProperty('--video-w', Math.min(window.innerWidth - 200, Math.max(360, window.innerWidth - ev.clientX)) + 'px');
+      const up = () => {
+        rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up);
+        try { localStorage.setItem(WIDTH_KEY, String(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--video-w'), 10))); } catch { /* ignore */ }
+      };
+      rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up);
+    });
+    setPane('episodes');
+  }
+
+  function setPane(id) {
+    pane = id;
+    document.querySelectorAll('[data-vbpane]').forEach((b) => { b.classList.toggle('active', b.dataset.vbpane === id); b.setAttribute('aria-selected', String(b.dataset.vbpane === id)); });
+    document.querySelectorAll('#videobench .vb-pane').forEach((p) => { p.hidden = p.dataset.pane !== id; });
+  }
+
+  function setWide(on) {
+    document.body.classList.toggle('video-wide', on);
+    $('#vb-wide').setAttribute('aria-pressed', String(on));
   }
 
   function renderEmpty() {
@@ -302,6 +335,8 @@ window.NoorVideo = (() => {
   function renderNotes() {
     const box = $('#vb-notes');
     if (!box) return;
+    const tabBtn = document.querySelector('[data-vbpane="notes"]');
+    if (tabBtn) tabBtn.textContent = current && current.notes.length ? `Notes (${current.notes.length})` : 'Notes';
     if (!current) { box.replaceChildren(el('h4', { text: 'Notes' }), el('p', { class: 'music-none', text: 'Notes are tied to a moment in the video. Play something, then press N.' })); return; }
     const input = el('textarea', { id: 'vb-note-input', rows: '2', placeholder: 'Note at this moment… (Enter adds, Shift+Enter new line)', 'aria-label': 'New note' });
     let at = null;
@@ -414,7 +449,7 @@ window.NoorVideo = (() => {
     else if (k === 'l' || k === 'L') { e.preventDefault(); seek(10); }
     else if ((k === 'ArrowLeft' || k === 'ArrowRight') && e.target !== video) { e.preventDefault(); seek(k === 'ArrowLeft' ? -5 : 5); }
     else if (k === 'f' || k === 'F') { e.preventDefault(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else video.requestFullscreen().catch(() => {}); }
-    else if (k === 'n' || k === 'N') { e.preventDefault(); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); } }
+    else if (k === 'n' || k === 'N') { e.preventDefault(); setPane('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); } }
     else if (k === '[' || k === ']') {
       e.preventDefault();
       const i = SPEEDS.indexOf(video.playbackRate);

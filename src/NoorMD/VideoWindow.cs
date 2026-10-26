@@ -20,7 +20,7 @@ namespace NoorMD;
 public sealed class VideoWindow : Window
 {
     private readonly MainWindow _main;
-    private readonly WebView2 _web = new() { Visibility = Visibility.Hidden };
+    private readonly WebView2 _web = new(); // visible from the start: a WebView2 created hidden keeps a zero-size view until the window is resized
     private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
     private bool _ready;
     private (long Id, double Time, bool Paused)? _pending;
@@ -99,7 +99,7 @@ public sealed class VideoWindow : Window
             }
         };
         core.NavigationStarting += (_, e) => { if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || !AssetResolver.IsVideoPage(u)) e.Cancel = true; };
-        core.NavigationCompleted += (_, _) => { _web.Visibility = Visibility.Visible; _web.Focus(); };
+        core.NavigationCompleted += (_, _) => { _web.Focus(); NudgeLayout(); };
         core.NewWindowRequested += (_, e) => e.Handled = true;
         core.DownloadStarting += (_, e) => e.Cancel = true;
         core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
@@ -167,4 +167,18 @@ public sealed class VideoWindow : Window
     }
 
     internal async Task<string> EvalAsync(string script) => await _web.CoreWebView2.ExecuteScriptAsync(script);
+
+    /// <summary>
+    /// Makes WebView2 pick up the window's real size once the page is there (otherwise it can stay blank until the
+    /// user resizes the window): a one-pixel resize and back, plus a layout pass.
+    /// </summary>
+    private void NudgeLayout()
+    {
+        _web.InvalidateMeasure();
+        _web.UpdateLayout();
+        if (WindowState != WindowState.Normal) return;
+        var w = Width;
+        Width = w + 1;
+        Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Background, () => Width = w);
+    }
 }
