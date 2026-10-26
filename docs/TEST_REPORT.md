@@ -74,3 +74,15 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 | About and identity | ✅ | Version, build date, repository link, licenses |
 | Editor affordances | ✅ | Divider grip, active state on the Compact button |
 | AltGr (Polish ś) not swallowed by Ctrl+Alt+S | ✅ | UI test |
+
+## 1.2.0 additions (Markdown source editor)
+
+| Requested test (proposal) | Status | Evidence |
+|---|---|---|
+| 1. ~7,500-word document with headings, tables, quotes, nested lists, code and links | ✅ | UI test generates ~7,700 words |
+| 2. Raw markers at a uniform size in Markdown and Split | ✅ | Every element in the source pane is measured: one font size, one font family, one line height. The root cause and before/after measurements are in the CHANGELOG. |
+| 3. Edit, switch modes repeatedly, compare | ✅ | Six mode switches without edits keep the source byte-for-byte and clean. Source edited and then sent through Visual stays exact. The Windows self-test checks that the original file text appears exactly in Markdown mode. |
+| 4. Rapid typing in Split and pane resizing | ✅ | 72 characters typed into the 7,700-word document. The divider is dragged mid-typing, text stays in order and the preview updates. |
+| 5. Themes, Compact/Focus, width presets, narrow windows | ✅ / ⚠ | Contrast is computed for every token in both themes: text ≥ 7:1, tokens ≥ 4.5:1, delimiters and line numbers ≥ 3:1. Every width preset was tested in Focus+Compact. In an 820 px window, Split stacks without overlap. HiDPI was not checked by eye. |
+| 6. Save/reopen, recovery, UTF-8 and CRLF | ✅ | Unchanged paths. Existing unit tests and the self-test (CRLF and diacritics on save, recovery draft) still pass. |
+| 7. Regression coverage for defects found | ✅ | New checks for uniform source styling, exact source after Visual, contrast, and stacked-split overlap (a defect found and fixed during this work) |

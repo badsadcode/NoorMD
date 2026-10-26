@@ -332,7 +332,7 @@ public class ExportAndProtocolTests
     public void Prefs_Patch_IsValidatedAndClamped()
     {
         var p = new EditorPrefs();
-        using var patch = JsonDocument.Parse("""{"theme":"light","fontSize":99,"splitRatio":0.95,"lineWidth":"evil","unknown":1,"restoreSession":false,"spellcheck":false,"compact":true,"compactz":"x"}""");
+        using var patch = JsonDocument.Parse("""{"theme":"light","fontSize":99,"splitRatio":0.95,"lineWidth":"evil","unknown":1,"restoreSession":false,"spellcheck":false,"compact":true,"compactz":"x","sourceFontSize":3,"lineNumbers":false,"wordWrap":false,"syncScroll":true}""");
         p.Apply(patch.RootElement);
         Assert.Equal("light", p.Theme);
         Assert.Equal(26, p.FontSize);
@@ -341,6 +341,10 @@ public class ExportAndProtocolTests
         Assert.False(p.RestoreSession);
         Assert.False(p.Spellcheck);
         Assert.True(p.Compact);
+        Assert.Equal(11, p.SourceFontSize);
+        Assert.False(p.LineNumbers);
+        Assert.False(p.WordWrap);
+        Assert.True(p.SyncScroll);
     }
 
     [Fact]

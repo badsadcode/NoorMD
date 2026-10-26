@@ -57,6 +57,7 @@ function mockHostScript(initial) {
         case 'export.html': state.exportedHtml = p.bodyHtml; return reply(m.id, true, { path: 'C:\\out.html' });
         case 'export.pdf': return reply(m.id, true, { path: 'C:\\out.pdf' });
         case 'link.open': state.lastLink = p.href; return reply(m.id, true, {});
+        case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
         case 'recovery.list': return reply(m.id, true, state.recovery);
         default: return reply(m.id, true, {});
       }

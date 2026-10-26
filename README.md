@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-1.1.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-1.2.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -37,7 +37,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   Recover. Unsaved text goes to a recovery draft about 0.6 s after you stop typing. After a
   crash or power loss, NoorMD offers the draft the next time it starts.
 - **Three editing modes:** Visual (WYSIWYG), Markdown source and Split. The Split view has a
-  draggable divider (30–70 %) whose position is remembered.
+  draggable divider (30–70 %) whose position is remembered, independent scrolling (sync is
+  optional), and stacks vertically when the editor is narrow.
 - **A round-trip guard.** The Visual editor cannot represent every kind of Markdown; raw
   HTML, footnotes and hard line breaks are examples. NoorMD detects this when a file opens. It
   then opens the file in Markdown mode so nothing is rewritten, and asks before switching. A
@@ -52,6 +53,10 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   theme, and dark mode starts without a white flash.
 - **Line width presets:** Comfortable (≈ 800 px), Wide (≈ 1100 px) and Full width. Change
   them with the ↔ button or Ctrl+Shift+W, in normal and Focus mode.
+- **Markdown source editor:** plain text in one monospaced font (JetBrains Mono, bundled) and
+  one size, with subtle syntax colours, line numbers, optional word wrap and a current-line
+  highlight. Shortcuts for headings, links and code blocks, and Copy Markdown source.
+  Switching modes never rewrites source you didn't edit in Visual mode.
 - **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
   (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
 - **Preferences:** writing font (Inter is bundled), text size, line width, layout,
@@ -81,8 +86,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-1.1.0-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-1.1.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-1.2.0-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-1.2.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

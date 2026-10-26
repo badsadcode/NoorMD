@@ -8,6 +8,22 @@ const LOSSLESS = '# Zażółć gęślą jaźń\n\nPolish: żółw, łódź, ćma
 const LOSSY = '# Raw\n\n<div align="center">Centered</div>\n\nLine one  \nLine two\n\nFoot[^1]\n\n[^1]: note\n';
 const XSS = '# Safe\n\n<img src="x" onerror="window.__xss=1">\n\n<script>window.__xss=2</script>\n\n[bad](javascript:window.__xss=3)\n';
 
+
+// ~7,500-word design document with headings, tables, quotes, nested lists, code fences and links.
+function bigDocument() {
+  const words = 'the quick brown fox jumps over the lazy dog while the writer drafts żółte notatki for the game design'.split(' ');
+  const para = (n, seed) => Array.from({ length: n }, (_, i) => words[(i * 7 + seed) % words.length]).join(' ') + '.';
+  let out = '# Game Design Document\n\nIntro paragraph with **bold**, *italic*, `code` and a [link](https://example.com/docs).\n\n';
+  for (let s = 1; s <= 30; s++) {
+    out += `## Section ${s}: Systems\n\n${para(120, s)}\n\n### Mechanics ${s}\n\n${para(90, s + 3)}\n\n`;
+    out += `> Design note ${s}: ${para(20, s)}\n\n`;
+    out += `- Item ${s}.1\n  - Nested ${s}.1.a\n  - Nested ${s}.1.b\n- Item ${s}.2\n\n`;
+    out += `| Stat | Value | Notes |\n| --- | --- | --- |\n| HP | ${s * 10} | base |\n| MP | ${s * 5} | regen |\n\n`;
+    out += '```csharp\nvar unit = new Unit(' + s + ');\nunit.Attack();\n```\n\n';
+  }
+  return out;
+}
+
 const results = [];
 function check(name, cond, detail) {
   results.push({ name, ok: !!cond, detail });
@@ -348,6 +364,135 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('shortcut list is searchable', rows.length === 1 && rows[0].includes('Ctrl+Shift+W'), rows);
       await page.keyboard.press('Escape');
       check('no errors in enhancement checks', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 6. Markdown source editor (v1.2): uniform source styling, fidelity across modes, split behaviour.
+    {
+      const BIG = bigDocument();
+      const wordCount = BIG.split(/\s+/).filter(Boolean).length;
+      const { page, errors } = await open(browser, url, { document: { markdown: BIG, path: 'C:\\docs\\big.md', fileName: 'big.md', title: 'big' } }, { width: 1440, height: 900 });
+      check(`large document loads (~${wordCount} words)`, wordCount > 7000 && (await state(page)).markdown === BIG);
+      await page.keyboard.press('Control+2');
+      await page.waitForTimeout(200);
+      check('Visual → Markdown without edits shows the exact original source', (await state(page)).markdown === BIG);
+      const uniform = () => page.evaluate(() => {
+        const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror');
+        const sizes = new Set(), fams = new Set(), lhs = new Set();
+        pm.querySelectorAll('*').forEach((n) => { const cs = getComputedStyle(n); sizes.add(cs.fontSize); fams.add(cs.fontFamily.split(',')[0]); lhs.add(cs.lineHeight); });
+        return { sizes: [...sizes], fams: [...fams], lhs: [...lhs] };
+      });
+      let u = await uniform();
+      check('source: one font size, one font, one line height (Markdown mode)', u.sizes.length === 1 && u.fams.length === 1 && u.lhs.length === 1, u);
+      const literal = await page.evaluate(() => [...document.querySelectorAll('#editor .toastui-editor-md-container .ProseMirror > div')].some((d) => d.textContent === '## Section 1: Systems'));
+      check('heading markers stay literal text in source', literal);
+      if (shots) await page.screenshot({ path: `${shots}/source-markdown-dark.png` });
+
+      // Line numbers and wrap
+      const gutter = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div'), '::before').content);
+      check('line numbers shown by default', gutter && gutter !== 'none', gutter);
+      await page.evaluate(() => window.NoorMD.runCommand('source.wrap'));
+      await page.waitForTimeout(100);
+      const nowrap = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); return { sw: pm.scrollWidth, cw: pm.clientWidth, heights: new Set([...pm.children].slice(0, 400).map((d) => Math.round(d.getBoundingClientRect().height))).size }; });
+      check('word wrap off: long lines scroll horizontally, every line has the same height', nowrap.sw > nowrap.cw && nowrap.heights === 1, nowrap);
+      await page.evaluate(() => window.NoorMD.runCommand('source.wrap'));
+      await page.evaluate(() => window.NoorMD.runCommand('source.lineNumbers'));
+      await page.waitForTimeout(50);
+      check('line numbers can be turned off', await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div'), '::before').content === 'none'));
+      await page.evaluate(() => window.NoorMD.runCommand('source.lineNumbers'));
+
+      // Repeated mode switching without edits never rewrites the source.
+      for (const k of ['Control+3', 'Control+1', 'Control+2', 'Control+1', 'Control+3', 'Control+2']) { await page.keyboard.press(k); await page.waitForTimeout(80); }
+      check('repeated mode switches without edits keep the source byte-for-byte', (await state(page)).markdown === BIG && !(await state(page)).dirty);
+
+      // Edit in source, go through Visual and back without editing there: the edited source survives exactly.
+      await page.click('#editor .toastui-editor-md-container .ProseMirror');
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type('- [ ] raw source line with  two spaces\n');
+      const edited = (await state(page)).markdown;
+      await page.keyboard.press('Control+1'); await page.waitForTimeout(100);
+      check('Visual mode reports the exact edited source while unedited there', (await state(page)).markdown === edited);
+      await page.keyboard.press('Control+2'); await page.waitForTimeout(100);
+      check('edited source is exact after a Visual round trip', (await state(page)).markdown === edited);
+
+      // Split: rapid typing, preview updates, caret stays, divider resize mid-typing, independent scrolling.
+      await page.keyboard.press('Control+3'); await page.waitForTimeout(150);
+      await page.click('#editor .toastui-editor-md-container .ProseMirror');
+      await page.keyboard.press('Control+Home');
+      const t0 = Date.now();
+      await page.keyboard.type('Rapid typing ąę test one two three four five six seven eight nine ten.\n', { delay: 0 });
+      const typeMs = Date.now() - t0;
+      const sp = await page.$('#editor .toastui-editor-md-splitter');
+      const bx = await sp.boundingBox();
+      await page.mouse.move(bx.x + bx.width / 2, bx.y + 200); await page.mouse.down();
+      await page.mouse.move(bx.x - 150, bx.y + 220, { steps: 5 }); await page.mouse.up();
+      await page.click('#editor .toastui-editor-md-container .ProseMirror > div:first-child');
+      await page.keyboard.press('End');
+      await page.keyboard.type('AFTER-RESIZE');
+      await page.waitForTimeout(400);
+      const firstLine = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div').textContent);
+      check('typing stays in order across a divider resize', firstLine.startsWith('Rapid typing ąę') && firstLine.endsWith('AFTER-RESIZE'), firstLine);
+      check(`rapid typing in Split with a ~${wordCount}-word document is responsive (${typeMs} ms for 72 chars)`, typeMs < 6000, typeMs);
+      check('preview updates while typing', await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').textContent.includes('AFTER-RESIZE')));
+      u = await uniform();
+      check('source stays uniform in Split mode', u.sizes.length === 1 && u.lhs.length === 1, u);
+      const before = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').scrollTop);
+      await page.evaluate(() => { document.querySelector('#editor .toastui-editor-md-container .ProseMirror').scrollTop = 5000; });
+      await page.waitForTimeout(300);
+      const after = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').scrollTop);
+      check('panes scroll independently by default', after === before, { before, after });
+      if (shots) await page.screenshot({ path: `${shots}/source-split-dark.png` });
+
+      // Commands: heading shortcut, copy source.
+      await page.click('#editor .toastui-editor-md-container .ProseMirror > div:first-child');
+      await page.keyboard.press('Control+Shift+Digit2');
+      await page.waitForTimeout(80);
+      check('Ctrl+Shift+2 makes the line a level-2 heading', (await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div').textContent)).startsWith('## Rapid typing'));
+      await page.evaluate(() => window.NoorMD.runCommand('source.copy'));
+      await page.waitForTimeout(100);
+      check('Copy Markdown source copies the exact source', (await page.evaluate(() => window.__mock.state.clipboard)) === (await state(page)).markdown);
+
+      // Contrast of source tokens in both themes.
+      for (const theme of ['dark', 'light']) {
+        if (theme === 'light') { await page.click('[data-cmd="theme.toggle"]'); await page.keyboard.press('Control+2'); await page.waitForTimeout(150); }
+        const c = await page.evaluate(() => {
+          const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+          const bg = getComputedStyle(document.querySelector('#editor .toastui-editor-md-container > .toastui-editor')).backgroundColor;
+          const pick = (sel) => { const n = document.querySelector('#editor .toastui-editor-md-container .ProseMirror ' + sel); return n ? +ratio(getComputedStyle(n).color, bg).toFixed(2) : null; };
+          const line = document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div');
+          return { text: +ratio(getComputedStyle(line).color, bg).toFixed(2), heading: pick('.toastui-editor-md-heading'), link: pick('.toastui-editor-md-link'), code: pick('.toastui-editor-md-code'), quote: pick('.toastui-editor-md-block-quote'), delim: pick('.toastui-editor-md-delimiter'),
+            gutter: +ratio(getComputedStyle(line, '::before').color, bg).toFixed(2) };
+        });
+        const ok = c.text >= 7 && c.heading >= 4.5 && c.link >= 4.5 && c.code >= 4.5 && c.quote >= 4.5 && c.delim >= 3 && c.gutter >= 3;
+        check(`source token contrast is readable (${theme})`, ok, c);
+        if (shots) await page.screenshot({ path: `${shots}/source-markdown-${theme}.png` });
+      }
+
+      // Compact + Focus + width presets + narrow window with the source editor.
+      await page.keyboard.press('Control+Shift+L');
+      await page.keyboard.press('F11');
+      for (const w of ['width.comfortable', 'width.wide', 'width.full']) {
+        await page.evaluate((c) => window.NoorMD.runCommand(c), w);
+        await page.waitForTimeout(80);
+        const r = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
+        check(`source editor usable in Focus+Compact with ${w}`, r.text > 600 && r.ov <= 0, r);
+      }
+      await page.keyboard.press('F11');
+      await page.keyboard.press('Control+3');
+      await page.setViewportSize({ width: 820, height: 640 });
+      await page.waitForTimeout(150);
+      const narrow = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
+      check('Split source pane is usable in a narrow window', narrow.text > 200 && narrow.ov <= 0, narrow);
+      const overlap = await page.evaluate(() => {
+        const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect();
+        const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror').getBoundingClientRect();
+        const pv = document.querySelector('#editor .toastui-editor-md-preview').getBoundingClientRect();
+        return { stacked: pv.top >= a.bottom - 1, pmInside: pm.bottom <= a.bottom + 1, aBottom: a.bottom, pmBottom: pm.bottom, pvTop: pv.top };
+      });
+      check('narrow Split stacks panes without the source overlapping the preview', overlap.stacked && overlap.pmInside, overlap);
+      if (shots) await page.screenshot({ path: `${shots}/source-split-narrow-light.png` });
+      check('no errors in source editor checks', errors.length === 0, errors);
       await page.close();
     }
   } finally {

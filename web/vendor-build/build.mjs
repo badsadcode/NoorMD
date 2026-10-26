@@ -40,11 +40,25 @@ for (const subset of ['latin', 'latin-ext']) {
 }
 writeFileSync(join(out, 'inter', 'inter.css'), faces.join('\n') + '\n');
 
+// JetBrains Mono (variable) for the Markdown source editor, so it looks the same on every PC.
+mkdirSync(join(out, 'jetbrains-mono', 'files'), { recursive: true });
+const jbFiles = join(nm, '@fontsource-variable', 'jetbrains-mono', 'files');
+const jbFaces = [];
+for (const subset of ['latin', 'latin-ext']) {
+  for (const style of ['normal', 'italic']) {
+    const file = `jetbrains-mono-${subset}-wght-${style}.woff2`;
+    cpSync(join(jbFiles, file), join(out, 'jetbrains-mono', 'files', file));
+    jbFaces.push(`@font-face{font-family:'JetBrains Mono Variable';font-style:${style};font-display:swap;font-weight:100 800;src:url(files/${file}) format('woff2-variations');}`);
+  }
+}
+writeFileSync(join(out, 'jetbrains-mono', 'jetbrains-mono.css'), jbFaces.join('\n') + '\n');
+
 // License texts for everything that ends up in the bundle.
 const licenses = {
   'toast-ui-editor.LICENSE.txt': ['@toast-ui/editor/LICENSE', join(here, 'licenses', 'toast-ui-editor.LICENSE.txt')],
   'dompurify.LICENSE.txt': ['dompurify/LICENSE'],
   'inter.OFL.txt': ['@fontsource-variable/inter/LICENSE'],
+  'jetbrains-mono.OFL.txt': ['@fontsource-variable/jetbrains-mono/LICENSE'],
   'prosemirror.LICENSE.txt': ['prosemirror-model/LICENSE'],
 };
 for (const [name, candidates] of Object.entries(licenses)) {

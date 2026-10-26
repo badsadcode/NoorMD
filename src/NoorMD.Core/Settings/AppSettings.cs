@@ -19,6 +19,10 @@ public sealed class EditorPrefs
     public bool RestoreSession { get; set; } = true;
     public bool Spellcheck { get; set; } = true;
     public bool Compact { get; set; }
+    public int SourceFontSize { get; set; } = 14;
+    public bool LineNumbers { get; set; } = true;
+    public bool WordWrap { get; set; } = true;
+    public bool SyncScroll { get; set; }
 
     private static readonly string[] Themes = ["dark", "light"];
     private static readonly string[] Fonts = ["inter", "system", "serif", "mono"];
@@ -45,6 +49,10 @@ public sealed class EditorPrefs
                 case "restoreSession" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: RestoreSession = p.Value.GetBoolean(); break;
                 case "spellcheck" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Spellcheck = p.Value.GetBoolean(); break;
                 case "compact" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Compact = p.Value.GetBoolean(); break;
+                case "sourceFontSize" when p.Value.TryGetInt32(out var ss): SourceFontSize = ss; break;
+                case "lineNumbers" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: LineNumbers = p.Value.GetBoolean(); break;
+                case "wordWrap" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: WordWrap = p.Value.GetBoolean(); break;
+                case "syncScroll" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SyncScroll = p.Value.GetBoolean(); break;
             }
         }
         Normalize();
@@ -57,6 +65,7 @@ public sealed class EditorPrefs
         if (!Widths.Contains(LineWidth)) LineWidth = "comfortable";
         if (!OpenModes.Contains(OpenMode)) OpenMode = "visual";
         FontSize = Math.Clamp(FontSize, 12, 26);
+        SourceFontSize = Math.Clamp(SourceFontSize, 11, 22);
         SidebarWidth = Math.Clamp(SidebarWidth, 200, 420);
         GoalWords = Math.Clamp(GoalWords, 1, 1_000_000);
         SplitRatio = double.IsFinite(SplitRatio) ? Math.Clamp(SplitRatio, 0.3, 0.7) : 0.5;

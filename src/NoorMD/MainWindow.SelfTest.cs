@@ -80,6 +80,19 @@ public partial class MainWindow
             Check("relative image served from document folder", await Eval("[...document.querySelectorAll('#editor img')].some(i => i.complete && i.naturalWidth === 2)") == "true");
             Check("window title shows file", Title.StartsWith("selftest.md"), Title);
 
+            // Markdown source editor: exact original source after Visual, uniform font size, line numbers.
+            await Eval("window.NoorMD.runCommand('view.markdown')");
+            await Task.Delay(600);
+            var source = await GetEditorStateAsync();
+            Check("Markdown mode shows the exact original source (no Visual normalization)", source?.Markdown == File.ReadAllText(path).Replace("\r\n", "\n"));
+            Check("source lines use one font size and line height",
+                await Eval("(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const s = new Set(), l = new Set(); pm.querySelectorAll('*').forEach(n => { const c = getComputedStyle(n); s.add(c.fontSize); l.add(c.lineHeight); }); return s.size === 1 && l.size === 1; })()") == "true");
+            Check("bundled source font is used", (await Eval("document.fonts.check('14px \"JetBrains Mono Variable\"') && getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror')).fontFamily")).Contains("JetBrains"));
+            await Capture("screenshot-source.png");
+            await Eval("window.NoorMD.runCommand('view.visual')");
+            await Task.Delay(600);
+            Check("still clean after mode switches", (await GetEditorStateAsync()) is { Dirty: false });
+
             var noop = await SaveCoreAsync(saveAs: false, st);
             Check("Ctrl+S on an unedited file does not rewrite it", noop && File.ReadAllBytes(path).SequenceEqual(originalBytes));
 

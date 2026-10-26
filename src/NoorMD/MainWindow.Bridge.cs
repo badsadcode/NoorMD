@@ -97,6 +97,7 @@ public partial class MainWindow
                 return null;
 
             // --- shell
+            case "clipboard.copyText": CopyToClipboard(req.GetString("text", (int)TextFileCodec.MaxFileBytes) ?? throw new BridgeError("Nothing to copy.")); return null;
             case "link.open": await HandleLinkAsync(req.GetString("href", 4096) ?? ""); return null;
             case "app.openDataFolder": OpenFolder(App.Paths.Local); return null;
             case "app.openLicenses": OpenFolder(Path.Combine(AppContext.BaseDirectory, "licenses")); return null;
@@ -245,6 +246,17 @@ public partial class MainWindow
             default:
                 PushNotice(decision.Reason);
                 break;
+        }
+    }
+
+    private static void CopyToClipboard(string text)
+    {
+        // The clipboard can be briefly locked by another app (clipboard managers, RDP); retry a few times.
+        for (int attempt = 0; ; attempt++)
+        {
+            try { System.Windows.Clipboard.SetText(text.Replace("\n", Environment.NewLine), System.Windows.TextDataFormat.UnicodeText); return; }
+            catch (System.Runtime.InteropServices.COMException) when (attempt < 4) { Thread.Sleep(60); }
+            catch (System.Runtime.InteropServices.COMException) { throw new BridgeError("The clipboard is in use by another program. Try again."); }
         }
     }
 

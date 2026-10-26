@@ -29,6 +29,10 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Keyboard shortcuts | F1 |
 | Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) |
 | Bold / italic | Ctrl+B / Ctrl+I |
+| Heading 1–6 | Ctrl+Shift+1 … Ctrl+Shift+6 |
+| Insert link | Ctrl+Shift+K |
+| Insert code block | Ctrl+Shift+C |
+| Indent / outdent (lists, Markdown) | Tab / Shift+Tab |
 | Close dialog, find bar or focus mode | Esc |
 
 Mouse and keyboard extras:

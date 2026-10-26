@@ -13,6 +13,7 @@
     theme: 'dark', fontFamily: 'inter', fontSize: 16, lineWidth: 'comfortable', openMode: 'visual',
     sidebarWidth: 256, sidebarCollapsed: false, splitRatio: 0.5, goalWords: 750, restoreSession: true,
     spellcheck: true, compact: false,
+    sourceFontSize: 14, lineNumbers: true, wordWrap: true, syncScroll: false,
   };
   const FONTS = {
     inter: "'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
@@ -32,12 +33,21 @@
   let suppress = 0;            // >0 while the app itself changes editor content
   let gen = 0, savedGen = 0;   // dirty == gen !== savedGen
   let lastPostedDirty = false;
+  // The exact Markdown source as it was when Visual mode took over, and the edit generation at that moment.
+  // Coming back to source without any edit in between restores this text byte-for-byte, so merely looking
+  // at a document in Visual mode never rewrites its Markdown (list markers, spacing, table pipes…).
+  let sourceBeforeVisual = null;
   const doc = { title: 'Untitled document', path: null, fileName: null, encoding: 'UTF-8', eol: 'LF', untitled: true };
   let changeTimer = null, statsTimer = null;
 
   // ---------------------------------------------------------------- editor
 
-  const md = () => (editor ? editor.getMarkdown() : fallback ? fallback.value : '');
+  const md = () => {
+    if (!editor) return fallback ? fallback.value : '';
+    // Unedited since Visual mode took over: the canonical text is still the original source.
+    if (sourceBeforeVisual && sourceBeforeVisual.gen === gen && editor.isWysiwygMode()) return sourceBeforeVisual.text;
+    return editor.getMarkdown();
+  };
   const isDirty = () => gen !== savedGen;
 
   function createEditor(initialValue) {
@@ -65,6 +75,7 @@
       events: { change: onEditorChange },
     });
     setupSplitter();
+    setupSourceEditor();
   }
 
   /** Runs fn while ignoring editor change events (programmatic edits are not user edits). */
@@ -139,6 +150,7 @@
     });
     gen = p.dirty ? 1 : 0;
     savedGen = 0;
+    sourceBeforeVisual = target === 'wysiwyg' ? { text, gen } : null;
     lastPostedDirty = isDirty();
     updateDocUI();
     updateDirtyUI();
@@ -237,6 +249,7 @@
         ], [{ label: 'Stay in Markdown', value: 'stay', primary: true }, { label: 'Switch anyway', value: 'switch' }]);
         if (choice !== 'switch') return;
         await createSnapshot('Before switching to Visual', true);
+        sourceBeforeVisual = null;
         applyMode('wysiwyg');
         hideBanner();
         gen++;
@@ -244,8 +257,22 @@
         return;
       }
     }
+    const leavingVisual = mode === 'wysiwyg' && m !== 'wysiwyg';
+    if (m === 'wysiwyg' && mode !== 'wysiwyg') sourceBeforeVisual = { text: md(), gen };
     applyMode(m);
+    if (leavingVisual) restoreSourceIfUnedited();
     refreshOutline();
+  }
+
+  function restoreSourceIfUnedited() {
+    if (!sourceBeforeVisual || sourceBeforeVisual.gen !== gen || !editor) return;
+    const { text } = sourceBeforeVisual;
+    if (md() === text) return;
+    quietly(() => {
+      editor.setMarkdown(text, false);
+      editor.setSelection([1, 1], [1, 1]);
+    });
+    scrollEditorToTop();
   }
 
   // ---------------------------------------------------------------- split divider
@@ -352,6 +379,11 @@
       widthBtn.title = `Line width: ${WIDTH_LABELS[document.body.dataset.width]} — click to change (Ctrl+Shift+W)`;
     }
     document.body.classList.toggle('compact', !!prefs.compact);
+    root.style.setProperty('--source-size', Math.min(22, Math.max(11, Number(prefs.sourceFontSize) || 14)) + 'px');
+    document.body.classList.toggle('source-line-numbers', prefs.lineNumbers !== false);
+    document.body.classList.toggle('source-nowrap', prefs.wordWrap === false);
+    applyScrollSync();
+    requestAnimationFrame(updateActiveLine);
     document.querySelectorAll('[data-cmd="layout.compact"]').forEach((b) => { b.classList.toggle('selected', !!prefs.compact); b.setAttribute('aria-pressed', String(!!prefs.compact)); });
     applySpellcheck();
     applySidebarWidth(prefs.sidebarWidth);
@@ -394,6 +426,70 @@
     notice(prefs.spellcheck ? 'Spellcheck on' : 'Spellcheck off', 1400);
   }
 
+  // ---- Markdown source editor (TOAST UI markdown mode = ProseMirror, one <div> per source line)
+
+  let activeLine = null;
+  function setupSourceEditor() {
+    if (!editor) return;
+    const wrapper = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor');
+    const pm = wrapper && wrapper.querySelector('.ProseMirror');
+    if (!pm) return;
+    activeLine = el('div', { class: 'noor-active-line', 'aria-hidden': 'true' });
+    wrapper.prepend(activeLine); // a sibling of ProseMirror's DOM, never inside it
+    document.addEventListener('selectionchange', () => requestAnimationFrame(updateActiveLine));
+    pm.addEventListener('scroll', updateActiveLine, { passive: true });
+    window.addEventListener('resize', () => requestAnimationFrame(updateActiveLine));
+  }
+
+  function updateActiveLine() {
+    if (!activeLine || !editor || editor.isWysiwygMode()) return;
+    const sel = window.getSelection();
+    const pm = activeLine.parentElement.querySelector('.ProseMirror');
+    if (!sel || !sel.rangeCount || !pm.contains(sel.anchorNode)) { activeLine.style.top = '-9999px'; return; }
+    let node = sel.anchorNode.nodeType === 1 ? sel.anchorNode : sel.anchorNode.parentElement;
+    while (node && node.parentElement !== pm) node = node.parentElement;
+    if (!node) return;
+    const r = node.getBoundingClientRect(), w = activeLine.parentElement.getBoundingClientRect();
+    activeLine.style.top = (r.top - w.top) + 'px';
+    activeLine.style.height = r.height + 'px';
+  }
+
+  // Split view scrolls the two panes independently unless the user turns synchronised scrolling on.
+  function applyScrollSync() {
+    if (editor && editor.eventEmitter) editor.eventEmitter.emit('toggleScrollSync', !!prefs.syncScroll);
+  }
+
+  function toggleSourcePref(key, label) {
+    setPrefs({ [key]: !(prefs[key] !== false) });
+    notice(`${label} ${prefs[key] ? 'on' : 'off'}`, 1400);
+  }
+
+  function setHeading(level) {
+    if (!editor) return;
+    if (level === 0) editor.exec('heading', { level: 0 }); // TOAST: level 0 = paragraph in Visual mode
+    else editor.exec('heading', { level });
+    editor.focus();
+  }
+
+  async function insertLink() {
+    if (!editor) return;
+    const text = editor.getSelectedText ? editor.getSelectedText() : '';
+    const url = await NoorUI.prompt('Insert link', 'Link address (https://…, mailto:… or a relative .md path):', '', { okLabel: 'Insert' });
+    if (!url) { editor.focus(); return; }
+    editor.focus();
+    editor.exec('addLink', { linkUrl: url.trim(), linkText: text || url.trim() });
+  }
+
+  async function copySource() {
+    const text = md();
+    try {
+      await bridge.request('clipboard.copyText', { text });
+      notice('Markdown source copied (' + text.length.toLocaleString() + ' characters)', 2000);
+    } catch (err) {
+      try { await navigator.clipboard.writeText(text); notice('Markdown source copied', 2000); } catch { showError(err); }
+    }
+  }
+
   function toggleCompact() {
     setPrefs({ compact: !prefs.compact });
     notice(prefs.compact ? 'Compact layout' : 'Standard layout', 1400);
@@ -416,6 +512,17 @@
       const size = el('input', { type: 'range', min: '12', max: '26', step: '1', value: String(prefs.fontSize), id: 'pref-size', 'aria-label': 'Text size' });
       const sizeLabel = el('span', { text: prefs.fontSize + ' px' });
       size.addEventListener('input', () => { sizeLabel.textContent = size.value + ' px'; setPrefs({ fontSize: Number(size.value) }); });
+      const srcSize = el('input', { type: 'range', min: '11', max: '22', step: '1', value: String(prefs.sourceFontSize), id: 'pref-src-size', 'aria-label': 'Markdown source text size' });
+      const srcSizeLabel = el('span', { text: prefs.sourceFontSize + ' px' });
+      srcSize.addEventListener('input', () => { srcSizeLabel.textContent = srcSize.value + ' px'; setPrefs({ sourceFontSize: Number(srcSize.value) }); });
+      const checkbox = (key, id) => {
+        const c = el('input', { type: 'checkbox', id, checked: (key === 'syncScroll' ? !!prefs[key] : prefs[key] !== false) || undefined });
+        c.addEventListener('change', () => setPrefs({ [key]: c.checked }));
+        return c;
+      };
+      const lineNums = checkbox('lineNumbers', 'pref-line-numbers');
+      const wrap = checkbox('wordWrap', 'pref-wrap');
+      const sync = checkbox('syncScroll', 'pref-sync');
       const compact = el('input', { type: 'checkbox', id: 'pref-compact', checked: prefs.compact || undefined });
       compact.addEventListener('change', () => setPrefs({ compact: compact.checked }));
       const spell = el('input', { type: 'checkbox', id: 'pref-spellcheck', checked: prefs.spellcheck !== false || undefined });
@@ -427,6 +534,11 @@
           el('label', { for: 'pref-theme', text: 'Theme' }), select('theme', [['dark', 'Dark'], ['light', 'Light']]),
           el('label', { for: 'pref-fontFamily', text: 'Writing font' }), select('fontFamily', [['inter', 'Inter (bundled)'], ['system', 'Segoe UI'], ['serif', 'Serif'], ['mono', 'Monospace']]),
           el('label', { for: 'pref-size', text: 'Text size' }), el('div', { class: 'inline' }, size, sizeLabel),
+          el('label', { for: 'pref-src-size', text: 'Markdown source' }), el('div', {},
+            el('div', { class: 'inline' }, srcSize, srcSizeLabel),
+            el('label', { class: 'inline' }, lineNums, 'Line numbers'),
+            el('label', { class: 'inline' }, wrap, 'Wrap long lines'),
+            el('label', { class: 'inline' }, sync, 'Synchronise scrolling in Split view')),
           el('label', { for: 'pref-lineWidth', text: 'Line width' }), select('lineWidth', [['comfortable', 'Comfortable (≈ 800 px)'], ['wide', 'Wide (≈ 1100 px)'], ['full', 'Full width']]),
           el('label', { for: 'pref-compact', text: 'Layout' }), el('label', { class: 'inline' }, compact, 'Compact (smaller header, more room to write)'),
           el('label', { for: 'pref-spellcheck', text: 'Spellcheck' }), el('div', {}, el('label', { class: 'inline' }, spell, 'Underline misspelled words'),
@@ -898,6 +1010,18 @@
     ['width.full', 'Line width: Full width', 'View', '', () => setLineWidth('full')],
     ['layout.compact', 'Toggle compact layout', 'View', 'Ctrl+Shift+L', toggleCompact],
     ['spell.toggle', 'Toggle spellcheck', 'Edit', 'Ctrl+Shift+Y', toggleSpellcheck],
+    ['source.copy', 'Copy Markdown source', 'Edit', '', copySource],
+    ['insert.link', 'Insert link…', 'Edit', 'Ctrl+Shift+K', insertLink],
+    ['insert.codeblock', 'Insert code block', 'Edit', 'Ctrl+Shift+C', () => { editor?.exec('codeBlock'); editor?.focus(); }],
+    ['heading.1', 'Heading 1', 'Edit', 'Ctrl+Shift+1', () => setHeading(1)],
+    ['heading.2', 'Heading 2', 'Edit', 'Ctrl+Shift+2', () => setHeading(2)],
+    ['heading.3', 'Heading 3', 'Edit', 'Ctrl+Shift+3', () => setHeading(3)],
+    ['heading.4', 'Heading 4', 'Edit', 'Ctrl+Shift+4', () => setHeading(4)],
+    ['heading.5', 'Heading 5', 'Edit', 'Ctrl+Shift+5', () => setHeading(5)],
+    ['heading.6', 'Heading 6', 'Edit', 'Ctrl+Shift+6', () => setHeading(6)],
+    ['source.lineNumbers', 'Toggle line numbers (Markdown source)', 'View', '', () => toggleSourcePref('lineNumbers', 'Line numbers')],
+    ['source.wrap', 'Toggle word wrap (Markdown source)', 'View', '', () => toggleSourcePref('wordWrap', 'Word wrap')],
+    ['source.sync', 'Toggle synchronised scrolling (Split)', 'View', '', () => { setPrefs({ syncScroll: !prefs.syncScroll }); notice('Synchronised scrolling ' + (prefs.syncScroll ? 'on' : 'off'), 1400); }],
     ['font.bigger', 'Increase text size', 'View', 'Ctrl+=', () => changeFontSize(1)],
     ['font.smaller', 'Decrease text size', 'View', 'Ctrl+-', () => changeFontSize(-1)],
     ['font.reset', 'Reset text size', 'View', 'Ctrl+0', () => changeFontSize(0)],
@@ -987,7 +1111,7 @@
         el('p', { text: `Build: ${info.build || 'development'} · Runtime: ${info.runtime || '?'} · WebView2 ${info.webView2 || '?'}` }),
         el('p', {}, 'Source code: ', el('a', { href: REPO_URL, text: 'github.com/badsadcode/NoorMD' })),
         el('p', { text: 'Third-party components (licenses ship in the “licenses” folder next to NoorMD.exe):' }),
-        el('ul', {}, ['TOAST UI Editor 3.2.2 — MIT', 'ProseMirror — MIT', 'DOMPurify 3.2.6 — Apache-2.0 / MPL-2.0', 'Inter typeface — SIL Open Font License 1.1', 'Microsoft WebView2 SDK — BSD-style (Microsoft)'].map((t) => el('li', { text: t })))),
+        el('ul', {}, ['TOAST UI Editor 3.2.2 — MIT', 'ProseMirror — MIT', 'DOMPurify 3.2.6 — Apache-2.0 / MPL-2.0', 'Inter typeface — SIL Open Font License 1.1', 'JetBrains Mono typeface — SIL Open Font License 1.1', 'Microsoft WebView2 SDK — BSD-style (Microsoft)'].map((t) => el('li', { text: t })))),
       el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
         el('button', { class: 'action', onclick: () => bridge.request('app.openLicenses').catch(showError) }, 'Open licenses folder'),
         el('button', { class: 'action primary', onclick: () => close() }, 'Close'))));
@@ -1061,11 +1185,14 @@
       else if (key === 'w' && e.shiftKey) cmd = 'width.cycle';
       else if (key === 'l' && e.shiftKey) cmd = 'layout.compact';
       else if (key === 'y' && e.shiftKey) cmd = 'spell.toggle';
-      else if (key === 'k' || (key === 'p' && e.shiftKey)) cmd = 'palette.show';
+      else if (key === 'k' && e.shiftKey) cmd = 'insert.link';
+      else if (key === 'c' && e.shiftKey) cmd = 'insert.codeblock';
+      else if (e.shiftKey && /^Digit[1-6]$/.test(e.code)) cmd = 'heading.' + e.code.slice(5);
+      else if ((key === 'k' && !e.shiftKey) || (key === 'p' && e.shiftKey)) cmd = 'palette.show';
       else if (key === 'p') cmd = 'print';
-      else if (key === '1' || e.code === 'Digit1') cmd = 'view.visual';
-      else if (key === '2' || e.code === 'Digit2') cmd = 'view.markdown';
-      else if (key === '3' || e.code === 'Digit3') cmd = 'view.split';
+      else if (!e.shiftKey && (key === '1' || e.code === 'Digit1')) cmd = 'view.visual';
+      else if (!e.shiftKey && (key === '2' || e.code === 'Digit2')) cmd = 'view.markdown';
+      else if (!e.shiftKey && (key === '3' || e.code === 'Digit3')) cmd = 'view.split';
       else if (key === '\\' || e.code === 'Backslash') cmd = 'view.sidebar';
       else if (key === ',') cmd = 'prefs.show';
       else if (key === '=' || key === '+') cmd = 'font.bigger';

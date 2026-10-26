@@ -13,6 +13,10 @@
   --doc-font: var(--font-ui);
   --doc-size: 16px;
   --measure: 780px;
+  --source-font: 'JetBrains Mono Variable', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+  --source-size: 14px; --source-lh: 1.65; --gutter: 0px;
+  --tok-heading: #c4b2ff; --tok-delim: #6f7c92; --tok-link: #8cb4ff; --tok-code: #e5b97a; --tok-code-bg: #181e29;
+  --tok-quote: #9aa6b8; --tok-list: #b19aff; --tok-gutter: #5d677c; --tok-active-line: #ffffff09;
   font-family: var(--font-ui);
 }
 [data-theme=light] {
@@ -21,6 +25,8 @@
   --text: #202838; --muted: #5f6b80; --accent: #6a4ed0; --accent2: #6145c1; --on-accent: #fff;
   --ok: #2f9a6c; --warn: #a86f12; --danger: #c24747;
   --shadow: 0 18px 64px #27345615; --ambient: #a483ef22; --glow: #a98ae719;
+  --tok-heading: #5b3fc4; --tok-delim: #798395; --tok-link: #2f62c8; --tok-code: #9a5410; --tok-code-bg: #f4f5f9;
+  --tok-quote: #5f6b80; --tok-list: #6a4ed0; --tok-gutter: #7f8899; --tok-active-line: #6a4ed00b;
 }
 
 * { box-sizing: border-box; }
@@ -141,7 +147,7 @@ body.sidebar-collapsed #sidebar-expand { display: grid; }
 .banner-actions { display: flex; gap: 7px; margin-left: auto; }
 
 /* ---------- Editor (TOAST UI) ---------- */
-#editor { position: relative; flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; }
+#editor { position: relative; flex: 1; min-height: 0; min-width: 0; width: 100%; overflow: hidden; container-type: inline-size; container-name: noor-editor; }
 #editor .toastui-editor-defaultUI { border: 0 !important; font-family: inherit !important; width: 100%; min-width: 0; }
 #editor .toastui-editor-defaultUI-toolbar { background: var(--panel) !important; border-bottom: 1px solid var(--border) !important; padding: 6px 12px !important; height: auto !important; border-radius: 0 !important; }
 #editor .toastui-editor-toolbar-divider { background: var(--border) !important; }
@@ -175,24 +181,74 @@ body.sidebar-collapsed #sidebar-expand { display: grid; }
   padding-left: max(28px, calc((100% - var(--measure)) / 2)) !important; padding-right: max(28px, calc((100% - var(--measure)) / 2)) !important;
   overflow-wrap: break-word;
 }
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents,
-#editor .toastui-editor-md-container .ProseMirror {
-  font-family: var(--font-mono) !important; font-size: calc(var(--doc-size) - 2px) !important; line-height: 1.7 !important;
-  max-width: none !important; margin: 0 !important; padding: 20px 24px 40vh !important;
-}
-#editor.mode-markdown .toastui-editor-md-container .toastui-editor .toastui-editor-contents {
-  padding-left: max(24px, calc((100% - var(--measure)) / 2)) !important; padding-right: max(24px, calc((100% - var(--measure)) / 2)) !important;
-}
 /* Full width: the text uses the pane, with modest side padding (24–40 px). */
-body[data-width=full] #editor .toastui-editor-ww-container .toastui-editor-contents,
-body[data-width=full] #editor.mode-markdown .toastui-editor-md-container .toastui-editor .toastui-editor-contents {
+body[data-width=full] #editor .toastui-editor-ww-container .toastui-editor-contents {
   padding-left: clamp(24px, 3vw, 40px) !important; padding-right: clamp(24px, 3vw, 40px) !important;
 }
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents * { font-size: inherit; line-height: inherit; }
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents h1,
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents h2 { font-size: inherit !important; line-height: inherit !important; font-weight: 700 !important; margin: 0 !important; }
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents p { margin: 0 !important; }
-#editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents span { font-size: inherit !important; }
+
+/* ---------- Markdown source editor ----------
+   Source is plain text: one monospaced font, one size and one line height for every line.
+   TOAST UI's own syntax stylesheet enlarges and bolds heading tokens (.toastui-editor-md-heading1..6)
+   and puts code blocks in a different font; everything below resets that and keeps only colour. */
+#editor .toastui-editor-md-container > .toastui-editor { position: relative; isolation: isolate; overflow: hidden; background: var(--panel) !important; }
+#editor .toastui-editor-md-container .ProseMirror {
+  position: relative; z-index: 1; height: 100% !important; box-sizing: border-box; background: transparent !important;
+  font-family: var(--source-font) !important; font-size: var(--source-size) !important; line-height: var(--source-lh) !important;
+  font-weight: 400 !important; font-variant-ligatures: none; tab-size: 4;
+  max-width: none !important; margin: 0 !important; color: var(--text) !important; caret-color: var(--accent);
+  padding: 18px 24px 18px calc(24px + var(--gutter)) !important;
+  white-space: pre-wrap !important; overflow-wrap: anywhere;
+}
+#editor .toastui-editor-md-container .ProseMirror *,
+#editor .toastui-editor-md-container .ProseMirror [class*="toastui-editor-md-heading"] {
+  font-family: inherit !important; font-size: inherit !important; line-height: inherit !important; font-weight: inherit !important;
+  margin: 0 !important; padding: 0 !important; border: 0 !important;
+}
+#editor.mode-markdown .toastui-editor-md-container .ProseMirror {
+  padding-left: calc(max(24px, (100% - var(--measure) - var(--gutter)) / 2) + var(--gutter)) !important;
+  padding-right: max(24px, calc((100% - var(--measure) - var(--gutter)) / 2)) !important;
+}
+body[data-width=full] #editor.mode-markdown .toastui-editor-md-container .ProseMirror {
+  padding-left: calc(clamp(24px, 3vw, 40px) + var(--gutter)) !important; padding-right: clamp(24px, 3vw, 40px) !important;
+}
+/* Scroll room below the last line as a spacer, not padding: padding taller than a short pane
+   (stacked Split) would make the box overflow its pane. */
+#editor .toastui-editor-md-container .ProseMirror::after { content: ''; display: block; height: 35vh; pointer-events: none; }
+#editor .toastui-editor-md-container .ProseMirror > div { position: relative; min-height: calc(var(--source-size) * var(--source-lh)); }
+
+/* Subtle token colours only — the raw characters are never hidden, replaced or resized. */
+#editor .ProseMirror .toastui-editor-md-heading { color: var(--tok-heading) !important; font-weight: 650 !important; }
+#editor .ProseMirror .toastui-editor-md-delimiter, #editor .ProseMirror .toastui-editor-md-meta,
+#editor .ProseMirror .toastui-editor-md-table, #editor .ProseMirror .toastui-editor-md-thematic-break { color: var(--tok-delim) !important; }
+#editor .ProseMirror .toastui-editor-md-strong { color: var(--text) !important; font-weight: 700 !important; }
+#editor .ProseMirror .toastui-editor-md-emph { font-style: italic; }
+#editor .ProseMirror .toastui-editor-md-strike { text-decoration: line-through; }
+#editor .ProseMirror .toastui-editor-md-link, #editor .ProseMirror .toastui-editor-md-link-desc { color: var(--tok-link) !important; text-decoration: none !important; }
+#editor .ProseMirror .toastui-editor-md-link-url, #editor .ProseMirror .toastui-editor-md-link-url * { color: var(--tok-delim) !important; text-decoration: none !important; }
+#editor .ProseMirror .toastui-editor-md-code, #editor .ProseMirror .toastui-editor-md-code-block { color: var(--tok-code) !important; background: transparent !important; }
+#editor .ProseMirror .toastui-editor-md-block-quote, #editor .ProseMirror .toastui-editor-md-block-quote * { color: var(--tok-quote) !important; }
+#editor .ProseMirror .toastui-editor-md-list-item-style { color: var(--tok-list) !important; font-weight: 400 !important; }
+#editor .ProseMirror .toastui-editor-md-list-item .toastui-editor-md-meta { color: var(--tok-delim) !important; }
+#editor .toastui-editor-md-container .toastui-editor-md-code-block-line-background { background: var(--tok-code-bg) !important; }
+#editor .toastui-editor-md-container .ProseMirror ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+/* Optional line numbers: a CSS counter per source line, in a gutter left of the text. */
+body.source-line-numbers { --gutter: 3.4em; }
+body.source-line-numbers #editor .toastui-editor-md-container .ProseMirror { counter-reset: noor-line; }
+body.source-line-numbers #editor .toastui-editor-md-container .ProseMirror > div { counter-increment: noor-line; }
+body.source-line-numbers #editor .toastui-editor-md-container .ProseMirror > div::before {
+  content: counter(noor-line); position: absolute; left: calc(-1 * var(--gutter)); width: calc(var(--gutter) - 1.1em);
+  text-align: right; color: var(--tok-gutter); font-variant-numeric: tabular-nums; pointer-events: none; user-select: none;
+}
+
+/* Word wrap off: long lines scroll horizontally instead. */
+body.source-nowrap #editor .toastui-editor-md-container .ProseMirror { white-space: pre !important; overflow-wrap: normal; overflow-x: auto !important; }
+body.source-nowrap #editor .toastui-editor-md-container .ProseMirror > div { width: max-content; min-width: 100%; }
+
+/* Current-line highlight, drawn behind the text (outside ProseMirror's DOM so content is never touched). */
+.noor-active-line { position: absolute; left: 0; right: 0; z-index: 0; pointer-events: none; background: var(--tok-active-line); display: none; }
+#editor .toastui-editor-md-container > .toastui-editor:focus-within .noor-active-line { display: block; }
+
 #editor .toastui-editor-md-preview .toastui-editor-contents { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 22px 26px 40vh !important; overflow-wrap: anywhere; }
 #editor .toastui-editor-md-preview .toastui-editor-contents pre { max-width: 100%; overflow-x: auto; }
 #editor .toastui-editor-md-preview .toastui-editor-contents table { display: block; overflow-x: auto; max-width: 100%; }
@@ -215,6 +271,15 @@ body[data-width=full] #editor.mode-markdown .toastui-editor-md-container .toastu
 #editor.mode-split .toastui-editor-md-splitter:hover::after, #editor.mode-split .toastui-editor-md-splitter:focus-visible::after { background: var(--accent); }
 body.resizing-split, body.resizing-sidebar { cursor: col-resize; user-select: none; }
 body.resizing-split #editor iframe, body.resizing-split #editor .toastui-editor-md-preview { pointer-events: none; }
+
+/* Split in a narrow editor (small window, wide sidebar): stack source above preview instead of
+   squeezing each to half of an already narrow area. Based on the editor's own width, not the window. */
+@container noor-editor (max-width: 640px) {
+  #editor.mode-split .toastui-editor-md-container { flex-direction: column !important; }
+  #editor.mode-split .toastui-editor-md-container > .toastui-editor, #editor.mode-split .toastui-editor-md-preview { width: 100% !important; flex: 1 1 50% !important; height: 50% !important; }
+  #editor.mode-split .toastui-editor-md-preview { border-left: 0 !important; border-top: 1px solid var(--border); }
+  #editor.mode-split .toastui-editor-md-splitter { display: none !important; }
+}
 
 /* Spellcheck off: also hide markers Chromium drew before the setting changed. */
 body.no-spellcheck ::spelling-error, body.no-spellcheck ::grammar-error { text-decoration: none; }
