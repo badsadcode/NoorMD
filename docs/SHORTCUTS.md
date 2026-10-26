@@ -83,6 +83,8 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Action | Shortcut |
 |---|---|
 | Show / hide Stream Desk | Ctrl+Alt+B |
+| Mic Guard: mute / unmute everywhere (works in any program; you choose the key) | your hotkey (Stream Desk › Mic Guard) |
+| Mic Guard indicator: mute / unmute · move · menu | click · drag · right-click |
 | Close | Esc |
 
 Mouse and keyboard extras:

@@ -135,6 +135,8 @@ public partial class MainWindow
                 return await DispatchVaultAsync(req);
             case var stream when stream.StartsWith("stream.", StringComparison.Ordinal):
                 return await DispatchStreamAsync(req);
+            case var mic when mic.StartsWith("mic.", StringComparison.Ordinal):
+                return await DispatchMicAsync(req);
             case var video when video.StartsWith("video.", StringComparison.Ordinal):
                 return await DispatchVideoAsync(req);
             case var music when music.StartsWith("music.", StringComparison.Ordinal):
@@ -174,7 +176,7 @@ public partial class MainWindow
                 try { OpenVault(lastVault); }
                 catch (Exception ex) { Log.Error("Reopening the Vault failed", ex); }
             }
-            if (_persistSession) RestoreStream();
+            if (_persistSession) { RestoreStream(); RestoreMic(); }
             if (_persistSession && _settings.Prefs.RestoreSession)
             {
                 tabs = RestoreSession(out var missing, out var recovered);

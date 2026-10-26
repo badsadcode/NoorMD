@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-preview.9 — Mic Guard
+
+**Mic Guard** (Stream Desk › 🎙 Mic Guard) ends the "OBS muted, Discord live" mix-ups. Everything is
+off until you switch it on.
+- **One switch for every program.** NoorMD mutes the microphone in Windows itself, so OBS, Discord,
+  games and everything else hear silence at once. Pick the default microphone or a specific one.
+- **OBS, optional.** NoorMD connects to OBS's built-in WebSocket server (OBS 28 or newer) and sets
+  your mic source's mute explicitly. It also notices when you mute it in OBS yourself. The password
+  is kept in Windows Credential Manager, never in NoorMD's files.
+- **The truth, read back.** NoorMD shows what Windows and OBS actually report: **LIVE**, **MUTED**, or
+  **CHECK** when they disagree.
+- **One system-wide hotkey** that also works in games. If anything is live, it mutes everything; only
+  when everything is muted does it unmute. It never toggles each side separately, which is what made
+  them drift apart.
+- **A floating indicator** that stays on top, never takes focus from a game, and is hidden from OBS
+  and screenshots (Windows 10 2004 or newer). Click it to mute or unmute, drag it anywhere, and
+  set its opacity and size. It isn't drawn over games in exclusive full screen; use borderless
+  windowed.
+- **Discord:** NoorMD doesn't touch Discord's own mute button, since Discord doesn't allow that
+  reliably. Muting in Windows makes Discord hear silence.
+- New Ctrl+K commands: *Mute / unmute microphone* and *Mic Guard settings*.
+
 ## 2.0.0-preview.8
 
 - **Selecting several tracks or videos no longer highlights their text.** Shift+click and Ctrl+click

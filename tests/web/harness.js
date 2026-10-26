@@ -153,6 +153,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('stream.')) { try { return reply(m.id, true, streamMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('video.')) { try { return reply(m.id, true, videoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           return reply(m.id, true, {});
@@ -333,6 +334,49 @@ function mockHostScript(initial) {
       case 'stream.session.stop': { const marks = ST.session ? ST.session.marks : []; ST.session = null; return { marks, seconds: 600 }; }
       case 'stream.chapters': return (p.tracklist || []).map((m, i) => `${i === 0 ? '00:00' : String(Math.floor(m.offset / 60)).padStart(2, '0') + ':' + String(Math.floor(m.offset % 60)).padStart(2, '0')} ${m.text}`).join('\n');
       case 'stream.fill': return String(p.template).replace(/\{(\w+)(?::[^}]+)?\}/g, (all, k) => (k === 'date' ? p.date : p.values && k in p.values ? p.values[k] : all));
+      default: return null;
+    }
+  }
+
+
+  // ---- mock Mic Guard: the same rules as MicGuard.cs (sides that are off don't count; the hotkey mutes unless all muted).
+  const MIC = { cfg: { windows: false, deviceId: null, obs: false, obsUrl: 'ws://127.0.0.1:4455', obsInput: null, hotkey: null, indicator: false, opacity: 0.92, scale: 1, hideFromCapture: true },
+    win: false, obsMuted: false, connected: false, password: null, stored: false, calls: [] };
+  state.mic = MIC;
+  function micMock(type, p) {
+    const side = (on, known, muted) => (!on ? 'off' : !known ? 'unknown' : muted ? 'muted' : 'live');
+    const sides = () => ({ windows: side(MIC.cfg.windows, true, MIC.win), obs: side(MIC.cfg.obs, MIC.connected, MIC.obsMuted) });
+    const verdict = () => {
+      const v = Object.values(sides()).filter((x) => x !== 'off');
+      if (!v.length) return 'notsetup';
+      if (v.includes('unknown')) return v.includes('live') ? 'live' : 'unknown';
+      return v.every((x) => x === 'live') ? 'live' : v.every((x) => x === 'muted') ? 'muted' : 'mismatch';
+    };
+    const label = (v) => ({ live: 'LIVE', muted: 'MUTED', mismatch: 'CHECK', unknown: '?' }[v] || 'OFF');
+    const status = () => {
+      const v = verdict(), s = sides();
+      return { config: { ...MIC.cfg }, devices: [{ id: 'dev-a', name: 'Microphone (Blue Yeti)', isDefault: true }, { id: 'dev-b', name: 'Headset Microphone', isDefault: false }],
+        windows: { state: s.windows, name: 'Microphone (Blue Yeti)', error: null },
+        obs: { state: s.obs, connected: MIC.connected, connecting: false, version: MIC.connected ? '5.5.0' : null, error: MIC.cfg.obs && !MIC.connected ? 'Not connected.' : null, inputs: MIC.connected ? [{ name: 'Mic/Aux', kind: 'wasapi_input_capture' }, { name: 'Desktop Audio', kind: 'wasapi_output_capture' }] : [], hasPassword: MIC.stored },
+        verdict: v, label: label(v), explain: v === 'mismatch' ? `Out of step: Windows mic ${s.windows}, OBS ${s.obs}. Press the hotkey to mute both.` : `state ${v}`,
+        hotkey: { gesture: MIC.cfg.hotkey, error: null }, indicator: { shown: MIC.cfg.indicator, excludedFromCapture: MIC.cfg.indicator && MIC.cfg.hideFromCapture } };
+    };
+    const set = (muted) => { MIC.calls.push(muted); if (MIC.cfg.windows) MIC.win = muted; if (MIC.cfg.obs && MIC.connected) MIC.obsMuted = muted; };
+    switch (type) {
+      case 'mic.status': return status();
+      case 'mic.config':
+        if ('hotkey' in p && p.hotkey && !/^((Ctrl|Alt|Shift|Win)\+)+\w+$|^F\d+$/.test(p.hotkey)) throw new Error('Use Ctrl, Alt or Shift with that key.');
+        for (const k of Object.keys(MIC.cfg)) if (k in p) MIC.cfg[k] = p[k] === '' ? null : p[k];
+        if (MIC.cfg.obs && !MIC.connected && MIC.stored) { MIC.connected = true; MIC.cfg.obsInput = MIC.cfg.obsInput || 'Mic/Aux'; }
+        return status();
+      case 'mic.obs.connect':
+        if (!(p.password === 'hunter2' || (!p.password && MIC.stored))) throw new Error(p.password ? 'OBS refused the password.' : 'OBS asks for a password.');
+        if (p.password && p.remember) MIC.stored = true;
+        MIC.connected = true; MIC.cfg.obsInput = MIC.cfg.obsInput || 'Mic/Aux';
+        return status();
+      case 'mic.obs.forget': MIC.stored = false; return status();
+      case 'mic.set': set(!!p.muted); return status();
+      case 'mic.toggle': set(verdict() !== 'muted'); return status();
       default: return null;
     }
   }

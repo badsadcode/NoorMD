@@ -1244,6 +1244,8 @@
     ['stream.credits', 'Credits roll…', 'Stream', '', () => NoorStream.open('credits')],
     ['stream.supporters', 'Supporters…', 'Stream', '', () => NoorStream.open('supporters')],
     ['stream.log', 'Stream log…', 'Stream', '', () => NoorStream.open('log')],
+    ['mic.toggle', 'Mute / unmute microphone (Mic Guard)', 'Stream', '', () => NoorStream.toggleMic()],
+    ['mic.settings', 'Mic Guard: microphone, OBS, hotkey, indicator…', 'Stream', '', () => NoorStream.open('mic')],
     ['music.play', 'Play / pause music', 'Music', 'Ctrl+Alt+Space', () => NoorMusic.toggle()],
     ['music.next', 'Next track', 'Music', 'Ctrl+Alt+→', () => NoorMusic.next()],
     ['music.prev', 'Previous track', 'Music', 'Ctrl+Alt+←', () => NoorMusic.prev()],

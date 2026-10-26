@@ -869,3 +869,20 @@ body.video-wide .videobench { width: var(--video-col); }
 #np-title { cursor: pointer; }
 /* Lists where Shift/Ctrl+click selects rows: no text selection (it looked like a second, broken highlight). */
 .music-list, .vb-list, .music-queue, .music-playlists { user-select: none; -webkit-user-select: none; }
+/* ---- Mic Guard */
+.mic-verdict { border-radius: 12px; padding: 14px 16px; background: var(--surface); border: 2px solid var(--border); }
+.mic-verdict p { margin: 4px 0 8px; color: var(--muted); font-size: 12.5px; }
+.mic-big { font-size: 26px; font-weight: 800; letter-spacing: .04em; }
+.mic-verdict.live { border-color: #ff5b6e; background: color-mix(in srgb, #d92d3f 18%, var(--surface)); }
+.mic-verdict.live .mic-big { color: #ff5b6e; }
+.mic-verdict.muted .mic-big { color: var(--muted); }
+.mic-verdict.mismatch { border-color: #ffc14d; background: color-mix(in srgb, #c26a00 18%, var(--surface)); }
+.mic-verdict.mismatch .mic-big { color: #ffc14d; }
+.mic-sides { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); }
+.mic-sides strong { color: var(--text); }
+.mic-error { color: var(--danger); font-size: 12.5px; margin: 0; }
+#mic-hotkey { width: 200px; font-family: var(--source-font); }
+.sd-mic-pill { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 999px; padding: 3px 10px; font-size: 11.5px; font-weight: 700; }
+.sd-mic-pill[hidden] { display: none; }
+.sd-mic-pill.live { background: #d92d3f; border-color: #ff7a88; color: #fff; }
+.sd-mic-pill.mismatch { background: #c26a00; border-color: #ffc14d; color: #fff; }

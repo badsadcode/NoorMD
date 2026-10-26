@@ -2200,6 +2200,86 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('overlay pages: no errors', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 24. Mic Guard: one switch for the Windows microphone and OBS, read back, with a hotkey and an indicator.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MIC = () => page.evaluate(() => window.__mock.state.mic);
+      await page.evaluate(() => window.NoorStream.open('mic'));
+      await page.waitForSelector('#mic-verdict .mic-big');
+      check('Mic Guard starts switched off', (await page.textContent('#mic-verdict')).includes('Not set up') && !(await MIC()).cfg.windows);
+      check('the microphones are listed, the default first', (await page.$$eval('#mic-device option', (o) => o.map((x) => x.textContent))).join('|') === 'Default microphone (Microphone (Blue Yeti))|Microphone (Blue Yeti)|Headset Microphone');
+      await page.check('#mic-windows');
+      await waitFn(page, () => window.__mock.state.mic.cfg.windows === true);
+      await page.waitForSelector('#mic-verdict.live');
+      check('with the Windows mic on, the verdict shows LIVE', (await page.textContent('#mic-verdict .mic-big')) === 'LIVE');
+      check('…and the Stream Desk header shows it too', (await page.textContent('#sd-mic-pill')).includes('LIVE'));
+
+      // OBS: a wrong password is explained; the right one connects and is remembered (by the host, not the page).
+      await page.check('#mic-obs');
+      await page.fill('#mic-obs-pw', 'nope');
+      await page.click('#mic-obs-connect');
+      await page.waitForSelector('.modal, .toast, [role="alert"]', { timeout: 3000 }).catch(() => {});
+      check('a wrong OBS password is reported', !(await MIC()).connected);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.fill('#mic-obs-pw', 'hunter2');
+      await page.click('#mic-obs-connect');
+      await waitFn(page, () => window.__mock.state.mic.connected === true);
+      await page.waitForSelector('#mic-obs-input:not([disabled])');
+      check('the right password connects and the mic source is picked', (await page.inputValue('#mic-obs-input')) === 'Mic/Aux' && (await MIC()).stored);
+      check('the password never stays in the page or the settings', (await page.inputValue('#mic-obs-pw')) === '' && !JSON.stringify((await MIC()).cfg).includes('hunter2'));
+      check('a saved password is offered to forget', await page.isVisible('#mic-obs-forget'));
+
+      // Out of step → CHECK, and the toggle mutes both instead of swapping them.
+      await page.evaluate(() => { window.__mock.state.mic.win = true; });
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'mic.state', payload: { verdict: 'mismatch', label: 'CHECK', explain: 'Out of step: Windows mic muted, OBS live. Press the hotkey to mute both.', windows: 'muted', obs: 'live', obsConnected: true } }));
+      await page.waitForSelector('#mic-verdict.mismatch');
+      check('when Windows and OBS disagree it says CHECK and explains', (await page.textContent('#mic-verdict')).includes('Out of step'));
+      await page.click('#mic-toggle');
+      await waitFn(page, () => window.__mock.state.mic.win === true && window.__mock.state.mic.obsMuted === true);
+      await page.waitForSelector('#mic-verdict.muted');
+      check('Toggle mutes both when they disagree', (await MIC()).calls.at(-1) === true);
+      await page.click('#mic-toggle');
+      await waitFn(page, () => !window.__mock.state.mic.win && !window.__mock.state.mic.obsMuted);
+      await page.waitForSelector('#mic-verdict.live');
+      check('…and unmutes both only when both were muted', (await page.textContent('#mic-verdict .mic-big')) === 'LIVE');
+      await page.click('#mic-mute');
+      await waitFn(page, () => window.__mock.state.mic.win && window.__mock.state.mic.obsMuted);
+      await page.waitForSelector('#mic-verdict.muted');
+      check('Mute everywhere sets both explicitly', (await page.textContent('#mic-verdict .mic-big')) === 'MUTED');
+
+      // Hotkey: pressing keys records a gesture; plain letters are refused.
+      await page.click('#mic-hotkey');
+      await page.keyboard.press('Control+Alt+F9');
+      check('the hotkey field records the keys pressed', (await page.inputValue('#mic-hotkey')) === 'Ctrl+Alt+F9');
+      await page.click('#mic-hotkey-save');
+      await waitFn(page, () => window.__mock.state.mic.cfg.hotkey === 'Ctrl+Alt+F9');
+      await page.waitForSelector('#mic-toggle:has-text("Ctrl+Alt+F9")');
+      check('the hotkey is saved and shown on the Toggle button', true);
+      check('letters, digits and the Pause key map to Windows key names', await page.evaluate(() => {
+        const g = (o) => window.NoorStream._gesture({ ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...o });
+        return g({ code: 'KeyM', ctrlKey: true, shiftKey: true }) === 'Ctrl+Shift+M' && g({ code: 'Digit1', altKey: true }) === 'Alt+D1' && g({ code: 'Pause' }) === 'Pause' && g({ code: 'ControlLeft', ctrlKey: true }) === null;
+      }));
+
+      // Indicator and Ctrl+K.
+      await page.check('#mic-indicator');
+      await waitFn(page, () => window.__mock.state.mic.cfg.indicator === true);
+      check('the floating indicator can be switched on (hidden from capture by default)', (await MIC()).cfg.hideFromCapture === true);
+      await page.evaluate(() => window.NoorStream.close());
+      const calls = (await MIC()).calls.length;
+      await page.keyboard.press('Control+k');
+      await page.keyboard.type('mute / unmute microphone');
+      await page.keyboard.press('Enter');
+      await waitFn(page, (n) => window.__mock.state.mic.calls.length === n + 1, calls);
+      check('Ctrl+K › Mute / unmute microphone uses Mic Guard', true);
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'mic.open', payload: null }));
+      await waitFn(page, () => window.NoorStream._state().open && window.NoorStream._state().tab === 'mic');
+      check('“Mic Guard settings…” from the indicator opens this tab', true);
+      const unexpected = errors.filter((e) => !/status of 404|refused the password/.test(e)); // the wrong password above is on purpose
+      check('no page errors in Mic Guard', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/mic-guard.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -184,6 +184,7 @@ public partial class MainWindow
             await RunMusicSelfTestAsync();
             await RunVideoSelfTestAsync();
             await RunStreamSelfTestAsync();
+            await RunMicSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
             var pdf = Path.Combine(SelfTestDir, "export.pdf");
@@ -474,6 +475,45 @@ public partial class MainWindow
         Check("turning the overlay server off closes the port", closed);
         StreamCfg["txtEnabled"] = false;
         CloseVault(remember: false);
+    }
+
+    /// <summary>Mic Guard on real Windows. Never changes the real microphone's mute: it only lists and reads.</summary>
+    private async Task RunMicSelfTestAsync()
+    {
+        const string target = "NoorMD/selftest-secret";
+        Host.CredentialStore.Write(target, "pa55-Zażółć");
+        Check("secrets round-trip through Windows Credential Manager", Host.CredentialStore.Read(target) == "pa55-Zażółć");
+        Host.CredentialStore.Delete(target);
+        Check("…and can be deleted", !Host.CredentialStore.Exists(target) && Host.CredentialStore.Read(target) == null);
+
+        IReadOnlyList<Host.CaptureDevice> devices = [];
+        var listed = true;
+        try { devices = Host.CaptureEndpoint.List(); } catch (Exception ex) { listed = false; Log.Error("mic list", ex); }
+        Check("microphones can be listed through Core Audio", listed, $"{devices.Count} found");
+        if (devices.Count > 0)
+        {
+            using var ep = Host.CaptureEndpoint.Open(null);
+            Check("the default microphone's mute state can be read", ep != null && ep.Muted is true or false, ep?.Name);
+        }
+
+        using (var hk = new Host.GlobalHotkey(new System.Windows.Interop.WindowInteropHelper(this).Handle, () => { }))
+        {
+            var err = hk.Set("Ctrl+Alt+Shift+F11");
+            Check("a system-wide hotkey can be registered and released", err == null && hk.Gesture == "Ctrl+Alt+Shift+F11", err);
+            Check("plain letters are refused as a global hotkey", hk.Set("M") is { } e && e.Contains("Ctrl"));
+        }
+
+        var ind = new MicIndicatorWindow(this);
+        ind.Configure(0.9, 1, hideFromCapture: true);
+        ind.SetState(NoorMD.Core.Stream.MicVerdict.Mismatch, "Win muted · OBS live", "test");
+        ind.Show();
+        await Task.Delay(300);
+        Check("the floating mic indicator opens on top without taking focus", ind.IsVisible && ind.Topmost && !ind.IsActive && ind.ActualWidth > 60, $"{ind.ActualWidth:0}×{ind.ActualHeight:0}");
+        Check("…and is hidden from screen capture (Windows 10 2004+)", ind.ExcludedFromCapture);
+        ind.Close();
+
+        var status = await PageRequest("mic.status", "{}");
+        Check("the page reads Mic Guard's state (off until switched on)", status.Contains("\"verdict\":\"notsetup\"") && status.Contains("\"windows\":false") && status.Contains("\"devices\":["), status.Length > 300 ? status[..300] : status);
     }
 
     private async Task RunVideoSelfTestAsync()

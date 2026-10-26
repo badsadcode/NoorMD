@@ -320,6 +320,7 @@ public partial class MainWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
+        ShutdownMic();
         CapturePlacement();
         PersistSession();
         _vault?.Cts.Cancel();

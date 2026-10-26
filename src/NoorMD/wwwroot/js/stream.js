@@ -17,11 +17,16 @@ window.NoorStream = (() => {
   let current = null;       // the stream being edited (StreamEntry for the page)
   let lastTrack = null, lastSent = 0;
   let saveNpTimer = 0, saveCrTimer = 0, statusTimer = 0;
+  let mic = null, micState = null; // Mic Guard: settings + devices from the host, live state from mic.state events
   const SAMPLE_TRACK = { id: 0, title: 'Night Drive', artist: 'Noor', playing: true, position: 74, duration: 200, art: null };
   const SAMPLE_PEOPLE = [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold' }, { name: 'Bartek', tier: 'Gold' }, { name: 'Celina', channel: 'https://www.twitch.tv/celina', tier: 'Silver' }, { name: 'Dawid', tier: 'Silver' }, { name: 'Ela' }];
   const isOpen = () => document.body.classList.contains('stream-open');
 
-  function init(h) { hooks = { ...hooks, ...h }; }
+  function init(h) {
+    hooks = { ...hooks, ...h };
+    NoorBridge.on('mic.state', (m) => { micState = m; renderMicState(); });
+    NoorBridge.on('mic.open', () => open('mic'));
+  }
 
   // ------------------------------------------------------------------ now playing from the Music Bench
 
@@ -68,6 +73,7 @@ window.NoorStream = (() => {
     cr = { ...NoorCredits.DEFAULTS, ...(status.credits || {}) };
     templates = Array.isArray(status.templates) ? status.templates : [];
     renderServer();
+    req('mic.status').then((m) => { mic = m; micState = null; renderMicState(); }).catch(() => {});
   }
 
   async function refreshServer() {
@@ -78,11 +84,12 @@ window.NoorStream = (() => {
 
   function build() {
     built = true;
-    const tabs = [['np', '🎵 Now Playing'], ['credits', '🎬 Credits roll'], ['supporters', '💜 Supporters'], ['log', '📼 Stream log']];
+    const tabs = [['np', '🎵 Now Playing'], ['credits', '🎬 Credits roll'], ['supporters', '💜 Supporters'], ['log', '📼 Stream log'], ['mic', '🎙 Mic Guard']];
     document.body.append(el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
       el('header', { class: 'vb-head' },
         el('strong', { class: 'vb-title' }, '📡 Stream Desk'),
         el('div', { class: 'sd-tabs', role: 'tablist' }, ...tabs.map(([id, label]) => el('button', { role: 'tab', 'data-sdtab': id, onclick: () => setTab(id) }, label))),
+        el('button', { class: 'sd-mic-pill', id: 'sd-mic-pill', hidden: true, title: 'Mic Guard: click to mute / unmute', onclick: () => toggleMic() }),
         el('span', { class: 'sd-server', id: 'sd-server' }),
         el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕')),
       el('div', { class: 'sd-body', id: 'sd-body' })));
@@ -103,6 +110,7 @@ window.NoorStream = (() => {
     if (id === 'np') renderNowPlaying(body);
     else if (id === 'credits') renderCredits(body, gen);
     else if (id === 'supporters') renderSupporters(body, gen);
+    else if (id === 'mic') renderMic(body, gen);
     else renderLog(body, gen);
   }
 
@@ -539,8 +547,133 @@ window.NoorStream = (() => {
     });
   }
 
+  // ------------------------------------------------------------------ Mic Guard
+
+  const MIC_WORD = { live: 'live', muted: 'muted', unknown: 'unknown', off: 'not used' };
+
+  async function toggleMic() {
+    try { mic = await req('mic.toggle'); micState = null; renderMicState(); } catch (err) { hooks.showError(err); }
+  }
+
+  /** Turns a keydown into a gesture the host understands ("Ctrl+Alt+M", "Ctrl+Shift+F9"); null while only modifiers are held. */
+  function gestureFrom(e) {
+    const c = e.code || '';
+    let key = null;
+    if (/^Key[A-Z]$/.test(c)) key = c.slice(3);
+    else if (/^Digit\d$/.test(c)) key = 'D' + c.slice(5);
+    else if (/^F\d{1,2}$/.test(c)) key = c;
+    else if (/^Numpad\d$/.test(c)) key = 'NumPad' + c.slice(6);
+    else key = { Pause: 'Pause', ScrollLock: 'Scroll', Insert: 'Insert', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'Next', Backquote: 'Oem3', Minus: 'OemMinus', Equal: 'OemPlus', Space: 'Space' }[c] || null;
+    if (!key) return null;
+    return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win', key].filter(Boolean).join('+');
+  }
+
+  function renderMicState() {
+    const v = micState || (mic && { verdict: mic.verdict, label: mic.label, explain: mic.explain, windows: mic.windows.state, obs: mic.obs.state, obsConnected: mic.obs.connected, obsError: mic.obs.error });
+    const pill = $('#sd-mic-pill');
+    if (pill && v) { pill.hidden = v.verdict === 'notsetup'; pill.className = 'sd-mic-pill ' + v.verdict; pill.textContent = '🎙 ' + v.label; }
+    const box = $('#mic-verdict');
+    if (!box || !v) return;
+    box.className = 'mic-verdict ' + v.verdict;
+    box.replaceChildren(el('div', { class: 'mic-big', text: v.verdict === 'notsetup' ? 'Not set up' : v.label }), el('p', { text: v.explain }),
+      el('div', { class: 'mic-sides' },
+        el('span', { 'data-side': 'windows' }, 'Windows mic: ', el('strong', { text: MIC_WORD[v.windows] || v.windows })),
+        el('span', { 'data-side': 'obs' }, 'OBS: ', el('strong', { text: MIC_WORD[v.obs] || v.obs })),
+        el('span', {}, 'Discord: ', el('strong', { text: v.windows === 'off' ? 'not covered' : 'hears the Windows mic' }))));
+    const obsLine = $('#mic-obs-line');
+    if (obsLine) obsLine.textContent = v.obsConnected ? `Connected${mic && mic.obs.version ? ` · obs-websocket ${mic.obs.version}` : ''}` : v.obsError || (mic && mic.config.obs ? 'Not connected' : '');
+  }
+
+  async function renderMic(body, gen) {
+    try { mic = await req('mic.status'); } catch (err) { hooks.showError(err); return; }
+    if (gen !== renderGen) return;
+    micState = null;
+    const c = mic.config;
+    const save = async (patch, redraw = true) => {
+      try { mic = await req('mic.config', patch); micState = null; } catch (err) { hooks.showError(err); }
+      if (redraw && tab === 'mic') setTab('mic'); else renderMicState();
+    };
+    const check = (id, checked, label, onChange) => { const i = el('input', { type: 'checkbox', id }); i.checked = !!checked; i.addEventListener('change', () => onChange(i.checked)); return el('label', { class: 'inline' }, i, label); };
+
+    const device = el('select', { id: 'mic-device', 'aria-label': 'Microphone' },
+      el('option', { value: '', text: `Default microphone${mic.devices.find((d) => d.isDefault) ? ` (${mic.devices.find((d) => d.isDefault).name})` : ''}` }),
+      ...mic.devices.map((d) => el('option', { value: d.id, text: d.name })));
+    device.value = c.deviceId || '';
+    device.addEventListener('change', () => save({ deviceId: device.value || null }));
+
+    const url = el('input', { type: 'text', id: 'mic-obs-url', value: c.obsUrl, 'aria-label': 'OBS WebSocket address', spellcheck: 'false' });
+    const pw = el('input', { type: 'password', id: 'mic-obs-pw', autocomplete: 'off', 'aria-label': 'OBS WebSocket password', placeholder: mic.obs.hasPassword ? 'saved in Windows Credential Manager' : 'password from OBS' });
+    const remember = el('input', { type: 'checkbox', id: 'mic-obs-remember' }); remember.checked = true;
+    const connect = async () => {
+      try {
+        if (url.value.trim() !== c.obsUrl) await req('mic.config', { obsUrl: url.value.trim() });
+        mic = await req('mic.obs.connect', { password: pw.value, remember: remember.checked });
+        pw.value = '';
+        notice('Connected to OBS', 1600);
+      } catch (err) { hooks.showError(err); }
+      if (tab === 'mic') setTab('mic');
+    };
+    const input = el('select', { id: 'mic-obs-input', 'aria-label': 'OBS microphone source', disabled: !mic.obs.inputs.length || undefined },
+      ...(mic.obs.inputs.length ? mic.obs.inputs.map((i) => el('option', { value: i.name, text: i.name })) : [el('option', { value: '', text: 'Connect to list the sources' })]));
+    input.value = c.obsInput || '';
+    input.addEventListener('change', () => save({ obsInput: input.value }, false));
+
+    const hk = el('input', { type: 'text', id: 'mic-hotkey', readonly: true, value: c.hotkey || '', placeholder: 'Click, then press keys', 'aria-label': 'Mic Guard hotkey' });
+    hk.addEventListener('keydown', (e) => {
+      if (e.key === 'Tab') return;
+      e.preventDefault(); e.stopPropagation();
+      if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') { hk.value = ''; return; }
+      const g = gestureFrom(e);
+      if (g) hk.value = g;
+    });
+    const range = (id, key, min, max, step) => { const r = el('input', { type: 'range', id, min, max, step, value: String(c[key]) }); r.addEventListener('change', () => save({ [key]: Number(r.value) }, false)); return r; };
+
+    body.append(el('div', { class: 'sd-grid' },
+      el('div', { class: 'sd-col' },
+        el('section', { class: 'sd-card' },
+          el('div', { class: 'mic-verdict', id: 'mic-verdict' }),
+          el('div', { class: 'sd-row' },
+            el('button', { class: 'action', id: 'mic-mute', onclick: async () => { try { mic = await req('mic.set', { muted: true }); micState = null; renderMicState(); } catch (err) { hooks.showError(err); } } }, '🔇 Mute everywhere'),
+            el('button', { class: 'action', id: 'mic-unmute', onclick: async () => { try { mic = await req('mic.set', { muted: false }); micState = null; renderMicState(); } catch (err) { hooks.showError(err); } } }, '🎙 Unmute everywhere'),
+            el('button', { class: 'action primary', id: 'mic-toggle', onclick: toggleMic }, c.hotkey ? `Toggle (${c.hotkey})` : 'Toggle'))),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'Windows microphone' }),
+          check('mic-windows', c.windows, 'Mute and unmute the microphone in Windows', (on) => save({ windows: on })),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Microphone' }), device),
+          el('p', { class: 'pref-hint', text: 'This is the switch that matters: a muted Windows microphone is silent for OBS, Discord, games and every other program at once.' + (mic.windows.error ? ' — ' + mic.windows.error : '') })),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'OBS' }),
+          check('mic-obs', c.obs, 'Also mute OBS’s microphone source', (on) => save({ obs: on })),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Address' }), url),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Password' }), pw,
+            el('label', { class: 'inline' }, remember, 'Remember'),
+            el('button', { class: 'utility-btn', id: 'mic-obs-connect', onclick: connect }, 'Connect'),
+            mic.obs.hasPassword ? el('button', { class: 'utility-btn danger', id: 'mic-obs-forget', onclick: async () => { try { mic = await req('mic.obs.forget'); notice('Password removed from Windows Credential Manager', 2000); setTab('mic'); } catch (err) { hooks.showError(err); } } }, 'Forget password') : null),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Mic source' }), input),
+          el('p', { class: 'pref-hint', id: 'mic-obs-line' }),
+          el('p', { class: 'pref-hint', text: 'In OBS: Tools › WebSocket Server Settings › Enable, then Show Connect Info for the password. NoorMD sets the source’s mute explicitly and listens when you change it in OBS. The password is kept in Windows Credential Manager, never in NoorMD’s files.' }))),
+      el('div', { class: 'sd-col' },
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'One hotkey' }),
+          el('div', { class: 'sd-row' }, hk, el('button', { class: 'utility-btn', id: 'mic-hotkey-save', onclick: () => save({ hotkey: hk.value }) }, 'Use this key'),
+            el('button', { class: 'utility-btn', onclick: () => save({ hotkey: '' }) }, 'Clear')),
+          mic.hotkey.error ? el('p', { class: 'mic-error', text: mic.hotkey.error }) : null,
+          el('p', { class: 'pref-hint', text: 'Works everywhere, also in games. If anything is live it mutes everything; only when everything is muted does it unmute. Use a key that OBS and Discord do NOT also use, and remove their own mute keybinds: two switches on one key is what makes them drift apart.' })),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'Floating indicator' }),
+          check('mic-indicator', c.indicator, 'Show the indicator on top of other windows', (on) => save({ indicator: on })),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Opacity' }), range('mic-opacity', 'opacity', '0.2', '1', '0.05')),
+          el('div', { class: 'sd-row' }, el('span', { class: 'sd-label', text: 'Size' }), range('mic-scale', 'scale', '0.6', '2.5', '0.1')),
+          check('mic-capture', c.hideFromCapture, 'Hide it from OBS and screenshots', (on) => save({ hideFromCapture: on })),
+          el('p', { class: 'pref-hint', text: 'Click the indicator to mute or unmute, drag it anywhere, right-click for more. It never takes focus from a game. It is not drawn over games in exclusive full screen; use borderless windowed. ' + (mic.indicator.shown && c.hideFromCapture && !mic.indicator.excludedFromCapture ? 'This Windows version can’t hide it from capture (needs Windows 10 2004 or newer).' : '') })),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'Discord' }),
+          el('p', { class: 'pref-hint', text: 'Discord doesn’t let other apps read or press its own mute button reliably, so NoorMD doesn’t try. With the Windows microphone muted, Discord hears silence; Discord’s mute icon just won’t change. NoorMD never logs into Discord or automates your account.' })))));
+    renderMicState();
+  }
+
   return {
-    init, open, close, toggle, isOpen, nowPlaying,
-    _state: () => ({ open: isOpen(), tab, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
+    init, open, close, toggle, isOpen, nowPlaying, toggleMic, _gesture: gestureFrom,
+    _state: () => ({ open: isOpen(), tab, mic: mic && mic.config, micVerdict: (micState || mic || {}).verdict, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
   };
 })();

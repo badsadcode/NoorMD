@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.8-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.9-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -107,6 +107,10 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   - a **credits roll** of your supporters, with effects you can build;
   - the **supporters list** and a **stream log** with templates and a recorded tracklist,
     kept as notes in your Vault. NoorMD never publishes anything.
+  - **Mic Guard:** one system-wide hotkey mutes the Windows microphone (so Discord hears silence
+    too) and OBS's mic source together, reads both back, and shows LIVE / MUTED / CHECK in a
+    floating indicator that OBS doesn't capture. The OBS password stays in Windows Credential
+    Manager.
   - See [docs/CREATORS_BENCH_PLAN.md](docs/CREATORS_BENCH_PLAN.md).
 - **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
   (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
@@ -137,8 +141,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.8-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.8-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.9-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.9-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

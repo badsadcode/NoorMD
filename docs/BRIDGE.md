@@ -137,6 +137,19 @@ Video Bench (`/_video/{id}` serves the file with ranges; `/_sub/{id}/{n}` serves
 | `video.popout` / `video.popout.close` | `{ id, time, paused }` | opens / closes the pop-out player |
 | `video.reveal`, `video.session.get` / `.save` | | |
 
+Mic Guard (Windows microphone through Core Audio, OBS through obs-websocket 5; the OBS password is stored in
+Windows Credential Manager as `NoorMD/obs-websocket` and never returned to the page):
+
+| Request | Payload | Result |
+|---|---|---|
+| `mic.status` | — | `{ config, devices[], windows: { state, name, error }, obs: { state, connected, version, error, inputs[], hasPassword }, verdict, label, explain, hotkey: { gesture, error }, indicator }` |
+| `mic.config` | any of `{ windows, deviceId, obs, obsUrl, obsInput, hotkey, indicator, opacity, scale, hideFromCapture }` | the status |
+| `mic.obs.connect` | `{ password?, remember }` | the status (a stored password is used when none is given) |
+| `mic.obs.forget` / `mic.toggle` / `mic.set` | — / — / `{ muted }` | the status |
+
+Events: `mic.state` (`{ verdict, label, explain, windows, obs, obsConnected, obsError }` on every change),
+`mic.open` (the indicator's "Mic Guard settings…").
+
 Events: `video.scanned`, `video.popin` (`{ id, time }` when the pop-out closes), `video.notes`.
 The pop-out window has its own bridge and accepts messages only from `/_noormd/video.html`:
 `video.ready`, `video.get`, `video.position`, `video.next`, `video.note.add`, `video.topmost`,
