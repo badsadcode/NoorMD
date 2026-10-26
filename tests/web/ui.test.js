@@ -149,12 +149,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Theme
       const md1 = (await state(page)).markdown;
-      await page.click('[data-cmd="theme.toggle"]');
+      await page.evaluate(() => window.NoorMD.runCommand('theme.toggle')); await page.waitForTimeout(60);
       const th = await page.evaluate(() => ({ t: document.documentElement.dataset.theme, dark: document.querySelector('.toastui-editor-defaultUI').classList.contains('toastui-editor-dark') }));
       check('theme toggles page and editor together', th.t === 'light' && th.dark === false, th);
       check('theme toggle keeps content', (await state(page)).markdown === md1);
       if (shots) await page.screenshot({ path: `${shots}/light-1440.png` });
-      await page.click('[data-cmd="theme.toggle"]');
+      await page.evaluate(() => window.NoorMD.runCommand('theme.toggle')); await page.waitForTimeout(60);
 
       // Palette
       await page.keyboard.press('Control+k');
@@ -454,7 +454,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Contrast of source tokens in both themes.
       for (const theme of ['dark', 'light']) {
-        if (theme === 'light') { await page.click('[data-cmd="theme.toggle"]'); await page.keyboard.press('Control+2'); await page.waitForTimeout(150); }
+        if (theme === 'light') { await page.evaluate(() => window.NoorMD.runCommand('theme.toggle')); await page.waitForTimeout(60); await page.keyboard.press('Control+2'); await page.waitForTimeout(150); }
         const c = await page.evaluate(() => {
           const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
           const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
@@ -493,6 +493,47 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('narrow Split stacks panes without the source overlapping the preview', overlap.stacked && overlap.pmInside, overlap);
       if (shots) await page.screenshot({ path: `${shots}/source-split-narrow-light.png` });
       check('no errors in source editor checks', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 7. Themes: picker, live preview, apply, every theme renders cleanly.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: LOSSLESS, path: 'C:\\docs\\t.md', fileName: 't.md', title: 't' } }, { width: 1440, height: 900 });
+      await page.click('[data-cmd="theme.pick"]');
+      await page.waitForSelector('.theme-card');
+      const ids = await page.$$eval('.theme-card', (c) => c.map((x) => x.dataset.themeId));
+      check('theme picker lists all bundled themes', ids.length === 9 && ids.includes('nocturne') && ids.includes('parchment') && ids.includes('contrast'), ids);
+      await page.hover('.theme-card[data-theme-id="evergreen"]');
+      check('hovering a theme previews it', await page.evaluate(() => document.documentElement.dataset.theme) === 'evergreen');
+      await page.keyboard.press('Escape');
+      check('closing the picker without choosing restores the theme', await page.evaluate(() => document.documentElement.dataset.theme) === 'dark');
+      await page.click('[data-cmd="theme.pick"]');
+      await page.click('.theme-card[data-theme-id="parchment"]');
+      const applied = await page.evaluate(() => ({ t: document.documentElement.dataset.theme, dark: document.querySelector('.toastui-editor-defaultUI').classList.contains('toastui-editor-dark') }));
+      check('choosing a light theme applies it and switches the editor to light', applied.t === 'parchment' && !applied.dark, applied);
+      check('theme choice is persisted', await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.theme === 'parchment')));
+      const md0 = (await state(page)).markdown;
+      for (const id of ids) {
+        await page.evaluate((t) => window.NoorMD.runCommand('theme.next'), id);
+        await page.waitForTimeout(40);
+      }
+      check('cycling through every theme (Ctrl+Shift+T) returns to the start without touching the text', await page.evaluate(() => document.documentElement.dataset.theme) === 'parchment' && (await state(page)).markdown === md0);
+      for (const id of ids) {
+        await page.evaluate((t) => { document.documentElement.dataset.theme = t; }, id);
+        await page.keyboard.press('Control+3');
+        await page.waitForTimeout(60);
+        const r = await page.evaluate(() => {
+          const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+          const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
+          const panel = getComputedStyle(document.querySelector('.editor-card')).backgroundColor;
+          const preview = document.querySelector('#editor .toastui-editor-md-preview p');
+          const ww = getComputedStyle(document.querySelector('#editor .toastui-editor-md-preview')).backgroundColor;
+          return { preview: +ratio(getComputedStyle(preview).color, ww).toFixed(2), title: +ratio(getComputedStyle(document.querySelector('#doc-title')).color, getComputedStyle(document.body).backgroundColor).toFixed(2), ov: document.documentElement.scrollWidth - window.innerWidth };
+        });
+        check(`theme "${id}" renders readable text in editor, preview and header`, r.preview >= 4.5 && r.title >= 4.5 && r.ov <= 0, r);
+        if (shots) await page.screenshot({ path: `${shots}/theme-${id}.png` });
+      }
+      check('no errors while switching themes', errors.length === 0, errors);
       await page.close();
     }
   } finally {

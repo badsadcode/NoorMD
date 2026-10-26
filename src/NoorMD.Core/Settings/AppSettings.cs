@@ -24,7 +24,6 @@ public sealed class EditorPrefs
     public bool WordWrap { get; set; } = true;
     public bool SyncScroll { get; set; }
 
-    private static readonly string[] Themes = ["dark", "light"];
     private static readonly string[] Fonts = ["inter", "system", "serif", "mono"];
     private static readonly string[] Widths = ["comfortable", "wide", "full"];
     private static readonly string[] OpenModes = ["visual", "markdown"];
@@ -37,7 +36,7 @@ public sealed class EditorPrefs
         {
             switch (p.Name)
             {
-                case "theme": Theme = Pick(p.Value, Themes, Theme); break;
+                case "theme": Theme = Pick(p.Value, ThemeCatalog.All.Select(t => t.Id).ToArray(), Theme); break;
                 case "fontFamily": FontFamily = Pick(p.Value, Fonts, FontFamily); break;
                 case "lineWidth": LineWidth = Pick(p.Value, Widths, LineWidth); break;
                 case "openMode": OpenMode = Pick(p.Value, OpenModes, OpenMode); break;
@@ -60,7 +59,7 @@ public sealed class EditorPrefs
 
     public void Normalize()
     {
-        if (!Themes.Contains(Theme)) Theme = "dark";
+        if (!ThemeCatalog.Exists(Theme)) Theme = "dark";
         if (!Fonts.Contains(FontFamily)) FontFamily = "inter";
         if (!Widths.Contains(LineWidth)) LineWidth = "comfortable";
         if (!OpenModes.Contains(OpenMode)) OpenMode = "visual";

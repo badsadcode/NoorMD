@@ -70,7 +70,7 @@
       hideModeSwitch: true,
       frontMatter: true,
       autofocus: false,
-      theme: prefs.theme === 'dark' ? 'dark' : 'light',
+      theme: isDarkTheme() ? 'dark' : 'light',
       toolbarItems: [['heading', 'bold', 'italic', 'strike'], ['hr', 'quote'], ['ul', 'ol', 'task', 'indent', 'outdent'], ['table', 'link', 'image'], ['code', 'codeblock']],
       events: { change: onEditorChange },
     });
@@ -365,10 +365,11 @@
 
   function applyPrefs() {
     const root = document.documentElement;
-    root.dataset.theme = prefs.theme === 'light' ? 'light' : 'dark';
+    if (!themes().some((t) => t.id === prefs.theme)) prefs.theme = 'dark';
+    root.dataset.theme = prefs.theme;
     root.style.background = '';
     const ui = document.querySelector('#editor .toastui-editor-defaultUI');
-    if (ui) ui.classList.toggle('toastui-editor-dark', prefs.theme !== 'light');
+    if (ui) ui.classList.toggle('toastui-editor-dark', isDarkTheme());
     root.style.setProperty('--doc-font', FONTS[prefs.fontFamily] || FONTS.inter);
     root.style.setProperty('--doc-size', Math.min(26, Math.max(12, Number(prefs.fontSize) || 16)) + 'px');
     root.style.setProperty('--measure', MEASURES[prefs.lineWidth] || MEASURES.comfortable);
@@ -398,10 +399,66 @@
     bridge.post('prefs.set', partial);
   }
 
-  function toggleTheme() {
-    setPrefs({ theme: prefs.theme === 'dark' ? 'light' : 'dark' });
-    notice(prefs.theme === 'dark' ? 'Dark theme' : 'Light theme');
+  // Themes are defined only in css/themes.css; each rule carries its own --theme-label and --theme-scheme.
+  let themeCache = null;
+  function themes() {
+    if (themeCache) return themeCache;
+    const found = [];
+    for (const sheet of document.styleSheets) {
+      let rules;
+      try { rules = sheet.cssRules; } catch { continue; }
+      for (const r of rules) {
+        const m = r.selectorText && r.selectorText.match(/\[data-theme=["']?([a-z]+)["']?\]/);
+        if (!m || found.some((t) => t.id === m[1])) continue;
+        const v = (name) => r.style.getPropertyValue(name).trim();
+        found.push({ id: m[1], label: v('--theme-label').replace(/^"|"$/g, '') || m[1], dark: v('--theme-scheme') !== 'light',
+          bg: v('--bg'), panel: v('--panel'), surface2: v('--surface2'), text: v('--text'), muted: v('--muted'), accent: v('--accent'), border: v('--border') });
+      }
+    }
+    if (found.length) themeCache = found;
+    return found.length ? found : [{ id: 'dark', label: 'Atelier Dark', dark: true }];
   }
+  const isDarkTheme = () => (themes().find((t) => t.id === prefs.theme) || { dark: true }).dark;
+
+  function setTheme(id) {
+    const t = themes().find((x) => x.id === id);
+    if (!t) return;
+    setPrefs({ theme: id });
+    notice('Theme: ' + t.label, 1400);
+  }
+  function toggleTheme() { setTheme(isDarkTheme() ? 'light' : 'dark'); }
+  function nextTheme() {
+    const list = themes();
+    const i = list.findIndex((t) => t.id === prefs.theme);
+    setTheme(list[(i + 1) % list.length].id);
+  }
+
+  function showThemePicker() {
+    NoorUI.closeAll();
+    // Closing (with or without a choice) re-applies the saved theme, which undoes any hover preview.
+    NoorUI.modal({ label: 'Choose a theme', width: 760, onClose: () => { document.documentElement.dataset.theme = prefs.theme; } }, (s, close) => {
+      const grid = el('div', { class: 'theme-grid', role: 'listbox', 'aria-label': 'Themes' });
+      for (const t of themes()) {
+        const card = el('button', {
+          class: 'theme-card' + (t.id === prefs.theme ? ' selected' : ''), role: 'option', 'aria-selected': String(t.id === prefs.theme), 'data-theme-id': t.id,
+          style: `--c-bg:${t.bg};--c-panel:${t.panel};--c-s2:${t.surface2};--c-text:${t.text};--c-muted:${t.muted};--c-accent:${t.accent};--c-border:${t.border}`,
+          onclick: () => { setTheme(t.id); close(); },
+          onmouseenter: () => { document.documentElement.dataset.theme = t.id; },
+          onfocus: () => { document.documentElement.dataset.theme = t.id; },
+        },
+        el('span', { class: 'theme-swatch', 'aria-hidden': 'true' },
+          el('i', { class: 'sw-side' }), el('i', { class: 'sw-title' }), el('i', { class: 'sw-line' }), el('i', { class: 'sw-line short' }), el('i', { class: 'sw-chip' })),
+        el('span', { class: 'theme-name', text: t.label }),
+        el('small', { text: t.dark ? 'Dark' : 'Light' }));
+        grid.append(card);
+      }
+      grid.addEventListener('mouseleave', () => { document.documentElement.dataset.theme = prefs.theme; });
+      s.append(NoorUI.head('Choose a theme', close), el('div', { class: 'modal-body' }, grid),
+        el('div', { class: 'modal-foot' }, el('span', { text: 'Hover or Tab to preview · Enter or click to apply · Ctrl+Shift+T cycles themes' })));
+    });
+    setTimeout(() => document.querySelector('.theme-card.selected')?.focus(), 0);
+  }
+
 
   function setLineWidth(w) {
     setPrefs({ lineWidth: w });
@@ -531,7 +588,7 @@
       restore.addEventListener('change', () => setPrefs({ restoreSession: restore.checked }));
       s.append(NoorUI.head('Preferences', close), el('div', { class: 'modal-body' },
         el('div', { class: 'pref-grid' },
-          el('label', { for: 'pref-theme', text: 'Theme' }), select('theme', [['dark', 'Dark'], ['light', 'Light']]),
+          el('label', { for: 'pref-theme', text: 'Theme' }), select('theme', themes().map((t) => [t.id, t.label + (t.dark ? ' (dark)' : ' (light)')])),
           el('label', { for: 'pref-fontFamily', text: 'Writing font' }), select('fontFamily', [['inter', 'Inter (bundled)'], ['system', 'Segoe UI'], ['serif', 'Serif'], ['mono', 'Monospace']]),
           el('label', { for: 'pref-size', text: 'Text size' }), el('div', { class: 'inline' }, size, sizeLabel),
           el('label', { for: 'pref-src-size', text: 'Markdown source' }), el('div', {},
@@ -1003,7 +1060,9 @@
     ['view.split', 'Split view', 'View', 'Ctrl+3', () => setMode('split')],
     ['view.focus', 'Toggle focus mode', 'View', 'F11', () => toggleZen()],
     ['view.sidebar', 'Toggle sidebar', 'View', 'Ctrl+\\', () => toggleSidebar()],
-    ['theme.toggle', 'Toggle light / dark theme', 'View', '', toggleTheme],
+    ['theme.pick', 'Choose theme…', 'View', '', showThemePicker],
+    ['theme.next', 'Next theme', 'View', 'Ctrl+Shift+T', nextTheme],
+    ['theme.toggle', 'Switch between Atelier Dark and Atelier Light', 'View', '', toggleTheme],
     ['width.cycle', 'Line width: next preset', 'View', 'Ctrl+Shift+W', cycleLineWidth],
     ['width.comfortable', 'Line width: Comfortable', 'View', '', () => setLineWidth('comfortable')],
     ['width.wide', 'Line width: Wide', 'View', '', () => setLineWidth('wide')],
@@ -1183,6 +1242,7 @@
       else if (key === 'h' && !e.shiftKey) cmd = 'find.replace';
       else if (key === 'h' && e.shiftKey) cmd = 'history.show';
       else if (key === 'w' && e.shiftKey) cmd = 'width.cycle';
+      else if (key === 't' && e.shiftKey) cmd = 'theme.next';
       else if (key === 'l' && e.shiftKey) cmd = 'layout.compact';
       else if (key === 'y' && e.shiftKey) cmd = 'spell.toggle';
       else if (key === 'k' && e.shiftKey) cmd = 'insert.link';

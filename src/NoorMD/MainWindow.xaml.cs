@@ -117,7 +117,7 @@ public partial class MainWindow : Window
         Core.ProcessFailed += OnProcessFailed;
         Core.WebMessageReceived += OnWebMessageReceived;
 
-        var boot = JsonSerializer.Serialize(new { theme = _settings.Prefs.Theme }, SettingsStore.Json);
+        var boot = JsonSerializer.Serialize(new { theme = _settings.Prefs.Theme, background = ThemeCatalog.Get(_settings.Prefs.Theme).Bg }, SettingsStore.Json);
         await Core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__NOORMD_BOOT__ = Object.freeze({boot});");
         Core.Navigate(AssetResolver.Origin + "/");
     }

@@ -3,7 +3,7 @@
 (function () {
   'use strict';
   var boot = window.__NOORMD_BOOT__ || {};
-  var theme = boot.theme === 'light' ? 'light' : 'dark';
+  var theme = /^[a-z]{2,20}$/.test(boot.theme || '') ? boot.theme : 'dark';
   document.documentElement.dataset.theme = theme;
-  document.documentElement.style.background = theme === 'light' ? '#f3f5f9' : '#0b0d12';
+  if (/^#[0-9a-fA-F]{6}$/.test(boot.background || '')) document.documentElement.style.background = boot.background;
 })();

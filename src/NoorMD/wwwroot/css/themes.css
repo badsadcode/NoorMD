@@ -1,0 +1,102 @@
+/* NoorMD colour themes. Each theme defines the full variable set; app.css only consumes variables.
+   Key colours are mirrored in NoorMD.Core/Settings/ThemeCatalog.cs (window chrome, native dialogs);
+   a unit test parses this file and fails if the two drift apart. All pairs are WCAG-checked by tests. */
+
+:root, [data-theme=dark] {
+  --theme-label: "Atelier Dark"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #0b0d12; --panel: #11151d; --surface: #181e29; --surface2: #212837; --border: #2a3240;
+  --text: #e9edf5; --muted: #8996aa; --accent: #b19aff; --accent2: #7f66db; --on-accent: #211835;
+  --ok: #6ec8a1; --warn: #e8b86a; --danger: #ef8a8a;
+  --shadow: 0 18px 64px #0005; --ambient: #8555db33; --glow: #bba0ff16;
+  --tok-heading: #c4b2ff; --tok-delim: #6f7c92; --tok-link: #8cb4ff; --tok-code: #e5b97a; --tok-code-bg: #181e29;
+  --tok-quote: #9aa6b8; --tok-list: #b19aff; --tok-gutter: #5d677c; --tok-active-line: #ffffff09;
+}
+
+[data-theme=light] {
+  --theme-label: "Atelier Light"; --theme-scheme: light;
+  color-scheme: light;
+  --bg: #f3f5f9; --panel: #ffffff; --surface: #f7f8fb; --surface2: #e9edf4; --border: #dae0e9;
+  --text: #202838; --muted: #5f6b80; --accent: #6a4ed0; --accent2: #6145c1; --on-accent: #ffffff;
+  --ok: #2f9a6c; --warn: #a86f12; --danger: #c24747;
+  --shadow: 0 18px 64px #27345615; --ambient: #a483ef22; --glow: #a98ae719;
+  --tok-heading: #5b3fc4; --tok-delim: #798395; --tok-link: #2f62c8; --tok-code: #9a5410; --tok-code-bg: #f7f8fb;
+  --tok-quote: #5f6b80; --tok-list: #6a4ed0; --tok-gutter: #7f8899; --tok-active-line: #6a4ed00b;
+}
+
+[data-theme=nocturne] {
+  --theme-label: "Nocturne"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #070b14; --panel: #0c1220; --surface: #121a2c; --surface2: #1a2438; --border: #223049;
+  --text: #e4ecf7; --muted: #8a9bb5; --accent: #5fd4e6; --accent2: #2fa8bd; --on-accent: #04161b;
+  --ok: #6fd6a8; --warn: #f0c46c; --danger: #f08a8a;
+  --shadow: 0 18px 64px #0005; --ambient: #1f6fa833; --glow: #5fd4e614;
+  --tok-heading: #7fe0ef; --tok-delim: #6a7d99; --tok-link: #8db8ff; --tok-code: #f3c98b; --tok-code-bg: #121a2c;
+  --tok-quote: #9badc6; --tok-list: #5fd4e6; --tok-gutter: #56688a; --tok-active-line: #ffffff09;
+}
+
+[data-theme=ember] {
+  --theme-label: "Ember"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #0f0c0a; --panel: #16120f; --surface: #201a15; --surface2: #2a221b; --border: #3a2f25;
+  --text: #f2e9e1; --muted: #a8978a; --accent: #f2a65a; --accent2: #d17f2f; --on-accent: #241404;
+  --ok: #9bcf87; --warn: #f2c25a; --danger: #f08d7e;
+  --shadow: 0 18px 64px #0005; --ambient: #b8621c33; --glow: #f2a65a14;
+  --tok-heading: #f7b877; --tok-delim: #8a796b; --tok-link: #f0c27a; --tok-code: #e8d08f; --tok-code-bg: #201a15;
+  --tok-quote: #b9a89a; --tok-list: #f2a65a; --tok-gutter: #75655a; --tok-active-line: #ffffff09;
+}
+
+[data-theme=evergreen] {
+  --theme-label: "Evergreen"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #080f0c; --panel: #0d1612; --surface: #14201a; --surface2: #1b2a22; --border: #26382e;
+  --text: #e3efe8; --muted: #8ea89a; --accent: #6fd6a0; --accent2: #3fae78; --on-accent: #05180e;
+  --ok: #6fd6a0; --warn: #e6c36c; --danger: #ee8e86;
+  --shadow: 0 18px 64px #0005; --ambient: #1f8a5533; --glow: #6fd6a014;
+  --tok-heading: #8fe3b6; --tok-delim: #6c8577; --tok-link: #8cc8ff; --tok-code: #e6c98d; --tok-code-bg: #14201a;
+  --tok-quote: #9fb5a8; --tok-list: #6fd6a0; --tok-gutter: #587063; --tok-active-line: #ffffff09;
+}
+
+[data-theme=rosewood] {
+  --theme-label: "Rosewood"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #120a0f; --panel: #191017; --surface: #23171f; --surface2: #2e1f29; --border: #3d2a37;
+  --text: #f3e6ee; --muted: #ae94a5; --accent: #f08bb4; --accent2: #c95f8c; --on-accent: #2a0b19;
+  --ok: #8fd3a8; --warn: #f0c47a; --danger: #ff9a8f;
+  --shadow: 0 18px 64px #0005; --ambient: #a8306a33; --glow: #f08bb414;
+  --tok-heading: #f6a7c7; --tok-delim: #8d7584; --tok-link: #b9a4ff; --tok-code: #efc890; --tok-code-bg: #23171f;
+  --tok-quote: #c0a9b8; --tok-list: #f08bb4; --tok-gutter: #7b6372; --tok-active-line: #ffffff09;
+}
+
+[data-theme=parchment] {
+  --theme-label: "Parchment"; --theme-scheme: light;
+  color-scheme: light;
+  --bg: #f1eadd; --panel: #fbf7ef; --surface: #f5efe3; --surface2: #ebe2d1; --border: #ddd1bc;
+  --text: #2c241b; --muted: #6b5d4c; --accent: #9a4a1c; --accent2: #7d3a12; --on-accent: #ffffff;
+  --ok: #3f7f4a; --warn: #8a5a0a; --danger: #b23a2e;
+  --shadow: 0 18px 64px #27345615; --ambient: #c9873a22; --glow: #9a4a1c14;
+  --tok-heading: #8a3f14; --tok-delim: #857560; --tok-link: #2d5a9a; --tok-code: #7a4d12; --tok-code-bg: #f5efe3;
+  --tok-quote: #6b5d4c; --tok-list: #9a4a1c; --tok-gutter: #8f8069; --tok-active-line: #9a4a1c0b;
+}
+
+[data-theme=glacier] {
+  --theme-label: "Glacier"; --theme-scheme: light;
+  color-scheme: light;
+  --bg: #eef3f8; --panel: #ffffff; --surface: #f5f8fb; --surface2: #e4ecf4; --border: #d3dee9;
+  --text: #15233a; --muted: #526581; --accent: #1f63c6; --accent2: #1752a8; --on-accent: #ffffff;
+  --ok: #1f8a5c; --warn: #965f0a; --danger: #c03b3b;
+  --shadow: 0 18px 64px #27345615; --ambient: #4a8fe022; --glow: #1f63c614;
+  --tok-heading: #1752a8; --tok-delim: #71839b; --tok-link: #1f63c6; --tok-code: #8a4a0e; --tok-code-bg: #f5f8fb;
+  --tok-quote: #526581; --tok-list: #1f63c6; --tok-gutter: #7a8aa0; --tok-active-line: #1f63c60b;
+}
+
+[data-theme=contrast] {
+  --theme-label: "High Contrast"; --theme-scheme: dark;
+  color-scheme: dark;
+  --bg: #000000; --panel: #000000; --surface: #0d0d0d; --surface2: #1a1a1a; --border: #8c8c8c;
+  --text: #ffffff; --muted: #d0d0d0; --accent: #ffd84a; --accent2: #ffc400; --on-accent: #000000;
+  --ok: #7dffaf; --warn: #ffd84a; --danger: #ff8f8f;
+  --shadow: 0 18px 64px #0005; --ambient: #00000000; --glow: #ffd84a10;
+  --tok-heading: #ffd84a; --tok-delim: #bdbdbd; --tok-link: #8fd0ff; --tok-code: #ffcf8f; --tok-code-bg: #0d0d0d;
+  --tok-quote: #e0e0e0; --tok-list: #ffd84a; --tok-gutter: #a6a6a6; --tok-active-line: #ffffff09;
+}
