@@ -4,9 +4,13 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 
 | Action | Shortcut |
 |---|---|
-| New document | Ctrl+N |
-| Open file | Ctrl+O |
-| Save | Ctrl+S |
+| New document (new tab) | Ctrl+N or Ctrl+T |
+| Open files (each in a tab) | Ctrl+O |
+| Close tab | Ctrl+W (or middle-click the tab) |
+| Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab (also Ctrl+PageDown / Ctrl+PageUp) |
+| Go to an open document | Ctrl+E |
+| Tab menu (Close Others, Copy Path, Pin…) | right-click a tab |
+| Save (the visible tab only) | Ctrl+S |
 | Save as | Ctrl+Shift+S |
 | Print (PDF via *Microsoft Print to PDF*) | Ctrl+P |
 | Command palette | Ctrl+K (or Ctrl+Shift+P) |

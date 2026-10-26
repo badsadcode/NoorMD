@@ -57,7 +57,7 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 
 ## Not implemented (P2 / optional)
 
-- Tabs for several documents in one window. *New window* gives one document per window.
+- ~~Tabs for several documents in one window~~ — done in 2.0.0-preview.2.
 - An installer and file associations.
 - Code signing.
 - A workspace folder tree.
@@ -127,3 +127,25 @@ The fix:
   tests that replay the page's real payloads;
 - the self-test now sends that exact query through the real bridge;
 - the self-test now fails if *any* bridge request logs an error.
+
+## 2.0.0-preview.2 (multi-document tabs)
+
+| Acceptance test (tabs addendum) | Status | Evidence |
+|---|---|---|
+| Three files edited in turn, switching repeatedly: no cross-document contamination | ✅ | UI test: three rounds of typing in A, B and C via the strip. Each text contains only its own edits, and each tab's recovery draft carries only its own text. Windows self-test: the same on real WebView2 with three files on disk. |
+| Two untitled documents, crash: both drafts recover separately | ✅ | Unit tests: one draft per tab, a "crashed" store's two drafts are listed and loaded separately, and session restore matches each draft back to its tab. UI test: two untitled tabs write separate drafts. |
+| Round-trip guard still protects unsupported Markdown | ✅ | UI test: a lossy file opened into a tab is in Markdown mode, byte-exact. Its banner belongs to that tab and comes back with it. |
+| Close a dirty tab → Cancel keeps it; Save writes only that file | ✅ | UI test (mock host prompts) and the host's `ConfirmDiscardAsync` per tab. The Windows self-test closes a saved tab; the native prompt itself was not clicked by a person. |
+| Save As on one tab doesn't touch the others | ✅ | UI test. The host also refuses to save one tab under the name of a file another tab has open. |
+| Same file twice by equivalent paths → existing tab | ✅ / ⚠ | UI test, plus the Windows self-test with a different casing and a `..\` path. The host compares the final path Windows reports (8.3 names, links). Short names and links were not tested separately. |
+| Session restore: files and untitled tabs, order, selected tab | ✅ | Unit tests for the session model and restore plan. UI test with 24 restored tabs (pinned, untitled, split mode, selected tab). Windows self-test: the session is saved with the open tabs. A real restart on Windows was not run in CI. |
+| Selection/scroll kept; undo can't reach another document | ✅ | UI tests: the cursor stays put across a switch, and 40× Ctrl+Z in one tab stops at its opened text. Every tab has its own editor and undo history. |
+| Music keeps playing while opening, switching, closing tabs | ✅ | UI test with real audio, and the mini-player stays. |
+| Rapid switching while typing; Ctrl+S right after a keystroke | ✅ | UI test: 16 words typed with Ctrl+Tab between them and no waits. Every word landed once, in the tab that was on screen. Ctrl+S straight after a key saved that key, to that file only. |
+| Missing paths, different encodings/EOL | ✅ | Missing session files give a notice (unit-tested restore plan). Windows self-test: UTF-8 BOM + LF and CRLF tabs keep their own format on save. |
+| 20+ tabs and UI scaling | ✅ / ⚠ | 24 tabs at 1024 px: the strip scrolls, the window doesn't overflow, Ctrl+E finds a document, and only shown tabs get an editor. 125 %/150 % scaling not checked by eye. |
+| Offline, no new dependencies | ✅ | No new libraries; the UI test still fails on any outside request. |
+
+Not verified by a person: the native close prompts and the multi-document window-close dialog,
+Ctrl+Tab through WPF (handled by the host, because WPF would otherwise use it to move focus),
+and a real crash with several unsaved tabs followed by a restart.

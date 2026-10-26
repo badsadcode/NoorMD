@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.1-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.2-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -33,9 +33,13 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Open, save, Save As** with native Windows dialogs. Files are written atomically (temp
   file + replace) and the previous version is backed up. The original encoding (UTF-8 with or
   without BOM, UTF-16), line endings (CRLF/LF) and final newline are kept.
-- **No silent data loss.** You get a Save / Don't save / Cancel prompt on close, New, Open and
-  Recover. Unsaved text goes to a recovery draft about 0.6 s after you stop typing. After a
+- **No silent data loss.** You get a Save / Don't save / Cancel prompt when you close a modified
+  tab, and a list of all modified documents when you close the window. Unsaved text goes to a recovery draft about 0.6 s after you stop typing. After a
   crash or power loss, NoorMD offers the draft the next time it starts.
+- **Tabs for several documents.** Ctrl+T, Ctrl+O, Ctrl+Tab, Ctrl+W, drag to reorder, pin, and
+  a searchable list of open documents (Ctrl+E). Every tab has its own editor, undo history,
+  encoding, recovery draft and snapshots. Ctrl+S saves only the visible tab. The open tabs come
+  back the next time you start NoorMD, including unsaved work after a crash.
 - **Three editing modes:** Visual (WYSIWYG), Markdown source and Split. The Split view has a
   draggable divider (30–70 %) whose position is remembered, independent scrolling (sync is
   optional), and stacks vertically when the editor is narrow.
@@ -68,10 +72,10 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
   (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
 - **Preferences:** writing font (Inter is bundled), text size, line width, layout,
-  spellcheck, the mode for opening files, and whether to restore the last document on start.
+  spellcheck, the mode for opening files, and whether to reopen the tabs from last time.
   You can also clear recent files or recovery drafts here.
 - **Recent files**, **drag & drop** to open, and **New window** (in the command palette) to
-  work on two documents side by side.
+  see two documents side by side.
 - **Works fully offline.** The editor, fonts and every script are bundled; nothing is loaded
   from a CDN.
 
@@ -94,8 +98,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.1-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.1-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.2-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.2-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -163,7 +167,8 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
   triggers the guard described above. Markdown mode always saves your text byte for byte.
 - **Not supported by the editor engine:** footnotes, math, Mermaid and wiki links. They are
   kept as plain text in Markdown mode.
-- **One document per window.** Use *New window* for more. Tabs are designed but not built yet ([docs/TABS_DESIGN.md](docs/TABS_DESIGN.md)).
+- **Tabs, not side-by-side.** Two documents next to each other still need *New window*. Only the
+  main window remembers its tabs between runs.
 - **Not included:** file associations and an installer. Use *Open with → Choose another app
   → NoorMD.exe* to make NoorMD the handler for `.md` files.
 - **Pasted images** are embedded as base64 data URIs, which is the editor's default.
@@ -174,7 +179,7 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
 - **Not code-signed.**
 
 What changed between versions and how to go back to 1.0.0: [CHANGELOG.md](CHANGELOG.md).
-The design proposal for tabs: [docs/TABS_DESIGN.md](docs/TABS_DESIGN.md).
+How tabs were designed: [docs/TABS_DESIGN.md](docs/TABS_DESIGN.md).
 
 Migrating drafts from the old single-file HTML version: see [docs/MIGRATION.md](docs/MIGRATION.md).
 Test results against the acceptance checklist: [docs/TEST_REPORT.md](docs/TEST_REPORT.md).

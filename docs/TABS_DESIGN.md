@@ -1,5 +1,8 @@
 # Proposal: document tabs (phase D)
 
+> **Status:** built in 2.0.0-preview.2, along the lines below (one editor per tab, bridge v2,
+> per-tab recovery). See CHANGELOG.md and BRIDGE.md for what shipped.
+
 **Status:** design for review. Nothing is implemented yet. The UX ideas document asks for
 tabs to be "a deliberate architectural change", so this proposal should be agreed before any
 code is written.

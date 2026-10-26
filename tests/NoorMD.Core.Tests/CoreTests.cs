@@ -348,7 +348,7 @@ public class ExportAndProtocolTests
         Assert.Equal("doc.save", r.Type);
         Assert.Equal("y", r.GetString("x"));
         Assert.Null(r.GetString("missing"));
-        Assert.False(BridgeProtocol.TryParse("""{"v":2,"type":"doc.save"}""", out _, out _));
+        Assert.False(BridgeProtocol.TryParse("""{"v":1,"type":"doc.save"}""", out _, out _));
         Assert.False(BridgeProtocol.TryParse("""{"v":2,"type":"../x"}""", out _, out _));
         Assert.False(BridgeProtocol.TryParse("not json", out _, out _));
         Assert.False(BridgeProtocol.TryParse("[1]", out _, out _));

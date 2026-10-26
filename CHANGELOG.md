@@ -1,5 +1,71 @@
 # Changelog
 
+## 2.0.0-preview.2 — Multi-document tabs
+
+Based on *NoorMD — Multi-Document Tabs & Session Management*. The Creator's Bench work is
+unchanged; the music player belongs to the window, not to a tab.
+
+**Tabs.**
+- A tab strip above the document. Each tab shows the file name, a dot for unsaved changes and
+  a close button; the tooltip is the full path.
+- **Ctrl+T** (or Ctrl+N) opens a new untitled tab. **Ctrl+O** opens files into tabs, and you can
+  pick several at once. Dropped Markdown files each get a tab.
+- **Ctrl+Tab / Ctrl+Shift+Tab** and **Ctrl+PageDown / Ctrl+PageUp** switch tabs. **Ctrl+W** closes
+  one, and so does a middle-click. Drag a tab to reorder it. **Ctrl+E** (or the ⌄ button) lists all
+  open documents, with search.
+- The right-click menu has **Close, Close Others, Close Tabs to the Right, Copy Path, Reveal in
+  Explorer, Pin/Unpin**. Pinned tabs sit at the start and are skipped by Close Others / Close Tabs
+  to the Right and by middle-click. Close or Ctrl+W still closes them.
+- Opening a file that is already open selects its tab. Different spellings of the same path
+  are recognised: casing, `..\`, 8.3 short names and links.
+- Many tabs scroll sideways inside the strip, so the window never gets wider.
+
+**Each document is kept separate.**
+- Every tab has its own editor, so undo history, cursor, selection and scroll position belong
+  to that document only.
+- Encoding, BOM, line endings, dirty state and the round-trip guard (with its banner) are also
+  per tab.
+- Each tab has its own recovery draft and snapshot history. Two untitled documents stay two
+  separate drafts, including after a crash.
+- File-changed-on-disk checks run for every open file, not just the visible one.
+- The host never takes text from "whatever is on screen". Every save, close and export names
+  its tab, and the text is read from that tab's own editor at that moment, including keys
+  typed a fraction of a second earlier.
+
+**Saving and closing.**
+- **Ctrl+S** saves only the visible tab. Save As changes only that tab's path and name.
+- **Save all** is in the command palette.
+- Closing a modified tab asks Save / Don't save / Cancel. Cancel keeps the tab and its text.
+- Closing the window with several modified documents lists them and offers **Save all**,
+  **Review each…**, **Don't save** or **Cancel**. Cancel keeps the window open.
+
+**Session restore.**
+- On start, NoorMD reopens the tabs from last time: files and untitled documents, in their
+  order, with pinning, view mode and the selected tab.
+- A tab whose unsaved work survived a crash or a Windows shutdown comes back with that work.
+- Files that were moved or deleted are reported in a notice and skipped.
+- Extra windows (*New window*) don't touch the main window's session.
+- Turn this off in Preferences → *Reopen the tabs from last time*.
+
+**Technical.**
+- Bridge protocol v2: document requests carry a `tabId`, and `NoorMD.flush(tabId)` reads one
+  tab. See [docs/BRIDGE.md](docs/BRIDGE.md).
+- Recovery drafts are named `<session>-<tab>.json`.
+- Tests:
+  - 4 new unit tests (69 in Core, including that v1 messages are now rejected);
+  - 52 new UI checks (203 in total), including three files edited in turn, rapid switching
+    while typing, Ctrl+S straight after a keystroke, 24 tabs, and music playing through tab
+    changes;
+  - Windows self-test checks for tabs on real WebView2.
+
+### Going back to 2.0.0-preview.1
+
+**Save or recover your work first.** Older versions don't recognise the new per-tab recovery
+draft names, so they would not offer them. Settings, snapshots and the music library are
+compatible; older versions ignore the new `session` key and reopen the last document as before.
+The preview.1 code is on **`noormd-2.0.0-preview.1-baseline`** (commit `6fae20f`). Older
+baselines: `noormd-1.2.0-baseline`, `noormd-1.1.0-baseline`, `noormd-1.0.0-baseline`.
+
 ## 2.0.0-preview.1 — Creator's Bench (milestone A) and themes
 
 Based on *NoorMD 2.0 — Creator's Bench*. The engineering plan, decisions and conflicts are in
