@@ -1492,7 +1492,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Media menu shows Shuffle checked and has “Jump to a random track”', (await page.getAttribute('.menu-popup .menu-item:has-text("Shuffle")', 'aria-checked')) === 'true' && (await page.textContent('.menu-popup')).includes('Jump to a random track'));
       await page.keyboard.press('Escape');
       const seen = new Set();
-      for (let i = 0; i < 12; i++) {
+      // Random: keep clicking until every track has come up (each pick is 1 of 3, so 12 tries alone can miss one by chance).
+      for (let i = 0; i < 40 && seen.size < 4; i++) {
         const before = (await ms()).q.current;
         await page.click('#miniplayer .mp-random');
         await waitFn(page, (b) => window.NoorMusic._state().q.current !== b, before, { timeout: 4000 });
