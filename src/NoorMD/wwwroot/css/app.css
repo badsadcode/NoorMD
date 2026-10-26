@@ -542,7 +542,7 @@ body.music-disabled .music-entry, body.music-disabled .miniplayer { display: non
 .tab-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
 .tab-pin { display: none; font-size: 10px; filter: grayscale(.3); }
 .tab.pinned .tab-pin { display: inline; }
-.tab.pinned { min-width: 0; max-width: 160px; }
+.tab.pinned { max-width: 200px; }
 .tab-dirty { display: none; color: var(--accent); font-size: 10px; }
 .tab.dirty .tab-dirty { display: inline; }
 .tab-close { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: inherit; font-size: 10px; opacity: .55; }

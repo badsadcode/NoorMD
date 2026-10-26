@@ -52,7 +52,7 @@ unchanged; the music player belongs to the window, not to a tab.
   tab. See [docs/BRIDGE.md](docs/BRIDGE.md).
 - Recovery drafts are named `<session>-<tab>.json`.
 - Tests:
-  - 4 new unit tests (69 in Core, including that v1 messages are now rejected);
+  - 4 new unit tests (65 in Core; the protocol test now also checks that v1 messages are rejected);
   - 52 new UI checks (203 in total), including three files edited in turn, rapid switching
     while typing, Ctrl+S straight after a keystroke, 24 tabs, and music playing through tab
     changes;
