@@ -1,5 +1,126 @@
 # Changelog
 
+## 2.0.0-preview.3 — Menus & toolbar, Vaults, Pack & Share, NoorSketch
+
+Built from four proposals: *Main Menu & Customizable Toolbars*, *Vaults Foundation*, *Vault Pack & Share*
+and *NoorSketch*. Tabs, the Music Bench and every earlier feature are unchanged, and the
+signature violet theme (Atelier Dark) is still the default.
+
+**Main menu and toolbar.**
+- Menus: **File, Edit, Insert, Format, View, Workspace, Media, Tools, Help**.
+  - Open them with **Alt+letter** (holding Alt underlines the letters), or press **F10** and
+    use the arrow keys.
+  - Menu items show their shortcuts. Items that can't run right now are greyed out, and
+    toggles show a check mark.
+- **One command list for everything.** The menu, the toolbar, keyboard shortcuts and Ctrl+K
+  all run the same commands, so they can't drift apart.
+- **Toolbar** with groups: Document, Writing, Navigation, View, Tools and Media.
+  - It replaces the editor's own toolbar. Bold, italic, lists and other formats light up for
+    the text at the cursor.
+  - The heading picker shows the current level. Insert table and Insert image have small
+    dialogs.
+  - When the window is narrow, the least-used buttons move into **More** instead of being
+    cut off.
+  - Right-click the toolbar or use **View → Customize toolbar…** to:
+    - show text labels or use small buttons;
+    - hide or reorder groups;
+    - restore the defaults.
+  - **View → Show toolbar** hides it completely. Everything stays in the menus and Ctrl+K.
+- **Focus mode** hides the menu and toolbar (optionally keep the toolbar). An **Exit focus**
+  button is always visible.
+- **Edit menu:**
+  - Cut, Copy and Paste-as-plain-text go through the Windows clipboard.
+  - Select all, plus **Tools → Document statistics** and **Help → User guide** (opens the
+    README in a tab).
+
+**Vaults.** A Vault is any ordinary folder. Open it with **Workspace → Open Folder as Vault**,
+or create one.
+- NoorMD writes nothing into it except your own notes and folders. `.git`, `.obsidian` and
+  other tools' folders are skipped and never changed. Its settings live in NoorMD's own
+  settings.
+- **Explorer** in the sidebar (Files / Document switch):
+  - folders first, natural order;
+  - name filter that ignores accents;
+  - keyboard navigation, Ctrl/Shift multi-select and drag to move;
+  - inline rename with F2;
+  - New note / New folder, Duplicate, Reveal, Copy path;
+  - Delete to the **Recycle Bin**.
+- **Open tabs follow their files** when you rename or move them in NoorMD. Deleting a file
+  closes its tab unless it has unsaved edits.
+- **Find in Vault (Ctrl+Shift+F).**
+  - Every note is searched in the background, ignoring accents and case. Matches are
+    highlighted.
+  - Opening a result highlights the words in the note.
+  - The index is kept up to date by watching the folder. It is a cache, never stored in the
+    Vault.
+- **Ctrl+E** now also finds notes that aren't open. **Ctrl+Shift+E** focuses the explorer.
+- **Linked from:** a sidebar list of notes that link to the current one, by relative link or
+  `[[wiki link]]`.
+- **Links:**
+  - **Ctrl+click** a `[[wiki link]]` to open it (or to create the note).
+  - Links between notes in the Vault open without a confirmation.
+  - **Link to a note…** inserts a relative link.
+- **Pictures:**
+  - `../Images/x.png` style links work inside a Vault.
+  - Dropping a picture from outside the Vault offers to copy it into the Vault's attachments
+    folder.
+- Front matter and wiki links keep their exact text; the round-trip guard handles notes the
+  Visual editor can't represent.
+- Closing or switching a Vault never closes a tab. The Vault reopens on start with the
+  session.
+
+**Pack & Share.** Right-click a folder, several items or the Vault, or use **Workspace →
+Pack & Share…**.
+- **Preview first:** file count and size, the files with their archive paths, what's left out
+  and by which rule, linked files from elsewhere in the Vault (include or exclude each), and
+  links that can't be packed.
+- **Exclusion rules** are visible and editable. The defaults leave out `.git`, `.obsidian`,
+  `.env`, keys, certificates, temp files and the like.
+- **Folder structure is kept,** so relative links work after unzipping. The archive never
+  includes itself.
+- **AI Handoff Package** adds `MANIFEST.md` and `README.md` in `_noormd_handoff/` (your own
+  README is never replaced). It includes only instructions you write; nothing is invented or
+  summarised, and nothing is uploaded.
+- **Packing:**
+  - Runs in the background with progress and Cancel. Music keeps playing.
+  - The ZIP is written under a temporary name, checked, and only then renamed.
+  - Cancelling or failing leaves no archive, and your files are only ever read.
+  - Locked files are reported, and the rest is packed.
+- **Unsaved edits** in packed notes: choose to save first or to pack the versions on disk.
+
+**NoorSketch** (**Tools → NoorSketch**). A quick sketchpad in its own resizable window that
+doesn't block the editor or the music.
+- **Tools:**
+  - brush (1–100 px, no gaps on fast strokes) and colour swatches or any colour;
+  - an eraser that makes pixels transparent, not white;
+  - multi-step undo/redo, including Clear and canvas resize;
+  - wheel zoom, Space/middle-drag pan, Fit and 100 %.
+- **Canvas:** 1280×720, 1920×1080, 2048×2048, 4096×4096 or a custom size, with a white or
+  transparent background.
+- **Files:**
+  - **.noorsketch** is a plain ZIP with `manifest.json` and `image.png`. NoorSketch keeps exact
+    pixels, so a saved sketch reopens **pixel-identical**, including soft edges.
+  - **Export PNG** at full resolution.
+- **Insert into document** saves the PNG next to the note (`assets/`) or in the Vault's
+  attachments folder, optionally with its editable `.noorsketch`, and inserts a relative
+  `![Sketch](…)` link into that document. For an unsaved document it asks where.
+- Unsaved sketches are protected when you close the sketch window or NoorMD.
+
+**Tests.**
+- 100 unit tests in Core, 46 in Media.
+- 303 UI checks, 100 of them new, covering menus and the toolbar, Vaults, Pack & Share and
+  NoorSketch.
+- The Windows self-test now also covers:
+  - a 300-note Vault, `../` pictures and rename following a tab;
+  - the Recycle Bin and Pack & Share;
+  - NoorSketch's exact PNG through the real `.noorsketch` file.
+
+### Going back to 2.0.0-preview.2
+
+Notes, sketches and ZIPs are ordinary files, so nothing needs converting. Older versions
+ignore the new settings keys (toolbar, Vaults) and can't open `.noorsketch` files. The
+preview.2 code is on **`noormd-2.0.0-preview.2-baseline`** (commit `1b3cc22`).
+
 ## 2.0.0-preview.2 — Multi-document tabs
 
 Based on *NoorMD — Multi-Document Tabs & Session Management*. The Creator's Bench work is

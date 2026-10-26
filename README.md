@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.2-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.3-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -36,6 +36,27 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **No silent data loss.** You get a Save / Don't save / Cancel prompt when you close a modified
   tab, and a list of all modified documents when you close the window. Unsaved text goes to a recovery draft about 0.6 s after you stop typing. After a
   crash or power loss, NoorMD offers the draft the next time it starts.
+- **Menus and a customizable toolbar.** File, Edit, Insert, Format, View, Workspace, Media,
+  Tools and Help (Alt+letter, F10), plus a grouped toolbar you can hide, label, shrink or
+  reorder. Everything also runs from Ctrl+K and from shortcuts: it's one set of commands.
+- **Vaults.** Open any folder as a Vault and get:
+  - an explorer: new, rename, move by drag, duplicate, delete to the Recycle Bin;
+  - Find in Vault (Ctrl+Shift+F);
+  - notes that link here, `[[wiki links]]` and relative pictures.
+
+  It stays an ordinary folder: nothing is written into it except your notes, and other tools'
+  folders (`.obsidian`, `.git`) are left alone.
+- **Pack & Share.** Right-click a folder or a selection and get one ZIP:
+  - a preview first;
+  - visible exclusion rules that keep secrets out;
+  - optional linked files;
+  - an **AI Handoff** option with a manifest and your own instructions.
+
+  Nothing is uploaded.
+- **NoorSketch.** A quick sketchpad in its own window:
+  - brush and eraser, undo, zoom, canvases up to 4096×4096;
+  - exact `.noorsketch` files and PNG export;
+  - **Insert into document** adds the picture with a relative link.
 - **Tabs for several documents.** Ctrl+T, Ctrl+O, Ctrl+Tab, Ctrl+W, drag to reorder, pin, and
   a searchable list of open documents (Ctrl+E). Every tab has its own editor, undo history,
   encoding, recovery draft and snapshots. Ctrl+S saves only the visible tab. The open tabs come
@@ -98,8 +119,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.2-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.2-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.3-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.3-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -167,6 +188,9 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
   triggers the guard described above. Markdown mode always saves your text byte for byte.
 - **Not supported by the editor engine:** footnotes, math, Mermaid and wiki links. They are
   kept as plain text in Markdown mode.
+- **Vaults, version 1.** Renaming or moving a note doesn't rewrite links to it yet; NoorMD says
+  how many notes link there and asks first. There are no tags, properties or graph view yet.
+- **NoorSketch is raster only.** It has no shapes, text, layers or pen pressure yet.
 - **Tabs, not side-by-side.** Two documents next to each other still need *New window*. Only the
   main window remembers its tabs between runs.
 - **Not included:** file associations and an installer. Use *Open with → Choose another app

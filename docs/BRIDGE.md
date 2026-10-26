@@ -74,4 +74,31 @@ gets `{ busy: true }`.
 | `notice` / `error` | `{ text, ms? }` |
 | `command` | `{ id }`: runs a page command (the host sends `tab.next` / `tab.prev` for Ctrl+Tab, which WPF would otherwise use for focus) |
 
+## Additions in 2.0.0-preview.3 (still protocol v2: new message types only)
+
+| type | payload | result |
+|---|---|---|
+| `clipboard.readText` | — | text on the Windows clipboard |
+| `doc.pickImage` | `{ tabId }` | `{ path, name }`: relative link where possible |
+| `app.openGuide`, `app.exit` | — | — |
+| `vault.open` / `.openRecent` / `.create` / `.close` / `.reveal` / `.refresh` | `{ path }` / `{ name }` | `{ opened }` |
+| `vault.tree` | — | `{ root, indexed, entries: [{ p, d, s, m }] }` (Vault-relative paths) |
+| `vault.openFile` | `{ path }` | opens the note in a tab (`.noorsketch` opens NoorSketch) |
+| `vault.search` | `{ query }` | `{ hits: [{ path, name, line, snippet, nameMatch }], indexed }` |
+| `vault.backlinks` | `{ tabId }` | `{ refs: [{ source, line, snippet }], inVault }` |
+| `vault.openWiki` / `vault.linkTo` | `{ target, tabId }` / `{ tabId, path }` | opens / `{ link, title }` |
+| `vault.newNote` / `.newFolder` / `.rename` / `.move` / `.duplicate` / `.delete` | Vault-relative paths and names | validated by the host; delete goes to the Recycle Bin |
+| `vault.settings.get` / `.set` | `{ attachments, excluded[] }` | the Vault's options |
+| `vault.pack.plan` / `.create` / `.cancel` / `.reveal` | selection and options | preview / `{ path, entries, bytes, failures }` |
+| `sketch.new` / `sketch.open` | — | opens a NoorSketch window |
+
+Events: `vault.changed`, `vault.tree`, `vault.indexed`, `vault.pack.progress` and
+`doc.renamed` (`{ tabId, path, fileName, title }`).
+`insert.text` may name a `tabId`; it is then inserted only into that tab.
+
+The NoorSketch window has its own bridge and accepts messages only from `/_noormd/sketch.html`:
+`sketch.ready`, `sketch.dirty`, `sketch.save`, `sketch.open`, `sketch.exportPng`,
+`sketch.insert` and `sketch.closeNow`. The host sends it `sketch.saveAndClose` and
+`sketch.load`.
+
 Any change to these shapes must bump `v` in both `bridge.js` and `BridgeProtocol.Version`.

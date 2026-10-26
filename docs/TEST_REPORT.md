@@ -153,3 +153,24 @@ and a real crash with several unsaved tabs followed by a restart.
 **Defect found by the Windows self-test and fixed before release.** A tab closed by the host
 itself (not from a page request) stayed in the page's tab strip. The host now sends a
 `tab.closed` event for every closed tab, and the mock host used by the UI tests does the same.
+
+## 2.0.0-preview.3 (menus & toolbar, Vaults, Pack & Share, NoorSketch)
+
+| Acceptance item | Status | Evidence |
+|---|---|---|
+| Menu, toolbar, shortcut and Ctrl+K run the same command | ✅ | One command registry. UI tests run Bold from the toolbar and Italic from the Format menu. Menus are built from command ids, so a missing module has no dead items. |
+| Keyboard access, shortcuts in menus, disabled/checked state | ✅ | UI tests: Alt+F, arrow keys, Esc returns focus to the document, F10, ✓ marks, disabled items |
+| Toolbar can be hidden/restored; settings persist; overflow, no clipping | ✅ | UI tests: View → Show toolbar, labels, hidden and reordered groups, Restore defaults, and the “More” menu at 1024 px with every menu title visible. Settings are validated on the host. |
+| Formatting reflects the caret; WYSIWYG/source/split keep focus and content | ✅ | UI tests: Bold shows pressed, the heading picker shows H2, table insert, undo |
+| Focus Mode editable and always exitable; music unaffected | ✅ | UI tests: Exit focus button, music plays while the toolbar is hidden and shown |
+| Vault: 1,000+ notes browse/search without freezing editing or audio | ✅ / ⚠ | UI tests with 1,500 notes (folder expands in under 1.5 s). Windows self-test: 300+ notes indexed in the background. Music plays through search, refresh and close. A real 10,000-note Vault was not tried. |
+| Standalone files still work; closing a Vault keeps tabs | ✅ | UI test |
+| Rename/move: open tabs follow; inbound links | ✅ / ⚠ | Tabs follow (UI tests and the Windows self-test). Links are not rewritten automatically: NoorMD counts the notes that link to the item and asks first. Automatic rewriting is a later step. |
+| Wiki links and YAML front matter kept exactly | ✅ | UI tests: exact text, Ctrl+click follows `[[Rivers]]` |
+| Relative images in a Vault; moving the Vault | ✅ | `../../Images/pic.png` shown on real WebView2 (self-test). Links are relative, so they survive moving the whole folder. |
+| Obsidian folder untouched | ✅ | Unit tests and the self-test check that `.obsidian/app.json` is unchanged and hidden |
+| Pack & Share acceptance 1–10 | ✅ | Unit tests: folder and multi-selection layout, linked files included or skipped one by one, unresolved links, rules that protect secrets, handoff files in their own folder, the user's README untouched, no invented instructions, cancel leaves nothing, self-inclusion prevented, unsafe entry paths refused, a locked or vanished file reported while the rest is packed, links work after unzipping. UI tests: preview, progress, cancel, unsaved-edit choice, music playing. Windows self-test packs a real Vault. |
+| NoorSketch checklist | ✅ / ⚠ | UI tests (Chromium):<br>• fast strokes without gaps; size and colour apply<br>• the eraser makes alpha 0; undo/redo/clear; Esc cancels a stroke<br>• zoom/fit/resize never change the pixels<br>• save → reopen is pixel-identical including soft edges; export keeps the resolution<br>• insert request; limits enforced; 4096×4096 canvas<br>Windows self-test: separate window on real WebView2, `.noorsketch` byte-identical round trip, editor untouched. Pen pressure, 125–200 % scaling and the native dialogs were not checked by a person. |
+
+**Defect found and fixed during this work.** In the explorer, F2 was taken by the global
+“edit current track” shortcut. It now renames in the explorer and edits the track elsewhere.

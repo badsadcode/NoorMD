@@ -8,7 +8,11 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Open files (each in a tab) | Ctrl+O |
 | Close tab | Ctrl+W (or middle-click the tab) |
 | Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab (also Ctrl+PageDown / Ctrl+PageUp) |
-| Go to an open document | Ctrl+E |
+| Go to an open document (or, in a Vault, any note) | Ctrl+E |
+| Open a menu | Alt + underlined letter (File = Alt+F …) · F10 then arrows |
+| Find in Vault | Ctrl+Shift+F |
+| Vault explorer | Ctrl+Shift+E (then arrows, Enter, F2 rename, Delete, Space to select) |
+| Follow a [[wiki link]] | Ctrl+click it |
 | Tab menu (Close Others, Copy Path, Pin…) | right-click a tab |
 | Save (the visible tab only) | Ctrl+S |
 | Save as | Ctrl+Shift+S |
@@ -66,3 +70,18 @@ letters and never trigger a shortcut.
 
 All shortcuts are handled in one place (the editor page), and the browser's own shortcuts
 (reload, browser print, find, zoom) are switched off. A held-down Ctrl+S saves exactly once.
+
+## NoorSketch (in the sketch window)
+
+| Action | Shortcut |
+|---|---|
+| Brush / eraser / pan | B / E / H (or hold Space, or drag with the middle button) |
+| Brush size smaller / bigger | [ / ] |
+| Zoom | mouse wheel · Ctrl+= / Ctrl+− |
+| Fit to window / actual pixels | Ctrl+0 / Ctrl+1 |
+| Undo / redo | Ctrl+Z / Ctrl+Y (or Ctrl+Shift+Z) |
+| Clear canvas (undoable) | Delete |
+| Cancel the stroke being drawn | Esc |
+| New / open / save / save as | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |
+| Export PNG | Ctrl+E |
+| Insert into document | Ctrl+Enter |
