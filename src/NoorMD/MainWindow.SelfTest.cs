@@ -192,6 +192,11 @@ public partial class MainWindow
         var folder = Music.AddFolder(musicDir);
         var scan = await Task.Run(() => Music.ScanFolder(folder));
         Check("music folder indexed", scan.Added >= 1 && scan.Errors == 0, $"{scan.Added} added");
+        // The page's own query payload (with nulls) through the real bridge — regression for the null-number bug.
+        await Eval("window.__nq = null; NoorBridge.request('music.query', { search: '', triage: null, missingOnly: false, playlistId: null, sort: 'title', desc: false, offset: 0, limit: 200 }).then(r => window.__nq = r.total, e => window.__nq = 'error: ' + e.message)");
+        await Task.Delay(700);
+        var nq = await Eval("window.__nq");
+        Check("music.query with the page's null filters works through the bridge", nq == scan.Added.ToString(System.Globalization.CultureInfo.InvariantCulture), nq);
         var ids = Music.QueryIds(new NoorMD.Media.LibraryQuery(Sort: "filename"));
         var mp3 = Music.GetMany(ids).First(t => t.Path.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase));
         await Eval($"window.NoorMusic._testPlay([{string.Join(',', ids)}], {ids.ToList().IndexOf(mp3.Id)}, true)");
@@ -222,6 +227,17 @@ public partial class MainWindow
 
     private void FinishSelfTest()
     {
+        // Any bridge request that failed during the run is a bug even if the visible checks passed.
+        try
+        {
+            var logFile = Path.Combine(App.Paths.Logs, "noormd.log");
+            var bridgeErrors = File.Exists(logFile)
+                ? File.ReadAllLines(logFile).Where(l => l.Contains("[ERROR] Bridge request", StringComparison.Ordinal) || l.Contains("[ERROR] Rejected bridge", StringComparison.Ordinal)).ToList()
+                : [];
+            Check("no bridge request failed during the self-test", bridgeErrors.Count == 0, string.Join(" | ", bridgeErrors.Take(3)));
+        }
+        catch (Exception ex) { Check("log readable", false, ex.Message); }
+
         var passed = _selfTestResults.Count > 0 && _selfTestResults.All(r => (bool)r.GetType().GetProperty("ok")!.GetValue(r)!);
         var report = new
         {

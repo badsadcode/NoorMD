@@ -30,7 +30,7 @@ public static class BridgeProtocol
             using var doc = JsonDocument.Parse(json, new JsonDocumentOptions { MaxDepth = 32 });
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object) { error = "Message must be an object."; return false; }
-            if (!root.TryGetProperty("v", out var v) || !v.TryGetInt32(out var ver) || ver != Version) { error = "Unsupported protocol version."; return false; }
+            if (!root.TryGetProperty("v", out var v) || !Json.TryInt(v, out var ver) || ver != Version) { error = "Unsupported protocol version."; return false; }
             if (!root.TryGetProperty("type", out var t) || t.ValueKind != JsonValueKind.String) { error = "Missing type."; return false; }
             var type = t.GetString()!;
             if (type.Length is 0 or > MaxTypeLength || !type.All(c => char.IsAsciiLetterOrDigit(c) || c == '.')) { error = "Invalid type."; return false; }

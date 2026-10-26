@@ -490,3 +490,52 @@ public class MediaResponseTests
         File.WriteAllBytes(t.P("renamed.mp3"), [1, 2, 3]);
     }
 }
+
+/// <summary>
+/// Regression: the page sends nulls ("no filter"), and JsonElement.TryGetInt32 throws on null. On Windows this
+/// made music.query fail (found by the CI self-test). These payloads are exactly what music.js sends.
+/// </summary>
+public class MusicRequestTests
+{
+    private static JsonElement J(string json) => JsonDocument.Parse(json).RootElement.Clone();
+
+    [Fact]
+    public void Query_Accepts_The_Pages_Default_Payload_With_Nulls()
+    {
+        var q = MusicRequests.Query(J("""{"search":"","triage":null,"missingOnly":false,"playlistId":null,"sort":"title","desc":false,"offset":0,"limit":200}"""));
+        Assert.Null(q.Triage);
+        Assert.Null(q.PlaylistId);
+        Assert.Equal("title", q.Sort);
+        Assert.Equal(200, q.Limit);
+    }
+
+    [Fact]
+    public void Query_Reads_Filters_And_Clamps()
+    {
+        var q = MusicRequests.Query(J("""{"search":"żółw","triage":3,"playlistId":7,"sort":"duration","desc":true,"offset":-5,"limit":999999,"missingOnly":true}"""));
+        Assert.Equal(Triage.Maybe, q.Triage);
+        Assert.Equal(7, q.PlaylistId);
+        Assert.True(q.Descending && q.MissingOnly);
+        Assert.Equal(0, q.Offset);
+        Assert.Equal(2000, q.Limit);
+        Assert.Null(MusicRequests.Query(J("""{"triage":"1"}""")).Triage);   // wrong type is ignored, not thrown
+        Assert.Null(MusicRequests.Query(J("""{"triage":9}""")).Triage);     // out of range
+        Assert.Equal("title", MusicRequests.Query(J("{}")).Sort);
+    }
+
+    [Fact]
+    public void Ids_Skips_NonNumbers_And_Tags_Distinguish_Clear_From_Unchanged()
+    {
+        Assert.Equal([1L, 3L], MusicRequests.Ids(J("""{"ids":[1,null,"2",3,{"x":1}]}""")));
+        Assert.Empty(MusicRequests.Ids(J("""{"ids":null}""")));
+        var tags = MusicRequests.Tags(J("""{"updateTags":true,"tags":{"title":"Nowy","year":"","trackNumber":5,"genre":null}}"""))!;
+        Assert.Equal("Nowy", tags.Title);
+        Assert.Equal(0u, tags.Year);           // "" = clear
+        Assert.Equal(5u, tags.TrackNumber);
+        Assert.Null(tags.Genre);               // null = leave unchanged
+        Assert.Null(tags.Artist);              // absent = leave unchanged
+        Assert.Null(MusicRequests.Tags(J("""{"updateTags":false,"tags":{"title":"x"}}""")));
+        Assert.Throws<ArgumentException>(() => MusicRequests.RequireId(J("""{"id":null}""")));
+        Assert.Equal(42, MusicRequests.RequireId(J("""{"id":42}""")));
+    }
+}

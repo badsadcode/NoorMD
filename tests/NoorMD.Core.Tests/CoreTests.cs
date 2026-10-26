@@ -363,6 +363,18 @@ public class ExportAndProtocolTests
     }
 
     [Fact]
+    public void Prefs_And_Protocol_Tolerate_Nulls_And_Wrong_Types()
+    {
+        var p = new EditorPrefs { FontSize = 18 };
+        using var patch = JsonDocument.Parse("""{"fontSize":null,"splitRatio":"0.4","sidebarWidth":{"x":1},"theme":null,"compact":true}""");
+        p.Apply(patch.RootElement); // must not throw
+        Assert.Equal(18, p.FontSize);
+        Assert.True(p.Compact);
+        Assert.False(BridgeProtocol.TryParse("""{"v":"1","type":"doc.save"}""", out _, out _));
+        Assert.False(BridgeProtocol.TryParse("""{"v":null,"type":"doc.save"}""", out _, out _));
+    }
+
+    [Fact]
     public void Settings_RecentList_DedupesAndPersists()
     {
         using var t = new TempDir();

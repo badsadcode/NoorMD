@@ -86,17 +86,17 @@ public partial class MainWindow
                 PushEvent("music.changed", new { });
                 return null;
             case "music.rescan":
-                StartScan(p.TryGetProperty("id", out var fid) && fid.TryGetInt64(out var one) ? [one] : Music.Folders().Select(f => f.Id).ToList());
+                StartScan(NoorMD.Core.Bridge.Json.OptLong(p, "id") is long one ? [one] : Music.Folders().Select(f => f.Id).ToList());
                 return null;
             case "music.cancelScan":
                 _scanCts?.Cancel();
                 return null;
             case "music.query":
-                var q = Query(p);
+                var q = MusicRequests.Query(p);
                 var res = Music.Query(q);
                 return new { total = res.Total, offset = q.Offset, rows = res.Rows.Select(Row) };
             case "music.ids":
-                return Music.QueryIds(Query(p) with { Offset = 0 });
+                return Music.QueryIds(MusicRequests.Query(p) with { Offset = 0 });
             case "music.tracks":
                 return Music.GetMany(Ids(p, "ids")).Select(Row);
             case "music.track":
@@ -110,7 +110,7 @@ public partial class MainWindow
             case "music.edit.validate":
                 return Editor.Validate(Long(p, "id"), req.GetString("fileName", 1000));
             case "music.edit.apply":
-                return EditResultForPage(await Task.Run(() => Editor.Apply(Long(p, "id"), TagsFrom(p), p.TryGetProperty("rename", out var rn) && rn.ValueKind == JsonValueKind.True ? req.GetString("fileName", 1000) : null)));
+                return EditResultForPage(await Task.Run(() => Editor.Apply(Long(p, "id"), MusicRequests.Tags(p), NoorMD.Core.Bridge.Json.IsTrue(p, "rename") ? req.GetString("fileName", 1000) : null)));
             case "music.undo":
             {
                 var last = Editor.LastUndoable() ?? throw new BridgeError("There is no track edit to undo.");
@@ -225,31 +225,9 @@ public partial class MainWindow
     // ------------------------------------------------------------------ payload helpers
 
     private static long Long(JsonElement p, string name) =>
-        p.TryGetProperty(name, out var v) && v.TryGetInt64(out var l) ? l : throw new BridgeError($"Missing \"{name}\".");
+        NoorMD.Core.Bridge.Json.OptLong(p, name) ?? throw new BridgeError($"Missing \"{name}\".");
 
-    private static List<long> Ids(JsonElement p, string name)
-    {
-        if (!p.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.Array) return [];
-        return v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Select(x => x.GetInt64()).Take(50_000).ToList();
-    }
-
-    private static LibraryQuery Query(JsonElement p)
-    {
-        string? S(string n, int max = 200) => p.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()?[..Math.Min(v.GetString()!.Length, max)] : null;
-        int I(string n, int d) => p.TryGetProperty(n, out var v) && v.TryGetInt32(out var i) ? i : d;
-        Triage? tri = p.TryGetProperty("triage", out var t) && t.TryGetInt32(out var ti) && ti is >= 0 and <= 4 ? (Triage)ti : null;
-        long? pl = p.TryGetProperty("playlistId", out var pv) && pv.TryGetInt64(out var pli) ? pli : null;
-        return new LibraryQuery(S("search"), tri, p.TryGetProperty("missingOnly", out var m) && m.ValueKind == JsonValueKind.True, pl,
-            S("sort", 20) ?? "title", p.TryGetProperty("desc", out var d) && d.ValueKind == JsonValueKind.True, Math.Max(0, I("offset", 0)), Math.Clamp(I("limit", 200), 1, 2000));
-    }
-
-    private static TagEdit? TagsFrom(JsonElement p)
-    {
-        if (!p.TryGetProperty("updateTags", out var u) || u.ValueKind != JsonValueKind.True || !p.TryGetProperty("tags", out var t) || t.ValueKind != JsonValueKind.Object) return null;
-        string? S(string n) => t.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()?[..Math.Min(v.GetString()!.Length, 2000)] : null;
-        uint? N(string n) => t.TryGetProperty(n, out var v) ? v.ValueKind == JsonValueKind.Number && v.TryGetUInt32(out var x) ? x : v.ValueKind == JsonValueKind.String && v.GetString() == "" ? 0u : null : null;
-        return new TagEdit { Title = S("title"), Artist = S("artist"), Album = S("album"), AlbumArtist = S("albumArtist"), Genre = S("genre"), Year = N("year"), TrackNumber = N("trackNumber"), Comment = S("comment") };
-    }
+    private static List<long> Ids(JsonElement p, string name) => MusicRequests.Ids(p, name);
 
     private static object Row(TrackRow t) => new
     {

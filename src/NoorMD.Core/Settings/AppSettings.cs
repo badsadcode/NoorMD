@@ -43,20 +43,20 @@ public sealed class EditorPrefs
                 case "fontFamily": FontFamily = Pick(p.Value, Fonts, FontFamily); break;
                 case "lineWidth": LineWidth = Pick(p.Value, Widths, LineWidth); break;
                 case "openMode": OpenMode = Pick(p.Value, OpenModes, OpenMode); break;
-                case "fontSize" when p.Value.TryGetInt32(out var size): FontSize = size; break;
-                case "sidebarWidth" when p.Value.TryGetInt32(out var w): SidebarWidth = w; break;
-                case "goalWords" when p.Value.TryGetInt32(out var g): GoalWords = g; break;
-                case "splitRatio" when p.Value.TryGetDouble(out var r): SplitRatio = r; break;
+                case "fontSize" when Bridge.Json.TryInt(p.Value, out var size): FontSize = size; break;
+                case "sidebarWidth" when Bridge.Json.TryInt(p.Value, out var w): SidebarWidth = w; break;
+                case "goalWords" when Bridge.Json.TryInt(p.Value, out var g): GoalWords = g; break;
+                case "splitRatio" when Bridge.Json.TryDouble(p.Value, out var r): SplitRatio = r; break;
                 case "sidebarCollapsed" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SidebarCollapsed = p.Value.GetBoolean(); break;
                 case "restoreSession" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: RestoreSession = p.Value.GetBoolean(); break;
                 case "spellcheck" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Spellcheck = p.Value.GetBoolean(); break;
                 case "compact" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Compact = p.Value.GetBoolean(); break;
-                case "sourceFontSize" when p.Value.TryGetInt32(out var ss): SourceFontSize = ss; break;
+                case "sourceFontSize" when Bridge.Json.TryInt(p.Value, out var ss): SourceFontSize = ss; break;
                 case "lineNumbers" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: LineNumbers = p.Value.GetBoolean(); break;
                 case "wordWrap" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: WordWrap = p.Value.GetBoolean(); break;
                 case "showMusic" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ShowMusic = p.Value.GetBoolean(); break;
                 case "miniPlayer" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: MiniPlayer = p.Value.GetBoolean(); break;
-                case "musicWidth" when p.Value.TryGetInt32(out var mw): MusicWidth = mw; break;
+                case "musicWidth" when Bridge.Json.TryInt(p.Value, out var mw): MusicWidth = mw; break;
                 case "syncScroll" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SyncScroll = p.Value.GetBoolean(); break;
             }
         }

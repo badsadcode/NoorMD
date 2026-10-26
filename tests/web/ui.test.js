@@ -24,6 +24,18 @@ function bigDocument() {
   return out;
 }
 
+
+// Polls with page.evaluate instead of page.waitForFunction: some Playwright versions poll by eval-ing the
+// predicate, which the app's Content-Security-Policy (script-src 'self', no unsafe-eval) rightly blocks.
+async function waitFn(page, fn, arg, opts = {}) {
+  const end = Date.now() + (opts.timeout || 30000);
+  for (;;) {
+    if (await page.evaluate(fn, arg)) return true;
+    if (Date.now() > end) throw new Error('waitFn timed out: ' + fn.toString().slice(0, 100));
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 const results = [];
 function check(name, cond, detail) {
   results.push({ name, ok: !!cond, detail });
@@ -39,7 +51,7 @@ async function open(browser, base, initial, viewport = { width: 1440, height: 90
   page.on('request', (r) => { if (!r.url().startsWith(base) && !r.url().startsWith('data:')) external.push(r.url()); });
   await page.addInitScript(mockHostScript, initial);
   await page.goto(base);
-  await page.waitForFunction(() => window.NoorMD && document.querySelector('.toastui-editor-defaultUI'));
+  await waitFn(page, () => window.NoorMD && document.querySelector('.toastui-editor-defaultUI'));
   await page.waitForTimeout(150);
   return { page, errors, external };
 }
@@ -51,7 +63,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
   const shotsIdx = process.argv.indexOf('--screenshots');
   const shots = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;
   const { server, url } = await serve();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
   try {
     // ---- 1. Lossless document: Visual mode, exact content, not dirty, offline.
     {
@@ -558,12 +570,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('library list is virtualised (only visible rows in the DOM)', domRows > 5 && domRows < 60, domRows);
       const t0 = Date.now();
       await page.evaluate(() => { const l = document.querySelector('#music-list'); l.scrollTop = l.scrollHeight; });
-      await page.waitForFunction(() => [...document.querySelectorAll('#music-list .track')].some((n) => n.dataset.index === '19999'));
+      await waitFn(page, () => [...document.querySelectorAll('#music-list .track')].some((n) => n.dataset.index === '19999'));
       check(`jumping to the end of 20,000 tracks renders quickly (${Date.now() - t0} ms)`, Date.now() - t0 < 2000, Date.now() - t0);
       if (shots) await page.screenshot({ path: `${shots}/music-bench-library.png` });
 
       await page.fill('#music-search', 'zolw');
-      await page.waitForFunction(() => window.NoorMusic._state().view.search === 'zolw');
+      await waitFn(page, () => window.NoorMusic._state().view.search === 'zolw');
       await page.waitForTimeout(150);
       const found = await page.$$eval('#music-list .track .track-title', (n) => n.map((x) => x.textContent));
       check('search ignores case and Polish diacritics (“zolw” → “Żółw nocą”)', found.length === 1 && found[0] === 'Żółw nocą', found);
@@ -574,11 +586,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForTimeout(250);
       await page.evaluate(async () => { await NoorBridge.request('music.setTriage', { ids: [1, 2, 3, 4], value: 2 }); });
       await page.click('#music-chips .chip:has-text("Keep")');
-      await page.waitForFunction(() => window.NoorMusic._state().view.triage === 2);
+      await waitFn(page, () => window.NoorMusic._state().view.triage === 2);
       await page.waitForTimeout(200);
       check('triage filter shows exactly the Keep tracks', (await page.$$eval('#music-list .track', (n) => n.length)) === 4);
       await page.dblclick('#music-list .track[data-index="0"]');
-      await page.waitForFunction(() => !window.NoorMusic._state().paused && window.NoorMusic._state().time > 0.2, null, { timeout: 8000 });
+      await waitFn(page, () => !window.NoorMusic._state().paused && window.NoorMusic._state().time > 0.2, null, { timeout: 8000 });
       let st = await ms();
       check('double-click plays real audio (MP3/OGG/FLAC/WAV served with HTTP ranges)', !st.paused && st.time > 0.2 && st.q.ids.length === 4, st);
       check('audio requests use byte ranges', mediaLog.some((r) => r.range && r.range.startsWith('bytes=')), mediaLog.slice(0, 3));
@@ -595,13 +607,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('playback continues when another document is loaded', !(await ms()).paused);
 
       // Sequential playback across a track boundary (fixtures are ~2 s long).
-      await page.waitForFunction((f) => window.NoorMusic._state().q.current !== f, first, { timeout: 8000 });
+      await waitFn(page, (f) => window.NoorMusic._state().q.current !== f, first, { timeout: 8000 });
       check('advances to the next track at the end (sequential)', (await ms()).q.pos === 1);
       // Repeat one: the same track restarts.
       await page.evaluate(() => { NoorMusic.cycleRepeat(); NoorMusic.cycleRepeat(); }); // off → all → one
       const repeatId = (await ms()).q.current;
-      await page.waitForFunction(() => { const s = window.NoorMusic._state(); return s.time > 1.2; }, null, { timeout: 6000 });
-      await page.waitForFunction(() => window.NoorMusic._state().time < 0.8, null, { timeout: 6000 });
+      await waitFn(page, () => { const s = window.NoorMusic._state(); return s.time > 1.2; }, null, { timeout: 6000 });
+      await waitFn(page, () => window.NoorMusic._state().time < 0.8, null, { timeout: 6000 });
       check('repeat one replays the same track', (await ms()).q.current === repeatId && (await ms()).q.repeat === 'one');
       // Repeat all: wraps from the last track to the first.
       await page.evaluate(() => NoorMusic.cycleRepeat()); // one → off
@@ -617,7 +629,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => NoorMusic.setShuffle());
 
       // Seek with the mini-player bar.
-      await page.waitForFunction(() => Number.isFinite(window.NoorMusic._state().duration));
+      await waitFn(page, () => Number.isFinite(window.NoorMusic._state().duration));
       await page.evaluate(() => { const r = document.querySelector('#mp-range'); r.value = '500'; r.dispatchEvent(new Event('change')); });
       await page.waitForTimeout(150);
       st = await ms();
@@ -650,8 +662,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/music-edit-track.png` });
       const wasPos = (await ms()).time;
       await page.click('.modal .action.primary:has-text("Save")');
-      await page.waitForFunction(() => !document.querySelector('.edit-name'));
-      await page.waitForFunction(() => !window.NoorMusic._state().paused, null, { timeout: 5000 });
+      await waitFn(page, () => !document.querySelector('.edit-name'));
+      await waitFn(page, () => !window.NoorMusic._state().paused, null, { timeout: 5000 });
       const edit = await page.evaluate(() => window.__mock.state.music.edits.at(-1));
       st = await ms();
       check('Save sends tag update and rename for the current track', edit.updateTags && edit.rename && edit.fileName === 'Nocna jazda' && edit.tags.title === 'Nocna jazda', edit);
@@ -678,8 +690,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForTimeout(250);
       await page.dblclick('#music-list .track[data-index="0"]');
       // Wait for the new [missing, playable] queue to start, then for the skip to the playable track.
-      await page.waitForFunction(() => window.NoorMusic._state().q.ids.join() === '6,1', null, { timeout: 5000 }).catch(() => {});
-      await page.waitForFunction(() => { const s = window.NoorMusic._state(); return s.q.pos === 1 && s.q.current === 1 && !s.paused; }, null, { timeout: 8000 }).catch(() => {});
+      await waitFn(page, () => window.NoorMusic._state().q.ids.join() === '6,1', null, { timeout: 5000 }).catch(() => {});
+      await waitFn(page, () => { const s = window.NoorMusic._state(); return s.q.pos === 1 && s.q.current === 1 && !s.paused; }, null, { timeout: 8000 }).catch(() => {});
       check('an unplayable (missing) track is skipped with a notice', (await ms()).q.current === 1 && (await page.textContent('#notice')).includes("Can't play"), { q: (await ms()).q, notice: await page.textContent('#notice') });
 
       // Focus mode hides the bench and mini-player; music keeps playing.
@@ -705,7 +717,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
 
       const r2 = await open(browser, url, { document: { markdown: '# Next day\n', path: 'C:\\docs\\d.md', fileName: 'd.md', title: 'd' }, musicTracks: 20, musicSession: saved });
-      await r2.page.waitForFunction(() => window.NoorMusic._state().src, null, { timeout: 5000 });
+      await waitFn(r2.page, () => window.NoorMusic._state().src, null, { timeout: 5000 });
       await r2.page.waitForTimeout(400);
       const restored = await r2.page.evaluate(() => window.NoorMusic._state());
       check('after restart the last queue and track are restored, paused, at the saved position', restored.paused && restored.q.current === sj.ids[sj.order[sj.pos]] && Math.abs(restored.time - sj.position) < 0.6, { restored: { cur: restored.q.current, time: restored.time }, saved: sj });
