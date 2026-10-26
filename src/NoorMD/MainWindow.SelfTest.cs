@@ -68,14 +68,20 @@ public partial class MainWindow
             Check("editor state readable", st != null);
             if (st == null || path == null) { FinishSelfTest(); return; }
 
-            var expected = File.ReadAllText(path).Replace("\r\n", "\n");
-            Check("loaded text matches file", st.Markdown.TrimEnd() == expected.TrimEnd(), st.Markdown.Length + " chars");
+            var originalBytes = File.ReadAllBytes(path);
+            // Visual mode may normalize cosmetics (e.g. "- item" -> "* item"); the content must all be there.
+            var mustContain = new[] { "# Zażółć gęślą jaźń", "żółw, łódź, źdźbło", "one", "two", "| 1 | 2 |", "```csharp\nConsole.WriteLine(\"ą\");\n```", "![pic](img/pic.png)" };
+            var missing = mustContain.Where(m => !st.Markdown.Contains(m)).ToList();
+            Check("loaded content is complete (diacritics, table, code fence, image)", missing.Count == 0, missing.Count == 0 ? null : "missing: " + string.Join(" | ", missing) + " in: " + st.Markdown);
             Check("not dirty after open", !st.Dirty);
             Check("opened in Visual mode", st.Mode == "wysiwyg", st.Mode);
             Check("bundled editor loaded offline", await Eval("!!(window.toastui && window.toastui.Editor && document.querySelector('.toastui-editor-defaultUI'))") == "true");
             Check("app stylesheet applied", (await Eval("getComputedStyle(document.body).overflow")).Contains("hidden"));
             Check("relative image served from document folder", await Eval("[...document.querySelectorAll('#editor img')].some(i => i.complete && i.naturalWidth === 2)") == "true");
             Check("window title shows file", Title.StartsWith("selftest.md"), Title);
+
+            var noop = await SaveCoreAsync(saveAs: false, st);
+            Check("Ctrl+S on an unedited file does not rewrite it", noop && File.ReadAllBytes(path).SequenceEqual(originalBytes));
 
             PushEvent("insert.text", new { markdown = " Dodano ąę." });
             await Task.Delay(1800);
