@@ -1778,6 +1778,7 @@
 
   function setupBridgeEvents() {
     bridge.on('doc.load', onDocLoad);
+    bridge.on('tab.closed', (p) => { const tab = tabById(p.tabId); if (tab) removeTab(tab); });
     bridge.on('tab.select', (p) => { const tab = tabById(p.tabId); if (tab) { hideWelcome(); showTab(tab); } });
     bridge.on('doc.saved', onSaved);
     bridge.on('recent.changed', (p) => { recent = p.recent || []; renderRecent(); });

@@ -66,6 +66,7 @@ gets `{ busy: true }`.
 |---|---|
 | `doc.load` | `{ tabId, markdown, path, fileName, title, dirty, encoding, eol, pinned, mode, notice?, warning?, background? }`. A tab the page doesn't have is created; an existing tab gets a fresh editor (no undo into the previous text). `background` loads without showing it. |
 | `doc.saved` | `{ tabId, gen, path, fileName, title, encoding, eol }`. The page marks that tab clean only if no edit happened after `gen`. |
+| `tab.closed` | `{ tabId }`: the host closed this tab (sent before the new blank tab when the last one closes) |
 | `tab.select` | `{ tabId }`: show this tab (the file was already open, or the host is about to ask about it) |
 | `recent.changed` | `{ recent: [{ path, name }] }` |
 | `recovery.available` | `{ drafts }` |

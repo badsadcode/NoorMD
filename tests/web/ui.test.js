@@ -818,7 +818,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const saved1 = await page.evaluate(() => ({ s: window.__mock.state.saved, f: window.__mock.files }));
       check('Ctrl+S saves only the shown tab, with the keystroke typed just before', saved1.s.length === 1 && saved1.s[0].tabId === ic && saved1.f['C:\\docs\\c.md'].includes('C2Z')
         && saved1.f['C:\\docs\\a.md'] === A && saved1.f['C:\\docs\\b.md'] === B, saved1.s);
-      check('saved tab is clean, the others stay dirty', (await page.$$eval('#tabs .tab.dirty', (n) => n.length)) === 2);
+      await waitFn(page, () => document.querySelectorAll('#tabs .tab.dirty').length === 2, null, { timeout: 3000 }).catch(() => {});
+      check('saved tab is clean, the others stay dirty', (await page.$$eval('#tabs .tab.dirty', (n) => n.length)) === 2 && !(await page.$eval(`#tabs .tab[data-tab="${ic}"]`, (n) => n.classList.contains('dirty'))));
 
       // Opening an already open file (other spelling) selects its tab.
       await page.keyboard.press('Control+o');

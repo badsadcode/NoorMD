@@ -107,6 +107,7 @@ public partial class MainWindow
     {
         if (!await ConfirmDiscardAsync(s, "close")) return new { closed = false };
         RemoveTab(s);
+        PushEvent("tab.closed", new { tabId = s.TabId });
         if (_tabs.Count == 0)
         {
             // There is always one document to type into.

@@ -130,6 +130,7 @@ function mockHostScript(initial) {
             if (choice === 'save') save(p.tabId, false);
           }
           state.tabs.delete(p.tabId);
+          event('tab.closed', { tabId: p.tabId });
           if (!state.tabs.size) { const id = addTab(null); event('doc.load', { tabId: id, markdown: '', title: 'Untitled document' }); }
           return reply(m.id, true, { closed: true });
         }
