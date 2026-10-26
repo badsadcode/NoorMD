@@ -17,6 +17,8 @@ public sealed class EditorPrefs
     public double SplitRatio { get; set; } = 0.5;
     public int GoalWords { get; set; } = 750;
     public bool RestoreSession { get; set; } = true;
+    public bool Spellcheck { get; set; } = true;
+    public bool Compact { get; set; }
 
     private static readonly string[] Themes = ["dark", "light"];
     private static readonly string[] Fonts = ["inter", "system", "serif", "mono"];
@@ -41,6 +43,8 @@ public sealed class EditorPrefs
                 case "splitRatio" when p.Value.TryGetDouble(out var r): SplitRatio = r; break;
                 case "sidebarCollapsed" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SidebarCollapsed = p.Value.GetBoolean(); break;
                 case "restoreSession" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: RestoreSession = p.Value.GetBoolean(); break;
+                case "spellcheck" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Spellcheck = p.Value.GetBoolean(); break;
+                case "compact" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: Compact = p.Value.GetBoolean(); break;
             }
         }
         Normalize();

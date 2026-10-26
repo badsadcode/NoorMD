@@ -1,4 +1,4 @@
-# NoorMD Desktop 1.0.0: test report
+# NoorMD Desktop: test report
 
 This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKLIST.md).
 
@@ -61,3 +61,16 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 - An installer and file associations.
 - Code signing.
 - A workspace folder tree.
+
+## 1.1.0 additions (UX enhancements)
+
+| Item from the ideas document | Status | Evidence |
+|---|---|---|
+| Width presets, including Focus mode | ✅ | UI tests at 1920 px in Focus mode measure the text column: Comfortable ≈ 800 px, Wide ≈ 1100 px, Full = pane minus 24–40 px padding. The preset is saved, cycling back works, and Markdown and Split modes don't overflow. The Windows self-test checks the same with screenshots. |
+| Spellcheck on/off | ✅ / ⚠ | Unit, UI and self-test checks: the attribute is set on every editing surface, the setting survives mode switches and restarts, and the text is unchanged. Language follows Windows (WebView2 has no per-app language API); this is documented in Preferences. Whether red underlines actually disappear was not checked by a person. |
+| Compact layout | ✅ | The editor gains more than 60 px of vertical room (more than 40 px in the Windows self-test), the sidebar stays, and toggling back restores the original spacing exactly. 125 % / 150 % scaling was not checked by eye. |
+| Tabs | 📝 | Design proposal only (docs/TABS_DESIGN.md) |
+| Shortcut discoverability | ✅ | F1 list is searchable and generated from the commands |
+| About and identity | ✅ | Version, build date, repository link, licenses |
+| Editor affordances | ✅ | Divider grip, active state on the Compact button |
+| AltGr (Polish ś) not swallowed by Ctrl+Alt+S | ✅ | UI test |

@@ -103,6 +103,7 @@ body.sidebar-collapsed #sidebar-expand { display: grid; }
 .actions { display: flex; align-items: center; gap: 9px; }
 .action { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 9px; padding: 8px 13px; display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 650; white-space: nowrap; transition: transform .18s, border-color .18s, background .18s; }
 .action:hover { border-color: var(--accent); background: var(--surface2); transform: translateY(-1px); }
+.action.selected { border-color: var(--accent); color: var(--accent); }
 .action.primary { background: linear-gradient(115deg, #ccb9ff, #a990ff); color: #211835; border: 0; box-shadow: 0 5px 16px #9b77e433; }
 .action.primary:hover { background: linear-gradient(115deg, #d8c9ff, #b7a2ff); }
 
@@ -182,6 +183,11 @@ body.sidebar-collapsed #sidebar-expand { display: grid; }
 #editor.mode-markdown .toastui-editor-md-container .toastui-editor .toastui-editor-contents {
   padding-left: max(24px, calc((100% - var(--measure)) / 2)) !important; padding-right: max(24px, calc((100% - var(--measure)) / 2)) !important;
 }
+/* Full width: the text uses the pane, with modest side padding (24–40 px). */
+body[data-width=full] #editor .toastui-editor-ww-container .toastui-editor-contents,
+body[data-width=full] #editor.mode-markdown .toastui-editor-md-container .toastui-editor .toastui-editor-contents {
+  padding-left: clamp(24px, 3vw, 40px) !important; padding-right: clamp(24px, 3vw, 40px) !important;
+}
 #editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents * { font-size: inherit; line-height: inherit; }
 #editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents h1,
 #editor .toastui-editor-md-container .toastui-editor .toastui-editor-contents h2 { font-size: inherit !important; line-height: inherit !important; font-weight: 700 !important; margin: 0 !important; }
@@ -201,8 +207,17 @@ body.sidebar-collapsed #sidebar-expand { display: grid; }
 #editor.mode-split .toastui-editor-md-preview { display: block !important; flex: 1 1 0 !important; width: auto !important; min-width: 0 !important; overflow-y: auto; overflow-x: hidden; border-left: 1px solid var(--border); padding: 0 !important; }
 #editor.mode-split .toastui-editor-md-splitter { display: block !important; left: var(--split) !important; width: 10px !important; margin-left: -5px; background: transparent !important; cursor: col-resize; z-index: 30; touch-action: none; }
 #editor.mode-split .toastui-editor-md-splitter:hover, body.resizing-split #editor .toastui-editor-md-splitter { background: color-mix(in srgb, var(--accent) 40%, transparent) !important; }
+/* A visible grip so the divider is discoverable without hovering. */
+#editor.mode-split .toastui-editor-md-splitter::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 44px; transform: translate(-50%, -50%);
+  border-radius: 4px; background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+#editor.mode-split .toastui-editor-md-splitter:hover::after, #editor.mode-split .toastui-editor-md-splitter:focus-visible::after { background: var(--accent); }
 body.resizing-split, body.resizing-sidebar { cursor: col-resize; user-select: none; }
 body.resizing-split #editor iframe, body.resizing-split #editor .toastui-editor-md-preview { pointer-events: none; }
+
+/* Spellcheck off: also hide markers Chromium drew before the setting changed. */
+body.no-spellcheck ::spelling-error, body.no-spellcheck ::grammar-error { text-decoration: none; }
 
 /* Find highlights */
 #editor .noor-find-current { background: color-mix(in srgb, var(--accent) 35%, transparent); }
@@ -274,9 +289,25 @@ body.resizing-split #editor iframe, body.resizing-split #editor .toastui-editor-
 .pref-grid .inline { display: flex; gap: 8px; align-items: center; color: var(--text); }
 .pref-grid .inline input[type=range] { flex: 1; accent-color: var(--accent); }
 .pref-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--border); }
+.pref-hint { display: block; color: var(--muted); font-size: 11.5px; line-height: 1.5; margin-top: 4px; }
 .shortcut-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
 .shortcut-table td { padding: 6px 4px; border-bottom: 1px solid var(--border); }
 .shortcut-table td:last-child { text-align: right; }
+
+/* ---------- Compact layout: more vertical room, navigation stays available. ---------- */
+body.compact .top { height: 44px; padding: 0 16px; }
+body.compact .action { padding: 5px 10px; }
+body.compact .workspace { margin: 10px auto 6px; width: min(1600px, calc(100% - 28px)); }
+body.compact .eyebrow { display: none; }
+body.compact .title-input { font-size: 20px; letter-spacing: -.4px; margin: 0 0 2px; }
+body.compact .subtitle { font-size: 11.5px; }
+body.compact .editor-card { margin-top: 8px; border-radius: 11px; }
+body.compact .card-head { padding: 5px 10px; }
+body.compact .pill button { padding: 5px 11px; }
+body.compact .utility-btn { padding: 5px 9px; }
+body.compact .footer { margin-top: 5px; }
+body.compact #editor .toastui-editor-defaultUI-toolbar { padding: 3px 10px !important; }
+body.compact .sidebar { padding: 14px 12px; gap: 14px; }
 
 /* ---------- Focus mode: the document uses the whole window. ---------- */
 body.zen .app { grid-template-columns: 0 0 minmax(0, 1fr); }

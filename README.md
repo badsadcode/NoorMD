@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-1.0.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-1.1.0-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -50,9 +50,13 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   Print through the Windows print dialog. Microsoft Print to PDF works too.
 - **Light and dark themes.** The window title bar, the dialogs and the editor all follow the
   theme, and dark mode starts without a white flash.
-- **Preferences:** writing font (Inter is bundled), text size, line width (Comfortable, Wide
-  or Full width), the mode for opening files, and whether to restore the last document on
-  start. You can also clear recent files or recovery drafts here.
+- **Line width presets:** Comfortable (≈ 800 px), Wide (≈ 1100 px) and Full width. Change
+  them with the ↔ button or Ctrl+Shift+W, in normal and Focus mode.
+- **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
+  (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
+- **Preferences:** writing font (Inter is bundled), text size, line width, layout,
+  spellcheck, the mode for opening files, and whether to restore the last document on start.
+  You can also clear recent files or recovery drafts here.
 - **Recent files**, **drag & drop** to open, and **New window** (in the command palette) to
   work on two documents side by side.
 - **Works fully offline.** The editor, fonts and every script are bundled; nothing is loaded
@@ -77,8 +81,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-1.0.0-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-1.0.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-1.1.0-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-1.1.0-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -144,7 +148,7 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
   triggers the guard described above. Markdown mode always saves your text byte for byte.
 - **Not supported by the editor engine:** footnotes, math, Mermaid and wiki links. They are
   kept as plain text in Markdown mode.
-- **One document per window.** Use *New window* for more; there are no tabs yet.
+- **One document per window.** Use *New window* for more. Tabs are designed but not built yet ([docs/TABS_DESIGN.md](docs/TABS_DESIGN.md)).
 - **Not included:** file associations and an installer. Use *Open with → Choose another app
   → NoorMD.exe* to make NoorMD the handler for `.md` files.
 - **Pasted images** are embedded as base64 data URIs, which is the editor's default.
@@ -153,6 +157,9 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
   reputation checks and makes no network requests of its own. An image in your document with
   an `https://` address is fetched when shown.
 - **Not code-signed.**
+
+What changed between versions and how to go back to 1.0.0: [CHANGELOG.md](CHANGELOG.md).
+The design proposal for tabs: [docs/TABS_DESIGN.md](docs/TABS_DESIGN.md).
 
 Migrating drafts from the old single-file HTML version: see [docs/MIGRATION.md](docs/MIGRATION.md).
 Test results against the acceptance checklist: [docs/TEST_REPORT.md](docs/TEST_REPORT.md).

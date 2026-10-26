@@ -113,8 +113,34 @@ public partial class MainWindow
             await Eval("window.NoorMD.runCommand('view.focus')");
             await Task.Delay(600);
             Check("focus mode uses the window width", await Eval("document.querySelector('#editor-card').getBoundingClientRect().width > window.innerWidth - 60") == "true");
-            await Capture("screenshot-focus.png");
+            await Capture("screenshot-focus-comfortable.png");
+            const string textWidth = "(() => { const pm = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const cs = getComputedStyle(pm); return pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); })()";
+            var comfortable = double.Parse(await Eval(textWidth), System.Globalization.CultureInfo.InvariantCulture);
+            await Eval("window.NoorMD.runCommand('width.full')");
+            await Task.Delay(600);
+            var full = double.Parse(await Eval(textWidth), System.Globalization.CultureInfo.InvariantCulture);
+            Check("Full width preset widens the text in Focus mode", full > comfortable + 100, $"{comfortable:0} -> {full:0} px");
+            Check("width preset persisted", _settings.Prefs.LineWidth == "full", _settings.Prefs.LineWidth);
+            await Capture("screenshot-focus-fullwidth.png");
+            await Eval("window.NoorMD.runCommand('width.comfortable')");
             await Eval("window.NoorMD.runCommand('view.focus')");
+            await Task.Delay(400);
+
+            var top = await Eval("document.querySelector('#editor-card').getBoundingClientRect().top");
+            await Eval("window.NoorMD.runCommand('layout.compact')");
+            await Task.Delay(500);
+            var compactTop = await Eval("document.querySelector('#editor-card').getBoundingClientRect().top");
+            Check("compact layout gains vertical room", double.Parse(top, System.Globalization.CultureInfo.InvariantCulture) - double.Parse(compactTop, System.Globalization.CultureInfo.InvariantCulture) > 40, $"{top} -> {compactTop}");
+            await Capture("screenshot-compact.png");
+            await Eval("window.NoorMD.runCommand('layout.compact')");
+
+            var before = (await GetEditorStateAsync())?.Markdown;
+            await Eval("window.NoorMD.runCommand('spell.toggle')");
+            await Task.Delay(300);
+            Check("spellcheck off: attribute set, text unchanged, persisted",
+                await Eval("[...document.querySelectorAll('#editor [contenteditable=\"true\"]')].every(n => n.getAttribute('spellcheck') === 'false')") == "true"
+                && (await GetEditorStateAsync())?.Markdown == before && !_settings.Prefs.Spellcheck);
+            await Eval("window.NoorMD.runCommand('spell.toggle')");
 
             await Eval("window.NoorMD.runCommand('theme.toggle')");
             await Task.Delay(800);

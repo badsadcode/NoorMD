@@ -332,13 +332,30 @@ public class ExportAndProtocolTests
     public void Prefs_Patch_IsValidatedAndClamped()
     {
         var p = new EditorPrefs();
-        using var patch = JsonDocument.Parse("""{"theme":"light","fontSize":99,"splitRatio":0.95,"lineWidth":"evil","unknown":1,"restoreSession":false}""");
+        using var patch = JsonDocument.Parse("""{"theme":"light","fontSize":99,"splitRatio":0.95,"lineWidth":"evil","unknown":1,"restoreSession":false,"spellcheck":false,"compact":true,"compactz":"x"}""");
         p.Apply(patch.RootElement);
         Assert.Equal("light", p.Theme);
         Assert.Equal(26, p.FontSize);
         Assert.Equal(0.7, p.SplitRatio);
         Assert.Equal("comfortable", p.LineWidth);
         Assert.False(p.RestoreSession);
+        Assert.False(p.Spellcheck);
+        Assert.True(p.Compact);
+    }
+
+    [Fact]
+    public void Settings_From_1_0_0_LoadWithNewDefaults_And_NewSettingsStayReadableByOldShape()
+    {
+        using var t = new TempDir();
+        // A settings.json written by 1.0.0 (no spellcheck/compact keys).
+        File.WriteAllText(t.File("settings.json"), """{"version":1,"prefs":{"theme":"light","lineWidth":"wide"},"recent":[]}""");
+        var s = new SettingsStore(t.File("settings.json")).Load();
+        Assert.True(s.Prefs.Spellcheck);
+        Assert.False(s.Prefs.Compact);
+        Assert.Equal("wide", s.Prefs.LineWidth);
+        // Rolling back to 1.0.0 is safe: System.Text.Json ignores the extra keys by default.
+        new SettingsStore(t.File("settings.json")).Save(s);
+        Assert.Contains("\"compact\"", File.ReadAllText(t.File("settings.json")));
     }
 
     [Fact]

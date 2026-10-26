@@ -8,9 +8,11 @@
 
   const SAMPLE = '# Welcome to NoorMD ✨\n\nA calmer place for ideas, documentation, and glorious little side projects.\n\n## Start creating\n\nWrite **bold**, *italic*, and `inline code` without thinking about Markdown syntax.\n\n- Switch between **Visual**, **Markdown**, and **Split** view (Ctrl+1/2/3).\n- Open any `.md` file with Ctrl+O, or drop it on the window.\n- Unsaved work is kept in a local recovery folder until you save.\n\n> Good ideas deserve a beautiful editor. Even the terrible ideas. Especially those.\n\n### A tiny checklist\n\n- [x] Open the writing studio\n- [ ] Write something brilliant\n- [ ] Make it real\n\n| Shortcut | Action |\n| --- | --- |\n| Ctrl+K | Command palette |\n| F11 | Focus mode |\n\n```csharp\n// And yes, your code blocks are welcome here.\nConsole.WriteLine("Hello, world!");\n```\n';
 
+  const REPO_URL = 'https://github.com/badsadcode/NoorMD';
   const DEFAULT_PREFS = {
     theme: 'dark', fontFamily: 'inter', fontSize: 16, lineWidth: 'comfortable', openMode: 'visual',
     sidebarWidth: 256, sidebarCollapsed: false, splitRatio: 0.5, goalWords: 750, restoreSession: true,
+    spellcheck: true, compact: false,
   };
   const FONTS = {
     inter: "'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
@@ -18,7 +20,9 @@
     serif: "Charter, 'Iowan Old Style', Georgia, Cambria, 'Times New Roman', serif",
     mono: "'Cascadia Code', 'Cascadia Mono', Consolas, ui-monospace, monospace",
   };
-  const MEASURES = { comfortable: '780px', wide: '1100px', full: '100000px' };
+  const MEASURES = { comfortable: '800px', wide: '1100px', full: '100000px' };
+  const WIDTH_LABELS = { comfortable: 'Comfortable', wide: 'Wide', full: 'Full width' };
+  const WIDTH_ORDER = ['comfortable', 'wide', 'full'];
 
   let prefs = { ...DEFAULT_PREFS };
   let recent = [];
@@ -216,6 +220,7 @@
       else { editor.changeMode('markdown', true); editor.changePreviewStyle(m === 'split' ? 'vertical' : 'tab'); }
     };
     if (quiet) run(); else quietly(run);
+    applySpellcheck();
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 
@@ -340,6 +345,15 @@
     root.style.setProperty('--doc-font', FONTS[prefs.fontFamily] || FONTS.inter);
     root.style.setProperty('--doc-size', Math.min(26, Math.max(12, Number(prefs.fontSize) || 16)) + 'px');
     root.style.setProperty('--measure', MEASURES[prefs.lineWidth] || MEASURES.comfortable);
+    document.body.dataset.width = WIDTH_ORDER.includes(prefs.lineWidth) ? prefs.lineWidth : 'comfortable';
+    const widthBtn = $('#width-toggle');
+    if (widthBtn) {
+      widthBtn.querySelector('.width-label').textContent = WIDTH_LABELS[document.body.dataset.width];
+      widthBtn.title = `Line width: ${WIDTH_LABELS[document.body.dataset.width]} — click to change (Ctrl+Shift+W)`;
+    }
+    document.body.classList.toggle('compact', !!prefs.compact);
+    document.querySelectorAll('[data-cmd="layout.compact"]').forEach((b) => { b.classList.toggle('selected', !!prefs.compact); b.setAttribute('aria-pressed', String(!!prefs.compact)); });
+    applySpellcheck();
     applySidebarWidth(prefs.sidebarWidth);
     document.body.classList.toggle('sidebar-collapsed', !!prefs.sidebarCollapsed);
     setSplit(prefs.splitRatio, false);
@@ -355,6 +369,35 @@
   function toggleTheme() {
     setPrefs({ theme: prefs.theme === 'dark' ? 'light' : 'dark' });
     notice(prefs.theme === 'dark' ? 'Dark theme' : 'Light theme');
+  }
+
+  function setLineWidth(w) {
+    setPrefs({ lineWidth: w });
+    notice('Line width: ' + WIDTH_LABELS[w], 1400);
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+  function cycleLineWidth() {
+    const i = WIDTH_ORDER.indexOf(prefs.lineWidth);
+    setLineWidth(WIDTH_ORDER[(i + 1) % WIDTH_ORDER.length]);
+  }
+
+  // Spellcheck uses the Windows spell checker (languages installed in Windows settings). Turning it off sets
+  // spellcheck="false" on every editing surface and hides any markers already drawn; the text is untouched.
+  function applySpellcheck() {
+    const on = prefs.spellcheck !== false;
+    document.body.classList.toggle('no-spellcheck', !on);
+    document.querySelectorAll('#editor [contenteditable="true"], #doc-title, .editor-fallback textarea')
+      .forEach((n) => n.setAttribute('spellcheck', on ? 'true' : 'false'));
+  }
+  function toggleSpellcheck() {
+    setPrefs({ spellcheck: prefs.spellcheck === false });
+    notice(prefs.spellcheck ? 'Spellcheck on' : 'Spellcheck off', 1400);
+  }
+
+  function toggleCompact() {
+    setPrefs({ compact: !prefs.compact });
+    notice(prefs.compact ? 'Compact layout' : 'Standard layout', 1400);
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 
   function changeFontSize(delta) {
@@ -373,6 +416,10 @@
       const size = el('input', { type: 'range', min: '12', max: '26', step: '1', value: String(prefs.fontSize), id: 'pref-size', 'aria-label': 'Text size' });
       const sizeLabel = el('span', { text: prefs.fontSize + ' px' });
       size.addEventListener('input', () => { sizeLabel.textContent = size.value + ' px'; setPrefs({ fontSize: Number(size.value) }); });
+      const compact = el('input', { type: 'checkbox', id: 'pref-compact', checked: prefs.compact || undefined });
+      compact.addEventListener('change', () => setPrefs({ compact: compact.checked }));
+      const spell = el('input', { type: 'checkbox', id: 'pref-spellcheck', checked: prefs.spellcheck !== false || undefined });
+      spell.addEventListener('change', () => setPrefs({ spellcheck: spell.checked }));
       const restore = el('input', { type: 'checkbox', id: 'pref-restore', checked: prefs.restoreSession || undefined });
       restore.addEventListener('change', () => setPrefs({ restoreSession: restore.checked }));
       s.append(NoorUI.head('Preferences', close), el('div', { class: 'modal-body' },
@@ -380,7 +427,10 @@
           el('label', { for: 'pref-theme', text: 'Theme' }), select('theme', [['dark', 'Dark'], ['light', 'Light']]),
           el('label', { for: 'pref-fontFamily', text: 'Writing font' }), select('fontFamily', [['inter', 'Inter (bundled)'], ['system', 'Segoe UI'], ['serif', 'Serif'], ['mono', 'Monospace']]),
           el('label', { for: 'pref-size', text: 'Text size' }), el('div', { class: 'inline' }, size, sizeLabel),
-          el('label', { for: 'pref-lineWidth', text: 'Line width' }), select('lineWidth', [['comfortable', 'Comfortable (≈ 780 px)'], ['wide', 'Wide (≈ 1100 px)'], ['full', 'Full width']]),
+          el('label', { for: 'pref-lineWidth', text: 'Line width' }), select('lineWidth', [['comfortable', 'Comfortable (≈ 800 px)'], ['wide', 'Wide (≈ 1100 px)'], ['full', 'Full width']]),
+          el('label', { for: 'pref-compact', text: 'Layout' }), el('label', { class: 'inline' }, compact, 'Compact (smaller header, more room to write)'),
+          el('label', { for: 'pref-spellcheck', text: 'Spellcheck' }), el('div', {}, el('label', { class: 'inline' }, spell, 'Underline misspelled words'),
+            el('small', { class: 'pref-hint', text: 'Uses the Windows spell checker: languages follow Windows Settings → Time & language → Language (add Polish there to check Polish). Right-click a word → “Add to dictionary” for project terms.' })),
           el('label', { for: 'pref-openMode', text: 'Open files in' }), select('openMode', [['visual', 'Visual editor (Markdown mode if it would rewrite the file)'], ['markdown', 'Markdown source']]),
           el('label', { for: 'pref-restore', text: 'On startup' }), el('label', { class: 'inline' }, restore, 'Reopen the last document'),
         ),
@@ -842,6 +892,12 @@
     ['view.focus', 'Toggle focus mode', 'View', 'F11', () => toggleZen()],
     ['view.sidebar', 'Toggle sidebar', 'View', 'Ctrl+\\', () => toggleSidebar()],
     ['theme.toggle', 'Toggle light / dark theme', 'View', '', toggleTheme],
+    ['width.cycle', 'Line width: next preset', 'View', 'Ctrl+Shift+W', cycleLineWidth],
+    ['width.comfortable', 'Line width: Comfortable', 'View', '', () => setLineWidth('comfortable')],
+    ['width.wide', 'Line width: Wide', 'View', '', () => setLineWidth('wide')],
+    ['width.full', 'Line width: Full width', 'View', '', () => setLineWidth('full')],
+    ['layout.compact', 'Toggle compact layout', 'View', 'Ctrl+Shift+L', toggleCompact],
+    ['spell.toggle', 'Toggle spellcheck', 'Edit', 'Ctrl+Shift+Y', toggleSpellcheck],
     ['font.bigger', 'Increase text size', 'View', 'Ctrl+=', () => changeFontSize(1)],
     ['font.smaller', 'Decrease text size', 'View', 'Ctrl+-', () => changeFontSize(-1)],
     ['font.reset', 'Reset text size', 'View', 'Ctrl+0', () => changeFontSize(0)],
@@ -853,6 +909,7 @@
     ['prefs.show', 'Preferences', 'App', 'Ctrl+,', showPreferences],
     ['shortcuts.show', 'Keyboard shortcuts', 'App', 'F1', showShortcuts],
     ['about.show', 'About NoorMD & licenses', 'App', '', showAbout],
+    ['help.repo', 'Open the NoorMD repository (GitHub)', 'App', '', () => bridge.request('link.open', { href: REPO_URL }).catch(showError)],
     ['palette.show', 'Command palette', 'App', 'Ctrl+K', showPalette],
   ].map(([id, label, group, keys, run]) => ({ id, label, group, keys, run }));
   const commandById = new Map(COMMANDS.map((c) => [c.id, c]));
@@ -904,9 +961,18 @@
     NoorUI.closeAll();
     NoorUI.modal({ label: 'Keyboard shortcuts', width: 560 }, (s, close) => {
       const extra = [['Bold / italic', 'Ctrl+B / Ctrl+I'], ['Undo / redo', 'Ctrl+Z / Ctrl+Y'], ['Close dialog · exit focus mode', 'Esc'], ['Next / previous match', 'Enter / Shift+Enter'], ['Replace all (in replace box)', 'Ctrl+Enter']];
+      // Generated from the command list, so it can never drift from the real shortcuts.
       const rows = COMMANDS.filter((c) => c.keys).map((c) => [c.label, c.keys]).concat(extra);
-      s.append(NoorUI.head('Keyboard shortcuts', close), el('div', { class: 'modal-body' },
-        el('table', { class: 'shortcut-table' }, rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('span', { class: 'kbd', text: b })))))));
+      const filter = el('input', { type: 'text', placeholder: 'Search shortcuts…', 'aria-label': 'Search shortcuts', autofocus: true });
+      const table = el('table', { class: 'shortcut-table' });
+      const render = () => {
+        const q = filter.value.trim().toLowerCase();
+        table.replaceChildren(...rows.filter(([a, b]) => !q || a.toLowerCase().includes(q) || b.toLowerCase().includes(q))
+          .map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('span', { class: 'kbd', text: b })))));
+      };
+      filter.addEventListener('input', render);
+      render();
+      s.append(NoorUI.head('Keyboard shortcuts', close), el('div', { class: 'modal-body' }, filter, el('div', { style: 'height:10px' }), table));
     });
   }
 
@@ -918,7 +984,8 @@
       s.append(NoorUI.head('About NoorMD', close), el('div', { class: 'modal-body' },
         el('p', {}, el('strong', { text: 'NoorMD Desktop ' + (info.version || '') })),
         el('p', { text: 'A local-first Markdown writing studio. No account, telemetry or web services.' }),
-        el('p', { text: `Runtime: ${info.runtime || '?'} · WebView2 ${info.webView2 || '?'}` }),
+        el('p', { text: `Build: ${info.build || 'development'} · Runtime: ${info.runtime || '?'} · WebView2 ${info.webView2 || '?'}` }),
+        el('p', {}, 'Source code: ', el('a', { href: REPO_URL, text: 'github.com/badsadcode/NoorMD' })),
         el('p', { text: 'Third-party components (licenses ship in the “licenses” folder next to NoorMD.exe):' }),
         el('ul', {}, ['TOAST UI Editor 3.2.2 — MIT', 'ProseMirror — MIT', 'DOMPurify 3.2.6 — Apache-2.0 / MPL-2.0', 'Inter typeface — SIL Open Font License 1.1', 'Microsoft WebView2 SDK — BSD-style (Microsoft)'].map((t) => el('li', { text: t })))),
       el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
@@ -980,7 +1047,10 @@
     }
     if (key === 'F11') cmd = 'view.focus';
     else if (key === 'F1') cmd = 'shortcuts.show';
-    else if (ctrl && e.altKey && key === 's') cmd = 'snapshot.create';
+    // AltGr is reported as Ctrl+Alt: on Polish and many other layouts AltGr+S types "ś", AltGr+A "ą", etc.
+    // Never treat an AltGr keystroke as a shortcut.
+    else if (e.getModifierState && e.getModifierState('AltGraph')) return;
+    else if (ctrl && e.altKey && key === 's' && e.code === 'KeyS') cmd = 'snapshot.create';
     else if (ctrl && !e.altKey) {
       if (key === 's') cmd = e.shiftKey ? 'doc.saveAs' : 'doc.save';
       else if (key === 'n' && !e.shiftKey) cmd = 'doc.new';
@@ -988,6 +1058,9 @@
       else if (key === 'f' && !e.shiftKey) cmd = 'find.show';
       else if (key === 'h' && !e.shiftKey) cmd = 'find.replace';
       else if (key === 'h' && e.shiftKey) cmd = 'history.show';
+      else if (key === 'w' && e.shiftKey) cmd = 'width.cycle';
+      else if (key === 'l' && e.shiftKey) cmd = 'layout.compact';
+      else if (key === 'y' && e.shiftKey) cmd = 'spell.toggle';
       else if (key === 'k' || (key === 'p' && e.shiftKey)) cmd = 'palette.show';
       else if (key === 'p') cmd = 'print';
       else if (key === '1' || e.code === 'Digit1') cmd = 'view.visual';

@@ -19,6 +19,9 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Split view | Ctrl+3 |
 | Focus mode | F11 (Esc to leave) |
 | Show / hide sidebar | Ctrl+\ |
+| Line width: Comfortable → Wide → Full width | Ctrl+Shift+W |
+| Compact layout on / off | Ctrl+Shift+L |
+| Spellcheck on / off | Ctrl+Shift+Y |
 | Bigger / smaller / reset text | Ctrl+= / Ctrl+- / Ctrl+0 |
 | Save revision snapshot | Ctrl+Alt+S |
 | Browse revision snapshots | Ctrl+Shift+H |
@@ -36,6 +39,9 @@ Mouse and keyboard extras:
 - **Links:** Ctrl+click opens a link while editing in Visual mode. In the preview a plain
   click opens it. You are always asked before NoorMD opens anything.
 - **Opening files:** drop a `.md`, `.markdown` or `.txt` file anywhere on the window.
+
+AltGr keystrokes (for example AltGr+S for **ś** on Polish keyboards) are always typed as
+letters and never trigger a shortcut.
 
 All shortcuts are handled in one place (the editor page), and the browser's own shortcuts
 (reload, browser print, find, zoom) are switched off. A held-down Ctrl+S saves exactly once.

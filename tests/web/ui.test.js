@@ -260,6 +260,96 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('welcome hides after new document', !(await page.isVisible('#welcome')));
       await page.close();
     }
+
+    // ---- 5. UX enhancements: width presets (incl. Focus), compact layout, spellcheck, AltGr, shortcuts search.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: LOSSLESS + '\n' + 'Long paragraph of text. '.repeat(60) + '\n', path: 'C:\\docs\\w.md', fileName: 'w.md', title: 'w' } }, { width: 1920, height: 1080 });
+      const textWidth = () => page.evaluate(() => {
+        const pm = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror');
+        const cs = getComputedStyle(pm);
+        return pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+      });
+      await page.keyboard.press('F11');
+      await page.waitForTimeout(150);
+      const comfortable = await textWidth();
+      if (shots) await page.screenshot({ path: `${shots}/focus-comfortable-1920.png` });
+      check('Comfortable preset keeps an ~800 px column in Focus mode', comfortable > 760 && comfortable <= 800, comfortable);
+      await page.keyboard.press('Control+Shift+W');
+      await page.waitForTimeout(100);
+      const wide = await textWidth();
+      check('Ctrl+Shift+W → Wide (~1100 px)', wide > 1050 && wide <= 1100, wide);
+      await page.keyboard.press('Control+Shift+W');
+      await page.waitForTimeout(150);
+      const full = await textWidth();
+      const pane = await page.evaluate(() => document.querySelector('#editor .toastui-editor-ww-container .ProseMirror').clientWidth);
+      if (shots) await page.screenshot({ path: `${shots}/focus-fullwidth-1920.png` });
+      check('Full width uses the pane with 24–40 px padding in Focus mode', full >= pane - 80 && full > 1700, { full, pane });
+      check('width preset is persisted', await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.lineWidth === 'full')));
+      check('width button shows the active preset', (await page.textContent('#width-toggle')).includes('Full width'));
+      check('editing still works at full width', await page.evaluate(() => !!document.querySelector('#editor .ProseMirror[contenteditable=true]')));
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+Shift+W'); // back to comfortable
+      await page.waitForTimeout(100);
+      check('cycling returns to Comfortable', Math.abs((await textWidth()) - comfortable) < 2);
+      for (const m of ['Control+2', 'Control+3']) {
+        await page.keyboard.press(m);
+        await page.waitForTimeout(100);
+        const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+        check(`no overflow with width presets in ${m === 'Control+2' ? 'Markdown' : 'Split'} mode`, ov <= 0, ov);
+      }
+      const grip = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-splitter'), '::after').height);
+      check('split divider has a visible grip', grip === '44px', grip);
+      await page.keyboard.press('Control+1');
+
+      // Compact layout
+      const cardTop = () => page.evaluate(() => document.querySelector('#editor-card').getBoundingClientRect().top);
+      const before = await cardTop();
+      if (shots) await page.screenshot({ path: `${shots}/standard-layout-1920.png` });
+      await page.keyboard.press('Control+Shift+L');
+      await page.waitForTimeout(100);
+      const after = await cardTop();
+      if (shots) await page.screenshot({ path: `${shots}/compact-layout-1920.png` });
+      check('compact layout gains vertical room', before - after > 60, { before, after });
+      check('compact keeps the sidebar (unlike Focus)', await page.isVisible('#sidebar'));
+      await page.keyboard.press('Control+Shift+L');
+      await page.waitForTimeout(100);
+      check('toggling compact restores normal spacing', Math.abs((await cardTop()) - before) < 1);
+
+      // Spellcheck
+      const md0 = (await state(page)).markdown;
+      await page.keyboard.press('Control+Shift+Y');
+      await page.waitForTimeout(50);
+      const sp = await page.evaluate(() => [...document.querySelectorAll('#editor [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
+      check('spellcheck off sets spellcheck=false on editing surfaces', sp.length > 0 && sp.every((v) => v === 'false'), sp);
+      check('spellcheck toggle leaves the text unchanged', (await state(page)).markdown === md0);
+      await page.keyboard.press('Control+2');
+      await page.waitForTimeout(50);
+      const sp2 = await page.evaluate(() => [...document.querySelectorAll('#editor [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
+      check('spellcheck setting survives mode switches', sp2.every((v) => v === 'false'), sp2);
+      await page.keyboard.press('Control+1');
+      await page.keyboard.press('Control+Shift+Y');
+      check('spellcheck can be turned back on', await page.evaluate(() => document.querySelector('#editor .ww-mode .ProseMirror, #editor .toastui-editor-ww-container .ProseMirror').getAttribute('spellcheck') === 'true'));
+
+      // AltGr (Polish "ś") must type a letter, not take a snapshot.
+      const snapsBefore = await msgs(page, 'snapshots.create');
+      const handled = await page.evaluate(() => {
+        const e = new KeyboardEvent('keydown', { key: 'ś', code: 'KeyS', ctrlKey: true, altKey: true, bubbles: true, cancelable: true, modifierAltGraph: true });
+        window.dispatchEvent(e);
+        return e.defaultPrevented;
+      });
+      await page.waitForTimeout(80);
+      check('AltGr+S (ś) is not swallowed as a shortcut', !handled && (await msgs(page, 'snapshots.create')) === snapsBefore);
+
+      // Shortcut list is searchable and in sync with commands.
+      await page.keyboard.press('F1');
+      await page.waitForSelector('.shortcut-table');
+      await page.keyboard.type('width');
+      const rows = await page.$$eval('.shortcut-table tr', (r) => r.map((x) => x.textContent));
+      check('shortcut list is searchable', rows.length === 1 && rows[0].includes('Ctrl+Shift+W'), rows);
+      await page.keyboard.press('Escape');
+      check('no errors in enhancement checks', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

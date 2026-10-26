@@ -105,6 +105,7 @@ public partial class MainWindow
                 return new
                 {
                     version = typeof(App).Assembly.GetName().Version?.ToString(3),
+                    build = $"{typeof(App).Assembly.GetName().Version?.ToString(3)} ({File.GetLastWriteTimeUtc(typeof(App).Assembly.Location):yyyy-MM-dd}, {(Environment.Is64BitProcess ? "x64" : "x86")})",
                     runtime = RuntimeInformation.FrameworkDescription,
                     webView2 = Core.Environment.BrowserVersionString,
                 };
