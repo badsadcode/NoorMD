@@ -15,6 +15,7 @@
     spellcheck: true, compact: false,
     sourceFontSize: 14, lineNumbers: true, wordWrap: true, syncScroll: false,
     showMusic: true, miniPlayer: true, musicWidth: 400,
+    showToolbar: true, toolbarLabels: false, toolbarSmall: false, zenToolbar: false, toolbarGroups: 'document,writing,navigation,view,tools,media',
   };
   const FONTS = {
     inter: "'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
@@ -96,9 +97,10 @@
       frontMatter: true,
       autofocus: false,
       theme: isDarkTheme() ? 'dark' : 'light',
-      toolbarItems: [['heading', 'bold', 'italic', 'strike'], ['hr', 'quote'], ['ul', 'ol', 'task', 'indent', 'outdent'], ['table', 'link', 'image'], ['code', 'codeblock']],
+      toolbarItems: [], // the app's own toolbar (chrome.js) drives formatting for every tab
       events: { change: () => onEditorChange(tab) },
     });
+    tab.editor.eventEmitter.listen('changeToolbarState', (p) => { if (tab === t && p && p.toolbarState) NoorChrome.setFormatState(p.toolbarState); });
     setupSplitter(tab);
     setupSourceEditor(tab);
     if (tab.editor.eventEmitter) tab.editor.eventEmitter.emit('toggleScrollSync', !!prefs.syncScroll);
@@ -301,6 +303,7 @@
     $('#updated').textContent = dirty ? 'Edited' : (untitled ? 'Ready to write' : 'Saved');
     $('#save-btn .label').textContent = dirty ? 'Save •' : 'Save';
     updateCrumb();
+    refreshChrome();
   }
 
   function onSaved(p) {
@@ -332,7 +335,7 @@
     };
     if (quiet) run(); else quietly(run);
     applySpellcheck();
-    if (tab === t) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+    if (tab === t) { requestAnimationFrame(() => window.dispatchEvent(new Event('resize'))); refreshChrome(); }
   }
 
   function showModeUI(m) {
@@ -487,9 +490,10 @@
     root.style.setProperty('--doc-size', Math.min(26, Math.max(12, Number(prefs.fontSize) || 16)) + 'px');
     root.style.setProperty('--measure', MEASURES[prefs.lineWidth] || MEASURES.comfortable);
     document.body.dataset.width = WIDTH_ORDER.includes(prefs.lineWidth) ? prefs.lineWidth : 'comfortable';
+    if (window.NoorChrome && chromeReady) NoorChrome.applyPrefs(prefs);
     const widthBtn = $('#width-toggle');
     if (widthBtn) {
-      widthBtn.querySelector('.width-label').textContent = WIDTH_LABELS[document.body.dataset.width];
+      widthBtn.querySelector('.tb-label').textContent = WIDTH_LABELS[document.body.dataset.width];
       widthBtn.title = `Line width: ${WIDTH_LABELS[document.body.dataset.width]} — click to change (Ctrl+Shift+W)`;
     }
     document.body.classList.toggle('compact', !!prefs.compact);
@@ -505,6 +509,7 @@
     document.body.classList.toggle('sidebar-collapsed', !!prefs.sidebarCollapsed);
     setSplit(prefs.splitRatio, false);
     progress();
+    refreshChrome();
   }
 
   function setPrefs(partial) {
@@ -1210,6 +1215,7 @@
     ['source.copy', 'Copy Markdown source', 'Edit', '', copySource],
     ['insert.link', 'Insert link…', 'Edit', 'Ctrl+Shift+K', insertLink],
     ['insert.codeblock', 'Insert code block', 'Edit', 'Ctrl+Shift+C', () => { editor?.exec('codeBlock'); editor?.focus(); }],
+    ['heading.0', 'Normal text', 'Format', '', () => setHeading(0)],
     ['heading.1', 'Heading 1', 'Edit', 'Ctrl+Shift+1', () => setHeading(1)],
     ['heading.2', 'Heading 2', 'Edit', 'Ctrl+Shift+2', () => setHeading(2)],
     ['heading.3', 'Heading 3', 'Edit', 'Ctrl+Shift+3', () => setHeading(3)],
@@ -1249,8 +1255,175 @@
     ['music.mini', 'Show / hide mini-player', 'Music', '', () => { setPrefs({ miniPlayer: prefs.miniPlayer === false }); }],
     ['help.repo', 'Open the NoorMD repository (GitHub)', 'App', '', () => bridge.request('link.open', { href: REPO_URL }).catch(showError)],
     ['palette.show', 'Command palette', 'App', 'Ctrl+K', showPalette],
+    ['edit.undo', 'Undo', 'Edit', 'Ctrl+Z', () => fmt('undo')],
+    ['edit.redo', 'Redo', 'Edit', 'Ctrl+Y', () => fmt('redo')],
+    ['edit.cut', 'Cut', 'Edit', 'Ctrl+X', () => clipboardCut()],
+    ['edit.copy', 'Copy', 'Edit', 'Ctrl+C', () => clipboardCopy()],
+    ['edit.paste', 'Paste as plain text', 'Edit', 'Ctrl+Shift+V', () => clipboardPaste()],
+    ['edit.selectAll', 'Select all', 'Edit', 'Ctrl+A', selectAll],
+    ['fmt.bold', 'Bold', 'Format', 'Ctrl+B', () => fmt('bold')],
+    ['fmt.italic', 'Italic', 'Format', 'Ctrl+I', () => fmt('italic')],
+    ['fmt.strike', 'Strikethrough', 'Format', '', () => fmt('strike')],
+    ['fmt.code', 'Inline code', 'Format', '', () => fmt('code')],
+    ['fmt.quote', 'Quote', 'Format', '', () => fmt('blockQuote')],
+    ['fmt.ul', 'Bulleted list', 'Format', '', () => fmt('bulletList')],
+    ['fmt.ol', 'Numbered list', 'Format', '', () => fmt('orderedList')],
+    ['fmt.task', 'Checklist', 'Format', '', () => fmt('taskList')],
+    ['fmt.indent', 'Indent list item', 'Format', '', () => fmt('indent')],
+    ['fmt.outdent', 'Outdent list item', 'Format', '', () => fmt('outdent')],
+    ['insert.image', 'Insert image…', 'Edit', '', insertImage],
+    ['insert.table', 'Insert table…', 'Edit', '', insertTable],
+    ['insert.hr', 'Insert horizontal rule', 'Edit', '', () => fmt('hr')],
+    ['view.toolbar', 'Show toolbar', 'View', '', () => setPrefs({ showToolbar: prefs.showToolbar === false })],
+    ['toolbar.customize', 'Customize toolbar…', 'View', '', () => NoorChrome.showCustomize()],
+    ['stats.show', 'Document statistics', 'Writing', '', showStats],
+    ['session.restore', 'Reopen tabs on startup', 'App', '', () => { setPrefs({ restoreSession: !prefs.restoreSession }); notice(prefs.restoreSession ? 'Tabs will be reopened on startup' : 'NoorMD will start with an empty document', 2200); }],
+    ['help.guide', 'User guide (README)', 'App', '', () => bridge.request('app.openGuide').catch(showError)],
+    ['help.diagnostics', 'Open logs and data folder', 'App', '', () => bridge.request('app.openDataFolder').catch(showError)],
+    ['app.exit', 'Exit', 'App', 'Alt+F4', () => bridge.request('app.exit').catch(showError)],
   ].map(([id, label, group, keys, run]) => ({ id, label, group, keys, run }));
   const commandById = new Map(COMMANDS.map((c) => [c.id, c]));
+
+  /** Checked/enabled state of a command, shared by the menu bar, the toolbar and the palette. */
+  function commandState(id) {
+    const musicOn = prefs.showMusic !== false;
+    const hasEditor = !!(t && t.editor);
+    const checked = {
+      'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'),
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
+      'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
+      'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
+      'width.comfortable': prefs.lineWidth === 'comfortable', 'width.wide': prefs.lineWidth === 'wide', 'width.full': prefs.lineWidth === 'full',
+      'tab.pin': !!t?.pinned, 'session.restore': !!prefs.restoreSession,
+      'music.shuffle': !!(window.NoorMusic && NoorMusic.shuffleOn && NoorMusic.shuffleOn()),
+    }[id];
+    let enabled = true;
+    if (/^(fmt\.|insert\.|heading\.|edit\.)/.test(id) || id === 'find.show' || id === 'find.replace') enabled = hasEditor;
+    else if (id === 'doc.reveal' || id === 'doc.reload' || id === 'tab.copyPath') enabled = !!t?.doc.path;
+    else if (id === 'tab.closeOthers' || id === 'tab.closeRight' || id === 'tab.next' || id === 'tab.prev') enabled = tabs.length > 1;
+    else if (id === 'doc.saveAll') enabled = tabs.some((x) => isDirty(x));
+    else if (id.startsWith('music.') && id !== 'music.toggle') enabled = musicOn;
+    return { checked, enabled };
+  }
+
+  let chromeReady = false, chromeTimer = 0;
+  function refreshChrome() {
+    if (!chromeReady || chromeTimer) return;
+    chromeTimer = requestAnimationFrame(() => { chromeTimer = 0; NoorChrome.refresh(); });
+  }
+
+  function headingLevel() {
+    if (!editor) return 0;
+    try {
+      if (editor.isWysiwygMode()) {
+        const node = editor.wwEditor.view.state.selection.$from.parent;
+        return node.type.name === 'heading' ? node.attrs.level : 0;
+      }
+      const [line] = editor.getSelection()[0];
+      const text = (md().split('\n')[line - 1] || '');
+      const m = /^(#{1,6})\s/.exec(text);
+      return m ? m[1].length : 0;
+    } catch { return 0; }
+  }
+
+  /** Runs an editor command on the shown tab and keeps the caret in the document. */
+  function fmt(name, payload) {
+    if (!editor) return;
+    editor.focus();
+    editor.exec(name, payload);
+    editor.focus();
+  }
+
+  async function clipboardCopy(cut) {
+    if (!editor) return;
+    const text = editor.getSelectedText ? editor.getSelectedText() : '';
+    if (!text) { notice('Select some text first.', 1600); return; }
+    try { await bridge.request('clipboard.copyText', { text }); } catch { try { await navigator.clipboard.writeText(text); } catch (err) { showError(err); return; } }
+    if (cut) { editor.focus(); editor.replaceSelection(''); }
+  }
+  const clipboardCut = () => clipboardCopy(true);
+
+  async function clipboardPaste() {
+    if (!editor) return;
+    let text = '';
+    try { text = await bridge.request('clipboard.readText') || ''; } catch { try { text = await navigator.clipboard.readText(); } catch { /* no access */ } }
+    if (!text) { notice('The clipboard has no text.', 1600); return; }
+    editor.focus();
+    editor.insertText(text.replace(/\r\n?/g, '\n'));
+  }
+
+  function selectAll() {
+    if (!editor) return;
+    editor.focus();
+    document.execCommand('selectAll');
+  }
+
+  function insertTable() {
+    if (!editor) return;
+    NoorUI.modal({ label: 'Insert table', width: 380 }, (s, close) => {
+      const rows = el('input', { type: 'number', id: 'table-rows', min: '1', max: '50', value: '3', 'aria-label': 'Rows' });
+      const cols = el('input', { type: 'number', id: 'table-cols', min: '1', max: '20', value: '3', 'aria-label': 'Columns' });
+      const ok = () => {
+        const r = Math.min(50, Math.max(1, Math.floor(Number(rows.value) || 3)));
+        const c = Math.min(20, Math.max(1, Math.floor(Number(cols.value) || 3)));
+        close();
+        fmt('addTable', { rowCount: r + 1, columnCount: c, data: [] });
+      };
+      for (const i of [rows, cols]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
+      s.append(NoorUI.head('Insert table', close), el('div', { class: 'modal-body' },
+        el('div', { class: 'pref-grid' }, el('label', { for: 'table-rows', text: 'Body rows' }), rows, el('label', { for: 'table-cols', text: 'Columns' }), cols)),
+      el('div', { class: 'modal-foot' }, el('span', { text: 'A header row is added on top.' }), el('div', { class: 'modal-buttons' },
+        el('button', { class: 'action', onclick: () => close() }, 'Cancel'), el('button', { class: 'action primary', onclick: ok }, 'Insert'))));
+      setTimeout(() => rows.select(), 0);
+    });
+  }
+
+  function insertImage() {
+    if (!editor) return;
+    const tab = t;
+    NoorUI.modal({ label: 'Insert image', width: 520 }, (s, close) => {
+      const url = el('input', { id: 'image-url', placeholder: 'images/picture.png or https://…', 'aria-label': 'Image address', autocomplete: 'off', spellcheck: 'false' });
+      const alt = el('input', { id: 'image-alt', placeholder: 'Describe the image', 'aria-label': 'Description (alt text)', autocomplete: 'off' });
+      const ok = () => {
+        const u = url.value.trim();
+        if (!u) { url.focus(); return; }
+        close();
+        if (tab === t) fmt('addImage', { imageUrl: u, altText: alt.value.trim() || 'image' });
+      };
+      const browse = el('button', { class: 'utility-btn', onclick: async () => {
+        try {
+          const r = await bridge.request('doc.pickImage', { tabId: tab.id });
+          if (r && r.path) { url.value = r.path; if (!alt.value) alt.value = r.name || ''; }
+        } catch (err) { showError(err); }
+      } }, 'Choose file…');
+      for (const i of [url, alt]) i.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ok(); } });
+      s.append(NoorUI.head('Insert image', close), el('div', { class: 'modal-body' },
+        el('div', { class: 'pref-grid' }, el('label', { for: 'image-url', text: 'Address' }), el('div', { class: 'inline' }, url, browse),
+          el('label', { for: 'image-alt', text: 'Description' }), alt),
+        el('small', { class: 'pref-hint', text: 'Pictures inside the document’s folder are linked with a relative path, so the link keeps working when the folder moves.' })),
+      el('div', { class: 'modal-foot' }, el('span'), el('div', { class: 'modal-buttons' },
+        el('button', { class: 'action', onclick: () => close() }, 'Cancel'), el('button', { class: 'action primary', onclick: ok }, 'Insert'))));
+    });
+  }
+
+  function showStats() {
+    const text = md();
+    const st = NoorMarkdown.stats(text);
+    const lines = text ? text.split('\n').length : 0;
+    const noFences = text.replace(/^```[\s\S]*?^```/gm, '');
+    const count = (re) => (noFences.match(re) || []).length;
+    const rows = [
+      ['Words', st.words], ['Characters', st.chars], ['Characters without spaces', text.replace(/\s/g, '').length], ['Lines', lines],
+      ['Paragraphs', text.split(/\n\s*\n/).filter((x) => x.trim()).length], ['Headings', NoorMarkdown.headings(text).length],
+      ['Links', count(/(^|[^!])\[[^\]]*\]\([^)]+\)/g)], ['Images', count(/!\[[^\]]*\]\([^)]+\)/g)], ['Code blocks', (text.match(/^```/gm) || []).length / 2 | 0],
+      ['Reading time', st.minutes + ' min'],
+    ];
+    NoorUI.modal({ label: 'Document statistics', width: 420 }, (s, close) => {
+      s.append(NoorUI.head('Statistics — ' + currentTitle(), close), el('div', { class: 'modal-body' },
+        el('table', { class: 'shortcut-table stats-table' }, rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', { text: typeof b === 'number' ? b.toLocaleString() : b }))))));
+    });
+  }
 
   function runCommand(id) {
     const c = commandById.get(id);
@@ -1635,7 +1808,7 @@
   function toggleZen(force) {
     const on = force === undefined ? !document.body.classList.contains('zen') : force;
     document.body.classList.toggle('zen', on);
-    $('#zen-toggle').classList.toggle('selected', on);
+    refreshChrome();
     notice(on ? 'Focus mode · Esc or F11 to exit' : 'Focus mode off', 1600);
     requestAnimationFrame(() => {
       window.dispatchEvent(new Event('resize'));
@@ -1690,6 +1863,9 @@
       if (key === 'Escape') { e.preventDefault(); e.stopPropagation(); NoorUI.closeTop(); }
       return;
     }
+    // Menus first: Alt+letter / F10 open them, and while one is open its keys belong to it.
+    if (!(e.getModifierState && e.getModifierState('AltGraph')) && NoorChrome.handleKey(e)) { e.stopPropagation(); return; }
+    if (e.target && e.target.closest && e.target.closest('.menu-popup, #menubar') && !ctrl) return;
     if (key === 'Escape') {
       if (closeTabMenu()) { e.preventDefault(); return; }
       if (closeFind()) { e.preventDefault(); return; }
@@ -1799,11 +1975,26 @@
     setupTabStrip();
     setupDropAndLinks();
     NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError });
+    NoorChrome.init({
+      command: (id) => commandById.get(id) || null,
+      run: runCommand,
+      state: commandState,
+      prefs: () => prefs,
+      setPrefs,
+      recent: () => recent,
+      openRecent,
+      recentVaults: () => [{ label: 'No recent vaults', disabled: true }],
+      headingLabel: () => { const n = headingLevel(); return n ? 'H' + n : 'Text'; },
+      nowPlaying: () => (window.NoorMusic && NoorMusic.nowPlaying ? NoorMusic.nowPlaying() : { playing: false, title: null }),
+      focusEditor: () => { if (editor) editor.focus(); },
+    });
+    chromeReady = true;
+    window.addEventListener('noor-music', refreshChrome);
+    document.addEventListener('selectionchange', refreshChrome);
     window.addEventListener('keydown', onKeyDown, true);
     document.addEventListener('selectionchange', () => requestAnimationFrame(updateActiveLine));
     window.addEventListener('resize', () => requestAnimationFrame(updateActiveLine));
     document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => runCommand(b.dataset.cmd)));
-    document.querySelectorAll('.pill button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
     $('#doc-title').addEventListener('input', () => {
       if (!t || !t.doc.untitled) return;
       t.doc.title = $('#doc-title').value;

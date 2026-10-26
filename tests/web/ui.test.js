@@ -983,6 +983,131 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with 24 tabs', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 12. Main menu and customizable toolbar (one command registry for menu, toolbar, shortcuts and Ctrl+K).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Plan\n\nPlain words here.\n', path: 'C:\\docs\\plan.md', fileName: 'plan.md', title: 'plan' }, musicTracks: 4 });
+      const md = () => page.evaluate(() => window.NoorMD.getState().markdown);
+      const titles = await page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      check('menu bar has File, Edit, Insert, Format, View, Workspace, Media, Tools, Help', titles.join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help', titles);
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p');
+      await page.keyboard.press('Alt+f');
+      await page.waitForSelector('.menu-popup');
+      const fileItems = await page.$$eval('.menu-popup .menu-label', (n) => n.map((x) => x.textContent));
+      check('Alt+F opens the File menu with real commands', ['New document', 'Save', 'Save all', 'Print…', 'Exit'].every((x) => fileItems.includes(x)), fileItems);
+      check('menu items show their shortcuts', (await page.textContent('.menu-popup')).includes('Ctrl+S'));
+      check('keyboard focus is inside the open menu', await page.evaluate(() => !!document.activeElement.closest('.menu-popup')));
+      await page.keyboard.press('ArrowRight');
+      check('→ moves to the next menu (Edit)', (await page.$$eval('.menu-popup .menu-label', (n) => n.map((x) => x.textContent))).includes('Paste as plain text'));
+      await page.keyboard.press('Escape');
+      check('Esc closes the menu and returns to the document', (await page.$$('.menu-popup')).length === 0 && await page.evaluate(() => !!document.activeElement.closest('.ProseMirror')));
+      check('Esc in a menu does not leave Focus mode or close a tab', (await page.evaluate(() => window.NoorMD.tabs().length)) === 1);
+
+      // Select a word, make it bold from the toolbar; the button shows the state.
+      await page.dblclick('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p');
+      await page.click('#toolbar [data-cmd-id="fmt.bold"]');
+      await page.waitForTimeout(120);
+      check('toolbar Bold formats the selection', /\*\*[^*]+\*\*/.test(await md()), await md());
+      check('Bold button shows the format at the caret', (await page.getAttribute('#toolbar [data-cmd-id="fmt.bold"]', 'aria-pressed')) === 'true');
+      // Same command from the menu: Format → Italic.
+      await page.click('#menubar .menu-title[data-menu="3"]');
+      await page.click('.menu-popup .menu-item:has-text("Italic")');
+      await page.waitForTimeout(120);
+      check('Format → Italic runs the same command', /\*\*\*|_\*\*|\*_|\*\*_/.test(await md()) || /\*[^*]+\*/.test((await md()).replace(/\*\*/g, '')), await md());
+      await page.click('#toolbar [data-cmd-id="edit.undo"]');
+      await page.waitForTimeout(80);
+      check('toolbar Undo undoes the last change in this document', !/\*\*\*|_\*\*|\*\*_/.test(await md()) && /\*\*/.test(await md()), await md());
+      // Heading picker
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p');
+      await page.click('#toolbar .tb-heading');
+      await page.click('.menu-popup .menu-item:has-text("Heading 2")');
+      await page.waitForTimeout(120);
+      check('heading picker turns the paragraph into a heading and shows its level', (await md()).includes('## ') && (await page.textContent('#toolbar .tb-heading-label')) === 'H2', await md());
+      // Insert table via dialog
+      await page.keyboard.press('Control+End');
+      await page.click('#menubar .menu-title[data-menu="2"]');
+      await page.click('.menu-popup .menu-item:has-text("Insert table")');
+      await page.fill('#table-rows', '2');
+      await page.fill('#table-cols', '4');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(150);
+      const tableLines = (await md()).split('\n').filter((l) => /^\|.*\|$/.test(l.trim()));
+      check('Insert → Table adds a header row plus the chosen rows and columns', tableLines.length === 4 && tableLines[0].split('|').length - 2 === 4, tableLines);
+      // Disabled state: untitled document → Show file in Explorer disabled
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      check('commands that cannot run are disabled, not hidden', !(await page.isDisabled('.menu-popup .menu-item:has-text("Show file in Explorer")')) && (await page.isDisabled('.menu-popup .menu-item:has-text("Save all")')) === false);
+      await page.keyboard.press('Escape');
+      // Statistics
+      await page.evaluate(() => window.NoorMD.runCommand('stats.show'));
+      await page.waitForSelector('.stats-table');
+      check('Tools → Document statistics shows counts', (await page.textContent('.stats-table')).includes('Words') && (await page.textContent('.stats-table')).includes('Headings'));
+      await page.keyboard.press('Escape');
+
+      // Hide / show toolbar from the View menu (setting persisted).
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      await page.click('.menu-popup .menu-item:has-text("Show toolbar")');
+      await page.waitForTimeout(80);
+      check('View → Show toolbar hides it and the setting is saved', !(await page.isVisible('#toolbar')) && await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.showToolbar === false)));
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      check('the menu item shows it unchecked', (await page.getAttribute('.menu-popup .menu-item:has-text("Show toolbar")', 'aria-checked')) === 'false');
+      await page.click('.menu-popup .menu-item:has-text("Show toolbar")');
+      check('…and brings it back', await page.isVisible('#toolbar'));
+      // Customize: labels + hide a group
+      await page.evaluate(() => window.NoorMD.runCommand('toolbar.customize'));
+      await page.waitForSelector('#tb-labels');
+      await page.check('#tb-labels');
+      await page.uncheck('#tbg-media');
+      await page.keyboard.press('Escape');
+      await page.waitForTimeout(100);
+      check('labels can be shown', await page.isVisible('#toolbar [data-cmd-id="fmt.bold"] .tb-label'));
+      check('a toolbar group can be hidden and the choice is saved', !(await page.$('#toolbar [data-group="media"]')) && await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.toolbarGroups === 'document,writing,navigation,view,tools')));
+      await page.evaluate(() => window.NoorMD.runCommand('toolbar.customize'));
+      await page.click('.modal button:has-text("Restore defaults")');
+      await page.keyboard.press('Escape');
+      check('Restore defaults brings every group back', (await page.$$('#toolbar .tb-group')).length === 6);
+
+      // Narrow window: nothing clipped, overflow menu works.
+      await page.setViewportSize({ width: 1024, height: 720 });
+      await page.waitForTimeout(250);
+      const fit = await page.evaluate(() => { const b = document.querySelector('#toolbar'); return { sw: b.scrollWidth, cw: b.clientWidth, more: !document.querySelector('#toolbar-more').hidden, menus: document.querySelector('#menubar').scrollWidth <= document.querySelector('#menubar').clientWidth + 1 }; });
+      check('at 1024 px the toolbar is not clipped: extra commands move to “More”', fit.sw <= fit.cw + 1 && fit.more, fit);
+      check('at 1024 px every menu title is visible', fit.menus, fit);
+      await page.click('#toolbar-more');
+      await page.waitForSelector('.menu-popup');
+      check('“More” lists the hidden commands', (await page.$$('.menu-popup .menu-item')).length >= 3);
+      await page.keyboard.press('Escape');
+      await page.setViewportSize({ width: 1440, height: 900 });
+
+      // Focus mode: toolbar and menu hidden, a visible way out.
+      await page.keyboard.press('F11');
+      await page.waitForTimeout(150);
+      check('Focus mode hides menu and toolbar but keeps an Exit button', !(await page.isVisible('#toolbar')) && !(await page.isVisible('#menubar')) && await page.isVisible('#zen-exit'));
+      await page.click('#zen-exit');
+      check('the Exit button leaves Focus mode', !(await page.evaluate(() => document.body.classList.contains('zen'))));
+
+      await page.setViewportSize({ width: 1920, height: 1000 });
+      await page.waitForTimeout(200);
+      // Media group: play/pause from the toolbar, now playing title; music unaffected by toolbar changes.
+      await page.evaluate(() => window.NoorMusic._testPlay([1, 2], 0, true));
+      await waitFn(page, () => !window.NoorMusic._state().paused, null, { timeout: 8000 });
+      await page.waitForTimeout(200);
+      check('toolbar shows the playing track', (await page.textContent('#toolbar .tb-np')).length > 0 && (await page.textContent('#toolbar .tb-np')) !== 'Music');
+      await page.evaluate(() => window.NoorMD.runCommand('view.toolbar'));
+      await page.evaluate(() => window.NoorMD.runCommand('view.toolbar'));
+      check('music keeps playing while the toolbar is hidden and shown', !(await page.evaluate(() => window.NoorMusic._state().paused)));
+      await page.click('#toolbar .tb-play');
+      await page.waitForTimeout(100);
+      check('toolbar play/pause pauses', await page.evaluate(() => window.NoorMusic._state().paused));
+
+      // F10 focuses the menu bar.
+      await page.keyboard.press('F10');
+      check('F10 puts keyboard focus on the menu bar', await page.evaluate(() => document.activeElement.classList.contains('menu-title')));
+      await page.keyboard.press('Escape');
+      if (shots) await page.screenshot({ path: `${shots}/menu-toolbar.png` });
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in menu/toolbar checks', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

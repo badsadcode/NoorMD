@@ -26,6 +26,15 @@ public sealed class EditorPrefs
     public bool ShowMusic { get; set; } = true;
     public bool MiniPlayer { get; set; } = true;
     public int MusicWidth { get; set; } = 400;
+    public bool ShowToolbar { get; set; } = true;
+    public bool ToolbarLabels { get; set; }
+    public bool ToolbarSmall { get; set; }
+    public bool ZenToolbar { get; set; }
+    /// <summary>Visible toolbar groups, in order (comma-separated ids).</summary>
+    public string ToolbarGroups { get; set; } = DefaultToolbarGroups;
+
+    public const string DefaultToolbarGroups = "document,writing,navigation,view,tools,media";
+    private static readonly string[] ToolbarGroupIds = ["document", "writing", "navigation", "view", "tools", "media", "vault"];
 
     private static readonly string[] Fonts = ["inter", "system", "serif", "mono"];
     private static readonly string[] Widths = ["comfortable", "wide", "full"];
@@ -57,6 +66,11 @@ public sealed class EditorPrefs
                 case "showMusic" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ShowMusic = p.Value.GetBoolean(); break;
                 case "miniPlayer" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: MiniPlayer = p.Value.GetBoolean(); break;
                 case "musicWidth" when Bridge.Json.TryInt(p.Value, out var mw): MusicWidth = mw; break;
+                case "showToolbar" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ShowToolbar = p.Value.GetBoolean(); break;
+                case "toolbarLabels" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ToolbarLabels = p.Value.GetBoolean(); break;
+                case "toolbarSmall" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ToolbarSmall = p.Value.GetBoolean(); break;
+                case "zenToolbar" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ZenToolbar = p.Value.GetBoolean(); break;
+                case "toolbarGroups" when p.Value.ValueKind == JsonValueKind.String: ToolbarGroups = p.Value.GetString() ?? DefaultToolbarGroups; break;
                 case "syncScroll" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SyncScroll = p.Value.GetBoolean(); break;
             }
         }
@@ -75,6 +89,9 @@ public sealed class EditorPrefs
         SidebarWidth = Math.Clamp(SidebarWidth, 200, 420);
         GoalWords = Math.Clamp(GoalWords, 1, 1_000_000);
         SplitRatio = double.IsFinite(SplitRatio) ? Math.Clamp(SplitRatio, 0.3, 0.7) : 0.5;
+        // Known ids only, each once; an id from a module a later build dropped is simply ignored. Empty is allowed (all hidden).
+        ToolbarGroups = string.Join(',', (ToolbarGroups ?? DefaultToolbarGroups).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+            .Where(ToolbarGroupIds.Contains).Distinct().Take(ToolbarGroupIds.Length));
     }
 
     private static string Pick(JsonElement v, string[] allowed, string fallback) =>

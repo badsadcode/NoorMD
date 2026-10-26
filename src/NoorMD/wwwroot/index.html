@@ -17,6 +17,7 @@
 <link rel="stylesheet" href="_noormd/css/app.css">
 </head>
 <body>
+<button class="zen-exit" id="zen-exit" data-cmd="view.focus" title="Leave Focus mode (F11 or Esc)">◇ Exit focus</button>
 <div class="ambient-orb" aria-hidden="true"></div>
 <div class="app" id="app">
   <aside class="sidebar" id="sidebar" aria-label="Navigation">
@@ -80,12 +81,11 @@
     <header class="top">
       <div class="top-left">
         <button class="icon-btn" id="sidebar-expand" title="Show sidebar (Ctrl+\)" aria-label="Show sidebar"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
-        <div class="crumb" id="crumb">Workspace <span class="sep">/</span> <b id="crumb-name">Untitled document</b></div>
+        <nav class="menubar" id="menubar" role="menubar" aria-label="Main menu"></nav>
       </div>
       <div class="actions">
-        <button class="action" data-cmd="layout.compact" title="Compact layout (Ctrl+Shift+L)"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></svg><span class="label">Compact</span></button>
+        <div class="crumb" id="crumb"><span id="vault-name" class="vault-name" hidden></span><b id="crumb-name">Untitled document</b></div>
         <button class="action" data-cmd="theme.pick" title="Choose theme (Ctrl+Shift+T cycles)"><svg viewBox="0 0 24 24"><path d="M20 15.5A8 8 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></svg><span class="label">Theme</span></button>
-        <button class="action" data-cmd="doc.open" title="Open a Markdown file (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M4 19V5h7l2 3h7v11z"/></svg><span class="label">Open</span></button>
         <button class="action primary" data-cmd="doc.save" id="save-btn" title="Save (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6"/></svg><span class="label">Save</span></button>
       </div>
     </header>
@@ -103,20 +103,7 @@
       </div>
 
       <div class="editor-card" id="editor-card">
-        <div class="card-head">
-          <div class="pill" role="tablist" aria-label="Editor mode">
-            <button role="tab" id="mode-visual" data-mode="wysiwyg" class="active" title="Visual editor (Ctrl+1)">✦ Visual</button>
-            <button role="tab" id="mode-markdown" data-mode="markdown" title="Markdown source (Ctrl+2)">&lt;/&gt; Markdown</button>
-            <button role="tab" id="mode-split" data-mode="split" title="Split view (Ctrl+3)">◫ Split</button>
-          </div>
-          <div class="utility-row">
-            <button class="utility-btn" data-cmd="width.cycle" id="width-toggle" title="Line width (Ctrl+Shift+W)">↔ <span class="width-label">Comfortable</span></button>
-            <button class="utility-btn" data-cmd="find.show" title="Find and replace (Ctrl+F)">⌕ Find <span class="kbd">Ctrl F</span></button>
-            <button class="utility-btn" data-cmd="snapshot.create" title="Save a revision snapshot (Ctrl+Alt+S)">◷ Snapshot</button>
-            <button class="utility-btn" data-cmd="view.focus" id="zen-toggle" title="Focus mode (F11)">◇ Focus</button>
-            <button class="utility-btn" data-cmd="palette.show" title="Command palette (Ctrl+K)">⌘ Commands <span class="kbd">Ctrl K</span></button>
-          </div>
-        </div>
+        <div class="toolbar" id="toolbar" role="toolbar" aria-label="Main toolbar"></div>
 
         <div class="findbar hide" id="findbar" role="search" aria-label="Find and replace">
           <input id="find-input" placeholder="Find" aria-label="Find" autocomplete="off" spellcheck="false">
@@ -173,6 +160,7 @@
 <script src="_noormd/js/markdown-tools.js"></script>
 <script src="_noormd/js/ui.js"></script>
 <script src="_noormd/js/music.js"></script>
+<script src="_noormd/js/chrome.js"></script>
 <script src="_noormd/js/app.js"></script>
 </body>
 </html>

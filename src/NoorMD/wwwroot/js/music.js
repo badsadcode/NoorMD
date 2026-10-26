@@ -609,6 +609,7 @@ window.NoorMusic = (() => {
     $('#mp-sub').textContent = row ? (row.artist || row.fileName) : '';
     const icon = audio.paused ? '▶' : '❚❚';
     document.querySelectorAll('.tp.play, .mp-play').forEach((b) => { b.textContent = icon; b.setAttribute('aria-label', audio.paused ? 'Play' : 'Pause'); });
+    window.dispatchEvent(new Event('noor-music'));
     document.querySelectorAll('.tp.shuffle').forEach((b) => b.classList.toggle('on', q.shuffle));
     document.querySelectorAll('.tp.repeat').forEach((b) => { b.classList.toggle('on', q.repeat !== 'off'); b.textContent = q.repeat === 'one' ? '↻¹' : '↻'; b.title = { off: 'Repeat: off', all: 'Repeat: all', one: 'Repeat: this track' }[q.repeat]; });
     const tri = currentTriage();
@@ -953,6 +954,10 @@ window.NoorMusic = (() => {
     init, resumeSession, togglePanel, applyVisibility, toggle, next: () => next(false), prev, editCurrent, triageCurrent,
     undoLastEdit, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat,
     isOpen: () => document.body.classList.contains('music-open'),
+    /** For the main toolbar: what is loaded and whether it is playing. */
+    nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },
+    shuffleOn: () => !!q.shuffle,
+    repeatMode: () => q.repeat,
     // test hooks (used by the automated UI tests and NoorMD.exe --self-test)
     _testPlay: async (ids, index, muted) => { await start(); audio.muted = !!muted; await setQueue(ids, index, true); },
     _state: () => ({ q: { ...q, current: currentId() }, paused: audio.paused, time: audio.currentTime, duration: audio.duration, src: audio.getAttribute('src'), view: { ...view }, selected, rows: viewRows.size }),

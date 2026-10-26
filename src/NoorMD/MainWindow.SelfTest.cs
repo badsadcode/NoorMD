@@ -86,6 +86,8 @@ public partial class MainWindow
                 if (!imageOk) await Task.Delay(200);
             }
             Check("relative image served from document folder", imageOk, await Eval("JSON.stringify([...document.querySelectorAll('#editor img')].map(i => [i.getAttribute('src'), i.complete, i.naturalWidth]))"));
+            Check("menu bar and toolbar are built from the command registry",
+                await Eval("document.querySelectorAll('#menubar .menu-title').length === 9 && !!document.querySelector('#toolbar [data-cmd-id=\"doc.save\"]')") == "true");
             Check("window title shows file", Title.StartsWith("selftest.md"), Title);
 
             // Markdown source editor: exact original source after Visual, uniform font size, line numbers.

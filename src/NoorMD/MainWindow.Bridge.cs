@@ -106,6 +106,15 @@ public partial class MainWindow
 
             // --- shell
             case "clipboard.copyText": CopyToClipboard(req.GetString("text", (int)TextFileCodec.MaxFileBytes) ?? throw new BridgeError("Nothing to copy.")); return null;
+            case "clipboard.readText": return ReadClipboardText();
+            case "doc.pickImage": return PickImage(TabFrom(req));
+            case "app.openGuide":
+                {
+                    var guide = Path.Combine(AppContext.BaseDirectory, "README.md");
+                    if (!File.Exists(guide)) throw new BridgeError("The user guide (README.md) is not next to NoorMD.exe.");
+                    return await WithDocGate(() => OpenPathAsync(guide));
+                }
+            case "app.exit": _ = Dispatcher.BeginInvoke(Close); return null;
             case "link.open": await HandleLinkAsync(req.GetString("href", 4096) ?? "", TryTabFrom(req)); return null;
             case "app.openDataFolder": OpenFolder(App.Paths.Local); return null;
             case "app.openLicenses": OpenFolder(Path.Combine(AppContext.BaseDirectory, "licenses")); return null;
@@ -298,6 +307,43 @@ public partial class MainWindow
                 PushNotice(decision.Reason);
                 break;
         }
+    }
+
+    /// <summary>The folder a document's relative images may come from (its Vault, or else its own folder).</summary>
+    private string AllowedImageRoot(DocumentSession s) => s.Folder!;
+
+    private static string ReadClipboardText()
+    {
+        for (int attempt = 0; ; attempt++)
+        {
+            try { return System.Windows.Clipboard.ContainsText() ? System.Windows.Clipboard.GetText(System.Windows.TextDataFormat.UnicodeText) : ""; }
+            catch (System.Runtime.InteropServices.COMException) when (attempt < 4) { Thread.Sleep(60); }
+            catch (System.Runtime.InteropServices.COMException) { throw new BridgeError("The clipboard is in use by another program. Try again."); }
+        }
+    }
+
+    /// <summary>Native picker for an image; returns the link to use from the document (relative where possible).</summary>
+    private object? PickImage(DocumentSession s)
+    {
+        var dlg = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Choose an image",
+            Filter = "Images|" + string.Join(';', AssetResolver.ImageExtensions.Select(e => "*" + e)) + "|All files (*.*)|*.*",
+            CheckFileExists = true,
+            InitialDirectory = s.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
+        };
+        if (dlg.ShowDialog(this) != true) return null;
+        var file = dlg.FileName;
+        string link;
+        if (s.Folder != null && LinkPaths.TryRelative(s.Folder, file, AllowedImageRoot(s), out var rel)) link = rel;
+        else
+        {
+            link = new Uri(file).AbsoluteUri;
+            PushNotice(s.Folder == null
+                ? "Save the document first to link pictures relative to it. This link uses the full path, which only works on this PC."
+                : "That picture is outside the document's folder, so it is linked by its full path and may not show in NoorMD's preview.");
+        }
+        return new { path = link, name = Path.GetFileNameWithoutExtension(file) };
     }
 
     private static void CopyToClipboard(string text)
