@@ -447,8 +447,10 @@ public partial class MainWindow
             var got = new StringBuilder();
             var buf = new byte[8192];
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            try { while (!got.ToString().Contains("Żółta łódź")) { var n = await s.ReadAsync(buf, cts.Token); if (n == 0) break; got.Append(Encoding.UTF8.GetString(buf, 0, n)); } } catch (OperationCanceledException) { }
-            Check("the playing song is pushed to OBS overlays over Server-Sent Events", got.ToString().Contains("event: np.track") && got.ToString().Contains("Żółta łódź"));
+            // System.Text.Json escapes non-ASCII ("\u017B…"); the overlay's JSON.parse reads either form.
+            bool Has() => got.ToString().Contains("Żółta łódź") || got.ToString().Contains("\\u017B\\u00F3\\u0142ta \\u0142\\u00F3d\\u017A", StringComparison.OrdinalIgnoreCase);
+            try { while (!Has()) { var n = await s.ReadAsync(buf, cts.Token); if (n == 0) break; got.Append(Encoding.UTF8.GetString(buf, 0, n)); } } catch (OperationCanceledException) { }
+            Check("the playing song is pushed to OBS overlays over Server-Sent Events", got.ToString().Contains("event: np.track") && Has(), got.Length > 400 ? got.ToString()[^400..] : got.ToString());
         }
         var txt = Path.Combine(SelfTestDir!, "now-playing.txt");
         Check("now-playing.txt is written for an OBS Text source", File.Exists(txt) && File.ReadAllText(txt) == "Noor - Żółta łódź", File.Exists(txt) ? File.ReadAllText(txt) : "missing");

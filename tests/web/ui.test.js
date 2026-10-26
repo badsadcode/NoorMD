@@ -1840,13 +1840,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.NoorVideo._state().current.id === 2);
 
       // Pop out: the host gets the id and time; the bench stops playing; pop-in continues at the reported time.
-      await page.evaluate(() => { document.querySelector('#vb-video').currentTime = 2; });
+      await waitFn(page, () => document.querySelector('#vb-video').readyState >= 1, null, { timeout: 6000 });
+      await page.waitForTimeout(100);
+      await page.evaluate(() => { const v = document.querySelector('#vb-video'); v.pause(); v.currentTime = 2; });
+      await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 2) < 0.05);
       await page.click('#vb-popout');
       await waitFn(page, () => window.__mock.state.video.popouts.length === 1);
       check('Pop out hands the video and position to the player window', (await V()).popouts[0].id === 2 && Math.abs((await V()).popouts[0].time - 2) < 0.6);
       check('…and the bench stops playing it', (await page.isVisible('#vb-message')) && (await page.evaluate(() => !document.querySelector('#vb-video').getAttribute('src'))));
-      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'video.popin', payload: { id: 2, time: 4 } }));
-      await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 4) < 0.4, null, { timeout: 6000 });
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'video.popin', payload: { id: 2, time: 3 } }));
+      await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3) < 0.4, null, { timeout: 6000 });
       check('closing the pop-out continues here at the same moment', !(await page.isVisible('#vb-message')));
       await page.keyboard.press('Escape');
       await page.focus('#videobench').catch(() => {});
