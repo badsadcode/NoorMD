@@ -107,14 +107,38 @@
   function destroyEditor(tab) {
     clearTimeout(tab.changeTimer);
     tab.changeTimer = null;
-    try { if (tab.editor) tab.editor.destroy(); } catch (err) { console.error(err); }
+    if (tab.editor || tab.fallback) retire(tab.editor, tab.pane);
     tab.editor = null;
     tab.fallback = null;
     tab.activeLine = null;
-    tab.pane.replaceChildren();
     tab.mounted = false;
+    // The tab gets a fresh, empty pane; the old one stays (hidden) until its editor is gone.
+    const fresh = el('div', { class: 'doc-pane', 'data-tab': tab.id, hidden: tab.pane.hidden || undefined });
+    tab.pane.hidden = true;
+    tab.pane.removeAttribute('data-tab');
+    tab.pane.after(fresh);
+    tab.pane = fresh;
     if (tab === t) { editor = null; fallback = null; }
   }
+
+  // TOAST UI's toolbar reacts to window resizes with a 200 ms throttle and can still touch its DOM after
+  // destroy(). Old editors are therefore destroyed only once resizing has been quiet for a while.
+  const retired = [];
+  let retireTimer = null;
+  function retire(ed, pane) {
+    retired.push([ed, pane]);
+    scheduleRetire();
+  }
+  function scheduleRetire() {
+    clearTimeout(retireTimer);
+    retireTimer = setTimeout(() => {
+      for (const [ed, pane] of retired.splice(0)) {
+        try { if (ed) ed.destroy(); } catch (err) { console.error(err); }
+        pane.remove();
+      }
+    }, 700);
+  }
+  window.addEventListener('resize', () => { if (retired.length) scheduleRetire(); });
 
   /** Runs fn while ignoring editor change events (programmatic edits are not user edits). */
   function quietly(fn) {
@@ -186,8 +210,8 @@
     tab.scroll = [];
     hideWelcome();
     renderTabs();
-    if (!p.background || !t) showTab(tab, { focus: !p.noFocus });
-    else if (tab === t) showTab(tab, { focus: false, force: true });
+    if (!p.background || !wanted) showTab(tab, { focus: !p.noFocus });
+    else if (tab === wanted) showTab(tab, { focus: false, force: true });
   }
 
   /** Creates the tab's editor from its pending document (first time it is shown, or after a reload). */
@@ -211,6 +235,7 @@
       if (tab.editor) {
         applyMode(tab, target, true);
         if (tab.editor.isMarkdownMode()) tab.editor.setSelection([1, 1], [1, 1]);
+        clearHistory(tab.editor);
       }
     });
     tab.sourceBeforeVisual = target === 'wysiwyg' ? { text, gen: tab.gen } : null;
@@ -227,6 +252,17 @@
     if (p.warning) tab.banner = { text: p.warning, actions: [{ label: 'Dismiss', run: hideBanner }] };
     if (p.dirty) postContent(tab);
     reportTabs();
+  }
+
+  /** The editor records loading the text as an undoable step; a freshly opened document starts with no history. */
+  function clearHistory(ed) {
+    for (const view of [ed.wwEditor && ed.wwEditor.view, ed.mdEditor && ed.mdEditor.view]) {
+      if (!view) continue;
+      try {
+        const st = view.state;
+        view.updateState(st.constructor.create({ doc: st.doc, selection: st.selection, plugins: st.plugins }));
+      } catch (err) { console.error(err); }
+    }
   }
 
   function scrollEditorToTop() {
@@ -1357,7 +1393,9 @@
 
   // Tab switches run one at a time, in order, however fast they are requested.
   let switching = Promise.resolve();
+  let wanted = null; // the tab most recently asked to be shown
   function showTab(tab, opts = {}) {
+    wanted = tab;
     switching = switching.then(() => doShowTab(tab, opts)).catch((err) => console.error(err));
     return switching;
   }
@@ -1489,7 +1527,7 @@
     const node = tab.tabEl;
     const move = (ev) => {
       if (!dragging && Math.abs(ev.clientX - startX) < 6) return;
-      if (!dragging) { dragging = true; node.setPointerCapture(ev.pointerId); node.classList.add('dragging'); }
+      if (!dragging) { dragging = true; node.classList.add('dragging'); }
       const group = tabs.filter((x) => x.pinned === tab.pinned && x !== tab); // pinned and unpinned tabs don't mix
       let index = 0;
       for (const other of group) {
@@ -1501,17 +1539,18 @@
       const target = base + index;
       if (target !== cur) { tabs.splice(cur, 1); tabs.splice(target, 0, tab); renderTabs(); }
     };
+    // Listen on the window: re-ordering moves the tab's element, which would drop pointer capture.
     const up = () => {
-      node.removeEventListener('pointermove', move);
-      node.removeEventListener('pointerup', up);
-      node.removeEventListener('pointercancel', up);
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
       node.classList.remove('dragging');
       if (dragging) reportTabs();
       else showTab(tab);
     };
-    node.addEventListener('pointermove', move);
-    node.addEventListener('pointerup', up);
-    node.addEventListener('pointercancel', up);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
   }
 
   function showTabMenu(tab, x, y) {
@@ -1787,9 +1826,12 @@
     applyPrefs();
     renderRecent();
     // Restored tabs arrive in strip order; only the selected one gets an editor now, the rest when first shown.
+    const first = (ready.tabs || []).find((p) => p.tabId === ready.activeTabId) || (ready.tabs || [])[0];
+    if (first) wanted = first.tabId; // no tab is shown until the remembered one is
     for (const p of ready.tabs || []) onDocLoad({ ...p, background: true, noFocus: true });
-    const first = tabById(ready.activeTabId) || tabs[0];
-    if (first) await showTab(first, { focus: !ready.welcome });
+    wanted = null;
+    const shown = tabById(ready.activeTabId) || tabs[0];
+    if (shown) await showTab(shown, { focus: !ready.welcome });
     if (ready.welcome) {
       $('#welcome').classList.remove('hide');
       $('#welcome .action.primary')?.focus();

@@ -87,8 +87,8 @@ public partial class MainWindow
             var source = await GetEditorStateAsync(tab.TabId);
             Check("Markdown mode shows the exact original source (no Visual normalization)", source?.Markdown == File.ReadAllText(path).Replace("\r\n", "\n"));
             Check("source lines use one font size and line height",
-                await Eval("(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const s = new Set(), l = new Set(); pm.querySelectorAll('*').forEach(n => { const c = getComputedStyle(n); s.add(c.fontSize); l.add(c.lineHeight); }); return s.size === 1 && l.size === 1; })()") == "true");
-            Check("bundled source font is used", (await Eval("document.fonts.check('14px \"JetBrains Mono Variable\"') && getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror')).fontFamily")).Contains("JetBrains"));
+                await Eval("(() => { const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror'); const s = new Set(), l = new Set(); pm.querySelectorAll('*').forEach(n => { const c = getComputedStyle(n); s.add(c.fontSize); l.add(c.lineHeight); }); return s.size === 1 && l.size === 1; })()") == "true");
+            Check("bundled source font is used", (await Eval("document.fonts.check('14px \"JetBrains Mono Variable\"') && getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror')).fontFamily")).Contains("JetBrains"));
             await Capture("screenshot-source.png");
             await Eval("window.NoorMD.runCommand('view.visual')");
             await Task.Delay(600);
@@ -118,7 +118,7 @@ public partial class MainWindow
 
             await Eval("window.NoorMD.runCommand('view.split')");
             await Task.Delay(800);
-            Check("split view shows two panes", await Eval("(() => { const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect().width; const b = document.querySelector('#editor .toastui-editor-md-preview').getBoundingClientRect().width; return a > 200 && b > 200; })()") == "true");
+            Check("split view shows two panes", await Eval("(() => { const a = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor').getBoundingClientRect().width; const b = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').getBoundingClientRect().width; return a > 200 && b > 200; })()") == "true");
             await Eval("window.NoorMD.runCommand('view.visual')");
             await Task.Delay(800);
             var back = await GetEditorStateAsync(tab.TabId);
@@ -128,7 +128,7 @@ public partial class MainWindow
             await Task.Delay(600);
             Check("focus mode uses the window width", await Eval("document.querySelector('#editor-card').getBoundingClientRect().width > window.innerWidth - 60") == "true");
             await Capture("screenshot-focus-comfortable.png");
-            const string textWidth = "(() => { const pm = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const cs = getComputedStyle(pm); return pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); })()";
+            const string textWidth = "(() => { const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror'); const cs = getComputedStyle(pm); return pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight); })()";
             var comfortable = double.Parse(await Eval(textWidth), System.Globalization.CultureInfo.InvariantCulture);
             await Eval("window.NoorMD.runCommand('width.full')");
             await Task.Delay(600);
@@ -152,7 +152,7 @@ public partial class MainWindow
             await Eval("window.NoorMD.runCommand('spell.toggle')");
             await Task.Delay(300);
             Check("spellcheck off: attribute set, text unchanged, persisted",
-                await Eval("[...document.querySelectorAll('#editor [contenteditable=\"true\"]')].every(n => n.getAttribute('spellcheck') === 'false')") == "true"
+                await Eval("[...document.querySelectorAll('#editor .doc-pane:not([hidden]) [contenteditable=\"true\"]')].every(n => n.getAttribute('spellcheck') === 'false')") == "true"
                 && (await GetEditorStateAsync(tab.TabId))?.Markdown == before && !_settings.Prefs.Spellcheck);
             await Eval("window.NoorMD.runCommand('spell.toggle')");
 
@@ -168,6 +168,7 @@ public partial class MainWindow
             var html = HtmlExport.Build("T", body);
             Check("HTML export is sanitized", !html.Contains("onerror") && !html.Contains("<script"), body);
 
+            await RunTabsSelfTestAsync(tab);
             await RunMusicSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
@@ -180,6 +181,64 @@ public partial class MainWindow
             Check("self-test ran without exceptions", false, ex.ToString());
         }
         FinishSelfTest();
+    }
+
+    /// <summary>Multi-document tabs on real WebView2: separate editors, drafts and saves; same file selects its tab.</summary>
+    private async Task RunTabsSelfTestAsync(Host.DocumentSession first)
+    {
+        var dir = Path.GetDirectoryName(first.Path!)!;
+        var pathB = Path.Combine(dir, "tab-b.md");
+        var pathC = Path.Combine(dir, "tab-c.md");
+        File.WriteAllBytes(pathB, [.. new UTF8Encoding(true).GetPreamble(), .. Encoding.UTF8.GetBytes("# Tab B\n\nŻółw B.\n")]);
+        File.WriteAllBytes(pathC, Encoding.UTF8.GetBytes("# Tab C\r\n\r\nC body.\r\n"));
+        var firstBytes = File.ReadAllBytes(first.Path!);
+        var bytesC = File.ReadAllBytes(pathC);
+
+        await OpenPathAsync(pathB);
+        await OpenPathAsync(pathC);
+        await Task.Delay(1200);
+        var sb = FindTabByPath(pathB)!;
+        var sc = FindTabByPath(pathC)!;
+        Check("files open in their own tabs", _tabs.Count == 3 && await Eval("window.NoorMD.tabs().length") == "3" && _activeTabId == sc.TabId, $"{_tabs.Count} tabs");
+        Check("tab strip is shown", await Eval("document.querySelectorAll('#tabs .tab').length") == "3");
+
+        PushEvent("insert.text", new { markdown = " EditC" });
+        await Task.Delay(1500);
+        SelectTab(sb);
+        await Task.Delay(1200);
+        PushEvent("insert.text", new { markdown = " EditB" });
+        await Task.Delay(1500);
+        var stA = await GetEditorStateAsync(first.TabId);
+        var stB = await GetEditorStateAsync(sb.TabId);
+        var stC = await GetEditorStateAsync(sc.TabId);
+        Check("each tab holds only its own edit (no cross-document contamination)",
+            stB != null && stC != null && stA != null && stB.Markdown.Contains("EditB") && !stB.Markdown.Contains("EditC") && stC.Markdown.Contains("EditC") && !stC.Markdown.Contains("EditB")
+            && !stA.Markdown.Contains("EditB") && !stA.Markdown.Contains("EditC"));
+        Check("each dirty tab has its own recovery draft", _recovery.HasOwnDraft(sb.TabId) && _recovery.HasOwnDraft(sc.TabId) && !_recovery.HasOwnDraft(first.TabId));
+
+        var savedB = stB != null && await SaveCoreAsync(sb, saveAs: false, stB);
+        var diskB = File.ReadAllBytes(pathB);
+        var textB = Encoding.UTF8.GetString(diskB);
+        Check("saving one tab writes only that file", savedB && textB.Contains("EditB") && File.ReadAllBytes(pathC).SequenceEqual(bytesC) && File.ReadAllBytes(first.Path!).SequenceEqual(firstBytes));
+        Check("that tab keeps its own BOM and LF line endings", diskB.Length > 3 && diskB[0] == 0xEF && !textB.Contains('\r'));
+        Check("the other tab is still dirty with its draft", (await GetEditorStateAsync(sc.TabId)) is { Dirty: true } && _recovery.HasOwnDraft(sc.TabId));
+
+        await OpenPathAsync(Path.Combine(dir, "..", Path.GetFileName(dir), "TAB-C.MD"));
+        await Task.Delay(800);
+        Check("opening an open file by another spelling selects its tab", _tabs.Count == 3 && _activeTabId == sc.TabId);
+
+        var stC2 = await GetEditorStateAsync(sc.TabId);
+        var savedC = stC2 != null && await SaveCoreAsync(sc, saveAs: false, stC2);
+        Check("second tab keeps CRLF", savedC && File.ReadAllText(pathC).Contains("EditC") && File.ReadAllText(pathC).Contains("\r\n"));
+        await Task.Delay(600);
+        var closed = await CloseTabAsync(sb);
+        await Task.Delay(1000);
+        Check("closing a saved tab removes it everywhere", _tabs.Count == 2 && await Eval("window.NoorMD.tabs().length") == "2", JsonSerializer.Serialize(closed));
+        Check("session remembers the open tabs", _settings.Session is { } ses && ses.Tabs.Count == 2 && ses.Tabs.Any(t => t.Path == sc.Path));
+        await Capture("screenshot-tabs.png");
+        SelectTab(first);
+        await Task.Delay(1000);
+        Check("switching back shows the first document unchanged", (await GetEditorStateAsync(first.TabId))?.Markdown == stA?.Markdown && await Eval("window.NoorMD.activeTab()") == $"\"{first.TabId}\"");
     }
 
     private async Task<string> Eval(string script) => await Core.ExecuteScriptAsync(script);

@@ -56,6 +56,7 @@ async function open(browser, base, initial, viewport = { width: 1440, height: 90
   return { page, errors, external };
 }
 
+const settleClose = (page) => page.waitForTimeout(250);
 const state = (page) => page.evaluate(() => window.NoorMD.getState());
 const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) => m.type === t).length, type);
 
@@ -729,6 +730,257 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await r2.page.keyboard.press('Escape');
       check('“Show the Music Bench” off hides it everywhere', !(await r2.page.isVisible('#miniplayer')) && !(await r2.page.isVisible('.music-entry')));
       await r2.page.close();
+    }
+
+    // ---- 9. Multi-document tabs (addendum acceptance tests).
+    {
+      const A = '# Alpha\n\nAlpha body.\n', B = '# Beta\n\nBeta body.\n', C = '# Gamma\n\nGamma body.\n';
+      const files = { 'C:\\docs\\a.md': A, 'C:\\docs\\b.md': B, 'C:\\docs\\c.md': C, 'C:\\docs\\raw.md': LOSSY };
+      const { page, errors } = await open(browser, url, {
+        tabs: [
+          { markdown: A, path: 'C:\\docs\\a.md', fileName: 'a.md', title: 'a' },
+          { markdown: B, path: 'C:\\docs\\b.md', fileName: 'b.md', title: 'b', encoding: 'UTF-16 LE BOM', eol: 'CRLF' },
+        ],
+        files, openPaths: ['C:\\docs\\c.md', 'c:\\DOCS\\A.md', 'C:\\docs\\raw.md'], closeChoices: ['cancel', 'save'], saveAsPaths: ['C:\\docs\\renamed.md'],
+      });
+      const tabsNow = () => page.evaluate(() => window.NoorMD.tabs());
+      const ids = async () => (await tabsNow()).map((x) => x.id);
+      const textOf = (id) => page.evaluate((i) => window.NoorMD.flush(i).markdown, id);
+      const activeTitle = async () => (await tabsNow()).find((x) => x.active).title;
+      const clickEditor = () => page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
+      const settle = () => page.waitForTimeout(120);
+
+      check('tab strip shows one tab per document', (await page.$$eval('#tabs .tab', (n) => n.map((x) => x.querySelector('.tab-name').textContent))).join() === 'a.md,b.md');
+      check('only the shown tab has an editor yet (lazy)', (await tabsNow()).filter((x) => x.mounted).length === 1);
+      check('tab tooltip is the full path', (await page.getAttribute('#tabs .tab.active', 'title')).startsWith('C:\\docs\\a.md'));
+
+      // Ctrl+O opens into a new tab.
+      await page.keyboard.press('Control+o');
+      await waitFn(page, () => window.NoorMD.tabs().length === 3);
+      check('Ctrl+O opens the file in a new tab and shows it', (await activeTitle()) === 'c');
+      const [ia, ib, ic] = await ids();
+
+      // Edit each document, switching between them repeatedly.
+      for (let round = 0; round < 3; round++) {
+        for (const [key, name] of [['A', 'a'], ['B', 'b'], ['C', 'c']]) {
+          await page.click(`#tabs .tab[data-tab="${{ a: ia, b: ib, c: ic }[name]}"]`);
+          await waitFn(page, (n) => window.NoorMD.tabs().find((x) => x.active).title === n, name);
+          await settle();
+          await clickEditor();
+          await page.keyboard.press('Control+End');
+          await page.keyboard.type(` ${key}${round}`);
+        }
+      }
+      const [ta, tb, tc] = [await textOf(ia), await textOf(ib), await textOf(ic)];
+      const own = (txt, key, others) => [0, 1, 2].every((r) => txt.includes(`${key}${r}`)) && others.every((o) => ![0, 1, 2].some((r) => txt.includes(` ${o}${r}`)));
+      check('three documents edited in turn: no cross-document contamination',
+        own(ta, 'A', ['B', 'C']) && own(tb, 'B', ['A', 'C']) && own(tc, 'C', ['A', 'B']) && ta.startsWith('# Alpha') && tb.startsWith('# Beta') && tc.startsWith('# Gamma'), { ta, tb, tc });
+      check('every edited tab shows its unsaved dot', (await page.$$eval('#tabs .tab.dirty', (n) => n.length)) === 3);
+      await page.click(`#tabs .tab[data-tab="${ib}"]`);
+      await settle();
+      check('status bar shows the shown document’s own encoding and line endings', (await page.textContent('#file-format')).includes('UTF-16 LE BOM · CRLF'));
+      const changed = await page.evaluate(() => window.__mock.log.filter((m) => m.type === 'doc.changed').map((m) => [m.payload.tabId, m.payload.markdown]));
+      check('recovery drafts are written per tab with that tab’s own text',
+        changed.length >= 3 && changed.every(([id, txt]) => (id === ia ? txt.startsWith('# Alpha') : id === ib ? txt.startsWith('# Beta') : txt.startsWith('# Gamma'))), changed.length);
+
+      // Undo is per document.
+      await clickEditor();
+      for (let i = 0; i < 40; i++) await page.keyboard.press('Control+z');
+      check('undo in one tab never reaches another document or empties the file', (await textOf(ib)).trimEnd() === B.trimEnd() && (await textOf(ia)) === ta && (await textOf(ic)) === tc, await textOf(ib));
+      await page.keyboard.press('Control+y');
+
+      // Selection survives a tab switch.
+      await page.click(`#tabs .tab[data-tab="${ia}"]`);
+      await settle();
+      await clickEditor();
+      await page.keyboard.press('Control+Home');
+      await page.keyboard.type('Q');
+      await page.keyboard.press('Control+Tab');
+      await settle();
+      check('Ctrl+Tab goes to the next tab', (await activeTitle()) === 'b');
+      await page.keyboard.press('Control+Shift+Tab');
+      await settle();
+      check('Ctrl+Shift+Tab goes back', (await activeTitle()) === 'a');
+      await page.keyboard.type('!');
+      check('cursor position is kept across a tab switch', (await textOf(ia)).startsWith('# Q!Alpha'), (await textOf(ia)).slice(0, 20));
+      await page.keyboard.press('Control+PageDown');
+      await settle();
+      check('Ctrl+PageDown also switches tabs', (await activeTitle()) === 'b');
+
+      // Ctrl+S immediately after a keystroke saves that tab only, including the keystroke.
+      await page.click(`#tabs .tab[data-tab="${ic}"]`);
+      await settle();
+      await clickEditor();
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type('Z');
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.saved || []).length === 1);
+      const saved1 = await page.evaluate(() => ({ s: window.__mock.state.saved, f: window.__mock.files }));
+      check('Ctrl+S saves only the shown tab, with the keystroke typed just before', saved1.s.length === 1 && saved1.s[0].tabId === ic && saved1.f['C:\\docs\\c.md'].includes('C2Z')
+        && saved1.f['C:\\docs\\a.md'] === A && saved1.f['C:\\docs\\b.md'] === B, saved1.s);
+      check('saved tab is clean, the others stay dirty', (await page.$$eval('#tabs .tab.dirty', (n) => n.length)) === 2);
+
+      // Opening an already open file (other spelling) selects its tab.
+      await page.keyboard.press('Control+o');
+      await settle();
+      check('opening an open file by an equivalent path selects the existing tab', (await tabsNow()).length === 3 && (await activeTitle()) === 'a');
+
+      // Closing a dirty tab: Cancel keeps it, Save writes only that file.
+      await page.click(`#tabs .tab[data-tab="${ib}"]`);
+      await settle();
+      const bText = await textOf(ib);
+      await page.keyboard.press('Control+w');
+      await settle();
+      check('Cancel on close keeps the tab and its text', (await ids()).includes(ib) && (await textOf(ib)) === bText);
+      await page.keyboard.press('Control+w');
+      await waitFn(page, (id) => !window.NoorMD.tabs().some((x) => x.id === id), ib);
+      const f2 = await page.evaluate(() => window.__mock.files);
+      check('Save on close writes only that document, then closes the tab', f2['C:\\docs\\b.md'] === bText && f2['C:\\docs\\a.md'] === A && (await page.evaluate(() => window.__mock.state.saved.length)) === 2);
+      check('closing a tab shows a neighbour', (await tabsNow()).some((x) => x.active));
+
+      // Save As changes only that tab.
+      await page.click(`#tabs .tab[data-tab="${ia}"]`);
+      await settle();
+      await page.keyboard.press('Control+Shift+s');
+      await settle();
+      const after = await tabsNow();
+      check('Save As updates only that tab’s path and name', after.find((x) => x.id === ia).path === 'C:\\docs\\renamed.md' && after.find((x) => x.id === ic).path === 'C:\\docs\\c.md'
+        && (await page.$$eval('#tabs .tab', (n) => n.map((x) => x.textContent))).some((x) => x.includes('renamed.md')));
+
+      // The round-trip guard still applies to a document opened in a tab, and its banner belongs to that tab.
+      await page.keyboard.press('Control+o');
+      await waitFn(page, () => window.NoorMD.tabs().length === 3);
+      await settle();
+      const raw = (await tabsNow()).find((x) => x.active);
+      check('a file Visual mode cannot represent opens in Markdown mode, byte-exact', raw.mode === 'markdown' && (await textOf(raw.id)) === LOSSY);
+      check('its round-trip banner is shown', !(await page.evaluate(() => document.querySelector('#banner').classList.contains('hide'))));
+      await page.click(`#tabs .tab[data-tab="${ia}"]`);
+      await settle();
+      check('the banner does not follow into another tab; that tab keeps its own mode', (await page.evaluate(() => document.querySelector('#banner').classList.contains('hide'))) && (await page.evaluate(() => window.NoorMD.mode())) === 'wysiwyg');
+      await page.click(`#tabs .tab[data-tab="${raw.id}"]`);
+      await settle();
+      check('…and comes back with its tab', !(await page.evaluate(() => document.querySelector('#banner').classList.contains('hide'))) && (await page.evaluate(() => window.NoorMD.mode())) === 'markdown');
+
+      // Context menu, pinning and bulk close.
+      await page.click(`#tabs .tab[data-tab="${ia}"]`, { button: 'right' });
+      await page.waitForSelector('#tab-menu');
+      const items = await page.$$eval('#tab-menu button', (n) => n.map((x) => x.textContent));
+      check('tab menu has Close, Close Others, Close Tabs to the Right, Copy Path, Reveal in Explorer, Pin',
+        ['Close', 'Close Others', 'Close Tabs to the Right', 'Copy Path', 'Reveal in Explorer', 'Pin'].every((x) => items.includes(x)), items);
+      await page.click('#tab-menu button:text-is("Copy Path")');
+      await settle();
+      check('Copy Path copies the full path', (await page.evaluate(() => window.__mock.state.clipboard)) === 'C:\\docs\\renamed.md');
+      await page.click(`#tabs .tab[data-tab="${ic}"]`, { button: 'right' });
+      await page.click('#tab-menu button:text-is("Pin")');
+      await settle();
+      check('pinned tab moves to the start and shows a pin', (await ids())[0] === ic && (await page.$eval(`#tabs .tab[data-tab="${ic}"]`, (n) => n.classList.contains('pinned'))));
+      check('pinning is reported to the host for the session', await page.evaluate((id) => window.__mock.state.tabsState.tabs.find((x) => x.id === id).pinned, ic));
+      await page.click(`#tabs .tab[data-tab="${raw.id}"]`, { button: 'middle' });
+      await settle();
+      check('middle-click closes a tab', !(await ids()).includes(raw.id));
+      await page.click(`#tabs .tab[data-tab="${ic}"]`, { button: 'middle' });
+      await settle();
+      check('middle-click does not close a pinned tab', (await ids()).includes(ic));
+      await page.click(`#tabs .tab[data-tab="${ia}"]`, { button: 'right' });
+      await page.click('#tab-menu button:text-is("Close Others")');
+      await settle();
+      check('Close Others keeps pinned tabs', (await ids()).join() === [ic, ia].join(), await ids());
+      if (shots) await page.screenshot({ path: `${shots}/tabs.png` });
+      check('no page errors in tab workflows', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 10. Untitled tabs stay distinct; rapid switching while typing; music keeps playing.
+    {
+      const { page, errors } = await open(browser, url, { document: null, musicTracks: 4 });
+      const tabsNow = () => page.evaluate(() => window.NoorMD.tabs());
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Control+t'); // replaces the welcome screen's blank tab
+      await waitFn(page, () => !document.querySelector('#welcome:not(.hide)'));
+      await page.keyboard.press('Control+t');
+      await waitFn(page, () => window.NoorMD.tabs().length === 2);
+      check('Ctrl+T on the welcome screen reuses the blank tab, then adds a new one', (await tabsNow()).length === 2);
+      const [u1, u2] = (await tabsNow()).map((x) => x.id);
+      await page.evaluate(() => window.NoorMusic._testPlay([1, 2, 3, 4], 0, true));
+      await waitFn(page, () => !window.NoorMusic._state().paused && window.NoorMusic._state().time > 0.2, null, { timeout: 8000 });
+      const typed = [];
+      for (let i = 0; i < 16; i++) {
+        await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
+        const token = `w${i}x`;
+        typed.push(token);
+        await page.keyboard.type(token + ' ', { delay: 5 });
+        await page.keyboard.press('Control+Tab'); // no waiting: switch while the text is still being sent
+      }
+      await page.waitForTimeout(800);
+      const t1 = await page.evaluate((id) => window.NoorMD.flush(id).markdown, u1), t2 = await page.evaluate((id) => window.NoorMD.flush(id).markdown, u2);
+      const inBoth = typed.filter((x) => t1.includes(x) && t2.includes(x));
+      const lost = typed.filter((x) => !t1.includes(x) && !t2.includes(x));
+      check('rapid switching while typing: every word lands in exactly one document', inBoth.length === 0 && lost.length === 0, { t1, t2, lost });
+      const evenOk = typed.filter((_, i) => i % 2 === 0).every((x) => t2.includes(x)) && typed.filter((_, i) => i % 2 === 1).every((x) => t1.includes(x)); // typing starts in the newer tab
+      check('…and in the document that was on screen when it was typed', evenOk, { t1, t2 });
+      check('two untitled tabs keep separate recovery drafts', await page.evaluate(([a, b]) => {
+        const last = (id) => window.__mock.log.filter((m) => m.type === 'doc.changed' && m.payload.tabId === id).pop();
+        return last(a) && last(b) && last(a).payload.markdown !== last(b).payload.markdown && last(a).payload.dirty && last(b).payload.dirty;
+      }, [u1, u2]));
+      check('music keeps playing while tabs are opened and switched', !(await page.evaluate(() => window.NoorMusic._state().paused)));
+      await page.keyboard.press('Control+w');
+      await settleClose(page);
+      check('music keeps playing when a tab is closed', !(await page.evaluate(() => window.NoorMusic._state().paused)) && (await tabsNow()).length === 1);
+      await page.keyboard.press('Control+w');
+      await settleClose(page);
+      check('closing the last tab leaves a fresh blank document', (await tabsNow()).length === 1 && (await page.evaluate(() => window.NoorMD.getState().markdown)) === '');
+      check('mini-player stays through tab changes', await page.isVisible('#miniplayer'));
+      await page.evaluate(() => window.NoorMusic.toggle());
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors with untitled tabs and music', unexpected.length === 0, unexpected);
+      await page.close();
+    }
+
+    // ---- 11. Session restore and 20+ tabs (overflow, switcher, lazy editors).
+    {
+      const many = Array.from({ length: 24 }, (_, i) => ({ tabId: '10000000000000' + i.toString(16).padStart(2, '0'), markdown: `# Doc ${i}\n\nText ${i}.\n`, path: `C:\\docs\\long document name ${i}.md`, fileName: `long document name ${i}.md`, title: `long document name ${i}` }));
+      many[0].pinned = true;
+      many[3] = { ...many[3], path: null, fileName: null, title: 'Untitled ideas', markdown: '# Ideas\n' };
+      many[5].mode = 'split';
+      const { page, errors } = await open(browser, url, { tabs: many, activeTabId: many[5].tabId }, { width: 1024, height: 700 });
+      const tabsNow = () => page.evaluate(() => window.NoorMD.tabs());
+      const list = await tabsNow();
+      check('restored session keeps tab order (files and untitled)', list.map((x) => x.id).join() === many.map((x) => x.tabId).join() && list[3].title === 'Untitled ideas' && list[3].path === null);
+      check('restored session selects the remembered tab with its view mode', list.find((x) => x.active).id === many[5].tabId && (await page.evaluate(() => window.NoorMD.mode())) === 'split');
+      check('restored pinned tab is pinned', list[0].pinned && (await page.$eval('#tabs .tab', (n) => n.classList.contains('pinned'))));
+      check('24 tabs: only the shown one has an editor', list.filter((x) => x.mounted).length === 1);
+      const ov = await page.evaluate(() => ({ strip: document.querySelector('#tabs').scrollWidth > document.querySelector('#tabs').clientWidth, page: document.documentElement.scrollWidth - window.innerWidth, active: (() => { const a = document.querySelector('#tabs .tab.active').getBoundingClientRect(), s = document.querySelector('#tabs').getBoundingClientRect(); return a.left >= s.left - 1 && a.right <= s.right + 1; })() }));
+      check('many tabs scroll inside the strip, the window does not overflow, the shown tab is in view', ov.strip && ov.page <= 0 && ov.active, ov);
+      await page.keyboard.press('Control+e');
+      await page.waitForSelector('#switcher-query');
+      check('Ctrl+E lists every open document', (await page.$$eval('.modal .cmd-item', (n) => n.length)) === 24);
+      await page.fill('#switcher-query', 'name 17');
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(200);
+      check('typing filters the list and Enter shows that document', (await tabsNow()).find((x) => x.active).title === 'long document name 17' && (await page.evaluate(() => window.NoorMD.getState().markdown)).includes('Text 17'));
+      // Drag a tab to reorder.
+      await page.evaluate(() => { document.querySelector('#tabs').scrollLeft = 0; });
+      const src = await page.$(`#tabs .tab[data-tab="${many[2].tabId}"]`);
+      const dst = await page.$(`#tabs .tab[data-tab="${many[1].tabId}"]`);
+      const sb = await src.boundingBox(), db = await dst.boundingBox();
+      await page.mouse.move(sb.x + sb.width / 2, sb.y + sb.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(db.x + 6, db.y + db.height / 2, { steps: 8 });
+      await page.mouse.up();
+      await page.waitForTimeout(150);
+      const order = (await tabsNow()).map((x) => x.id);
+      check('dragging a tab reorders the strip and the host is told', order[1] === many[2].tabId && order[2] === many[1].tabId
+        && (await page.evaluate(() => window.__mock.state.tabsState.tabs.map((x) => x.id)))[1] === many[2].tabId, order.slice(0, 4));
+      // Fast cycling through all tabs mounts each one correctly.
+      for (let i = 0; i < 24; i++) await page.keyboard.press('Control+Tab');
+      await page.waitForTimeout(600);
+      const s = await page.evaluate(() => ({ st: window.NoorMD.getState(), id: window.NoorMD.activeTab() }));
+      const exp = many.find((x) => x.tabId === s.id);
+      check('cycling through 24 tabs ends on a correctly loaded document', s.st.markdown === exp.markdown && !s.st.dirty, { got: s.st.markdown, exp: exp.markdown });
+      check('no tab became dirty by being shown', (await tabsNow()).every((x) => !x.dirty));
+      if (shots) await page.screenshot({ path: `${shots}/tabs-many-1024.png` });
+      check('no page errors with 24 tabs', errors.length === 0, errors);
+      await page.close();
     }
   } finally {
     await browser.close();

@@ -533,7 +533,7 @@ body.music-disabled .music-entry, body.music-disabled .miniplayer { display: non
 .tabstrip { display: flex; align-items: flex-end; gap: 4px; margin: -8px 0 14px; min-width: 0; border-bottom: 1px solid var(--border); }
 .tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
-.tab { position: relative; display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 92px; max-width: 220px; height: 32px; padding: 0 6px 0 12px;
+.tab { position: relative; display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 124px; max-width: 220px; height: 32px; padding: 0 6px 0 12px;
   border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0; color: var(--muted); font-size: 12.5px; cursor: default; user-select: none; white-space: nowrap; }
 .tab:hover { background: color-mix(in srgb, var(--surface2) 60%, transparent); color: var(--text); }
 .tab.active { background: var(--panel); border-color: var(--border); color: var(--text); font-weight: 600; margin-bottom: -1px; height: 33px; }
