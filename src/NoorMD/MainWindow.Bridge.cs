@@ -110,6 +110,8 @@ public partial class MainWindow
                     runtime = RuntimeInformation.FrameworkDescription,
                     webView2 = Core.Environment.BrowserVersionString,
                 };
+            case var music when music.StartsWith("music.", StringComparison.Ordinal):
+                return await DispatchMusicAsync(req);
             default:
                 throw new BridgeError($"Unknown command \"{req.Type}\".");
         }

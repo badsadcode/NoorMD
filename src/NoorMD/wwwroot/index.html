@@ -59,6 +59,7 @@
       <button class="side-btn" data-cmd="history.show"><span class="glyph">◷</span><span>Revision snapshots</span></button>
       <button class="side-btn" data-cmd="palette.show"><span class="glyph">⌘</span><span>Command palette</span><span class="kbd">Ctrl K</span></button>
       <button class="side-btn" data-cmd="view.focus"><span class="glyph">◇</span><span>Focus mode</span><span class="kbd">F11</span></button>
+      <button class="side-btn music-entry" data-cmd="music.toggle"><span class="glyph">♫</span><span>Music Bench</span><span class="kbd">Ctrl ⇧ M</span></button>
       <button class="side-btn" data-cmd="prefs.show"><span class="glyph">⚙</span><span>Preferences</span><span class="kbd">Ctrl ,</span></button>
     </section>
 
@@ -151,7 +152,10 @@
         <div class="footer-right"><span id="counter-bottom">0 words · 0 characters</span><span class="sep">·</span><span id="file-format">UTF-8 · LF</span><span class="sep">·</span>NoorMD ✦ Atelier</div>
       </footer>
     </section>
+    <div class="miniplayer hide" id="miniplayer" role="region" aria-label="Mini player"></div>
   </main>
+  <div class="music-resizer" id="music-resizer" role="separator" aria-orientation="vertical" aria-label="Resize Music Bench"></div>
+  <aside class="music" id="music" aria-label="Music Bench"></aside>
 </div>
 
 <div id="print-root" class="toastui-editor-contents" aria-hidden="true"></div>
@@ -162,6 +166,7 @@
 <script src="_noormd/js/bridge.js"></script>
 <script src="_noormd/js/markdown-tools.js"></script>
 <script src="_noormd/js/ui.js"></script>
+<script src="_noormd/js/music.js"></script>
 <script src="_noormd/js/app.js"></script>
 </body>
 </html>

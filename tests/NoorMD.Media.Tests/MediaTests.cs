@@ -461,3 +461,32 @@ public class PlaylistFileAndRangeTests
         Assert.Equal(end, r?.End);
     }
 }
+
+public class MediaResponseTests
+{
+    [Fact]
+    public void Serves_Chunked_Ranges_And_Releases_The_File()
+    {
+        using var t = new TempDir();
+        var f = t.P("big.mp3");
+        var data = new byte[5 * 1024 * 1024 + 123];
+        new Random(1).NextBytes(data);
+        File.WriteAllBytes(f, data);
+
+        var first = MediaResponse.Build(f, "bytes=0-", "audio/mpeg");
+        Assert.Equal(206, first.Status);
+        Assert.Equal(MediaResponse.MaxChunk, first.Body.Length);
+        Assert.Contains($"Content-Range: bytes 0-{MediaResponse.MaxChunk - 1}/{data.Length}", first.Headers);
+        Assert.Equal(data.AsSpan(0, 100).ToArray(), first.Body.AsSpan(0, 100).ToArray());
+
+        var tail = MediaResponse.Build(f, $"bytes={data.Length - 10}-", "audio/mpeg");
+        Assert.Equal(data.AsSpan(data.Length - 10).ToArray(), tail.Body);
+
+        Assert.Equal(416, MediaResponse.Build(f, $"bytes={data.Length}-", "audio/mpeg").Status);
+        Assert.Equal(404, MediaResponse.Build(t.P("nope.mp3"), null, "audio/mpeg").Status);
+
+        // No handle is kept: the file can be renamed and rewritten right after serving.
+        File.Move(f, t.P("renamed.mp3"));
+        File.WriteAllBytes(t.P("renamed.mp3"), [1, 2, 3]);
+    }
+}

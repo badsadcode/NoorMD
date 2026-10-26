@@ -11,6 +11,7 @@ mkdir -p "$ART"
 echo "== NoorMD $VERSION =="
 if [[ "${SKIP_TESTS:-0}" != "1" ]]; then
   dotnet test tests/NoorMD.Core.Tests -c "$CONFIG"
+  dotnet test tests/NoorMD.Media.Tests -c "$CONFIG"
 fi
 
 publish() {

@@ -167,6 +167,8 @@ public partial class MainWindow
             var html = HtmlExport.Build("T", body);
             Check("HTML export is sanitized", !html.Contains("onerror") && !html.Contains("<script"), body);
 
+            await RunMusicSelfTestAsync();
+
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
             var pdf = Path.Combine(SelfTestDir, "export.pdf");
             var ok = await Core.PrintToPdfAsync(pdf);
@@ -180,6 +182,33 @@ public partial class MainWindow
     }
 
     private async Task<string> Eval(string script) => await Core.ExecuteScriptAsync(script);
+
+    /// <summary>Creator's Bench on real WebView2: index, play through NoorMD's range handler, rename and
+    /// re-tag while playing, resume. Uses audio files CI copies into &lt;out&gt;/music (skipped if absent).</summary>
+    private async Task RunMusicSelfTestAsync()
+    {
+        var musicDir = Path.Combine(SelfTestDir!, "music");
+        if (!Directory.Exists(musicDir) || !Directory.EnumerateFiles(musicDir).Any()) { Check("music self-test (no fixtures provided — skipped)", true); return; }
+        var folder = Music.AddFolder(musicDir);
+        var scan = await Task.Run(() => Music.ScanFolder(folder));
+        Check("music folder indexed", scan.Added >= 1 && scan.Errors == 0, $"{scan.Added} added");
+        var ids = Music.QueryIds(new NoorMD.Media.LibraryQuery(Sort: "filename"));
+        var mp3 = Music.GetMany(ids).First(t => t.Path.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase));
+        await Eval($"window.NoorMusic._testPlay([{string.Join(',', ids)}], {ids.ToList().IndexOf(mp3.Id)}, true)");
+        await Task.Delay(1800);
+        var st = await Eval("JSON.stringify(window.NoorMusic._state())");
+        Check("WebView2 plays MP3 served by NoorMD (HTTP ranges)", await Eval("(() => { const s = window.NoorMusic._state(); return !s.paused && s.time > 0.3; })()") == "true", st);
+        await Capture("screenshot-music.png");
+
+        // Rename + retag the file while it is loaded in the player, *without* releasing it first: this proves
+        // NoorMD keeps no handle open between range requests (the edit dialog additionally releases it).
+        var edit = await Task.Run(() => Editor.Apply(mp3.Id, new NoorMD.Media.TagEdit { Title = "Żółta łódź" }, "Żółta łódź"));
+        Check("rename + retag succeeds while the track was loaded in the player", edit.Ok && edit.Renamed && edit.TagsSaved, string.Join(" ", edit.Problems));
+        Check("renamed file has the Polish name and title on disk", File.Exists(Path.Combine(musicDir, "Żółta łódź.mp3")) && NoorMD.Media.TagIO.Read(Path.Combine(musicDir, "Żółta łódź.mp3")).Title == "Żółta łódź");
+        var undo = await Task.Run(() => Editor.Undo(edit.JournalId!.Value));
+        Check("undo restores the original file name and tags", undo.Ok && File.Exists(mp3.Path), string.Join(" ", undo.Problems));
+        await Eval("window.NoorMusic.toggle()");
+    }
 
     private async Task Capture(string name)
     {

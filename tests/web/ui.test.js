@@ -2,7 +2,7 @@
 // Usage: node tests/web/ui.test.js [--screenshots <dir>]
 'use strict';
 const { chromium } = require('playwright');
-const { serve, mockHostScript } = require('./harness');
+const { serve, mockHostScript, mediaLog } = require('./harness');
 
 const LOSSLESS = '# Zażółć gęślą jaźń\n\nPolish: żółw, łódź, ćma, źdźbło. **Bold** and *italic*.\n\n## Lists\n\n- one\n- two\n\n## Table\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```csharp\nConsole.WriteLine("ą");\n```\n\n### Third\n\nSee [example](https://example.com) and [local](notes/other.md).\n';
 const LOSSY = '# Raw\n\n<div align="center">Centered</div>\n\nLine one  \nLine two\n\nFoot[^1]\n\n[^1]: note\n';
@@ -535,6 +535,188 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       }
       check('no errors while switching themes', errors.length === 0, errors);
       await page.close();
+    }
+
+    // ---- 8. Creator's Bench: Music Bench with real audio playback.
+    {
+      // Empty library: the bench opens with a clear first step and starts nothing until used.
+      {
+        const { page } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\docs\\n.md', fileName: 'n.md', title: 'n' }, musicTracks: 0 });
+        check('music index is not touched before the Music Bench is used', !(await page.evaluate(() => window.__mock.log.some((m) => m.type === 'music.status'))));
+        await page.keyboard.press('Control+Shift+M');
+        await page.waitForSelector('.music-empty-inner');
+        check('empty Music Bench offers “Add music folder”', (await page.textContent('#music')).includes('Add music folder'));
+        await page.close();
+      }
+
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Design notes\n\nWriting while listening.\n', path: 'C:\\docs\\design.md', fileName: 'design.md', title: 'design' }, musicTracks: 20000 }, { width: 1600, height: 950 });
+      const ms = () => page.evaluate(() => window.NoorMusic._state());
+      await page.keyboard.press('Control+Shift+M');
+      await page.waitForSelector('#music-list .track:not(.loading)');
+      check('Music Bench shows the 20,000-track library', (await page.textContent('#music-count')).includes('20,000'));
+      const domRows = await page.$$eval('#music-list .track', (n) => n.length);
+      check('library list is virtualised (only visible rows in the DOM)', domRows > 5 && domRows < 60, domRows);
+      const t0 = Date.now();
+      await page.evaluate(() => { const l = document.querySelector('#music-list'); l.scrollTop = l.scrollHeight; });
+      await page.waitForFunction(() => [...document.querySelectorAll('#music-list .track')].some((n) => n.dataset.index === '19999'));
+      check(`jumping to the end of 20,000 tracks renders quickly (${Date.now() - t0} ms)`, Date.now() - t0 < 2000, Date.now() - t0);
+      if (shots) await page.screenshot({ path: `${shots}/music-bench-library.png` });
+
+      await page.fill('#music-search', 'zolw');
+      await page.waitForFunction(() => window.NoorMusic._state().view.search === 'zolw');
+      await page.waitForTimeout(150);
+      const found = await page.$$eval('#music-list .track .track-title', (n) => n.map((x) => x.textContent));
+      check('search ignores case and Polish diacritics (“zolw” → “Żółw nocą”)', found.length === 1 && found[0] === 'Żółw nocą', found);
+
+      // Make a 4-track view of the playable fixtures (ids 1-4) via triage, then play it.
+      await page.evaluate(() => window.__NOORMD_TEST_HOST__ && null);
+      await page.fill('#music-search', '');
+      await page.waitForTimeout(250);
+      await page.evaluate(async () => { await NoorBridge.request('music.setTriage', { ids: [1, 2, 3, 4], value: 2 }); });
+      await page.click('#music-chips .chip:has-text("Keep")');
+      await page.waitForFunction(() => window.NoorMusic._state().view.triage === 2);
+      await page.waitForTimeout(200);
+      check('triage filter shows exactly the Keep tracks', (await page.$$eval('#music-list .track', (n) => n.length)) === 4);
+      await page.dblclick('#music-list .track[data-index="0"]');
+      await page.waitForFunction(() => !window.NoorMusic._state().paused && window.NoorMusic._state().time > 0.2, null, { timeout: 8000 });
+      let st = await ms();
+      check('double-click plays real audio (MP3/OGG/FLAC/WAV served with HTTP ranges)', !st.paused && st.time > 0.2 && st.q.ids.length === 4, st);
+      check('audio requests use byte ranges', mediaLog.some((r) => r.range && r.range.startsWith('bytes=')), mediaLog.slice(0, 3));
+      check('mini-player appears while music is loaded', await page.isVisible('#miniplayer'));
+      const first = st.q.current;
+
+      // Writing continues while music plays; playback survives document changes.
+      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type(' Typing while the music plays.');
+      check('document editing works during playback', (await state(page)).markdown.includes('Typing while the music plays') && !(await ms()).paused);
+      await page.evaluate(() => NoorBridge.request('doc.new'));
+      await page.waitForTimeout(300);
+      check('playback continues when another document is loaded', !(await ms()).paused);
+
+      // Sequential playback across a track boundary (fixtures are ~2 s long).
+      await page.waitForFunction((f) => window.NoorMusic._state().q.current !== f, first, { timeout: 8000 });
+      check('advances to the next track at the end (sequential)', (await ms()).q.pos === 1);
+      // Repeat one: the same track restarts.
+      await page.evaluate(() => { NoorMusic.cycleRepeat(); NoorMusic.cycleRepeat(); }); // off → all → one
+      const repeatId = (await ms()).q.current;
+      await page.waitForFunction(() => { const s = window.NoorMusic._state(); return s.time > 1.2; }, null, { timeout: 6000 });
+      await page.waitForFunction(() => window.NoorMusic._state().time < 0.8, null, { timeout: 6000 });
+      check('repeat one replays the same track', (await ms()).q.current === repeatId && (await ms()).q.repeat === 'one');
+      // Repeat all: wraps from the last track to the first.
+      await page.evaluate(() => NoorMusic.cycleRepeat()); // one → off
+      await page.evaluate(() => { NoorMusic.cycleRepeat(); }); // off → all
+      await page.evaluate(() => { for (let i = 0; i < 3; i++) NoorMusic.next(); });
+      st = await ms();
+      check('repeat all wraps to the first track', st.q.repeat === 'all' && st.q.pos === (1 + 3) % 4, st.q);
+      // Shuffle keeps the current track and permutes the rest.
+      const before = (await ms()).q.current;
+      await page.evaluate(() => NoorMusic.setShuffle());
+      st = await ms();
+      check('shuffle keeps the current track playing and reorders the queue', st.q.shuffle && st.q.current === before && [...st.q.order].sort().join() === '0,1,2,3', st.q);
+      await page.evaluate(() => NoorMusic.setShuffle());
+
+      // Seek with the mini-player bar.
+      await page.waitForFunction(() => Number.isFinite(window.NoorMusic._state().duration));
+      await page.evaluate(() => { const r = document.querySelector('#mp-range'); r.value = '500'; r.dispatchEvent(new Event('change')); });
+      await page.waitForTimeout(150);
+      st = await ms();
+      check('seeking jumps to the chosen position', Math.abs(st.time - st.duration / 2) < 0.6, { time: st.time, duration: st.duration });
+
+      // Triage the playing track from anywhere (Alt+1 = Favorite).
+      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Alt+Digit1');
+      await page.waitForTimeout(150);
+      const cur = (await ms()).q.current;
+      check('Alt+1 marks the playing track as Favorite without leaving the editor', await page.evaluate((id) => window.__mock.state.music.byId.get(id).triage === 1, cur));
+      check('Alt+1 typed nothing into the document', !(await state(page)).markdown.includes('1'));
+
+      // Edit current track (F2): tags and file name independently, playback resumes.
+      // Fixtures are ~2 s long, so hold the track with repeat-one while the dialog is open.
+      await page.evaluate(() => { NoorMusic.cycleRepeat(); }); // all → one
+      await page.evaluate((id) => { const s = window.NoorMusic._state(); if (s.q.current !== id) NoorMusic.prev(); }, cur);
+      await page.keyboard.press('F2');
+      await page.waitForSelector('.edit-name input');
+      const placeholders = await page.$$eval('.edit-grid input', (n) => n.filter((x) => x.value === '' && x.placeholder.includes('not set')).length);
+      check('edit dialog shows missing tags as “not set”, not invented values', placeholders >= 5, placeholders);
+      await page.fill('.edit-name input', 'bad:name');
+      await page.waitForTimeout(450);
+      check('invalid file names are flagged before saving', (await page.textContent('.edit-problems')).includes("doesn't allow"));
+      await page.fill('.edit-name input', 'Nocna jazda');
+      await page.fill('.edit-grid input[data-key="title"]', 'Nocna jazda');
+      await page.waitForTimeout(250);
+      const boxes = await page.evaluate(() => ({ tags: document.querySelector('#edit-tags').checked, rename: document.querySelector('#edit-rename').checked }));
+      check('changing fields ticks “Update tags” and “Rename file” (both can be unticked)', boxes.tags && boxes.rename, boxes);
+      if (shots) await page.screenshot({ path: `${shots}/music-edit-track.png` });
+      const wasPos = (await ms()).time;
+      await page.click('.modal .action.primary:has-text("Save")');
+      await page.waitForFunction(() => !document.querySelector('.edit-name'));
+      await page.waitForFunction(() => !window.NoorMusic._state().paused, null, { timeout: 5000 });
+      const edit = await page.evaluate(() => window.__mock.state.music.edits.at(-1));
+      st = await ms();
+      check('Save sends tag update and rename for the current track', edit.updateTags && edit.rename && edit.fileName === 'Nocna jazda' && edit.tags.title === 'Nocna jazda', edit);
+      check('playback resumes on the re-requested file after the edit', st.src.includes('?v=1') && !st.paused && st.time >= Math.max(0, wasPos - 1), { src: st.src, time: st.time, wasPos });
+      check('Now Playing shows the new title', (await page.textContent('#np-title')) === 'Nocna jazda');
+      await page.evaluate(() => window.NoorMD.runCommand('music.undo'));
+      await page.waitForSelector('.modal');
+      await page.click('.modal .action.primary');
+      await page.waitForTimeout(300);
+      check('Undo last track edit restores the previous name', await page.evaluate((id) => window.__mock.state.music.byId.get(id).title === null, cur));
+
+      const posBefore = (await ms()).q.pos;
+      await page.keyboard.press('F2');
+      await page.waitForSelector('.edit-name input');
+      await page.click('.modal .action:has-text("Save & Next")');
+      await page.waitForTimeout(250);
+      check('Save & Next with no changes simply moves to the next track', (await ms()).q.pos === (posBefore + 1) % 4);
+      if (shots) await page.screenshot({ path: `${shots}/music-bench-playing.png` });
+
+      // Missing files are reported and skipped, without stopping everything.
+      await page.evaluate(() => { NoorMusic.cycleRepeat(); });  // one → off
+      await page.evaluate(async () => { const ids = [6, 1]; await NoorBridge.request('music.setTriage', { ids, value: 3 }); });
+      await page.click('#music-chips .chip:has-text("Maybe")');
+      await page.waitForTimeout(250);
+      await page.dblclick('#music-list .track[data-index="0"]');
+      // Wait for the new [missing, playable] queue to start, then for the skip to the playable track.
+      await page.waitForFunction(() => window.NoorMusic._state().q.ids.join() === '6,1', null, { timeout: 5000 }).catch(() => {});
+      await page.waitForFunction(() => { const s = window.NoorMusic._state(); return s.q.pos === 1 && s.q.current === 1 && !s.paused; }, null, { timeout: 8000 }).catch(() => {});
+      check('an unplayable (missing) track is skipped with a notice', (await ms()).q.current === 1 && (await page.textContent('#notice')).includes("Can't play"), { q: (await ms()).q, notice: await page.textContent('#notice') });
+
+      // Focus mode hides the bench and mini-player; music keeps playing.
+      await page.keyboard.press('F11');
+      await page.waitForTimeout(100);
+      check('Focus mode hides the Music Bench and mini-player but keeps playing', !(await page.isVisible('#miniplayer')) && !(await page.isVisible('#music')) && !(await ms()).paused);
+      await page.keyboard.press('Escape');
+
+      // Ctrl+Alt+Space pauses from the editor.
+      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+Alt+Space');
+      await page.waitForTimeout(100);
+      check('Ctrl+Alt+Space pauses from anywhere', (await ms()).paused);
+
+      // Session is saved and restored (queue, track, position) — paused, no surprise playback.
+      await page.waitForTimeout(1200);
+      const saved = await page.evaluate(() => window.__mock.state.music.session);
+      const sj = JSON.parse(saved || '{}');
+      check('session (queue, track, position) is saved', Array.isArray(sj.ids) && sj.ids.length >= 2 && Number.isFinite(sj.position), sj);
+      if (shots) await page.screenshot({ path: `${shots}/music-paused.png` });
+      const unexpected = errors.filter((e) => !/status of 404/.test(e)); // the missing-file test produces one expected 404
+      check('no unexpected errors in Music Bench checks', unexpected.length === 0, unexpected);
+      await page.close();
+
+      const r2 = await open(browser, url, { document: { markdown: '# Next day\n', path: 'C:\\docs\\d.md', fileName: 'd.md', title: 'd' }, musicTracks: 20, musicSession: saved });
+      await r2.page.waitForFunction(() => window.NoorMusic._state().src, null, { timeout: 5000 });
+      await r2.page.waitForTimeout(400);
+      const restored = await r2.page.evaluate(() => window.NoorMusic._state());
+      check('after restart the last queue and track are restored, paused, at the saved position', restored.paused && restored.q.current === sj.ids[sj.order[sj.pos]] && Math.abs(restored.time - sj.position) < 0.6, { restored: { cur: restored.q.current, time: restored.time }, saved: sj });
+      check('mini-player is visible after restore', await r2.page.isVisible('#miniplayer'));
+      // Turning the Music Bench off in preferences hides it and stops playback.
+      await r2.page.evaluate(() => { window.NoorMD.runCommand('prefs.show'); });
+      await r2.page.waitForSelector('#pref-music');
+      await r2.page.uncheck('#pref-music');
+      await r2.page.keyboard.press('Escape');
+      check('“Show the Music Bench” off hides it everywhere', !(await r2.page.isVisible('#miniplayer')) && !(await r2.page.isVisible('.music-entry')));
+      await r2.page.close();
     }
   } finally {
     await browser.close();

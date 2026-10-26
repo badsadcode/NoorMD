@@ -127,6 +127,7 @@ public partial class MainWindow : Window
         try
         {
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
+            if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeMedia(uri, e)) return;
             var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, _session.Folder) : null;
             if (file == null)
             {

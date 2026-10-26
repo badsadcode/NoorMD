@@ -14,6 +14,7 @@
     sidebarWidth: 256, sidebarCollapsed: false, splitRatio: 0.5, goalWords: 750, restoreSession: true,
     spellcheck: true, compact: false,
     sourceFontSize: 14, lineNumbers: true, wordWrap: true, syncScroll: false,
+    showMusic: true, miniPlayer: true, musicWidth: 400,
   };
   const FONTS = {
     inter: "'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
@@ -384,6 +385,7 @@
     document.body.classList.toggle('source-line-numbers', prefs.lineNumbers !== false);
     document.body.classList.toggle('source-nowrap', prefs.wordWrap === false);
     applyScrollSync();
+    if (window.NoorMusic) NoorMusic.applyVisibility();
     requestAnimationFrame(updateActiveLine);
     document.querySelectorAll('[data-cmd="layout.compact"]').forEach((b) => { b.classList.toggle('selected', !!prefs.compact); b.setAttribute('aria-pressed', String(!!prefs.compact)); });
     applySpellcheck();
@@ -578,6 +580,8 @@
         return c;
       };
       const lineNums = checkbox('lineNumbers', 'pref-line-numbers');
+      const musicOn = checkbox('showMusic', 'pref-music');
+      const miniOn = checkbox('miniPlayer', 'pref-mini');
       const wrap = checkbox('wordWrap', 'pref-wrap');
       const sync = checkbox('syncScroll', 'pref-sync');
       const compact = el('input', { type: 'checkbox', id: 'pref-compact', checked: prefs.compact || undefined });
@@ -601,6 +605,9 @@
           el('label', { for: 'pref-spellcheck', text: 'Spellcheck' }), el('div', {}, el('label', { class: 'inline' }, spell, 'Underline misspelled words'),
             el('small', { class: 'pref-hint', text: 'Uses the Windows spell checker: languages follow Windows Settings → Time & language → Language (add Polish there to check Polish). Right-click a word → “Add to dictionary” for project terms.' })),
           el('label', { for: 'pref-openMode', text: 'Open files in' }), select('openMode', [['visual', 'Visual editor (Markdown mode if it would rewrite the file)'], ['markdown', 'Markdown source']]),
+          el('label', { for: 'pref-music', text: 'Music Bench' }), el('div', {},
+            el('label', { class: 'inline' }, musicOn, 'Show the Music Bench (turning it off also stops playback)'),
+            el('label', { class: 'inline' }, miniOn, 'Show the mini-player while music is loaded')),
           el('label', { for: 'pref-restore', text: 'On startup' }), el('label', { class: 'inline' }, restore, 'Reopen the last document'),
         ),
         el('div', { class: 'pref-actions' },
@@ -1092,6 +1099,23 @@
     ['prefs.show', 'Preferences', 'App', 'Ctrl+,', showPreferences],
     ['shortcuts.show', 'Keyboard shortcuts', 'App', 'F1', showShortcuts],
     ['about.show', 'About NoorMD & licenses', 'App', '', showAbout],
+    ['music.toggle', 'Music Bench', 'Music', 'Ctrl+Shift+M', () => NoorMusic.togglePanel()],
+    ['music.play', 'Play / pause music', 'Music', 'Ctrl+Alt+Space', () => NoorMusic.toggle()],
+    ['music.next', 'Next track', 'Music', 'Ctrl+Alt+→', () => NoorMusic.next()],
+    ['music.prev', 'Previous track', 'Music', 'Ctrl+Alt+←', () => NoorMusic.prev()],
+    ['music.edit', 'Edit current track', 'Music', 'F2', () => NoorMusic.editCurrent()],
+    ['music.fav', 'Mark current track: Favorite', 'Music', 'Alt+1', () => NoorMusic.triageCurrent(1)],
+    ['music.keep', 'Mark current track: Keep', 'Music', 'Alt+2', () => NoorMusic.triageCurrent(2)],
+    ['music.maybe', 'Mark current track: Maybe', 'Music', 'Alt+3', () => NoorMusic.triageCurrent(3)],
+    ['music.skip', 'Mark current track: Skip', 'Music', 'Alt+4', () => NoorMusic.triageCurrent(4)],
+    ['music.clearTriage', 'Clear triage of current track', 'Music', 'Alt+0', () => NoorMusic.triageCurrent(0)],
+    ['music.shuffle', 'Toggle shuffle', 'Music', '', () => NoorMusic.setShuffle()],
+    ['music.repeat', 'Cycle repeat (off / all / one)', 'Music', '', () => NoorMusic.cycleRepeat()],
+    ['music.undo', 'Undo last track edit', 'Music', '', () => NoorMusic.undoLastEdit()],
+    ['music.addFolder', 'Add music folder…', 'Music', '', () => NoorMusic.addFolder()],
+    ['music.folders', 'Music folders…', 'Music', '', () => NoorMusic.showFolders()],
+    ['music.import', 'Import playlist (.m3u / .m3u8)…', 'Music', '', () => NoorMusic.importPlaylist()],
+    ['music.mini', 'Show / hide mini-player', 'Music', '', () => { setPrefs({ miniPlayer: prefs.miniPlayer === false }); }],
     ['help.repo', 'Open the NoorMD repository (GitHub)', 'App', '', () => bridge.request('link.open', { href: REPO_URL }).catch(showError)],
     ['palette.show', 'Command palette', 'App', 'Ctrl+K', showPalette],
   ].map(([id, label, group, keys, run]) => ({ id, label, group, keys, run }));
@@ -1228,7 +1252,12 @@
       if (document.body.classList.contains('zen')) { e.preventDefault(); toggleZen(false); }
       return;
     }
-    if (key === 'F11') cmd = 'view.focus';
+    if (key === 'F2') cmd = 'music.edit';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'ArrowLeft'))
+      cmd = { Space: 'music.play', ArrowRight: 'music.next', ArrowLeft: 'music.prev' }[e.code];
+    else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
+      cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
+    else if (key === 'F11') cmd = 'view.focus';
     else if (key === 'F1') cmd = 'shortcuts.show';
     // AltGr is reported as Ctrl+Alt: on Polish and many other layouts AltGr+S types "ś", AltGr+A "ą", etc.
     // Never treat an AltGr keystroke as a shortcut.
@@ -1243,6 +1272,7 @@
       else if (key === 'h' && e.shiftKey) cmd = 'history.show';
       else if (key === 'w' && e.shiftKey) cmd = 'width.cycle';
       else if (key === 't' && e.shiftKey) cmd = 'theme.next';
+      else if (key === 'm' && e.shiftKey) cmd = 'music.toggle';
       else if (key === 'l' && e.shiftKey) cmd = 'layout.compact';
       else if (key === 'y' && e.shiftKey) cmd = 'spell.toggle';
       else if (key === 'k' && e.shiftKey) cmd = 'insert.link';
@@ -1317,6 +1347,7 @@
     setupSidebar();
     setupFind();
     setupDropAndLinks();
+    NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError });
     window.addEventListener('keydown', onKeyDown, true);
     document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => runCommand(b.dataset.cmd)));
     document.querySelectorAll('.pill button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
@@ -1350,6 +1381,7 @@
       $('#welcome .action.primary')?.focus();
     }
     if (ready.recovery && ready.recovery.length) showRecovery(ready.recovery);
+    NoorMusic.resumeSession();
   }
 
   // Exposed for the host (ExecuteScriptAsync) and for automated UI tests.

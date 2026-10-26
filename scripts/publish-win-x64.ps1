@@ -29,8 +29,10 @@ dotnet --info | Select-String -Pattern "Version:" | Select-Object -First 1
 
 if (-not $SkipTests) {
     Write-Host "== Unit tests ==" -ForegroundColor Cyan
-    dotnet test tests/NoorMD.Core.Tests -c $Configuration
-    if ($LASTEXITCODE -ne 0) { throw "Unit tests failed" }
+    foreach ($t in "tests/NoorMD.Core.Tests", "tests/NoorMD.Media.Tests") {
+        dotnet test $t -c $Configuration
+        if ($LASTEXITCODE -ne 0) { throw "Unit tests failed: $t" }
+    }
 }
 
 function Publish([string]$name, [string[]]$extra) {
