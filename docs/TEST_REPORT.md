@@ -114,3 +114,16 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 - a real 8,000-track collection
 
 These are best checked on your machine.
+
+**Defect found by the Windows self-test and fixed before release.** The first Windows CI run
+of the Music Bench passed its visible checks, but its log showed `music.query` failing. The
+page sends `null` for "no filter", and .NET's `JsonElement.TryGetInt32` throws on null instead
+of returning false, so on a real PC the library list would not have loaded. The Chromium UI
+tests could not see it, because their mock host is JavaScript.
+
+The fix:
+- null-safe JSON readers everywhere;
+- music payload parsing moved into the unit-tested `NoorMD.Media` library, with regression
+  tests that replay the page's real payloads;
+- the self-test now sends that exact query through the real bridge;
+- the self-test now fails if *any* bridge request logs an error.
