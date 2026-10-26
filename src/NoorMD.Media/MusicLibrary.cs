@@ -11,7 +11,8 @@ public enum Triage { None = 0, Favorite = 1, Keep = 2, Maybe = 3, Skip = 4 }
 public sealed record TrackRow(
     long Id, string Path, string? Title, string? Artist, string? Album, string? AlbumArtist, string? Genre,
     uint? Year, uint? TrackNumber, string? Comment, double Duration, bool HasArtwork, Triage Triage, bool Missing,
-    string? ReadError, long Size, DateTime AddedUtc, int PlayCount)
+    string? ReadError, long Size, DateTime AddedUtc, int PlayCount,
+    double? ReplayGainDb = null, double? ReplayGainPeak = null, double? Loudness = null, double? Peak = null, DateTime? LastPlayedUtc = null)
 {
     public string FileName => System.IO.Path.GetFileName(Path);
     public string Folder => System.IO.Path.GetDirectoryName(Path) ?? "";
@@ -26,7 +27,8 @@ public sealed record TrackRow(
 public sealed record LibraryFolder(long Id, string Path, bool Recursive, int TrackCount, DateTime? LastScanUtc);
 public sealed record PlaylistInfo(long Id, string Name, int Count);
 public sealed record LibraryQuery(string? Search = null, Triage? Triage = null, bool MissingOnly = false, long? PlaylistId = null,
-    string Sort = "title", bool Descending = false, int Offset = 0, int Limit = 200);
+    string Sort = "title", bool Descending = false, int Offset = 0, int Limit = 200, SmartRules? Smart = null);
+public sealed record SmartCollection(long Id, string Name, SmartRules Rules);
 public sealed record QueryResult(int Total, IReadOnlyList<TrackRow> Rows);
 public sealed record LibraryStats(int Total, int Missing, int Favorite, int Keep, int Maybe, int Skip, int Untriaged);
 
@@ -40,7 +42,7 @@ public sealed record ScanProgress(long FolderId, string Phase, int Discovered, i
 public sealed class MusicLibrary
 {
     private readonly string _connectionString;
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
 
     public string DatabasePath { get; }
 
@@ -75,10 +77,24 @@ public sealed class MusicLibrary
                 """);
         }
         if (version < 2) Exec(c, "ALTER TABLE journal ADD COLUMN batch_id INTEGER; CREATE INDEX IF NOT EXISTS ix_journal_batch ON journal(batch_id);");
+        if (version < 3)
+            Exec(c, """
+                ALTER TABLE tracks ADD COLUMN rg_gain REAL;
+                ALTER TABLE tracks ADD COLUMN rg_peak REAL;
+                ALTER TABLE tracks ADD COLUMN loudness REAL;
+                ALTER TABLE tracks ADD COLUMN peak REAL;
+                CREATE TABLE IF NOT EXISTS smart (id INTEGER PRIMARY KEY, name TEXT NOT NULL, rules TEXT NOT NULL, created TEXT NOT NULL);
+                """);
         if (version < SchemaVersion) Exec(c, $"PRAGMA user_version = {SchemaVersion}");
     }
 
-    private SqliteConnection Open() { var c = new SqliteConnection(_connectionString); c.Open(); return c; }
+    private SqliteConnection Open()
+    {
+        var c = new SqliteConnection(_connectionString);
+        c.Open();
+        c.CreateFunction("noor_fold", (string? v) => v == null ? null : TextFold.Fold(v), isDeterministic: true); // accent/case-insensitive smart rules
+        return c;
+    }
     private static void Exec(SqliteConnection c, string sql, SqliteTransaction? tx = null) { using var cmd = c.CreateCommand(); cmd.Transaction = tx; cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
     private static object? Scalar(SqliteConnection c, string sql) { using var cmd = c.CreateCommand(); cmd.CommandText = sql; return cmd.ExecuteScalar(); }
     private static SqliteCommand Cmd(SqliteConnection c, string sql, SqliteTransaction? tx = null, params (string, object?)[] args)
@@ -267,12 +283,12 @@ public sealed class MusicLibrary
         using var u = Cmd(c, """
             UPDATE tracks SET folder_id = COALESCE($f, folder_id), path = $p, path_key = $k, size = $s, mtime = $m, fingerprint = $fp,
               title = $t, artist = $ar, album = $al, album_artist = $aa, genre = $g, year = $y, track_no = $n, comment = $c,
-              duration = $d, has_art = $art, read_error = $err, missing = 0,
+              duration = $d, has_art = $art, read_error = $err, missing = 0, rg_gain = $rg, rg_peak = $rp,
               sort_title = $st, sort_name = $sn, sort_folder = $sf, search = $q
             WHERE id = $id
             """, tx, ("$f", folderId), ("$p", file), ("$k", PathKey(file)), ("$s", size), ("$m", mtime), ("$fp", fingerprint),
             ("$t", tags.Title), ("$ar", tags.Artist), ("$al", tags.Album), ("$aa", tags.AlbumArtist), ("$g", tags.Genre),
-            ("$y", tags.Year), ("$n", tags.TrackNumber), ("$c", tags.Comment), ("$d", tags.DurationSeconds), ("$art", tags.HasArtwork ? 1 : 0),
+            ("$y", tags.Year), ("$n", tags.TrackNumber), ("$c", tags.Comment), ("$d", tags.DurationSeconds), ("$art", tags.HasArtwork || FolderArt.Find(folder) != null ? 1 : 0), ("$rg", tags.ReplayGainDb), ("$rp", tags.ReplayGainPeak),
             ("$err", tags.ReadError), ("$st", TextFold.Fold(tags.Title ?? name)), ("$sn", TextFold.Fold(name)), ("$sf", TextFold.Fold(folder)), ("$q", search), ("$id", id));
         u.ExecuteNonQuery();
     }
@@ -311,13 +327,16 @@ public sealed class MusicLibrary
 
     // ------------------------------------------------------------------ queries
 
-    private const string Columns = "id, path, title, artist, album, album_artist, genre, year, track_no, comment, duration, has_art, triage, missing, read_error, size, added, play_count";
+    private const string Columns = "id, path, title, artist, album, album_artist, genre, year, track_no, comment, duration, has_art, triage, missing, read_error, size, added, play_count, rg_gain, rg_peak, loudness, peak, last_played";
 
     private static TrackRow ReadRow(SqliteDataReader r) => new(
         r.GetInt64(0), r.GetString(1), r.IsDBNull(2) ? null : r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3), r.IsDBNull(4) ? null : r.GetString(4),
         r.IsDBNull(5) ? null : r.GetString(5), r.IsDBNull(6) ? null : r.GetString(6), r.IsDBNull(7) ? null : (uint)r.GetInt64(7), r.IsDBNull(8) ? null : (uint)r.GetInt64(8),
         r.IsDBNull(9) ? null : r.GetString(9), r.GetDouble(10), r.GetInt64(11) == 1, (Triage)r.GetInt64(12), r.GetInt64(13) == 1,
-        r.IsDBNull(14) ? null : r.GetString(14), r.GetInt64(15), ParseIso(r.GetString(16)), r.GetInt32(17));
+        r.IsDBNull(14) ? null : r.GetString(14), r.GetInt64(15), ParseIso(r.GetString(16)), r.GetInt32(17),
+        D(r, 18), D(r, 19), D(r, 20), D(r, 21), r.IsDBNull(22) ? null : ParseIso(r.GetString(22)));
+
+    private static double? D(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetDouble(i);
 
     public TrackRow? Get(long id)
     {
@@ -358,6 +377,12 @@ public sealed class MusicLibrary
         }
         if (q.Triage is { } tri) { where.Add("t.triage = $tri"); args.Add(("$tri", (int)tri)); }
         if (q.MissingOnly) where.Add("t.missing = 1");
+        if (q.Smart is { } smart)
+        {
+            var (sql, sargs) = SmartSql.Build(smart, DateTime.UtcNow);
+            where.Add(sql);
+            args.AddRange(sargs);
+        }
         string from = "tracks t";
         string order;
         if (q.PlaylistId is long pl)
@@ -398,6 +423,75 @@ public sealed class MusicLibrary
         r.Read();
         int I(int i) => r.IsDBNull(i) ? 0 : Convert.ToInt32(r.GetValue(i), CultureInfo.InvariantCulture);
         return new LibraryStats(I(0), I(1), I(2), I(3), I(4), I(5), I(6));
+    }
+
+    // ------------------------------------------------------------------ loudness
+
+    /// <summary>Stores NoorMD's own loudness measurement (integrated LUFS, sample peak). The file is not modified.</summary>
+    public void SetLoudness(long id, double lufs, double peak)
+    {
+        if (!double.IsFinite(lufs) || lufs is < -90 or > 10 || !double.IsFinite(peak) || peak is < 0 or > 16) throw new ArgumentException("Implausible loudness values.");
+        using var c = Open();
+        using var u = Cmd(c, "UPDATE tracks SET loudness = $l, peak = $p WHERE id = $id", null, ("$l", lufs), ("$p", peak), ("$id", id));
+        u.ExecuteNonQuery();
+    }
+
+    /// <summary>Tracks of the list (or the whole library) that have no measurement yet and aren't missing.</summary>
+    public IReadOnlyList<long> Unmeasured(IReadOnlyList<long>? ids, int limit = 50_000)
+    {
+        using var c = Open();
+        if (ids == null)
+        {
+            using var all = Cmd(c, "SELECT id FROM tracks WHERE loudness IS NULL AND missing = 0 ORDER BY id LIMIT $l", null, ("$l", limit));
+            using var r = all.ExecuteReader();
+            var list = new List<long>();
+            while (r.Read()) list.Add(r.GetInt64(0));
+            return list;
+        }
+        var want = ids.ToHashSet();
+        return GetMany(ids).Where(t => t.Loudness == null && !t.Missing && want.Contains(t.Id)).Select(t => t.Id).Take(limit).ToList();
+    }
+
+    // ------------------------------------------------------------------ smart collections
+
+    public IReadOnlyList<SmartCollection> SmartCollections()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT id, name, rules FROM smart ORDER BY lower(name), id");
+        using var r = cmd.ExecuteReader();
+        var list = new List<SmartCollection>();
+        while (r.Read())
+        {
+            try { list.Add(new SmartCollection(r.GetInt64(0), r.GetString(1), SmartSql.Parse(r.GetString(2)))); }
+            catch (ArgumentException) { /* a rule this version can't read: leave it out rather than fail the list */ }
+        }
+        return list;
+    }
+
+    public SmartCollection? Smart(long id) => SmartCollections().FirstOrDefault(s => s.Id == id);
+
+    public long SaveSmart(long? id, string name, SmartRules rules)
+    {
+        name = (name ?? "").Trim();
+        if (name.Length is 0 or > 200) throw new ArgumentException("Give the collection a name (at most 200 characters).");
+        _ = SmartSql.Build(rules, DateTime.UtcNow); // validate
+        var json = SmartSql.Serialize(rules);
+        using var c = Open();
+        if (id is long existing)
+        {
+            using var u = Cmd(c, "UPDATE smart SET name = $n, rules = $r WHERE id = $id", null, ("$n", name), ("$r", json), ("$id", existing));
+            if (u.ExecuteNonQuery() == 0) throw new ArgumentException("That smart collection no longer exists.");
+            return existing;
+        }
+        using var ins = Cmd(c, "INSERT INTO smart(name, rules, created) VALUES ($n, $r, $c) RETURNING id", null, ("$n", name), ("$r", json), ("$c", Iso(DateTime.UtcNow)));
+        return (long)ins.ExecuteScalar()!;
+    }
+
+    public void DeleteSmart(long id)
+    {
+        using var c = Open();
+        using var d = Cmd(c, "DELETE FROM smart WHERE id = $id", null, ("$id", id));
+        d.ExecuteNonQuery();
     }
 
     // ------------------------------------------------------------------ triage, plays

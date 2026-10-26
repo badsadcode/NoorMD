@@ -2,7 +2,7 @@
 // Usage: node tests/web/ui.test.js [--screenshots <dir>]
 'use strict';
 const { chromium } = require('playwright');
-const { serve, mockHostScript, sketchHostScript, mediaLog } = require('./harness');
+const { serve, mockHostScript, sketchHostScript, videoWindowHostScript, mediaLog } = require('./harness');
 
 const LOSSLESS = '# Zażółć gęślą jaźń\n\nPolish: żółw, łódź, ćma, źdźbło. **Bold** and *italic*.\n\n## Lists\n\n- one\n- two\n\n## Table\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```csharp\nConsole.WriteLine("ą");\n```\n\n### Third\n\nSee [example](https://example.com) and [local](notes/other.md).\n';
 const LOSSY = '# Raw\n\n<div align="center">Centered</div>\n\nLine one  \nLine two\n\nFoot[^1]\n\n[^1]: note\n';
@@ -1679,6 +1679,215 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
       check('no page errors in the Batch Organizer', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/batch.png` });
+      await page.close();
+    }
+
+    // ---- 19. Sound (equalizer, loudness), smart collections and artwork.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 6 }, { width: 1600, height: 1000 });
+      // BS.1770 measurement against known values: a 997 Hz sine at −20 dBFS reads −23.0 LUFS (mono) / −20.0 (stereo).
+      const m = await page.evaluate(() => {
+        const fs = 48000, n = fs * 5, sine = new Float32Array(n);
+        for (let i = 0; i < n; i++) sine[i] = 0.1 * Math.sin(2 * Math.PI * 997 * i / fs);
+        return { mono: NoorFx.measure([sine], fs), stereo: NoorFx.measure([sine, sine], fs), silence: NoorFx.measure([new Float32Array(n)], fs).lufs, low: NoorFx.measure([sine], 32000) };
+      });
+      check('loudness: a −20 dBFS 997 Hz sine measures −23.0 LUFS mono', Math.abs(m.mono.lufs + 23.0) < 0.15, m.mono);
+      check('loudness: …and −20.0 LUFS in stereo, with the right peak', Math.abs(m.stereo.lufs + 20.0) < 0.15 && Math.abs(m.stereo.peak - 0.1) < 0.001, m.stereo);
+      check('loudness: silence is gated out', m.silence === -Infinity);
+      const g = await page.evaluate(() => [NoorFx.gainFor({ loudness: -8 }, -14), NoorFx.gainFor({ loudness: -20, peak: 0.5 }, -14), NoorFx.gainFor({ rgGain: -3 }, -14), NoorFx.gainFor({}, -14)]);
+      check('normalisation gain: loud tracks are turned down, quiet ones up but never past −1 dBFS, ReplayGain tags are used', Math.abs(g[0].db + 6) < 1e-9 && Math.abs(g[1].db - (20 * Math.log10(2) - 1)) < 1e-6 && Math.abs(g[2].db - 1) < 1e-9 && g[2].from === 'tags' && g[3] === null, g);
+
+      // Sound tab: presets, clipping prevention, settings persist in the session.
+      await page.evaluate(() => window.NoorMusic.toggle());
+      await page.waitForSelector('#music-list .track[data-index="2"]');
+      await page.click('.music-tabs [data-tab="sound"]');
+      await page.waitForSelector('#fx-preset');
+      await page.selectOption('#fx-preset', 'bass');
+      check('choosing a preset turns the equalizer on and sets the bands', await page.isChecked('#fx-eq') && (await page.inputValue('.eq-band[data-band="0"]')) === '6' && await page.evaluate(() => NoorFx.active));
+      check('clipping prevention lowers the preamp by the largest boost', (await page.textContent('#fx-preamp')).includes('-6.0 dB'));
+      await page.fill('.eq-band[data-band="9"]', '3');
+      await page.dispatchEvent('.eq-band[data-band="9"]', 'input');
+      check('moving a band switches to Custom', (await page.inputValue('#fx-preset')) === 'custom' && (await page.evaluate(() => NoorFx.settings.gains[9])) === 3);
+      await page.check('#fx-norm');
+      await page.selectOption('#fx-target', '-16');
+      await page.waitForTimeout(1100);
+      const saved = JSON.parse(await page.evaluate(() => window.__mock.state.music.session || '{}'));
+      check('sound settings are saved with the music session', saved.fx && saved.fx.normalize === true && saved.fx.target === -16 && saved.fx.gains[9] === 3, saved.fx);
+
+      // Measure real files (the fixtures are decoded by the page; the mock host stores the values).
+      await page.click('.music-tabs [data-tab="library"]');
+      // Ids 1–4 are the real, decodable fixtures; select exactly those.
+      for (const [k, id] of [1, 2, 3, 4].entries()) await page.click(`#music-list .track[data-id="${id}"]`, { modifiers: k ? ['Control'] : [] });
+      await page.click('#music-list .track[data-id="2"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Measure loudness")');
+      await waitFn(page, () => (window.__mock.state.music.measured || 0) >= 4, null, { timeout: 20000 });
+      const lufs = await page.evaluate(() => window.__mock.state.music.tracks.slice(0, 4).map((t) => t.loudness));
+      check('“Measure loudness” measures the selected files and stores plausible values', lufs.every((v) => Number.isFinite(v) && v < 0 && v > -60), lufs);
+      await page.evaluate(() => window.NoorMusic.playRandom());
+      await waitFn(page, () => window.NoorMusic._state().q.current != null);
+      await page.click('.music-tabs [data-tab="sound"]');
+      await waitFn(page, () => /dB \(measured/.test(document.querySelector('#sound-status')?.textContent || ''));
+      check('the Sound tab shows the gain applied to the playing track', /This track: [+−]\d+\.\d dB \(measured −?-?\d/.test(await page.textContent('#sound-status')), await page.textContent('#sound-status'));
+
+      // Smart collections: create from a preset, see it update, edit, delete.
+      await page.evaluate(() => { window.__mock.state.music.byId.get(2).triage = 1; window.__mock.state.music.byId.get(5).triage = 1; });
+      await page.click('.music-tabs [data-tab="playlists"]');
+      await page.click('#smart-new');
+      await page.click('.modal .chip:has-text("Favorites")');
+      await waitFn(page, () => /2 tracks match/.test(document.querySelector('#smart-count').textContent));
+      check('the rule builder counts matches live', (await page.inputValue('#smart-name')) === 'Favorites');
+      await page.click('#smart-save');
+      await waitFn(page, () => window.NoorMusic._state().view.smartId === 1 && window.NoorMusic._state().view.total === 2);
+      check('a new smart collection opens in the library with its tracks', (await page.textContent('#music-viewbar')).includes('Smart: Favorites'));
+      await page.evaluate(() => { window.__mock.state.music.byId.get(6).triage = 1; });
+      await page.click('.music-tabs [data-tab="playlists"]');
+      await page.evaluate(() => window.NoorMusic.toggle());
+      await page.evaluate(() => window.NoorMusic.toggle());
+      await page.click('.music-tabs [data-tab="playlists"]');
+      check('smart collections are listed with their live count', /Favorites\s*3 tracks/.test(await page.textContent('#music-playlists')) || (await page.textContent('#music-playlists')).includes('Favorites'));
+      await page.click('.smart-item button[title="Edit rules"]');
+      await page.selectOption('#smart-match', 'any');
+      await page.click('.modal button:has-text("Add condition")');
+      await page.selectOption('[data-smart-field="1"]', 'plays');
+      await page.selectOption('[data-smart-op="1"]', 'gt');
+      await page.fill('[data-smart-value="1"]', '0');
+      await page.click('#smart-save');
+      await waitFn(page, () => window.__mock.state.music.smart[0].rules.length === 2 && window.__mock.state.music.smart[0].matchAll === false);
+      check('editing rules saves them (any / all, several conditions)', true);
+      await page.click('.music-tabs [data-tab="playlists"]');
+      await page.click('.smart-item button[title="Delete"]');
+      await page.click('.modal button:has-text("Delete")');
+      await waitFn(page, () => (window.__mock.state.music.smart || []).length === 0);
+      await waitFn(page, () => window.NoorMusic._state().view.smartId == null, null, { timeout: 3000 }).catch(() => {});
+      check('deleting a smart collection closes its view', (await page.evaluate(() => window.NoorMusic._state().view.smartId)) == null);
+
+      // Artwork: a generated placeholder and the artwork viewer.
+      check('tracks without artwork get a generated placeholder', await page.isVisible('#np-art .art-ph'));
+      await page.click('#np-art');
+      await page.waitForSelector('.art-view .art-ph');
+      check('clicking the artwork opens the viewer', (await page.textContent('.modal')).includes('no artwork'));
+      await page.keyboard.press('Escape');
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in sound, smart collections and artwork', unexpected.length === 0, unexpected);
+      if (shots) { await page.click('.music-tabs [data-tab="sound"]'); await page.screenshot({ path: `${shots}/sound.png` }); }
+      await page.close();
+    }
+
+    // ---- 20. Video Bench: series in episode order, resume, subtitles, speed, notes, next episode, pop-out.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, videos: true, musicTracks: 4 }, { width: 1600, height: 1000 });
+      const vs = () => page.evaluate(() => window.NoorVideo._state());
+      const V = () => page.evaluate(() => window.__mock.state.video);
+      await page.evaluate(() => { window.__mock.state.video.videos[1].position = 3.5; window.__mock.state.video.videos[1].lastWatched = '2026-10-01T00:00:00Z'; });
+      // Music playing → a video start pauses it.
+      await page.evaluate(() => window.NoorMusic.playRandom());
+      await waitFn(page, () => !window.NoorMusic._state().paused, null, { timeout: 6000 });
+      await page.keyboard.press('Control+Alt+v');
+      await page.waitForSelector('#videobench:not([hidden])');
+      await waitFn(page, () => window.NoorVideo._state().current != null);
+      check('Ctrl+Alt+V opens the Video Bench and picks up where you left off', (await vs()).current.id === 2 && (await page.textContent('#vb-side')).includes('Continue watching'));
+      check('episodes are listed in order for the series', JSON.stringify((await vs()).episodes) === '[1,2,3]');
+      await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3.5) < 0.3, null, { timeout: 6000 });
+      check('the video resumes at the saved position', true);
+      check('…and offers to start over', (await page.textContent('#vb-info')).includes('Start over'));
+
+      // Episode 1 has subtitles: they load from the host and show by default.
+      await page.click('.vb-ep[data-id="1"] .vb-ep-title');
+      await waitFn(page, () => window.NoorVideo._state().current.id === 1 && window.NoorVideo._state().tracks.length === 1);
+      await waitFn(page, () => !document.querySelector('#vb-video').paused, null, { timeout: 6000 });
+      check('playing a video pauses the music', (await page.evaluate(() => window.NoorMusic._state().paused)));
+      check('sidecar subtitles are attached and shown', (await vs()).tracks[0] === 'showing' && (await page.inputValue('#vb-subs')) === '0');
+      await page.focus('#videobench');
+      await page.keyboard.press('c');
+      check('C cycles subtitles (off)', (await vs()).tracks[0] === 'disabled');
+      await page.keyboard.press(']');
+      check('] speeds up playback', (await vs()).rate === 1.25);
+      await page.selectOption('#vb-speed', '2');
+      check('the speed menu sets the rate', (await vs()).rate === 2);
+
+      // Notes: N focuses the note box; Enter saves at the moment typing began; click a stamp to jump; edit; delete.
+      await page.focus('#videobench');
+      await page.keyboard.press('n');
+      await page.keyboard.type('Boss fight starts');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.video.notes.length === 1);
+      check('a note is saved with the video time', (await V()).notes[0].text === 'Boss fight starts' && (await V()).notes[0].time >= 0);
+      await page.fill('#vb-note-input', 'Second idea');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => document.querySelectorAll('.vb-note').length === 2);
+      await page.evaluate(() => document.querySelector('#vb-video').pause());
+      await page.evaluate(() => { document.querySelector('#vb-video').currentTime = 5; });
+      await page.click('.vb-note[data-note="1"] .vb-stamp');
+      await waitFn(page, () => document.querySelector('#vb-video').currentTime < 4.5);
+      check('clicking a note’s time jumps there', true);
+      await page.dblclick('.vb-note[data-note="2"] .vb-note-text');
+      await page.fill('.vb-note-edit', 'Second idea, refined');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.video.notes.find((n) => n.id === 2).text === 'Second idea, refined');
+      check('double-click edits a note', true);
+      await page.click('.vb-note[data-note="2"] button[aria-label="Delete note"]');
+      await waitFn(page, () => window.__mock.state.video.notes.length === 1);
+      await page.click('button:has-text("Into document")');
+      await waitFn(page, () => window.__mock.state.video.inserted.length === 1);
+      check('notes can be inserted into the open document', (await V()).inserted[0] === 1);
+
+      // End of episode → watched, and the next one starts after a countdown (or at once with “Play now”).
+      await page.evaluate(() => { const v = document.querySelector('#vb-video'); v.playbackRate = 1; v.currentTime = v.duration - 0.3; v.play(); });
+      await page.waitForSelector('#vb-countdown:not([hidden])', { timeout: 6000 });
+      check('the end of an episode marks it watched', (await V()).videos[0].watched);
+      check('…and offers the next episode', (await page.textContent('#vb-countdown')).includes('Episode 2'));
+      await page.click('#vb-countdown button:has-text("Play now")');
+      await waitFn(page, () => window.NoorVideo._state().current.id === 2);
+
+      // Pop out: the host gets the id and time; the bench stops playing; pop-in continues at the reported time.
+      await page.evaluate(() => { document.querySelector('#vb-video').currentTime = 2; });
+      await page.click('#vb-popout');
+      await waitFn(page, () => window.__mock.state.video.popouts.length === 1);
+      check('Pop out hands the video and position to the player window', (await V()).popouts[0].id === 2 && Math.abs((await V()).popouts[0].time - 2) < 0.6);
+      check('…and the bench stops playing it', (await page.isVisible('#vb-message')) && (await page.evaluate(() => !document.querySelector('#vb-video').getAttribute('src'))));
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'video.popin', payload: { id: 2, time: 4 } }));
+      await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 4) < 0.4, null, { timeout: 6000 });
+      check('closing the pop-out continues here at the same moment', !(await page.isVisible('#vb-message')));
+      await page.keyboard.press('Escape');
+      await page.focus('#videobench').catch(() => {});
+      await page.evaluate(() => window.NoorVideo.close());
+      check('closing the Video Bench saves the position', (await V()).positions.some((x) => x.id === 2));
+      check('…and hides it', !(await page.isVisible('#videobench')));
+      const unexpected = errors.filter((e) => !/Empty src|status of 404|MEDIA_ELEMENT_ERROR/.test(e));
+      check('no page errors in the Video Bench', unexpected.length === 0, unexpected);
+      if (shots) { await page.evaluate(() => window.NoorVideo.open()); await page.waitForTimeout(400); await page.screenshot({ path: `${shots}/video.png` }); }
+      await page.close();
+    }
+
+    // ---- 21. The pop-out video player page (video.html).
+    {
+      const page = await browser.newPage({ viewport: { width: 720, height: 420 } });
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+      await page.addInitScript(videoWindowHostScript);
+      await page.goto(url + '_noormd/video.html');
+      const pv = () => page.evaluate(() => window.__pv.state);
+      await waitFn(page, () => Math.abs(document.querySelector('#pv').currentTime - 2) < 0.3, null, { timeout: 6000 });
+      check('pop-out: the video loads at the handed-over moment', (await pv()).titles[0] === 'Episode 7' && (await page.evaluate(() => document.querySelector('#pv').paused)));
+      await page.click('#pv-top');
+      await waitFn(page, () => document.querySelector('#pv-top').getAttribute('aria-pressed') === 'false', null, { timeout: 2000 }).catch(() => {});
+      check('pop-out: the 📌 button turns “always on top” off and on', (await pv()).topmost === false && (await page.getAttribute('#pv-top', 'aria-pressed')) === 'false');
+      await page.keyboard.press('t');
+      await waitFn(page, () => window.__pv.state.topmost === true, null, { timeout: 2000 }).catch(() => {});
+      check('pop-out: T toggles it too', (await pv()).topmost === true);
+      await page.keyboard.press('n');
+      await page.keyboard.type('Great shot here');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__pv.state.notes.length === 1);
+      check('pop-out: N adds a timestamped note', (await pv()).notes[0].text === 'Great shot here' && Math.abs((await pv()).notes[0].time - 2) < 0.3 && (await pv()).notes[0].id === 7);
+      await page.evaluate(() => { const v = document.querySelector('#pv'); v.currentTime = v.duration - 0.2; v.play(); });
+      await waitFn(page, () => window.__pv.state.titles.includes('Episode 8'), null, { timeout: 6000 });
+      check('pop-out: the next episode follows automatically', (await pv()).positions.some((x) => x.id === 7));
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => window.__pv.state.closed === 1);
+      check('pop-out: Esc saves the position and closes', (await pv()).positions.length > 0);
+      check('pop-out: no page errors', errors.length === 0, errors);
       await page.close();
     }
   } finally {

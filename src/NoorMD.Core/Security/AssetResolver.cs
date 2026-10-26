@@ -31,6 +31,9 @@ public static class AssetResolver
     public const string SketchPagePath = "/_noormd/sketch.html";
     public static bool IsSketchPage(Uri uri) => IsAppUri(uri) && uri.AbsolutePath == SketchPagePath;
 
+    public const string VideoPagePath = "/_noormd/video.html";
+    public static bool IsVideoPage(Uri uri) => IsAppUri(uri) && uri.AbsolutePath == VideoPagePath;
+
     public static bool IsAppPage(Uri uri) => IsAppUri(uri) && (uri.AbsolutePath == "/" || uri.AbsolutePath == "/index.html");
 
     /// <summary>Returns the file to serve, or null (404). Never returns a path outside the allowed roots.</summary>

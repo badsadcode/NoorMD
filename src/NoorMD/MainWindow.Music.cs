@@ -52,7 +52,7 @@ public partial class MainWindow
         }
         if (isArt)
         {
-            var art = TagIO.ReadArtwork(track.Path);
+            var art = TagIO.ReadArtwork(track.Path) ?? FolderArt.Read(track.Folder);
             e.Response = art is { } a
                 ? Core.Environment.CreateWebResourceResponse(new MemoryStream(a.Data), 200, "OK", $"Content-Type: {a.MimeType}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
                 : Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
@@ -75,7 +75,7 @@ public partial class MainWindow
         switch (req.Type)
         {
             case "music.status":
-                return new { folders = Music.Folders(), stats = Music.Stats(), playlists = Music.Playlists(), scanning = _scanTask is { IsCompleted: false }, undo = DescribeUndo() };
+                return new { folders = Music.Folders(), stats = Music.Stats(), playlists = Music.Playlists(), smart = SmartForPage(), scanning = _scanTask is { IsCompleted: false }, undo = DescribeUndo() };
             case "music.addFolder":
             {
                 var dlg = new OpenFolderDialog { Title = "Add a music folder (subfolders included)", Multiselect = false };
@@ -95,11 +95,11 @@ public partial class MainWindow
                 _scanCts?.Cancel();
                 return null;
             case "music.query":
-                var q = MusicRequests.Query(p);
+                var q = WithSmart(MusicRequests.Query(p), p);
                 var res = Music.Query(q);
                 return new { total = res.Total, offset = q.Offset, rows = res.Rows.Select(Row) };
             case "music.ids":
-                return Music.QueryIds(MusicRequests.Query(p) with { Offset = 0 });
+                return Music.QueryIds(WithSmart(MusicRequests.Query(p), p) with { Offset = 0 });
             case "music.tracks":
                 return Music.GetMany(Ids(p, "ids")).Select(Row);
             case "music.track":
@@ -164,6 +164,40 @@ public partial class MainWindow
                 Music.SetState("session", json);
                 return null;
             }
+            case "music.loudness.set":
+                try { Music.SetLoudness(Long(p, "id"), NoorMD.Core.Bridge.Json.OptDouble(p, "lufs") ?? double.NaN, NoorMD.Core.Bridge.Json.OptDouble(p, "peak") ?? double.NaN); }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+                return null;
+            case "music.loudness.unmeasured":
+                return Music.Unmeasured(p.TryGetProperty("ids", out _) ? Ids(p, "ids") : null, Math.Clamp(NoorMD.Core.Bridge.Json.OptInt(p, "limit") ?? 50_000, 1, 50_000));
+            case "music.smart.save":
+                try
+                {
+                    var rules = SmartSql.FromPayload(p.TryGetProperty("rules", out var r) ? r : default);
+                    var id = Music.SaveSmart(NoorMD.Core.Bridge.Json.OptLong(p, "id"), req.GetString("name", 200) ?? "", rules);
+                    return new { id, smart = SmartForPage() };
+                }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+            case "music.smart.count":
+                try { return Music.Query(new LibraryQuery(Smart: SmartSql.FromPayload(p.TryGetProperty("rules", out var r) ? r : default), Limit: 1)).Total; }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+            case "music.smart.delete":
+                Music.DeleteSmart(Long(p, "id"));
+                return SmartForPage();
+            case "music.art.save":
+            {
+                var tr = Music.Get(Long(p, "id")) ?? throw new BridgeError("Unknown track.");
+                var art = TagIO.ReadArtwork(tr.Path) ?? FolderArt.Read(tr.Folder) ?? throw new BridgeError("This track has no artwork.");
+                var ext = art.MimeType switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
+                var dlg = new SaveFileDialog
+                {
+                    Title = "Save the artwork as a picture", Filter = $"Picture (*{ext})|*{ext}", DefaultExt = ext, AddExtension = true, OverwritePrompt = true,
+                    InitialDirectory = tr.Folder, FileName = SafeRename.SuggestName(tr.Album ?? tr.DisplayTitle, tr.Artist) + " cover" + ext,
+                };
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                await Task.Run(() => NoorMD.Core.Documents.AtomicFile.WriteAllBytes(dlg.FileName, art.Data));
+                return new { path = dlg.FileName };
+            }
             case "music.reveal":
             {
                 var tr = Music.Get(Long(p, "id")) ?? throw new BridgeError("Unknown track.");
@@ -175,6 +209,20 @@ public partial class MainWindow
                 throw new BridgeError($"Unknown command \"{req.Type}\".");
         }
     }
+
+    private LibraryQuery WithSmart(LibraryQuery q, JsonElement p)
+    {
+        if (NoorMD.Core.Bridge.Json.OptLong(p, "smartId") is not long sid) return q;
+        var sc = Music.Smart(sid) ?? throw new BridgeError("That smart collection no longer exists.");
+        return q with { Smart = sc.Rules };
+    }
+
+    private object SmartForPage() => Music.SmartCollections().Select(sc => new
+    {
+        id = sc.Id, name = sc.Name, matchAll = sc.Rules.MatchAll, limit = sc.Rules.Limit, limitSort = sc.Rules.LimitSort, limitDesc = sc.Rules.LimitDesc,
+        rules = sc.Rules.Rules.Select(r => new { field = r.Field, op = r.Op, value = r.Value }),
+        count = Music.Query(new LibraryQuery(Smart: sc.Rules, Limit: 1)).Total,
+    }).ToList();
 
     private object? DescribeUndo()
     {
@@ -276,6 +324,7 @@ public partial class MainWindow
     {
         id = t.Id, title = t.Title, displayTitle = t.DisplayTitle, artist = t.Artist, album = t.Album, genre = t.Genre, year = t.Year,
         duration = t.Duration, triage = (int)t.Triage, missing = t.Missing, fileName = t.FileName, folder = t.Folder, hasArt = t.HasArtwork, readError = t.ReadError,
+        rgGain = t.ReplayGainDb, rgPeak = t.ReplayGainPeak, loudness = t.Loudness, peak = t.Peak, plays = t.PlayCount,
     };
 
     private static object Detail(TrackRow t) => new

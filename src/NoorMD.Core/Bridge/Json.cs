@@ -39,6 +39,9 @@ public static class Json
     public static long? OptLong(JsonElement obj, string name) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var v) && TryLong(v, out var l) ? l : null;
 
+    public static double? OptDouble(JsonElement obj, string name) =>
+        obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var v) && TryDouble(v, out var d) ? d : null;
+
     public static int? OptInt(JsonElement obj, string name) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(name, out var v) && TryInt(v, out var i) ? i : null;
 

@@ -31,6 +31,9 @@ public sealed record TrackTags
     public string? Comment { get; init; }
     public double DurationSeconds { get; init; }
     public bool HasArtwork { get; init; }
+    /// <summary>ReplayGain track gain (dB) and peak (linear) from the file's tags, when present. Never written by NoorMD.</summary>
+    public double? ReplayGainDb { get; init; }
+    public double? ReplayGainPeak { get; init; }
     /// <summary>Set when the tags could not be read (malformed or unsupported file).</summary>
     public string? ReadError { get; init; }
 }
@@ -74,6 +77,7 @@ public static class TagIO
     }
 
     private static string? Clean(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+    private static double? Finite(double v, double min, double max) => double.IsFinite(v) && v >= min && v <= max ? v : null;
 
     public static TrackTags Read(string path)
     {
@@ -86,6 +90,7 @@ public static class TagIO
                 Title = Clean(t.Title), Artist = Clean(t.FirstPerformer), Album = Clean(t.Album), AlbumArtist = Clean(t.FirstAlbumArtist),
                 Genre = Clean(t.FirstGenre), Year = t.Year == 0 ? null : t.Year, TrackNumber = t.Track == 0 ? null : t.Track,
                 Comment = Clean(t.Comment), DurationSeconds = f.Properties?.Duration.TotalSeconds ?? 0, HasArtwork = t.Pictures.Length > 0,
+                ReplayGainDb = Finite(t.ReplayGainTrackGain, -60, 60), ReplayGainPeak = Finite(t.ReplayGainTrackPeak, 0.000001, 10),
             };
         }
         catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException or ArgumentException or IndexOutOfRangeException or OverflowException or NullReferenceException)
@@ -210,5 +215,51 @@ public static class RangeRequest
             if (end < 0 || start > end || start >= length) return (-1, -1);
         }
         return (start, end);
+    }
+}
+
+/// <summary>
+/// Cover pictures kept next to the music ("cover.jpg", "folder.png"…), used when a file has no embedded artwork.
+/// Looked up once per folder and cached until the folder changes.
+/// </summary>
+public static class FolderArt
+{
+    private static readonly string[] Names = ["cover", "folder", "front", "album", "albumart", "artwork"];
+    private static readonly string[] Extensions = [".jpg", ".jpeg", ".png", ".webp"];
+    private const long MaxBytes = 12 * 1024 * 1024;
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime Stamp, string? Path)> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    public static string? Find(string? folder)
+    {
+        if (string.IsNullOrEmpty(folder)) return null;
+        try
+        {
+            var stamp = Directory.GetLastWriteTimeUtc(folder);
+            if (Cache.TryGetValue(folder, out var hit) && hit.Stamp == stamp) return hit.Path;
+            string? best = null;
+            var rank = int.MaxValue;
+            foreach (var f in Directory.EnumerateFiles(folder))
+            {
+                var ext = Path.GetExtension(f).ToLowerInvariant();
+                if (!Extensions.Contains(ext)) continue;
+                var name = Path.GetFileNameWithoutExtension(f).ToLowerInvariant();
+                var i = Array.FindIndex(Names, n => name == n || (n == "albumart" && name.StartsWith("albumart", StringComparison.Ordinal)));
+                if (i >= 0 && i < rank && new FileInfo(f).Length is > 0 and <= MaxBytes) { best = f; rank = i; }
+            }
+            Cache[folder] = (stamp, best);
+            return best;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    public static (byte[] Data, string MimeType)? Read(string? folder)
+    {
+        if (Find(folder) is not { } path) return null;
+        try
+        {
+            var mime = Path.GetExtension(path).ToLowerInvariant() switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
+            return (File.ReadAllBytes(path), mime);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
     }
 }

@@ -1,0 +1,13 @@
+/* The pop-out video player: the video fills the window; a slim bar appears on hover. */
+body.video-window { margin: 0; height: 100vh; overflow: hidden; background: #000; }
+body.video-window::before, body.video-window .ambient-orb { display: none; }
+#pv { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; }
+.pv-bar { position: fixed; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 4px; padding: 6px 8px; background: linear-gradient(#000c, #0000); color: #fff; opacity: 0; transition: opacity .2s; z-index: 2; }
+body.video-window:hover .pv-bar, .pv-bar:focus-within, body.video-window.paused .pv-bar { opacity: 1; }
+.pv-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; font-weight: 600; text-shadow: 0 1px 2px #000; }
+.pv-bar .icon-btn { color: #fff; background: #0006; }
+.pv-bar .icon-btn.on { background: color-mix(in srgb, var(--accent) 55%, #000); }
+.pv-noteform { position: fixed; left: 10px; right: 10px; bottom: 58px; display: flex; gap: 8px; align-items: center; padding: 6px 8px; background: #000c; border-radius: 8px; z-index: 3; }
+.pv-noteform[hidden] { display: none; }
+.pv-noteform input { flex: 1; }
+.pv-stamp { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; }

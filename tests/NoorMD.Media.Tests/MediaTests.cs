@@ -702,3 +702,268 @@ public class BatchOrganizerTests
         Assert.Empty(again.Journal());
     }
 }
+
+public class MusicPolishTests
+{
+    private static (TempDir, MusicLibrary, List<TrackRow>) Setup(params string[] names)
+    {
+        var t = new TempDir();
+        foreach (var n in names) t.Copy("tone.mp3", "m", n);
+        var lib = new MusicLibrary(t.P("lib.db"));
+        lib.ScanFolder(lib.AddFolder(t.P("m")));
+        var rows = names.Select(n => lib.Query(new LibraryQuery(Limit: 2000)).Rows.Single(r => r.FileName == n)).ToList();
+        return (t, lib, rows);
+    }
+
+    private static List<string> Names(MusicLibrary lib, SmartRules rules) =>
+        lib.Query(new LibraryQuery(Smart: rules, Sort: "filename", Limit: 2000)).Rows.Select(r => r.FileName).ToList();
+
+    [Fact]
+    public void Smart_Rules_Match_Text_Numbers_Dates_Flags_And_Marks()
+    {
+        var (t, lib, rows) = Setup("a.mp3", "b.mp3", "c.mp3", "Żółw.mp3");
+        using var _ = t;
+        TagIO.Write(rows[0].Path, new TagEdit { Genre = "Synthwave", Year = 2024 }); lib.Refresh(rows[0].Id, rows[0].Path);
+        TagIO.Write(rows[1].Path, new TagEdit { Genre = "Lo-fi Synth", Year = 2019 }); lib.Refresh(rows[1].Id, rows[1].Path);
+        lib.SetTriage([rows[2].Id], Triage.Favorite);
+        lib.MarkPlayed(rows[1].Id); lib.MarkPlayed(rows[1].Id); lib.MarkPlayed(rows[2].Id);
+
+        Assert.Equal(["a.mp3", "b.mp3"], Names(lib, new(true, [new("genre", "contains", "SYNTH")])));
+        Assert.Equal(["a.mp3"], Names(lib, new(true, [new("genre", "contains", "synth"), new("year", "ge", "2020")])));
+        Assert.Equal(["a.mp3", "c.mp3"], Names(lib, new(false, [new("year", "ge", "2020"), new("triage", "is", "1")])));
+        Assert.Equal(["a.mp3", "Żółw.mp3"], Names(lib, new(true, [new("lastPlayed", "never")])));
+        Assert.Equal(["b.mp3", "c.mp3"], Names(lib, new(true, [new("lastPlayed", "withinDays", "1")])));
+        Assert.Equal(["a.mp3", "Żółw.mp3"], Names(lib, new(true, [new("lastPlayed", "olderThanDays", "30")])));
+        Assert.Equal(["Żółw.mp3"], Names(lib, new(true, [new("fileName", "contains", "zolw")])));
+        Assert.Equal(["c.mp3", "Żółw.mp3"], Names(lib, new(true, [new("genre", "isEmpty")])));
+        Assert.Equal(["b.mp3"], Names(lib, new(true, [new("plays", "gt", "0")], "plays", true, 1)));
+        Assert.Equal(4, Names(lib, new(true, [new("added", "withinDays", "7")])).Count);
+        Assert.Equal(["a.mp3", "b.mp3", "c.mp3", "Żółw.mp3"], Names(lib, new(true, [new("missing", "isFalse")])));
+        Assert.Empty(Names(lib, new(true, [new("genre", "notEmpty"), new("title", "contains", "%")]))); // % is literal, not a wildcard
+    }
+
+    [Fact]
+    public void Smart_Rules_Reject_Unknown_Fields_Ops_And_Bad_Values()
+    {
+        var (t, lib, _) = Setup("a.mp3");
+        using var __ = t;
+        Assert.Throws<ArgumentException>(() => SmartSql.Build(new(true, [new("path; DROP TABLE tracks", "is", "x")]), DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(() => SmartSql.Build(new(true, [new("year", "contains", "x")]), DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(() => SmartSql.Build(new(true, [new("year", "gt", "soon")]), DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(() => SmartSql.Build(new(true, [new("plays", "gt", "1")], "plays", true, 0), DateTime.UtcNow));
+        Assert.Throws<ArgumentException>(() => lib.SaveSmart(null, "", new(true, [])));
+        // Values are parameters, never SQL.
+        Assert.Empty(Names(lib, new(true, [new("title", "is", "x' OR '1'='1")])));
+    }
+
+    [Fact]
+    public void Smart_Collections_Are_Saved_Renamed_And_Deleted()
+    {
+        var (t, lib, _) = Setup("a.mp3");
+        using var __ = t;
+        var id = lib.SaveSmart(null, "Never played", new(true, [new("lastPlayed", "never")]));
+        Assert.Equal("Never played", lib.Smart(id)!.Name);
+        lib.SaveSmart(id, "Fresh", new(true, [new("added", "withinDays", "14")], "added", true, 50));
+        var s = lib.Smart(id)!;
+        Assert.Equal("Fresh", s.Name);
+        Assert.Equal(50, s.Rules.Limit);
+        Assert.Equal("withinDays", s.Rules.Rules[0].Op);
+        lib.DeleteSmart(id);
+        Assert.Empty(lib.SmartCollections());
+    }
+
+    [Fact]
+    public void Loudness_Is_Stored_Without_Touching_The_File()
+    {
+        var (t, lib, rows) = Setup("a.mp3", "b.mp3");
+        using var _ = t;
+        var before = File.ReadAllBytes(rows[0].Path);
+        Assert.Equal(2, lib.Unmeasured(null).Count);
+        lib.SetLoudness(rows[0].Id, -12.5, 0.98);
+        var r = lib.Get(rows[0].Id)!;
+        Assert.Equal(-12.5, r.Loudness);
+        Assert.Equal(0.98, r.Peak);
+        Assert.Equal(before, File.ReadAllBytes(rows[0].Path));
+        Assert.Equal([rows[1].Id], lib.Unmeasured(null));
+        Assert.Equal([rows[1].Id], lib.Unmeasured([rows[0].Id, rows[1].Id]));
+        Assert.Throws<ArgumentException>(() => lib.SetLoudness(rows[0].Id, double.NaN, 1));
+        // A tag edit keeps the measurement (the audio didn't change).
+        new TrackEditor(lib).Apply(rows[0].Id, new TagEdit { Title = "x" }, null);
+        Assert.Equal(-12.5, lib.Get(rows[0].Id)!.Loudness);
+    }
+
+    [Fact]
+    public void Folder_Artwork_Is_Found_And_Counts_As_Artwork()
+    {
+        using var t = new TempDir();
+        t.Copy("tone.mp3", "m", "a.mp3");
+        File.WriteAllBytes(t.P("m", "Folder.JPG"), [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3]);
+        File.WriteAllBytes(t.P("m", "notes.png"), [1]);
+        Assert.Equal(t.P("m", "Folder.JPG"), FolderArt.Find(t.P("m")));
+        File.WriteAllBytes(t.P("m", "cover.png"), [0x89, 0x50]);
+        Directory.SetLastWriteTimeUtc(t.P("m"), DateTime.UtcNow.AddMinutes(1)); // the folder changed
+        Assert.Equal(t.P("m", "cover.png"), FolderArt.Find(t.P("m")));
+        Assert.Equal("image/png", FolderArt.Read(t.P("m"))!.Value.MimeType);
+        var lib = new MusicLibrary(t.P("lib.db"));
+        lib.ScanFolder(lib.AddFolder(t.P("m")));
+        Assert.True(lib.Query(new LibraryQuery()).Rows.Single().HasArtwork);
+        Assert.Null(FolderArt.Find(t.P("nope")));
+    }
+
+    [Fact]
+    public void Version_1_Library_Upgrades_In_Place()
+    {
+        using var t = new TempDir();
+        var db = t.P("old.db");
+        using (var c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db};Pooling=False"))
+        {
+            c.Open();
+            using var cmd = c.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE folders (id INTEGER PRIMARY KEY, path TEXT NOT NULL, path_key TEXT NOT NULL UNIQUE, recursive INTEGER NOT NULL DEFAULT 1, last_scan TEXT);
+                CREATE TABLE tracks (id INTEGER PRIMARY KEY, folder_id INTEGER, path TEXT NOT NULL, path_key TEXT NOT NULL UNIQUE,
+                  size INTEGER NOT NULL DEFAULT 0, mtime INTEGER NOT NULL DEFAULT 0, fingerprint TEXT,
+                  title TEXT, artist TEXT, album TEXT, album_artist TEXT, genre TEXT, year INTEGER, track_no INTEGER, comment TEXT,
+                  duration REAL NOT NULL DEFAULT 0, has_art INTEGER NOT NULL DEFAULT 0, read_error TEXT,
+                  triage INTEGER NOT NULL DEFAULT 0, missing INTEGER NOT NULL DEFAULT 0, added TEXT NOT NULL, play_count INTEGER NOT NULL DEFAULT 0, last_played TEXT,
+                  sort_title TEXT NOT NULL DEFAULT '', sort_name TEXT NOT NULL DEFAULT '', sort_folder TEXT NOT NULL DEFAULT '', search TEXT NOT NULL DEFAULT '');
+                CREATE TABLE playlists (id INTEGER PRIMARY KEY, name TEXT NOT NULL, created TEXT NOT NULL);
+                CREATE TABLE playlist_items (playlist_id INTEGER NOT NULL, position INTEGER NOT NULL, track_id INTEGER NOT NULL, PRIMARY KEY (playlist_id, position));
+                CREATE TABLE journal (id INTEGER PRIMARY KEY, utc TEXT NOT NULL, track_id INTEGER NOT NULL, old_path TEXT NOT NULL, new_path TEXT NOT NULL,
+                  old_tags TEXT, new_tags TEXT, new_fingerprint TEXT, status TEXT NOT NULL, note TEXT);
+                CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO tracks (id, path, path_key, added, title, triage) VALUES (7, 'C:\\m\\x.mp3', 'C:\\M\\X.MP3', '2026-01-01T00:00:00.0000000Z', 'Kept', 2);
+                PRAGMA user_version = 1;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+        var lib = new MusicLibrary(db);
+        var row = lib.Get(7)!;
+        Assert.Equal("Kept", row.Title);
+        Assert.Equal(Triage.Keep, row.Triage);
+        Assert.Null(row.Loudness);
+        Assert.Empty(lib.SmartCollections());
+        lib.SetLoudness(7, -14, 1);
+        Assert.Equal(-14, new MusicLibrary(db).Get(7)!.Loudness);
+    }
+}
+
+public class VideoTests
+{
+    [Theory]
+    [InlineData("Show.S01E02.1080p.mkv", 1, 2)]
+    [InlineData("show s2 e10 x264.mp4", 2, 10)]
+    [InlineData("Show 1x03.webm", 1, 3)]
+    [InlineData("Episode 7 - The Long Way.mp4", null, 7)]
+    [InlineData("Wayfarer's Wake devlog - 04 - Boats.mp4", null, 4)]
+    [InlineData("12 Final.mp4", null, 12)]
+    [InlineData("Odcinek 5.mp4", null, 5)]
+    [InlineData("Trailer 2024 1080p.mp4", null, null)]
+    public void Episode_Numbers_Are_Parsed(string name, int? season, int? episode) => Assert.Equal((season, episode), EpisodeParser.Parse(name));
+
+    [Fact]
+    public void Natural_Order_Puts_2_Before_10() =>
+        Assert.Equal(["Part 2", "Part 10"], new[] { "Part 10", "Part 2" }.OrderBy(EpisodeParser.NaturalKey, StringComparer.Ordinal));
+
+    [Fact]
+    public void Srt_And_Ass_Become_WebVtt()
+    {
+        var srt = "﻿1\r\n00:00:01,500 --> 00:00:03,000\r\n<font color=\"red\">Hello</font> <i>there</i>\r\n\r\n2\r\n00:01:02,05 --> 00:01:04,000\r\nLine one\r\nLine two\r\n";
+        var vtt = SubtitleConverter.ToVtt(srt, ".srt");
+        Assert.StartsWith("WEBVTT\n\n00:00:01.500 --> 00:00:03.000\nHello <i>there</i>\n", vtt);
+        Assert.Contains("00:01:02.050 --> 00:01:04.000\nLine one\nLine two", vtt);
+
+        var ass = "[Script Info]\nTitle: x\n\n[V4+ Styles]\nFormat: Name, Fontname\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n" +
+                  "Dialogue: 0,0:00:01.00,0:00:02.50,Default,,0,0,0,,{\\an8\\b1}Top, with comma\\Nsecond line\n" +
+                  "Comment: 0,0:00:03.00,0:00:04.00,Default,,0,0,0,,not shown\n";
+        var v2 = SubtitleConverter.ToVtt(ass, ".ass");
+        Assert.Equal("WEBVTT\n\n00:00:01.000 --> 00:00:02.500\nTop, with comma\nsecond line\n\n", v2);
+        Assert.StartsWith("WEBVTT", SubtitleConverter.ToVtt("WEBVTT\n\n00:00.000 --> 00:01.000\nx", ".vtt"));
+    }
+
+    [Fact]
+    public void Sidecar_Subtitles_Are_Found_By_Name()
+    {
+        using var t = new TempDir();
+        t.Copy("clip.webm", "s", "Show 1.webm");
+        foreach (var n in new[] { "Show 1.srt", "Show 1.en.srt", "Show 1.English.forced.ass", "Show 10.srt", "Other.srt" }) File.WriteAllText(t.P("s", n), "x");
+        var subs = SubtitleConverter.Find(t.P("s", "Show 1.webm")).Select(s => s.Label).ToList();
+        Assert.Equal(["en (SRT)", "English.forced (ASS)", "Subtitles (SRT)"], subs);
+    }
+
+    private static (TempDir, VideoLibrary, long) Library()
+    {
+        var t = new TempDir();
+        foreach (var n in new[] { "Episode 10.webm", "Episode 2.webm", "Episode 1.webm" }) t.Copy("clip.webm", "v", "My Show", n);
+        t.Copy("clip.webm", "v", "Single.webm");
+        File.WriteAllText(t.P("v", "notes.txt"), "not a video");
+        var lib = new VideoLibrary(t.P("video.db"));
+        var f = lib.AddFolder(t.P("v"));
+        lib.Scan(f);
+        return (t, lib, f);
+    }
+
+    [Fact]
+    public void Scan_Groups_Series_In_Episode_Order_With_Durations()
+    {
+        var (t, lib, f) = Library();
+        using var _ = t;
+        var series = lib.Series();
+        Assert.Equal(2, series.Count);
+        var show = series.Single(s => s.Name == "My Show");
+        Assert.Equal(["Episode 1", "Episode 2", "Episode 10"], lib.Episodes(show.Key).Select(e => e.Title));
+        var ep = lib.Episodes(show.Key)[0];
+        Assert.InRange(ep.Duration, 5.5, 6.5);
+        Assert.Equal(160, ep.Width);
+        Assert.Equal(1, lib.Folders().Single().Id == f ? 1 : 0);
+        Assert.Equal(4, lib.Folders().Single().Count);
+        // Rescan keeps ids; a deleted file is marked missing, not forgotten.
+        var id = ep.Id;
+        File.Delete(t.P("v", "My Show", "Episode 2.webm"));
+        var (found, added, missing) = lib.Scan(f);
+        Assert.Equal((3, 0, 1), (found, added, missing));
+        Assert.Equal(id, lib.Episodes(show.Key)[0].Id);
+        Assert.Equal(2, lib.Episodes(show.Key).Count);
+    }
+
+    [Fact]
+    public void Resume_Watched_And_Next_Episode()
+    {
+        var (t, lib, _) = Library();
+        using var __ = t;
+        var key = lib.Series().Single(s => s.Name == "My Show").Key;
+        var eps = lib.Episodes(key);
+        Assert.Equal(eps[0].Id, VideoLibrary.ResumeIn(eps)!.Id);
+        lib.SetPosition(eps[0].Id, 200, 1000);
+        Assert.Equal(200, lib.Get(eps[0].Id)!.Position);
+        Assert.Single(lib.ContinueWatching());
+        lib.SetPosition(eps[0].Id, 950, 1000); // past 92 %: watched, resumes from the start next time
+        var done = lib.Get(eps[0].Id)!;
+        Assert.True(done.Watched);
+        Assert.Equal(0, done.Position);
+        Assert.Equal(eps[1].Id, VideoLibrary.ResumeIn(lib.Episodes(key))!.Id);
+        Assert.Equal(eps[1].Id, lib.NextEpisode(eps[0].Id)!.Id);
+        Assert.Null(lib.NextEpisode(eps[2].Id));
+        lib.SetWatched([eps[0].Id], false);
+        Assert.False(lib.Get(eps[0].Id)!.Watched);
+    }
+
+    [Fact]
+    public void Timestamped_Notes_Are_Kept_In_Order_And_Export_As_Markdown()
+    {
+        var (t, lib, _) = Library();
+        using var __ = t;
+        var v = lib.Series().Single(s => s.Name == "My Show").Key is var k ? lib.Episodes(k)[0] : null;
+        var b = lib.AddNote(v!.Id, 754.2, "Boss fight starts");
+        lib.AddNote(v.Id, 3.9, "Intro");
+        Assert.Throws<ArgumentException>(() => lib.AddNote(v.Id, 1, "  "));
+        Assert.Equal(["Intro", "Boss fight starts"], lib.Notes(v.Id).Select(n => n.Text));
+        lib.UpdateNote(b, "Boss fight (phase 1)", 750);
+        Assert.Equal(750, lib.Notes(v.Id)[1].Time);
+        Assert.Equal(2, lib.Get(v.Id)!.NoteCount);
+        Assert.Equal("### Episode 1\n\n- **0:03** Intro\n- **12:30** Boss fight (phase 1)\n", lib.NotesMarkdown(v.Id));
+        Assert.Equal("1:02:03", VideoLibrary.Stamp(3723.9));
+        lib.DeleteNote(b);
+        Assert.Single(lib.Notes(v.Id));
+    }
+}

@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>Video — NoorMD</title>
+<link rel="icon" href="data:,">
+<script src="/_noormd/js/boot.js"></script>
+<link rel="stylesheet" href="/_noormd/vendor/inter/inter.css">
+<link rel="stylesheet" href="/_noormd/css/themes.css">
+<link rel="stylesheet" href="/_noormd/css/app.css">
+<link rel="stylesheet" href="/_noormd/css/video-window.css">
+</head>
+<body class="video-window">
+<video id="pv" controls playsinline preload="metadata"></video>
+<header class="pv-bar" role="toolbar" aria-label="Player">
+  <span class="pv-title" id="pv-title">Video</span>
+  <button class="icon-btn on" id="pv-top" aria-pressed="true" title="Always on top (T)">📌</button>
+  <button class="icon-btn" id="pv-note" title="Note at this moment (N)">📝</button>
+  <button class="icon-btn" id="pv-next" title="Next episode">⏭</button>
+  <button class="icon-btn" id="pv-close" title="Close and continue in the Video Bench (Esc)">✕</button>
+</header>
+<form class="pv-noteform" id="pv-noteform" hidden>
+  <span class="pv-stamp" id="pv-stamp">0:00</span>
+  <input type="text" id="pv-notetext" placeholder="Note… (Enter saves, Esc cancels)" aria-label="Note" autocomplete="off">
+</form>
+<div id="notice" role="status" aria-live="polite"></div>
+<script src="/_noormd/js/bridge.js"></script>
+<script src="/_noormd/js/ui.js"></script>
+<script src="/_noormd/js/video-window.js"></script>
+</body>
+</html>

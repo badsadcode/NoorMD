@@ -21,9 +21,9 @@ window.NoorMusic = (() => {
   audio.preload = 'metadata';
   let hooks = { getPrefs: () => ({}), setPrefs: () => {}, showError: (e) => console.error(e) };
   let started = false;      // the bench (and its database) only starts on first use
-  let status = { folders: [], stats: null, playlists: [], scanning: false, undo: null };
+  let status = { folders: [], stats: null, playlists: [], smart: [], scanning: false, undo: null };
   const cache = new Map();  // track id -> row
-  let view = { search: '', triage: null, missingOnly: false, playlistId: null, sort: 'title', desc: false, total: 0 };
+  let view = { search: '', triage: null, missingOnly: false, playlistId: null, smartId: null, sort: 'title', desc: false, total: 0 };
   let viewRows = new Map(); // index -> row
   let viewGen = 0;
   const pending = new Set();
@@ -48,6 +48,7 @@ window.NoorMusic = (() => {
   function init(h) {
     hooks = { ...hooks, ...h };
     audio.volume = q.volume;
+    NoorFx.attach(audio);
     audio.addEventListener('timeupdate', onTime);
     audio.addEventListener('loadedmetadata', onLoaded);
     audio.addEventListener('play', renderTransport);
@@ -76,6 +77,7 @@ window.NoorMusic = (() => {
     started = true;
     try {
       const s = JSON.parse(json);
+      if (s.fx) NoorFx.load(s.fx);
       if (!Array.isArray(s.ids) || !s.ids.length) return;
       q = { ids: s.ids.filter(Number.isInteger), order: Array.isArray(s.order) ? s.order : s.ids.map((_, i) => i), pos: s.pos ?? 0, shuffle: !!s.shuffle, repeat: ['off', 'all', 'one'].includes(s.repeat) ? s.repeat : 'off', volume: Number.isFinite(s.volume) ? s.volume : 0.8 };
       if (q.order.length !== q.ids.length || q.order.some((i) => !Number.isInteger(i) || i < 0 || i >= q.ids.length)) q.order = q.ids.map((_, i) => i);
@@ -127,7 +129,7 @@ window.NoorMusic = (() => {
         el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close Music Bench', onclick: () => togglePanel(false) }, '✕')),
       buildNowPlaying(),
       el('div', { class: 'music-tabs', role: 'tablist' },
-        ...[['library', 'Library'], ['queue', 'Up next'], ['playlists', 'Playlists']].map(([id, label]) =>
+        ...[['library', 'Library'], ['queue', 'Up next'], ['playlists', 'Playlists'], ['sound', 'Sound']].map(([id, label]) =>
           el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => setTab(id) }, label))),
       el('div', { class: 'music-pane', 'data-pane': 'library' },
         el('div', { class: 'music-toolbar' },
@@ -140,6 +142,7 @@ window.NoorMusic = (() => {
         el('div', { class: 'music-empty hide', id: 'music-empty' })),
       el('div', { class: 'music-pane hide', 'data-pane': 'queue' }, el('div', { class: 'music-queue', id: 'music-queue' })),
       el('div', { class: 'music-pane hide', 'data-pane': 'playlists' }, el('div', { class: 'music-playlists', id: 'music-playlists' })),
+      el('div', { class: 'music-pane hide', 'data-pane': 'sound' }, el('div', { class: 'music-sound', id: 'music-sound' })),
       el('div', { class: 'music-foot' },
         el('span', { id: 'music-scan', class: 'music-scan' }),
         el('button', { class: 'utility-btn', onclick: showFolders }, '📁 Folders')),
@@ -197,6 +200,7 @@ window.NoorMusic = (() => {
     document.querySelectorAll('.music-pane').forEach((p) => p.classList.toggle('hide', p.dataset.pane !== id));
     if (id === 'queue') renderQueue();
     if (id === 'playlists') renderPlaylists();
+    if (id === 'sound') renderSound();
     if (id === 'library') requestAnimationFrame(renderList);
   }
 
@@ -233,6 +237,15 @@ window.NoorMusic = (() => {
 
   function renderViewbar() {
     const bar = $('#music-viewbar');
+    if (view.smartId) {
+      const sc = (status.smart || []).find((x) => x.id === view.smartId);
+      bar.classList.remove('hide');
+      bar.replaceChildren(el('span', {}, '⚡ Smart: ', el('strong', { text: sc ? sc.name : '…' })),
+        el('button', { class: 'utility-btn', onclick: () => playView(0) }, '▶ Play'),
+        sc ? el('button', { class: 'utility-btn', onclick: () => editSmart(sc) }, '✎ Rules') : null,
+        el('button', { class: 'utility-btn', onclick: () => setView({ smartId: null }) }, '✕ Close'));
+      return;
+    }
     if (!view.playlistId) { bar.replaceChildren(); bar.classList.add('hide'); return; }
     const pl = status.playlists.find((p) => p.id === view.playlistId);
     bar.classList.remove('hide');
@@ -245,7 +258,8 @@ window.NoorMusic = (() => {
 
   async function setView(patch) {
     view = { ...view, ...patch };
-    if ('playlistId' in patch && patch.playlistId) view.sort = 'playlist';
+    if ('playlistId' in patch && patch.playlistId) { view.sort = 'playlist'; view.smartId = null; }
+    if ('smartId' in patch && patch.smartId) { view.playlistId = null; if (view.sort === 'playlist') view.sort = 'title'; }
     $('#music-sort').value = view.sort === 'playlist' ? 'title' : view.sort;
     viewRows = new Map();
     viewGen++;
@@ -257,7 +271,7 @@ window.NoorMusic = (() => {
   }
 
   function queryPayload(offset, limit) {
-    return { search: view.search, triage: view.triage, missingOnly: view.missingOnly, playlistId: view.playlistId, sort: view.sort, desc: view.desc, offset, limit };
+    return { search: view.search, triage: view.triage, missingOnly: view.missingOnly, playlistId: view.playlistId, smartId: view.smartId, sort: view.sort, desc: view.desc, offset, limit };
   }
 
   async function loadView(resetScroll) {
@@ -425,6 +439,8 @@ window.NoorMusic = (() => {
       { label: many ? `Edit ${n.toLocaleString()} tracks… (Batch Organizer)` : 'Edit track…', run: () => (many ? withSelection((ids) => batchOrganizer(ids)) : one && editTrack(one.id)) },
       '-',
       { label: 'Show in Explorer', disabled: many || !one, run: () => one && req('music.reveal', { id: one.id }).catch(hooks.showError) },
+      { label: 'Show artwork', disabled: many || !one, run: () => { if (one) { cache.set(one.id, { ...(cache.get(one.id) || {}), ...one }); showArtwork(one.id); } } },
+      { label: 'Measure loudness', run: () => withSelection((ids) => measure(ids, { label: 'the selection' })) },
       { label: many ? 'Copy titles' : 'Copy title', run: () => withSelection((ids) => copyLines(ids, 'title')) },
       { label: many ? 'Copy file paths' : 'Copy file path', run: () => withSelection((ids) => copyLines(ids, 'path')) },
       '-',
@@ -515,6 +531,7 @@ window.NoorMusic = (() => {
     const id = currentId();
     if (id == null) { audio.removeAttribute('src'); audio.load(); renderAll(); return; }
     audio.src = `_media/${id}?v=${mediaVersion}`;
+    applyTrackGain(id);
     if (autoplay) audio.play().catch((err) => { if (err.name !== 'AbortError') console.warn(err); });
     renderAll();
     updateMediaSession();
@@ -672,7 +689,7 @@ window.NoorMusic = (() => {
     const remap = new Map(used.map((old, i) => [old, i]));
     const ids = used.map((i) => q.ids[i]);
     const order = q.order.map((i) => remap.get(i));
-    const json = JSON.stringify({ v: 1, ids, order, pos: q.pos, shuffle: q.shuffle, repeat: q.repeat, volume: q.volume, position: audio.currentTime || 0 });
+    const json = JSON.stringify({ v: 1, ids, order, pos: q.pos, shuffle: q.shuffle, repeat: q.repeat, volume: q.volume, position: audio.currentTime || 0, fx: NoorFx.settings });
     req('music.session.save', { json }).catch(() => {});
   }
 
@@ -700,7 +717,7 @@ window.NoorMusic = (() => {
     const tr = (cls, label, title, fn) => el('button', { class: 'tp ' + cls, title, 'aria-label': title, onclick: fn }, label);
     return el('section', { class: 'nowplaying', id: 'nowplaying', 'aria-label': 'Now playing' },
       el('div', { class: 'np-top' },
-        el('div', { class: 'np-art', id: 'np-art', 'aria-hidden': 'true' }, el('span', { text: '♫' })),
+        el('button', { class: 'np-art', id: 'np-art', title: 'Show artwork', 'aria-label': 'Show artwork', onclick: () => currentId() != null && showArtwork(currentId()) }, el('span', { text: '♫' })),
         el('div', { class: 'np-text' },
           el('div', { class: 'np-title', id: 'np-title', text: 'Nothing playing' }),
           el('div', { class: 'np-sub', id: 'np-sub', text: 'Pick a track and press Enter' }),
@@ -772,9 +789,10 @@ window.NoorMusic = (() => {
     for (const sel of ['#np-art', '#mp-art']) {
       const box = $(sel);
       const want = row && row.hasArt ? `_art/${row.id}?v=${mediaVersion}` : null;
-      if (box.dataset.src === (want || '')) continue;
-      box.dataset.src = want || '';
-      box.replaceChildren(want ? el('img', { src: want, alt: '', onerror: (e) => e.target.replaceWith(el('span', { text: '♫' })) }) : el('span', { text: '♫' }));
+      const key = want || (row ? 'ph:' + row.id + ':' + (row.displayTitle || '') : '');
+      if (box.dataset.src === key) continue;
+      box.dataset.src = key;
+      box.replaceChildren(want ? el('img', { src: want, alt: '', onerror: (e) => e.target.replaceWith(artPlaceholder(row)) }) : artPlaceholder(row));
     }
     document.querySelectorAll('#music-list .track').forEach((n) => {
       const isCur = Number(n.dataset.id) === id;
@@ -835,7 +853,19 @@ window.NoorMusic = (() => {
         el('button', { class: 'icon-btn', title: 'Rename', 'aria-label': 'Rename', onclick: () => renamePlaylist(p) }, '✎'),
         el('button', { class: 'icon-btn', title: 'Export .m3u8', 'aria-label': 'Export', onclick: () => req('music.playlist.export', { id: p.id }).then((r) => r && notice(`Exported ${r.count} tracks to ${r.path}`, 4000)).catch(hooks.showError) }, '⇪'),
         el('button', { class: 'icon-btn', title: 'Delete', 'aria-label': 'Delete playlist', onclick: () => deletePlaylist(p) }, '✕'))));
+    const smart = (status.smart || []).map((sc) => el('div', { class: 'qitem smart-item' },
+      el('span', { class: 'qpos', text: '⚡' }),
+      el('button', { class: 'qtitle linkish', onclick: () => { setTab('library'); setView({ smartId: sc.id, search: '', triage: null, missingOnly: false }); } }, sc.name),
+      el('small', { text: `${sc.count} tracks` }),
+      el('span', { class: 'qactions' },
+        el('button', { class: 'icon-btn', title: 'Play', 'aria-label': `Play ${sc.name}`, onclick: () => playSmart(sc) }, '▶'),
+        el('button', { class: 'icon-btn', title: 'Edit rules', 'aria-label': 'Edit rules', onclick: () => editSmart(sc) }, '✎'),
+        el('button', { class: 'icon-btn', title: 'Delete', 'aria-label': 'Delete smart collection', onclick: () => deleteSmart(sc) }, '✕'))));
     box.replaceChildren(
+      el('h4', { class: 'music-subhead', text: 'Smart collections' }),
+      el('div', { class: 'music-viewbar' }, el('button', { class: 'utility-btn', id: 'smart-new', onclick: () => editSmart(null) }, '⚡ New smart collection…')),
+      ...(smart.length ? smart : [el('p', { class: 'music-none', text: 'Smart collections fill themselves from rules — “never played”, “favorites not heard in a month”, “added this week”…' })]),
+      el('h4', { class: 'music-subhead', text: 'Playlists' }),
       el('div', { class: 'music-viewbar' },
         el('button', { class: 'utility-btn', onclick: () => createPlaylist([]) }, '＋ New playlist'),
         el('button', { class: 'utility-btn', onclick: importPlaylist }, 'Import .m3u / .m3u8…')),
@@ -894,6 +924,287 @@ window.NoorMusic = (() => {
         } }, el('span', { text: p.name }), el('small', { text: `${p.count} tracks` }))),
         el('button', { class: 'cmd-item', onclick: () => { close(); createPlaylist(ids); } }, el('span', { text: '＋ New playlist…' }))));
     });
+  }
+
+  // ------------------------------------------------------------------ sound: equalizer, loudness, limiter
+
+  let measuring = null; // { ids, done, failed, abort, label }
+
+  function applyTrackGain(id) {
+    const row = cache.get(id);
+    NoorFx.setTrack(row);
+    if (tab === 'sound') renderSoundStatus();
+    const s = NoorFx.settings;
+    // Normalising and nothing known about this track: measure it (and the next ones) quietly in the background.
+    if (s.normalize && s.autoMeasure !== false && row && !Number.isFinite(row.loudness) && !Number.isFinite(row.rgGain) && !measuring)
+      measure([id, ...upcomingIds(3).slice(1)].filter((x) => { const r = cache.get(x); return !r || !Number.isFinite(r.loudness); }), { quiet: true });
+  }
+
+  function fxChanged(patch) {
+    if (!NoorFx.update(patch)) { notice('Sound effects are not available in this browser engine.'); return; }
+    applyTrackGain(currentId());
+    scheduleSave();
+    renderSound();
+  }
+
+  /** Measures tracks one after another (decoding happens in the page; the files are only read). */
+  async function measure(ids, { quiet = false, label = '' } = {}) {
+    if (!ids.length) { if (!quiet) notice('Everything here is measured already.'); return; }
+    if (measuring) { if (!quiet) notice('A measurement is already running.'); return; }
+    const ctl = new AbortController();
+    measuring = { ids, done: 0, failed: 0, abort: ctl, label, quiet };
+    renderSoundStatus();
+    for (const id of ids) {
+      if (ctl.signal.aborted) break;
+      try {
+        const r = await NoorFx.analyze(`_media/${id}?v=${mediaVersion}`, ctl.signal);
+        if (Number.isFinite(r.lufs)) {
+          await req('music.loudness.set', { id, lufs: Math.round(r.lufs * 100) / 100, peak: Math.round(r.peak * 10000) / 10000 });
+          const c = cache.get(id);
+          if (c) cache.set(id, { ...c, loudness: r.lufs, peak: r.peak });
+          for (const [i, row] of viewRows) if (row.id === id) viewRows.set(i, { ...row, loudness: r.lufs, peak: r.peak });
+          if (id === currentId()) NoorFx.setTrack(cache.get(id));
+        } else measuring.failed++;
+      } catch (err) {
+        if (err.name === 'AbortError') break;
+        measuring.failed++;
+      }
+      measuring.done++;
+      renderSoundStatus();
+      await new Promise((r) => setTimeout(r, 30)); // keep the editor responsive between tracks
+    }
+    const m = measuring;
+    measuring = null;
+    renderSoundStatus();
+    if (!m.quiet || m.failed) notice(`Loudness measured: ${m.done - m.failed} track${m.done - m.failed === 1 ? '' : 's'}${m.failed ? ` · ${m.failed} could not be decoded` : ''}${ctl.signal.aborted ? ' (stopped)' : ''}`, 3500);
+    if (tab === 'sound') renderSound();
+  }
+
+  async function measureView() {
+    try { const ids = await req('music.loudness.unmeasured', { ids: await req('music.ids', queryPayload(0, 2000)) }); measure(ids, { label: 'this view' }); } catch (err) { hooks.showError(err); }
+  }
+  async function measureAll() {
+    try { measure(await req('music.loudness.unmeasured', {}), { label: 'the library' }); } catch (err) { hooks.showError(err); }
+  }
+
+  function gainText(row) {
+    const g = NoorFx.gainFor(row);
+    if (!g) return 'not measured yet';
+    return `${g.db >= 0 ? '+' : '−'}${Math.abs(g.db).toFixed(1)} dB (${g.from === 'measured' ? `measured ${row.loudness.toFixed(1)} LUFS` : 'from ReplayGain tags'})`;
+  }
+
+  function renderSoundStatus() {
+    const box = $('#sound-status');
+    if (!box) return;
+    const row = cache.get(currentId());
+    box.replaceChildren(
+      el('div', {}, el('strong', { text: 'This track: ' }), row ? (NoorFx.settings.normalize ? gainText(row) : 'normalisation is off') : 'nothing playing'),
+      measuring ? el('div', { class: 'sound-progress' },
+        el('progress', { max: String(measuring.ids.length), value: String(measuring.done) }),
+        el('span', { text: ` Measuring ${measuring.done}/${measuring.ids.length}${measuring.label ? ' in ' + measuring.label : ''}…` }),
+        el('button', { class: 'utility-btn', onclick: () => measuring && measuring.abort.abort() }, 'Stop')) : null);
+  }
+
+  function renderSound() {
+    const box = $('#music-sound');
+    if (!box) return;
+    const s = NoorFx.settings;
+    const eqOn = el('input', { type: 'checkbox', id: 'fx-eq' }); eqOn.checked = s.eqOn;
+    eqOn.addEventListener('change', () => fxChanged({ eqOn: eqOn.checked }));
+    const preset = el('select', { id: 'fx-preset', 'aria-label': 'Equalizer preset' },
+      ...Object.entries(NoorFx.PRESETS).map(([k, p]) => el('option', { value: k, text: p.label })), el('option', { value: 'custom', text: 'Custom' }));
+    preset.value = s.preset;
+    preset.addEventListener('change', () => { if (preset.value !== 'custom') fxChanged({ preset: preset.value, eqOn: true }); });
+    const bands = el('div', { class: 'eq-bands', role: 'group', 'aria-label': 'Equalizer bands' }, ...NoorFx.BANDS.map((f, i) => {
+      const r = el('input', { type: 'range', min: '-12', max: '12', step: '0.5', value: String(s.gains[i]), class: 'eq-band', 'data-band': String(i), 'aria-label': `${f >= 1000 ? f / 1000 + ' kHz' : f + ' Hz'} gain`, disabled: !s.eqOn || undefined });
+      const val = el('span', { class: 'eq-val', text: (s.gains[i] > 0 ? '+' : '') + s.gains[i] });
+      r.addEventListener('input', () => {
+        const gains = NoorFx.settings.gains; gains[i] = Number(r.value);
+        val.textContent = (gains[i] > 0 ? '+' : '') + gains[i];
+        NoorFx.update({ gains, preset: 'custom' });
+        $('#fx-preset').value = 'custom';
+        $('#fx-preamp').textContent = preampText();
+        scheduleSave();
+      });
+      return el('label', { class: 'eq-col' }, val, r, el('span', { class: 'eq-f', text: f >= 1000 ? f / 1000 + 'k' : String(f) }));
+    }));
+    const clip = el('input', { type: 'checkbox', id: 'fx-clip' }); clip.checked = s.preventClipping;
+    clip.addEventListener('change', () => fxChanged({ preventClipping: clip.checked }));
+    const norm = el('input', { type: 'checkbox', id: 'fx-norm' }); norm.checked = s.normalize;
+    norm.addEventListener('change', () => fxChanged({ normalize: norm.checked }));
+    const target = el('select', { id: 'fx-target', 'aria-label': 'Loudness target' }, ...NoorFx.TARGETS.map(([v, l]) => el('option', { value: String(v), text: l })));
+    target.value = String(s.target);
+    target.addEventListener('change', () => fxChanged({ target: Number(target.value) }));
+    const auto = el('input', { type: 'checkbox', id: 'fx-auto' }); auto.checked = s.autoMeasure !== false;
+    auto.addEventListener('change', () => fxChanged({ autoMeasure: auto.checked }));
+    box.replaceChildren(
+      el('section', { class: 'sound-section' },
+        el('div', { class: 'sound-head' }, el('label', { class: 'inline' }, eqOn, el('strong', { text: 'Equalizer' })), preset),
+        bands,
+        el('div', { class: 'sound-row' }, el('label', { class: 'inline' }, clip, 'Prevent clipping'), el('small', { id: 'fx-preamp', class: 'pref-hint', text: preampText() }))),
+      el('section', { class: 'sound-section' },
+        el('div', { class: 'sound-head' }, el('label', { class: 'inline' }, norm, el('strong', { text: 'Even out loudness' })), target),
+        el('p', { class: 'pref-hint', text: 'Plays every track at about the same loudness. Uses NoorMD’s own measurement or ReplayGain tags; the files are never changed. A track is never boosted above −1 dBFS.' }),
+        el('div', { class: 'sound-row' }, el('label', { class: 'inline' }, auto, 'Measure tracks automatically as they play')),
+        el('div', { class: 'sound-row' },
+          el('button', { class: 'utility-btn', disabled: currentId() == null || undefined, onclick: () => measure([currentId()], { label: 'this track' }) }, 'Measure this track'),
+          el('button', { class: 'utility-btn', onclick: () => withSelection((ids) => req('music.loudness.unmeasured', { ids }).then((u) => measure(u, { label: 'the selection' }))) }, 'Measure selected'),
+          el('button', { class: 'utility-btn', onclick: measureView }, 'Measure this view'),
+          el('button', { class: 'utility-btn', onclick: measureAll }, 'Measure whole library')),
+        el('div', { id: 'sound-status', class: 'sound-status', 'aria-live': 'polite' })));
+    renderSoundStatus();
+  }
+
+  function preampText() {
+    const p = NoorFx.preamp;
+    return p < 0 ? `Preamp ${p.toFixed(1)} dB keeps the boosts from clipping; a limiter catches the rest.` : 'A limiter keeps peaks below −1 dBFS.';
+  }
+
+  // ------------------------------------------------------------------ smart collections
+
+  const SMART_FIELDS = [
+    ['title', 'Title', 'text'], ['artist', 'Artist', 'text'], ['album', 'Album', 'text'], ['genre', 'Genre', 'text'], ['comment', 'Comment', 'text'],
+    ['fileName', 'File name', 'text'], ['folder', 'Folder', 'text'], ['year', 'Year', 'number'], ['plays', 'Play count', 'number'],
+    ['duration', 'Duration (seconds)', 'number'], ['loudness', 'Loudness (LUFS)', 'number'], ['added', 'Added', 'date'], ['lastPlayed', 'Last played', 'date'],
+    ['triage', 'Mark', 'triage'], ['hasArt', 'Has artwork', 'flag'], ['measured', 'Loudness measured', 'flag'], ['missing', 'Missing on disk', 'flag'],
+  ];
+  const SMART_OPS = {
+    text: [['contains', 'contains'], ['notContains', 'does not contain'], ['is', 'is'], ['isNot', 'is not'], ['startsWith', 'starts with'], ['isEmpty', 'is empty'], ['notEmpty', 'is not empty']],
+    number: [['gt', '>'], ['ge', '≥'], ['lt', '<'], ['le', '≤'], ['eq', '='], ['ne', '≠'], ['isEmpty', 'is unknown']],
+    date: [['withinDays', 'in the last … days'], ['olderThanDays', 'not in the last … days'], ['never', 'never'], ['ever', 'ever']],
+    triage: [['is', 'is'], ['isNot', 'is not']],
+    flag: [['isTrue', 'yes'], ['isFalse', 'no']],
+  };
+  const NO_VALUE = new Set(['isEmpty', 'notEmpty', 'never', 'ever', 'isTrue', 'isFalse']);
+  const SMART_PRESETS = [
+    { name: 'Recently added', matchAll: true, rules: [{ field: 'added', op: 'withinDays', value: '14' }] },
+    { name: 'Favorites', matchAll: true, rules: [{ field: 'triage', op: 'is', value: '1' }] },
+    { name: 'Never played', matchAll: true, rules: [{ field: 'lastPlayed', op: 'never' }] },
+    { name: 'Not played for a month', matchAll: true, rules: [{ field: 'lastPlayed', op: 'olderThanDays', value: '30' }, { field: 'triage', op: 'isNot', value: '4' }] },
+    { name: 'Most played', matchAll: true, rules: [{ field: 'plays', op: 'gt', value: '0' }], limit: 50, limitSort: 'plays', limitDesc: true },
+    { name: 'Still to triage', matchAll: true, rules: [{ field: 'triage', op: 'is', value: '0' }] },
+    { name: 'Short tracks (under 2 min)', matchAll: true, rules: [{ field: 'duration', op: 'lt', value: '120' }] },
+    { name: 'Missing artwork', matchAll: true, rules: [{ field: 'hasArt', op: 'isFalse' }] },
+  ];
+
+  function editSmart(existing) {
+    const start0 = existing || { name: '', matchAll: true, rules: [{ field: 'genre', op: 'contains', value: '' }] };
+    let rules = start0.rules.map((r) => ({ ...r }));
+    NoorUI.modal({ label: existing ? 'Edit smart collection' : 'New smart collection', width: 720 }, (s, close) => {
+      const name = el('input', { type: 'text', value: start0.name, id: 'smart-name', 'aria-label': 'Name', placeholder: 'Name' });
+      const match = el('select', { id: 'smart-match', 'aria-label': 'Match' }, el('option', { value: 'all', text: 'all of these' }), el('option', { value: 'any', text: 'any of these' }));
+      match.value = start0.matchAll === false ? 'any' : 'all';
+      const limitOn = el('input', { type: 'checkbox', id: 'smart-limit-on' }); limitOn.checked = !!start0.limit;
+      const limit = el('input', { type: 'number', min: '1', max: '10000', value: String(start0.limit || 50), class: 'num', id: 'smart-limit', 'aria-label': 'Limit' });
+      const limitSort = el('select', { id: 'smart-limit-sort', 'aria-label': 'Choose by' }, ...[['plays:1', 'most played'], ['added:1', 'most recently added'], ['lastPlayed:1', 'most recently played'], ['lastPlayed:0', 'least recently played'], ['random:0', 'random'], ['duration:0', 'shortest'], ['title:0', 'title']].map(([v, t]) => el('option', { value: v, text: t })));
+      limitSort.value = `${start0.limitSort || 'plays'}:${start0.limitDesc === false ? 0 : 1}`;
+      const list = el('div', { class: 'smart-rules', id: 'smart-rules' });
+      const count = el('div', { class: 'batch-summary', id: 'smart-count', 'aria-live': 'polite' });
+      const err = el('div', { class: 'edit-problems', role: 'alert' });
+      const presets = existing ? null : el('div', { class: 'batch-tokens' }, el('span', { class: 'pref-hint', text: 'Start from: ' }),
+        ...SMART_PRESETS.map((p) => el('button', { class: 'chip', type: 'button', onclick: () => { name.value = p.name; match.value = p.matchAll ? 'all' : 'any'; rules = p.rules.map((r) => ({ ...r })); limitOn.checked = !!p.limit; if (p.limit) { limit.value = String(p.limit); limitSort.value = `${p.limitSort}:${p.limitDesc ? 1 : 0}`; } draw(); } }, p.name)));
+      let t = null;
+      const payload = () => {
+        const [ls, ld] = limitSort.value.split(':');
+        return { matchAll: match.value === 'all', rules, limit: limitOn.checked ? Number(limit.value) : undefined, limitSort: ls, limitDesc: ld === '1' };
+      };
+      const recount = () => {
+        clearTimeout(t);
+        t = setTimeout(async () => {
+          try { const n = await req('music.smart.count', { rules: payload() }); count.textContent = `${n.toLocaleString()} track${n === 1 ? '' : 's'} match right now`; err.replaceChildren(); }
+          catch (e) { count.textContent = ''; err.replaceChildren(el('div', { text: '⚠ ' + e.message })); }
+        }, 200);
+      };
+      function draw() {
+        list.replaceChildren(...rules.map((r, i) => {
+          const kind = (SMART_FIELDS.find(([f]) => f === r.field) || SMART_FIELDS[0])[2];
+          const field = el('select', { 'aria-label': 'Field', 'data-smart-field': String(i) }, ...SMART_FIELDS.map(([f, l]) => el('option', { value: f, text: l })));
+          field.value = r.field;
+          const op = el('select', { 'aria-label': 'Condition', 'data-smart-op': String(i) }, ...SMART_OPS[kind].map(([o, l]) => el('option', { value: o, text: l })));
+          if (!SMART_OPS[kind].some(([o]) => o === r.op)) r.op = SMART_OPS[kind][0][0];
+          op.value = r.op;
+          let value;
+          if (kind === 'triage') {
+            value = el('select', { 'aria-label': 'Mark', 'data-smart-value': String(i) }, ...TRIAGE.map((x) => el('option', { value: String(x.v), text: `${x.icon} ${x.label}` })));
+            value.value = String(r.value ?? '1'); r.value = value.value;
+          } else value = el('input', { type: kind === 'text' ? 'text' : 'number', value: r.value ?? '', 'aria-label': 'Value', 'data-smart-value': String(i), hidden: NO_VALUE.has(r.op) || undefined, placeholder: kind === 'date' ? 'days' : '' });
+          field.addEventListener('change', () => { r.field = field.value; r.value = ''; draw(); });
+          op.addEventListener('change', () => { r.op = op.value; draw(); });
+          value.addEventListener(value.tagName === 'SELECT' ? 'change' : 'input', () => { r.value = value.value; recount(); });
+          return el('div', { class: 'smart-rule' }, field, op, value,
+            el('button', { class: 'icon-btn', title: 'Remove condition', 'aria-label': 'Remove condition', disabled: rules.length === 1 || undefined, onclick: () => { rules.splice(i, 1); draw(); } }, '✕'));
+        }));
+        recount();
+      }
+      [match, limitOn, limit, limitSort].forEach((x) => x.addEventListener('change', recount));
+      limit.addEventListener('input', recount);
+      const save = async () => {
+        try {
+          const r = await req('music.smart.save', { id: existing ? existing.id : undefined, name: name.value, rules: payload() });
+          status.smart = r.smart;
+          close();
+          renderPlaylists();
+          setTab('library');
+          setView({ smartId: r.id, search: '', triage: null, missingOnly: false });
+          notice(existing ? 'Smart collection updated' : 'Smart collection created — it updates itself as the library changes', 2600);
+        } catch (e) { err.replaceChildren(el('div', { text: '⚠ ' + e.message })); }
+      };
+      s.append(NoorUI.head(existing ? '⚡ Edit smart collection' : '⚡ New smart collection', close),
+        el('div', { class: 'modal-body smart-body' },
+          presets,
+          el('div', { class: 'batch-row' }, el('label', { text: 'Name' }), name),
+          el('div', { class: 'batch-row' }, el('span', { text: 'Tracks that match' }), match),
+          list,
+          el('button', { class: 'utility-btn', onclick: () => { rules.push({ field: 'genre', op: 'contains', value: '' }); draw(); } }, '＋ Add condition'),
+          el('div', { class: 'batch-row' }, el('label', { class: 'inline' }, limitOn, 'Only the first'), limit, el('span', { text: 'chosen by' }), limitSort),
+          count, err),
+        el('div', { class: 'modal-foot' }, el('span', { text: 'Smart collections update themselves; no files are moved.' }),
+          el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => close() }, 'Cancel'), el('button', { class: 'action primary', id: 'smart-save', onclick: save }, existing ? 'Save' : 'Create'))));
+      draw();
+    });
+  }
+
+  async function deleteSmart(sc) {
+    if (!await NoorUI.confirm('Delete smart collection?', `“${sc.name}” will be deleted. No tracks or files are affected.`, 'Delete')) return;
+    try { status.smart = await req('music.smart.delete', { id: sc.id }); } catch (err) { hooks.showError(err); }
+    if (view.smartId === sc.id) setView({ smartId: null });
+    renderPlaylists();
+  }
+
+  async function playSmart(sc) {
+    let ids;
+    try { ids = await req('music.ids', { smartId: sc.id, sort: 'title' }); } catch (err) { hooks.showError(err); return; }
+    if (!ids.length) { notice('Nothing matches this smart collection right now.'); return; }
+    setQueue(ids, q.shuffle ? Math.floor(Math.random() * ids.length) : 0, true);
+  }
+
+  // ------------------------------------------------------------------ artwork
+
+  /** A calm placeholder when a track has no artwork: a gradient and initial derived from the title. */
+  function artPlaceholder(row) {
+    const name = row ? (row.displayTitle || row.fileName || '♫') : '♫';
+    let h = 0;
+    for (const ch of name) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+    const hue = h % 360;
+    const letter = row ? ([...name.replace(/^[^\p{L}\p{N}]+/u, '')][0] || '♫').toUpperCase() : '♫';
+    return el('span', { class: 'art-ph', style: `background:linear-gradient(135deg,hsl(${hue} 55% 42%),hsl(${(hue + 50) % 360} 60% 28%))`, text: letter });
+  }
+
+  function showArtwork(id) {
+    const row = cache.get(id);
+    if (!row) return;
+    NoorUI.modal({ label: 'Artwork', width: 560 }, (s, close) => {
+      s.append(NoorUI.head(row.displayTitle || row.fileName, close),
+        el('div', { class: 'modal-body art-view' }, row.hasArt ? el('img', { src: `_art/${id}?v=${mediaVersion}`, alt: `Artwork of ${row.displayTitle || row.fileName}`, id: 'art-large' }) : artPlaceholder(row)),
+        el('div', { class: 'modal-foot' }, el('span', { text: row.hasArt ? '' : 'This track has no artwork (embedded or cover.jpg / folder.jpg next to it).' }),
+          el('div', { class: 'modal-buttons' },
+            row.hasArt ? el('button', { class: 'action', onclick: () => saveArtwork(id) }, 'Save artwork as…') : null,
+            el('button', { class: 'action primary', onclick: () => close() }, 'Close'))));
+    });
+  }
+
+  async function saveArtwork(id) {
+    try { const r = await req('music.art.save', { id }); if (r && r.path) notice(`Artwork saved to ${r.path}`, 3500); } catch (err) { hooks.showError(err); }
   }
 
   // ------------------------------------------------------------------ Batch Organizer
@@ -1309,8 +1620,10 @@ window.NoorMusic = (() => {
 
   return {
     init, resumeSession, togglePanel, applyVisibility, toggle, next: () => next(false), prev, editCurrent, triageCurrent,
-    undoLastEdit, batchSelected, batchOrganizer, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
+    openSound: () => { togglePanel(true); setTab('sound'); }, undoLastEdit, batchSelected, batchOrganizer, editSmart, measure, showArtwork, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
     isOpen: () => document.body.classList.contains('music-open'),
+    /** A video started: music pauses so the two don't play over each other (it doesn't resume by itself). */
+    pauseForVideo: () => { if (!audio.paused) { audio.pause(); notice('Music paused for the video', 1600); } },
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },
     shuffleOn: () => !!q.shuffle,

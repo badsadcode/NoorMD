@@ -11,12 +11,12 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 // Real audio fixtures for media tests: ids 1-4 are playable, other ids are "missing" (404).
 const FIXTURES = path.resolve(__dirname, '..', 'NoorMD.Media.Tests', 'Fixtures');
 const MEDIA = { 1: 'tone.mp3', 2: 'tone.ogg', 3: 'tone.flac', 4: 'tone.wav' };
-const MEDIA_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.wav': 'audio/wav' };
+const MEDIA_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.wav': 'audio/wav', '.webm': 'video/webm' };
 const MAX_CHUNK = 2 * 1024 * 1024; // same as NoorMD.Media.MediaResponse
 const mediaLog = [];
 
-function serveMedia(id, req, res) {
-  const name = MEDIA[id];
+function serveMedia(id, req, res, video) {
+  const name = video ? 'clip.webm' : MEDIA[id];
   if (!name) { res.writeHead(404); res.end(); return; }
   const file = path.join(FIXTURES, name);
   const data = fs.readFileSync(file);
@@ -38,6 +38,9 @@ function serve() {
     const url = new URL(req.url, 'http://x');
     const media = /^\/_media\/(\d+)$/.exec(url.pathname);
     if (media) { serveMedia(Number(media[1]), req, res); return; }
+    const vid = /^\/_video\/(\d+)$/.exec(url.pathname);
+    if (vid) { serveMedia(Number(vid[1]), req, res, true); return; }
+    if (/^\/_sub\/\d+\/0$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }); res.end('WEBVTT\n\n00:00:00.500 --> 00:00:05.000\nHello from the subtitles\n'); return; }
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
     let rel = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/_noormd/') ? url.pathname.slice('/_noormd/'.length) : null;
     if (!rel) { res.writeHead(404); res.end(); return; }
@@ -150,6 +153,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('video.')) { try { return reply(m.id, true, videoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           return reply(m.id, true, {});
       }
     },
@@ -287,12 +291,50 @@ function mockHostScript(initial) {
   }
   state.vault = V;
 
+  // ---- mock video library: two series; every video is the same 6-second clip.webm fixture; video 1 has subtitles.
+  const VID = { videos: [], notes: [], nextNote: 1, popouts: [], inserted: [], positions: [] };
+  if (initial.videos) {
+    const add = (id, title, series, ep) => VID.videos.push({ id, title, series, seriesKey: 'K:' + series, season: null, episode: ep, duration: 6, width: 160, height: 90, position: 0, watched: false, lastWatched: null, missing: false, notes: 0, fileName: title + '.webm', folder: 'C:\\Videos\\' + series });
+    add(1, 'Episode 1', 'Devlog', 1); add(2, 'Episode 2', 'Devlog', 2); add(3, 'Episode 3', 'Devlog', 3); add(4, 'Intro to shaders', 'Tutorials', null);
+  }
+  state.video = VID;
+  function videoMock(type, p) {
+    const get = (id) => VID.videos.find((v) => v.id === id) || (() => { throw new Error('That video is no longer in the library.'); })();
+    const notes = (id) => VID.notes.filter((n) => n.videoId === id).sort((a, b) => a.time - b.time).map((n) => ({ ...n, stamp: `${Math.floor(n.time / 60)}:${String(Math.floor(n.time % 60)).padStart(2, '0')}` }));
+    const eps = (key) => VID.videos.filter((v) => v.seriesKey === key);
+    const next = (id) => { const v = get(id); const list = eps(v.seriesKey); const i = list.indexOf(v); return list[i + 1] || null; };
+    const row = (v) => ({ ...v, notes: VID.notes.filter((n) => n.videoId === v.id).length });
+    switch (type) {
+      case 'video.status': {
+        const keys = [...new Set(VID.videos.map((v) => v.seriesKey))];
+        return { folders: VID.videos.length ? [{ id: 1, path: 'C:\\Videos', count: VID.videos.length }] : [], scanning: false,
+          series: keys.map((k) => ({ key: k, name: k.slice(2), folder: 'C:\\Videos\\' + k.slice(2), count: eps(k).length, watched: eps(k).filter((v) => v.watched).length, lastWatched: null, resumeId: (eps(k).find((v) => !v.watched) || eps(k)[0]).id })),
+          resume: VID.videos.filter((v) => !v.watched && v.position > Math.min(5, v.duration * 0.1)).map(row) };
+      }
+      case 'video.episodes': return eps(p.key).map(row);
+      case 'video.search': return VID.videos.filter((v) => (v.title + ' ' + v.series).toLowerCase().includes(String(p.text).toLowerCase())).map(row);
+      case 'video.get': { const v = get(p.id); return { video: row(v), subtitles: v.id === 1 ? [{ index: 0, label: 'en (SRT)', lang: 'en' }] : [], notes: notes(v.id), next: next(v.id) && row(next(v.id)), exists: true }; }
+      case 'video.position': { const v = get(p.id); VID.positions.push({ id: p.id, position: p.position }); const w = p.duration > 0 && p.position >= p.duration * 0.92; v.position = w ? 0 : p.position; v.watched = v.watched || w; v.lastWatched = new Date().toISOString(); return row(v); }
+      case 'video.watched': (p.ids || []).forEach((id) => { const v = get(id); v.watched = !!p.value; v.position = 0; }); return null;
+      case 'video.next': return next(p.id) && row(next(p.id));
+      case 'video.note.add': if (!String(p.text || '').trim()) throw new Error('A note needs some text.'); VID.notes.push({ id: VID.nextNote++, videoId: p.id, time: p.time, text: p.text.trim() }); return { id: VID.nextNote - 1, notes: notes(p.id) };
+      case 'video.note.update': { const n = VID.notes.find((x) => x.id === p.noteId); n.text = p.text.trim(); return notes(p.id); }
+      case 'video.note.delete': VID.notes = VID.notes.filter((x) => x.id !== p.noteId); return notes(p.id);
+      case 'video.note.insert': VID.inserted.push(p.id); return { document: 'x.md' };
+      case 'video.popout': VID.popouts.push({ ...p }); return null;
+      case 'video.session.save': VID.session = p.json; return null;
+      default: return null;
+    }
+  }
+
   // ---- mock music library: N tracks; ids 1-4 are real playable fixtures, the rest are "missing" files.
   function musicMock(type, p) {
     const lib = state.music;
     const row = (t) => ({ ...t, displayTitle: t.title || t.fileName.replace(/\.[^.]+$/, ''), triage: t.triage, missing: false, hasArt: false });
     const filtered = () => {
       let list = p.playlistId ? (lib.playlists.find((x) => x.id === p.playlistId)?.items || []).map((id) => lib.byId.get(id)) : lib.tracks;
+      const sc = p.smartId ? (lib.smart || []).find((x) => x.id === p.smartId) : p.smartRules;
+      if (sc) list = list.filter((t) => smartMatch(sc, t));
       const terms = (p.search || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').split(/\s+/).filter(Boolean);
       if (terms.length) list = list.filter((t) => terms.every((w) => t.search.includes(w)));
       if (p.triage != null) list = list.filter((t) => t.triage === p.triage);
@@ -303,9 +345,25 @@ function mockHostScript(initial) {
       }
       return list;
     };
+    // Minimal smart-rule evaluation (the real one is SQL in MusicLibrary; this covers what the UI tests use).
+    function smartMatch(r, t) {
+      const one = (x) => {
+        const v = { triage: t.triage, genre: t.genre, plays: t.plays || 0, title: t.title || t.fileName, measured: t.loudness != null ? 1 : 0, hasArt: 0, lastPlayed: t.lastPlayed || null }[x.field];
+        switch (x.op) {
+          case 'is': return String(v ?? '') === String(x.value); case 'isNot': return String(v ?? '') !== String(x.value);
+          case 'contains': return String(v ?? '').toLowerCase().includes(String(x.value || '').toLowerCase());
+          case 'gt': return Number(v) > Number(x.value); case 'lt': return Number(v) < Number(x.value);
+          case 'isTrue': return v === 1; case 'isFalse': return v === 0; case 'never': return v == null;
+          default: return true;
+        }
+      };
+      const hits = (r.rules || []).map(one);
+      return r.matchAll === false ? hits.some(Boolean) : hits.every(Boolean);
+    }
+    const smartList = () => (lib.smart || []).map((x) => ({ ...x, count: lib.tracks.filter((t) => smartMatch(x, t)).length }));
     const stats = () => ({ total: lib.tracks.length, missing: 0, favorite: lib.tracks.filter((t) => t.triage === 1).length, keep: lib.tracks.filter((t) => t.triage === 2).length, maybe: lib.tracks.filter((t) => t.triage === 3).length, skip: lib.tracks.filter((t) => t.triage === 4).length, untriaged: lib.tracks.filter((t) => !t.triage).length });
     switch (type) {
-      case 'music.status': return { folders: lib.tracks.length ? [{ id: 1, path: 'C:\\Music\\Suno', recursive: true, trackCount: lib.tracks.length, lastScanUtc: null }] : [], stats: stats(), playlists: lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length })), scanning: false, undo: lib.undo };
+      case 'music.status': return { folders: lib.tracks.length ? [{ id: 1, path: 'C:\\Music\\Suno', recursive: true, trackCount: lib.tracks.length, lastScanUtc: null }] : [], stats: stats(), playlists: lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length })), smart: smartList(), scanning: false, undo: lib.undo };
       case 'music.query': { const all = filtered(); return { total: all.length, offset: p.offset || 0, rows: all.slice(p.offset || 0, (p.offset || 0) + (p.limit || 200)).map(row) }; }
       case 'music.ids': return filtered().map((t) => t.id);
       case 'music.tracks': return (p.ids || []).map((id) => lib.byId.get(id)).filter(Boolean).map(row);
@@ -373,6 +431,18 @@ function mockHostScript(initial) {
         lib.undo = null;
         return { batchId: p.batchId, done: lib.batches[p.batchId - 1].length, failed: 0, skipped: 0, items: [], undo: null };
       }
+      case 'music.loudness.set': { const t = lib.byId.get(p.id); t.loudness = p.lufs; t.peak = p.peak; lib.measured = (lib.measured || 0) + 1; return null; }
+      case 'music.loudness.unmeasured': return (p.ids || lib.tracks.map((t) => t.id)).filter((id) => lib.byId.get(id) && lib.byId.get(id).loudness == null);
+      case 'music.smart.count': return lib.tracks.filter((t) => smartMatch(p.rules, t)).length;
+      case 'music.smart.save': {
+        if (!p.name || !p.name.trim()) throw new Error('Give the collection a name (at most 200 characters).');
+        lib.smart = lib.smart || [];
+        let id = p.id;
+        if (id) Object.assign(lib.smart.find((x) => x.id === id), { name: p.name, ...p.rules });
+        else { id = lib.smart.length + 1; lib.smart.push({ id, name: p.name, ...p.rules }); }
+        return { id, smart: smartList() };
+      }
+      case 'music.smart.delete': lib.smart = (lib.smart || []).filter((x) => x.id !== p.id); return smartList();
       case 'music.session.get': return lib.session;
       case 'music.session.save': lib.session = p.json; lib.sessionSaves++; return null;
       default: return null;
@@ -388,7 +458,7 @@ function mockHostScript(initial) {
     tracks.push(t);
   }
   state.music = { tracks, byId: new Map(tracks.map((t) => [t.id, t])), playlists: [], edits: [], session: initial.musicSession || null, sessionSaves: 0, undo: null };
-  window.__mock = { log, files, state };
+  window.__mock = { log, files, state, emit };
 }
 
 // Mock host for the NoorSketch window: records what the page sends, answers like SketchWindow.cs.
@@ -417,4 +487,30 @@ function sketchHostScript(initial) {
   window.__sk = { log, state, emit };
 }
 
-module.exports = { serve, mockHostScript, sketchHostScript, WWW, mediaLog };
+// The pop-out video window's host (VideoWindow.cs): plays video 7, which has a next episode 8.
+function videoWindowHostScript() {
+  const listeners = [];
+  const state = { positions: [], topmost: true, notes: [], titles: [], closed: 0 };
+  const emit = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 0);
+  const reply = (id, ok, result, error) => id != null && emit({ v: 2, replyTo: id, ok, result, error });
+  const video = (id) => ({ id, title: id === 7 ? 'Episode 7' : 'Episode 8', duration: 6, position: 0, watched: false });
+  window.__NOORMD_TEST_HOST__ = {
+    addEventListener: (_t, fn) => listeners.push(fn),
+    postMessage(m) {
+      const p = m.payload || {};
+      switch (m.type) {
+        case 'video.ready': reply(m.id, true, null); emit({ v: 2, event: 'video.load', payload: { id: 7, time: 2, paused: true } }); return;
+        case 'video.get': return reply(m.id, true, { video: video(p.id), subtitles: [], notes: [], next: p.id === 7 ? video(8) : null, exists: true });
+        case 'video.position': state.positions.push(p); return reply(m.id, true, video(p.id));
+        case 'video.topmost': state.topmost = !!p.value; return reply(m.id, true, { topmost: state.topmost });
+        case 'video.title': state.titles.push(p.title); return reply(m.id, true, null);
+        case 'video.note.add': state.notes.push(p); return reply(m.id, true, { id: 1, notes: [] });
+        case 'video.close': state.closed++; return reply(m.id, true, null);
+        default: return reply(m.id, true, null);
+      }
+    },
+  };
+  window.__pv = { state, emit };
+}
+
+module.exports = { serve, mockHostScript, sketchHostScript, videoWindowHostScript, WWW, mediaLog };

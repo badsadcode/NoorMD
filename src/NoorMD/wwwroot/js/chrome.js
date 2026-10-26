@@ -39,6 +39,7 @@ window.NoorChrome = (() => {
     dice: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8.5 8.5h.01M15.5 8.5h.01M12 12h.01M8.5 15.5h.01M15.5 15.5h.01',
     pause: 'M7 4h4v16H7zM14 4h4v16h-4z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
+    film: 'M3 5h18v14H3zM7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4',
     heading: 'M6 4v16M18 4v16M6 12h12',
     more: 'M5 12h.01M12 12h.01M19 12h.01',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
@@ -68,7 +69,7 @@ window.NoorChrome = (() => {
     navigation: { label: 'Navigation', items: [['find.show', 'find', 'Find'], ['view.sidebar', 'sidebar', 'Sidebar'], ['tab.switch', 'tabs', 'Documents']] },
     view: { label: 'View', items: ['modes', ['width.cycle', 'width', 'Width'], ['view.focus', 'focus', 'Focus']] },
     tools: { label: 'Tools', items: [['snapshot.create', 'snapshot', 'Snapshot'], ['palette.show', 'palette', 'Commands']] },
-    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench']] },
+    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench'], ['video.toggle', 'film', 'Video Bench']] },
   };
   const DEFAULT_ORDER = ['document', 'writing', 'navigation', 'view', 'tools', 'media'];
   // When the window is narrow, the least important buttons move into "More" first (higher = kept longer).
@@ -263,9 +264,9 @@ window.NoorChrome = (() => {
       { id: 'vault.pack' }, '-', { id: 'tab.closeOthers' }, { id: 'tab.pin' }, { id: 'recovery.show' }, { id: 'session.restore' },
     ]],
     ['Media', 'm', () => [
-      { id: 'music.toggle' }, { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, '-',
+      { id: 'music.toggle' }, { id: 'video.toggle' }, '-', { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, { id: 'video.addFolder' }, '-',
       { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random' }, '-', { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
-      { id: 'music.edit' }, { id: 'music.batch' }, { id: 'music.undo' },
+      { id: 'music.edit' }, { id: 'music.batch' }, { id: 'music.undo' }, '-', { id: 'music.sound' }, { id: 'music.smart' },
       { label: 'Triage current track', sub: () => [{ id: 'music.fav' }, { id: 'music.keep' }, { id: 'music.maybe' }, { id: 'music.skip' }, { id: 'music.clearTriage' }] },
     ]],
     ['Tools', 't', () => [

@@ -182,6 +182,7 @@ public partial class MainWindow
             await RunVaultSelfTestAsync(tab);
             await RunSketchSelfTestAsync(tab);
             await RunMusicSelfTestAsync();
+            await RunVideoSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
             var pdf = Path.Combine(SelfTestDir, "export.pdf");
@@ -373,7 +374,58 @@ public partial class MainWindow
         Check("renamed file has the Polish name and title on disk", File.Exists(Path.Combine(musicDir, "Żółta łódź.mp3")) && NoorMD.Media.TagIO.Read(Path.Combine(musicDir, "Żółta łódź.mp3")).Title == "Żółta łódź");
         var undo = await Task.Run(() => Editor.Undo(edit.JournalId!.Value));
         Check("undo restores the original file name and tags", undo.Ok && File.Exists(mp3.Path), string.Join(" ", undo.Problems));
+
+        // Loudness: WebView2 decodes the file through /_media/ (connect-src 'self') and measures it.
+        await Eval($"window.__lu = null; NoorFx.analyze('_media/{mp3.Id}?v=99').then(r => window.__lu = r.lufs, e => window.__lu = 'error: ' + e.message)");
+        for (var i = 0; i < 20 && await Eval("window.__lu") == "null"; i++) await Task.Delay(250);
+        var lu = await Eval("window.__lu");
+        Check("loudness of an MP3 is measured in WebView2", double.TryParse(lu, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var lufs) && lufs is < 0 and > -60, lu);
+        // Equalizer + limiter graph: playback must continue through it.
+        await Eval("NoorFx.update({ eqOn: true, preset: 'bass', normalize: true })");
+        await Eval($"window.NoorMusic._testPlay([{string.Join(',', ids)}], {ids.ToList().IndexOf(mp3.Id)}, true)");
+        await Task.Delay(1500);
+        Check("playback continues through the equalizer and limiter", await Eval("(() => { const s = window.NoorMusic._state(); return NoorFx.active && !s.paused && s.time > 0.3; })()") == "true", await Eval("JSON.stringify([NoorFx.active, window.NoorMusic._state().time])"));
+        await Eval("NoorFx.update({ eqOn: false, normalize: false })");
+
+        // Batch Organizer on real NTFS files: swap two names in one batch, then undo the whole batch.
+        var two = Music.GetMany(ids).Where(t => t.Path.EndsWith(".mp3", StringComparison.OrdinalIgnoreCase)).Take(2).ToList();
+        if (two.Count == 2)
+        {
+            var names = two.Select(t => Path.GetFileNameWithoutExtension(t.Path)).ToList();
+            NoorMD.Media.TagIO.Write(two[0].Path, new NoorMD.Media.TagEdit { Comment = names[1] }); Music.Refresh(two[0].Id, two[0].Path);
+            NoorMD.Media.TagIO.Write(two[1].Path, new NoorMD.Media.TagEdit { Comment = names[0] }); Music.Refresh(two[1].Id, two[1].Path);
+            var spec = new NoorMD.Media.BatchSpec { Rename = new NoorMD.Media.RenameRules { Enabled = true, Template = "{Comment}" } };
+            var res = await Task.Run(() => Batch.Apply([two[0].Id, two[1].Id], spec));
+            Check("Batch Organizer swaps two file names in one batch", res.Done == 2 && Music.Get(two[0].Id)!.Path == two[1].Path, string.Join(" ", res.Items.Select(x => x.Status + ":" + x.Message)));
+            var bu = await Task.Run(() => Batch.Undo(res.BatchId!.Value));
+            Check("…and undoes the whole batch", bu.Done == 2 && Music.Get(two[0].Id)!.Path == two[0].Path);
+        }
         await Eval("window.NoorMusic.toggle()");
+    }
+
+    private async Task RunVideoSelfTestAsync()
+    {
+        var dir = Path.Combine(SelfTestDir!, "video");
+        if (!Directory.Exists(dir) || !Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories).Any()) { Check("video self-test (no fixtures provided — skipped)", true); return; }
+        var folder = Videos.AddFolder(dir);
+        var scan = await Task.Run(() => Videos.Scan(folder));
+        Check("video folder indexed", scan.Found >= 1, $"{scan.Found} found");
+        await Eval("NoorVideo.open()");
+        await Task.Delay(800);
+        foreach (var v in Videos.Series().SelectMany(s => Videos.Episodes(s.Key)))
+        {
+            await Eval($"NoorVideo.select({v.Id}, {{ autoplay: true }})");
+            await Task.Delay(2200);
+            var ok = await Eval("(() => { const v = document.querySelector('#vb-video'); return !v.paused && v.currentTime > 0.3 && v.videoWidth > 0; })()") == "true";
+            Check($"WebView2 plays {Path.GetExtension(v.Path)} video served by NoorMD", ok, await Eval("(() => { const v = document.querySelector('#vb-video'); return JSON.stringify([v.currentTime, v.videoWidth, v.error && v.error.code]); })()"));
+            var subs = NoorMD.Media.SubtitleConverter.Find(v.Path);
+            if (subs.Count > 0)
+                Check($"subtitles of {v.FileName} load as WebVTT cues", await Eval("(() => { const t = document.querySelector('#vb-video').textTracks[0]; return !!t && t.mode === 'showing' && !!t.cues && t.cues.length > 0; })()") == "true");
+        }
+        await Capture("screenshot-video.png");
+        await Eval("NoorVideo.close()");
+        var saved = Videos.ContinueWatching().Count + Videos.Series().Sum(s => s.Watched);
+        Check("video positions are saved", saved > 0);
     }
 
     private async Task Capture(string name)

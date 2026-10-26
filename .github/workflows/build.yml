@@ -57,6 +57,10 @@ jobs:
           $out = Join-Path $PWD 'selftest-out'
           New-Item -ItemType Directory -Force -Path (Join-Path $out 'music') | Out-Null
           Copy-Item tests/NoorMD.Media.Tests/Fixtures/tone.mp3, tests/NoorMD.Media.Tests/Fixtures/tagged.mp3, tests/NoorMD.Media.Tests/Fixtures/tone.flac, tests/NoorMD.Media.Tests/Fixtures/tone.ogg -Destination (Join-Path $out 'music')
+          New-Item -ItemType Directory -Force -Path (Join-Path $out 'video/Devlog') | Out-Null
+          Copy-Item tests/NoorMD.Media.Tests/Fixtures/clip.mp4 -Destination (Join-Path $out 'video/Devlog/Episode 1.mp4')
+          Copy-Item tests/NoorMD.Media.Tests/Fixtures/clip.webm -Destination (Join-Path $out 'video/Devlog/Episode 2.webm')
+          Set-Content -Path (Join-Path $out 'video/Devlog/Episode 1.en.srt') -Value "1`r`n00:00:00,500 --> 00:00:05,000`r`nZażółć gęślą jaźń`r`n" -Encoding utf8
           $exe = Join-Path $PWD 'artifacts/publish-portable/NoorMD.exe'
           $p = Start-Process $exe -ArgumentList '--self-test', "`"$out`"" -PassThru
           if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Self-test timed out' }

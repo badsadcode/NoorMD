@@ -1237,6 +1237,8 @@
     ['shortcuts.show', 'Keyboard shortcuts', 'App', 'F1', showShortcuts],
     ['about.show', 'About NoorMD & licenses', 'App', '', showAbout],
     ['music.toggle', 'Music Bench', 'Music', 'Ctrl+Shift+M', () => NoorMusic.togglePanel()],
+    ['video.toggle', 'Video Bench', 'Video', 'Ctrl+Alt+V', () => NoorVideo.toggle()],
+    ['video.addFolder', 'Add a video folder…', 'Video', '', () => NoorVideo.addFolder()],
     ['music.play', 'Play / pause music', 'Music', 'Ctrl+Alt+Space', () => NoorMusic.toggle()],
     ['music.next', 'Next track', 'Music', 'Ctrl+Alt+→', () => NoorMusic.next()],
     ['music.prev', 'Previous track', 'Music', 'Ctrl+Alt+←', () => NoorMusic.prev()],
@@ -1250,6 +1252,8 @@
     ['music.random', 'Jump to a random track', 'Music', 'Ctrl+Alt+R', () => NoorMusic.playRandom()],
     ['music.repeat', 'Cycle repeat (off / all / one)', 'Music', '', () => NoorMusic.cycleRepeat()],
     ['music.batch', 'Batch Organizer (selected tracks)…', 'Music', '', () => NoorMusic.batchSelected()],
+    ['music.sound', 'Sound: equalizer and loudness…', 'Music', '', () => NoorMusic.openSound()],
+    ['music.smart', 'New smart collection…', 'Music', '', () => NoorMusic.editSmart(null)],
     ['music.undo', 'Undo last track edit', 'Music', '', () => NoorMusic.undoLastEdit()],
     ['music.addFolder', 'Add music folder…', 'Music', '', () => NoorMusic.addFolder()],
     ['music.folders', 'Music folders…', 'Music', '', () => NoorMusic.showFolders()],
@@ -1306,7 +1310,7 @@
     const hasEditor = !!(t && t.editor);
     const checked = {
       'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'),
-      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
       'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
@@ -1920,6 +1924,7 @@
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'ArrowLeft'))
       cmd = { Space: 'music.play', ArrowRight: 'music.next', ArrowLeft: 'music.prev' }[e.code];
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyR') cmd = 'music.random';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyV') cmd = 'video.toggle';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
     else if (key === 'F11') cmd = 'view.focus';
@@ -2041,6 +2046,7 @@
     setupTabStrip();
     setupDropAndLinks();
     NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError });
+    NoorVideo.init({ showError, onPlay: () => NoorMusic.pauseForVideo() });
     NoorChrome.init({
       command: (id) => commandById.get(id) || null,
       run: runCommand,

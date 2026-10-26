@@ -133,6 +133,8 @@ public partial class MainWindow
                 return await DispatchPackAsync(req);
             case var vault when vault.StartsWith("vault.", StringComparison.Ordinal):
                 return await DispatchVaultAsync(req);
+            case var video when video.StartsWith("video.", StringComparison.Ordinal):
+                return await DispatchVideoAsync(req);
             case var music when music.StartsWith("music.", StringComparison.Ordinal):
                 return await DispatchMusicAsync(req);
             default:
