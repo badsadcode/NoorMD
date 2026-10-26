@@ -613,3 +613,40 @@ body.zen .zen-exit { display: block; position: fixed; top: 10px; right: 14px; z-
 body.zen .zen-exit:hover, body.zen .zen-exit:focus-visible { opacity: 1; color: var(--text); }
 @media (max-width: 1260px) { .crumb { max-width: 150px; } .action .label { display: none; } .action { padding: 8px 10px; } }
 @media (max-width: 1100px) { .crumb { display: none; } .menu-title { padding: 6px 6px; } .top { padding: 0 14px; } }
+
+/* ---------------------------------------------------------------- vault explorer */
+.side-switch { display: none; gap: 3px; padding: 3px; background: var(--surface); border: 1px solid var(--border); border-radius: 9px; }
+body.has-vault .side-switch { display: flex; }
+.side-switch button { flex: 1; border: 0; background: none; color: var(--muted); font-size: 12px; font-weight: 700; padding: 5px 8px; border-radius: 7px; }
+.side-switch button.active { background: var(--surface2); color: var(--accent); }
+.vault-panel { display: none; min-height: 0; flex: 1; }
+body.has-vault.side-files .vault-panel { display: flex; flex-direction: column; }
+body.has-vault.side-files .sidebar > .side-section:not(.vault-panel), body.has-vault.side-files .side-note { display: none; }
+.vault-head { display: flex; align-items: center; gap: 2px; margin-bottom: 6px; }
+.vault-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--accent); }
+.vault-head .icon-btn { width: 26px; height: 26px; }
+.vault-head .icon-btn svg { width: 15px; height: 15px; }
+.vault-filter { width: 100%; margin-bottom: 6px; padding: 6px 9px; font-size: 12.5px; }
+.vault-tree { flex: 1; min-height: 120px; overflow: auto; margin: 0 -6px; padding: 2px 0 20px; outline: none; }
+.vault-tree.drop-target { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.vt-row { display: flex; align-items: center; gap: 4px; height: 26px; padding: 0 8px 0 calc(6px + var(--lvl, 0) * 14px); border-radius: 6px; font-size: 13px; color: var(--text); cursor: default; white-space: nowrap; user-select: none; }
+.vt-row:hover { background: color-mix(in srgb, var(--surface2) 70%, transparent); }
+.vt-row.selected { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.vt-row.current .vt-name { color: var(--accent); font-weight: 650; }
+.vt-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vt-row.drop-target { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.vt-chev { width: 12px; color: var(--muted); font-size: 11px; flex-shrink: 0; text-align: center; }
+.vt-icon { width: 18px; font-size: 12px; flex-shrink: 0; text-align: center; opacity: .85; }
+.vt-row.folder .vt-icon::before { content: '📁'; }
+.vt-name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.vt-where { color: var(--muted); font-size: 11px; margin-left: auto; padding-left: 8px; overflow: hidden; text-overflow: ellipsis; max-width: 45%; }
+.vt-rename { height: 22px; padding: 1px 5px; font-size: 13px; flex: 1; min-width: 0; }
+.backlinks button { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; }
+.bl-snippet { color: var(--muted); font-size: 11px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vs-body { display: flex; flex-direction: column; gap: 8px; }
+.vs-status { color: var(--muted); font-size: 12px; min-height: 16px; }
+.vs-results { max-height: min(56vh, 520px); }
+.vs-hit { flex-direction: column; align-items: flex-start !important; gap: 2px; }
+.vs-file { font-weight: 650; font-size: 12.5px; }
+.vs-snippet { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.vs-snippet mark { background: color-mix(in srgb, var(--accent) 30%, transparent); color: var(--text); border-radius: 3px; padding: 0 1px; }

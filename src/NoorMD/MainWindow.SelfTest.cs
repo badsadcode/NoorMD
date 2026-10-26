@@ -178,6 +178,7 @@ public partial class MainWindow
             Check("HTML export is sanitized", !html.Contains("onerror") && !html.Contains("<script"), body);
 
             await RunTabsSelfTestAsync(tab);
+            await RunVaultSelfTestAsync(tab);
             await RunMusicSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
@@ -248,6 +249,62 @@ public partial class MainWindow
         SelectTab(first);
         await Task.Delay(1000);
         Check("switching back shows the first document unchanged", (await GetEditorStateAsync(first.TabId))?.Markdown == stA?.Markdown && await Eval("window.NoorMD.activeTab()") == $"\"{first.TabId}\"");
+    }
+
+    /// <summary>Vaults on real Windows: scan, search, backlinks, ../ images, rename following a tab, Recycle Bin.</summary>
+    private async Task RunVaultSelfTestAsync(Host.DocumentSession first)
+    {
+        var root = Path.Combine(SelfTestDir!, "Vault Ąę");
+        Directory.CreateDirectory(Path.Combine(root, "Images"));
+        Directory.CreateDirectory(Path.Combine(root, "World", "Deep"));
+        Directory.CreateDirectory(Path.Combine(root, ".obsidian"));
+        File.WriteAllText(Path.Combine(root, ".obsidian", "app.json"), "{\"untouched\":true}");
+        File.Copy(Path.Combine(Path.GetDirectoryName(first.Path!)!, "img", "pic.png"), Path.Combine(root, "Images", "pic.png"));
+        File.WriteAllText(Path.Combine(root, "Index.md"), "# Index\n\nSee [[Rivers]] and [Rivers](World/Deep/Rivers.md).\n");
+        File.WriteAllText(Path.Combine(root, "World", "Deep", "Rivers.md"), "# Rivers\n\nŻółw swims here.\n\n![pic](../../Images/pic.png)\n");
+        for (int i = 0; i < 300; i++) File.WriteAllText(Path.Combine(root, "World", $"Note {i}.md"), $"# Note {i}\n\nFiller text {i}.\n");
+
+        OpenVault(root);
+        var v = _vault!;
+        await v.Ready;
+        await Task.Delay(500);
+        Check("Vault scanned and indexed (300+ notes)", v.Indexed && v.Index.Count >= 302, v.Index.Count.ToString());
+        Check("explorer shows the Vault tree", await Eval("document.querySelectorAll('#vault-tree .vt-row').length > 0 && document.body.classList.contains('has-vault')") == "true");
+        Check("other tools' folders are skipped and untouched", !v.Entries.Any(e => e.Path.StartsWith(".obsidian")) && File.ReadAllText(Path.Combine(root, ".obsidian", "app.json")) == "{\"untouched\":true}");
+        var hits = v.Index.Search("zolw");
+        Check("Find in Vault ignores accents", hits.Any(h => h.Path == "World/Deep/Rivers.md" && h.Line == 3));
+        var back = v.Index.Backlinks("World/Deep/Rivers.md");
+        Check("backlinks find [[wiki]] and relative links", back.Count == 1 && back[0].Source == "Index.md", string.Join(",", back.Select(b => b.Source)));
+
+        var rivers = Path.Combine(root, "World", "Deep", "Rivers.md");
+        await OpenPathAsync(rivers);
+        await Task.Delay(1500);
+        var imageOk = false;
+        for (int i = 0; i < 25 && !imageOk; i++)
+        {
+            imageOk = await Eval("[...document.querySelectorAll('#editor .doc-pane:not([hidden]) img')].some(i => i.complete && i.naturalWidth === 2)") == "true";
+            if (!imageOk) await Task.Delay(200);
+        }
+        Check("a ../../Images picture inside the Vault is shown", imageOk);
+
+        var s = FindTabByPath(rivers)!;
+        var move = v.Ops.Rename("World/Deep/Rivers.md", "Streams.md");
+        FollowMoves([move]);
+        await Task.Delay(500);
+        Check("renaming an open note: its tab follows the file", s.Path!.EndsWith("Streams.md") && (await Eval("window.NoorMD.tabs().some(t => (t.path || '').endsWith('Streams.md'))")) == "true");
+
+        var junk = Path.Combine(root, "World", "Note 299.md");
+        Host.RecycleBin.Send([junk]);
+        Check("delete moves the file to the Recycle Bin", !File.Exists(junk));
+        var unicodeNote = v.Ops.CreateNote("World", "Zażółć");
+        Check("notes with Polish names can be created", File.Exists(Path.Combine(root, "World", "Zażółć.md")), unicodeNote);
+
+        await CloseTabAsync(s);
+        CloseVault(remember: false);
+        await Task.Delay(300);
+        Check("closing the Vault leaves the other tabs open", _tabs.Count >= 1 && await Eval("document.body.classList.contains('has-vault')") == "false");
+        SelectTab(first);
+        await Task.Delay(800);
     }
 
     private async Task<string> Eval(string script) => await Core.ExecuteScriptAsync(script);

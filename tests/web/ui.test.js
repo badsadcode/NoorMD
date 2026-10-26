@@ -1108,6 +1108,153 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in menu/toolbar checks', unexpected.length === 0, unexpected);
       await page.close();
     }
+
+    // ---- 13. Vaults: explorer, file operations, Find in Vault, backlinks, wiki links, 1,500 notes.
+    {
+      const vfiles = {
+        'Welcome.md': '# Welcome\n\nStart at [[Rivers]] today.\n',
+        'World/Rivers.md': '# Rivers\n\nWide river with fish.\n',
+        'World/Seas.md': '# Seas\n\nSee [Rivers](Rivers.md) and [[Rivers|the rivers]].\n',
+        'Notes/Żółw.md': '# Żółw\n\nTurtle notes.\n',
+        'Meta.md': '---\ntags: [world, draft]\ntitle: Meta\n---\n\n# Meta\n\nFront matter stays.\n',
+        'Images/forest.png': 'png',
+      };
+      for (let i = 1; i <= 1500; i++) vfiles[`Archive/Note ${i}.md`] = `# Note ${i}\n\nArchived idea number ${i}.\n`;
+      const { page, errors } = await open(browser, url, { document: null, vault: { root: 'C:\\Vaults\\Atlas', files: vfiles }, musicTracks: 4 });
+      await waitFn(page, () => document.querySelectorAll('#vault-tree .vt-row').length > 0);
+      const rows = () => page.$$eval('#vault-tree .vt-row', (n) => n.map((x) => x.dataset.path));
+      check('opening a Vault shows its explorer with folders first, natural order', (await rows()).join() === 'Archive,Images,Notes,World,Meta.md,Welcome.md', await rows());
+      check('the Vault name is shown in the header', (await page.textContent('#vault-name')) === 'Atlas' && await page.isVisible('#side-switch'));
+      check('other tools’ files are never listed (nothing hidden is shown)', !(await rows()).some((p) => p.startsWith('.')));
+
+      // Expanding a 1,500-note folder stays quick.
+      const t0 = Date.now();
+      await page.click('#vault-tree .vt-row[data-path="Archive"]');
+      await waitFn(page, () => document.querySelectorAll('#vault-tree .vt-row').length > 1500);
+      check('a folder with 1,500 notes expands in under 1.5 s', Date.now() - t0 < 1500, Date.now() - t0);
+      check('notes sort naturally (Note 2 before Note 10)', await page.evaluate(() => { const r = [...document.querySelectorAll('#vault-tree .vt-row')].map((x) => x.dataset.path); return r.indexOf('Archive/Note 2.md') < r.indexOf('Archive/Note 10.md'); }));
+      await page.click('#vault-tree .vt-row[data-path="Archive"]');
+
+      // Click a file → opens in a tab; the row is marked current.
+      await page.click('#vault-tree .vt-row[data-path="World"]');
+      await page.click('#vault-tree .vt-row[data-path="World/Rivers.md"]');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Rivers');
+      check('clicking a note opens it in a tab (the blank start tab is reused)', (await page.evaluate(() => window.NoorMD.tabs().length)) === 1);
+      check('the open note is marked in the explorer', await page.$eval('#vault-tree .vt-row[data-path="World/Rivers.md"]', (n) => n.classList.contains('current')));
+      // Backlinks
+      await page.click('#side-switch button[data-view="doc"]');
+      await waitFn(page, () => !document.querySelector('#backlinks-section').hidden && document.querySelectorAll('#backlinks-box button').length > 0);
+      const bl = await page.$$eval('#backlinks-box button span', (n) => n.map((x) => x.textContent));
+      check('“Linked from” lists notes linking here by [[wiki link]] and by relative link', bl.includes('Welcome') && bl.includes('Seas'), bl);
+      await page.click('#side-switch button[data-view="files"]');
+
+      // Keyboard: focus tree, move down, Enter opens.
+      await page.focus('#vault-tree .vt-row[data-path="World/Rivers.md"]');
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Seas');
+      check('keyboard: ↓ and Enter open the next note in a new tab', (await page.evaluate(() => window.NoorMD.tabs().length)) === 2);
+
+      // Filter by name, accent-insensitive.
+      await page.fill('#vault-filter', 'zolw');
+      check('the name filter ignores accents (zolw → Żółw)', (await rows()).join() === 'Notes/Żółw.md', await rows());
+      await page.fill('#vault-filter', '');
+
+      // Find in Vault
+      await page.keyboard.press('Control+Shift+F');
+      await page.waitForSelector('#vault-search-input');
+      await page.fill('#vault-search-input', 'river');
+      await waitFn(page, () => document.querySelectorAll('.vs-hit').length > 0);
+      const hits = await page.$$eval('.vs-hit', (n) => n.map((x) => x.textContent));
+      check('Find in Vault lists name matches and lines with highlighted words', hits.some((h) => h.includes('Rivers.md')) && hits.some((h) => h.includes('Wide river with fish')) && (await page.$$('.vs-hit mark')).length > 0, hits.slice(0, 5));
+      await page.fill('#vault-search-input', 'archived idea 1499');
+      await waitFn(page, () => [...document.querySelectorAll('.vs-hit')].some((x) => x.textContent.includes('Note 1499.md')));
+      await page.keyboard.press('Escape');
+
+      // Wiki link: Ctrl+click on [[Rivers]] in Welcome follows it.
+      await page.evaluate(() => NoorBridge.request('vault.openFile', { path: 'Welcome.md' }));
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Welcome');
+      await page.waitForTimeout(200);
+      check('a note with [[wiki links]] keeps its exact text', (await page.evaluate(() => window.NoorMD.getState().markdown)).trim() === vfiles['Welcome.md'].trim(), await page.evaluate(() => window.NoorMD.getState().markdown));
+      const pos = await page.evaluate(() => {
+        const pane = document.querySelector('#editor .doc-pane:not([hidden])');
+        const walker = document.createTreeWalker(pane, NodeFilter.SHOW_TEXT);
+        for (let n = walker.nextNode(); n; n = walker.nextNode()) {
+          const i = n.textContent.indexOf('Rivers');
+          if (i < 0 || n.parentElement.offsetParent === null || !n.parentElement.closest('[contenteditable="true"]')) continue;
+          const r = document.createRange(); r.setStart(n, i + 2); r.setEnd(n, i + 3);
+          const b = r.getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+        }
+        return null;
+      });
+      await page.keyboard.down('Control');
+      await page.mouse.click(pos.x, pos.y);
+      await page.keyboard.up('Control');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Rivers');
+      check('Ctrl+click on [[Rivers]] opens that note (its existing tab)', (await page.evaluate(() => window.NoorMD.tabs().length)) === 3);
+
+      const meta = await page.evaluate(async () => { await NoorBridge.request('vault.openFile', { path: 'Meta.md' }); return true; });
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Meta');
+      await page.waitForTimeout(200);
+      check('YAML front matter is kept exactly', (await page.evaluate(() => window.NoorMD.getState().markdown)).startsWith('---\ntags: [world, draft]\ntitle: Meta\n---'), await page.evaluate(() => window.NoorMD.getState().markdown));
+
+      // New note from the context menu, then rename with F2; the open tab follows.
+      await page.click('#vault-tree .vt-row[data-path="World"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("New note")');
+      await page.fill('.modal input', 'Lakes');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.vault.files['World/Lakes.md'] !== undefined && window.NoorMD.getState()?.title === 'Lakes');
+      check('New note creates the file in that folder and opens it', true);
+      await waitFn(page, () => !!document.querySelector('#vault-tree .vt-row[data-path="World/Lakes.md"]'));
+      await page.click('#vault-tree .vt-row[data-path="World/Lakes.md"]');
+      await page.keyboard.press('F2');
+      await page.waitForSelector('.vt-rename');
+      await page.keyboard.type('Ponds');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.vault.files['World/Ponds.md'] !== undefined);
+      await waitFn(page, () => window.NoorMD.tabs().some((x) => x.path === 'C:\\Vaults\\Atlas\\World\\Ponds.md'));
+      check('F2 renames in place (extension kept) and the open tab follows the file', (await page.textContent('#tabs .tab.active')).includes('Ponds.md'));
+
+      // Drag a note onto another folder.
+      await page.dragAndDrop('#vault-tree .vt-row[data-path="World/Seas.md"]', '#vault-tree .vt-row[data-path="Notes"]');
+      await waitFn(page, () => window.__mock.state.vault.files['Notes/Seas.md'] !== undefined, null, { timeout: 4000 });
+      check('dragging a note onto a folder moves it', !('World/Seas.md' in (await page.evaluate(() => window.__mock.state.vault.files))));
+      check('…and its open tab follows', await page.evaluate(() => window.NoorMD.tabs().some((x) => x.path === 'C:\\Vaults\\Atlas\\Notes\\Seas.md')));
+
+      // Multi-select and delete with the Delete key.
+      await page.click('#vault-tree .vt-row[data-path="Meta.md"]');
+      await page.click('#vault-tree .vt-row[data-path="Welcome.md"]', { modifiers: ['Control'] });
+      check('Ctrl+click selects several items', (await page.$$('#vault-tree .vt-row.selected')).length === 2);
+      await page.keyboard.press('Delete');
+      await waitFn(page, () => window.__mock.state.vault.deleted.length === 2);
+      check('Delete sends the selected items to the host (Recycle Bin)', true);
+
+      // Quick switcher includes Vault notes.
+      await page.keyboard.press('Control+e');
+      await page.waitForSelector('#switcher-query');
+      await page.fill('#switcher-query', 'zolw');
+      check('Ctrl+E also finds notes of the Vault that are not open', (await page.textContent('.palette-results')).includes('Żółw.md'));
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Żółw');
+
+      // Music keeps playing; closing the Vault keeps tabs.
+      await page.evaluate(() => window.NoorMusic._testPlay([1, 2], 0, true));
+      await waitFn(page, () => !window.NoorMusic._state().paused, null, { timeout: 8000 });
+      await page.evaluate(() => NoorBridge.request('vault.search', { query: 'note' }));
+      await page.evaluate(() => NoorBridge.request('vault.refresh'));
+      const before = await page.evaluate(() => window.NoorMD.tabs().length);
+      await page.evaluate(() => window.NoorMD.runCommand('vault.close'));
+      await waitFn(page, () => !document.body.classList.contains('has-vault'));
+      check('closing the Vault keeps every tab open', (await page.evaluate(() => window.NoorMD.tabs().length)) === before);
+      check('music plays on through Vault search, refresh and close', !(await page.evaluate(() => window.NoorMusic._state().paused)));
+      check('Vault-only commands are disabled without a Vault', await page.evaluate(() => { document.querySelector('#menubar .menu-title[data-menu="5"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); const b = [...document.querySelectorAll('.menu-popup .menu-item')].find((x) => x.textContent.includes('Find in Vault')); return !!b && b.disabled; }));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.NoorMusic.toggle());
+      if (shots) await page.screenshot({ path: `${shots}/vault.png` });
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in Vault checks', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

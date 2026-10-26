@@ -29,6 +29,23 @@
       </button>
     </div>
 
+    <div class="side-switch" id="side-switch" role="tablist" aria-label="Sidebar view">
+      <button role="tab" data-view="files">Files</button>
+      <button role="tab" data-view="doc" class="active">Document</button>
+    </div>
+
+    <section class="side-section vault-panel" id="vault-panel" aria-label="Vault explorer">
+      <div class="vault-head">
+        <strong id="vault-title" class="vault-title"></strong>
+        <button class="icon-btn" id="vault-new-note" title="New note" aria-label="New note"><svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4M12 11v6M9 14h6"/></svg></button>
+        <button class="icon-btn" id="vault-new-folder" title="New folder" aria-label="New folder"><svg viewBox="0 0 24 24"><path d="M3 6h6l2 2h10v11H3zM12 11v5M9.5 13.5h5"/></svg></button>
+        <button class="icon-btn" id="vault-collapse" title="Collapse all folders" aria-label="Collapse all folders"><svg viewBox="0 0 24 24"><path d="M7 15l5-5 5 5"/></svg></button>
+        <button class="icon-btn" id="vault-refresh" title="Refresh (reads the folder again)" aria-label="Refresh"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg></button>
+      </div>
+      <input class="vault-filter" id="vault-filter" placeholder="Filter files by name…" aria-label="Filter files by name" autocomplete="off" spellcheck="false">
+      <div class="vault-tree" id="vault-tree" role="tree" aria-label="Vault files" tabindex="-1"></div>
+    </section>
+
     <nav class="side-section" aria-label="Document">
       <div class="section-heading">Document</div>
       <button class="side-btn" data-cmd="doc.new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New document</span><span class="kbd">Ctrl N</span></button>
@@ -45,6 +62,11 @@
     <section class="side-section" aria-label="Document map">
       <div class="section-heading">Document map</div>
       <div id="outline-box" class="list-box"><p class="empty">Headings appear as you write.</p></div>
+    </section>
+
+    <section class="side-section" id="backlinks-section" aria-label="Linked from" hidden>
+      <div class="section-heading">Linked from</div>
+      <div id="backlinks-box" class="list-box backlinks"></div>
     </section>
 
     <section class="side-section" aria-label="Writing goal">
@@ -161,6 +183,7 @@
 <script src="_noormd/js/ui.js"></script>
 <script src="_noormd/js/music.js"></script>
 <script src="_noormd/js/chrome.js"></script>
+<script src="_noormd/js/vault.js"></script>
 <script src="_noormd/js/app.js"></script>
 </body>
 </html>

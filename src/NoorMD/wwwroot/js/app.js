@@ -1255,6 +1255,17 @@
     ['music.mini', 'Show / hide mini-player', 'Music', '', () => { setPrefs({ miniPlayer: prefs.miniPlayer === false }); }],
     ['help.repo', 'Open the NoorMD repository (GitHub)', 'App', '', () => bridge.request('link.open', { href: REPO_URL }).catch(showError)],
     ['palette.show', 'Command palette', 'App', 'Ctrl+K', showPalette],
+    ['vault.open', 'Open folder as Vault…', 'Vault', '', () => bridge.request('vault.open').catch(showError)],
+    ['vault.create', 'Create new Vault…', 'Vault', '', () => NoorVault.createVault()],
+    ['vault.close', 'Close Vault', 'Vault', '', () => bridge.request('vault.close').catch(showError)],
+    ['vault.reveal', 'Show Vault in Explorer', 'Vault', '', () => bridge.request('vault.reveal').catch(showError)],
+    ['vault.explorer', 'Vault explorer', 'Vault', 'Ctrl+Shift+E', () => NoorVault.focusExplorer()],
+    ['vault.search', 'Find in Vault…', 'Vault', 'Ctrl+Shift+F', () => NoorVault.showSearch()],
+    ['vault.backlinks', 'Show notes linking here', 'Vault', '', () => { NoorVault.setView('doc'); document.body.classList.remove('sidebar-collapsed'); $('#backlinks-section')?.scrollIntoView({ block: 'nearest' }); NoorVault.refreshBacklinks(); }],
+    ['vault.refresh', 'Refresh Vault', 'Vault', '', () => bridge.request('vault.refresh').catch(showError)],
+    ['vault.settings', 'Vault settings…', 'Vault', '', () => NoorVault.showSettings()],
+    ['vault.insertLink', 'Link to a note…', 'Vault', '', () => NoorVault.pickNoteToLink()],
+    ['vault.followLink', 'Follow link at cursor', 'Vault', 'Ctrl+Click', () => NoorVault.followLink()],
     ['edit.undo', 'Undo', 'Edit', 'Ctrl+Z', () => fmt('undo')],
     ['edit.redo', 'Redo', 'Edit', 'Ctrl+Y', () => fmt('redo')],
     ['edit.cut', 'Cut', 'Edit', 'Ctrl+X', () => clipboardCut()],
@@ -1304,6 +1315,7 @@
     else if (id === 'tab.closeOthers' || id === 'tab.closeRight' || id === 'tab.next' || id === 'tab.prev') enabled = tabs.length > 1;
     else if (id === 'doc.saveAll') enabled = tabs.some((x) => isDirty(x));
     else if (id.startsWith('music.') && id !== 'music.toggle') enabled = musicOn;
+    else if (id.startsWith('vault.') && !['vault.open', 'vault.create', 'vault.followLink'].includes(id)) enabled = NoorVault.isOpen() && (id !== 'vault.insertLink' || !!t?.doc.path);
     return { checked, enabled };
   }
 
@@ -1602,6 +1614,8 @@
     updateDirtyUI(tab);
     refreshStatsAndOutline();
     renderBanner();
+    NoorVault.renderTree();
+    NoorVault.refreshBacklinks();
     tab.tabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); updateActiveLine(); });
     if (focus && !NoorUI.hasOpenModal()) setTimeout(() => { if (t === tab) (tab.editor || tab.fallback)?.focus(); }, 0);
@@ -1761,31 +1775,55 @@
   }
 
   /** Searchable list of open documents (also the overflow menu when the strip is too narrow). */
+  /** Open documents first, then (in a Vault) every other note — type to filter, Enter to open. */
   function showSwitcher() {
+    const open = tabs.map((x) => ({ label: (x.pinned ? '📌 ' : '') + tabLabel(x) + (isDirty(x) ? ' ●' : ''), detail: x.doc.path || 'Not saved yet', group: 'Open', run: () => showTab(x), key: x.doc.path }));
+    const openPaths = new Set(tabs.map((x) => vaultRel(x.doc.path)).filter(Boolean));
+    const notes = NoorVault.isOpen() ? NoorVault.notes().filter((p) => !openPaths.has(p)).map((p) => ({
+      label: p.slice(p.lastIndexOf('/') + 1), detail: p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : NoorVault.name(), group: 'Vault',
+      run: () => bridge.request('vault.openFile', { path: p }).catch(showError),
+    })) : [];
+    pickFrom(NoorVault.isOpen() ? 'Go to a document or note' : 'Open documents', open.concat(notes),
+      `${tabs.length} open document${tabs.length === 1 ? '' : 's'}${notes.length ? ' · ' + notes.length.toLocaleString() + ' other notes in the Vault' : ''} · Ctrl+Tab cycles`);
+  }
+
+  /** A searchable list of choices (used by the switcher and "Link to a note"). */
+  function pickFrom(title, all, footer) {
     NoorUI.closeAll();
-    NoorUI.modal({ label: 'Open documents' }, (s, close) => {
-      const query = el('input', { id: 'switcher-query', placeholder: 'Go to an open document…', autocomplete: 'off', 'aria-label': 'Search open documents', autofocus: true });
+    NoorUI.modal({ label: title }, (s, close) => {
+      const query = el('input', { id: 'switcher-query', placeholder: title + '…', autocomplete: 'off', 'aria-label': title, autofocus: true, spellcheck: 'false' });
       const results = el('div', { class: 'palette-results', role: 'listbox' });
       let items = [], selected = 0;
+      const fold = (x) => String(x).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[łŁ]/g, 'l').toLowerCase();
       const render = () => {
-        const q = query.value.trim().toLowerCase();
-        items = tabs.filter((x) => !q || tabLabel(x).toLowerCase().includes(q) || (x.doc.path || '').toLowerCase().includes(q));
+        const terms = fold(query.value.trim()).split(/\s+/).filter(Boolean);
+        items = all.filter((x) => { const h = fold(x.label + ' ' + (x.detail || '')); return terms.every((w) => h.includes(w)); }).slice(0, 300);
         selected = Math.min(selected, Math.max(0, items.length - 1));
         results.replaceChildren(...items.map((x, i) => el('button', {
           class: 'cmd-item' + (i === selected ? ' selected' : ''), role: 'option', 'aria-selected': String(i === selected), tabindex: '-1',
-          onclick: () => { close(); showTab(x); },
-        }, el('span', { text: (x.pinned ? '📌 ' : '') + tabLabel(x) + (isDirty(x) ? ' ●' : '') }), el('span', { class: 'meta' }, el('small', { text: x.doc.path || 'Not saved yet' })))));
-        if (!items.length) results.append(el('p', { text: 'No matching documents', style: 'padding:14px;margin:0;color:var(--muted)' }));
+          onclick: () => { close(); x.run(); },
+        }, el('span', { text: x.label }), el('span', { class: 'meta' }, el('small', { text: x.detail || '' }), x.group === 'Vault' ? el('small', { class: 'kbd', text: 'Vault' }) : null))));
+        if (!items.length) results.append(el('p', { text: 'Nothing matches', style: 'padding:14px;margin:0;color:var(--muted)' }));
+        results.querySelector('.selected')?.scrollIntoView({ block: 'nearest' });
       };
       query.addEventListener('input', () => { selected = 0; render(); });
       query.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowDown') { e.preventDefault(); selected = (selected + 1) % Math.max(1, items.length); render(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); selected = (selected - 1 + items.length) % Math.max(1, items.length); render(); }
-        else if (e.key === 'Enter') { e.preventDefault(); const x = items[selected]; if (x) { close(); showTab(x); } }
+        else if (e.key === 'Enter') { e.preventDefault(); const x = items[selected]; if (x) { close(); x.run(); } }
       });
-      s.append(query, results, el('div', { class: 'modal-foot' }, el('span', { text: `${tabs.length} open document${tabs.length === 1 ? '' : 's'} · Ctrl+Tab cycles` }), el('span', { text: 'Esc to close' })));
+      s.append(query, results, el('div', { class: 'modal-foot' }, el('span', { text: footer || `${all.length} items` }), el('span', { text: 'Esc to close' })));
       render();
     });
+  }
+
+  /** The Vault-relative path of a file in the open Vault, or null. */
+  function vaultRel(path) {
+    const st = NoorVault._state();
+    if (!path || !st.vault) return null;
+    const root = st.vault.root.replace(/[\\/]+$/, '');
+    if (!path.toLowerCase().startsWith(root.toLowerCase() + '\\') && !path.toLowerCase().startsWith(root.toLowerCase() + '/')) return null;
+    return path.slice(root.length + 1).replace(/\\/g, '/');
   }
 
   function setupTabStrip() {
@@ -1872,6 +1910,7 @@
       if (document.body.classList.contains('zen')) { e.preventDefault(); toggleZen(false); }
       return;
     }
+    if (key === 'F2' && e.target.closest && e.target.closest('#vault-tree')) return; // F2 renames in the explorer
     if (key === 'F2') cmd = 'music.edit';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'ArrowLeft'))
       cmd = { Space: 'music.play', ArrowRight: 'music.next', ArrowLeft: 'music.prev' }[e.code];
@@ -1890,6 +1929,8 @@
       else if (key === 't' && !e.shiftKey) cmd = 'tab.new';
       else if (key === 'w' && !e.shiftKey) cmd = 'tab.close';
       else if (key === 'e' && !e.shiftKey) cmd = 'tab.switch';
+      else if (key === 'e' && e.shiftKey) cmd = 'vault.explorer';
+      else if (key === 'f' && e.shiftKey) cmd = 'vault.search';
       else if (key === 'n' && !e.shiftKey) cmd = 'doc.new';
       else if (key === 'o' && !e.shiftKey) cmd = 'doc.open';
       else if (key === 'f' && !e.shiftKey) cmd = 'find.show';
@@ -1948,12 +1989,25 @@
       bridge.request('link.open', { href }).catch(showError);
     }, true);
     document.addEventListener('auxclick', (e) => { if (e.target.closest && e.target.closest('a[href]')) e.preventDefault(); }, true);
+    // Ctrl+click on [[Wiki link]] (or [text](note.md) in Markdown source) follows it, once the click has placed the caret.
+    document.addEventListener('click', (e) => {
+      if (!(e.ctrlKey || e.metaKey) || !e.target.closest || !e.target.closest('#editor [contenteditable="true"]') || e.target.closest('a[href]')) return;
+      setTimeout(() => { if (NoorVault.linkAtCaret()) NoorVault.followLink(); }, 0);
+    });
   }
 
   // ---------------------------------------------------------------- host events
 
   function setupBridgeEvents() {
     bridge.on('doc.load', onDocLoad);
+    bridge.on('doc.renamed', (p) => {
+      const tab = tabById(p.tabId);
+      if (!tab) return;
+      Object.assign(tab.doc, { path: p.path, fileName: p.fileName, title: p.title, untitled: false });
+      if (tab === t) updateDocUI();
+      updateTabEl(tab);
+      NoorVault.renderTree();
+    });
     bridge.on('tab.closed', (p) => { const tab = tabById(p.tabId); if (tab) removeTab(tab); });
     bridge.on('tab.select', (p) => { const tab = tabById(p.tabId); if (tab) { hideWelcome(); showTab(tab); } });
     bridge.on('doc.saved', onSaved);
@@ -1962,7 +2016,13 @@
     bridge.on('notice', (p) => notice(p.text, p.ms || 3200));
     bridge.on('error', (p) => showError(new Error(p.text)));
     bridge.on('recovery.available', (p) => showRecovery(p.drafts));
-    bridge.on('insert.text', (p) => { if (editor && typeof p.markdown === 'string') { editor.insertText(p.markdown); editor.focus(); } });
+    bridge.on('insert.text', (p) => {
+      // Inserted into the tab it was meant for (a drop or a sketch for one document never lands in another).
+      const tab = (p.tabId && tabById(p.tabId)) || t;
+      if (!tab || !tab.editor || typeof p.markdown !== 'string') { if (p.tabId) notice('That document is no longer open; nothing was inserted.'); return; }
+      tab.editor.insertText(p.markdown);
+      if (tab === t) tab.editor.focus();
+    });
     bridge.on('command', (p) => { if (p.id.startsWith('tab.') && NoorUI.hasOpenModal()) return; runCommand(p.id); });
   }
 
@@ -1983,12 +2043,20 @@
       setPrefs,
       recent: () => recent,
       openRecent,
-      recentVaults: () => [{ label: 'No recent vaults', disabled: true }],
+      recentVaults: () => { const r = NoorVault.recent(); return r.length ? r.map((v) => ({ label: v.name, title: v.path, run: () => bridge.request('vault.openRecent', { path: v.path }).catch(showError) })) : [{ label: 'No recent Vaults', disabled: true }]; },
       headingLabel: () => { const n = headingLevel(); return n ? 'H' + n : 'Text'; },
       nowPlaying: () => (window.NoorMusic && NoorMusic.nowPlaying ? NoorMusic.nowPlaying() : { playing: false, title: null }),
       focusEditor: () => { if (editor) editor.focus(); },
     });
     chromeReady = true;
+    NoorVault.init({
+      showError, refreshChrome, runCommand, pickFrom,
+      hasCommand: (id) => commandById.has(id),
+      activeTabId: () => (t ? t.id : null),
+      activeVaultPath: () => (t ? vaultRel(t.doc.path) : null),
+      insertText: (text) => { if (editor) { editor.focus(); editor.insertText(text); } },
+      findInDocument: async (q) => { await switching; showFind(false); $('#find-input').value = q; runFind(false); },
+    });
     window.addEventListener('noor-music', refreshChrome);
     document.addEventListener('selectionchange', refreshChrome);
     window.addEventListener('keydown', onKeyDown, true);
@@ -2017,6 +2085,7 @@
     recent = ready.recent || [];
     applyPrefs();
     renderRecent();
+    if (ready.vaults) NoorVault.onChanged(ready.vaults);
     // Restored tabs arrive in strip order; only the selected one gets an editor now, the rest when first shown.
     const first = (ready.tabs || []).find((p) => p.tabId === ready.activeTabId) || (ready.tabs || [])[0];
     if (first) wanted = first.tabId; // no tab is shown until the remembered one is

@@ -93,7 +93,8 @@ function mockHostScript(initial) {
           const welcome = !tabs.length;
           if (welcome) tabs.push({ tabId: addTab(null), markdown: '', title: 'Untitled document' });
           state.active = initial.activeTabId || tabs[0].tabId;
-          return reply(m.id, true, { prefs: state.prefs, recent: state.recent, tabs, activeTabId: state.active, welcome, recovery: state.recovery });
+          if (initial.vault) setTimeout(() => openVault(initial.vault.root), 0);
+          return reply(m.id, true, { prefs: state.prefs, recent: state.recent, tabs, activeTabId: state.active, welcome, recovery: state.recovery, vaults: { vault: null, recent: [] } });
         }
         case 'tabs.state': state.tabsState = p; if (p.active) state.active = p.active; return reply(m.id, true, null);
         case 'doc.save': case 'doc.saveAs': {
@@ -146,11 +147,102 @@ function mockHostScript(initial) {
         case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
         case 'recovery.list': return reply(m.id, true, state.recovery);
         default:
+          if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
           return reply(m.id, true, {});
       }
     },
   };
+  // ---- mock Vault: an in-memory folder tree (files: { 'World/Rivers.md': '…' }, folders implied or listed in dirs).
+  const V = { root: null, files: {}, dirs: new Set(), ops: [], deleted: [] };
+  const vaultFull = (rel) => V.root + '\\' + rel.replace(/\//g, '\\');
+  const vaultInfo = () => ({ vault: V.root ? { root: V.root, name: V.root.split('\\').pop(), attachments: 'attachments', excluded: [] } : null, recent: V.root ? [{ path: V.root, name: V.root.split('\\').pop() }] : [] });
+  const allDirs = () => { const d = new Set(V.dirs); for (const f of Object.keys(V.files)) { const parts = f.split('/'); for (let i = 1; i < parts.length; i++) d.add(parts.slice(0, i).join('/')); } return d; };
+  const treePayload = () => ({ root: V.root, indexed: true, entries: [...[...allDirs()].map((p) => ({ p, d: true, s: 0 })), ...Object.keys(V.files).map((p) => ({ p, d: false, s: V.files[p].length }))].sort((a, b) => a.p.localeCompare(b.p, undefined, { numeric: true, sensitivity: 'base' })) });
+  const pushTree = () => event('vault.tree', treePayload());
+  function openVault(root) {
+    V.root = root;
+    V.files = { ...(initial.vault.files || {}) };
+    V.dirs = new Set(initial.vault.dirs || []);
+    event('vault.changed', vaultInfo());
+    setTimeout(() => { pushTree(); event('vault.indexed', { notes: Object.keys(V.files).length }); }, 10);
+  }
+  const fold = (x) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').toLowerCase();
+  const openRel = (rel) => {
+    const full = vaultFull(rel);
+    files[full] = V.files[rel];
+    const existing = [...state.tabs].find(([, v]) => v.path === full);
+    if (existing) { event('tab.select', { tabId: existing[0] }); return { opened: true, existing: true }; }
+    const id = blankActive() || addTab(full);
+    state.tabs.get(id).path = full;
+    event('doc.load', payloadFor(id, full));
+    return { opened: true, tabId: id };
+  };
+  const relOfTab = (tabId) => { const t = state.tabs.get(tabId); return t && t.path && t.path.startsWith(V.root + '\\') ? t.path.slice(V.root.length + 1).replace(/\\/g, '/') : null; };
+  const linksIn = (text) => [...text.matchAll(/\[\[([^\]|#]+)[^\]]*\]\]/g)].map((m) => m[1].trim());
+  function vaultMock(type, p) {
+    V.ops.push({ type, p });
+    switch (type) {
+      case 'vault.open': openVault(initial.vault.root); return { opened: true };
+      case 'vault.close': V.root = null; event('vault.changed', vaultInfo()); return null;
+      case 'vault.tree': return treePayload();
+      case 'vault.refresh': pushTree(); return null;
+      case 'vault.openFile': if (!(p.path in V.files)) throw new Error('That file no longer exists.'); return openRel(p.path);
+      case 'vault.search': {
+        const terms = fold(p.query).split(/\s+/).filter(Boolean);
+        const hits = [];
+        for (const [rel, text] of Object.entries(V.files)) if (terms.every((t) => fold(rel).includes(t))) hits.push({ path: rel, name: rel.split('/').pop(), line: 0, snippet: rel, nameMatch: true });
+        for (const [rel, text] of Object.entries(V.files)) text.split('\n').forEach((l, i) => { if (terms.some((t) => fold(l).includes(t)) && terms.every((t) => fold(text).includes(t))) hits.push({ path: rel, name: rel.split('/').pop(), line: i + 1, snippet: l.trim(), nameMatch: false }); });
+        return { hits, indexed: Object.keys(V.files).length };
+      }
+      case 'vault.backlinks': {
+        const rel = relOfTab(p.tabId);
+        if (!rel) return { refs: [], inVault: false };
+        const name = rel.split('/').pop().replace(/\.md$/, '');
+        const refs = [];
+        for (const [src, text] of Object.entries(V.files)) { if (src === rel) continue; text.split('\n').forEach((l, i) => { if (linksIn(l).some((x) => x === name || x + '.md' === rel) || l.includes('](' + rel + ')')) refs.push({ source: src, line: i + 1, snippet: l.trim() }); }); }
+        return { refs, inVault: true, path: rel };
+      }
+      case 'vault.openWiki': {
+        const hit = Object.keys(V.files).find((f) => f.split('/').pop().replace(/\.md$/, '') === p.target || f === p.target + '.md');
+        if (hit) return openRel(hit);
+        V.files[p.target + '.md'] = '# ' + p.target + '\n\n'; pushTree(); return openRel(p.target + '.md');
+      }
+      case 'vault.linkTo': return { link: p.path.split('/').map(encodeURIComponent).join('/'), title: p.path.split('/').pop().replace(/\.md$/, '') };
+      case 'vault.newNote': {
+        const name = (p.name || 'Untitled').replace(/\.md$/, '') + '.md';
+        const rel = (p.folder ? p.folder + '/' : '') + name;
+        if (rel in V.files) throw new Error('“' + name + '” already exists there.');
+        V.files[rel] = ''; pushTree(); openRel(rel); return { path: rel };
+      }
+      case 'vault.newFolder': { const rel = (p.parent ? p.parent + '/' : '') + p.name; V.dirs.add(rel); pushTree(); return { path: rel }; }
+      case 'vault.rename': {
+        const parent = p.path.includes('/') ? p.path.slice(0, p.path.lastIndexOf('/') + 1) : '';
+        let name = p.name; if (/\.md$/.test(p.path) && !name.includes('.')) name += '.md';
+        const to = parent + name;
+        const moved = moveRel(p.path, to);
+        pushTree(); return { path: to, moved };
+      }
+      case 'vault.move': { let n = 0; for (const x of p.paths) { moveRel(x, (p.folder ? p.folder + '/' : '') + x.split('/').pop()); n++; } pushTree(); return { moved: n }; }
+      case 'vault.duplicate': { const to = p.path.replace(/(\.md)?$/, ' copy$1'); V.files[to] = V.files[p.path]; pushTree(); return { path: to }; }
+      case 'vault.delete': { for (const x of p.paths) { for (const f of Object.keys(V.files)) if (f === x || f.startsWith(x + '/')) { delete V.files[f]; V.deleted.push(f); } V.dirs.delete(x); } pushTree(); return { deleted: p.paths.length }; }
+      case 'vault.settings.get': return { attachments: 'attachments', excluded: [] };
+      default: return null;
+    }
+  }
+  function moveRel(from, to) {
+    let n = 0;
+    for (const f of Object.keys(V.files)) {
+      if (f !== from && !f.startsWith(from + '/')) continue;
+      const dest = to + f.slice(from.length);
+      V.files[dest] = V.files[f]; delete V.files[f]; n++;
+      for (const [id, t] of state.tabs) if (t.path === vaultFull(f)) { t.path = vaultFull(dest); files[t.path] = V.files[dest]; event('doc.renamed', { tabId: id, path: t.path, fileName: dest.split('/').pop(), title: dest.split('/').pop().replace(/\.md$/, '') }); }
+    }
+    for (const d of [...V.dirs]) if (d === from || d.startsWith(from + '/')) { V.dirs.delete(d); V.dirs.add(to + d.slice(from.length)); }
+    return n;
+  }
+  state.vault = V;
+
   // ---- mock music library: N tracks; ids 1-4 are real playable fixtures, the rest are "missing" files.
   function musicMock(type, p) {
     const lib = state.music;

@@ -130,7 +130,7 @@ public partial class MainWindow : Window
         {
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeMedia(uri, e)) return;
-            var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder) : null;
+            var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder, VaultRootFor(ActiveSession?.Path)) : null;
             if (file == null)
             {
                 e.Response = Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
@@ -313,6 +313,8 @@ public partial class MainWindow : Window
     {
         CapturePlacement();
         PersistSession();
+        _vault?.Cts.Cancel();
+        _vault?.Watcher?.Dispose();
         SaveSettingsNow();
         // Keep a tab's draft only if the user is leaving unsaved work behind (Windows shutdown, crash paths).
         foreach (var s in _tabs.Values)

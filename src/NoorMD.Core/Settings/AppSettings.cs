@@ -105,6 +105,24 @@ public sealed class RecentFile
     public DateTime OpenedUtc { get; set; }
 }
 
+/// <summary>A Vault NoorMD has opened, with its per-Vault options (kept here, not inside the Vault).</summary>
+public sealed class VaultInfo
+{
+    public string Path { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DateTime OpenedUtc { get; set; }
+    /// <summary>Folder (Vault-relative) for pictures and sketches added to notes.</summary>
+    public string Attachments { get; set; } = "attachments";
+    /// <summary>Extra folder names to leave out of the explorer and search (dot-folders are always left out).</summary>
+    public List<string> Excluded { get; set; } = [];
+
+    public void Normalize()
+    {
+        Excluded = (Excluded ?? []).Where(x => !string.IsNullOrWhiteSpace(x) && x.Length <= 120 && Vaults.VaultPaths.NameProblem(x.Trim()) == null).Select(x => x.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).Take(50).ToList();
+        Attachments = string.IsNullOrWhiteSpace(Attachments) || Attachments.Split('/', '\\').Any(seg => Vaults.VaultPaths.NameProblem(seg) != null) ? "attachments" : Attachments.Replace('\\', '/').Trim('/');
+    }
+}
+
 public sealed class WindowPlacement
 {
     public double Left { get; set; }
@@ -125,6 +143,24 @@ public sealed class AppSettings
     /// <summary>Kept for settings written by 1.x; the open tabs are in <see cref="Session"/>.</summary>
     public string? LastDocumentPath { get; set; }
     public WorkspaceSession? Session { get; set; }
+    public List<VaultInfo> Vaults { get; set; } = [];
+    /// <summary>The Vault the main window had open (reopened on start when the session is restored).</summary>
+    public string? LastVault { get; set; }
+
+    public const int MaxVaults = 12;
+
+    public VaultInfo TouchVault(string path)
+    {
+        var full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(path));
+        var info = Vaults.FirstOrDefault(v => string.Equals(v.Path, full, StringComparison.OrdinalIgnoreCase)) ?? new VaultInfo { Path = full };
+        Vaults.Remove(info);
+        info.Name = System.IO.Path.GetFileName(full);
+        info.OpenedUtc = DateTime.UtcNow;
+        info.Normalize();
+        Vaults.Insert(0, info);
+        if (Vaults.Count > MaxVaults) Vaults.RemoveRange(MaxVaults, Vaults.Count - MaxVaults);
+        return info;
+    }
 
     public void AddRecent(string path)
     {
@@ -163,6 +199,9 @@ public sealed class SettingsStore(string filePath)
             settings.Prefs.Normalize();
             settings.Recent.RemoveAll(r => string.IsNullOrWhiteSpace(r.Path));
             settings.Session?.Normalize();
+            settings.Vaults ??= [];
+            settings.Vaults.RemoveAll(v => v == null || string.IsNullOrWhiteSpace(v.Path) || !System.IO.Path.IsPathFullyQualified(v.Path));
+            settings.Vaults.ForEach(v => v.Normalize());
             return settings;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)

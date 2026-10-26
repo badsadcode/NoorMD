@@ -31,7 +31,7 @@ public static class AssetResolver
     public static bool IsAppPage(Uri uri) => IsAppUri(uri) && (uri.AbsolutePath == "/" || uri.AbsolutePath == "/index.html");
 
     /// <summary>Returns the file to serve, or null (404). Never returns a path outside the allowed roots.</summary>
-    public static string? Resolve(Uri uri, string webRoot, string? documentFolder)
+    public static string? Resolve(Uri uri, string webRoot, string? documentFolder, string? boundary = null)
     {
         if (!IsAppUri(uri)) return null;
         var path = Uri.UnescapeDataString(uri.AbsolutePath);
@@ -39,7 +39,20 @@ public static class AssetResolver
         if (path.StartsWith(AppPrefix, StringComparison.Ordinal))
             return SafeCombine(webRoot, path[AppPrefix.Length..]);
         if (documentFolder == null || !ImageExtensions.Contains(Path.GetExtension(path))) return null;
-        return SafeCombine(documentFolder, path.TrimStart('/'));
+        var rel = path.TrimStart('/');
+        var found = SafeCombine(documentFolder, rel);
+        if (found != null || boundary == null) return found;
+        // The browser resolves "../Images/a.png" against the page itself, so the "../" is gone by the time the request
+        // arrives. Look in the parent folders, never above the Vault (boundary) the document belongs to.
+        var folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(documentFolder));
+        var stop = Path.TrimEndingDirectorySeparator(Path.GetFullPath(boundary));
+        if (!folder.StartsWith(stop + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
+        while (!string.Equals(folder, stop, StringComparison.OrdinalIgnoreCase))
+        {
+            folder = Path.GetDirectoryName(folder)!;
+            if ((found = SafeCombine(folder, rel)) != null) return found;
+        }
+        return null;
     }
 
     /// <summary>Combines root and a relative path, rejecting traversal, rooted paths, ADS and device names.</summary>

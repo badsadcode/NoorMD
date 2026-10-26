@@ -9,6 +9,7 @@ using NoorMD.Core.Documents;
 using NoorMD.Core.Recovery;
 using NoorMD.Core.Security;
 using NoorMD.Core.Settings;
+using NoorMD.Core.Vaults;
 using NoorMD.Host;
 using NoorMD.Ui;
 
@@ -127,6 +128,8 @@ public partial class MainWindow
                     runtime = RuntimeInformation.FrameworkDescription,
                     webView2 = Core.Environment.BrowserVersionString,
                 };
+            case var vault when vault.StartsWith("vault.", StringComparison.Ordinal):
+                return await DispatchVaultAsync(req);
             case var music when music.StartsWith("music.", StringComparison.Ordinal):
                 return await DispatchMusicAsync(req);
             default:
@@ -159,6 +162,11 @@ public partial class MainWindow
         }
         else
         {
+            if (_persistSession && _settings.Prefs.RestoreSession && _settings.LastVault is { } lastVault && Directory.Exists(lastVault))
+            {
+                try { OpenVault(lastVault); }
+                catch (Exception ex) { Log.Error("Reopening the Vault failed", ex); }
+            }
             if (_persistSession && _settings.Prefs.RestoreSession)
             {
                 tabs = RestoreSession(out var missing, out var recovered);
@@ -211,6 +219,7 @@ public partial class MainWindow
             tabs,
             activeTabId = _activeTabId,
             welcome,
+            vaults = VaultPayload(),
             recovery = _readyCount == 1 ? _recovery.ListOrphans() : new List<RecoverySummary>(),
         };
     }
@@ -270,15 +279,31 @@ public partial class MainWindow
             });
         }
         var image = paths.FirstOrDefault(p => AssetResolver.ImageExtensions.Contains(Path.GetExtension(p)));
-        if (image != null && ActiveSession?.Folder is { } folder && Path.GetFullPath(image).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (image != null && ActiveSession is { Folder: { } folder } s)
         {
-            var rel = Path.GetRelativePath(folder, image).Replace('\\', '/');
-            var encoded = string.Join('/', rel.Split('/').Select(Uri.EscapeDataString));
-            PushEvent("insert.text", new { markdown = $"![{Path.GetFileNameWithoutExtension(image)}]({encoded})" });
-            return null;
+            if (LinkPaths.TryRelative(folder, image, AllowedImageRoot(s), out var link))
+            {
+                PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{Path.GetFileNameWithoutExtension(image)}]({link})" });
+                return null;
+            }
+            if (VaultRootFor(s.Path) is { } root && _vault is { } v)
+            {
+                // From outside the Vault: offer to copy it into the Vault's attachments folder.
+                var attachments = VaultPaths.Resolve(root, v.Info.Attachments) ?? root;
+                if (ThemedDialog.Confirm(this, "Copy the picture into the Vault?", $"“{Path.GetFileName(image)}” is outside this Vault. Copy it to “{v.Info.Attachments}” and link to the copy, so the note keeps working wherever the Vault goes?", "Copy and insert", image))
+                {
+                    Directory.CreateDirectory(attachments);
+                    var dest = Path.Combine(attachments, VaultPaths.UniqueName(attachments, Path.GetFileNameWithoutExtension(image), Path.GetExtension(image)));
+                    File.Copy(image, dest, overwrite: false);
+                    if (LinkPaths.TryRelative(folder, dest, root, out link))
+                        PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{Path.GetFileNameWithoutExtension(image)}]({link})" });
+                    ScheduleRescan(0);
+                }
+                return null;
+            }
         }
         PushNotice(image != null
-            ? "Images can be inserted by dropping them from the document's own folder (or a subfolder), so the link keeps working. Save the document first if it is new."
+            ? "Images can be inserted by dropping them from the document's own folder (or its Vault), so the link keeps working. Save the document first if it is new."
             : "Only Markdown (.md, .markdown) and text (.txt) files can be opened.");
         return null;
     }
@@ -300,7 +325,8 @@ public partial class MainWindow
                     OpenExternal(decision.Target);
                 break;
             case LinkKind.LocalDocument:
-                if (!ThemedDialog.Confirm(this, "Open linked document?", $"Open \"{Path.GetFileName(decision.Target)}\" in NoorMD?", "Open", decision.Target)) return;
+                // A link between notes of the open Vault just opens the note; anything else is confirmed first.
+                if (VaultRootFor(decision.Target) == null && !ThemedDialog.Confirm(this, "Open linked document?", $"Open \"{Path.GetFileName(decision.Target)}\" in NoorMD?", "Open", decision.Target)) return;
                 await WithDocGate(() => OpenPathAsync(decision.Target));
                 break;
             default:
@@ -310,7 +336,7 @@ public partial class MainWindow
     }
 
     /// <summary>The folder a document's relative images may come from (its Vault, or else its own folder).</summary>
-    private string AllowedImageRoot(DocumentSession s) => s.Folder!;
+    private string AllowedImageRoot(DocumentSession s) => VaultRootFor(s.Path) ?? s.Folder!;
 
     private static string ReadClipboardText()
     {

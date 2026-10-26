@@ -1,0 +1,549 @@
+// NoorMD Vaults (page side): the explorer tree, Find in Vault, backlinks and note links.
+// A Vault is an ordinary folder; every file operation is done and validated by the host (MainWindow.Vault.cs).
+window.NoorVault = (() => {
+  'use strict';
+  const { $, el, notice } = NoorUI;
+  const bridge = NoorBridge;
+  let app = null;
+  let vault = null;          // { root, name, attachments, excluded } or null
+  let recent = [];           // [{ path, name }]
+  let entries = [];          // [{ p, d, s, m }]
+  let byParent = new Map();  // folder path -> child entries
+  let indexed = false;
+  let expanded = new Set();
+  let selected = new Set();
+  let focusPath = null;
+  let anchorPath = null;
+
+  const fold = (s) => String(s).normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[łŁ]/g, 'l').toLowerCase();
+  const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
+  const parentOf = (p) => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+  const isNote = (p) => /\.(md|markdown|mdown|mkd)$/i.test(p);
+  const isImage = (p) => /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i.test(p);
+  const req = (type, payload) => bridge.request(type, payload);
+  const fail = (err) => app.showError(err);
+
+  // ---------------------------------------------------------------- state from the host
+
+  function onChanged(p) {
+    const was = vault && vault.root;
+    vault = p.vault || null;
+    recent = p.recent || [];
+    if (!vault) { entries = []; byParent = new Map(); indexed = false; }
+    if (vault && vault.root !== was) {
+      entries = []; byParent = new Map(); indexed = false; selected = new Set(); focusPath = null;
+      try { expanded = new Set(JSON.parse(localStorage.getItem('noormd.vault.expanded:' + vault.root) || '[]')); } catch { expanded = new Set(); }
+      setView('files');
+      req('vault.tree').then(onTree).catch(() => {});
+    }
+    document.body.classList.toggle('has-vault', !!vault);
+    if (!vault) setView('doc');
+    $('#vault-title').textContent = vault ? vault.name : '';
+    $('#vault-title').title = vault ? vault.root : '';
+    const crumb = $('#vault-name');
+    crumb.hidden = !vault;
+    crumb.textContent = vault ? vault.name : '';
+    renderTree();
+    refreshBacklinks();
+    app.refreshChrome();
+  }
+
+  function onTree(p) {
+    if (!vault || (p.root && p.root !== vault.root)) return;
+    entries = p.entries || [];
+    indexed = !!p.indexed;
+    byParent = new Map();
+    for (const e of entries) {
+      const parent = parentOf(e.p);
+      if (!byParent.has(parent)) byParent.set(parent, []);
+      byParent.get(parent).push(e);
+    }
+    for (const list of byParent.values()) list.sort((a, b) => (a.d === b.d ? 0 : a.d ? -1 : 1)); // folders first, natural order kept
+    const known = new Set(entries.map((e) => e.p));
+    selected = new Set([...selected].filter((x) => known.has(x)));
+    renderTree();
+  }
+
+  function onIndexed() { indexed = true; refreshBacklinks(); }
+
+  // ---------------------------------------------------------------- sidebar views
+
+  function setView(view) {
+    const files = view === 'files' && !!vault;
+    document.body.classList.toggle('side-files', files);
+    document.querySelectorAll('#side-switch button').forEach((b) => { const on = b.dataset.view === (files ? 'files' : 'doc'); b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+  }
+
+  function saveExpanded() {
+    try { localStorage.setItem('noormd.vault.expanded:' + vault.root, JSON.stringify([...expanded].slice(0, 2000))); } catch { /* per-viewer convenience only */ }
+  }
+
+  // ---------------------------------------------------------------- tree
+
+  const ICON = { folder: '▸', open: '▾' };
+  function fileIcon(e) {
+    if (e.d) return '';
+    if (isNote(e.p)) return '📝';
+    if (isImage(e.p)) return '🖼';
+    if (/\.(mp3|flac|wav|ogg|opus|m4a)$/i.test(e.p)) return '♫';
+    if (/\.pdf$/i.test(e.p)) return '📄';
+    if (/\.noorsketch$/i.test(e.p)) return '✎';
+    return '·';
+  }
+
+  /** The rows currently shown, in order (expanded folders only, or the filter results). */
+  function visibleRows() {
+    const filter = fold($('#vault-filter').value.trim());
+    if (filter) {
+      return entries.filter((e) => !e.d && fold(nameOf(e.p)).includes(filter)).slice(0, 500).map((e) => ({ e, level: 0, flat: true }));
+    }
+    const out = [];
+    const walk = (parent, level) => {
+      for (const e of byParent.get(parent) || []) {
+        out.push({ e, level });
+        if (e.d && expanded.has(e.p)) walk(e.p, level + 1);
+      }
+    };
+    walk('', 0);
+    return out;
+  }
+
+  function renderTree() {
+    const box = $('#vault-tree');
+    if (!box) return;
+    if (!vault) { box.replaceChildren(); return; }
+    const activePath = app.activeVaultPath();
+    const rows = visibleRows();
+    if (!rows.length) {
+      box.replaceChildren(el('p', { class: 'empty', text: entries.length ? 'No matching files.' : 'Loading the Vault…' }));
+      return;
+    }
+    if (!focusPath || !rows.some((r) => r.e.p === focusPath)) focusPath = rows[0].e.p;
+    box.replaceChildren(...rows.map(({ e, level, flat }) => {
+      const row = el('div', {
+        class: 'vt-row' + (e.d ? ' folder' : '') + (selected.has(e.p) ? ' selected' : '') + (e.p === activePath ? ' current' : ''),
+        role: 'treeitem', 'data-path': e.p, 'aria-level': String(level + 1), 'aria-selected': String(selected.has(e.p)),
+        'aria-expanded': e.d ? String(expanded.has(e.p)) : null, tabindex: e.p === focusPath ? '0' : '-1', draggable: 'true',
+        title: e.p, style: `--lvl:${level}`,
+      },
+      el('span', { class: 'vt-chev', 'aria-hidden': 'true', text: e.d ? (expanded.has(e.p) ? ICON.open : ICON.folder) : '' }),
+      el('span', { class: 'vt-icon', 'aria-hidden': 'true', text: fileIcon(e) }),
+      el('span', { class: 'vt-name', text: nameOf(e.p) }),
+      flat ? el('small', { class: 'vt-where', text: parentOf(e.p) }) : null);
+      return row;
+    }));
+  }
+
+  const rowOf = (p) => document.querySelector(`#vault-tree .vt-row[data-path="${CSS.escape(p)}"]`);
+  const entryOf = (p) => entries.find((x) => x.p === p) || null;
+
+  function focusRow(p, extend) {
+    focusPath = p;
+    if (extend && anchorPath) {
+      const rows = visibleRows().map((r) => r.e.p);
+      const [a, b] = [rows.indexOf(anchorPath), rows.indexOf(p)].sort((x, y) => x - y);
+      selected = new Set(rows.slice(a, b + 1));
+    } else if (!extend) { selected = new Set([p]); anchorPath = p; }
+    renderTree();
+    const row = rowOf(p);
+    if (row) { row.focus({ preventScroll: true }); row.scrollIntoView({ block: 'nearest' }); }
+  }
+
+  function toggleFolder(p, open) {
+    const want = open === undefined ? !expanded.has(p) : open;
+    if (want) expanded.add(p); else expanded.delete(p);
+    saveExpanded();
+    renderTree();
+    rowOf(p)?.focus({ preventScroll: true });
+  }
+
+  function activate(p) {
+    const e = entryOf(p);
+    if (!e) return;
+    if (e.d) { toggleFolder(p); return; }
+    req('vault.openFile', { path: p }).catch(fail);
+  }
+
+  function onTreeClick(ev) {
+    const row = ev.target.closest('.vt-row');
+    if (!row) return;
+    const p = row.dataset.path;
+    if (ev.ctrlKey || ev.metaKey) {
+      if (selected.has(p)) selected.delete(p); else selected.add(p);
+      focusPath = p; anchorPath = p;
+      renderTree();
+      rowOf(p)?.focus({ preventScroll: true });
+      return;
+    }
+    if (ev.shiftKey) { focusRow(p, true); return; }
+    focusRow(p, false);
+    if (ev.target.closest('.vt-chev') || entryOf(p)?.d) toggleFolder(p);
+    else activate(p);
+  }
+
+  function onTreeKey(ev) {
+    const rows = visibleRows().map((r) => r.e);
+    if (!rows.length) return;
+    const i = Math.max(0, rows.findIndex((e) => e.p === focusPath));
+    const cur = rows[i];
+    const k = ev.key;
+    if (k === 'ArrowDown' || k === 'ArrowUp') { ev.preventDefault(); focusRow(rows[Math.min(rows.length - 1, Math.max(0, i + (k === 'ArrowDown' ? 1 : -1)))].p, ev.shiftKey); }
+    else if (k === 'Home' || k === 'End') { ev.preventDefault(); focusRow(rows[k === 'Home' ? 0 : rows.length - 1].p, ev.shiftKey); }
+    else if (k === 'ArrowRight') { ev.preventDefault(); if (cur.d && !expanded.has(cur.p)) toggleFolder(cur.p, true); else if (cur.d && rows[i + 1]) focusRow(rows[i + 1].p); }
+    else if (k === 'ArrowLeft') { ev.preventDefault(); if (cur.d && expanded.has(cur.p)) toggleFolder(cur.p, false); else if (parentOf(cur.p)) focusRow(parentOf(cur.p)); }
+    else if (k === 'Enter') { ev.preventDefault(); activate(cur.p); }
+    else if (k === 'F2') { ev.preventDefault(); ev.stopPropagation(); startRename(cur.p); }
+    else if (k === 'Delete') { ev.preventDefault(); deleteItems(selected.size ? [...selected] : [cur.p]); }
+    else if (k === ' ') { ev.preventDefault(); if (selected.has(cur.p) && selected.size > 1) selected.delete(cur.p); else selected.add(cur.p); renderTree(); rowOf(cur.p)?.focus(); }
+    else if (k === 'ContextMenu' || (k === 'F10' && ev.shiftKey)) { ev.preventDefault(); const r = rowOf(cur.p).getBoundingClientRect(); showContextMenu(cur.p, r.left + 30, r.bottom); }
+  }
+
+  /** The folder new items go into: the focused folder, or the folder of the focused file. */
+  function targetFolder(p) {
+    const e = p != null ? entryOf(p) : (focusPath ? entryOf(focusPath) : null);
+    if (!e) return '';
+    return e.d ? e.p : parentOf(e.p);
+  }
+
+  async function newNote(folder) {
+    const name = await NoorUI.prompt('New note', `Name of the new note${folder ? ' in “' + folder + '”' : ''}:`, 'Untitled', { okLabel: 'Create' });
+    if (!name || !name.trim()) return;
+    try {
+      const r = await req('vault.newNote', { folder: folder ?? targetFolder(), name: name.trim() });
+      if (folder) { expanded.add(folder); saveExpanded(); }
+      if (r && r.path) focusPath = r.path;
+    } catch (err) { fail(err); }
+  }
+
+  async function newFolder(parent) {
+    const name = await NoorUI.prompt('New folder', `Name of the new folder${parent ? ' in “' + parent + '”' : ''}:`, 'New folder', { okLabel: 'Create' });
+    if (!name || !name.trim()) return;
+    try {
+      const r = await req('vault.newFolder', { parent: parent ?? targetFolder(), name: name.trim() });
+      if (parent) expanded.add(parent);
+      if (r && r.path) { expanded.add(r.path); focusPath = r.path; }
+      saveExpanded();
+    } catch (err) { fail(err); }
+  }
+
+  function startRename(p) {
+    const row = rowOf(p);
+    if (!row) return;
+    const span = row.querySelector('.vt-name');
+    const old = nameOf(p);
+    const input = el('input', { class: 'vt-rename', value: old, 'aria-label': 'New name', spellcheck: 'false' });
+    span.replaceWith(input);
+    row.draggable = false;
+    const dot = old.lastIndexOf('.');
+    input.focus();
+    input.setSelectionRange(0, dot > 0 && !entryOf(p)?.d ? dot : old.length);
+    let done = false;
+    const finish = async (commit) => {
+      if (done) return;
+      done = true;
+      const name = input.value.trim();
+      if (!commit || !name || name === old) { renderTree(); rowOf(p)?.focus(); return; }
+      try {
+        const r = await req('vault.rename', { path: p, name });
+        if (r && r.path) {
+          if (expanded.has(p)) { expanded.delete(p); expanded.add(r.path); saveExpanded(); }
+          focusPath = r.path; selected = new Set([r.path]);
+        }
+      } catch (err) { fail(err); }
+      renderTree();
+    };
+    input.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Enter') { e.preventDefault(); finish(true); }
+      else if (e.key === 'Escape') { e.preventDefault(); finish(false); }
+    });
+    input.addEventListener('blur', () => finish(true));
+    input.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  async function deleteItems(paths) {
+    if (!paths.length) return;
+    try {
+      const r = await req('vault.delete', { paths });
+      if (r && r.deleted) { selected = new Set(); notice(`Moved ${r.deleted} item${r.deleted === 1 ? '' : 's'} to the Recycle Bin`, 2400); }
+    } catch (err) { fail(err); }
+  }
+
+  async function moveItems(paths, folder) {
+    const list = paths.filter((p) => p !== folder && parentOf(p) !== folder && !(folder + '/').startsWith(p + '/'));
+    if (!list.length) return;
+    try {
+      const r = await req('vault.move', { paths: list, folder });
+      if (r && r.moved) { if (folder) { expanded.add(folder); saveExpanded(); } notice(`Moved ${r.moved} item${r.moved === 1 ? '' : 's'}${folder ? ' to “' + folder + '”' : ''}`, 2000); }
+    } catch (err) { fail(err); }
+  }
+
+  function showContextMenu(p, x, y) {
+    if (p && !selected.has(p)) { selected = new Set([p]); focusPath = p; renderTree(); }
+    const e = p ? entryOf(p) : null;
+    const many = selected.size > 1;
+    const sel = p ? [...selected] : [];
+    const items = [];
+    if (e && !e.d) items.push({ label: isNote(e.p) || /\.txt$/i.test(e.p) ? 'Open' : 'Open in default app', run: () => activate(e.p), disabled: many });
+    items.push({ label: 'New note…', run: () => newNote(targetFolder(p)) }, { label: 'New folder…', run: () => newFolder(targetFolder(p)) });
+    if (e) {
+      items.push('-', { label: 'Rename', run: () => startRename(e.p), disabled: many }, { label: 'Duplicate', run: () => req('vault.duplicate', { path: e.p }).catch(fail), disabled: many },
+        { label: many ? `Delete ${sel.length} items` : 'Delete', run: () => deleteItems(sel) });
+      if (e && !e.d && isNote(e.p)) items.push('-', { label: 'Insert link to this note', run: () => insertLinkTo(e.p) });
+      items.push('-', { label: 'Reveal in Explorer', run: () => req('vault.revealItem', { path: e.p }).catch(fail), disabled: many }, { label: 'Copy path', run: () => req('vault.copyPath', { path: e.p }).then(() => notice('Path copied', 1400)).catch(fail), disabled: many });
+    }
+    if (app.hasCommand('vault.pack')) items.push('-', { label: 'Pack & Share…', run: () => app.runCommand('vault.pack', { paths: sel.length ? sel : [] }) });
+    items.push('-', { label: 'Refresh', run: () => req('vault.refresh').catch(fail) });
+    NoorChrome.openMenu(null, items, { x, y });
+  }
+
+  // Drag & drop inside the tree moves files and folders. (Files dragged in from Windows are not handled here.)
+  const DND = 'application/x-noormd-vault';
+  function setupDnD(box) {
+    box.addEventListener('dragstart', (ev) => {
+      const row = ev.target.closest('.vt-row');
+      if (!row) return;
+      const p = row.dataset.path;
+      if (!selected.has(p)) {
+        // Don't rebuild the rows here: replacing the dragged element cancels the drag.
+        selected = new Set([p]);
+        box.querySelectorAll('.vt-row').forEach((n) => { const on = n.dataset.path === p; n.classList.toggle('selected', on); n.setAttribute('aria-selected', String(on)); });
+      }
+      ev.dataTransfer.setData(DND, JSON.stringify([...selected]));
+      ev.dataTransfer.effectAllowed = 'move';
+    });
+    const folderAt = (ev) => {
+      const row = ev.target.closest && ev.target.closest('.vt-row');
+      if (!row) return ev.target.closest && ev.target.closest('#vault-tree') ? '' : null;
+      const e = entryOf(row.dataset.path);
+      return e ? (e.d ? e.p : parentOf(e.p)) : null;
+    };
+    box.addEventListener('dragover', (ev) => {
+      if (![...ev.dataTransfer.types].includes(DND)) return;
+      const f = folderAt(ev);
+      if (f === null) return;
+      ev.preventDefault();
+      ev.dataTransfer.dropEffect = 'move';
+      box.querySelectorAll('.drop-target').forEach((n) => n.classList.remove('drop-target'));
+      (f ? rowOf(f) : box)?.classList.add('drop-target');
+    });
+    box.addEventListener('dragleave', () => box.querySelectorAll('.drop-target').forEach((n) => n.classList.remove('drop-target')));
+    box.addEventListener('drop', (ev) => {
+      if (![...ev.dataTransfer.types].includes(DND)) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      box.classList.remove('drop-target');
+      box.querySelectorAll('.drop-target').forEach((n) => n.classList.remove('drop-target'));
+      const f = folderAt(ev);
+      if (f === null) return;
+      let paths = [];
+      try { paths = JSON.parse(ev.dataTransfer.getData(DND)); } catch { return; }
+      moveItems(paths, f);
+    });
+  }
+
+  // ---------------------------------------------------------------- Find in Vault
+
+  function showSearch(initial) {
+    if (!vault) { notice('Open a Vault first (Workspace → Open Folder as Vault).'); return; }
+    NoorUI.closeAll();
+    NoorUI.modal({ label: 'Find in Vault', width: 760 }, (s, close) => {
+      const input = el('input', { id: 'vault-search-input', placeholder: 'Search every note in ' + vault.name + '…', autocomplete: 'off', 'aria-label': 'Search the Vault', autofocus: true, spellcheck: 'false' });
+      const status = el('div', { class: 'vs-status', 'aria-live': 'polite' });
+      const results = el('div', { class: 'palette-results vs-results', role: 'listbox' });
+      let hits = [], sel = 0, seq = 0, timer = null;
+      const render = (q) => {
+        results.replaceChildren();
+        const terms = fold(q).split(/\s+/).filter(Boolean);
+        hits.forEach((h, i) => {
+          const snippet = el('span', { class: 'vs-snippet' });
+          highlight(snippet, h.nameMatch ? h.path : h.snippet, terms);
+          results.append(el('button', {
+            class: 'cmd-item vs-hit' + (i === sel ? ' selected' : ''), role: 'option', tabindex: '-1', 'aria-selected': String(i === sel),
+            onclick: () => { close(); openHit(h, q); }, onmousemove: () => { if (sel !== i) { sel = i; mark(); } },
+          }, el('span', { class: 'vs-file', text: (h.nameMatch ? '📝 ' : '') + h.name + (h.line ? ' · ' + h.line : '') }), snippet));
+        });
+        mark();
+      };
+      const mark = () => results.querySelectorAll('.vs-hit').forEach((b, i) => { b.classList.toggle('selected', i === sel); b.setAttribute('aria-selected', String(i === sel)); if (i === sel) b.scrollIntoView({ block: 'nearest' }); });
+      const run = () => {
+        const q = input.value.trim();
+        const mine = ++seq;
+        if (!q) { hits = []; status.textContent = ''; render(''); return; }
+        status.textContent = indexed ? 'Searching…' : 'Indexing the Vault…';
+        req('vault.search', { query: q }).then((r) => {
+          if (mine !== seq) return;
+          hits = (r && r.hits) || [];
+          sel = 0;
+          const files = new Set(hits.map((h) => h.path)).size;
+          status.textContent = hits.length ? `${hits.length >= 300 ? '300+' : hits.length} result${hits.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'} · ${r.indexed} notes searched` : `No results · ${r.indexed} notes searched`;
+          render(q);
+        }).catch(fail);
+      };
+      input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 160); });
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(hits.length - 1, sel + 1); mark(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); mark(); }
+        else if (e.key === 'Enter') { e.preventDefault(); const h = hits[sel]; if (h) { close(); openHit(h, input.value.trim()); } }
+      });
+      s.append(NoorUI.head('Find in Vault — ' + vault.name, close), el('div', { class: 'modal-body vs-body' }, input, status, results),
+        el('div', { class: 'modal-foot' }, el('span', { text: 'Case and accents are ignored · ↑ ↓ Enter opens the note in a tab' }), el('span', { text: 'Esc to close' })));
+      if (initial) { input.value = initial; run(); }
+    });
+  }
+
+  function highlight(node, text, terms) {
+    const f = fold(text);
+    const marks = [];
+    for (const t of terms) { let i = f.indexOf(t); while (i >= 0 && marks.length < 50) { marks.push([i, i + t.length]); i = f.indexOf(t, i + t.length); } }
+    marks.sort((a, b) => a[0] - b[0]);
+    let pos = 0;
+    for (const [a, b] of marks) {
+      if (a < pos) continue;
+      node.append(text.slice(pos, a), el('mark', { text: text.slice(a, b) }));
+      pos = b;
+    }
+    node.append(text.slice(pos));
+  }
+
+  async function openHit(h, query) {
+    try {
+      await req('vault.openFile', { path: h.path });
+      if (!h.nameMatch && query) setTimeout(() => app.findInDocument(query.split(/\s+/)[0]), 350);
+    } catch (err) { fail(err); }
+  }
+
+  // ---------------------------------------------------------------- backlinks
+
+  let backlinkSeq = 0;
+  function refreshBacklinks() {
+    const sec = $('#backlinks-section');
+    if (!sec) return;
+    const tabId = app.activeTabId();
+    if (!vault || !tabId) { sec.hidden = true; return; }
+    const mine = ++backlinkSeq;
+    req('vault.backlinks', { tabId }).then((r) => {
+      if (mine !== backlinkSeq) return;
+      sec.hidden = !r || !r.inVault;
+      const box = $('#backlinks-box');
+      box.replaceChildren();
+      if (!r || !r.inVault) return;
+      if (!r.refs.length) { box.append(el('p', { class: 'empty', text: indexed ? 'No other note links here yet.' : 'Indexing…' })); return; }
+      for (const ref of r.refs.slice(0, 100)) {
+        box.append(el('button', { title: ref.snippet, onclick: () => req('vault.openFile', { path: ref.source }).catch(fail) },
+          el('span', { text: nameOf(ref.source).replace(/\.(md|markdown)$/i, '') }), el('small', { class: 'bl-snippet', text: ref.snippet })));
+      }
+    }).catch(() => { sec.hidden = true; });
+  }
+
+  // ---------------------------------------------------------------- links between notes
+
+  /** Ctrl+click (or the command) on [[Wiki link]] or [text](note.md) under the caret opens that note. */
+  function linkAtCaret() {
+    const sel = window.getSelection();
+    if (!sel || !sel.anchorNode) return null;
+    const node = sel.anchorNode;
+    const text = node.nodeType === 3 ? node.textContent : node.textContent || '';
+    const at = node.nodeType === 3 ? sel.anchorOffset : 0;
+    const scan = (re) => { re.lastIndex = 0; let m; while ((m = re.exec(text))) { if (at >= m.index && at <= m.index + m[0].length) return m; } return null; };
+    const wiki = scan(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g);
+    if (wiki) return { wiki: wiki[1].trim() };
+    const md = scan(/\[[^\]]*\]\(\s*<?([^)\s>]+)>?[^)]*\)/g);
+    if (md) return { href: md[1] };
+    // In Visual mode a [[link]] can be split across formatting; look at the whole paragraph as a fallback.
+    const block = (node.nodeType === 3 ? node.parentElement : node)?.closest('p, li, h1, h2, h3, h4, h5, h6, div');
+    const all = block ? block.textContent : '';
+    const w = [...all.matchAll(/\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)];
+    return w.length === 1 ? { wiki: w[0][1].trim() } : null;
+  }
+
+  async function followLink() {
+    const link = linkAtCaret();
+    if (!link) { notice('Put the cursor on a [[link]] or a [link](note.md) first.', 2200); return false; }
+    try {
+      if (link.wiki) {
+        if (!vault) { notice('[[Wiki links]] work inside a Vault (Workspace → Open Folder as Vault).', 2600); return true; }
+        await req('vault.openWiki', { target: link.wiki, tabId: app.activeTabId() });
+      } else await req('link.open', { href: link.href, tabId: app.activeTabId() });
+    } catch (err) { fail(err); }
+    return true;
+  }
+
+  async function insertLinkTo(path) {
+    try {
+      const r = await req('vault.linkTo', { tabId: app.activeTabId(), path });
+      if (r && r.link) app.insertText(`[${r.title}](${r.link})`);
+    } catch (err) { fail(err); }
+  }
+
+  function pickNoteToLink() {
+    if (!vault) { notice('Open a Vault first.'); return; }
+    app.pickFrom('Link to a note', notes().map((p) => ({ label: nameOf(p).replace(/\.(md|markdown|mdown|mkd)$/i, ''), detail: parentOf(p), run: () => insertLinkTo(p) })));
+  }
+
+  const notes = () => entries.filter((e) => !e.d && isNote(e.p)).map((e) => e.p);
+
+  // ---------------------------------------------------------------- create / settings
+
+  async function createVault() {
+    const name = await NoorUI.prompt('Create a new Vault', 'Name of the Vault (a new folder with this name is created where you choose next):', 'My Vault', { okLabel: 'Choose location…' });
+    if (!name || !name.trim()) return;
+    req('vault.create', { name: name.trim() }).catch(fail);
+  }
+
+  async function showSettings() {
+    if (!vault) return;
+    let cur;
+    try { cur = await req('vault.settings.get'); } catch (err) { fail(err); return; }
+    NoorUI.modal({ label: 'Vault settings', width: 560 }, (s, close) => {
+      const att = el('input', { id: 'vault-attachments', value: cur.attachments, 'aria-label': 'Attachments folder', spellcheck: 'false' });
+      const ex = el('input', { id: 'vault-excluded', value: (cur.excluded || []).join(', '), 'aria-label': 'Excluded folders', spellcheck: 'false', placeholder: 'e.g. Archive, Exports' });
+      const save = async () => {
+        try {
+          await req('vault.settings.set', { attachments: att.value.trim(), excluded: ex.value.split(',').map((x) => x.trim()).filter(Boolean) });
+          close();
+          notice('Vault settings saved', 1600);
+        } catch (err) { fail(err); }
+      };
+      s.append(NoorUI.head('Vault settings — ' + vault.name, close), el('div', { class: 'modal-body' },
+        el('div', { class: 'pref-grid' },
+          el('label', { for: 'vault-attachments', text: 'Attachments folder' }), el('div', {}, att, el('small', { class: 'pref-hint', text: 'Where pictures and sketches added to notes are copied (relative to the Vault). Created when first needed.' })),
+          el('label', { for: 'vault-excluded', text: 'Leave out folders' }), el('div', {}, ex, el('small', { class: 'pref-hint', text: 'Folder names to hide from the explorer and search, separated by commas. Hidden folders (.git, .obsidian, …) are always left out and never changed.' }))),
+        el('p', { class: 'pref-hint', text: 'These settings are kept in NoorMD’s own settings, not inside the Vault.' })),
+      el('div', { class: 'modal-foot' }, el('span'), el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => close() }, 'Cancel'), el('button', { class: 'action primary', onclick: save }, 'Save'))));
+    });
+  }
+
+  // ---------------------------------------------------------------- init
+
+  function init(api) {
+    app = api;
+    bridge.on('vault.changed', onChanged);
+    bridge.on('vault.tree', onTree);
+    bridge.on('vault.indexed', onIndexed);
+    const box = $('#vault-tree');
+    box.addEventListener('click', onTreeClick);
+    box.addEventListener('keydown', onTreeKey);
+    box.addEventListener('dblclick', (e) => { const row = e.target.closest('.vt-row'); if (row && entryOf(row.dataset.path)?.d) e.preventDefault(); });
+    box.addEventListener('contextmenu', (e) => { e.preventDefault(); const row = e.target.closest('.vt-row'); showContextMenu(row ? row.dataset.path : null, e.clientX, e.clientY); });
+    setupDnD(box);
+    $('#vault-filter').addEventListener('input', renderTree);
+    $('#vault-filter').addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); const r = visibleRows()[0]; if (r) focusRow(r.e.p); }
+      else if (e.key === 'Enter') { e.preventDefault(); const r = visibleRows()[0]; if (r) activate(r.e.p); }
+      else if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; renderTree(); }
+    });
+    document.querySelectorAll('#side-switch button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+    $('#vault-new-note').addEventListener('click', () => newNote(targetFolder()));
+    $('#vault-new-folder').addEventListener('click', () => newFolder(targetFolder()));
+    $('#vault-collapse').addEventListener('click', () => { expanded = new Set(); saveExpanded(); renderTree(); });
+    $('#vault-refresh').addEventListener('click', () => req('vault.refresh').catch(fail));
+  }
+
+  return {
+    init, onChanged, showSearch, createVault, showSettings, followLink, linkAtCaret, pickNoteToLink, refreshBacklinks, setView,
+    renderTree, notes, isOpen: () => !!vault, name: () => (vault ? vault.name : null), recent: () => recent,
+    focusExplorer: () => { if (!vault) return; document.body.classList.remove('sidebar-collapsed'); setView('files'); (document.querySelector('#vault-tree .vt-row[tabindex="0"]') || $('#vault-filter')).focus(); },
+    _state: () => ({ vault, entries: entries.length, expanded: [...expanded], selected: [...selected], focusPath, indexed }),
+  };
+})();
