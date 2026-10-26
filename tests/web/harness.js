@@ -326,6 +326,8 @@ function mockHostScript(initial) {
       case 'music.suggestName': return [p.artist, p.title].filter(Boolean).join(' - ');
       case 'music.playlist.create': { const id = lib.playlists.length + 1; lib.playlists.push({ id, name: p.name, items: p.ids || [] }); return { id }; }
       case 'music.playlist.add': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items.push(...p.ids); return lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length })); }
+      case 'music.playlist.setItems': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items = [...p.ids]; return null; }
+      case 'music.reveal': lib.revealed = p.id; return null;
       case 'music.session.get': return lib.session;
       case 'music.session.save': lib.session = p.json; lib.sessionSaves++; return null;
       default: return null;

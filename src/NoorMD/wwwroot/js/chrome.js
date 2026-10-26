@@ -35,6 +35,8 @@ window.NoorChrome = (() => {
     snapshot: 'M12 21a9 9 0 1 1 0-18 9 9 0 0 1 0 18zM12 7v5l3 2',
     palette: 'M8 4a2 2 0 1 0 0 4h8a2 2 0 1 0 0-4 2 2 0 0 0-2 2v12a2 2 0 1 0 2-2H8a2 2 0 1 0 2 2V6a2 2 0 0 0-2-2z',
     play: 'M7 4v16l13-8z',
+    shuffle: 'M3 7h4c4 0 6 10 10 10h4M3 17h4c1.6 0 2.8-1.6 3.9-3.6M14 9.6C15.1 8.2 16 7 17.5 7H21M18 4l3 3-3 3M18 14l3 3-3 3',
+    dice: 'M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zM8.5 8.5h.01M15.5 8.5h.01M12 12h.01M8.5 15.5h.01M15.5 15.5h.01',
     pause: 'M7 4h4v16H7zM14 4h4v16h-4z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
     heading: 'M6 4v16M18 4v16M6 12h12',
@@ -66,7 +68,7 @@ window.NoorChrome = (() => {
     navigation: { label: 'Navigation', items: [['find.show', 'find', 'Find'], ['view.sidebar', 'sidebar', 'Sidebar'], ['tab.switch', 'tabs', 'Documents']] },
     view: { label: 'View', items: ['modes', ['width.cycle', 'width', 'Width'], ['view.focus', 'focus', 'Focus']] },
     tools: { label: 'Tools', items: [['snapshot.create', 'snapshot', 'Snapshot'], ['palette.show', 'palette', 'Commands']] },
-    media: { label: 'Media', items: ['nowplaying', ['music.toggle', 'music', 'Music Bench']] },
+    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench']] },
   };
   const DEFAULT_ORDER = ['document', 'writing', 'navigation', 'view', 'tools', 'media'];
   // When the window is narrow, the least important buttons move into "More" first (higher = kept longer).
@@ -74,7 +76,7 @@ window.NoorChrome = (() => {
     'doc.save': 9, modes: 9, 'fmt.bold': 8, 'fmt.italic': 8, heading: 7, 'edit.undo': 6, 'insert.link': 6, 'fmt.ul': 6, 'find.show': 6,
     'edit.redo': 5, 'fmt.ol': 5, 'doc.open': 4, 'fmt.task': 4, 'fmt.code': 4, 'view.focus': 4, 'doc.new': 3, 'fmt.strike': 3, 'fmt.quote': 3,
     'insert.codeblock': 3, 'insert.table': 3, 'width.cycle': 2, 'insert.image': 2, 'view.sidebar': 2, 'palette.show': 2, nowplaying: 2,
-    'tab.switch': 1, 'snapshot.create': 1, 'music.toggle': 1,
+    'tab.switch': 1, 'snapshot.create': 1, 'music.toggle': 1, 'music.shuffle': 1, 'music.random': 1,
   };
 
   /** The user's visible groups, in order; unknown ids (a later build dropped a module) are ignored. */
@@ -262,7 +264,7 @@ window.NoorChrome = (() => {
     ]],
     ['Media', 'm', () => [
       { id: 'music.toggle' }, { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, '-',
-      { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
+      { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random' }, '-', { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
       { id: 'music.edit' }, { id: 'music.undo' },
       { label: 'Triage current track', sub: () => [{ id: 'music.fav' }, { id: 'music.keep' }, { id: 'music.maybe' }, { id: 'music.skip' }, { id: 'music.clearTriage' }] },
     ]],
@@ -355,7 +357,7 @@ window.NoorChrome = (() => {
           document.querySelectorAll('.menu-popup').forEach((m) => { if (Number(m.dataset.depth) > depth) m.remove(); });
           b.classList.add('sub-open');
           const r = b.getBoundingClientRect();
-          return renderMenu(it.sub, { left: r.right - 2, top: r.top - 5 }, depth + 1);
+          return renderMenu(it.sub, { left: r.right - 2, top: r.top - 5, flipLeft: r.left + 2 }, depth + 1);
         };
         b.addEventListener('mouseenter', open);
         b.addEventListener('click', () => open().querySelector('.menu-item:not([disabled])')?.focus());
@@ -378,7 +380,9 @@ window.NoorChrome = (() => {
     menu.addEventListener('mousedown', (e) => e.preventDefault());
     document.body.append(menu);
     const mr = menu.getBoundingClientRect();
-    menu.style.left = Math.max(4, Math.min(pos.left, window.innerWidth - mr.width - 4)) + 'px';
+    // A submenu that doesn't fit on the right opens to the left of its parent instead of covering it.
+    const left = pos.flipLeft != null && pos.left + mr.width > window.innerWidth - 4 ? pos.flipLeft - mr.width : pos.left;
+    menu.style.left = Math.max(4, Math.min(left, window.innerWidth - mr.width - 4)) + 'px';
     menu.style.top = Math.max(4, Math.min(pos.top, window.innerHeight - mr.height - 4)) + 'px';
     if (!document._noorMenuListener) {
       document._noorMenuListener = true;

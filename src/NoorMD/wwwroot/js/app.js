@@ -1246,7 +1246,8 @@
     ['music.maybe', 'Mark current track: Maybe', 'Music', 'Alt+3', () => NoorMusic.triageCurrent(3)],
     ['music.skip', 'Mark current track: Skip', 'Music', 'Alt+4', () => NoorMusic.triageCurrent(4)],
     ['music.clearTriage', 'Clear triage of current track', 'Music', 'Alt+0', () => NoorMusic.triageCurrent(0)],
-    ['music.shuffle', 'Toggle shuffle', 'Music', '', () => NoorMusic.setShuffle()],
+    ['music.shuffle', 'Shuffle', 'Music', '', () => NoorMusic.setShuffle()],
+    ['music.random', 'Jump to a random track', 'Music', 'Ctrl+Alt+R', () => NoorMusic.playRandom()],
     ['music.repeat', 'Cycle repeat (off / all / one)', 'Music', '', () => NoorMusic.cycleRepeat()],
     ['music.undo', 'Undo last track edit', 'Music', '', () => NoorMusic.undoLastEdit()],
     ['music.addFolder', 'Add music folder…', 'Music', '', () => NoorMusic.addFolder()],
@@ -1917,6 +1918,7 @@
     if (key === 'F2') cmd = 'music.edit';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'ArrowLeft'))
       cmd = { Space: 'music.play', ArrowRight: 'music.next', ArrowLeft: 'music.prev' }[e.code];
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyR') cmd = 'music.random';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
     else if (key === 'F11') cmd = 'view.focus';

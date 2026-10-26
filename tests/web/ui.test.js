@@ -1474,6 +1474,130 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/sketch.png` });
       await page.close();
     }
+
+    // ---- 16. Shuffle is reachable everywhere; 🎲 jumps to a random track across the whole library.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 4, prefs: { toolbarLabels: false } }, { width: 1920, height: 1000 });
+      const ms = () => page.evaluate(() => window.NoorMusic._state());
+      await page.keyboard.press('Control+Alt+r');
+      await waitFn(page, () => window.NoorMusic._state().q.current != null, null, { timeout: 8000 });
+      check('Ctrl+Alt+R starts a random track even with nothing queued', (await ms()).q.ids.length === 4);
+      await page.evaluate(() => { window.NoorMusic.toggle(); });
+      check('the mini-player has Shuffle and 🎲 buttons', await page.isVisible('#miniplayer .mp-shuffle') && await page.isVisible('#miniplayer .mp-random'));
+      await page.click('#miniplayer .mp-shuffle');
+      check('mini-player Shuffle turns shuffle on and shows it', (await ms()).q.shuffle && (await page.getAttribute('#miniplayer .mp-shuffle', 'aria-pressed')) === 'true');
+      await waitFn(page, () => document.querySelector('#toolbar [data-cmd-id="music.shuffle"]')?.getAttribute('aria-pressed') === 'true', null, { timeout: 2000 }).catch(() => {});
+      check('the toolbar Shuffle button shows the same state', (await page.getAttribute('#toolbar [data-cmd-id="music.shuffle"]', 'aria-pressed')) === 'true');
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      check('Media menu shows Shuffle checked and has “Jump to a random track”', (await page.getAttribute('.menu-popup .menu-item:has-text("Shuffle")', 'aria-checked')) === 'true' && (await page.textContent('.menu-popup')).includes('Jump to a random track'));
+      await page.keyboard.press('Escape');
+      const seen = new Set();
+      for (let i = 0; i < 12; i++) {
+        const before = (await ms()).q.current;
+        await page.click('#miniplayer .mp-random');
+        await waitFn(page, (b) => window.NoorMusic._state().q.current !== b, before, { timeout: 4000 });
+        seen.add((await ms()).q.current);
+      }
+      check('🎲 always moves to a different track and reaches the whole library', seen.size === 4, [...seen]);
+      check('🎲 keeps shuffle as it was', (await ms()).q.shuffle);
+      await page.evaluate(() => window.NoorMusic.toggle());
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors with shuffle and random', unexpected.length === 0, unexpected);
+      await page.close();
+    }
+
+    // ---- 17. Music list: click / Ctrl+click / Shift+click selection and the right-click menu.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 12 }, { width: 1600, height: 1000 });
+      const ms = () => page.evaluate(() => window.NoorMusic._state());
+      const M = () => page.evaluate(() => { const m = window.__mock.state.music; return { playlists: m.playlists.map((p) => ({ name: p.name, items: [...p.items] })), triage: m.tracks.map((t) => t.triage), revealed: m.revealed }; });
+      const row = (i) => `#music-list .track[data-index="${i}"]`;
+      await page.evaluate(() => window.NoorMusic.toggle());
+      await page.waitForSelector(row(5));
+      await page.click(row(1));
+      check('a click selects one track', JSON.stringify((await ms()).sel) === '[1]');
+      await page.click(row(4), { modifiers: ['Shift'] });
+      check('Shift+click selects the range from the clicked track', JSON.stringify((await ms()).sel) === '[1,2,3,4]');
+      await page.click(row(7), { modifiers: ['Control'] });
+      await page.click(row(2), { modifiers: ['Control'] });
+      check('Ctrl+click adds and removes single tracks', JSON.stringify((await ms()).sel) === '[1,3,4,7]');
+      check('the bench shows how many tracks are selected', (await page.textContent('#music-selcount')).includes('4 selected'));
+      check('selected rows are marked for screen readers', (await page.$$('#music-list .track[aria-selected="true"]')).length === 4);
+      const ids = await page.evaluate(() => [1, 3, 4, 7].map((i) => Number(document.querySelector(`#music-list .track[data-index="${i}"]`).dataset.id)));
+
+      // Right-click → Add to playlist → New playlist…
+      await page.click(row(3), { button: 'right' });
+      check('right-click on a selected track keeps the selection', JSON.stringify((await ms()).sel) === '[1,3,4,7]');
+      let menu = await page.textContent('.menu-popup');
+      check('the menu offers play, queue, playlist, marks, edit, copy and select all', ['Play these 4 tracks', 'Play next', 'Add to Up next', 'Add to playlist', 'Mark as', 'Edit 4 tracks', 'Copy titles', 'Copy file paths', 'Select all'].every((w) => menu.includes(w)), menu);
+      check('Show in Explorer is only for a single track', await page.isDisabled('.menu-popup .menu-item:has-text("Show in Explorer")'));
+      await page.hover('.menu-popup .menu-item:has-text("Add to playlist")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("New playlist…")');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'Night drive');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.music.playlists.length === 1);
+      check('New playlist… creates a playlist with the selected tracks in list order', JSON.stringify((await M()).playlists[0]) === JSON.stringify({ name: 'Night drive', items: ids }), (await M()).playlists);
+
+      // Add to an existing playlist from a single right-clicked track (not in the selection → it becomes the selection).
+      await page.click(row(9), { button: 'right' });
+      check('right-click outside the selection selects that track', JSON.stringify((await ms()).sel) === '[9]');
+      await page.hover('.menu-popup .menu-item:has-text("Add to playlist")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Night drive")');
+      await waitFn(page, () => window.__mock.state.music.playlists[0].items.length === 5);
+      check('Add to playlist ▸ <existing> appends the track', (await M()).playlists[0].items.length === 5);
+      await page.click(row(9), { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Show in Explorer")');
+      await waitFn(page, () => window.__mock.state.music.revealed != null);
+      check('Show in Explorer asks the host to reveal that track', (await M()).revealed === Number(await page.getAttribute(row(9), 'data-id')));
+
+      // Ctrl+A, then mark all as Keep from the keyboard menu (Shift+F10).
+      await page.focus('#music-list');
+      await page.keyboard.press('Control+a');
+      check('Ctrl+A in the list selects every track', (await ms()).sel.length === 12);
+      await page.keyboard.press('Shift+F10');
+      await page.waitForSelector('.menu-popup');
+      await page.hover('.menu-popup .menu-item:has-text("Mark as")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Keep")');
+      await waitFn(page, () => window.__mock.state.music.tracks.every((t) => t.triage === 2));
+      check('Mark as ▸ Keep applies to every selected track', (await M()).triage.every((v) => v === 2));
+
+      // Shift+arrows extend from the cursor; Escape collapses back to one.
+      await page.click(row(2));
+      await page.keyboard.press('Shift+ArrowDown');
+      await page.keyboard.press('Shift+ArrowDown');
+      check('Shift+Down extends the selection', JSON.stringify((await ms()).sel) === '[2,3,4]');
+      await page.keyboard.press('Escape');
+      check('Escape collapses a multi-selection to the cursor', JSON.stringify((await ms()).sel) === '[4]');
+
+      // Play next for a selection, then copy titles.
+      await page.click(row(0));
+      await page.click(row(1), { modifiers: ['Shift'] });
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.NoorMusic._state().q.current != null, null, { timeout: 6000 });
+      const q1 = (await ms()).q;
+      check('Enter on a multi-selection plays just those tracks', q1.ids.length === 2);
+      await page.click(row(1), { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Copy titles")');
+      await waitFn(page, () => typeof window.__mock.state.clipboard === 'string' && window.__mock.state.clipboard.includes('\n'));
+      check('Copy titles copies one line per selected track', (await page.evaluate(() => window.__mock.state.clipboard)).split('\n').length === 2);
+
+      // Inside a playlist: Remove from “…” (files untouched).
+      const before = (await M()).playlists[0].items;
+      await page.click('.music-tabs [data-tab="playlists"], [role="tab"][data-tab="playlists"]');
+      await page.click('#music-playlists .qtitle');
+      await waitFn(page, () => window.NoorMusic._state().view.playlistId === 1);
+      await page.waitForSelector(row(4));
+      await page.click(row(0));
+      await page.click(row(1), { modifiers: ['Shift'] });
+      await page.click(row(1), { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Remove from “Night drive”")');
+      await waitFn(page, () => window.__mock.state.music.playlists[0].items.length === 3);
+      check('Remove from playlist drops only the selected entries', JSON.stringify((await M()).playlists[0].items) === JSON.stringify(before.slice(2)));
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors with multi-select and the track menu', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -478,6 +478,9 @@ body.music-disabled .music-entry, body.music-disabled .miniplayer { display: non
 .track { position: absolute; left: 0; right: 0; height: 50px; display: flex; align-items: center; gap: 8px; padding: 0 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); cursor: default; }
 .track:hover { background: var(--surface); }
 .track.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.track.cursor { box-shadow: inset 2px 0 0 var(--accent); }
+#music-list:focus-visible .track.cursor { outline: 1px dotted var(--accent); outline-offset: -2px; }
+.music-selcount { margin-left: 8px; color: var(--accent); }
 .track.playing .track-title { color: var(--accent); }
 .track.missing { opacity: .55; }
 .track-state { width: 16px; color: var(--accent); font-size: 10px; flex-shrink: 0; }
@@ -678,3 +681,5 @@ body.has-vault.side-files .sidebar > .side-section:not(.vault-panel), body.has-v
 .pack-fill { height: 100%; width: 0; background: var(--accent); transition: width .15s; }
 .pack-path { font-family: var(--font-mono); font-size: 12.5px; word-break: break-all; }
 @media (max-width: 760px) { .pack-checks { grid-template-columns: 1fr; padding-left: 0; } }
+.mp-shuffle.on, .tp.shuffle.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.mp-random, .tp.random { font-size: 14px; }

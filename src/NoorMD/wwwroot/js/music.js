@@ -27,7 +27,9 @@ window.NoorMusic = (() => {
   let viewRows = new Map(); // index -> row
   let viewGen = 0;
   const pending = new Set();
-  let selected = -1;
+  let selected = -1;          // the row with the keyboard cursor
+  let sel = new Set();        // selected row indices of the current view (multi-select)
+  let anchor = -1;            // start of a Shift range
   let tab = 'library';
   let q = { ids: [], order: [], pos: -1, shuffle: false, repeat: 'off', volume: 0.8 };
   let mediaVersion = 0;     // bumped after an edit so the player re-requests the (possibly renamed/retagged) file
@@ -121,7 +123,7 @@ window.NoorMusic = (() => {
     panel.innerHTML = '';
     panel.append(
       el('div', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '♫' }), el('strong', { text: 'Music Bench' }), el('small', { id: 'music-count' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '♫' }), el('strong', { text: 'Music Bench' }), el('small', { id: 'music-count' }), el('small', { id: 'music-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
         el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close Music Bench', onclick: () => togglePanel(false) }, '✕')),
       buildNowPlaying(),
       el('div', { class: 'music-tabs', role: 'tablist' },
@@ -155,8 +157,16 @@ window.NoorMusic = (() => {
     list.addEventListener('click', (e) => {
       const node = e.target.closest('.track[data-index]');
       if (!node || e.target.closest('button')) return;
-      selected = Number(node.dataset.index);
-      updateSelection();
+      clickSelect(Number(node.dataset.index), e.ctrlKey || e.metaKey, e.shiftKey);
+    });
+    list.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const node = e.target.closest('.track[data-index]');
+      if (!node) return;
+      const i = Number(node.dataset.index);
+      if (!sel.has(i)) clickSelect(i, false, false);
+      list.focus({ preventScroll: true });
+      showTrackMenu(e.clientX, e.clientY);
     });
     list.addEventListener('dblclick', (e) => {
       const node = e.target.closest('.track[data-index]');
@@ -239,7 +249,7 @@ window.NoorMusic = (() => {
     $('#music-sort').value = view.sort === 'playlist' ? 'title' : view.sort;
     viewRows = new Map();
     viewGen++;
-    selected = -1;
+    selected = -1; sel = new Set(); anchor = -1;
     $('#music-list').scrollTop = 0;
     renderChips();
     renderViewbar();
@@ -294,8 +304,8 @@ window.NoorMusic = (() => {
     const playing = row.id === currentId();
     const t = TRIAGE[row.triage] || TRIAGE[0];
     const node = el('div', {
-      class: 'track' + (i === selected ? ' selected' : '') + (playing ? ' playing' : '') + (row.missing ? ' missing' : ''),
-      style: `top:${i * ROW}px`, role: 'option', 'aria-selected': String(i === selected), 'data-index': String(i), 'data-id': String(row.id),
+      class: 'track' + (sel.has(i) ? ' selected' : '') + (i === selected ? ' cursor' : '') + (playing ? ' playing' : '') + (row.missing ? ' missing' : ''),
+      style: `top:${i * ROW}px`, role: 'option', 'aria-selected': String(sel.has(i)), 'data-index': String(i), 'data-id': String(row.id),
       title: row.folder + '\\' + row.fileName,
     },
     el('span', { class: 'track-state', text: playing ? (audio.paused ? '❚❚' : '▶') : '' }),
@@ -313,17 +323,126 @@ window.NoorMusic = (() => {
 
   function updateSelection() {
     document.querySelectorAll('#music-list .track[data-index]').forEach((n) => {
-      const on = Number(n.dataset.index) === selected;
-      n.classList.toggle('selected', on);
-      n.setAttribute('aria-selected', String(on));
+      const i = Number(n.dataset.index);
+      n.classList.toggle('selected', sel.has(i));
+      n.classList.toggle('cursor', i === selected);
+      n.setAttribute('aria-selected', String(sel.has(i)));
     });
+    const count = $('#music-selcount');
+    if (count) count.textContent = sel.size > 1 ? `${sel.size.toLocaleString()} selected` : '';
+  }
+
+  /** Click: one row. Ctrl+click: add/remove a row. Shift+click: the range from the last clicked row. */
+  function clickSelect(i, toggleOne, range) {
+    if (range && anchor >= 0) {
+      const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
+      if (!toggleOne) sel = new Set();
+      for (let k = a; k <= b; k++) sel.add(k);
+    } else if (toggleOne) {
+      if (sel.has(i)) sel.delete(i); else sel.add(i);
+      anchor = i;
+    } else {
+      sel = new Set([i]);
+      anchor = i;
+    }
+    selected = i;
+    updateSelection();
+  }
+
+  function selectAll() {
+    sel = new Set(Array.from({ length: view.total }, (_, k) => k));
+    if (selected < 0 && view.total) selected = 0;
+    updateSelection();
+    notice(`${view.total.toLocaleString()} tracks selected`, 1200);
+  }
+
+  /** Track ids of the selection, in list order. Rows not loaded yet are looked up for the whole view. */
+  async function selectedIds() {
+    const idx = (sel.size ? [...sel] : selected >= 0 ? [selected] : []).sort((a, b) => a - b);
+    if (!idx.length) return [];
+    if (idx.every((k) => viewRows.has(k))) return idx.map((k) => viewRows.get(k).id);
+    const all = await req('music.ids', queryPayload(0, 2000));
+    return idx.map((k) => all[k]).filter((id) => id != null);
+  }
+
+  async function withSelection(fn) {
+    let ids;
+    try { ids = await selectedIds(); } catch (err) { hooks.showError(err); return; }
+    if (ids.length) await fn(ids);
+  }
+
+  async function removeFromPlaylist(ids) {
+    const pl = status.playlists.find((p) => p.id === view.playlistId);
+    if (!pl) return;
+    try {
+      const current = await req('music.ids', { playlistId: pl.id, sort: 'playlist' });
+      const drop = new Set(ids);
+      await req('music.playlist.setItems', { id: pl.id, ids: current.filter((id) => !drop.has(id)) });
+      notice(`Removed ${ids.length} track${ids.length === 1 ? '' : 's'} from “${pl.name}” (the files are not touched)`, 2200);
+      await refreshStatus(false);
+      sel = new Set(); anchor = -1;
+      viewRows = new Map(); viewGen++;
+      await loadView(false);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function copyLines(ids, kind) {
+    try {
+      await loadTracks(ids);
+      const rows = ids.map((id) => cache.get(id)).filter(Boolean);
+      const text = rows.map((r) => (kind === 'path' ? r.folder + '\\' + r.fileName : [r.artist, r.displayTitle].filter(Boolean).join(' – '))).join('\n');
+      await req('clipboard.copyText', { text });
+      notice(`Copied ${rows.length} ${kind === 'path' ? 'file path' : 'title'}${rows.length === 1 ? '' : 's'}`, 1500);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** Right-click menu for the selected tracks. */
+  function showTrackMenu(x, y) {
+    const n = sel.size || (selected >= 0 ? 1 : 0);
+    if (!n) return;
+    const many = n > 1;
+    const one = !many ? viewRows.get(selected) : null;
+    const plural = (w) => (many ? `${n.toLocaleString()} ${w}s` : w);
+    const inPlaylist = view.playlistId ? status.playlists.find((p) => p.id === view.playlistId) : null;
+    const items = [
+      { label: many ? `Play these ${n.toLocaleString()} tracks` : 'Play', run: () => (many ? withSelection((ids) => setQueue(ids, q.shuffle ? Math.floor(Math.random() * ids.length) : 0, true)) : playView(selected)) },
+      { label: 'Play next', run: () => withSelection(playNext) },
+      { label: 'Add to Up next', run: () => withSelection(enqueue) },
+      '-',
+      { label: 'Add to playlist', sub: () => [
+        ...status.playlists.filter((p) => !inPlaylist || p.id !== inPlaylist.id).map((p) => ({ label: `${p.name}  (${p.count})`, run: () => withSelection(async (ids) => {
+          try { status.playlists = await req('music.playlist.add', { id: p.id, ids }); notice(`Added ${plural('track')} to “${p.name}”`, 1600); renderPlaylists(); } catch (err) { hooks.showError(err); }
+        }) })),
+        ...(status.playlists.length ? ['-'] : []),
+        { label: 'New playlist…', run: () => withSelection((ids) => createPlaylist(ids)) },
+      ] },
+      inPlaylist ? { label: `Remove from “${inPlaylist.name}”`, run: () => withSelection(removeFromPlaylist) } : null,
+      '-',
+      { label: 'Mark as', sub: () => [
+        ...TRIAGE.slice(1).map((t) => ({ label: `${t.icon}  ${t.label}`, run: () => withSelection((ids) => setTriage(ids, t.v)) })),
+        '-', { label: 'Clear mark', run: () => withSelection((ids) => setTriage(ids, 0)) },
+      ] },
+      { label: many ? `Edit ${n.toLocaleString()} tracks… (Batch Organizer)` : 'Edit track…', run: () => (many ? withSelection((ids) => (hooks.batchEdit ? hooks.batchEdit(ids) : notice('The Batch Organizer is coming next.'))) : one && editTrack(one.id)) },
+      '-',
+      { label: 'Show in Explorer', disabled: many || !one, run: () => one && req('music.reveal', { id: one.id }).catch(hooks.showError) },
+      { label: many ? 'Copy titles' : 'Copy title', run: () => withSelection((ids) => copyLines(ids, 'title')) },
+      { label: many ? 'Copy file paths' : 'Copy file path', run: () => withSelection((ids) => copyLines(ids, 'path')) },
+      '-',
+      { label: 'Select all', run: selectAll },
+    ].filter(Boolean);
+    NoorChrome.openMenu(null, items, { x, y });
   }
 
   function focusList() { const l = $('#music-list'); if (l && !l.classList.contains('hide')) l.focus({ preventScroll: true }); }
 
-  function selectIndex(i) {
+  function selectIndex(i, extend) {
     if (!view.total) return;
     selected = Math.max(0, Math.min(view.total - 1, i));
+    if (extend) {
+      if (anchor < 0) anchor = selected;
+      sel = new Set();
+      for (let k = Math.min(anchor, selected); k <= Math.max(anchor, selected); k++) sel.add(k);
+    } else { sel = new Set([selected]); anchor = selected; }
     const list = $('#music-list');
     const top = selected * ROW;
     if (top < list.scrollTop) list.scrollTop = top;
@@ -335,14 +454,25 @@ window.NoorMusic = (() => {
     const row = viewRows.get(selected);
     const page = Math.max(1, Math.floor($('#music-list').clientHeight / ROW) - 1);
     const map = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page };
-    if (map[e.key] != null) { e.preventDefault(); selectIndex((selected < 0 ? -1 : selected) + map[e.key]); return; }
-    if (e.key === 'Home') { e.preventDefault(); selectIndex(0); return; }
-    if (e.key === 'End') { e.preventDefault(); selectIndex(view.total - 1); return; }
+    if (map[e.key] != null && !e.ctrlKey && !e.altKey) { e.preventDefault(); selectIndex((selected < 0 ? -1 : selected) + map[e.key], e.shiftKey); return; }
+    if (e.key === 'Home' && !e.ctrlKey) { e.preventDefault(); selectIndex(0, e.shiftKey); return; }
+    if (e.key === 'End' && !e.ctrlKey) { e.preventDefault(); selectIndex(view.total - 1, e.shiftKey); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') { e.preventDefault(); e.stopPropagation(); selectAll(); return; }
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault(); e.stopPropagation();
+      const node = document.querySelector(`#music-list .track[data-index="${selected}"]`);
+      const r = (node || $('#music-list')).getBoundingClientRect();
+      showTrackMenu(r.left + 40, r.top + ROW);
+      return;
+    }
+    if (e.key === 'Escape' && sel.size > 1) { e.preventDefault(); e.stopPropagation(); sel = new Set(selected >= 0 ? [selected] : []); anchor = selected; updateSelection(); return; }
     if (!row || e.ctrlKey || e.altKey || e.metaKey) return;
-    if (e.key === 'Enter') { e.preventDefault(); playView(selected); }
-    else if (/^[0-4]$/.test(e.key)) { e.preventDefault(); setTriage([row.id], Number(e.key)); }
-    else if (e.key.toLowerCase() === 'q') { e.preventDefault(); enqueue([row.id]); }
-    else if (e.key.toLowerCase() === 'n') { e.preventDefault(); playNext([row.id]); }
+    const multi = sel.size > 1;
+    if (e.key === 'Enter') { e.preventDefault(); if (multi) withSelection((ids) => setQueue(ids, 0, true)); else playView(selected); }
+    else if (/^[0-4]$/.test(e.key)) { e.preventDefault(); withSelection((ids) => setTriage(ids, Number(e.key))); }
+    else if (e.key.toLowerCase() === 'q') { e.preventDefault(); withSelection(enqueue); }
+    else if (e.key.toLowerCase() === 'n') { e.preventDefault(); withSelection(playNext); }
+    else if (e.key === 'Delete' && view.playlistId) { e.preventDefault(); withSelection(removeFromPlaylist); }
     else if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); editTrack(row.id); }
   }
 
@@ -465,6 +595,27 @@ window.NoorMusic = (() => {
     renderAll(); scheduleSave();
   }
 
+  /**
+   * Jumps to a random track. The queue becomes the whole current library view (or the whole library when the
+   * view is empty), so every song can come up — not just the ones already queued. Shuffle stays as it was.
+   */
+  async function playRandom() {
+    if (!enabled()) return;
+    await start();
+    let ids;
+    try { ids = await req('music.ids', queryPayload(0, 2000)); } catch (err) { hooks.showError(err); return; }
+    if (!ids.length && (view.search || view.triage != null || view.playlistId)) {
+      try { ids = await req('music.ids', { search: '', triage: null, missingOnly: false, playlistId: null, sort: 'title', desc: false, offset: 0, limit: 2000 }); } catch { ids = []; }
+    }
+    if (!ids.length) { togglePanel(true); notice('Add a music folder first.'); return; }
+    const cur = currentId();
+    let pick = Math.floor(Math.random() * ids.length);
+    if (ids.length > 1 && ids[pick] === cur) pick = (pick + 1 + Math.floor(Math.random() * (ids.length - 1))) % ids.length;
+    await setQueue(ids, pick, true);
+    const row = cache.get(ids[pick]);
+    notice('🎲 ' + (row ? row.displayTitle : 'Random track'), 1600);
+  }
+
   function cycleRepeat() {
     q.repeat = { off: 'all', all: 'one', one: 'off' }[q.repeat];
     notice({ off: 'Repeat off', all: 'Repeat all', one: 'Repeat this track' }[q.repeat], 1200);
@@ -559,7 +710,8 @@ window.NoorMusic = (() => {
         el('input', { type: 'range', id: 'np-range', min: '0', max: '1000', value: '0', 'aria-label': 'Seek' }),
         el('span', { id: 'np-dur', text: '0:00' })),
       el('div', { class: 'np-controls' },
-        tr('shuffle', '⇄', 'Shuffle', () => setShuffle(!q.shuffle)),
+        tr('shuffle', '⇄', 'Shuffle: play the queue in random order', () => setShuffle(!q.shuffle)),
+        tr('random', '🎲', 'Jump to a random track (Ctrl+Alt+R)', () => playRandom()),
         tr('prev', '⏮', 'Previous (Ctrl+Alt+←)', prev),
         tr('play', '▶', 'Play / pause (Ctrl+Alt+Space)', toggle),
         tr('next', '⏭', 'Next (Ctrl+Alt+→)', () => next(false)),
@@ -576,7 +728,8 @@ window.NoorMusic = (() => {
     mp.replaceChildren(
       el('div', { class: 'mp-art', id: 'mp-art', 'aria-hidden': 'true' }, el('span', { text: '♫' })),
       el('div', { class: 'mp-text' }, el('div', { class: 'mp-title', id: 'mp-title' }), el('div', { class: 'mp-sub', id: 'mp-sub' })),
-      b('⏮', 'Previous', prev), b('▶', 'Play / pause', toggle, 'mp-play'), b('⏭', 'Next', () => next(false)),
+      b('⇄', 'Shuffle', () => setShuffle(!q.shuffle), 'mp-shuffle'), b('⏮', 'Previous', prev), b('▶', 'Play / pause', toggle, 'mp-play'), b('⏭', 'Next', () => next(false)),
+      b('🎲', 'Jump to a random track (Ctrl+Alt+R)', () => playRandom(), 'mp-random'),
       el('span', { class: 'mp-time', id: 'mp-cur', text: '0:00' }),
       el('input', { type: 'range', id: 'mp-range', min: '0', max: '1000', value: '0', 'aria-label': 'Seek' }),
       el('span', { class: 'mp-time', id: 'mp-dur', text: '0:00' }),
@@ -610,7 +763,7 @@ window.NoorMusic = (() => {
     const icon = audio.paused ? '▶' : '❚❚';
     document.querySelectorAll('.tp.play, .mp-play').forEach((b) => { b.textContent = icon; b.setAttribute('aria-label', audio.paused ? 'Play' : 'Pause'); });
     window.dispatchEvent(new Event('noor-music'));
-    document.querySelectorAll('.tp.shuffle').forEach((b) => b.classList.toggle('on', q.shuffle));
+    document.querySelectorAll('.tp.shuffle, .mp-shuffle').forEach((b) => { b.classList.toggle('on', q.shuffle); b.setAttribute('aria-pressed', String(q.shuffle)); b.title = q.shuffle ? 'Shuffle is on — click to play in order' : 'Shuffle is off — click to play in random order'; });
     document.querySelectorAll('.tp.repeat').forEach((b) => { b.classList.toggle('on', q.repeat !== 'off'); b.textContent = q.repeat === 'one' ? '↻¹' : '↻'; b.title = { off: 'Repeat: off', all: 'Repeat: all', one: 'Repeat: this track' }[q.repeat]; });
     const tri = currentTriage();
     document.querySelectorAll('.np-triage .chip').forEach((c) => c.classList.toggle('active', Number(c.dataset.triage) === tri));
@@ -952,7 +1105,7 @@ window.NoorMusic = (() => {
 
   return {
     init, resumeSession, togglePanel, applyVisibility, toggle, next: () => next(false), prev, editCurrent, triageCurrent,
-    undoLastEdit, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat,
+    undoLastEdit, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
     isOpen: () => document.body.classList.contains('music-open'),
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },
@@ -960,6 +1113,6 @@ window.NoorMusic = (() => {
     repeatMode: () => q.repeat,
     // test hooks (used by the automated UI tests and NoorMD.exe --self-test)
     _testPlay: async (ids, index, muted) => { await start(); audio.muted = !!muted; await setQueue(ids, index, true); },
-    _state: () => ({ q: { ...q, current: currentId() }, paused: audio.paused, time: audio.currentTime, duration: audio.duration, src: audio.getAttribute('src'), view: { ...view }, selected, rows: viewRows.size }),
+    _state: () => ({ q: { ...q, current: currentId() }, paused: audio.paused, time: audio.currentTime, duration: audio.duration, src: audio.getAttribute('src'), view: { ...view }, selected, sel: [...sel].sort((a, b) => a - b), rows: viewRows.size }),
   };
 })();
