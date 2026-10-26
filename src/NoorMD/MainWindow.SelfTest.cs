@@ -180,6 +180,7 @@ public partial class MainWindow
 
             await RunTabsSelfTestAsync(tab);
             await RunVaultSelfTestAsync(tab);
+            await RunSketchSelfTestAsync(tab);
             await RunMusicSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
@@ -316,6 +317,29 @@ public partial class MainWindow
         Check("closing the Vault leaves the other tabs open", _tabs.Count >= 1 && await Eval("document.body.classList.contains('has-vault')") == "false");
         SelectTab(first);
         await Task.Delay(800);
+    }
+
+    /// <summary>NoorSketch on real WebView2: separate window, exact PNG through the .noorsketch format, editor untouched.</summary>
+    private async Task RunSketchSelfTestAsync(Host.DocumentSession first)
+    {
+        var before = (await GetEditorStateAsync(first.TabId))?.Markdown;
+        var w = OpenSketch(null);
+        string ready = "false";
+        for (int i = 0; i < 50 && ready != "true"; i++) { await Task.Delay(200); try { ready = await w.EvalAsync("!!(window.NoorSketch && window.NoorSketch._state().W === 1920)"); } catch { } }
+        Check("NoorSketch opens in its own window with a 1920×1080 canvas", ready == "true");
+        if (ready != "true") { w.CloseWithoutPrompt(); return; }
+        await w.EvalAsync("window.NoorSketch._newCanvas(256, 128, 'transparent'); window.__png = null; window.NoorSketch._encode().then(p => window.__png = p)");
+        string png = "null";
+        for (int i = 0; i < 30 && png == "null"; i++) { await Task.Delay(100); png = await w.EvalAsync("window.__png"); }
+        var bytes = Convert.FromBase64String(JsonSerializer.Deserialize<string>(png) ?? "");
+        var file = Path.Combine(SelfTestDir!, "selftest.noorsketch");
+        NoorMD.Core.Sketch.SketchFile.Save(file, bytes, "transparent");
+        var (back, manifest) = NoorMD.Core.Sketch.SketchFile.Load(file);
+        Check("sketch PNG from the page saves and loads byte-identical (.noorsketch)", back.SequenceEqual(bytes) && manifest.Width == 256 && manifest.Height == 128);
+        await Capture("screenshot-before-sketch-close.png");
+        w.CloseWithoutPrompt();
+        await Task.Delay(400);
+        Check("closing NoorSketch leaves the document untouched", (await GetEditorStateAsync(first.TabId))?.Markdown == before && !_sketches.Contains(w));
     }
 
     private async Task<string> Eval(string script) => await Core.ExecuteScriptAsync(script);

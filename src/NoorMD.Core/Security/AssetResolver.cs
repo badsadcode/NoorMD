@@ -28,6 +28,9 @@ public static class AssetResolver
     public static bool IsAppUri(Uri uri) =>
         uri.Scheme == Uri.UriSchemeHttps && string.Equals(uri.Host, Host, StringComparison.OrdinalIgnoreCase) && uri.IsDefaultPort;
 
+    public const string SketchPagePath = "/_noormd/sketch.html";
+    public static bool IsSketchPage(Uri uri) => IsAppUri(uri) && uri.AbsolutePath == SketchPagePath;
+
     public static bool IsAppPage(Uri uri) => IsAppUri(uri) && (uri.AbsolutePath == "/" || uri.AbsolutePath == "/index.html");
 
     /// <summary>Returns the file to serve, or null (404). Never returns a path outside the allowed roots.</summary>

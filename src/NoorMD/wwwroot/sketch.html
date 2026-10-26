@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' blob: data:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>NoorSketch</title>
+<link rel="icon" href="data:,">
+<script src="/_noormd/js/boot.js"></script>
+<link rel="stylesheet" href="/_noormd/vendor/inter/inter.css">
+<link rel="stylesheet" href="/_noormd/css/themes.css">
+<link rel="stylesheet" href="/_noormd/css/app.css">
+<link rel="stylesheet" href="/_noormd/css/sketch.css">
+</head>
+<body class="sketch">
+<header class="sk-bar" role="toolbar" aria-label="NoorSketch tools">
+  <div class="sk-group" id="sketch-file"></div>
+  <div class="sk-group" id="sketch-tools"></div>
+  <div class="sk-group" id="sketch-sizes"></div>
+  <div class="sk-group" id="sketch-colors"></div>
+  <div class="sk-group" id="sketch-history"></div>
+  <div class="sk-group" id="sketch-view"></div>
+</header>
+<main class="sk-viewport" id="sketch-viewport" data-tool="brush" aria-label="Drawing canvas">
+  <canvas id="sketch-canvas" class="sk-canvas"></canvas>
+  <div class="sk-brush" id="sketch-brush" hidden aria-hidden="true"></div>
+</main>
+<footer class="sk-status"><span id="sketch-size"></span><span>Wheel zooms · Space or middle-drag pans · [ ] brush size · Esc cancels a stroke</span></footer>
+<div id="notice" role="status" aria-live="polite"></div>
+<script src="/_noormd/js/bridge.js"></script>
+<script src="/_noormd/js/ui.js"></script>
+<script src="/_noormd/js/sketch-png.js"></script>
+<script src="/_noormd/js/sketch.js"></script>
+</body>
+</html>

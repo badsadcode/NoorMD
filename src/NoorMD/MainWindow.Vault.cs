@@ -85,6 +85,7 @@ public partial class MainWindow
                 {
                     var full = VaultFull(req.GetString("path", 1000));
                     if (!File.Exists(full)) throw new BridgeError("That file no longer exists.");
+                    if (full.EndsWith(".noorsketch", StringComparison.OrdinalIgnoreCase)) { OpenSketch(full); return new { sketch = true }; }
                     if (!DocumentFile.IsOpenable(full)) { OpenExternal(full); return new { external = true }; }
                     return await WithDocGate(() => OpenPathAsync(full));
                 }

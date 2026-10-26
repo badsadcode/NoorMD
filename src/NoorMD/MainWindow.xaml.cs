@@ -36,6 +36,8 @@ public partial class MainWindow : Window
     private int _readyCount;
 
     private CoreWebView2 Core => Web.CoreWebView2;
+    /// <summary>Shared with NoorSketch windows (one browser process, one profile).</summary>
+    internal CoreWebView2Environment? WebEnvironment { get; private set; }
 
     public MainWindow(string? startupFile)
     {
@@ -71,6 +73,7 @@ public partial class MainWindow : Window
         {
             Web.DefaultBackgroundColor = ToDrawing(ThemeManager.Background(_settings.Prefs.Theme));
             var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: App.Paths.WebViewData);
+            WebEnvironment = env;
             await Web.EnsureCoreWebView2Async(env);
         }
         catch (WebView2RuntimeNotFoundException ex)
@@ -137,7 +140,7 @@ public partial class MainWindow : Window
                 return;
             }
             var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
-            if (AssetResolver.IsAppPage(uri))
+            if (AssetResolver.IsAppPage(uri) || AssetResolver.IsSketchPage(uri))
                 headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
             e.Response = Core.Environment.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", headers);
         }
@@ -185,7 +188,7 @@ public partial class MainWindow : Window
         "openLinkInNewTab", "openLinkInProfile", "readAloud", "translate", "searchWeb", "smartSelect",
     };
 
-    private void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
+    internal static void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
     {
         // Keep editing and spelling items; drop browser items (Back, Reload, Save as, Print, Inspect, link actions).
         var items = e.MenuItems;
@@ -303,6 +306,7 @@ public partial class MainWindow : Window
         try
         {
             if (!await ConfirmCloseWindowAsync()) return;
+            if (!ConfirmCloseSketches()) return;
         }
         finally { _docGate.Release(); }
         _closeConfirmed = true;

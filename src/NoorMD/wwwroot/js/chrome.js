@@ -239,7 +239,7 @@ window.NoorChrome = (() => {
     ]],
     ['Insert', 'i', () => [
       { id: 'insert.link' }, { id: 'insert.image' }, { id: 'insert.table' }, { id: 'insert.codeblock' }, { id: 'insert.hr' }, { id: 'fmt.task' }, '-',
-      { id: 'vault.insertLink' }, { id: 'sketch.new' },
+      { id: 'vault.insertLink' }, { label: 'Sketch (opens NoorSketch)', run: () => api.run('sketch.new') },
     ]],
     ['Format', 'o', () => [
       { id: 'heading.0' }, { id: 'heading.1' }, { id: 'heading.2' }, { id: 'heading.3' }, { label: 'More headings', sub: () => [{ id: 'heading.4' }, { id: 'heading.5' }, { id: 'heading.6' }] }, '-',

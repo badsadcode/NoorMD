@@ -262,7 +262,7 @@ function mockHostScript(initial) {
   async function packCreate(id, p) {
     V.packRequest = p; V.packCancelled = false;
     for (let i = 1; i <= 5; i++) {
-      await new Promise((r) => setTimeout(r, initial.packDelay || 60));
+      await new Promise((r) => setTimeout(r, V.packDelay || initial.packDelay || 60));
       if (V.packCancelled) return reply(id, true, { cancelled: true });
       event('vault.pack.progress', { done: i, total: 5, bytes: i * 1000 });
     }
@@ -344,4 +344,30 @@ function mockHostScript(initial) {
   window.__mock = { log, files, state };
 }
 
-module.exports = { serve, mockHostScript, WWW, mediaLog };
+// Mock host for the NoorSketch window: records what the page sends, answers like SketchWindow.cs.
+function sketchHostScript(initial) {
+  const listeners = [];
+  const log = [];
+  const state = { saved: null, exported: null, inserted: null, dirty: [], openFile: initial.openFile || null, saveCount: 0 };
+  const emit = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 0);
+  const reply = (id, ok, result, error) => id != null && emit({ v: 2, replyTo: id, ok, result, error });
+  window.__NOORMD_TEST_HOST__ = {
+    addEventListener: (_t, fn) => listeners.push(fn),
+    postMessage(m) {
+      log.push({ type: m.type, keys: Object.keys(m.payload || {}) });
+      const p = m.payload || {};
+      switch (m.type) {
+        case 'sketch.ready': return reply(m.id, true, initial.ready || { width: 400, height: 300, background: 'white' });
+        case 'sketch.dirty': state.dirty.push(p.dirty); return;
+        case 'sketch.save': state.saved = p; state.saveCount++; return reply(m.id, true, { path: 'C:\\Sketches\\idea.noorsketch', name: 'idea' });
+        case 'sketch.open': return reply(m.id, true, state.openFile || { cancelled: true });
+        case 'sketch.exportPng': state.exported = p; return reply(m.id, true, { path: 'C:\\Sketches\\idea.png' });
+        case 'sketch.insert': state.inserted = p; return reply(m.id, true, { inserted: true, link: 'assets/idea.png', document: 'Plan.md' });
+        default: return reply(m.id, true, null);
+      }
+    },
+  };
+  window.__sk = { log, state, emit };
+}
+
+module.exports = { serve, mockHostScript, sketchHostScript, WWW, mediaLog };

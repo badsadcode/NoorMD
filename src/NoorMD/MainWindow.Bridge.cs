@@ -128,6 +128,7 @@ public partial class MainWindow
                     runtime = RuntimeInformation.FrameworkDescription,
                     webView2 = Core.Environment.BrowserVersionString,
                 };
+            case "sketch.new" or "sketch.open": return DispatchSketch(req);
             case var pack when pack.StartsWith("vault.pack.", StringComparison.Ordinal):
                 return await DispatchPackAsync(req);
             case var vault when vault.StartsWith("vault.", StringComparison.Ordinal):

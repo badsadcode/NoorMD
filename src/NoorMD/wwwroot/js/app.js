@@ -1265,6 +1265,8 @@
     ['vault.refresh', 'Refresh Vault', 'Vault', '', () => bridge.request('vault.refresh').catch(showError)],
     ['vault.settings', 'Vault settings…', 'Vault', '', () => NoorVault.showSettings()],
     ['vault.insertLink', 'Link to a note…', 'Vault', '', () => NoorVault.pickNoteToLink()],
+    ['sketch.new', 'NoorSketch: new sketch', 'Tools', '', () => bridge.request('sketch.new').catch(showError)],
+    ['sketch.open', 'NoorSketch: open sketch…', 'Tools', '', () => bridge.request('sketch.open').catch(showError)],
     ['vault.pack', 'Pack & Share…', 'Vault', '', () => NoorVault.showPack(document.body.classList.contains('side-files') ? NoorVault.selection() : [])],
     ['vault.followLink', 'Follow link at cursor', 'Vault', 'Ctrl+Click', () => NoorVault.followLink()],
     ['edit.undo', 'Undo', 'Edit', 'Ctrl+Z', () => fmt('undo')],

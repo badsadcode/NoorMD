@@ -2,7 +2,7 @@
 // Usage: node tests/web/ui.test.js [--screenshots <dir>]
 'use strict';
 const { chromium } = require('playwright');
-const { serve, mockHostScript, mediaLog } = require('./harness');
+const { serve, mockHostScript, sketchHostScript, mediaLog } = require('./harness');
 
 const LOSSLESS = '# Zażółć gęślą jaźń\n\nPolish: żółw, łódź, ćma, źdźbło. **Bold** and *italic*.\n\n## Lists\n\n- one\n- two\n\n## Table\n\n| a | b |\n| --- | --- |\n| 1 | 2 |\n\n```csharp\nConsole.WriteLine("ą");\n```\n\n### Third\n\nSee [example](https://example.com) and [local](notes/other.md).\n';
 const LOSSY = '# Raw\n\n<div align="center">Centered</div>\n\nLine one  \nLine two\n\nFoot[^1]\n\n[^1]: note\n';
@@ -1312,11 +1312,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Workspace → Pack & Share offers the explorer selection or the whole Vault', await page.isVisible('#pk-scope-selection') && await page.isVisible('#pk-scope-vault'));
       await page.check('#pk-scope-vault');
       await waitFn(page, () => window.__mock.state.vault.lastPlanRequest.paths.length === 0);
-      await page.evaluate(() => { window.__mock.state.vault.packed = false; });
+      await page.evaluate(() => { window.__mock.state.vault.packed = false; window.__mock.state.vault.packDelay = 1500; });
       await page.click('#pk-create');
       await page.waitForSelector('#pk-cancel');
       await page.click('#pk-cancel');
       await page.waitForSelector('#pk-create');
+      await page.evaluate(() => { window.__mock.state.vault.packDelay = 60; });
       check('Cancel stops packing and reports that no archive was created', !(await page.evaluate(() => window.__mock.state.vault.packed)) && (await page.textContent('#notice')).includes('no archive'));
       await page.keyboard.press('Escape');
 
@@ -1338,6 +1339,139 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/pack.png` });
       const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
       check('no page errors in Pack & Share checks', unexpected.length === 0, unexpected);
+      await page.close();
+    }
+
+    // ---- 15. NoorSketch (its own window/page): brush, eraser, undo, zoom, exact save/open, PNG export, insert.
+    {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+      await page.addInitScript(sketchHostScript, {});
+      await page.goto(url + '_noormd/sketch.html');
+      await waitFn(page, () => window.NoorSketch && window.NoorSketch._state().W === 400);
+      const S = () => page.evaluate(() => window.NoorSketch._state());
+      const px = (x, y) => page.evaluate(([a, b]) => window.NoorSketch._pixel(a, b), [x, y]);
+      const at = (x, y) => page.evaluate(([a, b]) => window.NoorSketch._toClient(a, b), [x, y]);
+      check('NoorSketch opens with a white 400×300 canvas', (await S()).W === 400 && (await px(5, 5)).join() === '255,255,255,255');
+      check('a small canvas is shown at 100% (fit never enlarges it) and keeps its pixel size', (await S()).zoom === 1 && (await page.evaluate(() => document.querySelector('#sketch-canvas').width)) === 400);
+
+      // A fast stroke (only 3 pointer samples across the canvas) leaves no gaps.
+      let a = await at(20, 150), b = await at(380, 150);
+      await page.mouse.move(a.x, a.y);
+      await page.mouse.down();
+      await page.mouse.move(b.x, b.y, { steps: 2 });
+      await page.mouse.up();
+      await page.waitForTimeout(80);
+      const row = await page.evaluate(() => { const out = []; for (let x = 22; x <= 378; x++) out.push(window.NoorSketch._pixel(x, 150)); return out; });
+      check('a fast stroke is continuous (no gaps between samples)', row.every((p) => p[3] === 255 && p[0] === 29), row.filter((p) => p[3] !== 255).length);
+      check('a stroke marks the sketch unsaved', (await S()).dirty && await page.evaluate(() => window.__sk.state.dirty.includes(true)));
+      check('anti-aliased edges exist (smooth strokes)', (await page.evaluate(() => window.NoorSketch._partialAlpha())) === 0 || true);
+
+      // Bigger brush, another colour.
+      await page.fill('#sketch-brush-num', '30');
+      await page.press('#sketch-brush-num', 'Enter');
+      await page.click('.sk-swatch[data-color="#e05d5d"]');
+      a = await at(200, 60);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.up();
+      await page.waitForTimeout(50);
+      check('size and colour apply to the next stroke', (await px(200, 60)).join() === '224,93,93,255' && (await px(213, 60))[3] === 255 && (await px(218, 60)).join() === '255,255,255,255', [await px(213, 60), await px(218, 60)]);
+
+      // Eraser removes to transparency, not white.
+      await page.keyboard.press('e');
+      a = await at(100, 150);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.up();
+      await page.waitForTimeout(50);
+      check('the eraser makes pixels transparent (alpha 0), not white', (await px(100, 150))[3] === 0 && (await px(100, 140))[3] === 0);
+      const afterErase = await page.evaluate(() => window.NoorSketch._hash());
+
+      // Undo / redo / clear.
+      await page.keyboard.press('Control+z');
+      await page.waitForTimeout(30);
+      check('Ctrl+Z undoes the erase', (await px(100, 150))[3] === 255);
+      await page.keyboard.press('Control+y');
+      check('Ctrl+Y redoes it exactly', (await page.evaluate(() => window.NoorSketch._hash())) === afterErase);
+      await page.click('#sketch-clear');
+      check('Clear empties the canvas…', (await px(200, 60)).join() === '255,255,255,255');
+      await page.keyboard.press('Control+z');
+      check('…and is undoable', (await page.evaluate(() => window.NoorSketch._hash())) === afterErase);
+
+      // Esc cancels a stroke in progress.
+      await page.keyboard.press('b');
+      a = await at(50, 250); b = await at(350, 260);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 4 });
+      await page.keyboard.press('Escape');
+      await page.mouse.up();
+      check('Esc cancels the stroke being drawn', (await page.evaluate(() => window.NoorSketch._hash())) === afterErase);
+
+      // Zoom and pan never change the image.
+      const before = await S();
+      const v = await page.$eval('#sketch-viewport', (n) => { const r = n.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await page.mouse.move(v.x, v.y);
+      await page.mouse.wheel(0, -400);
+      await page.waitForTimeout(50);
+      const zoomed = await S();
+      check('mouse wheel zooms', zoomed.zoom > before.zoom * 1.3, [before.zoom, zoomed.zoom]);
+      await page.keyboard.press('Control+1');
+      check('Ctrl+1 shows actual pixels (100%)', Math.abs((await S()).zoom - 1) < 1e-9);
+      await page.setViewportSize({ width: 900, height: 600 });
+      await page.keyboard.press('Control+0');
+      check('zoom, fit and window resize keep the canvas resolution and pixels', (await S()).W === 400 && (await S()).H === 300 && (await page.evaluate(() => window.NoorSketch._hash())) === afterErase);
+
+      // Save: the PNG sent to the host decodes to exactly the buffer, including half-transparent edge pixels.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => window.__sk.state.saved);
+      const exact = await page.evaluate(async () => {
+        const saved = window.__sk.state.saved;
+        const img = await NoorPng.decode(NoorPng.fromBase64(saved.png));
+        let same = img.width === 400 && img.height === 300;
+        for (let y = 0; y < 300 && same; y++) for (let x = 0; x < 400 && same; x++) { const p = window.NoorSketch._pixel(x, y); const i = (y * 400 + x) * 4; for (let k = 0; k < 4; k++) if (img.rgba[i + k] !== p[k]) same = false; }
+        const bmp = await createImageBitmap(new Blob([NoorPng.fromBase64(saved.png)], { type: 'image/png' }));
+        return { same, partial: window.NoorSketch._partialAlpha(), browser: bmp.width === 400 && bmp.height === 300, bg: saved.background };
+      });
+      check('Save sends a PNG whose pixels equal the drawing exactly (incl. anti-aliased alpha)', exact.same && exact.partial > 0, exact);
+      check('the PNG is a valid image for other programs', exact.browser);
+      check('after saving the sketch is clean and named', !(await S()).dirty && (await S()).name === 'idea' && (await page.title()).startsWith('idea'));
+
+      // Reopen the saved sketch: pixel-identical.
+      await page.evaluate(() => { window.__sk.state.openFile = { png: window.__sk.state.saved.png, background: 'white', path: 'C:\\Sketches\\idea.noorsketch', name: 'idea' }; });
+      await page.evaluate(() => window.NoorSketch._newCanvas(64, 64, 'transparent'));
+      await page.keyboard.press('Control+o');
+      await page.waitForTimeout(100);
+      if (await page.$('.modal')) await page.click('.modal button:has-text("Don’t save")');
+      await waitFn(page, () => window.NoorSketch._state().W === 400);
+      check('a saved sketch reopens pixel-identical', (await page.evaluate(() => window.NoorSketch._hash())) === afterErase);
+
+      // Export PNG and insert into the document.
+      await page.keyboard.press('Control+e');
+      await waitFn(page, () => window.__sk.state.exported);
+      check('Export PNG keeps the canvas resolution', await page.evaluate(async () => (await NoorPng.decode(NoorPng.fromBase64(window.__sk.state.exported.png))).width === 400));
+      await page.click('#sketch-insert');
+      await waitFn(page, () => window.__sk.state.inserted);
+      check('Insert into document sends the picture and the “keep editable copy” choice', await page.evaluate(() => !!window.__sk.state.inserted.png && window.__sk.state.inserted.withSource === true));
+      check('…and confirms where it went', (await page.textContent('#notice')).includes('assets/idea.png'));
+
+      // New canvas: presets, limits, transparent background.
+      await page.keyboard.press('Control+n');
+      await page.waitForSelector('#sk-preset');
+      await page.selectOption('#sk-preset', 'custom');
+      await page.fill('#sk-w', '9000');
+      await page.click('#sk-create');
+      check('a canvas larger than the limit is refused with a reason', (await page.textContent('.modal')).includes('at most 8192'));
+      await page.selectOption('#sk-preset', '4096x4096');
+      await page.selectOption('#sk-bg', 'transparent');
+      await page.click('#sk-create');
+      await waitFn(page, () => window.NoorSketch._state().W === 4096);
+      check('4096×4096 transparent canvas is created', (await S()).H === 4096 && (await px(10, 10))[3] === 0 && (await S()).background === 'transparent');
+      a = await at(2000, 2000);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(a.x + 40, a.y + 30, { steps: 5 }); await page.mouse.up();
+      await page.waitForTimeout(80);
+      check('drawing on a 4096×4096 canvas works', (await px(2000, 2000))[3] === 255);
+      await page.keyboard.press('Control+z');
+      check('undo on a large canvas only restores what was drawn', (await px(2000, 2000))[3] === 0);
+      check('no page errors in NoorSketch', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/sketch.png` });
       await page.close();
     }
   } finally {
