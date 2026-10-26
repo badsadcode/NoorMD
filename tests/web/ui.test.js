@@ -1890,6 +1890,140 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('pop-out: no page errors', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 22. Stream Desk: overlay server, Now Playing designer, credits + effect builder, supporters, stream log.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 4, streamVault: true,
+        supporters: [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold', since: '2026-01-01', until: null }, { name: 'Bartek', channel: null, tier: null, since: '2025-05-05', until: '2026-02-02' }] }, { width: 1600, height: 1000 });
+      const S = () => page.evaluate(() => window.__mock.state.stream);
+      // Music → Stream Desk: what plays is reported to the host.
+      await page.evaluate(() => window.NoorMusic.playRandom());
+      await waitFn(page, () => window.__mock.state.stream.updates.some((t) => t && t.playing), null, { timeout: 6000 });
+      check('the playing song is reported for overlays and the tracklist', (await S()).updates.find((t) => t && t.playing).title.length > 0);
+      await page.keyboard.press('Control+Alt+b');
+      await page.waitForSelector('#streamdesk:not([hidden])');
+      check('Ctrl+Alt+B opens the Stream Desk on Now Playing', await page.isVisible('#np-frame .np'));
+      check('the preview shows the song that is playing', (await page.textContent('#np-frame')).length > 0 && !(await page.textContent('#np-frame')).includes('Night Drive'));
+      await page.check('#sd-server-on');
+      await waitFn(page, () => window.__mock.state.stream.running === true);
+      await waitFn(page, () => /127\.0\.0\.1:47321/.test(document.querySelector('#sd-server').textContent));
+      check('turning on the overlay server shows the loopback address', (await page.textContent('.sd-urls')).includes('http://127.0.0.1:47321/now-playing.html'));
+      await page.click('[data-copy="Now Playing URL"]');
+      await waitFn(page, () => window.__mock.state.clipboard === 'http://127.0.0.1:47321/now-playing.html');
+      // Design changes reach the preview at once and the host (OBS) after a moment.
+      await page.click('[data-design="neon"]');
+      await page.fill('#streamdesk [data-key="label"]', 'On air');
+      await page.selectOption('#streamdesk [data-key="position"]', 'top-right');
+      await waitFn(page, () => window.__mock.state.stream.np && window.__mock.state.stream.np.design === 'neon' && window.__mock.state.stream.np.label === 'On air', null, { timeout: 3000 });
+      check('the Now Playing design updates the preview and is sent to the overlays', (await page.getAttribute('#np-frame .np', 'class')).includes('design-neon') && (await page.getAttribute('#np-frame .np', 'class')).includes('pos-top-right') && (await page.textContent('#np-frame .np-label')) === 'On air');
+      for (const d of ['glass', 'lowerthird', 'vinyl', 'minimal', 'ticker']) {
+        await page.click(`[data-design="${d}"]`);
+        if (!(await page.getAttribute('#np-frame .np', 'class')).includes('design-' + d)) check(`design ${d} renders`, false);
+      }
+      check('all six designs render', true);
+
+      // Credits: preview with the active supporters only; effect builder; roll in OBS.
+      await page.click('[data-sdtab="credits"]');
+      await page.waitForSelector('#cr-frame .cr-roll');
+      const roll = await page.textContent('#cr-frame .cr-roll');
+      check('the credits preview lists active supporters with their channel', roll.includes('Ania') && roll.includes('@ania') && !roll.includes('Bartek'), roll);
+      await page.fill('#cr-title', 'Dziękuję!');
+      await waitFn(page, () => document.querySelector('#cr-frame .cr-title')?.textContent === 'Dziękuję!');
+      await page.selectOption('#cr-effect', 'confetti');
+      await page.click('#cr-new-effect');
+      await page.waitForSelector('#cr-effect-name');
+      await page.fill('#cr-effect-name', 'Purple rain');
+      await page.selectOption('#cr-particles', 'emoji');
+      await page.fill('#cr-builder [aria-label="Emoji"]', '💜');
+      await waitFn(page, () => { const s = window.__mock.state.stream; return s.effects.length === 1 && s.effects[0].label === 'Purple rain' && s.effects[0].particles.kind === 'emoji' && !!s.cr && s.cr.effect === s.effects[0].id; }, null, { timeout: 3000 });
+      check('a new effect is made from an existing one, named, and selected', (await page.textContent('#cr-effect')).includes('★ Purple rain'));
+      const paints = await page.evaluate(async () => { const c = document.querySelector('#cr-frame canvas'); await new Promise((r) => setTimeout(r, 400)); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; });
+      check('the effect draws particles in the preview', paints > 50, paints);
+      await page.click('#cr-preview-play');
+      const y0 = await page.evaluate(() => document.querySelector('#cr-frame .cr-roll').style.transform);
+      await page.waitForTimeout(1600);
+      check('Preview scrolls the names', (await page.evaluate(() => document.querySelector('#cr-frame .cr-roll').style.transform)) !== y0);
+      await page.click('#cr-roll');
+      await waitFn(page, () => window.__mock.state.stream.starts === 1);
+      check('“Roll credits in OBS” tells the overlay to start', true);
+
+      // Supporters: add, mark as left, paste an export, save.
+      await page.click('[data-sdtab="supporters"]');
+      await page.waitForSelector('#sup-table .sd-tr:not(.head)');
+      check('the supporters tab shows the active ones by default', (await page.$$('#sup-table .sd-tr:not(.head)')).length === 1);
+      await page.click('#sup-add');
+      await page.keyboard.type('Celina');
+      await page.fill('#sup-table .sd-tr[data-index="0"] [aria-label="channel"]', 'https://www.twitch.tv/celina');
+      await page.click('#sup-table .sd-tr[data-index="1"] button:has-text("Left")');
+      await page.click('#sup-import');
+      await page.fill('#sup-paste', 'Celina https://www.twitch.tv/celina\nDawid https://www.youtube.com/@dawid');
+      await page.check('#sup-missing');
+      await waitFn(page, () => /New: Dawid/.test(document.querySelector('#sup-result').textContent));
+      await page.click('#sup-apply');
+      await page.click('#sup-save');
+      await waitFn(page, () => window.__mock.state.stream.supporters.length === 4);
+      const sup = (await S()).supporters;
+      check('supporters are saved: new ones added, people who left kept with a date', sup.find((x) => x.name === 'Dawid') && !sup.find((x) => x.name === 'Celina').until && sup.find((x) => x.name === 'Ania').until === '2026-10-26' && sup.find((x) => x.name === 'Bartek').until === '2026-02-02', sup);
+
+      // Stream log: template, recording the tracklist, chapters in the copied description, thumbnail, save.
+      await page.click('[data-sdtab="log"]');
+      await page.waitForSelector('#log-title');
+      await page.click('button:has-text("Templates…")');
+      await page.click('#tpl-add');
+      await page.click('#tpl-save');
+      await waitFn(page, () => window.__mock.state.stream.templates.length === 1);
+      await page.selectOption('#log-template', '0');
+      await waitFn(page, () => /Suno music stream #1/.test(document.querySelector('#log-title').value));
+      check('a template fills the title, description and keywords', (await page.inputValue('#log-desc')).includes('{tracklist}') && (await page.inputValue('#log-keywords')).includes('suno'));
+      await page.click('#log-record');
+      await waitFn(page, () => !!window.__mock.state.stream.session);
+      await page.evaluate(() => window.NoorMusic.next());
+      await page.evaluate(() => window.NoorMusic.nowPlaying());
+      await waitFn(page, () => window.__mock.state.stream.session.marks.length >= 1, null, { timeout: 4000 });
+      await page.evaluate(async () => { const r = await NoorBridge.request('stream.status'); return r; });
+      await page.click('[data-sdtab="log"]');
+      await page.waitForSelector('#log-stop');
+      await page.click('#log-stop');
+      await waitFn(page, () => document.querySelectorAll('#log-tracks li').length >= 1);
+      check('recording a stream notes each song with its time', (await page.textContent('#log-tracks')).includes('00:0'));
+      await page.click('[data-copy="Description"]');
+      await waitFn(page, () => typeof window.__mock.state.clipboard === 'string' && /00:00 /.test(window.__mock.state.clipboard));
+      check('the copied description has the tracklist as chapters', !(await page.evaluate(() => window.__mock.state.clipboard)).includes('{tracklist}'));
+      await page.click('button:has-text("Choose…")');
+      await page.waitForSelector('#log-thumb img');
+      await page.click('#log-save');
+      await waitFn(page, () => window.__mock.state.stream.saved.length === 1);
+      const saved = (await S()).saved[0];
+      check('the stream is saved to the Vault with its details', saved.title.startsWith('Suno music stream #1') && saved.thumbnail === '../attachments/thumb.png' && saved.tracklist.length >= 1 && saved.number === 1, saved);
+      await waitFn(page, () => document.querySelectorAll('#log-history .vb-item').length === 1);
+      check('the stream appears in the history', (await page.textContent('#log-history')).includes('Suno music stream #1'));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.NoorStream.close());
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in the Stream Desk', unexpected.length === 0, unexpected);
+      if (shots) { await page.evaluate(() => window.NoorStream.open('credits')); await page.waitForTimeout(800); await page.screenshot({ path: `${shots}/stream.png` }); }
+      await page.close();
+    }
+
+    // ---- 23. The OBS overlay pages themselves (served flat, fed over Server-Sent Events).
+    {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      await page.route('**/events', (route) => route.fulfill({ status: 200, headers: { 'Content-Type': 'text/event-stream' },
+        body: 'event: np.config\ndata: {"design":"glass","label":"Now playing","accent":"#ff00aa"}\n\nevent: np.track\ndata: {"id":3,"title":"Żółw nocą","artist":"Noor","hasArt":false,"playing":true,"position":10,"duration":100}\n\n' +
+          'event: credits.config\ndata: {"config":{"title":"Thanks","effect":"starfield","autoStart":true,"startDelay":0,"speed":200},"effects":[]}\n\nevent: credits.data\ndata: {"supporters":[{"name":"Ania","tier":"Gold"}]}\n\n' }));
+      await page.goto(url + '_noormd/overlay/now-playing.html');
+      await waitFn(page, () => document.querySelector('.np-title')?.textContent === 'Żółw nocą', null, { timeout: 5000 });
+      check('OBS Now Playing page renders the song from the event stream', (await page.textContent('.np-artist')) === 'Noor' && (await page.evaluate(() => getComputedStyle(document.body).backgroundColor)) === 'rgba(0, 0, 0, 0)');
+      await page.goto(url + '_noormd/overlay/credits.html');
+      await waitFn(page, () => document.querySelector('.cr-name')?.textContent === 'Ania', null, { timeout: 5000 });
+      const t0 = await page.evaluate(() => document.querySelector('.cr-roll').style.transform);
+      await page.waitForTimeout(800);
+      check('OBS credits page starts by itself and scrolls', (await page.evaluate(() => document.querySelector('.cr-roll').style.transform)) !== t0);
+      check('overlay pages: no errors', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

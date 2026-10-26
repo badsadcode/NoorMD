@@ -545,6 +545,7 @@ window.NoorMusic = (() => {
 
   function onTime() {
     renderTime();
+    emitNowPlaying(false);
     if (!audio.paused && Math.floor(audio.currentTime) % 5 === 0) scheduleSave();
   }
 
@@ -766,7 +767,21 @@ window.NoorMusic = (() => {
 
   function renderAll() { renderTransport(); renderTime(); renderList(); if (tab === 'queue') renderQueue(); applyVisibility(); }
 
+  let lastEmit = { key: '', at: 0 };
+  /** Tells the Stream Desk what is playing (for the OBS overlay, now-playing.txt and the stream tracklist). */
+  function emitNowPlaying(force) {
+    if (!hooks.onNowPlaying) return;
+    const id = currentId();
+    const row = id != null ? cache.get(id) : null;
+    const key = `${id}|${audio.paused}|${row ? row.displayTitle : ''}`;
+    const now = Date.now();
+    if (!force && key === lastEmit.key && now - lastEmit.at < 5000) return;
+    lastEmit = { key, at: now };
+    hooks.onNowPlaying(row ? { id, title: row.displayTitle || row.fileName, artist: row.artist || null, hasArt: !!row.hasArt, playing: !audio.paused, position: audio.currentTime || 0, duration: Number.isFinite(audio.duration) ? audio.duration : row.duration || 0, art: row.hasArt ? `_art/${id}?v=${mediaVersion}` : null } : null);
+  }
+
   function renderTransport() {
+    emitNowPlaying(false);
     const id = currentId();
     const row = id != null ? cache.get(id) : null;
     const title = row ? row.displayTitle : id != null ? 'Loading…' : 'Nothing playing';
@@ -1623,6 +1638,7 @@ window.NoorMusic = (() => {
     openSound: () => { togglePanel(true); setTab('sound'); }, undoLastEdit, batchSelected, batchOrganizer, editSmart, measure, showArtwork, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
     isOpen: () => document.body.classList.contains('music-open'),
     /** A video started: music pauses so the two don't play over each other (it doesn't resume by itself). */
+    nowPlaying: () => { lastEmit.key = ''; emitNowPlaying(true); },
     pauseForVideo: () => { if (!audio.paused) { audio.pause(); notice('Music paused for the video', 1600); } },
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },

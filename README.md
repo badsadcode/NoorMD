@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.3-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.4-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -88,7 +88,21 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   - A local music library with fast search and triage (Favorite, Keep, Maybe, Skip).
   - Playlists, an Up next queue, and a persistent mini-player.
   - **Edit current track (F2)**: tags and/or file name, with safe renames and undo.
+  - Multi-select (click, Shift, Ctrl) with a right-click menu: playlists, queue, marks, more.
+  - **Batch Organizer**: tags and file-name templates for many tracks, a dry-run preview with
+    collision checks, and undo of the whole batch.
+  - **Sound**: 10-band equalizer with presets, clipping prevention, and loudness levelling
+    (BS.1770 measurement or ReplayGain). Files are never changed.
+  - **Smart collections**, shuffle and 🎲 random, cover.jpg artwork.
   - Session resume.
+- **Video Bench** (Ctrl+Alt+V): series in episode order, resume, subtitles (SRT/ASS/VTT),
+  speed, timestamped notes you can insert into a document, and a pop-out player that stays on
+  top.
+- **Stream Desk** (Ctrl+Alt+B): OBS overlays served on 127.0.0.1 only:
+  - a **Now Playing** overlay with six customisable designs, and a now-playing.txt;
+  - a **credits roll** of your supporters, with effects you can build;
+  - the **supporters list** and a **stream log** with templates and a recorded tracklist,
+    kept as notes in your Vault. NoorMD never publishes anything.
   - See [docs/CREATORS_BENCH_PLAN.md](docs/CREATORS_BENCH_PLAN.md).
 - **Compact layout** (Ctrl+Shift+L) for more vertical room. **Spellcheck on/off**
   (Ctrl+Shift+Y) uses the Windows spell checker and the languages installed in Windows.
@@ -119,8 +133,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.3-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.3-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.4-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.4-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -163,6 +177,9 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
     schemes.
   - Browser accelerator keys, DevTools (in Release builds), downloads and permission
     requests are disabled.
+  - The OBS overlay server (off by default) listens on 127.0.0.1 only. It is read-only,
+    answers only GET/HEAD for a fixed set of files, and refuses requests whose Host is not the
+    loopback address (DNS rebinding). It holds no secrets and accepts no commands.
 - **Images:** relative image paths (`![](img/a.png)`) are served from the document's folder.
   Only image files are served, and nothing outside that folder.
 

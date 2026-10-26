@@ -1,5 +1,132 @@
 # Changelog
 
+## 2.0.0-preview.4 — Music Bench polish, Batch Organizer, Video Bench, Stream Desk
+
+Finishes the Creator's Bench milestones (B: Batch Organizer, C: music polish, D: Video Bench) and adds
+the three stream features asked for: a **Now Playing** overlay for OBS, a **credits roll** for supporters,
+and a local **stream log** with templates. Editing, tabs, Vaults and earlier features are unchanged.
+
+**Music list: selection and right-click menu.**
+- Click selects a track; **Ctrl+click** adds or removes one; **Shift+click** selects a range;
+  **Shift+↑/↓** extends; **Ctrl+A** selects all; **Esc** goes back to one track.
+- **Right-click** (or Shift+F10 / the Menu key) opens a menu for the selection:
+  - Play these tracks, Play next, Add to Up next.
+  - **Add to playlist ▸** with your existing playlists or **New playlist…**.
+  - Remove from the open playlist (the files are not touched).
+  - Mark as ▸ Favorite / Keep / Maybe / Skip / Clear.
+  - Edit track (one) or **Batch Organizer** (several).
+  - Show in Explorer, Show artwork, Measure loudness, Copy titles, Copy file paths, Select all.
+- The 0–4, Q, N and Enter keys work on the whole selection.
+
+**Shuffle and random.**
+- **Shuffle** is now in the mini-player, the toolbar and the Media menu, not only in the Bench.
+- **🎲 Random** (Ctrl+Alt+R) jumps to a random track of the current view, or of the whole library.
+
+**Batch Organizer** (several tracks at once).
+- **Tags**, per field: *Leave unchanged*, *Set to* (placeholders allowed) or *Clear*.
+- **File names** from a template: `{Title}` `{Artist}` `{Album}` `{AlbumArtist}` `{Genre}` `{Year}`
+  `{TrackNumber:00}` `{OriginalName}` `{Folder}` and a counter `{n}` (start, step, digits).
+  Then find and replace (plain text or regular expression), prefix and suffix, letter case,
+  underscores to spaces, tidy spaces, and optionally replace characters Windows doesn't allow.
+- A **dry-run preview** shows the old and new name and the tag changes for every file, and
+  blocks files with a problem: two files getting the same name, a name already taken on disk,
+  illegal characters, reserved names, names or paths that are too long. Empty placeholders and
+  long paths are warnings.
+- **Apply** changes only the files that passed the preview. Swaps and chains (A→B, B→A) work,
+  because files are first moved to temporary names; nothing is ever overwritten.
+- **Per-file results**, and **Undo this batch** (also via Media › Undo last track edit). Files
+  changed since the batch are skipped with a reason.
+
+**Sound.** A new **Sound** tab in the Music Bench.
+- **Equalizer** with 10 bands and presets (Bass boost, Treble boost, Vocal clarity, Electronic,
+  Warm lo-fi, Acoustic, Late night). **Prevent clipping** lowers the preamp by the largest boost,
+  and a limiter keeps peaks under −1 dBFS.
+- **Even out loudness**: tracks play at about the same loudness (−14, −16, −18 or −23 LUFS).
+  - NoorMD measures loudness itself (ITU-R BS.1770), or uses ReplayGain tags.
+  - The files are never changed; the gain is applied while playing, and never pushes a
+    track above −1 dBFS.
+  - Measure the playing track, the selection, the view or the whole library. With
+    normalisation on, new tracks are measured in the background as they play.
+
+**Smart collections.** Playlists that fill themselves from rules: text (contains, is, starts
+with, empty…), numbers (year, plays, duration, loudness), dates (added or last played in / not in
+the last N days, never), marks and flags (has artwork, missing). Match all or any, optionally keep
+only the first N (most played, recently added, random…). Starting points: Recently added,
+Favorites, Never played, Not played for a month, Most played, Still to triage, Short tracks,
+Missing artwork. Counts update live.
+
+**Artwork.** `cover.jpg` / `folder.jpg` next to the music is used when a file has no embedded
+artwork. Tracks without artwork get a generated placeholder. Click the artwork for a large
+view and **Save artwork as…**.
+
+**Video Bench** (Media › Video Bench, Ctrl+Alt+V).
+- Add video folders; each subfolder is a **series**, in episode order: S01E02, 1x02, "Episode 3",
+  "Part 2", "- 03 -", or natural number order.
+- **Resume**: NoorMD remembers where you stopped. *Continue watching* lists unfinished videos, and
+  each series continues at the right episode. Near the end, a video counts as watched.
+- **Subtitles** next to the video (SRT, ASS/SSA, VTT; also `Name.en.srt`) are converted and shown.
+  Press **C** to cycle through them.
+- **Speed** 0.5×–2× (`[` and `]`), J/L ±10 s, ←/→ ±5 s, F full screen. The next episode starts
+  after a short countdown. Music pauses when a video starts.
+- **Timestamped notes**:
+  - Press **N**, type, Enter. Click a time to jump there; double-click a note to edit it.
+  - **⇩ Into document** inserts the notes as a list with times.
+- **⧉ Pop out**: a small player window that stays on top of other programs (📌 to toggle). It
+  keeps position and notes, and closing it continues in the Video Bench at the same moment.
+- MP4 (H.264/AAC), WebM and Ogg play directly. Other formats show a clear message.
+
+**Stream Desk** (Media › Stream Desk, Ctrl+Alt+B).
+- **OBS overlays**, served by NoorMD on **127.0.0.1 only** (read-only; requests for other host
+  names are refused). In OBS, add a *Browser Source* with the address shown. Changes update OBS
+  live.
+- **Now Playing**: six designs (Glass card, Lower third, Neon, Vinyl, Minimal text, Ticker). You
+  can customise:
+  - colours, background opacity, font, size, corners and position;
+  - label, artwork, artist and progress bar;
+  - the animation when the song changes;
+  - auto-hide, and hide while paused.
+
+  The preview is the real overlay. An optional **now-playing.txt** is written for an OBS Text
+  source.
+- **Credits roll** of your supporters, grouped by tier, with channel names. Settings:
+  - title, message and closing text;
+  - speed, size, font, colours, loop, and start delay.
+  - Start it from NoorMD (**🎬 Roll credits in OBS**), or let it start by itself when the OBS
+    source appears.
+- **Effects**: built-in Classic, Starfield, Neon hearts, Confetti party, Snowfall and Violet
+  dream.
+  - **New effect** makes your own from any of them. Choose a background (transparent, solid or
+    moving gradient), particles (stars, sparkles, hearts, confetti, snow, bubbles or any emoji)
+    with amount, speed, size, direction and colours, and a name animation (glow, shimmer, wave or
+    fade in).
+  - Effects can be copied as text to share, and imported.
+- **Supporters**: kept as a Markdown table note in your Vault (`Stream/Supporters.md`).
+  - Add people by hand, or **paste an export** (YouTube members, Patreon, Ko-fi CSV, or "Name
+    link" lines).
+  - The preview shows who is new, updated or back. Optionally, people missing from the export
+    are marked as left (they stay in the list as history).
+- **Stream log**: one note per stream in your Vault's `Streams` folder.
+  - Each note keeps the title, date, number, description, keywords, thumbnail (copied into the
+    Vault's attachments), video URL and notes.
+  - **● Record the tracklist** notes every song played during the stream with its time.
+  - **Templates** for titles, descriptions and keywords use `{number}`, `{date}`,
+    `{date:dd.MM.yyyy}`, `{title}` and `{keywords}`. In a copied description, `{tracklist}`
+    becomes YouTube chapters.
+  - **Copy title / description / keywords**: NoorMD never publishes anything by itself.
+
+**Under the hood.**
+- Library schema v3: batch journal, ReplayGain, loudness, smart collections. Older libraries
+  upgrade in place.
+- The page may now read its own `/_media/` files (`connect-src 'self'`) for loudness
+  measurement. Nothing external is allowed.
+- The Windows self-test now also:
+  - plays MP4 and WebM;
+  - checks subtitle cues;
+  - measures loudness in WebView2 and plays through the equalizer;
+  - swaps two file names in one batch on NTFS and undoes it;
+  - runs the overlay server (DNS-rebinding refusal and Server-Sent Events);
+  - writes the supporters and stream notes into a Vault.
+
 ## 2.0.0-preview.3 — Menus & toolbar, Vaults, Pack & Share, NoorSketch
 
 Built from four proposals: *Main Menu & Customizable Toolbars*, *Vaults Foundation*, *Vault Pack & Share*

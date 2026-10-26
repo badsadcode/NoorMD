@@ -52,9 +52,34 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Next / previous track | Ctrl+Alt+→ / Ctrl+Alt+← |
 | Edit current track (or the selected one in the list) | F2 |
 | Triage the playing track: Favorite / Keep / Maybe / Skip / clear | Alt+1 / Alt+2 / Alt+3 / Alt+4 / Alt+0 |
-| In the track list: play, triage, add to Up next, play next | Enter, 1–4 (0 clears), Q, N |
+| In the track list: play, triage, add to Up next, play next (works on the whole selection) | Enter, 1–4 (0 clears), Q, N |
+| Select tracks: one / add or remove / range / extend / all / back to one | Click / Ctrl+click / Shift+click / Shift+↑↓ / Ctrl+A / Esc |
+| Track menu (play, playlists, marks, Batch Organizer…) | Right-click, Shift+F10 or the Menu key |
+| Remove the selection from the open playlist | Delete |
+| Jump to a random track | Ctrl+Alt+R |
 | In the edit dialog: Save / Save & Next / Cancel | Enter / Ctrl+Enter / Esc |
 | Next theme | Ctrl+Shift+T |
+
+### Video Bench
+
+| Action | Shortcut |
+|---|---|
+| Show / hide Video Bench | Ctrl+Alt+V |
+| Play / pause | Space or K |
+| Back / forward 10 s · 5 s | J / L · ← / → |
+| Slower / faster | [ / ] |
+| Cycle subtitles | C |
+| Full screen | F |
+| New note at this moment (Enter saves, Shift+Enter new line) | N |
+| Close | Esc |
+| Pop-out player: always on top / note / close | T / N / Esc |
+
+### Stream Desk
+
+| Action | Shortcut |
+|---|---|
+| Show / hide Stream Desk | Ctrl+Alt+B |
+| Close | Esc |
 
 Mouse and keyboard extras:
 

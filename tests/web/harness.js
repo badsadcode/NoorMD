@@ -153,6 +153,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('stream.')) { try { return reply(m.id, true, streamMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('video.')) { try { return reply(m.id, true, videoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           return reply(m.id, true, {});
       }
@@ -290,6 +291,51 @@ function mockHostScript(initial) {
     return n;
   }
   state.vault = V;
+
+  // ---- mock Stream Desk host (MainWindow.Stream.cs): config in memory, supporters/streams as objects.
+  const ST = { running: false, port: 47321, clients: 0, np: null, cr: null, effects: [], templates: [], txt: { enabled: false, path: 'C:\\Users\\me\\now-playing.txt', format: '{artist} - {title}' },
+    updates: [], starts: 0, stops: 0, supporters: initial.supporters || [], streams: [], session: null, saved: [], vault: initial.streamVault ? 'C:\\Vault' : null };
+  state.stream = ST;
+  function streamMock(type, p) {
+    const today = '2026-10-26';
+    switch (type) {
+      case 'stream.status': return { server: { running: ST.running, port: ST.port, url: `http://127.0.0.1:${ST.port}/`, clients: ST.clients }, enabled: ST.running, nowPlaying: ST.np, credits: ST.cr, effects: ST.effects, templates: ST.templates, txt: ST.txt, vault: ST.vault, supportersNote: 'Stream/Supporters.md', streamsFolder: 'Streams', session: ST.session };
+      case 'stream.server': ST.running = !!p.enabled; ST.port = p.port || ST.port; return ST.running ? { running: true, url: `http://127.0.0.1:${ST.port}/` } : { running: false };
+      case 'stream.np.config': ST.np = p.config; return null;
+      case 'stream.np.update': ST.updates.push(p.track); if (ST.session && p.track && p.track.playing && ST.session.last !== p.track.id) { ST.session.marks.push({ offset: ST.session.marks.length * 200, text: (p.track.artist ? p.track.artist + ' – ' : '') + p.track.title, stamp: '00:0' + ST.session.marks.length + ':00' }); ST.session.last = p.track.id; } return null;
+      case 'stream.credits.config': ST.cr = p.config; ST.effects = p.effects || ST.effects; return null;
+      case 'stream.credits.start': if (!ST.running) throw new Error('Turn on the OBS overlay server first.'); ST.starts++; return { clients: 1 };
+      case 'stream.credits.stop': ST.stops++; return null;
+      case 'stream.txt': ST.txt.enabled = !!p.enabled; if (p.format) ST.txt.format = p.format; return { path: ST.txt.path };
+      case 'stream.supporters.get': if (!ST.vault) throw new Error('No Vault is open.'); return { path: 'Stream/Supporters.md', exists: true, supporters: ST.supporters.map((x) => ({ ...x, active: !x.until })) };
+      case 'stream.supporters.save': ST.supporters = p.supporters.map((x) => ({ name: x.name, channel: x.channel || null, tier: x.tier || null, since: x.since || null, until: x.until || null })); return { path: 'Stream/Supporters.md', count: ST.supporters.length };
+      case 'stream.supporters.import': {
+        const found = String(p.text).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const m = l.match(/https?:\/\/\S+/); return { name: (m ? l.replace(m[0], '') : l).trim(), channel: m ? m[0] : null }; });
+        if (!found.length) throw new Error('No names were found in the pasted text.');
+        const merged = (p.current || ST.supporters).filter((x) => x.name).map((x) => ({ ...x }));
+        const added = [], left = [];
+        for (const f of found) if (!merged.some((x) => x.name.toLowerCase() === f.name.toLowerCase())) { merged.push({ ...f, tier: null, since: today, until: null }); added.push(f.name); }
+        if (p.markMissingAsLeft) for (const x of merged) if (!x.until && !found.some((f) => f.name.toLowerCase() === x.name.toLowerCase())) { x.until = today; left.push(x.name); }
+        return { found: found.length, added, updated: [], returned: [], left, merged: merged.map((x) => ({ ...x, active: !x.until })) };
+      }
+      case 'stream.log.list': return { folder: 'Streams', streams: ST.streams.map((e) => ({ title: e.title, date: e.date, number: e.number, path: e.path, keywords: [], tracks: (e.tracklist || []).length })), nextNumber: ST.streams.reduce((n, e) => Math.max(n, e.number || 0), 0) + 1 };
+      case 'stream.log.get': return { ...ST.streams.find((e) => e.path === p.path) };
+      case 'stream.log.save': {
+        const e = { ...p.entry };
+        e.path = p.path || `Streams/${e.date} #${e.number} ${e.title}.md`;
+        ST.streams = ST.streams.filter((x) => x.path !== e.path).concat([e]);
+        ST.saved.push(e);
+        return { path: e.path };
+      }
+      case 'stream.log.thumbnail': return { thumbnail: '../attachments/thumb.png', thumbnailData: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==' };
+      case 'stream.templates.save': ST.templates = p.templates; return null;
+      case 'stream.session.start': ST.session = { start: new Date().toISOString(), marks: [], last: null }; return { start: ST.session.start };
+      case 'stream.session.stop': { const marks = ST.session ? ST.session.marks : []; ST.session = null; return { marks, seconds: 600 }; }
+      case 'stream.chapters': return (p.tracklist || []).map((m, i) => `${i === 0 ? '00:00' : String(Math.floor(m.offset / 60)).padStart(2, '0') + ':' + String(Math.floor(m.offset % 60)).padStart(2, '0')} ${m.text}`).join('\n');
+      case 'stream.fill': return String(p.template).replace(/\{(\w+)(?::[^}]+)?\}/g, (all, k) => (k === 'date' ? p.date : p.values && k in p.values ? p.values[k] : all));
+      default: return null;
+    }
+  }
 
   // ---- mock video library: two series; every video is the same 6-second clip.webm fixture; video 1 has subtitles.
   const VID = { videos: [], notes: [], nextNote: 1, popouts: [], inserted: [], positions: [] };

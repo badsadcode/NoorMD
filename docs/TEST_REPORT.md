@@ -174,3 +174,29 @@ itself (not from a page request) stayed in the page's tab strip. The host now se
 
 **Defect found and fixed during this work.** In the explorer, F2 was taken by the global
 “edit current track” shortcut. It now renames in the explorer and edits the track elsewhere.
+
+## 2.0.0-preview.4 (Batch Organizer, music polish, Video Bench, Stream Desk)
+
+Evidence: 115 Core and 75 Media xUnit tests; Playwright UI tests (sections 15–23) against the mock
+host; and the Windows self-test on real WebView2 in CI.
+
+| Acceptance item | Status | Evidence |
+|---|---|---|
+| Music list multi-select and right-click menu | ✅ | UI tests: click, Shift+click and Ctrl+click; Shift+↓; Ctrl+A; Esc. Right-click keeps the selection. Add to an existing or new playlist, in list order. Mark several as Keep. Show in Explorer for one track only. Copy titles. Remove from the open playlist. |
+| Shuffle reachable everywhere, random jump | ✅ | UI tests: mini-player, toolbar and Media menu show the same state. 🎲 reaches every track and never repeats the current one. |
+| Batch rename of hundreds of files with preview and undo (milestone B) | ✅ | Unit tests: preview touches nothing; counters and new tags; collisions inside the batch and on disk; a three-file rotation and its undo; keep vs clear; illegal and reserved names, bad regex, unknown placeholders; case-only rename; undo skips files changed since. Windows self-test: swaps two names on NTFS and undoes the batch. UI tests: chips, collision and placeholder errors, per-file results, Undo this batch, Undo last edit undoes a batch. |
+| Equalizer, clipping prevention, loudness levelling without touching files (milestone C) | ✅ | UI tests: BS.1770 gives −23.0 LUFS for a −20 dBFS 997 Hz sine (mono) and −20.0 (stereo), and silence is gated. Gain rules (measured, ReplayGain, −1 dBFS cap). Presets, preamp, persistence. Real fixtures measured from the page. Windows self-test: an MP3 measures −22.18 LUFS in WebView2, the same as Chromium on Linux, and plays through the EQ and limiter. |
+| Smart collections, artwork | ✅ | Unit tests: text, numbers, dates, marks and flags; any/all; top-N; accent-insensitive; values only as SQL parameters; v1 → v3 upgrade in place; folder.jpg / cover.png. UI tests: rule builder with live count, presets, edit, delete, placeholder art and viewer. |
+| Video library, episode order, resume, subtitles, detachable player, timestamped notes (milestone D) | ✅ | Unit tests: S01E02 / 1x02 / Episode / Part / "- 03 -" parsing, natural order; SRT/ASS → WebVTT; sidecar files; scan keeps ids, missing files; resume and watched rules; notes and their Markdown. UI tests: resume and Start over, subtitles and C, speed, notes (add, jump, edit, delete, into document), next-episode countdown, pop-out hand-off both ways, music pauses. Pop-out page: always on top, note, next episode, Esc. Windows self-test: plays MP4 (H.264/AAC) and WebM, loads SRT cues, saves positions. |
+| OBS Now Playing overlay, designs and customising | ✅ | Unit tests: loopback-only server, 404 outside the overlay folder, 421 for other Host names, 405 for POST, SSE push with replay. UI tests: six designs, live preview, settings sent to the overlays, the OBS page renders from the event stream on a transparent background. Windows self-test: real HTTP and SSE from the packaged app; DNS-rebinding refusal; now-playing.txt. |
+| Supporters list and credits roll with effects and a simple effect builder | ✅ | Unit tests: the Markdown table round-trips and keeps the rest of the note; CSV, TSV and plain-line imports; merge (new, updated, back, left); only web links kept. UI tests: only active people in the roll; channel short names; new effect from an existing one; emoji particles drawn; preview scroll; Roll credits in OBS; supporters added, marked left, imported and saved. OBS credits page starts by itself. Windows self-test: supporters note written in a Vault with Polish names. |
+| Stream history with templates (title, description, keywords, thumbnail, date) | ✅ | Unit tests: templates and date formats; chapters (start at 00:00, ≥ 10 s); note round trip; file names. UI tests: template applied; tracklist recorded while music plays; copied description contains chapters; thumbnail; saved and listed. Windows self-test: note saved in a Vault and read back. |
+| Not tested by a person | ⚠ | OBS itself (Browser Source rendering, `obsSourceVisibleChanged`), 125–200 % scaling, multi-monitor pop-out placement, MKV files with unusual codecs, very large libraries for the Batch Organizer. |
+
+**Defects found and fixed during this work.**
+- Submenus covered their own parent item next to the right edge; they now open to the left.
+- The first shortcut chosen for the Stream Desk clashed with Ctrl+Alt+S (snapshot); it is now Ctrl+Alt+B.
+- The pop-out page used relative media URLs; they now start with `/`.
+- Two settings forms edited stale copies of their objects after the first change.
+- The supporters import merged into the saved list instead of the one on screen.
+- The new Media buttons pushed Play/Pause into "More"; they now collapse first.

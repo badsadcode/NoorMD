@@ -40,6 +40,7 @@ window.NoorChrome = (() => {
     pause: 'M7 4h4v16H7zM14 4h4v16h-4z',
     music: 'M9 18V5l11-2v13M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0zM20 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0z',
     film: 'M3 5h18v14H3zM7 5v14M17 5v14M3 9h4M3 15h4M17 9h4M17 15h4',
+    broadcast: 'M12 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 4.9a10 10 0 0 0 0 14.2M19.1 4.9a10 10 0 0 1 0 14.2',
     heading: 'M6 4v16M18 4v16M6 12h12',
     more: 'M5 12h.01M12 12h.01M19 12h.01',
     gear: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z',
@@ -69,7 +70,7 @@ window.NoorChrome = (() => {
     navigation: { label: 'Navigation', items: [['find.show', 'find', 'Find'], ['view.sidebar', 'sidebar', 'Sidebar'], ['tab.switch', 'tabs', 'Documents']] },
     view: { label: 'View', items: ['modes', ['width.cycle', 'width', 'Width'], ['view.focus', 'focus', 'Focus']] },
     tools: { label: 'Tools', items: [['snapshot.create', 'snapshot', 'Snapshot'], ['palette.show', 'palette', 'Commands']] },
-    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench'], ['video.toggle', 'film', 'Video Bench']] },
+    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench'], ['video.toggle', 'film', 'Video Bench'], ['stream.toggle', 'broadcast', 'Stream Desk']] },
   };
   const DEFAULT_ORDER = ['document', 'writing', 'navigation', 'view', 'tools', 'media'];
   // When the window is narrow, the least important buttons move into "More" first (higher = kept longer).
@@ -77,7 +78,7 @@ window.NoorChrome = (() => {
     'doc.save': 9, modes: 9, 'fmt.bold': 8, 'fmt.italic': 8, heading: 7, 'edit.undo': 6, 'insert.link': 6, 'fmt.ul': 6, 'find.show': 6,
     'edit.redo': 5, 'fmt.ol': 5, 'doc.open': 4, 'fmt.task': 4, 'fmt.code': 4, 'view.focus': 4, 'doc.new': 3, 'fmt.strike': 3, 'fmt.quote': 3,
     'insert.codeblock': 3, 'insert.table': 3, 'width.cycle': 2, 'insert.image': 2, 'view.sidebar': 2, 'palette.show': 2, nowplaying: 2,
-    'tab.switch': 1, 'snapshot.create': 1, 'music.toggle': 1, 'music.shuffle': 1, 'music.random': 1,
+    'tab.switch': 1, 'snapshot.create': 1, 'music.toggle': 1, 'music.shuffle': 1, 'music.random': 1, 'video.toggle': 0.5, 'stream.toggle': 0.5,
   };
 
   /** The user's visible groups, in order; unknown ids (a later build dropped a module) are ignored. */
@@ -264,7 +265,7 @@ window.NoorChrome = (() => {
       { id: 'vault.pack' }, '-', { id: 'tab.closeOthers' }, { id: 'tab.pin' }, { id: 'recovery.show' }, { id: 'session.restore' },
     ]],
     ['Media', 'm', () => [
-      { id: 'music.toggle' }, { id: 'video.toggle' }, '-', { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, { id: 'video.addFolder' }, '-',
+      { id: 'music.toggle' }, { id: 'video.toggle' }, { id: 'stream.toggle' }, { label: 'Stream', sub: () => [{ id: 'stream.nowplaying' }, { id: 'stream.credits' }, { id: 'stream.supporters' }, { id: 'stream.log' }] }, '-', { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, { id: 'video.addFolder' }, '-',
       { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random' }, '-', { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
       { id: 'music.edit' }, { id: 'music.batch' }, { id: 'music.undo' }, '-', { id: 'music.sound' }, { id: 'music.smart' },
       { label: 'Triage current track', sub: () => [{ id: 'music.fav' }, { id: 'music.keep' }, { id: 'music.maybe' }, { id: 'music.skip' }, { id: 'music.clearTriage' }] },

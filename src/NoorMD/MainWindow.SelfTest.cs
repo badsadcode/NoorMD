@@ -183,6 +183,7 @@ public partial class MainWindow
             await RunSketchSelfTestAsync(tab);
             await RunMusicSelfTestAsync();
             await RunVideoSelfTestAsync();
+            await RunStreamSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
             var pdf = Path.Combine(SelfTestDir, "export.pdf");
@@ -401,6 +402,73 @@ public partial class MainWindow
             Check("…and undoes the whole batch", bu.Done == 2 && Music.Get(two[0].Id)!.Path == two[0].Path);
         }
         await Eval("window.NoorMusic.toggle()");
+    }
+
+    /// <summary>A bridge request made by the page itself, waited for; returns the JSON result or "error: …".</summary>
+    private async Task<string> PageRequest(string type, string payloadJson)
+    {
+        await Eval($"window.__pr = null; NoorBridge.request({JsonSerializer.Serialize(type)}, {payloadJson}).then(r => window.__pr = JSON.stringify(r), e => window.__pr = 'error: ' + e.message)");
+        for (var i = 0; i < 40; i++) { var r = await Eval("window.__pr"); if (r != "null") return JsonSerializer.Deserialize<string>(r) ?? ""; await Task.Delay(100); }
+        return "timeout";
+    }
+
+    private async Task RunStreamSelfTestAsync()
+    {
+        var root = Path.Combine(SelfTestDir!, "Stream Vault Ż");
+        Directory.CreateDirectory(root);
+        OpenVault(root);
+        await _vault!.Ready;
+        StreamCfg["txtEnabled"] = true;
+        StreamCfg["txtPath"] = Path.Combine(SelfTestDir!, "now-playing.txt");
+        int port = 47321;
+        try { StartOverlay(port); } catch (System.Net.Sockets.SocketException) { port = 47399; StartOverlay(port); }
+        Check("overlay server listens on the loopback address", _overlay is { Running: true }, _overlay?.BaseUrl);
+        using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        var page = await http.GetStringAsync($"http://127.0.0.1:{port}/now-playing.html");
+        var font = await http.GetAsync($"http://127.0.0.1:{port}/inter-ext.woff2");
+        Check("OBS can load the Now Playing page and its font", page.Contains("np-render.js") && font.IsSuccessStatusCode && font.Content.Headers.ContentType?.MediaType == "font/woff2");
+        using (var evil = new System.Net.Sockets.TcpClient())
+        {
+            await evil.ConnectAsync(System.Net.IPAddress.Loopback, port);
+            var es = evil.GetStream();
+            await es.WriteAsync(Encoding.ASCII.GetBytes($"GET /now-playing.html HTTP/1.1\r\nHost: attacker.example:{port}\r\n\r\n"));
+            var answer = await new StreamReader(es).ReadToEndAsync();
+            Check("requests for another host name are refused (DNS rebinding)", answer.StartsWith("HTTP/1.1 421", StringComparison.Ordinal), answer.Split('\n')[0]);
+        }
+        // Live push: the page reports a song; an SSE client (like OBS) receives it.
+        using (var sse = new System.Net.Sockets.TcpClient())
+        {
+            await sse.ConnectAsync(System.Net.IPAddress.Loopback, port);
+            var s = sse.GetStream();
+            await s.WriteAsync(Encoding.ASCII.GetBytes($"GET /events HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n\r\n"));
+            await Task.Delay(300);
+            await Eval("NoorStream.nowPlaying(null)");
+            await Eval("NoorStream.nowPlaying({ id: 1, title: 'Żółta łódź', artist: 'Noor', hasArt: false, playing: true, position: 3, duration: 120 })");
+            var got = new StringBuilder();
+            var buf = new byte[8192];
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            try { while (!got.ToString().Contains("Żółta łódź")) { var n = await s.ReadAsync(buf, cts.Token); if (n == 0) break; got.Append(Encoding.UTF8.GetString(buf, 0, n)); } } catch (OperationCanceledException) { }
+            Check("the playing song is pushed to OBS overlays over Server-Sent Events", got.ToString().Contains("event: np.track") && got.ToString().Contains("Żółta łódź"));
+        }
+        var txt = Path.Combine(SelfTestDir!, "now-playing.txt");
+        Check("now-playing.txt is written for an OBS Text source", File.Exists(txt) && File.ReadAllText(txt) == "Noor - Żółta łódź", File.Exists(txt) ? File.ReadAllText(txt) : "missing");
+
+        var saveSup = await PageRequest("stream.supporters.save", "{ supporters: [{ name: 'Zośka Ćwik', channel: 'https://www.youtube.com/@zoska', tier: 'Złoto', since: '2026-01-02' }, { name: 'Bartek', until: '2026-05-01' }] }");
+        var supFile = Path.Combine(root, "Stream", "Supporters.md");
+        var parsed = File.Exists(supFile) ? NoorMD.Core.Stream.SupportersFile.Parse(File.ReadAllText(supFile)) : [];
+        Check("supporters are kept as a Markdown table note in the Vault", parsed.Count == 2 && parsed[0].Name == "Zośka Ćwik" && parsed[0].Tier == "Złoto" && !parsed[1].Active, saveSup);
+        var log = await PageRequest("stream.log.save", "{ entry: { title: 'Nocny stream: synthwave', date: '2026-10-26', number: 7, description: 'Opis {tracklist}', keywords: 'suno, synthwave', tracklist: [{ offset: 0, text: 'Noor – Żółta łódź' }], notes: '' } }");
+        var logDir = Path.Combine(root, "Streams");
+        var note = Directory.Exists(logDir) ? Directory.GetFiles(logDir, "*.md").FirstOrDefault() : null;
+        var entry = note != null ? NoorMD.Core.Stream.StreamLog.Parse(File.ReadAllText(note)) : null;
+        Check("a stream is saved as a note in the Vault and reads back", entry is { Number: 7, Title: "Nocny stream: synthwave" } && entry.Tracklist.Count == 1 && entry.Keywords.Count == 2, log);
+        await _overlay!.StopAsync();
+        _overlay = null;
+        var closed = false;
+        try { using var c = new System.Net.Sockets.TcpClient(); await c.ConnectAsync(System.Net.IPAddress.Loopback, port); } catch (System.Net.Sockets.SocketException) { closed = true; }
+        Check("turning the overlay server off closes the port", closed);
+        StreamCfg["txtEnabled"] = false;
+        CloseVault(remember: false);
     }
 
     private async Task RunVideoSelfTestAsync()

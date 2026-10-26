@@ -101,4 +101,64 @@ The NoorSketch window has its own bridge and accepts messages only from `/_noorm
 `sketch.insert` and `sketch.closeNow`. The host sends it `sketch.saveAndClose` and
 `sketch.load`.
 
+## Additions in 2.0.0-preview.4 (still protocol v2: new message types only)
+
+Music Bench:
+
+| type | payload | result |
+|---|---|---|
+| `music.batch.preview` | `{ ids[], spec: { tags: { field: { mode: keep\|set\|clear, value } }, rename: { enabled, template, find, replace, regex, matchCase, prefix, suffix, case, underscores, tidy, replaceIllegal, counterStart, counterStep, counterDigits } } }` | `{ willChange, unchanged, blocked, items: [{ id, oldName, newName, renames, ok, tags[], problems[], warnings[] }] }`; touches nothing |
+| `music.batch.apply` | same as preview | `{ batchId, done, failed, skipped, items: [{ id, oldName, newName, status, message }], undo }` |
+| `music.batch.undo` | `{ batchId }` | same shape as apply |
+| `music.undo` | — | undoes the last edit, or the whole last batch |
+| `music.loudness.set` | `{ id, lufs, peak }` | stores the page's BS.1770 measurement (the file is not modified) |
+| `music.loudness.unmeasured` | `{ ids[]? }` | ids without a measurement |
+| `music.smart.save` / `.count` / `.delete` | `{ id?, name, rules: { matchAll, rules: [{ field, op, value }], limit?, limitSort?, limitDesc? } }` | `{ id, smart[] }` / count / `smart[]` |
+| `music.query` / `music.ids` | also accept `smartId` | |
+| `music.art.save` | `{ id }` | Save dialog; `{ path }` |
+
+`music.status` also returns `smart[]`; rows carry `rgGain`, `rgPeak`, `loudness`, `peak` and `plays`.
+
+Video Bench (`/_video/{id}` serves the file with ranges; `/_sub/{id}/{n}` serves subtitles as WebVTT):
+
+| type | payload | result |
+|---|---|---|
+| `video.status` | — | `{ folders[], series: [{ key, name, count, watched, resumeId }], resume[] }` |
+| `video.addFolder` / `.removeFolder` / `.rescan` | — / `{ id }` | |
+| `video.episodes` / `video.search` | `{ key }` / `{ text }` | videos in watching order |
+| `video.get` | `{ id }` | `{ video, subtitles: [{ index, label, lang }], notes[], next, exists }` |
+| `video.position` | `{ id, position, duration }` | the updated video (watched near the end) |
+| `video.watched` | `{ ids[], value }` | |
+| `video.note.add` / `.update` / `.delete` / `.insert` | `{ id, time, text }` / `{ id, noteId, text }` / `{ id, noteId }` / `{ id }` | notes; insert puts them into the active document |
+| `video.popout` / `video.popout.close` | `{ id, time, paused }` | opens / closes the pop-out player |
+| `video.reveal`, `video.session.get` / `.save` | | |
+
+Events: `video.scanned`, `video.popin` (`{ id, time }` when the pop-out closes), `video.notes`.
+The pop-out window has its own bridge and accepts messages only from `/_noormd/video.html`:
+`video.ready`, `video.get`, `video.position`, `video.next`, `video.note.add`, `video.topmost`,
+`video.title` and `video.close`; the host sends it `video.load`.
+
+Stream Desk:
+
+| type | payload | result |
+|---|---|---|
+| `stream.status` | — | server state, overlay configs, effects, templates, text-file options, Vault, recording session |
+| `stream.server` | `{ enabled, port }` | starts/stops the loopback overlay server |
+| `stream.np.config` / `stream.credits.config` | `{ config }` / `{ config, effects[] }` | saved and pushed to connected overlays |
+| `stream.np.update` | `{ track: { id, title, artist, hasArt, playing, position, duration } \| null }` | sent by the Music Bench |
+| `stream.credits.start` / `.stop` | — | `{ clients }` |
+| `stream.txt` | `{ enabled, format, choose }` | `{ path }` of now-playing.txt |
+| `stream.paths` | `{ supportersNote, streamsFolder }` | Vault-relative locations |
+| `stream.supporters.get` / `.save` | — / `{ supporters: [{ name, channel, tier, since, until, note }] }` | the table note in the Vault |
+| `stream.supporters.import` | `{ text, markMissingAsLeft, current[] }` | `{ found, added[], updated[], returned[], left[], merged[] }`; nothing saved |
+| `stream.log.list` / `.get` / `.save` | — / `{ path }` / `{ entry, path? }` | stream notes in the Vault |
+| `stream.log.thumbnail` | — | picture copied into the Vault's attachments; `{ thumbnail, thumbnailData }` |
+| `stream.templates.save` | `{ templates[] }` | |
+| `stream.session.start` / `.stop` | — | records `{ offset, text }` for each song played |
+| `stream.chapters` / `stream.fill` | `{ tracklist[] }` / `{ template, values, date }` | YouTube chapters / filled template |
+
+Overlay server (http://127.0.0.1:port/, GET/HEAD only, Host must be loopback): `now-playing.html`,
+`credits.html`, their scripts and CSS, `/inter.woff2`, `/art` and `/events` (Server-Sent Events:
+`np.config`, `np.track`, `credits.config`, `credits.data`, `credits.start`, `credits.stop`).
+
 Any change to these shapes must bump `v` in both `bridge.js` and `BridgeProtocol.Version`.
