@@ -78,7 +78,14 @@ public partial class MainWindow
             Check("opened in Visual mode", st.Mode == "wysiwyg", st.Mode);
             Check("bundled editor loaded offline", await Eval("!!(window.toastui && window.toastui.Editor && document.querySelector('.toastui-editor-defaultUI'))") == "true");
             Check("app stylesheet applied", (await Eval("getComputedStyle(document.body).overflow")).Contains("hidden"));
-            Check("relative image served from document folder", await Eval("[...document.querySelectorAll('#editor img')].some(i => i.complete && i.naturalWidth === 2)") == "true");
+            // The shown tab's editor is created after the page has told the host which tab it is; give the image time to load.
+            var imageOk = false;
+            for (int i = 0; i < 30 && !imageOk; i++)
+            {
+                imageOk = await Eval("[...document.querySelectorAll('#editor .doc-pane:not([hidden]) img')].some(i => i.complete && i.naturalWidth === 2)") == "true";
+                if (!imageOk) await Task.Delay(200);
+            }
+            Check("relative image served from document folder", imageOk, await Eval("JSON.stringify([...document.querySelectorAll('#editor img')].map(i => [i.getAttribute('src'), i.complete, i.naturalWidth]))"));
             Check("window title shows file", Title.StartsWith("selftest.md"), Title);
 
             // Markdown source editor: exact original source after Visual, uniform font size, line numbers.

@@ -149,3 +149,7 @@ The fix:
 Not verified by a person: the native close prompts and the multi-document window-close dialog,
 Ctrl+Tab through WPF (handled by the host, because WPF would otherwise use it to move focus),
 and a real crash with several unsaved tabs followed by a restart.
+
+**Defect found by the Windows self-test and fixed before release.** A tab closed by the host
+itself (not from a page request) stayed in the page's tab strip. The host now sends a
+`tab.closed` event for every closed tab, and the mock host used by the UI tests does the same.
