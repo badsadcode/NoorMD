@@ -10,7 +10,7 @@ NoorMD Desktop bundles the following components. Their full license texts are in
 | DOMPurify 2.5.9 (inside the TOAST UI Editor bundle) | 2.5.9 | Apache-2.0 or MPL-2.0 | Sanitizing the preview |
 | [DOMPurify](https://github.com/cure53/DOMPurify) | 3.2.6 | Apache-2.0 or MPL-2.0 | Sanitizing HTML export and print |
 | [Inter](https://rsms.me/inter/) via @fontsource-variable/inter | 5.2.6 | SIL Open Font License 1.1 | Bundled UI and writing font |
-| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) via @fontsource-variable/jetbrains-mono | 5.2.8 | SIL Open Font License 1.1 | Markdown source editor font |
+| [JetBrains Mono](https://www.jetbrains.com/lp/mono/) via @fontsource-variable/jetbrains-mono | 5.3.0 | SIL Open Font License 1.1 | Markdown source editor font |
 | [Microsoft.Web.WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) | 1.0.4191.47 | Microsoft BSD-style license (see the NuGet package) | Hosting the editor in WPF |
 | .NET runtime (portable package only) | 10.0 | MIT | Application runtime |
 
