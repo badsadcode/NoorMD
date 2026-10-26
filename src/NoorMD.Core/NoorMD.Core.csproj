@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Platform-neutral core: file I/O, encodings, recovery, snapshots, settings and security policies.
+       Kept free of WPF/WebView2 so it can be unit-tested on any OS. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>NoorMD.Core</RootNamespace>
+  </PropertyGroup>
+
+</Project>

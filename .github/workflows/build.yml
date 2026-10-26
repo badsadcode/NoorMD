@@ -1,0 +1,78 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  web-ui:
+    name: Editor UI tests (Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Playwright
+        working-directory: tests/web
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Run UI tests
+        working-directory: tests/web
+        run: node ui.test.js --screenshots ../../ui-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-screenshots
+
+  windows:
+    name: Build, test, package and self-test (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build and package
+        shell: pwsh
+        run: ./scripts/publish-win-x64.ps1
+      - name: Ensure WebView2 Runtime
+        shell: pwsh
+        run: |
+          $key = 'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+          if (Test-Path $key) { "WebView2 Runtime $((Get-ItemProperty $key).pv) present" }
+          else {
+            Invoke-WebRequest 'https://go.microsoft.com/fwlink/p/?LinkId=2124703' -OutFile "$env:RUNNER_TEMP\wv2.exe"
+            Start-Process "$env:RUNNER_TEMP\wv2.exe" -ArgumentList '/silent','/install' -Wait
+          }
+      - name: End-to-end self-test of the packaged app
+        shell: pwsh
+        run: |
+          $out = Join-Path $PWD 'selftest-out'
+          $exe = Join-Path $PWD 'artifacts/publish-portable/NoorMD.exe'
+          $p = Start-Process $exe -ArgumentList '--self-test', "`"$out`"" -PassThru
+          if (-not $p.WaitForExit(180000)) { $p.Kill(); throw 'Self-test timed out' }
+          Get-Content (Join-Path $out 'result.json')
+          if (Test-Path (Join-Path $out 'local/Logs/noormd.log')) { Get-Content (Join-Path $out 'local/Logs/noormd.log') }
+          if ($p.ExitCode -ne 0) { throw "Self-test failed with exit code $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: selftest
+          path: |
+            selftest-out/*.json
+            selftest-out/*.png
+            selftest-out/*.pdf
+            selftest-out/local/Logs/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NoorMD-win-x64
+          path: |
+            artifacts/*.zip
+            artifacts/SHA256SUMS.txt

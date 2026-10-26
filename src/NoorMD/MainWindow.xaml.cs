@@ -1,0 +1,302 @@
+using System.Diagnostics;
+using System.IO;
+using System.Text.Json;
+using System.Windows;
+using System.Windows.Threading;
+using Microsoft.Web.WebView2.Core;
+using NoorMD.Core;
+using NoorMD.Core.Bridge;
+using NoorMD.Core.Recovery;
+using NoorMD.Core.Security;
+using NoorMD.Core.Settings;
+using NoorMD.Core.Snapshots;
+using NoorMD.Host;
+using NoorMD.Ui;
+
+namespace NoorMD;
+
+/// <summary>
+/// The application window: owns WebView2 setup, security restrictions, window chrome and lifecycle.
+/// Bridge commands are in MainWindow.Bridge.cs; document operations in MainWindow.Documents.cs.
+/// </summary>
+public partial class MainWindow : Window
+{
+    private const string WebView2DownloadUrl = "https://go.microsoft.com/fwlink/p/?LinkId=2124703";
+
+    private readonly SettingsStore _settingsStore;
+    private readonly AppSettings _settings;
+    private readonly RecoveryStore _recovery;
+    private readonly SnapshotStore _snapshots;
+    private readonly DocumentSession _session = new();
+    private readonly DispatcherTimer _settingsSaveTimer;
+    private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+    private readonly SemaphoreSlim _docGate = new(1, 1);
+    private string? _startupFile;
+    private bool _closeConfirmed;
+    private bool _webReady;
+    private int _readyCount;
+
+    private CoreWebView2 Core => Web.CoreWebView2;
+
+    public MainWindow(string? startupFile)
+    {
+        _startupFile = startupFile;
+        _settingsStore = new SettingsStore(App.Paths.SettingsFile);
+        _settings = _settingsStore.Load();
+        _recovery = new RecoveryStore(App.Paths.Recovery);
+        _snapshots = new SnapshotStore(App.Paths.Snapshots);
+        _snapshots.PruneUntitled(TimeSpan.FromDays(30));
+        _settingsSaveTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(600) };
+        _settingsSaveTimer.Tick += (_, _) => SaveSettingsNow();
+
+        ThemeManager.Apply(_settings.Prefs.Theme);
+        InitializeComponent();
+        RestorePlacement();
+        SourceInitialized += (_, _) => ThemeManager.ApplyChrome(this);
+        Loaded += async (_, _) => await InitializeWebViewAsync();
+        Closing += OnClosing;
+        Closed += OnClosed;
+        Activated += async (_, _) => await CheckExternalChangesAsync();
+        UpdateWindowTitle();
+        StartSelfTestWatchdog();
+    }
+
+    // ------------------------------------------------------------------ WebView2
+
+    private async Task InitializeWebViewAsync()
+    {
+        try
+        {
+            Web.DefaultBackgroundColor = ToDrawing(ThemeManager.Background(_settings.Prefs.Theme));
+            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: App.Paths.WebViewData);
+            await Web.EnsureCoreWebView2Async(env);
+        }
+        catch (WebView2RuntimeNotFoundException ex)
+        {
+            Log.Error("WebView2 runtime missing", ex);
+            ShowSplashError("Microsoft Edge WebView2 Runtime is required",
+                "NoorMD uses the WebView2 Runtime that ships with Windows 11 and current Windows 10. It was not found on this PC. Install it (free, from Microsoft), then start NoorMD again.",
+                "Get WebView2 Runtime", () => OpenExternal(WebView2DownloadUrl));
+            return;
+        }
+        catch (Exception ex)
+        {
+            Log.Error("WebView2 initialization failed", ex);
+            ShowSplashError("The editor could not start", ex.Message, "Close", Close);
+            return;
+        }
+
+        var s = Core.Settings;
+#if DEBUG
+        s.AreDevToolsEnabled = true;
+#else
+        s.AreDevToolsEnabled = false;
+#endif
+        s.AreBrowserAcceleratorKeysEnabled = false; // Ctrl+S/P/F/R etc. are app shortcuts, not browser ones
+        s.AreDefaultScriptDialogsEnabled = false;
+        s.AreHostObjectsAllowed = false;
+        s.IsStatusBarEnabled = false;
+        s.IsZoomControlEnabled = false;
+        s.IsPinchZoomEnabled = false;
+        s.IsSwipeNavigationEnabled = false;
+        s.IsGeneralAutofillEnabled = false;
+        s.IsPasswordAutosaveEnabled = false;
+        s.IsWebMessageEnabled = true;
+        s.IsBuiltInErrorPageEnabled = true;
+        s.IsReputationCheckingRequired = false; // all content is local; no SmartScreen lookups
+
+        Core.AddWebResourceRequestedFilter(AssetResolver.Origin + "/*", CoreWebView2WebResourceContext.All);
+        Core.WebResourceRequested += OnWebResourceRequested;
+        Core.NavigationStarting += OnNavigationStarting;
+        Core.NavigationCompleted += OnNavigationCompleted;
+        Core.NewWindowRequested += OnNewWindowRequested;
+        Core.FrameNavigationStarting += (_, e) => { if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || !AssetResolver.IsAppUri(u)) e.Cancel = true; };
+        Core.DownloadStarting += (_, e) => { e.Cancel = true; };
+        Core.PermissionRequested += (_, e) => { e.State = CoreWebView2PermissionState.Deny; };
+        Core.ContextMenuRequested += OnContextMenuRequested;
+        Core.ProcessFailed += OnProcessFailed;
+        Core.WebMessageReceived += OnWebMessageReceived;
+
+        var boot = JsonSerializer.Serialize(new { theme = _settings.Prefs.Theme }, SettingsStore.Json);
+        await Core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__NOORMD_BOOT__ = Object.freeze({boot});");
+        Core.Navigate(AssetResolver.Origin + "/");
+    }
+
+    private void OnWebResourceRequested(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
+    {
+        try
+        {
+            if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
+            var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, _session.Folder) : null;
+            if (file == null)
+            {
+                e.Response = Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
+                return;
+            }
+            var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
+            if (AssetResolver.IsAppPage(uri))
+                headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+            e.Response = Core.Environment.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", headers);
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Serving " + e.Request.Uri + " failed", ex);
+            e.Response = Core.Environment.CreateWebResourceResponse(null, 500, "Error", "Content-Type: text/plain");
+        }
+    }
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri) && AssetResolver.IsAppPage(uri)) return;
+        // The page itself never navigates away; anything else (a link that slipped past the page's
+        // click handler, a dropped file) is cancelled and routed through the link policy.
+        e.Cancel = true;
+        var target = e.Uri;
+        Dispatcher.BeginInvoke(async () => await HandleLinkAsync(target));
+    }
+
+    private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e)
+    {
+        if (!e.IsSuccess)
+        {
+            Log.Error($"Editor page failed to load: {e.WebErrorStatus}");
+            ShowSplashError("The editor page could not be loaded", $"WebView2 reported: {e.WebErrorStatus}. Reinstalling NoorMD usually fixes this.", "Close", Close);
+            return;
+        }
+        Web.Visibility = Visibility.Visible;
+        Splash.Visibility = Visibility.Collapsed;
+        Web.Focus();
+    }
+
+    private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        e.Handled = true; // never open popups
+        var target = e.Uri;
+        Dispatcher.BeginInvoke(async () => await HandleLinkAsync(target));
+    }
+
+    private static readonly HashSet<string> BrowserMenuItems = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "back", "forward", "reload", "saveAs", "print", "createQrCode", "inspectElement", "viewPageSource", "share", "webCapture",
+        "openLinkInNewWindow", "copyLinkLocation", "saveLinkAs", "saveImageAs", "openImageInNewWindow", "copyImageLocation", "saveMediaAs",
+        "openLinkInNewTab", "openLinkInProfile", "readAloud", "translate", "searchWeb", "smartSelect",
+    };
+
+    private void OnContextMenuRequested(object? sender, CoreWebView2ContextMenuRequestedEventArgs e)
+    {
+        // Keep editing and spelling items; drop browser items (Back, Reload, Save as, Print, Inspect, link actions).
+        var items = e.MenuItems;
+        for (int i = items.Count - 1; i >= 0; i--)
+            if (BrowserMenuItems.Contains(items[i].Name)) items.RemoveAt(i);
+        for (int i = items.Count - 1; i > 0; i--)
+            if (items[i].Kind == CoreWebView2ContextMenuItemKind.Separator && items[i - 1].Kind == CoreWebView2ContextMenuItemKind.Separator) items.RemoveAt(i);
+        while (items.Count > 0 && items[0].Kind == CoreWebView2ContextMenuItemKind.Separator) items.RemoveAt(0);
+        while (items.Count > 0 && items[^1].Kind == CoreWebView2ContextMenuItemKind.Separator) items.RemoveAt(items.Count - 1);
+        if (items.Count == 0) e.Handled = true;
+    }
+
+    private void OnProcessFailed(object? sender, CoreWebView2ProcessFailedEventArgs e)
+    {
+        Log.Error($"WebView2 process failed: {e.ProcessFailedKind} ({e.Reason})");
+        if (e.ProcessFailedKind is not (CoreWebView2ProcessFailedKind.RenderProcessExited or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive or CoreWebView2ProcessFailedKind.BrowserProcessExited)) return;
+        Dispatcher.BeginInvoke(() =>
+        {
+            var hasDraft = _session.Dirty && _session.LastMarkdown != null;
+            var msg = hasDraft
+                ? "The editor stopped unexpectedly. Your text up to the last autosave (about a second before the problem) is safe in the recovery draft."
+                : "The editor stopped unexpectedly. No unsaved changes were lost.";
+            if (e.ProcessFailedKind == CoreWebView2ProcessFailedKind.BrowserProcessExited)
+            {
+                ThemedDialog.ShowError(this, "The editor engine closed", msg + " Please restart NoorMD; your work will be offered for recovery.");
+                return;
+            }
+            if (ThemedDialog.Confirm(this, "Reload the editor?", msg, "Reload editor")) Core.Reload();
+        });
+    }
+
+    // ------------------------------------------------------------------ chrome, placement, settings
+
+    private void ShowSplashError(string title, string message, string action, Action onAction)
+    {
+        Web.Visibility = Visibility.Hidden;
+        Splash.Visibility = Visibility.Visible;
+        SplashTitle.Text = title;
+        SplashText.Text = message;
+        SplashAction.Content = action;
+        SplashAction.Tag = onAction;
+        SplashAction.Visibility = Visibility.Visible;
+    }
+
+    private void SplashAction_Click(object sender, RoutedEventArgs e) => (SplashAction.Tag as Action)?.Invoke();
+
+    internal void UpdateWindowTitle() =>
+        Title = $"{(_session.Dirty ? "● " : "")}{_session.FileName} — NoorMD";
+
+    private void RestorePlacement()
+    {
+        var p = _settings.Window;
+        if (p == null || p.Width < MinWidth || p.Height < MinHeight) return;
+        var vs = new Rect(SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop, SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight);
+        var r = new Rect(p.Left, p.Top, p.Width, p.Height);
+        if (!vs.IntersectsWith(r) || r.Left < vs.Left - 40 || r.Top < vs.Top - 40) return; // monitor no longer present
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = p.Left; Top = p.Top; Width = p.Width; Height = p.Height;
+        if (p.Maximized) WindowState = WindowState.Maximized;
+    }
+
+    private void CapturePlacement()
+    {
+        var r = WindowState == WindowState.Normal ? new Rect(Left, Top, Width, Height) : RestoreBounds;
+        if (r.IsEmpty) return;
+        _settings.Window = new WindowPlacement { Left = r.Left, Top = r.Top, Width = r.Width, Height = r.Height, Maximized = WindowState == WindowState.Maximized };
+    }
+
+    internal void ScheduleSettingsSave()
+    {
+        _settingsSaveTimer.Stop();
+        _settingsSaveTimer.Start();
+    }
+
+    private void SaveSettingsNow()
+    {
+        _settingsSaveTimer.Stop();
+        try { _settingsStore.Save(_settings); }
+        catch (Exception ex) { Log.Error("Saving settings failed", ex); }
+    }
+
+    // ------------------------------------------------------------------ closing
+
+    private async void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_closeConfirmed || App.SessionIsEnding || !_webReady) return;
+        e.Cancel = true;
+        if (!await _docGate.WaitAsync(0)) return; // a save/open dialog is already in progress
+        try
+        {
+            if (!await ConfirmDiscardAsync("closing")) return;
+        }
+        finally { _docGate.Release(); }
+        _closeConfirmed = true;
+        Close();
+    }
+
+    private void OnClosed(object? sender, EventArgs e)
+    {
+        CapturePlacement();
+        SaveSettingsNow();
+        // Keep the draft only if the user is leaving unsaved work behind (Windows shutdown, crash paths).
+        if (!_session.Dirty) _recovery.DeleteOwn();
+        _recovery.Dispose();
+        try { Web.Dispose(); } catch { }
+    }
+
+    // ------------------------------------------------------------------ helpers
+
+    private static System.Drawing.Color ToDrawing(System.Windows.Media.Color c) => System.Drawing.Color.FromArgb(c.A, c.R, c.G, c.B);
+
+    internal static void OpenExternal(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); }
+        catch (Exception ex) { Log.Error("Opening " + url + " failed", ex); }
+    }
+}

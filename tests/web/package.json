@@ -1,0 +1,11 @@
+{
+  "name": "noormd-web-tests",
+  "private": true,
+  "description": "Headless Chromium tests for the NoorMD editor UI (wwwroot) against a mock desktop host.",
+  "scripts": {
+    "test": "node ui.test.js"
+  },
+  "devDependencies": {
+    "playwright": "1.49.1"
+  }
+}

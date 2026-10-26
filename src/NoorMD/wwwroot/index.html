@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<!-- The host also sends this policy as a response header. Scripts may only come from the app itself,
+     so inline handlers in untrusted Markdown/HTML can never execute. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<title>NoorMD</title>
+<script src="_noormd/js/boot.js"></script>
+<link rel="stylesheet" href="_noormd/vendor/inter/inter.css">
+<link rel="stylesheet" href="_noormd/vendor/toastui/toastui-editor.css">
+<link rel="stylesheet" href="_noormd/vendor/toastui/theme/toastui-editor-dark.css">
+<link rel="stylesheet" href="_noormd/css/app.css">
+</head>
+<body>
+<div class="ambient-orb" aria-hidden="true"></div>
+<div class="app" id="app">
+  <aside class="sidebar" id="sidebar" aria-label="Navigation">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">N.</div>
+      <div>NoorMD <small>WRITING STUDIO</small></div>
+      <button class="icon-btn sidebar-collapse" id="sidebar-collapse" title="Hide sidebar (Ctrl+\)" aria-label="Hide sidebar">
+        <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+    </div>
+
+    <nav class="side-section" aria-label="Document">
+      <div class="section-heading">Document</div>
+      <button class="side-btn" data-cmd="doc.new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg><span>New document</span><span class="kbd">Ctrl N</span></button>
+      <button class="side-btn" data-cmd="doc.open"><svg viewBox="0 0 24 24"><path d="M4 19V5h7l2 3h7v11z"/></svg><span>Open…</span><span class="kbd">Ctrl O</span></button>
+      <button class="side-btn" data-cmd="doc.save"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6"/></svg><span>Save</span><span class="kbd">Ctrl S</span></button>
+      <button class="side-btn" data-cmd="doc.saveAs"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v5M5 4v16h7M8 4v5h7M15 19l5-5-2-2-5 5v2z"/></svg><span>Save as…</span><span class="kbd">Ctrl ⇧ S</span></button>
+    </nav>
+
+    <section class="side-section" aria-label="Recent files" id="recent-section">
+      <div class="section-heading">Recent</div>
+      <div id="recent-box" class="list-box"></div>
+    </section>
+
+    <section class="side-section" aria-label="Document map">
+      <div class="section-heading">Document map</div>
+      <div id="outline-box" class="list-box"><p class="empty">Headings appear as you write.</p></div>
+    </section>
+
+    <section class="side-section" aria-label="Writing goal">
+      <div class="section-heading">Writing goal</div>
+      <div class="goal">
+        <div id="goaltext">0 / 750 words</div>
+        <div id="goalbar" role="progressbar" aria-label="Writing goal progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="goalfill"></div></div>
+        <button class="link-btn" data-cmd="goal.set">⚙ Set goal</button>
+      </div>
+    </section>
+
+    <section class="side-section" aria-label="Studio tools">
+      <div class="section-heading">Studio</div>
+      <button class="side-btn" data-cmd="history.show"><span class="glyph">◷</span><span>Revision snapshots</span></button>
+      <button class="side-btn" data-cmd="palette.show"><span class="glyph">⌘</span><span>Command palette</span><span class="kbd">Ctrl K</span></button>
+      <button class="side-btn" data-cmd="view.focus"><span class="glyph">◇</span><span>Focus mode</span><span class="kbd">F11</span></button>
+      <button class="side-btn" data-cmd="prefs.show"><span class="glyph">⚙</span><span>Preferences</span><span class="kbd">Ctrl ,</span></button>
+    </section>
+
+    <section class="side-section" aria-label="Export">
+      <div class="section-heading">Export</div>
+      <button class="side-btn" data-cmd="export.markdown"><svg viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M4 17v4h16v-4"/></svg><span>Markdown copy (.md)</span></button>
+      <button class="side-btn" data-cmd="export.html"><svg viewBox="0 0 24 24"><path d="M8 8 4 12l4 4m8-8 4 4-4 4"/></svg><span>HTML document</span></button>
+      <button class="side-btn" data-cmd="export.pdf"><svg viewBox="0 0 24 24"><path d="M6 3h9l4 4v14H6zM14 3v5h5"/></svg><span>PDF</span></button>
+      <button class="side-btn" data-cmd="print"><svg viewBox="0 0 24 24"><path d="M6 9V3h12v6M6 18H4V9h16v9h-2M6 15h12v6H6z"/></svg><span>Print…</span><span class="kbd">Ctrl P</span></button>
+    </section>
+
+    <div class="side-note"><strong>✦ Your words stay yours.</strong>Files are saved where you choose. Unsaved work is kept in a local recovery folder. No account, cloud upload or tracking.</div>
+  </aside>
+  <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+
+  <main class="main">
+    <header class="top">
+      <div class="top-left">
+        <button class="icon-btn" id="sidebar-expand" title="Show sidebar (Ctrl+\)" aria-label="Show sidebar"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+        <div class="crumb" id="crumb">Workspace <span class="sep">/</span> <b id="crumb-name">Untitled document</b></div>
+      </div>
+      <div class="actions">
+        <button class="action" data-cmd="theme.toggle" title="Toggle light/dark theme"><svg viewBox="0 0 24 24"><path d="M20 15.5A8 8 0 0 1 8.5 4 8.5 8.5 0 1 0 20 15.5Z"/></svg><span class="label">Theme</span></button>
+        <button class="action" data-cmd="doc.open" title="Open a Markdown file (Ctrl+O)"><svg viewBox="0 0 24 24"><path d="M4 19V5h7l2 3h7v11z"/></svg><span class="label">Open</span></button>
+        <button class="action primary" data-cmd="doc.save" id="save-btn" title="Save (Ctrl+S)"><svg viewBox="0 0 24 24"><path d="M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6"/></svg><span class="label">Save</span></button>
+      </div>
+    </header>
+
+    <section class="workspace" id="workspace">
+      <div class="eyebrow">THE WRITING ATELIER</div>
+      <input class="title-input" id="doc-title" aria-label="Document title" maxlength="120" value="Untitled document" spellcheck="true" autocomplete="off">
+      <div class="subtitle">
+        <span id="doc-path" class="path">Not saved yet</span><i class="dot"></i><span id="updated">Ready to write</span><i class="dot"></i><span id="counter-top">0 words</span>
+      </div>
+
+      <div class="editor-card" id="editor-card">
+        <div class="card-head">
+          <div class="pill" role="tablist" aria-label="Editor mode">
+            <button role="tab" id="mode-visual" data-mode="wysiwyg" class="active" title="Visual editor (Ctrl+1)">✦ Visual</button>
+            <button role="tab" id="mode-markdown" data-mode="markdown" title="Markdown source (Ctrl+2)">&lt;/&gt; Markdown</button>
+            <button role="tab" id="mode-split" data-mode="split" title="Split view (Ctrl+3)">◫ Split</button>
+          </div>
+          <div class="utility-row">
+            <button class="utility-btn" data-cmd="find.show" title="Find and replace (Ctrl+F)">⌕ Find <span class="kbd">Ctrl F</span></button>
+            <button class="utility-btn" data-cmd="snapshot.create" title="Save a revision snapshot (Ctrl+Alt+S)">◷ Snapshot</button>
+            <button class="utility-btn" data-cmd="view.focus" id="zen-toggle" title="Focus mode (F11)">◇ Focus</button>
+            <button class="utility-btn" data-cmd="palette.show" title="Command palette (Ctrl+K)">⌘ Commands <span class="kbd">Ctrl K</span></button>
+          </div>
+        </div>
+
+        <div class="findbar hide" id="findbar" role="search" aria-label="Find and replace">
+          <input id="find-input" placeholder="Find" aria-label="Find" autocomplete="off" spellcheck="false">
+          <span id="find-count" class="find-count" aria-live="polite"></span>
+          <button class="utility-btn" id="find-prev" title="Previous match (Shift+Enter)" aria-label="Previous match">↑</button>
+          <button class="utility-btn" id="find-next" title="Next match (Enter)" aria-label="Next match">↓</button>
+          <label class="check"><input type="checkbox" id="find-case"> Aa</label>
+          <input id="replace-input" placeholder="Replace with" aria-label="Replace with" autocomplete="off" spellcheck="false">
+          <button class="utility-btn" id="replace-one">Replace</button>
+          <button class="utility-btn" id="replace-all">Replace all</button>
+          <button class="utility-btn" id="find-close" title="Close (Esc)" aria-label="Close find">✕</button>
+        </div>
+
+        <div class="banner hide" id="banner" role="status">
+          <span id="banner-text"></span>
+          <span class="banner-actions" id="banner-actions"></span>
+        </div>
+
+        <div id="editor" class="mode-visual"></div>
+
+        <div class="welcome hide" id="welcome" aria-label="Welcome">
+          <div class="welcome-inner">
+            <div class="logo big" aria-hidden="true">N.</div>
+            <h1>Welcome to NoorMD</h1>
+            <p>A calm place for ideas, documentation and glorious little side projects.</p>
+            <div class="welcome-actions">
+              <button class="action primary" data-cmd="doc.new">＋ New document</button>
+              <button class="action" data-cmd="doc.open">Open file…</button>
+              <button class="action" data-cmd="doc.sample">Try the sample</button>
+            </div>
+            <div class="welcome-recent" id="welcome-recent"></div>
+            <p class="welcome-tip">Drop a <code>.md</code> file anywhere to open it · <span class="kbd">Ctrl K</span> for every command</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="footer">
+        <div class="status"><span class="status-dot" id="status-dot"></span><span id="status-text">Ready</span></div>
+        <div class="footer-right"><span id="counter-bottom">0 words · 0 characters</span><span class="sep">·</span><span id="file-format">UTF-8 · LF</span><span class="sep">·</span>NoorMD ✦ Atelier</div>
+      </footer>
+    </section>
+  </main>
+</div>
+
+<div id="print-root" class="toastui-editor-contents" aria-hidden="true"></div>
+<div id="notice" role="status" aria-live="polite"></div>
+
+<script src="_noormd/vendor/dompurify/purify.min.js"></script>
+<script src="_noormd/vendor/toastui/toastui-editor-all.min.js"></script>
+<script src="_noormd/js/bridge.js"></script>
+<script src="_noormd/js/markdown-tools.js"></script>
+<script src="_noormd/js/ui.js"></script>
+<script src="_noormd/js/app.js"></script>
+</body>
+</html>
