@@ -1598,6 +1598,89 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with multi-select and the track menu', unexpected.length === 0, unexpected);
       await page.close();
     }
+
+    // ---- 18. Batch Organizer: rules → dry-run preview → apply → per-file results → undo the whole batch.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 8 }, { width: 1600, height: 1000 });
+      const row = (i) => `#music-list .track[data-index="${i}"]`;
+      const lib = () => page.evaluate(() => window.__mock.state.music.tracks.map((t) => ({ id: t.id, fileName: t.fileName, artist: t.artist, genre: t.genre })));
+      const original = await lib();
+      await page.evaluate(() => window.NoorMusic.toggle());
+      await page.waitForSelector(row(5));
+      await page.click(row(4));
+      await page.click(row(7), { modifiers: ['Shift'] });
+      const ids = await page.evaluate(() => [4, 5, 6, 7].map((i) => Number(document.querySelector(`#music-list .track[data-index="${i}"]`).dataset.id)));
+      await page.click(row(5), { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Edit 4 tracks")');
+      await page.waitForSelector('#batch-summary');
+      await waitFn(page, () => /will change/.test(document.querySelector('#batch-summary').textContent));
+      check('the Batch Organizer opens for the selection with a preview', (await page.textContent('.modal-head')).includes('4 tracks') && (await page.textContent('#batch-summary')).includes('0 will change'));
+      check('Apply is disabled while nothing would change', await page.isDisabled('#batch-apply'));
+
+      // Tags: Set Artist, Clear Genre; Leave unchanged for the rest.
+      await page.selectOption('[data-field="artist"]', 'set');
+      await page.fill('[data-field-value="artist"]', 'Noor');
+      await page.selectOption('[data-field="genre"]', 'clear');
+      // Rename with a template built from the chips.
+      await page.check('#batch-rename');
+      await page.fill('[data-rule="template"]', '');
+      await page.click('.batch-tokens .chip:has-text("{n}")');
+      await page.type('[data-rule="template"]', ' ');
+      await page.click('.batch-tokens .chip:has-text("{Artist}")');
+      await page.type('[data-rule="template"]', ' - ');
+      await page.click('.batch-tokens .chip:has-text("{OriginalName}")');
+      await waitFn(page, () => /4 will change/.test(document.querySelector('#batch-summary').textContent) && /Noor - /.test(document.querySelector('#batch-preview .batch-new')?.textContent || ''));
+      const first = await page.textContent('#batch-preview .batch-tr:not(.head) .batch-new');
+      check('the preview shows old → new names from the template and the new tags', /^01 Noor - /.test(first), first);
+      check('…and the tag changes per file', (await page.textContent('#batch-preview')).includes('Artist: ∅ → Noor'));
+      check('the preview changed nothing yet', JSON.stringify(await lib()) === JSON.stringify(original));
+
+      // A collision blocks the affected files and says why.
+      await page.fill('[data-rule="template"]', 'Same');
+      await waitFn(page, () => /[1-9] blocked/.test(document.querySelector('#batch-summary').textContent));
+      check('a name used twice in the batch is blocked with a reason', (await page.textContent('#batch-preview')).includes('files in this batch would be named'));
+      // An unknown placeholder is a rule error, shown above the preview.
+      await page.fill('[data-rule="template"]', '{Nope}');
+      await waitFn(page, () => document.querySelector('#batch-error').textContent.includes('Unknown placeholder'));
+      check('an unknown placeholder is explained', await page.isDisabled('#batch-apply'));
+      await page.fill('[data-rule="template"]', '{n} {Artist} - {OriginalName}');
+      await page.fill('[data-rule="prefix"]', '');
+      await waitFn(page, () => /4 will change/.test(document.querySelector('#batch-summary').textContent));
+
+      await page.click('#batch-apply');
+      await page.click('.modal:last-of-type button:has-text("Apply")');
+      await page.waitForSelector('#batch-result');
+      check('Apply shows per-file results', (await page.textContent('#batch-result')).includes('4 changed') && (await page.$$('.batch-tr.result.done')).length === 4);
+      let now = await lib();
+      check('the files were renamed and retagged', ids.every((id, i) => { const t = now.find((x) => x.id === id); return t.fileName.startsWith(`0${i + 1} Noor - `) && t.artist === 'Noor' && t.genre == null; }), now.filter((t) => ids.includes(t.id)));
+      check('tracks outside the selection are untouched', now.filter((t) => !ids.includes(t.id)).every((t) => JSON.stringify(t) === JSON.stringify(original.find((o) => o.id === t.id))));
+      await page.click('#batch-undo');
+      await waitFn(page, () => !document.querySelector('#batch-undo'));
+      check('Undo this batch restores every name and tag', JSON.stringify(await lib()) === JSON.stringify(original));
+
+      // The Media menu entry uses the current selection; Undo last track edit undoes a whole batch.
+      await page.click(row(0));
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      await page.click('.menu-popup .menu-item:has-text("Batch Organizer")');
+      await page.waitForSelector('#batch-summary');
+      await page.selectOption('[data-field="genre"]', 'set');
+      await page.fill('[data-field-value="genre"]', 'Synthwave');
+      await waitFn(page, () => /1 will change/.test(document.querySelector('#batch-summary').textContent));
+      await page.click('#batch-apply');
+      await page.click('.modal:last-of-type button:has-text("Apply")');
+      await page.waitForSelector('#batch-result');
+      await page.click('.modal button:has-text("Close")');
+      check('a one-track batch from the Media menu works', (await page.evaluate(() => window.__mock.state.music.batchApplied)) === 2 && JSON.stringify(await lib()) !== JSON.stringify(original));
+      await page.evaluate(() => { window.NoorMusic.undoLastEdit(); });
+      await page.waitForSelector('.modal button:has-text("Undo batch")');
+      await page.click('.modal button:has-text("Undo batch")');
+      await waitFn(page, () => window.__mock.state.music.undo == null);
+      check('Undo last track edit undoes the last batch', JSON.stringify(await lib()) === JSON.stringify(original));
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in the Batch Organizer', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/batch.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

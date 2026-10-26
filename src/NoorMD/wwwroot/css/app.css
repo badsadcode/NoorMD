@@ -683,3 +683,33 @@ body.has-vault.side-files .sidebar > .side-section:not(.vault-panel), body.has-v
 @media (max-width: 760px) { .pack-checks { grid-template-columns: 1fr; padding-left: 0; } }
 .mp-shuffle.on, .tp.shuffle.on { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
 .mp-random, .tp.random { font-size: 14px; }
+
+/* ---- Batch Organizer */
+.batch-body { display: flex; flex-direction: column; gap: 10px; max-height: 76vh; }
+.batch-rules { display: grid; grid-template-columns: minmax(280px, 0.9fr) 1.4fr; gap: 18px; }
+.batch-rules h3 { margin: 0 0 6px; font-size: 13px; }
+.batch-tags { display: grid; grid-template-columns: auto auto 1fr; gap: 4px 8px; align-items: center; }
+.batch-tags input:disabled { opacity: .45; }
+.batch-names { display: flex; flex-direction: column; gap: 6px; }
+.batch-row { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.batch-row > label:not(.inline) { min-width: 64px; color: var(--muted); }
+.batch-row input[type=text], .batch-template { flex: 1 1 140px; min-width: 0; }
+.batch-row input.num { width: 64px; }
+.batch-tokens { display: flex; flex-wrap: wrap; gap: 4px; }
+.batch-tokens .chip { cursor: pointer; font-family: var(--mono, monospace); font-size: 11px; }
+.batch-preview-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.batch-summary { font-weight: 600; }
+.batch-preview { overflow: auto; min-height: 120px; max-height: 34vh; border: 1px solid var(--border); border-radius: 6px; }
+.batch-tr { display: grid; grid-template-columns: 26px 1fr 1fr 1.2fr; gap: 8px; padding: 4px 8px; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); align-items: start; font-size: 12.5px; }
+.batch-tr.result { grid-template-columns: 96px 1fr 1fr 1.2fr; }
+.batch-tr.head { position: sticky; top: 0; background: var(--panel, var(--bg)); font-weight: 600; z-index: 1; }
+.batch-tr > span { overflow-wrap: anywhere; }
+.batch-new.changed { color: var(--accent); }
+.batch-tr.blocked { background: color-mix(in srgb, #d33 9%, transparent); }
+.batch-tr.warn .batch-state { color: #c80; }
+.batch-tagchanges .chip { display: inline-block; margin: 0 4px 2px 0; font-size: 11px; }
+.batch-problem { color: #d44; }
+.batch-warning { color: #b80; }
+.batch-tr.result.done .batch-status { color: var(--accent); }
+.batch-tr.result.failed .batch-status, .batch-tr.result.partial .batch-status { color: #d44; }
+@media (max-width: 900px) { .batch-rules { grid-template-columns: 1fr; } }

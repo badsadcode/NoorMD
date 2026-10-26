@@ -422,7 +422,7 @@ window.NoorMusic = (() => {
         ...TRIAGE.slice(1).map((t) => ({ label: `${t.icon}  ${t.label}`, run: () => withSelection((ids) => setTriage(ids, t.v)) })),
         '-', { label: 'Clear mark', run: () => withSelection((ids) => setTriage(ids, 0)) },
       ] },
-      { label: many ? `Edit ${n.toLocaleString()} tracks… (Batch Organizer)` : 'Edit track…', run: () => (many ? withSelection((ids) => (hooks.batchEdit ? hooks.batchEdit(ids) : notice('The Batch Organizer is coming next.'))) : one && editTrack(one.id)) },
+      { label: many ? `Edit ${n.toLocaleString()} tracks… (Batch Organizer)` : 'Edit track…', run: () => (many ? withSelection((ids) => batchOrganizer(ids)) : one && editTrack(one.id)) },
       '-',
       { label: 'Show in Explorer', disabled: many || !one, run: () => one && req('music.reveal', { id: one.id }).catch(hooks.showError) },
       { label: many ? 'Copy titles' : 'Copy title', run: () => withSelection((ids) => copyLines(ids, 'title')) },
@@ -896,6 +896,194 @@ window.NoorMusic = (() => {
     });
   }
 
+  // ------------------------------------------------------------------ Batch Organizer
+
+  const BATCH_FIELDS = [['title', 'Title'], ['artist', 'Artist'], ['album', 'Album'], ['albumArtist', 'Album artist'], ['genre', 'Genre'], ['year', 'Year'], ['trackNumber', 'Track #'], ['comment', 'Comment']];
+  const BATCH_TOKENS = ['{OriginalName}', '{Title}', '{Artist}', '{Album}', '{AlbumArtist}', '{Genre}', '{Year}', '{TrackNumber:00}', '{n}', '{Folder}'];
+  const BATCH_KEY = 'noormd.batch.rules';
+
+  async function batchSelected() {
+    await start();
+    if (!sel.size && selected < 0) { notice('Select tracks in the Music Bench first (click, Shift+click, Ctrl+click or Ctrl+A).', 3500); togglePanel(true); return; }
+    await withSelection(batchOrganizer);
+  }
+
+  /**
+   * One set of tag and rename rules for many tracks. Every change of a rule refreshes a dry-run preview from the host
+   * (old → new name, tag changes, problems per file); nothing is touched until Apply. A batch is undone as a whole.
+   */
+  function batchOrganizer(ids) {
+    if (!ids.length) return;
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(BATCH_KEY) || '{}') || {}; } catch { saved = {}; }
+    const R = { enabled: false, template: '{OriginalName}', find: '', replace: '', regex: false, matchCase: false, prefix: '', suffix: '', case: 'none', underscores: false, tidy: true, replaceIllegal: false, counterStart: 1, counterStep: 1, counterDigits: 2, ...(saved.rename || {}) };
+    const tagRules = Object.fromEntries(BATCH_FIELDS.map(([k]) => [k, { mode: 'keep', value: '' }]));
+    let preview = null, timer = null, gen = 0, busy = false;
+
+    NoorUI.modal({ label: 'Batch Organizer', width: 980 }, (s, close) => {
+      const summary = el('div', { class: 'batch-summary', role: 'status', 'aria-live': 'polite', id: 'batch-summary' }, 'Preparing preview…');
+      const table = el('div', { class: 'batch-preview', id: 'batch-preview', role: 'table', 'aria-label': 'Preview' });
+      const specError = el('div', { class: 'edit-problems', role: 'alert', id: 'batch-error' });
+      const applyBtn = el('button', { class: 'action primary', id: 'batch-apply', disabled: true, onclick: () => apply() }, 'Apply');
+      const onlyChanges = el('input', { type: 'checkbox', id: 'batch-only' });
+      onlyChanges.addEventListener('change', renderPreview);
+
+      // Tags: Leave unchanged / Set to / Clear per field.
+      const tagGrid = el('div', { class: 'batch-tags' });
+      for (const [key, label] of BATCH_FIELDS) {
+        const mode = el('select', { 'aria-label': `${label}: what to do`, 'data-field': key },
+          el('option', { value: 'keep', text: 'Leave unchanged' }), el('option', { value: 'set', text: 'Set to' }), el('option', { value: 'clear', text: 'Clear' }));
+        const value = el('input', { type: 'text', disabled: true, placeholder: key === 'trackNumber' ? '{n}' : key === 'title' ? '{OriginalName}' : '', 'aria-label': `${label} value`, 'data-field-value': key, spellcheck: 'false' });
+        mode.addEventListener('change', () => { tagRules[key].mode = mode.value; value.disabled = mode.value !== 'set'; if (mode.value === 'set') value.focus(); schedule(); });
+        value.addEventListener('input', () => { tagRules[key].value = value.value; schedule(); });
+        tagGrid.append(el('label', { text: label }), mode, value);
+      }
+
+      // File names.
+      const inp = (key, attrs = {}) => {
+        const i = el('input', { type: attrs.type || 'text', value: String(R[key]), 'data-rule': key, spellcheck: 'false', ...attrs });
+        i.addEventListener('input', () => { R[key] = i.type === 'number' ? Number(i.value) : i.value; schedule(); });
+        return i;
+      };
+      const chk = (key, label) => {
+        const c = el('input', { type: 'checkbox', 'data-rule': key });
+        c.checked = !!R[key];
+        c.addEventListener('change', () => { R[key] = c.checked; schedule(); });
+        return el('label', { class: 'inline' }, c, label);
+      };
+      const template = inp('template', { 'aria-label': 'Name template', class: 'batch-template' });
+      const tokens = el('div', { class: 'batch-tokens' }, ...BATCH_TOKENS.map((t) => el('button', { class: 'chip', type: 'button', title: `Insert ${t}`, onclick: () => {
+        const a = template.selectionStart ?? template.value.length, b = template.selectionEnd ?? a;
+        template.value = template.value.slice(0, a) + t + template.value.slice(b);
+        template.focus(); template.setSelectionRange(a + t.length, a + t.length);
+        R.template = template.value; renameOn.checked = R.enabled = true; schedule();
+      } }, t)));
+      const renameOn = el('input', { type: 'checkbox', id: 'batch-rename' });
+      renameOn.checked = R.enabled;
+      renameOn.addEventListener('change', () => { R.enabled = renameOn.checked; schedule(); });
+      const caseSel = el('select', { 'aria-label': 'Letter case', 'data-rule': 'case' }, ...[['none', 'Keep as is'], ['title', 'Title Case'], ['sentence', 'Sentence case'], ['lower', 'lower case'], ['upper', 'UPPER CASE']].map(([v, t]) => el('option', { value: v, text: t })));
+      caseSel.value = R.case;
+      caseSel.addEventListener('change', () => { R.case = caseSel.value; schedule(); });
+
+      const names = el('div', { class: 'batch-names' },
+        el('label', { class: 'inline batch-rename-toggle' }, renameOn, el('strong', { text: 'Rename files' })),
+        el('div', { class: 'batch-row' }, el('label', { text: 'Template' }), template), tokens,
+        el('div', { class: 'batch-row' }, el('label', { text: 'Find' }), inp('find', { 'aria-label': 'Find' }), el('label', { text: 'Replace with' }), inp('replace', { 'aria-label': 'Replace with' })),
+        el('div', { class: 'batch-row' }, chk('regex', 'Regular expression'), chk('matchCase', 'Match case')),
+        el('div', { class: 'batch-row' }, el('label', { text: 'Prefix' }), inp('prefix', { 'aria-label': 'Prefix' }), el('label', { text: 'Suffix' }), inp('suffix', { 'aria-label': 'Suffix' })),
+        el('div', { class: 'batch-row' }, el('label', { text: 'Case' }), caseSel, chk('underscores', 'Underscores → spaces'), chk('tidy', 'Tidy spaces')),
+        el('div', { class: 'batch-row' }, el('label', { text: 'Counter {n}' }), el('span', { text: 'start' }), inp('counterStart', { type: 'number', min: '0', class: 'num', 'aria-label': 'Counter start' }),
+          el('span', { text: 'step' }), inp('counterStep', { type: 'number', min: '1', class: 'num', 'aria-label': 'Counter step' }),
+          el('span', { text: 'digits' }), inp('counterDigits', { type: 'number', min: '1', max: '6', class: 'num', 'aria-label': 'Counter digits' })),
+        el('div', { class: 'batch-row' }, chk('replaceIllegal', 'Replace characters Windows doesn’t allow with “-”')));
+
+      const body = el('div', { class: 'modal-body batch-body' },
+        el('div', { class: 'batch-rules' },
+          el('section', {}, el('h3', { text: 'Tags' }), el('p', { class: 'pref-hint', text: '“Set to” values may use placeholders such as {OriginalName} or {n}.' }), tagGrid),
+          el('section', {}, el('h3', { text: 'File names' }), names)),
+        specError,
+        el('div', { class: 'batch-preview-head' }, summary, el('label', { class: 'inline' }, onlyChanges, 'Only changes and problems')),
+        table);
+      s.append(NoorUI.head(`Batch Organizer — ${ids.length.toLocaleString()} track${ids.length === 1 ? '' : 's'}`, close), body,
+        el('div', { class: 'modal-foot' },
+          el('span', { text: 'Dry run: nothing changes until Apply. The whole batch can be undone.' }),
+          el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => close() }, 'Cancel'), applyBtn)));
+
+      function spec() {
+        const tags = {};
+        for (const [k, r] of Object.entries(tagRules)) if (r.mode !== 'keep') tags[k] = { mode: r.mode, value: r.value };
+        return { tags, rename: { ...R } };
+      }
+
+      function schedule() { clearTimeout(timer); timer = setTimeout(refresh, 220); }
+
+      async function refresh() {
+        const my = ++gen;
+        try {
+          const p = await req('music.batch.preview', { ids, spec: spec() });
+          if (my !== gen) return;
+          preview = p; specError.replaceChildren();
+        } catch (err) {
+          if (my !== gen) return;
+          preview = null;
+          specError.replaceChildren(el('div', { text: '⚠ ' + err.message }));
+        }
+        renderPreview();
+      }
+
+      function renderPreview() {
+        if (!preview) { summary.textContent = 'Fix the rule above to see a preview.'; table.replaceChildren(); applyBtn.disabled = true; return; }
+        const p = preview;
+        summary.textContent = `${p.willChange.toLocaleString()} will change · ${p.unchanged.toLocaleString()} unchanged · ${p.blocked.toLocaleString()} blocked`;
+        applyBtn.disabled = busy || p.willChange === 0;
+        applyBtn.textContent = p.willChange ? `Apply to ${p.willChange.toLocaleString()} file${p.willChange === 1 ? '' : 's'}` : 'Apply';
+        const rows = p.items.filter((i) => !onlyChanges.checked || !i.ok || i.renames || i.tags.length || i.warnings.length);
+        const shown = rows.slice(0, 500);
+        table.replaceChildren(
+          el('div', { class: 'batch-tr head', role: 'row' }, ...['', 'Current name', 'New name', 'Tags'].map((t) => el('span', { role: 'columnheader', text: t }))),
+          ...shown.map((i) => el('div', { class: 'batch-tr' + (i.ok ? '' : ' blocked') + (i.warnings.length ? ' warn' : ''), role: 'row', 'data-id': String(i.id) },
+            el('span', { class: 'batch-state', role: 'cell', title: i.ok ? (i.renames || i.tags.length ? 'Will change' : 'Unchanged') : 'Blocked', text: !i.ok ? '✕' : i.warnings.length ? '⚠' : i.renames || i.tags.length ? '✓' : '·' }),
+            el('span', { role: 'cell', class: 'batch-old', text: i.oldName, title: i.folder }),
+            el('span', { role: 'cell', class: 'batch-new' + (i.renames ? ' changed' : ''), text: i.renames ? i.newName : '(same)' }),
+            el('span', { role: 'cell', class: 'batch-tagchanges' },
+              ...i.tags.map((c) => el('span', { class: 'chip', text: `${(BATCH_FIELDS.find(([k]) => k === c.field) || [, c.field])[1]}: ${c.old ?? '∅'} → ${c.new ?? '∅'}` })),
+              ...i.problems.map((m) => el('div', { class: 'batch-problem', text: '✕ ' + m })),
+              ...i.warnings.map((m) => el('div', { class: 'batch-warning', text: '⚠ ' + m }))))),
+          ...(rows.length > shown.length ? [el('p', { class: 'music-none', text: `…and ${(rows.length - shown.length).toLocaleString()} more (all are applied).` })] : []));
+      }
+
+      async function apply() {
+        if (!preview || !preview.willChange || busy) return;
+        const n = preview.willChange;
+        if (!await NoorUI.confirm('Apply the batch?', [`${n.toLocaleString()} file${n === 1 ? '' : 's'} will be changed${preview.blocked ? `; ${preview.blocked} blocked file${preview.blocked === 1 ? ' is' : 's are'} skipped` : ''}.`, 'You can undo the whole batch afterwards (Media › Undo last track edit).'], 'Apply')) return;
+        try { localStorage.setItem(BATCH_KEY, JSON.stringify({ rename: { ...R, enabled: false } })); } catch { /* per-viewer convenience only */ }
+        busy = true; applyBtn.disabled = true; applyBtn.textContent = 'Applying…';
+        const isCur = ids.includes(currentId());
+        const at = audio.currentTime, playing = !audio.paused;
+        if (isCur) releaseFile();
+        let r;
+        try { r = await req('music.batch.apply', { ids, spec: spec() }); } catch (err) { busy = false; specError.replaceChildren(el('div', { text: '⚠ ' + err.message })); renderPreview(); return; }
+        mediaVersion++;
+        ids.forEach((id) => cache.delete(id));
+        if (isCur) { restorePosition = at; audio.src = `_media/${currentId()}?v=${mediaVersion}`; if (playing) audio.play().catch(() => {}); }
+        status.undo = r.undo || status.undo;
+        viewRows = new Map(); viewGen++;
+        loadView(false);
+        refreshStatus(false);
+        renderAll();
+        showResults(r);
+      }
+
+      function showResults(r) {
+        const label = { done: '✓ Done', failed: '✕ Failed', partial: '⚠ Partly', skipped: '– Skipped', unchanged: '· Unchanged' };
+        body.replaceChildren(
+          el('div', { class: 'batch-summary', id: 'batch-result', role: 'status' }, `${r.done} changed · ${r.failed} failed · ${r.skipped} skipped`),
+          el('div', { class: 'batch-preview', role: 'table', 'aria-label': 'Results' },
+            ...r.items.filter((i) => i.status !== 'unchanged').slice(0, 1000).map((i) => el('div', { class: 'batch-tr result ' + i.status, role: 'row' },
+              el('span', { role: 'cell', class: 'batch-status', text: label[i.status] || i.status }),
+              el('span', { role: 'cell', text: i.oldName }),
+              el('span', { role: 'cell', text: i.newName !== i.oldName ? '→ ' + i.newName : '' }),
+              el('span', { role: 'cell', class: 'batch-problem', text: i.message || '' })))));
+        const foot = s.querySelector('.modal-buttons');
+        foot.replaceChildren(
+          r.batchId ? el('button', { class: 'action', id: 'batch-undo', onclick: async (e) => {
+            e.currentTarget.disabled = true;
+            try {
+              const u = await req('music.batch.undo', { batchId: r.batchId });
+              mediaVersion++; ids.forEach((id) => cache.delete(id));
+              status.undo = u.undo; viewRows = new Map(); viewGen++; loadView(false); refreshStatus(false);
+              notice(`Batch undone: ${u.done} restored${u.skipped ? `, ${u.skipped} skipped (changed since)` : ''}${u.failed ? `, ${u.failed} failed` : ''}`, 4500);
+              close();
+            } catch (err) { hooks.showError(err); }
+          } }, '↶ Undo this batch') : null,
+          el('button', { class: 'action primary', autofocus: true, onclick: () => close() }, 'Close'));
+        notice(`Batch applied: ${r.done} changed${r.failed ? `, ${r.failed} failed` : ''}${r.skipped ? `, ${r.skipped} skipped` : ''}`, 3500);
+      }
+
+      refresh();
+    });
+  }
+
   async function saveQueueAsPlaylist() { await createPlaylist(q.order.map((i) => q.ids[i])); }
 
   // ------------------------------------------------------------------ folders & scanning
@@ -1066,6 +1254,22 @@ window.NoorMusic = (() => {
     await start();
     const u = status.undo;
     if (!u) { notice('There is no track edit to undo.'); return; }
+    if (u.batchId) {
+      if (!await NoorUI.confirm('Undo the last batch?', [`${u.count} file${u.count === 1 ? '' : 's'} changed by the Batch Organizer will get back their previous names and tags.`, 'Files changed since are skipped and listed.'], 'Undo batch')) return;
+      const curId = currentId(), at = audio.currentTime, playing = !audio.paused;
+      if (curId != null) releaseFile();
+      try {
+        const r = await req('music.batch.undo', { batchId: u.batchId });
+        status.undo = r.undo;
+        notice(`Batch undone: ${r.done} restored${r.skipped ? `, ${r.skipped} skipped (changed since)` : ''}${r.failed ? `, ${r.failed} failed` : ''}`, 4500);
+      } catch (err) { hooks.showError(err); }
+      mediaVersion++; cache.clear();
+      if (curId != null) { restorePosition = at; audio.src = `_media/${curId}?v=${mediaVersion}`; if (playing) audio.play().catch(() => {}); }
+      viewRows = new Map(); viewGen++; loadView(false);
+      refreshStatus(true);
+      renderAll();
+      return;
+    }
     if (!await NoorUI.confirm('Undo last track edit?', [`“${u.newName}” will be restored to “${u.oldName}”, with its previous tags.`, 'NoorMD refuses if the file was changed since.'], 'Undo')) return;
     const isCur = cache.get(currentId())?.fileName === u.newName;
     const at = audio.currentTime, playing = !audio.paused;
@@ -1105,7 +1309,7 @@ window.NoorMusic = (() => {
 
   return {
     init, resumeSession, togglePanel, applyVisibility, toggle, next: () => next(false), prev, editCurrent, triageCurrent,
-    undoLastEdit, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
+    undoLastEdit, batchSelected, batchOrganizer, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
     isOpen: () => document.body.classList.contains('music-open'),
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },

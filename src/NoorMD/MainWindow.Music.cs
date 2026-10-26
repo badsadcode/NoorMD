@@ -18,6 +18,7 @@ public partial class MainWindow
 {
     private MusicLibrary? _music;
     private TrackEditor? _trackEditor;
+    private BatchOrganizer? _batch;
     private CancellationTokenSource? _scanCts;
     private Task? _scanTask;
 
@@ -28,10 +29,12 @@ public partial class MainWindow
             if (_music != null) return _music;
             _music = new MusicLibrary(Path.Combine(App.Paths.Local, "Music", "library.db"));
             _trackEditor = new TrackEditor(_music);
+            _batch = new BatchOrganizer(_music);
             return _music;
         }
     }
     private TrackEditor Editor => (_ = Music) != null ? _trackEditor! : throw new InvalidOperationException();
+    private BatchOrganizer Batch => (_ = Music) != null ? _batch! : throw new InvalidOperationException();
 
     // ------------------------------------------------------------------ media serving
 
@@ -114,8 +117,29 @@ public partial class MainWindow
             case "music.undo":
             {
                 var last = Editor.LastUndoable() ?? throw new BridgeError("There is no track edit to undo.");
+                if (last.BatchId is long batchId) return BatchResultForPage(await Task.Run(() => Batch.Undo(batchId)));
                 return EditResultForPage(await Task.Run(() => Editor.Undo(last.Id)));
             }
+            case "music.batch.preview":
+            {
+                var ids = Ids(p, "ids");
+                var spec = MusicRequests.Batch(p);
+                try
+                {
+                    var pv = await Task.Run(() => Batch.Preview(ids, spec));
+                    return new { willChange = pv.WillChange, unchanged = pv.Unchanged, blocked = pv.Blocked, items = pv.Items.Select(BatchItemForPage) };
+                }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "music.batch.apply":
+            {
+                var ids = Ids(p, "ids");
+                var spec = MusicRequests.Batch(p);
+                try { return BatchResultForPage(await Task.Run(() => Batch.Apply(ids, spec))); }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "music.batch.undo":
+                return BatchResultForPage(await Task.Run(() => Batch.Undo(Long(p, "batchId"))));
             case "music.suggestName":
                 return SafeRename.SuggestName(req.GetString("title", 500), req.GetString("artist", 500));
             case "music.playlists":
@@ -155,7 +179,26 @@ public partial class MainWindow
     private object? DescribeUndo()
     {
         if (_trackEditor?.LastUndoable() is not { } j) return null;
+        if (j.BatchId is long b)
+            return new { id = j.Id, utc = j.Utc, batchId = b, count = Music.BatchJournal(b).Count(e => e.Status is "done" or "partial") };
         return new { id = j.Id, utc = j.Utc, oldName = Path.GetFileName(j.OldPath), newName = Path.GetFileName(j.NewPath) };
+    }
+
+    private static object BatchItemForPage(BatchItem i) => new
+    {
+        id = i.TrackId, folder = i.Folder, oldName = i.OldName, newName = i.NewName, renames = i.Renames, ok = i.Ok,
+        tags = i.TagChanges.Select(c => new { field = c.Field, old = c.Old, @new = c.New }), problems = i.Problems, warnings = i.Warnings,
+    };
+
+    private object BatchResultForPage(BatchResult r)
+    {
+        PushEvent("music.changed", new { });
+        return new
+        {
+            batchId = r.BatchId, done = r.Done, failed = r.Failed, skipped = r.Skipped,
+            items = r.Items.Select(i => new { id = i.TrackId, oldName = i.OldName, newName = i.NewName, status = i.Status, message = i.Message }),
+            undo = DescribeUndo(),
+        };
     }
 
     private object EditResultForPage(EditResult r)

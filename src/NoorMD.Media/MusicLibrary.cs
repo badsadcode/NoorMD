@@ -40,7 +40,7 @@ public sealed record ScanProgress(long FolderId, string Phase, int Discovered, i
 public sealed class MusicLibrary
 {
     private readonly string _connectionString;
-    private const int SchemaVersion = 1;
+    private const int SchemaVersion = 2;
 
     public string DatabasePath { get; }
 
@@ -73,8 +73,9 @@ public sealed class MusicLibrary
                   old_tags TEXT, new_tags TEXT, new_fingerprint TEXT, status TEXT NOT NULL, note TEXT);
                 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 """);
-            Exec(c, $"PRAGMA user_version = {SchemaVersion}");
         }
+        if (version < 2) Exec(c, "ALTER TABLE journal ADD COLUMN batch_id INTEGER; CREATE INDEX IF NOT EXISTS ix_journal_batch ON journal(batch_id);");
+        if (version < SchemaVersion) Exec(c, $"PRAGMA user_version = {SchemaVersion}");
     }
 
     private SqliteConnection Open() { var c = new SqliteConnection(_connectionString); c.Open(); return c; }
@@ -288,6 +289,26 @@ public sealed class MusicLibrary
         return Get(id)!;
     }
 
+    /// <summary>
+    /// Refresh for several tracks at once, in one transaction. Paths may be exchanged between them (a batch swap), so
+    /// their keys are parked first and the unique path key is never violated in between.
+    /// </summary>
+    public void RefreshMany(IReadOnlyList<(long Id, string Path)> items)
+    {
+        if (items.Count == 0) return;
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var (id, _) in items)
+            using (var park = Cmd(c, "UPDATE tracks SET path_key = '~moving~' || id WHERE id = $id", tx, ("$id", id))) park.ExecuteNonQuery();
+        foreach (var (id, path) in items)
+        {
+            var info = new FileInfo(path);
+            using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id AND missing = 1", tx, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
+            WriteTrack(c, tx, id, null, info.FullName, info.Length, info.LastWriteTimeUtc.Ticks, Fingerprint.Compute(info.FullName), TagIO.Read(info.FullName));
+        }
+        tx.Commit();
+    }
+
     // ------------------------------------------------------------------ queries
 
     private const string Columns = "id, path, title, artist, album, album_artist, genre, year, track_no, comment, duration, has_art, triage, missing, read_error, size, added, play_count";
@@ -488,13 +509,13 @@ public sealed class MusicLibrary
 
     // ------------------------------------------------------------------ journal (edit history with undo)
 
-    public sealed record JournalEntry(long Id, DateTime Utc, long TrackId, string OldPath, string NewPath, TrackTags? OldTags, TrackTags? NewTags, string? NewFingerprint, string Status, string? Note);
+    public sealed record JournalEntry(long Id, DateTime Utc, long TrackId, string OldPath, string NewPath, TrackTags? OldTags, TrackTags? NewTags, string? NewFingerprint, string Status, string? Note, long? BatchId = null);
 
-    internal long JournalBegin(long trackId, string oldPath, string newPath, TrackTags oldTags, TagEdit? edit)
+    internal long JournalBegin(long trackId, string oldPath, string newPath, TrackTags oldTags, TagEdit? edit, long? batchId = null)
     {
         using var c = Open();
-        using var ins = Cmd(c, "INSERT INTO journal(utc, track_id, old_path, new_path, old_tags, new_tags, status) VALUES ($u, $t, $o, $n, $ot, $nt, 'pending') RETURNING id", null,
-            ("$u", Iso(DateTime.UtcNow)), ("$t", trackId), ("$o", oldPath), ("$n", newPath), ("$ot", JsonSerializer.Serialize(oldTags)), ("$nt", edit == null ? null : JsonSerializer.Serialize(edit)));
+        using var ins = Cmd(c, "INSERT INTO journal(utc, track_id, old_path, new_path, old_tags, new_tags, status, batch_id) VALUES ($u, $t, $o, $n, $ot, $nt, 'pending', $b) RETURNING id", null,
+            ("$u", Iso(DateTime.UtcNow)), ("$t", trackId), ("$o", oldPath), ("$n", newPath), ("$ot", JsonSerializer.Serialize(oldTags)), ("$nt", edit == null ? null : JsonSerializer.Serialize(edit)), ("$b", batchId));
         return (long)ins.ExecuteScalar()!;
     }
 
@@ -506,17 +527,28 @@ public sealed class MusicLibrary
         u.ExecuteNonQuery();
     }
 
-    public IReadOnlyList<JournalEntry> Journal(int limit = 100)
+    /// <summary>A new batch number for journal entries that are undone together.</summary>
+    internal long NextBatchId()
     {
         using var c = Open();
-        using var cmd = Cmd(c, "SELECT id, utc, track_id, old_path, new_path, old_tags, new_tags, new_fingerprint, status, note FROM journal ORDER BY id DESC LIMIT $l", null, ("$l", limit));
+        return Convert.ToInt64(Scalar(c, "SELECT COALESCE(MAX(batch_id), 0) + 1 FROM journal"), CultureInfo.InvariantCulture);
+    }
+
+    public IReadOnlyList<JournalEntry> Journal(int limit = 100) => ReadJournal("ORDER BY id DESC LIMIT $l", ("$l", limit));
+
+    public IReadOnlyList<JournalEntry> BatchJournal(long batchId) => ReadJournal("WHERE batch_id = $b ORDER BY id", ("$b", batchId));
+
+    private List<JournalEntry> ReadJournal(string where, params (string, object?)[] args)
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT id, utc, track_id, old_path, new_path, old_tags, new_tags, new_fingerprint, status, note, batch_id FROM journal " + where, null, args);
         using var r = cmd.ExecuteReader();
         var list = new List<JournalEntry>();
         while (r.Read())
         {
             TrackTags? Tags(int i) { if (r.IsDBNull(i)) return null; try { return JsonSerializer.Deserialize<TrackTags>(r.GetString(i)); } catch { return null; } }
             list.Add(new JournalEntry(r.GetInt64(0), ParseIso(r.GetString(1)), r.GetInt64(2), r.GetString(3), r.GetString(4), Tags(5), Tags(6),
-                r.IsDBNull(7) ? null : r.GetString(7), r.GetString(8), r.IsDBNull(9) ? null : r.GetString(9)));
+                r.IsDBNull(7) ? null : r.GetString(7), r.GetString(8), r.IsDBNull(9) ? null : r.GetString(9), r.IsDBNull(10) ? null : r.GetInt64(10)));
         }
         return list;
     }

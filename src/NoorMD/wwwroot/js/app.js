@@ -1249,6 +1249,7 @@
     ['music.shuffle', 'Shuffle', 'Music', '', () => NoorMusic.setShuffle()],
     ['music.random', 'Jump to a random track', 'Music', 'Ctrl+Alt+R', () => NoorMusic.playRandom()],
     ['music.repeat', 'Cycle repeat (off / all / one)', 'Music', '', () => NoorMusic.cycleRepeat()],
+    ['music.batch', 'Batch Organizer (selected tracks)…', 'Music', '', () => NoorMusic.batchSelected()],
     ['music.undo', 'Undo last track edit', 'Music', '', () => NoorMusic.undoLastEdit()],
     ['music.addFolder', 'Add music folder…', 'Music', '', () => NoorMusic.addFolder()],
     ['music.folders', 'Music folders…', 'Music', '', () => NoorMusic.showFolders()],

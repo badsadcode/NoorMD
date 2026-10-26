@@ -539,3 +539,166 @@ public class MusicRequestTests
         Assert.Equal(42, MusicRequests.RequireId(J("""{"id":42}""")));
     }
 }
+
+public class BatchOrganizerTests
+{
+    private static (TempDir, MusicLibrary, BatchOrganizer, List<TrackRow>) Setup(params string[] names)
+    {
+        var t = new TempDir();
+        foreach (var n in names) t.Copy("tone.mp3", "m", n);
+        var lib = new MusicLibrary(t.P("lib.db"));
+        lib.ScanFolder(lib.AddFolder(t.P("m")));
+        var rows = names.Select(n => lib.Query(new LibraryQuery(Search: System.IO.Path.GetFileNameWithoutExtension(n))).Rows.Single(r => r.FileName == n)).ToList();
+        return (t, lib, new BatchOrganizer(lib), rows);
+    }
+
+    private static BatchSpec Rename(string template, Func<RenameRules, RenameRules>? more = null)
+    {
+        var r = new RenameRules { Enabled = true, Template = template };
+        return new BatchSpec { Rename = more == null ? r : more(r) };
+    }
+
+    [Fact]
+    public void Preview_Touches_Nothing_And_Uses_Counter_And_New_Tags()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3", "b.mp3", "c.mp3");
+        using var _ = t;
+        var before = rows.Select(r => File.ReadAllBytes(r.Path)).ToList();
+        var spec = Rename("{n} {Artist} - {OriginalName}") with { Tags = new Dictionary<string, BatchField> { ["artist"] = new(FieldMode.Set, "Noor") } };
+        var p = org.Preview(rows.Select(r => r.Id).ToList(), spec);
+        Assert.Equal(["01 Noor - a.mp3", "02 Noor - b.mp3", "03 Noor - c.mp3"], p.Items.Select(i => i.NewName));
+        Assert.All(p.Items, i => Assert.Contains(i.TagChanges, c => c.Field == "artist" && c.New == "Noor"));
+        Assert.Equal(3, p.WillChange);
+        Assert.Equal(before, rows.Select(r => File.ReadAllBytes(r.Path)).ToList());
+        Assert.True(File.Exists(rows[0].Path));
+    }
+
+    [Fact]
+    public void Collisions_Inside_The_Batch_And_On_Disk_Are_Blocked()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3", "b.mp3", "Taken.mp3");
+        using var _ = t;
+        var dup = org.Preview([rows[0].Id, rows[1].Id], Rename("Same"));
+        Assert.All(dup.Items, i => Assert.Contains(i.Problems, x => x.Contains("would be named")));
+        var disk = org.Preview([rows[0].Id], Rename("Taken"));
+        Assert.Contains(disk.Items[0].Problems, x => x.Contains("already exists"));
+        var res = org.Apply([rows[0].Id, rows[1].Id], Rename("Same"));
+        Assert.Equal(2, res.Skipped);
+        Assert.Null(res.BatchId);
+        Assert.True(File.Exists(rows[0].Path) && File.Exists(rows[1].Path));
+    }
+
+    [Fact]
+    public void Swap_And_Chain_Renames_Work_And_Undo_As_One_Batch()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3", "b.mp3", "c.mp3");
+        using var _ = t;
+        // a→b, b→c, c→a (a rotation): every target is taken by another file of the batch. Names come from the title tag.
+        foreach (var (row, title) in rows.Zip(["b", "c", "a"])) TagIO.Write(row.Path, new TagEdit { Title = title });
+        foreach (var row in rows) lib.Refresh(row.Id, row.Path);
+        var res = org.Apply(rows.Select(r => r.Id).ToList(), Rename("{Title}"));
+        Assert.Equal(3, res.Done);
+        Assert.NotNull(res.BatchId);
+        // a.mp3 had the title "b", so that file is now b.mp3, and so on.
+        Assert.Equal("b", TagIO.Read(t.P("m", "b.mp3")).Title);
+        Assert.Equal("c", TagIO.Read(t.P("m", "c.mp3")).Title);
+        Assert.Equal("a", TagIO.Read(t.P("m", "a.mp3")).Title);
+        Assert.Equal(t.P("m", "b.mp3"), lib.Get(rows[0].Id)!.Path);
+        Assert.Empty(Directory.GetFiles(t.P("m"), ".noormd-*"));
+
+        var undo = org.Undo(res.BatchId!.Value);
+        Assert.Equal(3, undo.Done);
+        Assert.Equal("b", TagIO.Read(t.P("m", "a.mp3")).Title);
+        Assert.Equal("a", TagIO.Read(t.P("m", "c.mp3")).Title);
+        Assert.Equal(rows[0].Path, lib.Get(rows[0].Id)!.Path);
+    }
+
+    [Fact]
+    public void Leave_Unchanged_Versus_Clear_And_Undo_Restores_Tags()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3", "b.mp3");
+        using var _ = t;
+        foreach (var r in rows) { TagIO.Write(r.Path, new TagEdit { Genre = "Lo-fi", Album = "Old", Comment = "keep me" }); lib.Refresh(r.Id, r.Path); }
+        var spec = new BatchSpec { Tags = new Dictionary<string, BatchField> { ["genre"] = new(FieldMode.Clear), ["album"] = new(FieldMode.Set, "Night Drive"), ["trackNumber"] = new(FieldMode.Set, "{n}"), ["comment"] = new(FieldMode.Keep) } };
+        var res = org.Apply(rows.Select(r => r.Id).ToList(), spec);
+        Assert.Equal(2, res.Done);
+        var tags = TagIO.Read(rows[1].Path);
+        Assert.Null(tags.Genre);
+        Assert.Equal("Night Drive", tags.Album);
+        Assert.Equal(2u, tags.TrackNumber);
+        Assert.Equal("keep me", tags.Comment);
+        Assert.Equal(rows[1].Path, lib.Get(rows[1].Id)!.Path);
+
+        var undo = org.Undo(res.BatchId!.Value);
+        Assert.Equal(2, undo.Done);
+        tags = TagIO.Read(rows[1].Path);
+        Assert.Equal("Lo-fi", tags.Genre);
+        Assert.Equal("Old", tags.Album);
+        Assert.Null(tags.TrackNumber);
+    }
+
+    [Fact]
+    public void Illegal_Characters_Reserved_Names_And_Bad_Rules_Are_Explained()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3");
+        using var _ = t;
+        var ids = new List<long> { rows[0].Id };
+        Assert.Contains("allow", org.Preview(ids, Rename("What? Yes: no")).Items[0].Problems[0]);
+        Assert.Equal("What- Yes- no.mp3", org.Preview(ids, Rename("What? Yes: no", r => r with { ReplaceIllegal = true })).Items[0].NewName);
+        Assert.Contains("reserved", org.Preview(ids, Rename("CON")).Items[0].Problems[0]);
+        Assert.Throws<ArgumentException>(() => org.Preview(ids, Rename("{Nope}")));
+        Assert.Throws<ArgumentException>(() => org.Preview(ids, Rename("{OriginalName}", r => r with { Find = "(", Regex = true })));
+        var trackNo = org.Preview(ids, new BatchSpec { Tags = new Dictionary<string, BatchField> { ["year"] = new(FieldMode.Set, "soon") } });
+        Assert.Contains("whole number", trackNo.Items[0].Problems[0]);
+        var longName = org.Preview(ids, Rename(new string('x', 250)));
+        Assert.Contains("too long", longName.Items[0].Problems[0]);
+    }
+
+    [Fact]
+    public void Case_Spaces_Prefix_Suffix_And_Empty_Placeholder_Warnings()
+    {
+        var (t, lib, org, rows) = Setup("suno_track  one.mp3");
+        using var _ = t;
+        var ids = new List<long> { rows[0].Id };
+        var p = org.Preview(ids, Rename("{Artist} - {OriginalName}", r => r with { UnderscoresToSpaces = true, Case = "title", Prefix = "[Live] " , Suffix = " (v2)" }));
+        Assert.Equal("[Live] Suno Track One (V2).mp3", p.Items[0].NewName);
+        Assert.Contains(p.Items[0].Warnings, w => w.Contains("{Artist}"));
+        Assert.Equal("Suno track one.mp3", org.Preview(ids, Rename("{OriginalName}", r => r with { UnderscoresToSpaces = true, Case = "sentence" })).Items[0].NewName);
+        Assert.Equal("one", org.Preview(ids, Rename("{OriginalName}", r => r with { Find = @"^.*\s(\w+)$", Replace = "$1", Regex = true })).Items[0].NewName[..3]);
+        Assert.Equal("Track one.mp3", org.Preview(ids, Rename("{OriginalName}", r => r with { Find = "suno_t", Replace = "T" })).Items[0].NewName);
+    }
+
+    [Fact]
+    public void Case_Only_Rename_Works()
+    {
+        var (t, lib, org, rows) = Setup("night drive.mp3");
+        using var _ = t;
+        var res = org.Apply([rows[0].Id], Rename("{OriginalName}", r => r with { Case = "upper" }));
+        Assert.Equal(1, res.Done);
+        Assert.Equal("NIGHT DRIVE.mp3", System.IO.Path.GetFileName(lib.Get(rows[0].Id)!.Path));
+    }
+
+    [Fact]
+    public void Undo_Skips_Files_Changed_Since_And_Undoes_The_Rest()
+    {
+        var (t, lib, org, rows) = Setup("a.mp3", "b.mp3");
+        using var _ = t;
+        var res = org.Apply(rows.Select(r => r.Id).ToList(), Rename("{OriginalName} new"));
+        File.AppendAllText(t.P("m", "b new.mp3"), "changed");
+        var undo = org.Undo(res.BatchId!.Value);
+        Assert.Equal(1, undo.Done);
+        Assert.Equal(1, undo.Skipped);
+        Assert.True(File.Exists(rows[0].Path));
+        Assert.True(File.Exists(t.P("m", "b new.mp3")));
+    }
+
+    [Fact]
+    public void Schema_Upgrade_Keeps_Existing_Journal()
+    {
+        using var t = new TempDir();
+        var db = t.P("lib.db");
+        _ = new MusicLibrary(db);
+        var again = new MusicLibrary(db); // reopening an upgraded database is a no-op
+        Assert.Empty(again.Journal());
+    }
+}

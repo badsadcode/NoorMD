@@ -265,7 +265,7 @@ window.NoorChrome = (() => {
     ['Media', 'm', () => [
       { id: 'music.toggle' }, { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, '-',
       { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random' }, '-', { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
-      { id: 'music.edit' }, { id: 'music.undo' },
+      { id: 'music.edit' }, { id: 'music.batch' }, { id: 'music.undo' },
       { label: 'Triage current track', sub: () => [{ id: 'music.fav' }, { id: 'music.keep' }, { id: 'music.maybe' }, { id: 'music.skip' }, { id: 'music.clearTriage' }] },
     ]],
     ['Tools', 't', () => [

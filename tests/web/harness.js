@@ -328,6 +328,51 @@ function mockHostScript(initial) {
       case 'music.playlist.add': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items.push(...p.ids); return lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length })); }
       case 'music.playlist.setItems': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items = [...p.ids]; return null; }
       case 'music.reveal': lib.revealed = p.id; return null;
+      case 'music.batch.preview': case 'music.batch.apply': {
+        const sp = p.spec || {}, R = sp.rename || {}, T = sp.tags || {};
+        for (const m of (R.enabled ? R.template || '' : '').matchAll(/\{(\w+)(?::0+)?\}/g)) if (!['OriginalName', 'Title', 'Artist', 'n', 'TrackNumber', 'Genre', 'Album', 'AlbumArtist', 'Year', 'Comment', 'Folder'].includes(m[1])) throw new Error(`Unknown placeholder {${m[1]}} in the name template.`);
+        const items = (p.ids || []).map((id, i) => {
+          const t = lib.byId.get(id);
+          const ext = t.fileName.slice(t.fileName.lastIndexOf('.'));
+          const orig = t.fileName.slice(0, -ext.length);
+          const n = String((R.counterStart ?? 1) + i * (R.counterStep ?? 1)).padStart(R.counterDigits ?? 2, '0');
+          const vals = { title: t.title, artist: t.artist, genre: t.genre };
+          const tags = [];
+          for (const [f, rule] of Object.entries(T)) {
+            const next = rule.mode === 'clear' ? null : (rule.value || '').replace('{n}', n).replace('{OriginalName}', orig) || null;
+            if ((vals[f] ?? null) !== next) tags.push({ field: f, old: vals[f] ?? null, new: next });
+            vals[f] = next;
+          }
+          let name = orig;
+          const warnings = [], problems = [];
+          if (R.enabled) {
+            name = (R.template || '').replace(/\{(\w+)(?::0+)?\}/g, (_, k) => { const v = k === 'OriginalName' ? orig : k === 'n' ? n : vals[k.toLowerCase()]; if (!v) warnings.push(`{${k}} is empty for this track.`); return v || ''; });
+            if (R.find) name = name.split(R.find).join(R.replace || '');
+            name = (R.prefix || '') + name.replace(/\s+/g, ' ').trim().replace(/^- /, '') + (R.suffix || '');
+            if (R.case === 'upper') name = name.toUpperCase(); else if (R.case === 'lower') name = name.toLowerCase();
+            if (/[<>:"/\\|?*]/.test(name)) problems.push('The name contains characters Windows doesn\'t allow.');
+          }
+          return { id, folder: t.folder, oldName: t.fileName, newName: name + ext, renames: name + ext !== t.fileName, ok: true, tags, problems, warnings };
+        });
+        const count = new Map();
+        items.forEach((x) => count.set(x.newName.toLowerCase(), (count.get(x.newName.toLowerCase()) || 0) + 1));
+        items.forEach((x) => { if (count.get(x.newName.toLowerCase()) > 1) x.problems.push(`${count.get(x.newName.toLowerCase())} files in this batch would be named "${x.newName}".`); x.ok = !x.problems.length; });
+        const willChange = items.filter((x) => x.ok && (x.renames || x.tags.length)).length;
+        if (type === 'music.batch.preview') return { willChange, unchanged: items.filter((x) => x.ok && !x.renames && !x.tags.length).length, blocked: items.filter((x) => !x.ok).length, items };
+        lib.batches = lib.batches || [];
+        const batchId = lib.batches.length + 1;
+        const before = items.filter((x) => x.ok).map((x) => { const t = lib.byId.get(x.id); return { id: x.id, fileName: t.fileName, title: t.title, artist: t.artist, genre: t.genre }; });
+        lib.batches.push(before);
+        for (const x of items.filter((y) => y.ok)) { const t = lib.byId.get(x.id); t.fileName = x.newName; for (const c of x.tags) t[c.field] = c.new; t.search = (t.fileName + ' ' + (t.title || '')).toLowerCase(); }
+        lib.undo = { batchId, count: willChange };
+        lib.batchApplied = (lib.batchApplied || 0) + 1;
+        return { batchId: willChange ? batchId : null, done: willChange, failed: 0, skipped: items.filter((x) => !x.ok).length, items: items.map((x) => ({ id: x.id, oldName: x.oldName, newName: x.ok ? x.newName : x.oldName, status: !x.ok ? 'skipped' : x.renames || x.tags.length ? 'done' : 'unchanged', message: x.problems.join(' ') || null })), undo: lib.undo };
+      }
+      case 'music.batch.undo': {
+        for (const b of lib.batches[p.batchId - 1]) Object.assign(lib.byId.get(b.id), b);
+        lib.undo = null;
+        return { batchId: p.batchId, done: lib.batches[p.batchId - 1].length, failed: 0, skipped: 0, items: [], undo: null };
+      }
       case 'music.session.get': return lib.session;
       case 'music.session.save': lib.session = p.json; lib.sessionSaves++; return null;
       default: return null;
