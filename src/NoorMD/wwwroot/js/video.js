@@ -1,47 +1,59 @@
-// NoorMD Video Bench: local videos grouped by folder into series, played in episode order with resume, sidecar
-// subtitles (SRT/ASS/VTT, converted by the host), playback speed, timestamped notes and a pop-out player that can stay
-// on top of other windows. The page refers to videos only by library id; files are served from /_video/{id}.
+// NoorMD Video Bench: works like the Music Bench, for videos. A library (search, sort, filters, series, multi-select,
+// right-click menu), an Up next queue with shuffle and repeat, playlists (e.g. a whole TV show), resume where you
+// stopped, sidecar subtitles (converted by the host), a choice of audio track, speed, timestamped notes and a pop-out
+// player that stays on top. The page refers to videos only by library id; files are served from /_video/{id}.
 window.NoorVideo = (() => {
   'use strict';
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
+  const SORTS = [['series', 'Series & episode'], ['title', 'Title'], ['recent', 'Recently watched'], ['added', 'Recently added'], ['duration', 'Duration']];
+  const FILTERS = [['all', 'All'], ['unwatched', 'Unwatched'], ['inprogress', 'In progress'], ['watched', 'Watched']];
+  const WIDTH_KEY = 'noormd.video.width';
 
   let hooks = { showError: (e) => console.error(e), onPlay: () => {} };
   let built = false;
-  let status = { folders: [], series: [], resume: [] };
-  let seriesKey = null;
-  let episodes = [];
-  let current = null;        // { video, subtitles, notes, next }
-  let poppedOut = null;      // id playing in the pop-out window
-  let saveTimer = 0, lastSaved = 0;
-  let countdown = null;
-  let search = '';
+  let restored = false;
+  let status = { folders: [], series: [], resume: [], playlists: [], count: 0 };
+  let view = { search: '', filter: 'all', series: null, playlistId: null, sort: 'series', desc: false };
+  let rows = [];                 // the library view, in display order
+  let selected = -1, sel = new Set(), anchor = -1;
+  let tab = 'library';
+  let q = { ids: [], order: [], pos: -1, shuffle: false, repeat: 'off', volume: 1 };
+  let current = null;            // { video, subtitles, notes, next, exists }
+  let poppedOut = null;          // id playing in the pop-out window
+  let lastSaved = 0, countdown = null, audioLang = null;
+  let shown = 300;               // rows rendered (more on scroll)
+  const cache = new Map();       // id -> row
+
   const video = document.createElement('video');
   video.preload = 'metadata';
-  video.controls = true;
   video.id = 'vb-video';
   video.setAttribute('playsinline', '');
 
   const fmt = (s) => { if (!Number.isFinite(s) || s < 0) return '0:00'; s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
   const isOpen = () => document.body.classList.contains('video-open');
   const resumeAfter = (duration) => (duration > 0 ? Math.min(5, duration * 0.1) : 5); // same rule as VideoLibrary.ResumeAfter
+  const currentId = () => (q.pos >= 0 && q.pos < q.order.length ? q.ids[q.order[q.pos]] : current ? current.video.id : null);
+  const epLabel = (v) => (v.episode != null ? (v.season != null ? `S${v.season}E${v.episode}` : `E${v.episode}`) : '');
 
   function init(h) {
     hooks = { ...hooks, ...h };
-    NoorBridge.on('video.scanned', (p) => { if (built) { refresh(); notice(`Video library updated: ${p.found} videos${p.added ? `, ${p.added} new` : ''}${p.missing ? `, ${p.missing} missing` : ''}`, 3000); } });
+    NoorBridge.on('video.scanned', (p) => { if (built) { refresh(true); notice(`Video library updated: ${p.found} videos${p.added ? `, ${p.added} new` : ''}${p.missing ? `, ${p.missing} missing` : ''}`, 3000); } });
     NoorBridge.on('video.popin', (p) => onPopIn(p));
-    NoorBridge.on('video.notes', (p) => { if (current && current.video.id === p.id) reloadCurrent(false); });
+    NoorBridge.on('video.notes', (p) => { if (current && current.video.id === p.id) reloadCurrent(); });
     video.addEventListener('timeupdate', onTime);
-    video.addEventListener('pause', () => savePosition(true));
-    video.addEventListener('play', () => { hideCountdown(); hooks.onPlay(); });
+    video.addEventListener('pause', () => { savePosition(true); renderTransport(); });
+    video.addEventListener('play', () => { hideCountdown(); hooks.onPlay(); renderTransport(); });
     video.addEventListener('ended', onEnded);
     video.addEventListener('loadedmetadata', onLoaded);
+    video.addEventListener('volumechange', () => { const v = $('#vb-volume'); if (v) v.value = String(Math.round(video.volume * 100)); });
     video.addEventListener('error', () => {
       if (!video.getAttribute('src')) return;
       const code = video.error ? video.error.code : 0;
       showPlayerMessage(code === 4 ? 'This video’s format or codec can’t be played here. MP4 (H.264/AAC) and WebM play best; you can still open it in another player with “Show in Explorer”.' : 'The video could not be read. It may have been moved or deleted — try Rescan.');
     });
+    document.addEventListener('fullscreenchange', () => { video.controls = document.fullscreenElement === video; });
   }
 
   // ------------------------------------------------------------------ open / close
@@ -51,14 +63,13 @@ window.NoorVideo = (() => {
     if (window.NoorMusic && NoorMusic.isOpen()) NoorMusic.togglePanel(false); // both live on the right; the music keeps playing
     document.body.classList.add('video-open');
     $('#videobench').hidden = false;
-    await refresh();
-    if (!current && status.resume.length) await select(status.resume[0].id, { autoplay: false });
-    else if (!seriesKey && status.series.length) await showSeries(status.series[0].key);
+    await refresh(true);
+    if (!restored) { restored = true; await restoreSession(); }
     $('#videobench').focus({ preventScroll: true });
   }
 
   function close() {
-    if (!built) return;
+    if (!built || !isOpen()) return;
     savePosition(true);
     video.pause();
     hideCountdown();
@@ -69,63 +80,113 @@ window.NoorVideo = (() => {
 
   function toggle() { if (isOpen()) close(); else open(); }
 
-  async function refresh() {
+  async function refresh(reload) {
     try { status = await req('video.status'); } catch (err) { hooks.showError(err); return; }
-    renderSide();
-    if (seriesKey) await loadEpisodes(seriesKey);
+    $('#vb-count').textContent = status.count ? `${status.count.toLocaleString()} videos` : '';
     renderEmpty();
+    renderChips();
+    renderPlaylists();
+    if (reload) await loadView();
   }
 
   // ------------------------------------------------------------------ layout
 
-  let pane = 'episodes';
-  const WIDTH_KEY = 'noormd.video.width';
-
-  /** A side panel like the Music Bench: the player on top, then Episodes / Library / Notes. "Wide" makes it bigger. */
   function build() {
     built = true;
-    const tab = (id, label) => el('button', { role: 'tab', 'data-vbpane': id, onclick: () => setPane(id) }, label);
+    const tr = (cls, label, title, fn) => el('button', { class: 'tp ' + cls, title, 'aria-label': title, onclick: fn }, label);
+    const tabBtn = (id, label) => el('button', { role: 'tab', 'data-vbtab': id, onclick: () => setTab(id) }, label);
     const root = el('section', { id: 'videobench', class: 'videobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Video Bench' },
       el('div', { class: 'vb-resizer', id: 'vb-resizer', title: 'Drag to resize', 'aria-hidden': 'true' }),
-      el('header', { class: 'vb-head' },
-        el('strong', { class: 'vb-title' }, '🎬 Video'),
-        el('span', { class: 'sd-spacer' }),
-        el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!document.body.classList.contains('video-wide')) }, '⤢'),
-        el('button', { class: 'icon-btn', title: 'Video folders', 'aria-label': 'Video folders', onclick: showFolders }, '📁'),
-        el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕')),
-      el('div', { class: 'vb-stage', id: 'vb-stage' }, video, el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
-      el('div', { class: 'vb-info', id: 'vb-info' }),
-      el('div', { class: 'vb-controls', id: 'vb-controls' }),
+      el('div', { class: 'music-head' },
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎬' }), el('strong', { text: 'Video Bench' }), el('small', { id: 'vb-count' }), el('small', { id: 'vb-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
+        el('span', { class: 'vb-head-buttons' },
+          el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!document.body.classList.contains('video-wide')) }, '⤢'),
+          el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕'))),
+      el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
+        el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); } },
+          video, el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
+        el('div', { class: 'np-text vb-text' },
+          el('div', { class: 'np-title', id: 'vb-title', text: 'Nothing playing', title: 'Show in the list', onclick: () => revealPlaying() }),
+          el('div', { class: 'np-sub', id: 'vb-sub' }),
+          el('small', { id: 'vb-resume', class: 'vb-resume' })),
+        el('div', { class: 'np-seek' },
+          el('span', { id: 'vb-cur', text: '0:00' }),
+          el('input', { type: 'range', id: 'vb-range', min: '0', max: '1000', value: '0', 'aria-label': 'Seek' }),
+          el('span', { id: 'vb-dur', text: '0:00' })),
+        el('div', { class: 'np-controls' },
+          tr('shuffle', '⇄', 'Shuffle', () => setShuffle(!q.shuffle)),
+          tr('prev', '⏮', 'Previous', prev),
+          tr('play', '▶', 'Play / pause (Space)', playPause),
+          tr('next', '⏭', 'Next', () => next(false)),
+          tr('repeat', '↻', 'Repeat', cycleRepeat),
+          el('input', { type: 'range', class: 'np-volume', id: 'vb-volume', min: '0', max: '100', value: '100', 'aria-label': 'Volume' })),
+        el('div', { class: 'vb-extras', id: 'vb-extras' })),
       el('div', { class: 'vb-empty', id: 'vb-empty', hidden: true }),
-      el('div', { class: 'music-tabs vb-tabs', role: 'tablist' }, tab('episodes', 'Episodes'), tab('library', 'Library'), tab('notes', 'Notes')),
-      el('div', { class: 'vb-pane', 'data-pane': 'episodes' },
-        el('input', { type: 'search', id: 'vb-search', placeholder: 'Search videos…', 'aria-label': 'Search videos', autocomplete: 'off', spellcheck: 'false' }),
-        el('div', { class: 'vb-episodes', id: 'vb-episodes', role: 'list', 'aria-label': 'Episodes' })),
-      el('div', { class: 'vb-pane', 'data-pane': 'library' }, el('div', { class: 'vb-side', id: 'vb-side', 'aria-label': 'Series' })),
-      el('div', { class: 'vb-pane', 'data-pane': 'notes' }, el('div', { class: 'vb-notes', id: 'vb-notes', 'aria-label': 'Notes' })));
+      el('div', { class: 'music-tabs', role: 'tablist' }, tabBtn('library', 'Library'), tabBtn('queue', 'Up next'), tabBtn('playlists', 'Playlists'), tabBtn('notes', 'Notes')),
+      el('div', { class: 'music-pane vb-pane', 'data-vbpane': 'library' },
+        el('div', { class: 'music-toolbar' },
+          el('input', { id: 'vb-search', type: 'search', placeholder: 'Search title, series, file…', 'aria-label': 'Search videos', autocomplete: 'off', spellcheck: 'false' }),
+          el('select', { id: 'vb-sort', 'aria-label': 'Sort by' }, ...SORTS.map(([v, l]) => el('option', { value: v, text: l }))),
+          el('button', { class: 'icon-btn', id: 'vb-desc', title: 'Reverse order', 'aria-label': 'Reverse sort order', onclick: () => setView({ desc: !view.desc }) }, '⇅'),
+          el('button', { class: 'icon-btn', title: 'Show the playing video in the list', 'aria-label': 'Show the playing video in the list', onclick: () => revealPlaying() }, '◎')),
+        el('div', { class: 'music-chips', id: 'vb-chips' }),
+        el('div', { class: 'music-viewbar hide', id: 'vb-viewbar' }),
+        el('div', { class: 'vb-list', id: 'vb-list', tabindex: '0', role: 'listbox', 'aria-label': 'Videos', 'aria-multiselectable': 'true' })),
+      el('div', { class: 'music-pane vb-pane', 'data-vbpane': 'queue' }, el('div', { class: 'music-queue', id: 'vb-queue' })),
+      el('div', { class: 'music-pane vb-pane', 'data-vbpane': 'playlists' }, el('div', { class: 'music-playlists', id: 'vb-playlists' })),
+      el('div', { class: 'music-pane vb-pane', 'data-vbpane': 'notes' }, el('div', { class: 'vb-notes', id: 'vb-notes', 'aria-label': 'Notes' })),
+      el('div', { class: 'music-foot' }, el('span', { class: 'music-scan', id: 'vb-scan' }), el('button', { class: 'utility-btn', onclick: showFolders }, '📁 Folders')));
     document.body.append(root);
     root.addEventListener('keydown', onKey);
     let t;
-    $('#vb-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { search = e.target.value.trim(); renderSearch(); }, 180); });
+    $('#vb-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => setView({ search: e.target.value.trim() }), 180); });
+    $('#vb-sort').addEventListener('change', (e) => setView({ sort: e.target.value }));
+    const range = $('#vb-range');
+    range.addEventListener('input', () => { range.dataset.dragging = '1'; $('#vb-cur').textContent = fmt((Number(range.value) / 1000) * (video.duration || 0)); });
+    range.addEventListener('change', () => { delete range.dataset.dragging; if (Number.isFinite(video.duration)) video.currentTime = (Number(range.value) / 1000) * video.duration; });
+    $('#vb-volume').addEventListener('input', (e) => { video.volume = Number(e.target.value) / 100; q.volume = video.volume; scheduleSave(); });
+    const list = $('#vb-list');
+    list.addEventListener('click', (e) => {
+      const node = e.target.closest('.vtrack[data-index]');
+      if (!node || e.target.closest('button')) return;
+      clickSelect(Number(node.dataset.index), e.ctrlKey || e.metaKey, e.shiftKey);
+    });
+    list.addEventListener('dblclick', (e) => { const node = e.target.closest('.vtrack[data-index]'); if (node && !e.target.closest('button')) playView(Number(node.dataset.index)); });
+    list.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      const node = e.target.closest('.vtrack[data-index]');
+      if (!node) return;
+      const i = Number(node.dataset.index);
+      if (!sel.has(i)) clickSelect(i, false, false);
+      list.focus({ preventScroll: true });
+      showMenu(e.clientX, e.clientY);
+    });
+    list.addEventListener('keydown', onListKey);
+    list.addEventListener('scroll', () => { if (list.scrollTop + list.clientHeight > list.scrollHeight - 300 && shown < rows.length) { shown += 300; renderList(); } }, { passive: true });
     try { const w = Number(localStorage.getItem(WIDTH_KEY)); if (w >= 360) document.documentElement.style.setProperty('--video-w', w + 'px'); } catch { /* per-viewer convenience */ }
     const rz = $('#vb-resizer');
     rz.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       rz.setPointerCapture(e.pointerId);
-      const move = (ev) => document.documentElement.style.setProperty('--video-w', Math.min(window.innerWidth - 200, Math.max(360, window.innerWidth - ev.clientX)) + 'px');
+      const move = (ev) => document.documentElement.style.setProperty('--video-w', Math.min(window.innerWidth - 300, Math.max(360, window.innerWidth - ev.clientX)) + 'px');
       const up = () => {
         rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up);
         try { localStorage.setItem(WIDTH_KEY, String(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--video-w'), 10))); } catch { /* ignore */ }
       };
       rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up);
     });
-    setPane('episodes');
+    setTab('library');
+    renderTransport();
+    renderExtras();
   }
 
-  function setPane(id) {
-    pane = id;
-    document.querySelectorAll('[data-vbpane]').forEach((b) => { b.classList.toggle('active', b.dataset.vbpane === id); b.setAttribute('aria-selected', String(b.dataset.vbpane === id)); });
-    document.querySelectorAll('#videobench .vb-pane').forEach((p) => { p.hidden = p.dataset.pane !== id; });
+  function setTab(id) {
+    tab = id;
+    document.querySelectorAll('[data-vbtab]').forEach((b) => { b.classList.toggle('active', b.dataset.vbtab === id); b.setAttribute('aria-selected', String(b.dataset.vbtab === id)); });
+    document.querySelectorAll('#videobench .vb-pane').forEach((p) => { p.hidden = p.dataset.vbpane !== id; });
+    if (id === 'queue') renderQueue();
+    if (id === 'playlists') renderPlaylists();
+    if (id === 'notes') renderNotes();
   }
 
   function setWide(on) {
@@ -137,85 +198,301 @@ window.NoorVideo = (() => {
     const empty = $('#vb-empty');
     const none = !status.folders.length;
     empty.hidden = !none;
-    $('#vb-stage').hidden = none;
     if (none) empty.replaceChildren(el('h2', { text: 'Your videos, in order' }),
-      el('p', { text: 'Add a folder with tutorials, recordings or a series. Each subfolder becomes a series, played in episode order; NoorMD remembers where you stopped. Videos are only read, never changed.' }),
+      el('p', { text: 'Add a folder with tutorials, recordings or a TV show. Each subfolder becomes a series in episode order; NoorMD remembers where you stopped. Videos are only read, never changed.' }),
       el('button', { class: 'action primary', onclick: addFolder }, '📁 Add a video folder…'));
   }
 
-  function renderSide() {
-    const side = $('#vb-side');
-    const resume = status.resume.map((v) => el('button', { class: 'vb-item resume' + (current && current.video.id === v.id ? ' active' : ''), onclick: () => select(v.id, { autoplay: true }) },
-      el('span', { class: 'vb-item-title', text: v.title }),
-      el('small', { text: `${v.series} · ${fmt(v.position)} / ${fmt(v.duration)}` }),
-      el('span', { class: 'vb-bar' }, el('span', { style: `width:${v.duration ? Math.min(100, (v.position / v.duration) * 100) : 0}%` }))));
-    const series = status.series.map((s) => el('button', { class: 'vb-item' + (s.key === seriesKey ? ' active' : ''), 'data-series': s.key, onclick: () => showSeries(s.key) },
-      el('span', { class: 'vb-item-title', text: s.name }),
-      el('small', { text: `${s.watched}/${s.count} watched` }),
-      el('span', { class: 'vb-bar' }, el('span', { style: `width:${s.count ? (s.watched / s.count) * 100 : 0}%` }))));
-    side.replaceChildren(
-      ...(resume.length ? [el('h4', { text: 'Continue watching' }), ...resume] : []),
-      el('h4', { text: 'Series' }),
-      ...(series.length ? series : [el('p', { class: 'music-none', text: 'No videos yet.' })]));
+  // ------------------------------------------------------------------ library view
+
+  function queryPayload() {
+    return { search: view.search, filter: view.filter, series: view.series, playlistId: view.playlistId, sort: view.playlistId && view.sort === 'series' ? 'playlist' : view.sort, desc: view.desc };
   }
 
-  async function showSeries(key) {
-    seriesKey = key;
-    await loadEpisodes(key);
-    renderSide();
-    const s = status.series.find((x) => x.key === key);
-    if (!current && s && s.resumeId) await select(s.resumeId, { autoplay: false });
+  async function loadView() {
+    let list;
+    try { list = await req('video.query', queryPayload()); } catch (err) { hooks.showError(err); return; }
+    rows = list;
+    rows.forEach((r) => cache.set(r.id, r));
+    shown = Math.max(300, shown);
+    renderList();
   }
 
-  async function loadEpisodes(key) {
-    try { episodes = await req('video.episodes', { key }); } catch (err) { hooks.showError(err); episodes = []; }
-    renderEpisodes();
+  async function setView(patch) {
+    view = { ...view, ...patch };
+    if ('playlistId' in patch && patch.playlistId) { view.series = null; }
+    if ('series' in patch && patch.series) { view.playlistId = null; }
+    selected = -1; sel = new Set(); anchor = -1; shown = 300;
+    $('#vb-sort').value = view.sort;
+    renderChips();
+    renderViewbar();
+    $('#vb-list').scrollTop = 0;
+    await loadView();
   }
 
-  function renderEpisodes(list = episodes, heading = null) {
-    const box = $('#vb-episodes');
+  function renderChips() {
+    const box = $('#vb-chips');
+    if (!box) return;
+    const series = el('select', { id: 'vb-series', 'aria-label': 'Series' }, el('option', { value: '', text: 'All series' }), ...status.series.map((s) => el('option', { value: s.key, text: `${s.name} (${s.watched}/${s.count})` })));
+    series.value = view.series || '';
+    series.addEventListener('change', () => setView({ series: series.value || null }));
     box.replaceChildren(
-      ...(heading ? [el('h4', { text: heading })] : []),
-      ...list.map((v, i) => el('div', { class: 'vb-ep' + (current && current.video.id === v.id ? ' playing' : '') + (v.watched ? ' watched' : ''), role: 'listitem', 'data-id': String(v.id) },
-        el('span', { class: 'vb-ep-n', text: v.episode != null ? (v.season != null ? `S${v.season}E${v.episode}` : `E${v.episode}`) : String(i + 1) }),
-        el('button', { class: 'vb-ep-title linkish', onclick: () => select(v.id, { autoplay: true }) }, v.title),
-        el('small', { class: 'vb-ep-meta', text: [fmt(v.duration), v.notes ? `📝 ${v.notes}` : null, v.watched ? '✓ watched' : v.position > resumeAfter(v.duration) ? `▶ ${fmt(v.position)}` : null].filter(Boolean).join(' · ') }),
-        el('button', { class: 'icon-btn', title: v.watched ? 'Mark as not watched' : 'Mark as watched', 'aria-label': v.watched ? 'Mark as not watched' : 'Mark as watched', onclick: () => markWatched([v.id], !v.watched) }, v.watched ? '↺' : '✓'))));
-    if (!list.length && !heading) box.replaceChildren(el('p', { class: 'music-none', text: 'Choose a series on the left.' }));
+      ...FILTERS.map(([v, l]) => el('button', { class: 'chip' + (view.filter === v ? ' active' : ''), 'data-filter': v, onclick: () => setView({ filter: v }) }, v === 'all' ? `${l} ${status.count || ''}`.trim() : l)),
+      series);
   }
 
-  async function renderSearch() {
-    if (!search) { renderEpisodes(); return; }
-    try { renderEpisodes(await req('video.search', { text: search }), `Search: ${search}`); } catch (err) { hooks.showError(err); }
+  function renderViewbar() {
+    const bar = $('#vb-viewbar');
+    const pl = view.playlistId ? status.playlists.find((p) => p.id === view.playlistId) : null;
+    if (!pl) { bar.replaceChildren(); bar.classList.add('hide'); return; }
+    bar.classList.remove('hide');
+    bar.replaceChildren(el('span', {}, '▤ Playlist: ', el('strong', { text: pl.name })),
+      el('button', { class: 'utility-btn', onclick: () => playView(0) }, '▶ Play'),
+      el('button', { class: 'utility-btn', onclick: () => setView({ playlistId: null }) }, '✕ Close'));
+  }
+
+  function rowNode(v, i) {
+    const playing = v.id === currentId();
+    const pct = v.duration > 0 && !v.watched && v.position > resumeAfter(v.duration) ? Math.min(100, (v.position / v.duration) * 100) : 0;
+    return el('div', {
+      class: 'vtrack' + (sel.has(i) ? ' selected' : '') + (i === selected ? ' cursor' : '') + (playing ? ' playing' : '') + (v.watched ? ' watched' : ''),
+      role: 'option', 'aria-selected': String(sel.has(i)), 'data-index': String(i), 'data-id': String(v.id),
+    },
+    el('span', { class: 'track-state', text: playing ? (video.paused ? '❚❚' : '▶') : v.watched ? '✓' : '' }),
+    el('span', { class: 'vtrack-text' },
+      el('span', { class: 'track-title', text: v.title }),
+      el('span', { class: 'track-sub', text: [view.series || view.playlistId ? null : v.series, epLabel(v), v.notes ? `📝 ${v.notes}` : null].filter(Boolean).join(' · ') }),
+      pct ? el('span', { class: 'vb-bar' }, el('span', { style: `width:${pct}%` })) : null),
+    el('span', { class: 'track-dur', text: pct ? `${fmt(v.position)} / ${fmt(v.duration)}` : fmt(v.duration) }));
+  }
+
+  function renderList() {
+    const list = $('#vb-list');
+    if (!list) return;
+    const n = Math.min(rows.length, shown);
+    list.replaceChildren(...rows.slice(0, n).map(rowNode),
+      ...(rows.length ? [] : [el('p', { class: 'music-none', text: status.folders.length ? 'Nothing here. Try another filter or search.' : 'Add a video folder to start.' })]),
+      ...(rows.length > n ? [el('p', { class: 'music-none', text: `Scroll for ${rows.length - n} more…` })] : []));
+    updateSelection();
+  }
+
+  function updateSelection() {
+    document.querySelectorAll('#vb-list .vtrack[data-index]').forEach((node) => {
+      const i = Number(node.dataset.index);
+      node.classList.toggle('selected', sel.has(i));
+      node.classList.toggle('cursor', i === selected);
+      node.setAttribute('aria-selected', String(sel.has(i)));
+    });
+    const c = $('#vb-selcount');
+    if (c) c.textContent = sel.size > 1 ? `${sel.size} selected` : '';
+  }
+
+  function clickSelect(i, toggleOne, range) {
+    if (range && anchor >= 0) {
+      const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)];
+      if (!toggleOne) sel = new Set();
+      for (let k = a; k <= b; k++) sel.add(k);
+    } else if (toggleOne) { if (sel.has(i)) sel.delete(i); else sel.add(i); anchor = i; }
+    else { sel = new Set([i]); anchor = i; }
+    selected = i;
+    updateSelection();
+  }
+
+  function selectIndex(i, extend) {
+    if (!rows.length) return;
+    selected = Math.max(0, Math.min(rows.length - 1, i));
+    if (selected >= shown) { shown = selected + 100; renderList(); }
+    if (extend) { if (anchor < 0) anchor = selected; sel = new Set(); for (let k = Math.min(anchor, selected); k <= Math.max(anchor, selected); k++) sel.add(k); }
+    else { sel = new Set([selected]); anchor = selected; }
+    updateSelection();
+    document.querySelector(`#vb-list .vtrack[data-index="${selected}"]`)?.scrollIntoView({ block: 'nearest' });
+  }
+
+  const selectedIds = () => [...(sel.size ? sel : selected >= 0 ? new Set([selected]) : new Set())].sort((a, b) => a - b).map((i) => rows[i] && rows[i].id).filter((x) => x != null);
+
+  function selectAll() { sel = new Set(rows.map((_, i) => i)); if (selected < 0 && rows.length) selected = 0; updateSelection(); }
+
+  function onListKey(e) {
+    const map = { ArrowDown: 1, ArrowUp: -1, PageDown: 10, PageUp: -10 };
+    if (map[e.key] != null && e.altKey && view.playlistId && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) { e.preventDefault(); e.stopPropagation(); moveInPlaylist(map[e.key]); return; }
+    if (map[e.key] != null && !e.ctrlKey && !e.altKey) { e.preventDefault(); e.stopPropagation(); selectIndex((selected < 0 ? -1 : selected) + map[e.key], e.shiftKey); return; }
+    if (e.key === 'Home' && !e.ctrlKey) { e.preventDefault(); selectIndex(0, e.shiftKey); return; }
+    if (e.key === 'End' && !e.ctrlKey) { e.preventDefault(); selectIndex(rows.length - 1, e.shiftKey); return; }
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'a') { e.preventDefault(); e.stopPropagation(); selectAll(); return; }
+    if (e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey)) {
+      e.preventDefault(); e.stopPropagation();
+      const node = document.querySelector(`#vb-list .vtrack[data-index="${selected}"]`);
+      const r = (node || $('#vb-list')).getBoundingClientRect();
+      showMenu(r.left + 40, r.top + 24);
+      return;
+    }
+    if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const ids = selectedIds(); if (ids.length > 1) setQueue(ids, 0, true); else if (selected >= 0) playView(selected); return; }
+    if (e.key === 'Delete' && view.playlistId) { e.preventDefault(); e.stopPropagation(); removeFromPlaylist(selectedIds()); }
+  }
+
+  async function revealPlaying() {
+    const id = currentId();
+    if (id == null) { notice('Nothing is playing.'); return; }
+    let i = rows.findIndex((r) => r.id === id);
+    if (i < 0) { await setView({ search: '', filter: 'all', series: null, playlistId: null }); $('#vb-search').value = ''; i = rows.findIndex((r) => r.id === id); }
+    if (i < 0) return;
+    setTab('library');
+    selectIndex(i, false);
+    document.querySelector(`#vb-list .vtrack[data-index="${i}"]`)?.scrollIntoView({ block: 'center' });
+  }
+
+  // ------------------------------------------------------------------ the right-click menu
+
+  function showMenu(x, y) {
+    const ids = selectedIds();
+    if (!ids.length) return;
+    const many = ids.length > 1;
+    const one = !many ? cache.get(ids[0]) : null;
+    const inPl = view.playlistId ? status.playlists.find((p) => p.id === view.playlistId) : null;
+    const items = [
+      { label: many ? `Play these ${ids.length} videos` : 'Play', run: () => (many ? setQueue(ids, 0, true) : playView(selected)) },
+      { label: 'Play next', run: () => playNext(ids) },
+      { label: 'Add to Up next', run: () => enqueue(ids) },
+      '-',
+      { label: 'Add to playlist', sub: () => [
+        ...status.playlists.filter((p) => !inPl || p.id !== inPl.id).map((p) => ({ label: `${p.name}  (${p.count})`, run: () => addToPlaylist(p, ids) })),
+        ...(status.playlists.length ? ['-'] : []),
+        { label: 'New playlist…', run: () => createPlaylist(ids) },
+      ] },
+      inPl ? { label: `Remove from “${inPl.name}”`, run: () => removeFromPlaylist(ids) } : null,
+      inPl && !many ? { label: 'Move up (Alt+↑)', run: () => moveInPlaylist(-1) } : null,
+      inPl && !many ? { label: 'Move down (Alt+↓)', run: () => moveInPlaylist(1) } : null,
+      '-',
+      { label: 'Mark as watched', run: () => markWatched(ids, true) },
+      { label: 'Mark as not watched', run: () => markWatched(ids, false) },
+      '-',
+      { label: 'Notes…', disabled: many, run: () => one && playIds([one.id], 0, false).then(() => setTab('notes')) },
+      { label: 'Show in Explorer', disabled: many || !one, run: () => one && req('video.reveal', { id: one.id }).catch(hooks.showError) },
+      '-',
+      { label: 'Select all', run: selectAll },
+    ].filter(Boolean);
+    NoorChrome.openMenu(null, items, { x, y });
+  }
+
+  // ------------------------------------------------------------------ queue (like the Music Bench)
+
+  function shuffledOrder(n, keepFirst) {
+    const order = [...Array(n).keys()].filter((i) => i !== keepFirst);
+    for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+    return keepFirst != null && keepFirst >= 0 ? [keepFirst, ...order] : order;
+  }
+
+  async function playView(index) {
+    if (!rows[index]) return;
+    await setQueue(rows.map((r) => r.id), index, true);
+  }
+
+  async function playIds(ids, index, autoplay) { await setQueue(ids, index, autoplay); }
+
+  async function setQueue(ids, startIndex, autoplay, at = null) {
+    q.ids = ids.slice();
+    q.order = q.shuffle ? shuffledOrder(ids.length, startIndex) : ids.map((_, i) => i);
+    q.pos = q.order.indexOf(startIndex);
+    await loadCurrent(autoplay, at);
+    scheduleSave();
+  }
+
+  function enqueue(ids) {
+    if (!q.order.length) { setQueue(ids, 0, false); notice(`Added ${ids.length} to Up next`, 1400); return; }
+    const base = q.ids.length;
+    q.ids.push(...ids);
+    q.order.push(...ids.map((_, i) => base + i));
+    notice(`Added ${ids.length} to Up next`, 1400);
+    renderQueue(); scheduleSave();
+  }
+
+  function playNext(ids) {
+    if (!q.order.length) { setQueue(ids, 0, true); return; }
+    const base = q.ids.length;
+    q.ids.push(...ids);
+    q.order.splice(q.pos + 1, 0, ...ids.map((_, i) => base + i));
+    notice(ids.length === 1 ? 'Plays next' : `${ids.length} play next`, 1400);
+    renderQueue(); scheduleSave();
+  }
+
+  function next(auto) {
+    if (!q.order.length) return;
+    if (auto && q.repeat === 'one') { video.currentTime = 0; video.play().catch(() => {}); return; }
+    let pos = q.pos + 1;
+    if (pos >= q.order.length) {
+      if (q.repeat === 'all' || !auto || (q.shuffle && q.ids.length > 1)) {
+        if (q.shuffle) { const last = q.order[q.pos]; q.order = shuffledOrder(q.ids.length, -1); if (q.order[0] === last && q.order.length > 1) q.order.push(q.order.shift()); }
+        pos = 0;
+      } else { notice('That was the last video in Up next ✓', 2500); return; }
+    }
+    q.pos = pos;
+    loadCurrent(true);
+    scheduleSave();
+  }
+
+  function prev() {
+    if (!q.order.length) return;
+    if (video.currentTime > 3) { video.currentTime = 0; return; }
+    q.pos = q.pos > 0 ? q.pos - 1 : (q.repeat === 'all' ? q.order.length - 1 : 0);
+    loadCurrent(true);
+    scheduleSave();
+  }
+
+  function setShuffle(on) {
+    q.shuffle = on;
+    if (q.order.length) {
+      const cur = q.order[q.pos];
+      if (on) { const rest = shuffledOrder(q.ids.length, cur); q.order = rest; q.pos = 0; }
+      else { q.order = q.ids.map((_, i) => i); q.pos = Math.max(0, cur); }
+    }
+    renderTransport(); renderQueue(); scheduleSave();
+  }
+
+  function cycleRepeat() { q.repeat = { off: 'all', all: 'one', one: 'off' }[q.repeat]; renderTransport(); scheduleSave(); }
+
+  function playPause() {
+    if (!video.getAttribute('src')) { if (q.order.length) loadCurrent(true); else if (rows.length) playView(selected >= 0 ? selected : 0); return; }
+    if (video.paused) video.play().catch(() => {}); else video.pause();
+  }
+
+  function toggleFullscreen() {
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    else video.requestFullscreen().catch(() => {});
   }
 
   // ------------------------------------------------------------------ playing
 
+  /** Plays one video by id (the Video Bench API used by the self-test and the pop-out hand-back). */
   async function select(id, { autoplay = false, at = null } = {}) {
+    const i = rows.findIndex((r) => r.id === id);
+    if (i >= 0) await setQueue(rows.map((r) => r.id), i, autoplay, at);
+    else await setQueue([id], 0, autoplay, at);
+  }
+
+  async function loadCurrent(autoplay, at = null) {
+    const id = currentId();
     if (current && current.video.id !== id) savePosition(true);
+    if (id == null) return;
     let d;
     try { d = await req('video.get', { id }); } catch (err) { hooks.showError(err); return; }
     current = d;
+    cache.set(id, d.video);
     hideCountdown();
     showPlayerMessage(null);
-    if (poppedOut === id) { renderCurrent(); showPlayerMessage('Playing in the pop-out player.', [['Bring it back here', () => req('video.popout.close').catch(() => {})]]); return; }
-    if (seriesKey !== d.video.seriesKey) { seriesKey = d.video.seriesKey; await loadEpisodes(seriesKey); renderSide(); }
+    if (poppedOut === id) { renderAll(); showPlayerMessage('Playing in the pop-out player.', [['Bring it back here', () => req('video.popout.close').catch(() => {})]]); return; }
     video.replaceChildren(...d.subtitles.map((s) => el('track', { kind: 'subtitles', label: s.label, srclang: s.lang === 'und' ? 'en' : s.lang, src: `_sub/${id}/${s.index}` })));
     video.src = `_video/${id}`;
+    video.volume = q.volume;
     video.dataset.resume = String(at != null ? at : !d.video.watched && d.video.position > resumeAfter(d.video.duration) ? d.video.position : 0);
     video.dataset.autoplay = autoplay ? '1' : '';
-    renderCurrent();
-    renderEpisodes();
-    renderSide();
+    renderAll();
     if (!d.exists) showPlayerMessage('This file is missing on disk. Rescan the folder or reconnect the drive.');
-    saveSession();
   }
 
-  async function reloadCurrent(rerender = true) {
+  async function reloadCurrent() {
     if (!current) return;
     try { const d = await req('video.get', { id: current.video.id }); current = { ...current, notes: d.notes, next: d.next, video: d.video }; } catch { return; }
     renderNotes();
-    if (rerender) renderEpisodes();
   }
 
   function onLoaded() {
@@ -224,25 +501,34 @@ window.NoorVideo = (() => {
       video.currentTime = at;
       notice(`Resumed at ${fmt(at)}`, 2500);
       showResumeHint(at);
-    }
+    } else $('#vb-resume').replaceChildren();
     if (video.dataset.autoplay) video.play().catch(() => {});
-    // Show the first subtitle track by default when the video has one (the player menu can switch or hide it).
     const tracks = [...video.textTracks];
     tracks.forEach((t, i) => { t.mode = i === 0 && current && current.subtitles.length ? 'showing' : 'disabled'; });
-    renderControls();
+    // Keep the language chosen for the previous video when this one has it too.
+    const at2 = audioTracks();
+    if (audioLang && at2.length > 1) { const i = at2.findIndex((t) => t.language === audioLang); if (i >= 0) setAudio(i, false); }
+    renderExtras();
+    renderTime();
   }
 
   function showResumeHint(at) {
-    const info = $('#vb-resume');
-    if (!info) return;
-    info.replaceChildren(el('span', { text: `Continued from ${fmt(at)} · ` }), el('button', { class: 'linkish', onclick: () => { video.currentTime = 0; info.replaceChildren(); } }, 'Start over'));
+    $('#vb-resume').replaceChildren(el('span', { text: `Continued from ${fmt(at)} · ` }), el('button', { class: 'linkish', onclick: () => { video.currentTime = 0; $('#vb-resume').replaceChildren(); } }, 'Start over'));
   }
 
   function onTime() {
-    const now = Date.now();
-    if (!video.paused && now - lastSaved > 5000) savePosition(false);
+    if (!video.paused && Date.now() - lastSaved > 5000) savePosition(false);
+    renderTime();
     const ts = $('#vb-note-time');
-    if (ts && !$('#vb-note-input').value) ts.textContent = fmt(video.currentTime);
+    if (ts && !$('#vb-note-input')?.value) ts.textContent = fmt(video.currentTime);
+  }
+
+  function renderTime() {
+    const d = video.duration, c = video.currentTime;
+    $('#vb-cur').textContent = fmt(c);
+    $('#vb-dur').textContent = fmt(d);
+    const r = $('#vb-range');
+    if (!r.dataset.dragging) r.value = Number.isFinite(d) && d > 0 ? String(Math.round((c / d) * 1000)) : '0';
   }
 
   function savePosition(force) {
@@ -250,11 +536,11 @@ window.NoorVideo = (() => {
     const id = current.video.id;
     if (!force && Date.now() - lastSaved < 5000) return;
     lastSaved = Date.now();
-    clearTimeout(saveTimer);
     req('video.position', { id, position: video.currentTime, duration: video.duration }).then((row) => {
       if (!row) return;
-      const i = episodes.findIndex((e) => e.id === id);
-      if (i >= 0) episodes[i] = row;
+      cache.set(id, row);
+      const i = rows.findIndex((e) => e.id === id);
+      if (i >= 0) rows[i] = row;
       if (current && current.video.id === id) current.video = row;
     }).catch(() => {});
   }
@@ -262,16 +548,19 @@ window.NoorVideo = (() => {
   async function onEnded() {
     if (!current) return;
     await req('video.position', { id: current.video.id, position: video.duration, duration: video.duration }).catch(() => {});
-    await refresh();
-    const next = current.next;
-    if (!next) { notice('That was the last episode of this series ✓', 3000); return; }
+    if (q.repeat === 'one') { video.currentTime = 0; video.play().catch(() => {}); return; }
+    await refresh(true);
+    const hasNext = q.pos + 1 < q.order.length || q.repeat === 'all' || (q.shuffle && q.ids.length > 1);
+    if (!hasNext) { notice('That was the last video in Up next ✓', 3000); return; }
+    const nextId = q.pos + 1 < q.order.length ? q.ids[q.order[q.pos + 1]] : null;
+    const nextRow = nextId != null ? cache.get(nextId) : null;
     let n = 6;
     const box = $('#vb-countdown');
     box.hidden = false;
-    const draw = () => box.replaceChildren(el('div', { text: `Next: ${next.title}` }), el('div', { class: 'vb-count', text: `in ${n} s` }),
-      el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: hideCountdown }, 'Cancel'), el('button', { class: 'action primary', onclick: () => select(next.id, { autoplay: true }) }, 'Play now')));
+    const draw = () => box.replaceChildren(el('div', { text: nextRow ? `Next: ${nextRow.title}` : 'Next video' }), el('div', { class: 'vb-count', text: `in ${n} s` }),
+      el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: hideCountdown }, 'Cancel'), el('button', { class: 'action primary', onclick: () => { hideCountdown(); next(true); } }, 'Play now')));
     draw();
-    countdown = setInterval(() => { n--; if (n <= 0) { hideCountdown(); select(next.id, { autoplay: true }); } else draw(); }, 1000);
+    countdown = setInterval(() => { n--; if (n <= 0) { hideCountdown(); next(true); } else draw(); }, 1000);
   }
 
   function hideCountdown() { clearInterval(countdown); countdown = null; const b = $('#vb-countdown'); if (b) b.hidden = true; }
@@ -283,51 +572,220 @@ window.NoorVideo = (() => {
     if (text) m.replaceChildren(el('p', { text }), ...actions.map(([label, fn]) => el('button', { class: 'action', onclick: fn }, label)));
   }
 
-  function renderCurrent() {
+  function renderAll() {
     const v = current && current.video;
-    $('#vb-info').replaceChildren(...(v ? [
-      el('div', { class: 'vb-now', text: v.title }),
-      el('small', { text: [v.series, v.episode != null ? (v.season != null ? `Season ${v.season}, episode ${v.episode}` : `Episode ${v.episode}`) : null, v.width ? `${v.width}×${v.height}` : null].filter(Boolean).join(' · ') }),
-      el('small', { id: 'vb-resume', class: 'vb-resume' })] : [el('div', { class: 'vb-now muted', text: 'Nothing playing' })]));
-    renderControls();
+    $('#vb-title').textContent = v ? v.title : 'Nothing playing';
+    $('#vb-sub').textContent = v ? [v.series, epLabel(v), v.width ? `${v.width}×${v.height}` : null].filter(Boolean).join(' · ') : 'Double-click a video in the list';
+    renderTransport();
+    renderExtras();
     renderNotes();
+    renderList();
+    if (tab === 'queue') renderQueue();
   }
 
-  function renderControls() {
-    const box = $('#vb-controls');
+  function renderTransport() {
+    if (!built) return;
+    const play = document.querySelector('#videobench .tp.play');
+    play.textContent = video.paused ? '▶' : '❚❚';
+    play.setAttribute('aria-label', video.paused ? 'Play' : 'Pause');
+    const sh = document.querySelector('#videobench .tp.shuffle');
+    sh.classList.toggle('on', q.shuffle); sh.setAttribute('aria-pressed', String(q.shuffle));
+    sh.title = q.shuffle ? 'Shuffle is on — click to play in order' : 'Shuffle is off — click to play in random order';
+    const rp = document.querySelector('#videobench .tp.repeat');
+    rp.classList.toggle('on', q.repeat !== 'off'); rp.textContent = q.repeat === 'one' ? '↻¹' : '↻';
+    rp.title = { off: 'Repeat: off', all: 'Repeat: all', one: 'Repeat: this video' }[q.repeat];
+    $('#vb-volume').value = String(Math.round(q.volume * 100));
+    document.querySelectorAll('#vb-list .vtrack').forEach((n) => {
+      const isCur = Number(n.dataset.id) === currentId();
+      n.classList.toggle('playing', isCur);
+      const s = n.querySelector('.track-state');
+      if (s && isCur) s.textContent = video.paused ? '❚❚' : '▶';
+    });
+  }
+
+  function audioTracks() { return video.audioTracks ? [...video.audioTracks] : []; }
+
+  function setAudio(index, remember = true) {
+    const list = audioTracks();
+    list.forEach((t, i) => { t.enabled = i === index; });
+    if (remember && list[index]) audioLang = list[index].language || null;
+    const s = $('#vb-audio');
+    if (s) s.value = String(index);
+  }
+
+  function renderExtras() {
+    const box = $('#vb-extras');
     if (!box) return;
-    if (!current) { box.replaceChildren(); return; }
-    const i = episodes.findIndex((e) => e.id === current.video.id);
-    const prev = i > 0 ? episodes[i - 1] : null;
-    const speed = el('select', { id: 'vb-speed', 'aria-label': 'Playback speed', title: 'Speed ([ and ])' }, ...SPEEDS.map((s) => el('option', { value: String(s), text: s === 1 ? 'Normal speed' : `${s}×` })));
+    const speed = el('select', { id: 'vb-speed', 'aria-label': 'Playback speed', title: 'Speed ([ and ])' }, ...SPEEDS.map((s) => el('option', { value: String(s), text: s === 1 ? '1× speed' : `${s}×` })));
     speed.value = String(video.playbackRate);
-    speed.addEventListener('change', () => { video.playbackRate = Number(speed.value); saveSession(); });
-    const subs = el('select', { id: 'vb-subs', 'aria-label': 'Subtitles', title: 'Subtitles (C)' }, el('option', { value: '-1', text: current.subtitles.length ? 'Subtitles off' : 'No subtitles found' }),
-      ...current.subtitles.map((s) => el('option', { value: String(s.index), text: s.label })));
-    const showing = [...video.textTracks].findIndex((t) => t.mode === 'showing');
-    subs.value = String(showing);
-    subs.disabled = !current.subtitles.length;
+    speed.addEventListener('change', () => { video.playbackRate = Number(speed.value); scheduleSave(); });
+    const subsList = current ? current.subtitles : [];
+    const subs = el('select', { id: 'vb-subs', 'aria-label': 'Subtitles', title: 'Subtitles (C)' }, el('option', { value: '-1', text: subsList.length ? 'Subtitles off' : 'No subtitles' }),
+      ...subsList.map((s) => el('option', { value: String(s.index), text: s.label })));
+    subs.value = String([...video.textTracks].findIndex((t) => t.mode === 'showing'));
+    subs.disabled = !subsList.length;
     subs.addEventListener('change', () => setSubtitle(Number(subs.value)));
-    box.replaceChildren(
-      el('button', { class: 'utility-btn', disabled: !prev || undefined, onclick: () => prev && select(prev.id, { autoplay: true }), title: 'Previous episode' }, '⏮ Previous'),
-      el('button', { class: 'utility-btn', disabled: !current.next || undefined, onclick: () => current.next && select(current.next.id, { autoplay: true }), title: 'Next episode' }, 'Next ⏭'),
-      speed, subs,
-      el('button', { class: 'utility-btn', id: 'vb-popout', onclick: popOut, title: 'Open in a small window that stays on top of other programs' }, '⧉ Pop out'),
-      el('button', { class: 'utility-btn', onclick: () => markWatched([current.video.id], !current.video.watched) }, current.video.watched ? '↺ Not watched' : '✓ Watched'),
-      el('button', { class: 'utility-btn', onclick: () => req('video.reveal', { id: current.video.id }).catch(hooks.showError) }, 'Show in Explorer'));
+    const tracks = audioTracks();
+    const audio = tracks.length > 1 ? el('select', { id: 'vb-audio', 'aria-label': 'Audio track', title: 'Audio track (A)' },
+      ...tracks.map((t, i) => el('option', { value: String(i), text: `🔊 ${t.label || t.language || `Track ${i + 1}`}${t.label && t.language ? ` (${t.language})` : ''}` }))) : null;
+    if (audio) { audio.value = String(Math.max(0, tracks.findIndex((t) => t.enabled))); audio.addEventListener('change', () => setAudio(Number(audio.value))); }
+    const ic = (label, title, fn, id) => el('button', { class: 'icon-btn', title, 'aria-label': title, id, onclick: fn, disabled: !current || undefined }, label);
+    box.replaceChildren(speed, subs, ...(audio ? [audio] : []),
+      el('span', { class: 'sd-spacer' }),
+      ic('⧉', 'Pop out: a small window that stays on top', popOut, 'vb-popout'),
+      ic('⛶', 'Full screen (F)', toggleFullscreen),
+      ic(current && current.video.watched ? '↺' : '✓', current && current.video.watched ? 'Mark as not watched' : 'Mark as watched', () => current && markWatched([current.video.id], !current.video.watched)));
   }
 
   function setSubtitle(index) {
     [...video.textTracks].forEach((t, i) => { t.mode = i === index ? 'showing' : 'disabled'; });
-    const sel = $('#vb-subs');
-    if (sel) sel.value = String(index);
+    const s = $('#vb-subs');
+    if (s) s.value = String(index);
   }
 
   async function markWatched(ids, value) {
     try { await req('video.watched', { ids, value }); } catch (err) { hooks.showError(err); return; }
-    await refresh();
-    if (current && ids.includes(current.video.id)) await reloadCurrent();
-    renderControls();
+    await refresh(true);
+    if (current && ids.includes(current.video.id)) { await reloadCurrent(); renderExtras(); }
+  }
+
+  // ------------------------------------------------------------------ Up next
+
+  function renderQueue() {
+    const box = $('#vb-queue');
+    if (!box) return;
+    const upcoming = q.order.slice(q.pos + 1);
+    const nowRow = cache.get(currentId());
+    const item = (orderPos) => {
+      const v = cache.get(q.ids[q.order[orderPos]]) || { title: `Video ${q.ids[q.order[orderPos]]}`, duration: 0 };
+      return el('div', { class: 'qitem' },
+        el('span', { class: 'qpos', text: String(orderPos - q.pos) }),
+        el('button', { class: 'qtitle linkish', onclick: () => { q.pos = orderPos; loadCurrent(true); scheduleSave(); } }, v.title),
+        el('small', { text: fmt(v.duration) }),
+        el('span', { class: 'qactions' },
+          el('button', { class: 'icon-btn', title: 'Move up', 'aria-label': 'Move up', onclick: () => moveQueue(orderPos, -1) }, '↑'),
+          el('button', { class: 'icon-btn', title: 'Move down', 'aria-label': 'Move down', onclick: () => moveQueue(orderPos, 1) }, '↓'),
+          el('button', { class: 'icon-btn', title: 'Remove', 'aria-label': 'Remove from Up next', onclick: () => { q.order.splice(orderPos, 1); renderQueue(); scheduleSave(); } }, '✕')));
+    };
+    box.replaceChildren(
+      el('div', { class: 'music-viewbar' }, el('span', { text: `${upcoming.length} upcoming · ${q.shuffle ? 'shuffled' : 'in order'} · repeat ${q.repeat}` }),
+        el('button', { class: 'utility-btn', disabled: !q.order.length || undefined, onclick: () => createPlaylist(q.order.map((i) => q.ids[i])) }, 'Save as playlist'),
+        el('button', { class: 'utility-btn danger', onclick: () => { q.order = q.order.slice(0, q.pos + 1); renderQueue(); scheduleSave(); } }, 'Clear upcoming')),
+      ...(nowRow ? [el('div', { class: 'qitem playing' }, el('span', { class: 'qpos', text: '▶' }), el('span', { class: 'qtitle', text: nowRow.title }), el('small', { text: fmt(nowRow.duration) }))] : []),
+      ...upcoming.slice(0, 500).map((_, k) => item(q.pos + 1 + k)),
+      ...(upcoming.length ? [] : [el('p', { class: 'music-none', text: 'Nothing queued. Right-click videos → Add to Up next, or play a playlist.' })]));
+  }
+
+  function moveQueue(orderPos, delta) {
+    const to = orderPos + delta;
+    if (to <= q.pos || to >= q.order.length) return;
+    [q.order[orderPos], q.order[to]] = [q.order[to], q.order[orderPos]];
+    renderQueue(); scheduleSave();
+  }
+
+  // ------------------------------------------------------------------ playlists
+
+  function renderPlaylists() {
+    const box = $('#vb-playlists');
+    if (!box) return;
+    const items = status.playlists.map((p) => el('div', { class: 'qitem', 'data-playlist': String(p.id) },
+      el('span', { class: 'qpos', text: '▤' }),
+      el('button', { class: 'qtitle linkish', onclick: () => openPlaylist(p.id) }, p.name),
+      el('small', { text: `${p.watched}/${p.count} watched · ${fmt(p.duration)}` }),
+      el('span', { class: 'qactions' },
+        el('button', { class: 'icon-btn', title: 'Play', 'aria-label': `Play ${p.name}`, onclick: () => playPlaylist(p.id) }, '▶'),
+        el('button', { class: 'icon-btn', title: 'Rename', 'aria-label': 'Rename', onclick: () => renamePlaylist(p) }, '✎'),
+        el('button', { class: 'icon-btn', title: 'Delete', 'aria-label': 'Delete playlist', onclick: () => deletePlaylist(p) }, '✕'))));
+    box.replaceChildren(
+      el('div', { class: 'music-viewbar' },
+        el('button', { class: 'utility-btn', id: 'vb-pl-new', onclick: () => createPlaylist([]) }, '＋ New playlist'),
+        el('button', { class: 'utility-btn', id: 'vb-pl-series', onclick: playlistFromSeries }, '＋ From a series / TV show…')),
+      ...(items.length ? items : [el('p', { class: 'music-none', text: 'No playlists yet. Make one from a whole series, or right-click videos → Add to playlist.' })]));
+  }
+
+  async function openPlaylist(id) { setTab('library'); $('#vb-search').value = ''; await setView({ playlistId: id, search: '', filter: 'all', series: null, sort: 'series' }); }
+
+  async function playPlaylist(id) {
+    let list;
+    try { list = await req('video.query', { playlistId: id, sort: 'playlist', filter: 'all' }); } catch (err) { hooks.showError(err); return; }
+    if (!list.length) { notice('This playlist is empty.'); return; }
+    list.forEach((r) => cache.set(r.id, r));
+    // Start where you left off: the first unfinished video of the playlist.
+    const start = Math.max(0, list.findIndex((v) => !v.watched));
+    await setQueue(list.map((v) => v.id), start, true);
+  }
+
+  async function createPlaylist(ids, suggested = 'New playlist') {
+    const name = await NoorUI.prompt('New playlist', 'Playlist name:', suggested, { okLabel: 'Create' });
+    if (!name) return null;
+    try {
+      const r = await req('video.playlist.create', { name, ids });
+      status.playlists = r.playlists;
+      renderPlaylists();
+      notice(`Playlist “${name}” created${ids.length ? ` with ${ids.length} videos` : ''}`, 2000);
+      return r.id;
+    } catch (err) { hooks.showError(err); return null; }
+  }
+
+  async function playlistFromSeries() {
+    if (!status.series.length) { notice('Add a video folder first.'); return; }
+    NoorUI.modal({ label: 'Playlist from a series', width: 480 }, (s, closeModal) => {
+      const pick = el('select', { id: 'vb-series-pick', 'aria-label': 'Series' }, ...status.series.map((x) => el('option', { value: x.key, text: `${x.name} (${x.count} videos)` })));
+      s.append(NoorUI.head('▤ Playlist from a series', closeModal),
+        el('div', { class: 'modal-body' }, el('p', { text: 'All videos of the series, in episode order. New episodes added to the folder later can be added with right-click → Add to playlist.' }), pick),
+        el('div', { class: 'modal-foot' }, el('span'), el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => closeModal() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'vb-series-ok', onclick: async () => {
+            const series = status.series.find((x) => x.key === pick.value);
+            closeModal();
+            let list;
+            try { list = await req('video.query', { series: series.key, sort: 'series', filter: 'all' }); } catch (err) { hooks.showError(err); return; }
+            await createPlaylist(list.map((v) => v.id), series.name);
+          } }, 'Next…'))));
+    });
+  }
+
+  async function addToPlaylist(p, ids) {
+    try { status.playlists = await req('video.playlist.add', { id: p.id, ids }); renderPlaylists(); notice(`Added ${ids.length === 1 ? 'the video' : `${ids.length} videos`} to “${p.name}”`, 1600); }
+    catch (err) { hooks.showError(err); }
+  }
+
+  async function removeFromPlaylist(ids) {
+    const pl = status.playlists.find((p) => p.id === view.playlistId);
+    if (!pl || !ids.length) return;
+    const drop = new Set([...sel].map((i) => i));
+    const keep = rows.filter((_, i) => !drop.has(i)).map((r) => r.id);
+    try { status.playlists = await req('video.playlist.setItems', { id: pl.id, ids: keep }); } catch (err) { hooks.showError(err); return; }
+    notice(`Removed ${ids.length} from “${pl.name}” (the files are not touched)`, 2200);
+    sel = new Set(); selected = -1; anchor = -1;
+    renderPlaylists(); renderViewbar();
+    await loadView();
+  }
+
+  async function moveInPlaylist(delta) {
+    const pl = status.playlists.find((p) => p.id === view.playlistId);
+    if (!pl || selected < 0) return;
+    if (view.sort !== 'series' || view.search || view.filter !== 'all') { notice('Clear the search and filter to reorder the playlist.'); return; }
+    const to = selected + delta;
+    if (to < 0 || to >= rows.length) return;
+    const ids = rows.map((r) => r.id);
+    [ids[selected], ids[to]] = [ids[to], ids[selected]];
+    try { status.playlists = await req('video.playlist.setItems', { id: pl.id, ids }); } catch (err) { hooks.showError(err); return; }
+    await loadView();
+    selectIndex(to, false);
+  }
+
+  async function renamePlaylist(p) {
+    const name = await NoorUI.prompt('Rename playlist', 'New name:', p.name, { okLabel: 'Rename' });
+    if (!name) return;
+    try { status.playlists = await req('video.playlist.rename', { id: p.id, name }); renderPlaylists(); renderViewbar(); } catch (err) { hooks.showError(err); }
+  }
+
+  async function deletePlaylist(p) {
+    if (!await NoorUI.confirm('Delete playlist?', `“${p.name}” will be deleted. The videos are not touched.`, 'Delete')) return;
+    try { status.playlists = await req('video.playlist.delete', { id: p.id }); } catch (err) { hooks.showError(err); return; }
+    if (view.playlistId === p.id) await setView({ playlistId: null });
+    renderPlaylists();
   }
 
   // ------------------------------------------------------------------ notes
@@ -335,18 +793,18 @@ window.NoorVideo = (() => {
   function renderNotes() {
     const box = $('#vb-notes');
     if (!box) return;
-    const tabBtn = document.querySelector('[data-vbpane="notes"]');
+    const tabBtn = document.querySelector('[data-vbtab="notes"]');
     if (tabBtn) tabBtn.textContent = current && current.notes.length ? `Notes (${current.notes.length})` : 'Notes';
-    if (!current) { box.replaceChildren(el('h4', { text: 'Notes' }), el('p', { class: 'music-none', text: 'Notes are tied to a moment in the video. Play something, then press N.' })); return; }
+    if (!current) { box.replaceChildren(el('p', { class: 'music-none', text: 'Notes are tied to a moment in the video. Play something, then press N.' })); return; }
     const input = el('textarea', { id: 'vb-note-input', rows: '2', placeholder: 'Note at this moment… (Enter adds, Shift+Enter new line)', 'aria-label': 'New note' });
     let at = null;
     input.addEventListener('input', () => { if (at == null && input.value) { at = video.currentTime; $('#vb-note-time').textContent = fmt(at); } if (!input.value) at = null; });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(input.value, at ?? video.currentTime); at = null; }
-      if (e.key === 'Escape') { e.stopPropagation(); input.value = ''; at = null; $('#vb-stage video').focus(); }
+      if (e.key === 'Escape') { e.stopPropagation(); input.value = ''; at = null; $('#videobench').focus(); }
     });
     box.replaceChildren(
-      el('div', { class: 'vb-notes-head' }, el('h4', { text: `Notes (${current.notes.length})` }),
+      el('div', { class: 'vb-notes-head' }, el('strong', { text: current.video.title }),
         el('button', { class: 'utility-btn', disabled: !current.notes.length || undefined, onclick: insertNotes, title: 'Insert the notes into the open document as a list with timestamps' }, '⇩ Into document')),
       el('div', { class: 'vb-note-new' }, el('span', { class: 'vb-stamp', id: 'vb-note-time', text: fmt(video.currentTime) }), input),
       el('ol', { class: 'vb-note-list', id: 'vb-note-list' }, ...current.notes.map((n) => el('li', { class: 'vb-note', 'data-note': String(n.id) },
@@ -361,8 +819,6 @@ window.NoorVideo = (() => {
       const r = await req('video.note.add', { id: current.video.id, time, text });
       current.notes = r.notes;
       renderNotes();
-      const i = episodes.findIndex((e) => e.id === current.video.id);
-      if (i >= 0) { episodes[i] = { ...episodes[i], notes: r.notes.length }; renderEpisodes(); }
       $('#vb-note-input')?.focus();
     } catch (err) { hooks.showError(err); }
   }
@@ -372,7 +828,10 @@ window.NoorVideo = (() => {
     ta.value = n.text;
     span.replaceWith(ta);
     ta.focus();
+    let finished = false;
     const done = async (save) => {
+      if (finished) return;
+      finished = true;
       if (save && ta.value.trim() && ta.value !== n.text) {
         try { current.notes = await req('video.note.update', { id: current.video.id, noteId: n.id, text: ta.value }); } catch (err) { hooks.showError(err); }
       }
@@ -408,14 +867,13 @@ window.NoorVideo = (() => {
     poppedOut = null;
     if (!built) return;
     showPlayerMessage(null);
-    await refresh();
-    if (current && current.video.id === p.id) await select(p.id, { autoplay: isOpen(), at: p.time });
+    if (current && current.video.id === p.id) await loadCurrent(isOpen(), p.time);
   }
 
   // ------------------------------------------------------------------ folders, keys, session
 
   async function addFolder() {
-    try { const r = await req('video.addFolder'); if (r && !r.cancelled) await refresh(); } catch (err) { hooks.showError(err); }
+    try { const r = await req('video.addFolder'); if (r && !r.cancelled) await refresh(true); } catch (err) { hooks.showError(err); }
   }
 
   function showFolders() {
@@ -425,14 +883,13 @@ window.NoorVideo = (() => {
           el('button', { class: 'icon-btn', title: 'Remove from the library (files stay on disk)', 'aria-label': 'Remove folder', onclick: async () => {
             if (!await NoorUI.confirm('Remove this folder?', `“${f.path}” is removed from the Video Bench, with its positions and notes. The videos stay on disk.`, 'Remove')) return;
             await req('video.removeFolder', { id: f.id }).catch(hooks.showError);
-            if (current && current.video.folder.startsWith(f.path)) { current = null; video.removeAttribute('src'); video.load(); renderCurrent(); }
-            seriesKey = null; episodes = [];
-            await refresh(); draw();
+            if (current && current.video.folder.startsWith(f.path)) { current = null; q = { ...q, ids: [], order: [], pos: -1 }; video.removeAttribute('src'); video.load(); renderAll(); }
+            await refresh(true); draw();
           } }, '✕'))) : [el('p', { class: 'music-none', text: 'No folders yet.' })]));
       s.append(NoorUI.head('📁 Video folders', closeModal), el('div', { class: 'modal-body' }),
         el('div', { class: 'modal-foot' }, el('span', { text: 'Subfolders are included. Files are only read.' }),
           el('div', { class: 'modal-buttons' },
-            el('button', { class: 'action', onclick: async () => { await req('video.rescan').catch(hooks.showError); await refresh(); draw(); } }, 'Rescan'),
+            el('button', { class: 'action', onclick: async () => { await req('video.rescan').catch(hooks.showError); await refresh(true); draw(); } }, 'Rescan'),
             el('button', { class: 'action primary', onclick: async () => { await addFolder(); draw(); } }, 'Add folder…'))));
       draw();
     });
@@ -442,38 +899,71 @@ window.NoorVideo = (() => {
     const typing = e.target.closest('input, textarea, select');
     if (e.key === 'Escape' && !typing) { if (document.fullscreenElement) return; e.preventDefault(); e.stopPropagation(); close(); return; }
     if (typing || e.ctrlKey || e.metaKey || e.altKey || !current) return;
+    if (e.target.closest('#vb-list') && /^(Arrow|Page|Home|End|Enter|Delete)/.test(e.key)) return;
     const k = e.key;
     const seek = (d) => { video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + d)); };
-    if (k === ' ' || k === 'k' || k === 'K') { if (e.target === video) return; e.preventDefault(); if (video.paused) video.play().catch(() => {}); else video.pause(); }
+    if (k === ' ' || k === 'k' || k === 'K') { e.preventDefault(); playPause(); }
     else if (k === 'j' || k === 'J') { e.preventDefault(); seek(-10); }
     else if (k === 'l' || k === 'L') { e.preventDefault(); seek(10); }
-    else if ((k === 'ArrowLeft' || k === 'ArrowRight') && e.target !== video) { e.preventDefault(); seek(k === 'ArrowLeft' ? -5 : 5); }
-    else if (k === 'f' || k === 'F') { e.preventDefault(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else video.requestFullscreen().catch(() => {}); }
-    else if (k === 'n' || k === 'N') { e.preventDefault(); setPane('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); } }
+    else if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); seek(k === 'ArrowLeft' ? -5 : 5); }
+    else if (k === 'f' || k === 'F') { e.preventDefault(); toggleFullscreen(); }
+    else if (k === 'n' || k === 'N') { e.preventDefault(); setTab('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); } }
     else if (k === '[' || k === ']') {
       e.preventDefault();
       const i = SPEEDS.indexOf(video.playbackRate);
       video.playbackRate = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, (i < 0 ? 2 : i) + (k === ']' ? 1 : -1)))];
       notice(`Speed ${video.playbackRate}×`, 900);
-      renderControls();
+      renderExtras();
     } else if (k === 'c' || k === 'C') {
       e.preventDefault();
       const n = video.textTracks.length;
       if (!n) { notice('No subtitles for this video.'); return; }
       const cur = [...video.textTracks].findIndex((t) => t.mode === 'showing');
-      const next = cur + 1 >= n ? -1 : cur + 1;
-      setSubtitle(next);
-      notice(next < 0 ? 'Subtitles off' : `Subtitles: ${video.textTracks[next].label}`, 1200);
+      const nx = cur + 1 >= n ? -1 : cur + 1;
+      setSubtitle(nx);
+      notice(nx < 0 ? 'Subtitles off' : `Subtitles: ${video.textTracks[nx].label}`, 1200);
+    } else if (k === 'a' || k === 'A') {
+      e.preventDefault();
+      const t = audioTracks();
+      if (t.length < 2) { notice('This video has one audio track.'); return; }
+      const nx = (t.findIndex((x) => x.enabled) + 1) % t.length;
+      setAudio(nx);
+      notice(`Audio: ${t[nx].label || t[nx].language || `Track ${nx + 1}`}`, 1200);
     }
   }
 
+  let saveTimer = 0;
+  function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 800); }
+
   function saveSession() {
-    const json = JSON.stringify({ v: 1, id: current ? current.video.id : null, series: seriesKey, speed: video.playbackRate });
+    const json = JSON.stringify({ v: 2, ids: q.ids, order: q.order, pos: q.pos, shuffle: q.shuffle, repeat: q.repeat, volume: q.volume, speed: video.playbackRate, audioLang, view: { filter: view.filter, series: view.series, playlistId: view.playlistId, sort: view.sort, desc: view.desc } });
     req('video.session.save', { json }).catch(() => {});
+  }
+
+  async function restoreSession() {
+    let s = null;
+    try { const json = await req('video.session.get'); s = json ? JSON.parse(json) : null; } catch { s = null; }
+    if (s && s.v === 2) {
+      q.shuffle = !!s.shuffle; q.repeat = ['off', 'all', 'one'].includes(s.repeat) ? s.repeat : 'off';
+      q.volume = Number.isFinite(s.volume) ? s.volume : 1;
+      audioLang = s.audioLang || null;
+      if (s.view) { view = { ...view, ...s.view, search: '' }; $('#vb-sort').value = view.sort; renderChips(); renderViewbar(); await loadView(); }
+      if (Array.isArray(s.ids) && s.ids.length && Array.isArray(s.order) && s.order.length === s.ids.length) {
+        q.ids = s.ids; q.order = s.order; q.pos = Math.min(Math.max(0, s.pos | 0), s.order.length - 1);
+        await loadCurrent(false);
+      }
+    }
+    if (!current && status.resume.length) await select(status.resume[0].id, { autoplay: false });
+    renderTransport();
   }
 
   return {
     init, open, close, toggle, isOpen, select, addFolder,
-    _state: () => ({ open: isOpen(), current: current ? { id: current.video.id, title: current.video.title, notes: current.notes.length, subtitles: current.subtitles.length } : null, seriesKey, episodes: episodes.map((e) => e.id), time: video.currentTime, paused: video.paused, rate: video.playbackRate, poppedOut, tracks: [...video.textTracks].map((t) => t.mode) }),
+    _state: () => ({
+      open: isOpen(), current: current ? { id: current.video.id, title: current.video.title, notes: current.notes.length, subtitles: current.subtitles.length } : null,
+      rows: rows.map((r) => r.id), sel: [...sel].sort((a, b) => a - b), view: { ...view }, q: { ...q, current: currentId() },
+      time: video.currentTime, paused: video.paused, rate: video.playbackRate, poppedOut, tracks: [...video.textTracks].map((t) => t.mode),
+      audio: audioTracks().map((t) => [t.label, t.language, t.enabled]),
+    }),
   };
 })();

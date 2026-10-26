@@ -72,7 +72,9 @@ public partial class MainWindow : Window
         try
         {
             Web.DefaultBackgroundColor = ToDrawing(ThemeManager.Background(_settings.Prefs.Theme));
-            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: App.Paths.WebViewData);
+            // AudioVideoTracks: lets the Video Bench list and switch a video's audio tracks (several languages or commentary).
+            var options = new CoreWebView2EnvironmentOptions("--enable-blink-features=AudioVideoTracks");
+            var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: App.Paths.WebViewData, options);
             WebEnvironment = env;
             await Web.EnsureCoreWebView2Async(env);
         }

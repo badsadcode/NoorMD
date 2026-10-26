@@ -740,49 +740,52 @@ button.np-art { padding: 0; border: 0; cursor: zoom-in; }
 .art-view img { max-width: 100%; max-height: 64vh; border-radius: 8px; }
 .art-view .art-ph { width: 320px; height: 320px; font-size: 96px; }
 
-/* ---- Video Bench: a side panel like the Music Bench (Wide makes it larger; the left edge can be dragged) */
+/* ---- Video Bench: a side panel built like the Music Bench (Wide makes it larger; the left edge can be dragged) */
 .videobench { position: fixed; top: 0; right: 0; bottom: 0; width: min(100vw, var(--video-w, 520px)); z-index: 155; display: flex; flex-direction: column;
-  background: var(--panel); color: var(--text); border-left: 1px solid var(--border); box-shadow: var(--shadow); outline: none; }
+  background: var(--panel); color: var(--text); border-left: 1px solid var(--border); box-shadow: var(--shadow); outline: none; min-width: 0; }
 body.video-wide .videobench { width: min(100vw, max(var(--video-w, 520px), 70vw)); }
 .videobench[hidden] { display: none; }
 .vb-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; }
-.vb-head { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-.vb-title { font-size: 14px; }
-.vb-stage { position: relative; flex-shrink: 0; background: #000; aspect-ratio: 16 / 9; width: 100%; max-height: 60vh; display: flex; justify-content: center; }
-.vb-stage[hidden] { display: none; }
+.vb-head-buttons { display: flex; gap: 4px; }
+.vb-player { flex-shrink: 0; padding: 0 0 10px; overflow: hidden; }
+.vb-stage { position: relative; flex-shrink: 0; background: #000; aspect-ratio: 16 / 9; width: 100%; max-height: 50vh; display: flex; justify-content: center; }
 .vb-stage video { width: 100%; height: 100%; background: #000; object-fit: contain; }
+.vb-player .vb-text, .vb-player .np-seek, .vb-player .np-controls, .vb-extras { padding: 0 12px; }
+.vb-player .vb-text { padding-top: 8px; }
+.vb-title-click, #vb-title { cursor: pointer; }
+.vb-resume { color: var(--muted); font-size: 11.5px; }
+.vb-extras { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+.vb-extras select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 12px; max-width: 170px; min-width: 0; flex: 0 1 auto; }
+.vb-extras .icon-btn { flex: 0 0 auto; }
+.vb-extras .sd-spacer { flex: 1 1 0; }
 .vb-message, .vb-countdown { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; padding: 16px; text-align: center; background: rgba(0,0,0,.72); color: #fff; }
 .vb-message[hidden], .vb-countdown[hidden] { display: none; }
 .vb-count { font-size: 24px; font-weight: 700; }
-.vb-info { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px 0; flex-shrink: 0; }
-.vb-now { font-size: 14px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vb-now.muted, .vb-info small { color: var(--muted); }
-.vb-controls { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; padding: 8px 12px; flex-shrink: 0; }
-.vb-controls select { max-width: 160px; }
-.vb-tabs { flex-shrink: 0; }
-.vb-pane { flex: 1; min-height: 0; overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
 .vb-pane[hidden] { display: none; }
-.vb-pane input[type=search] { width: 100%; }
-.vb-side h4, .vb-notes h4, .vb-episodes h4 { margin: 8px 2px 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.vb-item { display: grid; width: 100%; text-align: left; gap: 2px; padding: 7px 8px; border-radius: 8px; border: 1px solid transparent; background: transparent; color: var(--text); cursor: pointer; }
-.vb-item:hover { background: var(--surface); }
-.vb-item.active { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.vb-item small { color: var(--muted); }
-.vb-item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; font-size: 12.5px; }
+.vb-list { flex: 1; min-height: 120px; overflow-y: auto; border-top: 1px solid var(--border); outline: none; }
+.vb-list:focus-visible { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
+.vtrack { display: flex; align-items: center; gap: 8px; min-height: 46px; padding: 4px 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); cursor: default; }
+.vtrack:hover { background: var(--surface); }
+.vtrack.selected { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.vtrack.cursor { box-shadow: inset 2px 0 0 var(--accent); }
+.vtrack.playing { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.vtrack.playing.selected { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.vtrack.playing .track-title { color: var(--accent); font-weight: 700; }
+.vtrack.watched .track-title { color: var(--muted); }
+.vtrack-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.track-sub { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-dur { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; flex-shrink: 0; white-space: nowrap; }
+.vtrack .track-state { font-size: 11px; }
+.vtrack.watched .track-state { color: var(--ok); }
+.music-chips select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; font-size: 11.5px; max-width: 100%; min-width: 0; }
+.music-viewbar.hide { display: none; }
+.qitem.playing { color: var(--accent); font-weight: 650; }
 .vb-bar { display: block; height: 3px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
 .vb-bar > span { display: block; height: 100%; background: var(--accent); }
-.vb-episodes { display: flex; flex-direction: column; }
-.vb-ep { display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; gap: 6px; align-items: center; padding: 5px 4px; border-radius: 7px; }
-.vb-ep:hover { background: var(--surface); }
-.vb-ep.playing { background: color-mix(in srgb, var(--accent) 12%, transparent); }
-.vb-ep.watched .vb-ep-title { color: var(--muted); }
-.vb-ep-n { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 11.5px; }
-.vb-ep-title { text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.vb-ep-meta { color: var(--muted); white-space: nowrap; font-size: 11.5px; }
 .vb-empty { margin: 24px 16px; text-align: center; display: flex; flex-direction: column; gap: 12px; align-items: center; }
 .vb-empty[hidden] { display: none; }
-.vb-notes { display: flex; flex-direction: column; gap: 8px; }
-.vb-notes-head { display: flex; justify-content: space-between; align-items: center; }
+.vb-notes { display: flex; flex-direction: column; gap: 8px; overflow-y: auto; flex: 1; }
+.vb-notes-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .vb-note-new { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: start; }
 .vb-note-new textarea, .vb-note-edit { width: 100%; resize: vertical; min-height: 38px; }
 .vb-stamp { font-variant-numeric: tabular-nums; font-size: 12px; color: var(--accent); padding-top: 4px; white-space: nowrap; }
@@ -842,8 +845,8 @@ body.video-wide .videobench { width: min(100vw, max(var(--video-w, 520px), 70vw)
 @keyframes sd-blink { 50% { opacity: .45; } }
 .sd-templates { display: flex; flex-direction: column; gap: 10px; max-height: 64vh; overflow: auto; }
 @media (max-width: 1000px) { .sd-grid, .sd-log { grid-template-columns: 1fr; } .sd-preview-col, .sd-history { position: static; } .sd-tr { grid-template-columns: 1fr 1.5fr .7fr; } }
-.vb-pane input[type=search], .vb-controls select, .vb-note-new textarea, .vb-note-edit { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; }
-.vb-pane input[type=search]:focus, .vb-controls select:focus, .vb-note-new textarea:focus, .vb-note-edit:focus { border-color: var(--accent); outline: 0; }
+.vb-note-new textarea, .vb-note-edit, #vb-series-pick { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; }
+.vb-note-new textarea:focus, .vb-note-edit:focus, .vb-extras select:focus { border-color: var(--accent); outline: 0; }
 /* The Video Bench docks like the Music Bench: the app gives it the right-hand column instead of being covered. */
 body.video-open { --video-col: min(100vw, var(--video-w, 520px)); }
 body.video-open.video-wide { --video-col: min(100vw, max(var(--video-w, 520px), 70vw)); }
@@ -852,3 +855,15 @@ body.video-open .music, body.video-open .music-resizer { display: none !importan
 .videobench { width: var(--video-col, min(100vw, var(--video-w, 520px))); }
 body.video-wide .videobench { width: var(--video-col); }
 @media (max-width: 760px) { body.video-open .app { --mu-col: 0px !important; } }
+
+/* ---- Music Bench: the playing song stands out in the list; narrow panels wrap instead of overflowing */
+.track.playing { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.track.playing .track-title { color: var(--accent); font-weight: 700; }
+.track.playing.selected { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.np-controls { flex-wrap: wrap; row-gap: 8px; }
+.np-controls .tp { flex: 0 0 auto; }
+.np-volume { flex: 1 1 60px; min-width: 50px; max-width: 120px; }
+.np-triage .chip { flex: 0 0 auto; }
+.np-edit { flex: 0 0 auto; white-space: nowrap; }
+.music-toolbar { flex-wrap: wrap; }
+#np-title { cursor: pointer; }

@@ -144,6 +144,10 @@ public sealed record VideoRow(long Id, string Path, string Title, string Series,
 public sealed record VideoSeries(string Key, string Name, string Folder, int Count, int Watched, DateTime? LastWatchedUtc, long? ResumeId);
 public sealed record VideoNote(long Id, long VideoId, double Time, string Text, DateTime CreatedUtc);
 public sealed record VideoFolder(long Id, string Path, int Count);
+public sealed record VideoPlaylist(long Id, string Name, int Count, double Duration, int Watched);
+
+/// <summary>A library view: search, a filter (all, unwatched, inprogress, watched), one series or one playlist, and a sort.</summary>
+public sealed record VideoQuery(string? Search = null, string Filter = "all", string? SeriesKey = null, long? PlaylistId = null, string Sort = "series", bool Descending = false);
 
 /// <summary>
 /// Local video library: folders scanned for video files, grouped into series by folder, ordered as episodes.
@@ -170,6 +174,8 @@ public sealed class VideoLibrary
             CREATE TABLE IF NOT EXISTS notes (id INTEGER PRIMARY KEY, video_id INTEGER NOT NULL, t REAL NOT NULL, text TEXT NOT NULL, created TEXT NOT NULL);
             CREATE INDEX IF NOT EXISTS ix_notes_video ON notes(video_id, t);
             CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS playlists (id INTEGER PRIMARY KEY, name TEXT NOT NULL, created TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS playlist_items (playlist_id INTEGER NOT NULL, position INTEGER NOT NULL, video_id INTEGER NOT NULL, PRIMARY KEY (playlist_id, position));
             """);
     }
 
@@ -298,10 +304,12 @@ public sealed class VideoLibrary
         r.IsDBNull(5) ? null : r.GetInt32(5), r.IsDBNull(6) ? null : r.GetInt32(6), r.GetDouble(7), r.GetInt32(8), r.GetInt32(9),
         r.GetDouble(10), r.GetInt64(11) == 1, ParseIso(r.IsDBNull(12) ? null : r.GetString(12)), r.GetInt64(13) == 1, r.GetInt32(14));
 
-    private List<VideoRow> Rows(string where, params (string, object?)[] args)
+    private List<VideoRow> Rows(string where, params (string, object?)[] args) => Rows(where, args, "videos v");
+
+    private List<VideoRow> Rows(string where, (string, object?)[] args, string from)
     {
         using var c = Open();
-        using var cmd = Cmd(c, $"SELECT {Cols} FROM videos v {where}", null, args);
+        using var cmd = Cmd(c, $"SELECT {Cols} FROM {from} {where}", null, args);
         using var r = cmd.ExecuteReader();
         var list = new List<VideoRow>();
         while (r.Read()) list.Add(Read(r));
@@ -379,6 +387,122 @@ public sealed class VideoLibrary
             u.ExecuteNonQuery();
         }
         tx.Commit();
+    }
+
+    // ------------------------------------------------------------------ library views
+
+    private static readonly Dictionary<string, string> Sorts = new()
+    {
+        ["series"] = "v.series COLLATE NOCASE, v.sort_key, v.id", ["title"] = "v.title COLLATE NOCASE, v.id", ["duration"] = "v.duration, v.id",
+        ["recent"] = "v.last_watched IS NULL, v.last_watched DESC, v.id", ["added"] = "v.added DESC, v.id", ["playlist"] = "pi.position",
+    };
+
+    /// <summary>Videos of a view, in display order (capped at 20,000).</summary>
+    public IReadOnlyList<VideoRow> Query(VideoQuery q)
+    {
+        var where = new List<string> { "v.missing = 0" };
+        var args = new List<(string, object?)>();
+        var from = "videos v";
+        if (q.PlaylistId is long pl) { from = "playlist_items pi JOIN videos v ON v.id = pi.video_id"; where.Add("pi.playlist_id = $pl"); args.Add(("$pl", pl)); }
+        if (!string.IsNullOrEmpty(q.SeriesKey)) { where.Add("v.series_key = $sk"); args.Add(("$sk", q.SeriesKey)); }
+        where.Add(q.Filter switch
+        {
+            "unwatched" => "v.watched = 0",
+            "inprogress" => "v.watched = 0 AND v.position > 0 AND v.last_watched IS NOT NULL",
+            "watched" => "v.watched = 1",
+            _ => "1 = 1",
+        });
+        var sort = q.PlaylistId == null && q.Sort == "playlist" ? "series" : q.Sort;
+        var order = Sorts.TryGetValue(sort, out var o) ? o : Sorts["series"];
+        if (q.Descending) order = string.Join(", ", order.Split(", ").Select(x => x.EndsWith(" DESC", StringComparison.Ordinal) ? x[..^5] : x + " DESC"));
+        var rows = Rows($"WHERE {string.Join(" AND ", where)} ORDER BY {order} LIMIT 20000", args.ToArray(), from);
+        var terms = TextFold.Fold(q.Search).Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6).ToList();
+        return terms.Count == 0 ? rows : rows.Where(v => terms.All(t => TextFold.Fold(v.Title + " " + v.Series + " " + v.FileName).Contains(t, StringComparison.Ordinal))).ToList();
+    }
+
+    public int Count()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT COUNT(*) FROM videos WHERE missing = 0");
+        return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
+    }
+
+    // ------------------------------------------------------------------ playlists
+
+    public IReadOnlyList<VideoPlaylist> Playlists()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT p.id, p.name, COUNT(v.id), COALESCE(SUM(v.duration), 0), COALESCE(SUM(v.watched), 0) " +
+            "FROM playlists p LEFT JOIN playlist_items pi ON pi.playlist_id = p.id LEFT JOIN videos v ON v.id = pi.video_id AND v.missing = 0 " +
+            "GROUP BY p.id ORDER BY p.name COLLATE NOCASE, p.id");
+        using var r = cmd.ExecuteReader();
+        var list = new List<VideoPlaylist>();
+        while (r.Read()) list.Add(new VideoPlaylist(r.GetInt64(0), r.GetString(1), r.GetInt32(2), r.GetDouble(3), r.GetInt32(4)));
+        return list;
+    }
+
+    public long CreatePlaylist(string name, IEnumerable<long>? ids = null)
+    {
+        name = CleanName(name);
+        long id;
+        using (var c = Open())
+        using (var ins = Cmd(c, "INSERT INTO playlists(name, created) VALUES ($n, $c) RETURNING id", null, ("$n", name), ("$c", Iso(DateTime.UtcNow))))
+            id = (long)ins.ExecuteScalar()!;
+        if (ids != null) SetPlaylistItems(id, ids);
+        return id;
+    }
+
+    public void RenamePlaylist(long id, string name)
+    {
+        name = CleanName(name);
+        using var c = Open();
+        using var u = Cmd(c, "UPDATE playlists SET name = $n WHERE id = $id", null, ("$n", name), ("$id", id));
+        if (u.ExecuteNonQuery() == 0) throw new ArgumentException("That playlist no longer exists.");
+    }
+
+    public void DeletePlaylist(long id)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        using (var a = Cmd(c, "DELETE FROM playlist_items WHERE playlist_id = $id", tx, ("$id", id))) a.ExecuteNonQuery();
+        using (var b = Cmd(c, "DELETE FROM playlists WHERE id = $id", tx, ("$id", id))) b.ExecuteNonQuery();
+        tx.Commit();
+    }
+
+    public IReadOnlyList<long> PlaylistItems(long id)
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT video_id FROM playlist_items WHERE playlist_id = $id ORDER BY position", null, ("$id", id));
+        using var r = cmd.ExecuteReader();
+        var list = new List<long>();
+        while (r.Read()) list.Add(r.GetInt64(0));
+        return list;
+    }
+
+    /// <summary>Replaces the playlist's videos, in the order given.</summary>
+    public void SetPlaylistItems(long id, IEnumerable<long> ids)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        using (var exists = Cmd(c, "SELECT COUNT(*) FROM playlists WHERE id = $id", tx, ("$id", id)))
+            if (Convert.ToInt32(exists.ExecuteScalar(), CultureInfo.InvariantCulture) == 0) throw new ArgumentException("That playlist no longer exists.");
+        using (var d = Cmd(c, "DELETE FROM playlist_items WHERE playlist_id = $id", tx, ("$id", id))) d.ExecuteNonQuery();
+        var pos = 0;
+        foreach (var v in ids.Take(20_000))
+        {
+            using var ins = Cmd(c, "INSERT INTO playlist_items(playlist_id, position, video_id) VALUES ($p, $i, $v)", tx, ("$p", id), ("$i", pos++), ("$v", v));
+            ins.ExecuteNonQuery();
+        }
+        tx.Commit();
+    }
+
+    public void AddToPlaylist(long id, IEnumerable<long> ids) => SetPlaylistItems(id, PlaylistItems(id).Concat(ids));
+
+    private static string CleanName(string? name)
+    {
+        name = (name ?? "").Trim();
+        if (name.Length is 0 or > 200) throw new ArgumentException("Give the playlist a name (at most 200 characters).");
+        return name;
     }
 
     // ------------------------------------------------------------------ notes

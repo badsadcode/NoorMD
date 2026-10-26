@@ -494,6 +494,12 @@ public partial class MainWindow
             var subs = NoorMD.Media.SubtitleConverter.Find(v.Path);
             if (subs.Count > 0)
                 Check($"subtitles of {v.FileName} load as WebVTT cues", await Eval("(() => { const t = document.querySelector('#vb-video').textTracks[0]; return !!t && t.mode === 'showing' && !!t.cues && t.cues.length > 0; })()") == "true");
+            if (v.FileName.Contains("dual audio", StringComparison.OrdinalIgnoreCase))
+            {
+                // Needs --enable-blink-features=AudioVideoTracks on the WebView2 environment.
+                var audio = await Eval("(() => { const v = document.querySelector('#vb-video'); const s = document.querySelector('#vb-audio'); if (!v.audioTracks || v.audioTracks.length !== 2 || !s) return 'tracks=' + (v.audioTracks ? v.audioTracks.length : 'none'); s.value = '1'; s.dispatchEvent(new Event('change')); return v.audioTracks[1].enabled && !v.audioTracks[0].enabled ? 'ok' : 'switch failed'; })()");
+                Check("a video with two audio tracks offers them and switches", audio == "\"ok\"" || audio == "ok", audio);
+            }
         }
         // Pop-out player: a separate window that shows the picture right away (no resize needed).
         var first = Videos.Series().SelectMany(se => Videos.Episodes(se.Key)).First();

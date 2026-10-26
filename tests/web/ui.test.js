@@ -64,7 +64,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
   const shotsIdx = process.argv.indexOf('--screenshots');
   const shots = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;
   const { server, url } = await serve();
-  const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
+  const browser = await chromium.launch({ args: ['--enable-blink-features=AudioVideoTracks'], ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}) });
   try {
     // ---- 1. Lossless document: Visual mode, exact content, not dirty, offline.
     {
@@ -1531,6 +1531,24 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const row = (i) => `#music-list .track[data-index="${i}"]`;
       await page.evaluate(() => window.NoorMusic.toggle());
       await page.waitForSelector(row(5));
+      // The playing song is highlighted; ◎ scrolls back to it. A narrow bench wraps its controls instead of overflowing.
+      await page.dblclick(row(9));
+      await waitFn(page, () => !!document.querySelector('#music-list .track.playing'));
+      check('the playing song is highlighted in the list', await page.evaluate(() => document.querySelectorAll('#music-list .track.playing').length === 1 && document.querySelector('#music-list .track.playing').dataset.index === '9'));
+      await page.evaluate(() => { document.querySelector('#music-list').scrollTop = 0; });
+      await page.click('#music-locate');
+      await waitFn(page, () => JSON.stringify(window.NoorMusic._state().sel) === '[9]');
+      check('◎ selects the playing song in the list', true);
+      await page.evaluate(() => document.documentElement.style.setProperty('--music-w', '300px'));
+      await page.waitForTimeout(100);
+      const narrow = await page.evaluate(() => {
+        const p = document.querySelector('.music').getBoundingClientRect();
+        const out = [...document.querySelectorAll('.music .np-controls > *, .music .np-triage > *, .music .music-toolbar > *')].filter((n) => { const r = n.getBoundingClientRect(); return r.width > 0 && (r.right > p.right + 1 || r.left < p.left - 1); }).length;
+        const tps = [...document.querySelectorAll('.music .np-controls .tp')].map((b) => b.getBoundingClientRect()).map((r) => Math.abs(r.width - r.height));
+        return { out, round: Math.max(...tps) };
+      });
+      check('a narrow Music Bench keeps its controls inside and the buttons round', narrow.out === 0 && narrow.round < 1, narrow);
+      await page.evaluate(() => document.documentElement.style.setProperty('--music-w', '400px'));
       await page.click(row(1));
       check('a click selects one track', JSON.stringify((await ms()).sel) === '[1]');
       await page.click(row(4), { modifiers: ['Shift'] });
@@ -1790,7 +1808,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 20. Video Bench: series in episode order, resume, subtitles, speed, notes, next episode, pop-out.
+    // ---- 20. Video Bench: works like the Music Bench — library, Up next, playlists, resume, subtitles, audio tracks, notes, pop-out.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, videos: true, musicTracks: 4 }, { width: 1600, height: 1000 });
       const vs = () => page.evaluate(() => window.NoorVideo._state());
@@ -1802,13 +1820,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+v');
       await page.waitForSelector('#videobench:not([hidden])');
       await waitFn(page, () => window.NoorVideo._state().current != null);
-      check('Ctrl+Alt+V opens the Video Bench and picks up where you left off', (await vs()).current.id === 2 && (await page.textContent('#vb-side')).includes('Continue watching'));
-      check('episodes are listed in order for the series', JSON.stringify((await vs()).episodes) === '[1,2,3]');
+      check('Ctrl+Alt+V opens the Video Bench and picks up where you left off', (await vs()).current.id === 2);
+      check('the library lists every video in series and episode order', JSON.stringify((await vs()).rows) === '[1,2,3,4]' && (await page.textContent('#vb-count')).includes('4 videos'));
+      check('the playing video is highlighted in the list', await page.evaluate(() => document.querySelector('.vtrack[data-id="2"]').classList.contains('playing') && document.querySelectorAll('.vtrack.playing').length === 1));
       const box = await page.evaluate(() => { const r = document.querySelector('#vb-video').getBoundingClientRect(); const p = document.querySelector('#videobench').getBoundingClientRect(); return { w: r.width, h: r.height, panel: p.width, vw: window.innerWidth }; });
-      check('the video picture is visible in a side panel (not squeezed by the episode list)', box.h > 150 && box.w > 300 && box.panel < box.vw * 0.6, box);
+      check('the video picture is visible in a side panel', box.h > 150 && box.w > 300 && box.panel < box.vw * 0.6, box);
       const dock = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
       check('the video panel docks beside the editor instead of covering it', dock.editor <= dock.panel + 1, dock);
       check('the Music Bench closes when the Video Bench opens (music keeps playing)', !(await page.evaluate(() => window.NoorMusic.isOpen())));
+      check('the player has the Music Bench controls: shuffle, previous, play, next, repeat, volume',
+        await page.evaluate(() => ['shuffle', 'prev', 'play', 'next', 'repeat'].every((c) => document.querySelector(`#videobench .tp.${c}`)) && !!document.querySelector('#vb-volume')));
       await page.click('#vb-wide');
       const dockWide = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
       check('…also when it is wide', dockWide.editor <= dockWide.panel + 1, dockWide);
@@ -1816,13 +1837,30 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#vb-wide');
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3.5) < 0.3, null, { timeout: 6000 });
       check('the video resumes at the saved position', true);
-      check('…and offers to start over', (await page.textContent('#vb-info')).includes('Start over'));
+      check('…and offers to start over', (await page.textContent('#vb-resume')).includes('Start over'));
 
-      // Episode 1 has subtitles: they load from the host and show by default.
-      await page.click('.vb-ep[data-id="1"] .vb-ep-title');
+      // Library views: filters, search, series.
+      await page.click('#vb-chips .chip[data-filter="inprogress"]');
+      await waitFn(page, () => JSON.stringify(window.NoorVideo._state().rows) === '[2]');
+      check('the In progress filter shows half-watched videos', true);
+      await page.click('#vb-chips .chip[data-filter="all"]');
+      await page.selectOption('#vb-series', 'K:Tutorials');
+      await waitFn(page, () => JSON.stringify(window.NoorVideo._state().rows) === '[4]');
+      check('the series menu narrows the list to one show', true);
+      await page.selectOption('#vb-series', '');
+      await page.fill('#vb-search', 'episode 3');
+      await waitFn(page, () => JSON.stringify(window.NoorVideo._state().rows) === '[3]');
+      check('search finds videos by title', true);
+      await page.fill('#vb-search', '');
+      await waitFn(page, () => window.NoorVideo._state().rows.length === 4);
+
+      // Episode 1 has subtitles: double-click plays it; they load from the host and show by default.
+      await page.dblclick('.vtrack[data-id="1"] .track-title');
       await waitFn(page, () => window.NoorVideo._state().current.id === 1 && window.NoorVideo._state().tracks.length === 1);
       await waitFn(page, () => !document.querySelector('#vb-video').paused, null, { timeout: 6000 });
+      check('double-click plays a video from the list', (await vs()).q.current === 1 && JSON.stringify((await vs()).q.ids) === '[1,2,3,4]');
       check('playing a video pauses the music', (await page.evaluate(() => window.NoorMusic._state().paused)));
+      check('the highlight follows the playing video', await page.evaluate(() => document.querySelector('.vtrack[data-id="1"]').classList.contains('playing') && !document.querySelector('.vtrack[data-id="2"]').classList.contains('playing')));
       check('sidecar subtitles are attached and shown', (await vs()).tracks[0] === 'showing' && (await page.inputValue('#vb-subs')) === '0');
       await page.focus('#videobench');
       await page.keyboard.press('c');
@@ -1831,6 +1869,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('] speeds up playback', (await vs()).rate === 1.25);
       await page.selectOption('#vb-speed', '2');
       check('the speed menu sets the rate', (await vs()).rate === 2);
+      check('a video with one audio track shows no audio menu', !(await page.$('#vb-audio')));
 
       // Notes: N focuses the note box; Enter saves at the moment typing began; click a stamp to jump; edit; delete.
       await page.focus('#videobench');
@@ -1858,16 +1897,115 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.video.inserted.length === 1);
       check('notes can be inserted into the open document', (await V()).inserted[0] === 1);
 
-      // End of episode → watched, and the next one starts after a countdown (or at once with “Play now”).
+      // End of a video → watched, and the next in Up next starts after a countdown (or at once with “Play now”).
       await page.evaluate(() => { const v = document.querySelector('#vb-video'); v.playbackRate = 1; v.currentTime = v.duration - 0.3; v.play(); });
       await page.waitForSelector('#vb-countdown:not([hidden])', { timeout: 6000 });
-      check('the end of an episode marks it watched', (await V()).videos[0].watched);
-      check('…and offers the next episode', (await page.textContent('#vb-countdown')).includes('Episode 2'));
+      check('the end of a video marks it watched', (await V()).videos[0].watched);
+      check('…and offers the next one', (await page.textContent('#vb-countdown')).includes('Episode 2'));
       await page.click('#vb-countdown button:has-text("Play now")');
       await waitFn(page, () => window.NoorVideo._state().current.id === 2);
+      await page.click('#videobench .tp.next');
+      await waitFn(page, () => window.NoorVideo._state().current.id === 3);
+      await page.evaluate(() => { document.querySelector('#vb-video').pause(); document.querySelector('#vb-video').currentTime = 0; });
+      await page.click('#videobench .tp.prev');
+      await waitFn(page, () => window.NoorVideo._state().current.id === 2);
+      check('Next and Previous move through Up next', true);
+      await page.click('#videobench .tp.shuffle');
+      check('Shuffle keeps the playing video and mixes the rest', (await vs()).q.shuffle && (await vs()).q.current === 2 && (await vs()).q.pos === 0);
+      await page.click('#videobench .tp.shuffle');
+      await page.click('#videobench .tp.repeat');
+      check('Repeat cycles like the Music Bench', (await vs()).q.repeat === 'all');
+      await page.click('#videobench .tp.repeat'); await page.click('#videobench .tp.repeat');
+
+      // Multi-select + right-click: Add to Up next, and playlists made from the selection.
+      await page.click('[data-vbtab="library"]');
+      await page.click('.vtrack[data-id="3"] .track-title');
+      await page.click('.vtrack[data-id="4"] .track-title', { modifiers: ['Shift'] });
+      check('Shift+click selects a range', JSON.stringify((await vs()).sel) === '[2,3]' && (await page.textContent('#vb-selcount')).includes('2 selected'));
+      await page.click('.vtrack[data-id="4"] .track-title', { button: 'right' });
+      await page.waitForSelector('.menu-popup');
+      check('right-click opens the video menu', (await page.textContent('.menu-popup')).includes('Add to playlist'));
+      await page.click('.menu-popup .menu-item:has-text("Add to playlist")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("New playlist")');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'Late episodes');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.video.playlists.length === 1);
+      check('a playlist is made from the selected videos', JSON.stringify((await V()).playlists[0].ids) === '[3,4]' && (await V()).playlists[0].name === 'Late episodes');
+      await page.click('.vtrack[data-id="1"] .track-title');
+      await page.click('.vtrack[data-id="1"] .track-title', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Add to Up next")');
+      check('Add to Up next queues the video at the end', (await vs()).q.ids[(await vs()).q.order[(await vs()).q.order.length - 1]] === 1);
+
+      // Playlists tab: a whole TV show in one click, open, reorder, remove, rename, play, delete.
+      await page.click('[data-vbtab="playlists"]');
+      await page.click('#vb-pl-series');
+      await page.selectOption('#vb-series-pick', 'K:Devlog');
+      await page.click('#vb-series-ok');
+      await page.waitForSelector('.modal input');
+      check('the series name is suggested for the playlist', (await page.inputValue('.modal input')) === 'Devlog');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.video.playlists.length === 2);
+      check('a TV show becomes a playlist in episode order', JSON.stringify((await V()).playlists[1].ids) === '[1,2,3]');
+      await waitFn(page, () => document.querySelectorAll('#vb-playlists .qitem[data-playlist]').length === 2);
+      check('the Playlists tab lists them with progress', (await page.textContent('#vb-playlists')).includes('Devlog') && (await page.textContent('#vb-playlists')).includes('/3 watched'));
+      await page.click('#vb-playlists .qitem[data-playlist="2"] .qtitle');
+      await waitFn(page, () => JSON.stringify(window.NoorVideo._state().rows) === '[1,2,3]' && window.NoorVideo._state().view.playlistId === 2);
+      check('opening a playlist shows its videos in the library', (await page.textContent('#vb-viewbar')).includes('Devlog'));
+      await page.click('.vtrack[data-id="3"] .track-title');
+      await page.focus('#vb-list');
+      await page.keyboard.press('Alt+ArrowUp');
+      await waitFn(page, () => JSON.stringify(window.__mock.state.video.playlists[1].ids) === '[1,3,2]');
+      check('Alt+↑ moves a video up in the playlist', true);
+      await page.keyboard.press('Delete');
+      await waitFn(page, () => JSON.stringify(window.__mock.state.video.playlists[1].ids) === '[1,2]' && JSON.stringify(window.NoorVideo._state().rows) === '[1,2]');
+      check('Delete removes it from the playlist (not from disk)', true);
+      await page.click('[data-vbtab="playlists"]');
+      page.once('dialog', () => {});
+      await page.click('#vb-playlists .qitem[data-playlist="2"] button[title="Rename"]');
+      await page.fill('.modal input', 'Devlog S1');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.video.playlists[1].name === 'Devlog S1');
+      check('playlists can be renamed', true);
+      await page.click('#vb-playlists .qitem[data-playlist="2"] button[title="Play"]');
+      await waitFn(page, () => window.NoorVideo._state().current.id === 2 && JSON.stringify(window.NoorVideo._state().q.ids) === '[1,2]');
+      check('Play starts a playlist at its first unwatched video', true);
+      await page.click('[data-vbtab="queue"]');
+      check('Up next shows the queue', (await page.textContent('#vb-queue')).includes('Episode 2'));
+      await page.click('[data-vbtab="playlists"]');
+      await page.click('#vb-playlists .qitem[data-playlist="1"] button[title="Delete"]');
+      await page.click('.modal button:has-text("Delete")');
+      await waitFn(page, () => window.__mock.state.video.playlists.length === 1);
+      check('playlists can be deleted', true);
+
+      // Audio tracks: a video with two languages gets a menu, and A switches between them.
+      await page.click('[data-vbtab="library"]');
+      await page.evaluate(() => window.NoorVideo.select(4, { autoplay: false }));
+      await waitFn(page, () => window.NoorVideo._state().current.id === 4 && window.NoorVideo._state().audio.length === 2, null, { timeout: 6000 });
+      await page.waitForSelector('#vb-audio');
+      const opts = await page.$$eval('#vb-audio option', (o) => o.map((x) => x.textContent));
+      check('a video with two audio tracks offers an audio menu', opts.length === 2 && opts[0].includes('English') && opts[1].includes('Polski'), opts);
+      await page.selectOption('#vb-audio', '1');
+      check('choosing a track switches the audio', JSON.stringify((await vs()).audio.map((t) => t[2])) === '[false,true]');
+      await page.focus('#videobench');
+      await page.keyboard.press('a');
+      check('A cycles the audio track', JSON.stringify((await vs()).audio.map((t) => t[2])) === '[true,false]');
+
+      // Narrow panel: nothing sticks out and the buttons keep their shape.
+      await page.evaluate(() => document.documentElement.style.setProperty('--video-w', '360px'));
+      await page.waitForTimeout(100);
+      const narrow = await page.evaluate(() => {
+        const p = document.querySelector('#videobench').getBoundingClientRect();
+        const out = [...document.querySelectorAll('#videobench .np-controls > *, #videobench .vb-extras > *, #videobench .music-tabs button')].filter((n) => { const r = n.getBoundingClientRect(); return r.width > 0 && (r.right > p.right + 1 || r.left < p.left - 1); }).length;
+        const play = document.querySelector('#videobench .tp.play').getBoundingClientRect();
+        return { out, w: play.width, h: play.height };
+      });
+      check('a narrow Video Bench keeps its controls inside and round', narrow.out === 0 && Math.abs(narrow.w - narrow.h) < 1, narrow);
+      await page.evaluate(() => document.documentElement.style.removeProperty('--video-w'));
 
       // Pop out: the host gets the id and time; the bench stops playing; pop-in continues at the reported time.
-      await waitFn(page, () => document.querySelector('#vb-video').readyState >= 1, null, { timeout: 6000 });
+      await page.evaluate(() => window.NoorVideo.select(2, { autoplay: false }));
+      await waitFn(page, () => window.NoorVideo._state().current.id === 2 && document.querySelector('#vb-video').readyState >= 1, null, { timeout: 6000 });
       await page.waitForTimeout(100);
       await page.evaluate(() => { const v = document.querySelector('#vb-video'); v.pause(); v.currentTime = 2; });
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 2) < 0.05);
@@ -1879,11 +2017,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'video.popin', payload: { id: 2, time: 3 } }));
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3) < 0.4, null, { timeout: 6000 });
       check('closing the pop-out continues here at the same moment', !(await page.isVisible('#vb-message')));
-      await page.keyboard.press('Escape');
-      await page.focus('#videobench').catch(() => {});
       await page.evaluate(() => window.NoorVideo.close());
       check('closing the Video Bench saves the position', (await V()).positions.some((x) => x.id === 2));
       check('…and hides it', !(await page.isVisible('#videobench')));
+      await waitFn(page, () => !!window.__mock.state.video.session, null, { timeout: 3000 });
+      check('…and remembers Up next for next time', JSON.parse((await V()).session).ids.length > 0);
       const unexpected = errors.filter((e) => !/Empty src|status of 404|MEDIA_ELEMENT_ERROR/.test(e));
       check('no page errors in the Video Bench', unexpected.length === 0, unexpected);
       if (shots) { await page.evaluate(() => window.NoorVideo.open()); await page.waitForTimeout(400); await page.screenshot({ path: `${shots}/video.png` }); }

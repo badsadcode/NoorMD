@@ -136,7 +136,8 @@ window.NoorMusic = (() => {
         el('div', { class: 'music-toolbar' },
           el('input', { id: 'music-search', type: 'search', placeholder: 'Search title, file, folder, genre…', 'aria-label': 'Search music', autocomplete: 'off', spellcheck: 'false' }),
           el('select', { id: 'music-sort', 'aria-label': 'Sort by' }, SORTS.map(([v, l]) => el('option', { value: v }, l))),
-          el('button', { class: 'icon-btn', id: 'music-desc', title: 'Reverse order', 'aria-label': 'Reverse sort order' }, '⇅')),
+          el('button', { class: 'icon-btn', id: 'music-desc', title: 'Reverse order', 'aria-label': 'Reverse sort order' }, '⇅'),
+          el('button', { class: 'icon-btn', id: 'music-locate', title: 'Show the playing song in the list', 'aria-label': 'Show the playing song in the list', onclick: () => revealPlaying() }, '◎')),
         el('div', { class: 'music-chips', id: 'music-chips' }),
         el('div', { class: 'music-viewbar', id: 'music-viewbar' }),
         el('div', { class: 'music-list', id: 'music-list', tabindex: '0', role: 'listbox', 'aria-label': 'Tracks' }, el('div', { class: 'music-spacer', id: 'music-spacer' })),
@@ -501,6 +502,21 @@ window.NoorMusic = (() => {
     return keepFirst != null && keepFirst >= 0 ? [keepFirst, ...order] : order;
   }
 
+  /** Scrolls the list to the song that is playing and selects it (if it is in the current view). */
+  async function revealPlaying() {
+    const id = currentId();
+    if (id == null) { notice('Nothing is playing.'); return; }
+    let ids;
+    try { ids = await req('music.ids', queryPayload(0, 2000)); } catch (err) { hooks.showError(err); return; }
+    const i = ids.indexOf(id);
+    if (i < 0) { notice('The playing song is not in this view (search, filter or playlist).', 3000); return; }
+    setTab('library');
+    const list = $('#music-list');
+    list.scrollTop = Math.max(0, i * ROW - list.clientHeight / 2 + ROW / 2);
+    selected = i; sel = new Set([i]); anchor = i;
+    requestAnimationFrame(() => { renderList(); updateSelection(); });
+  }
+
   async function playView(index) {
     let ids;
     try { ids = await req('music.ids', queryPayload(0, 2000)); } catch (err) { hooks.showError(err); return; }
@@ -722,7 +738,7 @@ window.NoorMusic = (() => {
       el('div', { class: 'np-top' },
         el('button', { class: 'np-art', id: 'np-art', title: 'Show artwork', 'aria-label': 'Show artwork', onclick: () => currentId() != null && showArtwork(currentId()) }, el('span', { text: '♫' })),
         el('div', { class: 'np-text' },
-          el('div', { class: 'np-title', id: 'np-title', text: 'Nothing playing' }),
+          el('div', { class: 'np-title', id: 'np-title', text: 'Nothing playing', title: 'Show in the list', onclick: () => revealPlaying() }),
           el('div', { class: 'np-sub', id: 'np-sub', text: 'Pick a track and press Enter' }),
           el('div', { class: 'np-file', id: 'np-file' }))),
       el('div', { class: 'np-seek' },
@@ -1640,6 +1656,7 @@ window.NoorMusic = (() => {
     openSound: () => { togglePanel(true); setTab('sound'); }, undoLastEdit, batchSelected, batchOrganizer, editSmart, measure, showArtwork, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
     isOpen: () => document.body.classList.contains('music-open'),
     /** A video started: music pauses so the two don't play over each other (it doesn't resume by itself). */
+    revealPlaying,
     nowPlaying: () => { lastEmit.key = ''; emitNowPlaying(true); },
     pauseForVideo: () => { if (!audio.paused) { audio.pause(); notice('Music paused for the video', 1600); } },
     /** For the main toolbar: what is loaded and whether it is playing. */

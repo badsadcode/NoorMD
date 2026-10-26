@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.6-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.7-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -95,9 +95,13 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
     (BS.1770 measurement or ReplayGain). Files are never changed.
   - **Smart collections**, shuffle and 🎲 random, cover.jpg artwork.
   - Session resume.
-- **Video Bench** (Ctrl+Alt+V): series in episode order, resume, subtitles (SRT/ASS/VTT),
-  speed, timestamped notes you can insert into a document, and a pop-out player that stays on
-  top.
+- **Video Bench** (Ctrl+Alt+V), a video player that works like the Music Bench:
+  - a library with search, filters (unwatched, in progress, watched) and series, multi-select and a
+    right-click menu; the playing video is highlighted;
+  - Up next with shuffle and repeat, and **playlists** — e.g. a whole TV show in one click;
+  - resume where you stopped, subtitles (SRT/ASS/VTT), a choice of **audio track** (language),
+    speed, timestamped notes you can insert into a document, and a pop-out player that stays on
+    top.
 - **Stream Desk** (Ctrl+Alt+B): OBS overlays served on 127.0.0.1 only:
   - a **Now Playing** overlay with six customisable designs, and a now-playing.txt;
   - a **credits roll** of your supporters, with effects you can build;
@@ -133,8 +137,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.6-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.6-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.7-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.7-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

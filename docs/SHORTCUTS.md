@@ -69,6 +69,10 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Back / forward 10 s · 5 s | J / L · ← / → |
 | Slower / faster | [ / ] |
 | Cycle subtitles | C |
+| Next audio track (videos with several languages) | A |
+| In the list: select · range · add one · all | Click · Shift+click · Ctrl+click · Ctrl+A |
+| In the list: play · menu | Double-click or Enter · right-click or Shift+F10 |
+| In an open playlist: move up / down · remove | Alt+↑ / Alt+↓ · Delete |
 | Full screen | F |
 | New note at this moment (Enter saves, Shift+Enter new line) | N |
 | Close | Esc |

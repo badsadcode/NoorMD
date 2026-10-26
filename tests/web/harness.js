@@ -16,7 +16,7 @@ const MAX_CHUNK = 2 * 1024 * 1024; // same as NoorMD.Media.MediaResponse
 const mediaLog = [];
 
 function serveMedia(id, req, res, video) {
-  const name = video ? 'clip.webm' : MEDIA[id];
+  const name = video ? (id === 4 ? 'dual-audio.webm' : 'clip.webm') : MEDIA[id]; // video 4 has two audio tracks
   if (!name) { res.writeHead(404); res.end(); return; }
   const file = path.join(FIXTURES, name);
   const data = fs.readFileSync(file);
@@ -338,7 +338,7 @@ function mockHostScript(initial) {
   }
 
   // ---- mock video library: two series; every video is the same 6-second clip.webm fixture; video 1 has subtitles.
-  const VID = { videos: [], notes: [], nextNote: 1, popouts: [], inserted: [], positions: [] };
+  const VID = { videos: [], notes: [], nextNote: 1, popouts: [], inserted: [], positions: [], playlists: [], nextPl: 1 };
   if (initial.videos) {
     const add = (id, title, series, ep) => VID.videos.push({ id, title, series, seriesKey: 'K:' + series, season: null, episode: ep, duration: 6, width: 160, height: 90, position: 0, watched: false, lastWatched: null, missing: false, notes: 0, fileName: title + '.webm', folder: 'C:\\Videos\\' + series });
     add(1, 'Episode 1', 'Devlog', 1); add(2, 'Episode 2', 'Devlog', 2); add(3, 'Episode 3', 'Devlog', 3); add(4, 'Intro to shaders', 'Tutorials', null);
@@ -350,13 +350,33 @@ function mockHostScript(initial) {
     const eps = (key) => VID.videos.filter((v) => v.seriesKey === key);
     const next = (id) => { const v = get(id); const list = eps(v.seriesKey); const i = list.indexOf(v); return list[i + 1] || null; };
     const row = (v) => ({ ...v, notes: VID.notes.filter((n) => n.videoId === v.id).length });
+    const playlists = () => VID.playlists.map((x) => ({ id: x.id, name: x.name, count: x.ids.length, duration: x.ids.reduce((t, id) => t + get(id).duration, 0), watched: x.ids.filter((id) => get(id).watched).length }));
     switch (type) {
       case 'video.status': {
         const keys = [...new Set(VID.videos.map((v) => v.seriesKey))];
         return { folders: VID.videos.length ? [{ id: 1, path: 'C:\\Videos', count: VID.videos.length }] : [], scanning: false,
           series: keys.map((k) => ({ key: k, name: k.slice(2), folder: 'C:\\Videos\\' + k.slice(2), count: eps(k).length, watched: eps(k).filter((v) => v.watched).length, lastWatched: null, resumeId: (eps(k).find((v) => !v.watched) || eps(k)[0]).id })),
-          resume: VID.videos.filter((v) => !v.watched && v.position > Math.min(5, v.duration * 0.1)).map(row) };
+          resume: VID.videos.filter((v) => !v.watched && v.position > Math.min(5, v.duration * 0.1)).map(row), count: VID.videos.length, playlists: playlists() };
       }
+      case 'video.query': {
+        let list = VID.videos.slice();
+        if (p.playlistId) list = (VID.playlists.find((x) => x.id === p.playlistId) || { ids: [] }).ids.map(get);
+        if (p.series) list = list.filter((v) => v.seriesKey === p.series);
+        if (p.search) list = list.filter((v) => (v.title + ' ' + v.series + ' ' + v.fileName).toLowerCase().includes(String(p.search).toLowerCase()));
+        const inprog = (v) => !v.watched && v.position > Math.min(5, v.duration * 0.1);
+        if (p.filter === 'watched') list = list.filter((v) => v.watched);
+        if (p.filter === 'unwatched') list = list.filter((v) => !v.watched);
+        if (p.filter === 'inprogress') list = list.filter(inprog);
+        if (p.sort === 'title') list.sort((a, b) => a.title.localeCompare(b.title));
+        if (p.desc) list.reverse();
+        return list.map(row);
+      }
+      case 'video.playlists': return playlists();
+      case 'video.playlist.create': { const pl = { id: VID.nextPl++, name: String(p.name).trim(), ids: [...(p.ids || [])] }; VID.playlists.push(pl); return { id: pl.id, playlists: playlists() }; }
+      case 'video.playlist.rename': VID.playlists.find((x) => x.id === p.id).name = p.name; return playlists();
+      case 'video.playlist.delete': VID.playlists = VID.playlists.filter((x) => x.id !== p.id); return playlists();
+      case 'video.playlist.setItems': VID.playlists.find((x) => x.id === p.id).ids = [...p.ids]; return playlists();
+      case 'video.playlist.add': VID.playlists.find((x) => x.id === p.id).ids.push(...p.ids); return playlists();
       case 'video.episodes': return eps(p.key).map(row);
       case 'video.search': return VID.videos.filter((v) => (v.title + ' ' + v.series).toLowerCase().includes(String(p.text).toLowerCase())).map(row);
       case 'video.get': { const v = get(p.id); return { video: row(v), subtitles: v.id === 1 ? [{ index: 0, label: 'en (SRT)', lang: 'en' }] : [], notes: notes(v.id), next: next(v.id) && row(next(v.id)), exists: true }; }
@@ -369,6 +389,7 @@ function mockHostScript(initial) {
       case 'video.note.insert': VID.inserted.push(p.id); return { document: 'x.md' };
       case 'video.popout': VID.popouts.push({ ...p }); return null;
       case 'video.session.save': VID.session = p.json; return null;
+      case 'video.session.get': return VID.session || null;
       default: return null;
     }
   }

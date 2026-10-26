@@ -949,6 +949,49 @@ public class VideoTests
     }
 
     [Fact]
+    public void Library_Views_Filter_Sort_And_Search()
+    {
+        var (t, lib, _) = Library();
+        using var __ = t;
+        Assert.Equal(4, lib.Count());
+        var all = lib.Query(new VideoQuery());
+        Assert.Equal(["Episode 1", "Episode 2", "Episode 10", "Single"], all.Select(v => v.Title));
+        var e2 = all[1];
+        lib.SetPosition(all[0].Id, 950, 1000); // watched
+        lib.SetPosition(e2.Id, 100, 1000);     // in progress
+        Assert.Equal(["Episode 1"], lib.Query(new VideoQuery(Filter: "watched")).Select(v => v.Title));
+        Assert.Equal(["Episode 2"], lib.Query(new VideoQuery(Filter: "inprogress")).Select(v => v.Title));
+        Assert.Equal(3, lib.Query(new VideoQuery(Filter: "unwatched")).Count);
+        Assert.Equal(3, lib.Query(new VideoQuery(SeriesKey: e2.SeriesKey)).Count);
+        Assert.Equal(["Single"], lib.Query(new VideoQuery(Search: "single")).Select(v => v.Title));
+        Assert.Equal("Episode 2", lib.Query(new VideoQuery(Sort: "recent"))[0].Title);
+        Assert.Equal(["Single", "Episode 2", "Episode 10", "Episode 1"], lib.Query(new VideoQuery(Sort: "title", Descending: true)).Select(v => v.Title));
+    }
+
+    [Fact]
+    public void Video_Playlists_Keep_Their_Order_And_Survive_Rescans()
+    {
+        var (t, lib, f) = Library();
+        using var __ = t;
+        var key = lib.Series().Single(s => s.Name == "My Show").Key;
+        var eps = lib.Episodes(key).Select(e => e.Id).ToList();
+        var id = lib.CreatePlaylist("My Show", eps);
+        Assert.Equal(eps, lib.Query(new VideoQuery(PlaylistId: id, Sort: "playlist")).Select(v => v.Id));
+        lib.SetPlaylistItems(id, [eps[2], eps[0]]);
+        Assert.Equal([eps[2], eps[0]], lib.PlaylistItems(id));
+        lib.AddToPlaylist(id, [eps[1]]);
+        Assert.Equal(3, lib.Playlists().Single().Count);
+        lib.RenamePlaylist(id, "Watch later");
+        Assert.Equal("Watch later", lib.Playlists().Single().Name);
+        Assert.Throws<ArgumentException>(() => lib.CreatePlaylist("  "));
+        lib.Scan(f);
+        Assert.Equal([eps[2], eps[0], eps[1]], lib.PlaylistItems(id));
+        lib.DeletePlaylist(id);
+        Assert.Empty(lib.Playlists());
+        Assert.Throws<ArgumentException>(() => lib.SetPlaylistItems(id, eps));
+    }
+
+    [Fact]
     public void Timestamped_Notes_Are_Kept_In_Order_And_Export_As_Markdown()
     {
         var (t, lib, _) = Library();

@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-preview.7 — the Video Bench works like the Music Bench
+
+- **Video Bench, rebuilt like the Music Bench.** The picture sits where the cover art is, with the
+  same seek bar and transport: shuffle, previous, play/pause, next, repeat and volume. Below it are
+  the tabs *Library · Up next · Playlists · Notes*.
+  - **Library:** search, sort, filters (All, Unwatched, In progress, Watched) and a series menu.
+    Click, Ctrl+click and Shift+click select; double-click plays. The playing video is
+    highlighted, and ◎ (or clicking its title) finds it in the list.
+  - **Right-click menu:** Play, Play next, Add to Up next, Add to playlist ▸, Remove from the open
+    playlist, Mark as watched / not watched, Notes, Show in Explorer and Select all.
+  - **Up next:** a queue with shuffle and repeat. Move items up or down, remove them, clear the rest,
+    or save the queue as a playlist.
+  - **Playlists:** make one from a whole series or TV show in one click, or from selected videos.
+    You can open, play, rename and delete them. Inside an open playlist, Alt+↑/↓ reorders and Delete
+    removes (the files are never touched). Playing a playlist starts at its first unwatched video.
+  - **Audio tracks:** videos with more than one audio track (e.g. two languages) get a 🔊 menu; **A**
+    switches tracks. The language you choose is kept for the next video when it has it too.
+  - Up next, shuffle, repeat, volume and the library view are remembered between sessions.
+- **Music Bench:** the playing song is highlighted in the list, and ◎ (or clicking the song title)
+  scrolls to it. When the panel is narrow, the controls wrap onto a new line instead of sticking out,
+  and the round buttons keep their shape.
+
 ## 2.0.0-preview.6
 
 - **The Video Bench docks beside the editor** like the Music Bench, instead of covering it. The

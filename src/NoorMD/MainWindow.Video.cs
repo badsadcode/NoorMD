@@ -79,7 +79,26 @@ public partial class MainWindow
             switch (req.Type)
             {
                 case "video.status":
-                    return new { folders = Videos.Folders(), series = Videos.Series().Select(SeriesForPage), resume = Videos.ContinueWatching().Select(VideoForPage), scanning = _videoScan is { IsCompleted: false } };
+                    return new { folders = Videos.Folders(), count = Videos.Count(), series = Videos.Series().Select(SeriesForPage), resume = Videos.ContinueWatching().Select(VideoForPage), playlists = Videos.Playlists(), scanning = _videoScan is { IsCompleted: false } };
+                case "video.query":
+                    return Videos.Query(new VideoQuery(req.GetString("search", 200), req.GetString("filter", 20) ?? "all", req.GetString("series", 2000),
+                        NoorMD.Core.Bridge.Json.OptLong(p, "playlistId"), req.GetString("sort", 20) ?? "series", NoorMD.Core.Bridge.Json.IsTrue(p, "desc"))).Select(VideoForPage);
+                case "video.playlists":
+                    return Videos.Playlists();
+                case "video.playlist.create":
+                    return new { id = Videos.CreatePlaylist(req.GetString("name", 300) ?? "", Ids(p, "ids")), playlists = Videos.Playlists() };
+                case "video.playlist.rename":
+                    Videos.RenamePlaylist(Long(p, "id"), req.GetString("name", 300) ?? "");
+                    return Videos.Playlists();
+                case "video.playlist.delete":
+                    Videos.DeletePlaylist(Long(p, "id"));
+                    return Videos.Playlists();
+                case "video.playlist.setItems":
+                    Videos.SetPlaylistItems(Long(p, "id"), Ids(p, "ids"));
+                    return Videos.Playlists();
+                case "video.playlist.add":
+                    Videos.AddToPlaylist(Long(p, "id"), Ids(p, "ids"));
+                    return Videos.Playlists();
                 case "video.addFolder":
                 {
                     var dlg = new OpenFolderDialog { Title = "Add a video folder (subfolders included)", Multiselect = false };

@@ -123,7 +123,11 @@ Video Bench (`/_video/{id}` serves the file with ranges; `/_sub/{id}/{n}` serves
 
 | type | payload | result |
 |---|---|---|
-| `video.status` | — | `{ folders[], series: [{ key, name, count, watched, resumeId }], resume[] }` |
+| `video.status` | — | `{ folders[], count, series: [{ key, name, count, watched, resumeId }], resume[], playlists[] }` |
+| `video.query` | `{ search?, filter: all\|unwatched\|inprogress\|watched, series?, playlistId?, sort: series\|title\|duration\|recent\|added\|playlist, desc? }` | the library view (at most 20,000) |
+| `video.playlists` | — | `[{ id, name, count, duration, watched }]` |
+| `video.playlist.create` | `{ name, ids[] }` | `{ id, playlists }` |
+| `video.playlist.rename` / `.delete` / `.setItems` / `.add` | `{ id, name }` / `{ id }` / `{ id, ids[] }` / `{ id, ids[] }` | the playlists |
 | `video.addFolder` / `.removeFolder` / `.rescan` | — / `{ id }` | |
 | `video.episodes` / `video.search` | `{ key }` / `{ text }` | videos in watching order |
 | `video.get` | `{ id }` | `{ video, subtitles: [{ index, label, lang }], notes[], next, exists }` |
