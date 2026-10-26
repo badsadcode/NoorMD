@@ -1,14 +1,14 @@
-// NoorMD host bridge (protocol v1). See docs/BRIDGE.md for the full message schema.
+// NoorMD host bridge (protocol v2). See docs/BRIDGE.md for the full message schema.
 //
-//   JS -> host  { v: 1, id: number|null, type: string, payload: object }
-//   host -> JS  { v: 1, replyTo: number, ok: boolean, result?: any, error?: string }   (reply)
-//               { v: 1, event: string, payload: object }                             (push event)
+//   JS -> host  { v: 2, id: number|null, type: string, payload: object }
+//   host -> JS  { v: 2, replyTo: number, ok: boolean, result?: any, error?: string }   (reply)
+//               { v: 2, event: string, payload: object }                             (push event)
 //
 // The page never gets raw file-system access: it can only ask the host to run named commands,
 // and the host validates every request (paths come from native dialogs or host-owned lists).
 window.NoorBridge = (() => {
   'use strict';
-  const PROTOCOL = 1;
+  const PROTOCOL = 2;
   const host = (window.chrome && window.chrome.webview) || window.__NOORMD_TEST_HOST__ || null;
   let nextId = 1;
   const pending = new Map();

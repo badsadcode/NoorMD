@@ -526,3 +526,33 @@ body.music-disabled .music-entry, body.music-disabled .miniplayer { display: non
 .edit-grid { margin-top: 14px; }
 .edit-options { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
 .edit-options .inline, .pref-grid .inline { display: flex; gap: 8px; align-items: center; }
+
+/* ---------------------------------------------------------------- document tabs */
+.doc-pane { height: 100%; min-width: 0; }
+.doc-pane[hidden] { display: none !important; }
+.tabstrip { display: flex; align-items: flex-end; gap: 4px; margin: -8px 0 14px; min-width: 0; border-bottom: 1px solid var(--border); }
+.tabs { display: flex; align-items: flex-end; gap: 2px; min-width: 0; flex: 1; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { position: relative; display: flex; align-items: center; gap: 6px; flex: 0 1 auto; min-width: 92px; max-width: 220px; height: 32px; padding: 0 6px 0 12px;
+  border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0; color: var(--muted); font-size: 12.5px; cursor: default; user-select: none; white-space: nowrap; }
+.tab:hover { background: color-mix(in srgb, var(--surface2) 60%, transparent); color: var(--text); }
+.tab.active { background: var(--panel); border-color: var(--border); color: var(--text); font-weight: 600; margin-bottom: -1px; height: 33px; }
+.tab.active::before { content: ''; position: absolute; left: 10px; right: 10px; top: 0; height: 2px; border-radius: 2px; background: var(--accent); }
+.tab.dragging { opacity: .75; background: var(--surface2); z-index: 2; }
+.tab-name { overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+.tab-pin { display: none; font-size: 10px; filter: grayscale(.3); }
+.tab.pinned .tab-pin { display: inline; }
+.tab.pinned { min-width: 0; max-width: 160px; }
+.tab-dirty { display: none; color: var(--accent); font-size: 10px; }
+.tab.dirty .tab-dirty { display: inline; }
+.tab-close { display: grid; place-items: center; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: inherit; font-size: 10px; opacity: .55; }
+.tab-close:hover { opacity: 1; background: var(--surface2); }
+.tab.pinned:not(:hover):not(.active) .tab-close { visibility: hidden; }
+.tab-action { width: 28px; height: 28px; margin-bottom: 3px; flex: 0 0 auto; }
+.tab-menu { position: fixed; z-index: 300; min-width: 210px; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.35); display: flex; flex-direction: column; }
+.tab-menu button { text-align: left; border: 0; background: none; color: var(--text); padding: 7px 10px; border-radius: 6px; font-size: 13px; }
+.tab-menu button:hover:not([disabled]), .tab-menu button:focus-visible { background: var(--surface2); outline: none; }
+.tab-menu button[disabled] { color: var(--muted); opacity: .6; }
+.tab-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
+body.compact .tabstrip { margin: 0 0 8px; }
+body.zen .tabstrip { display: none !important; }

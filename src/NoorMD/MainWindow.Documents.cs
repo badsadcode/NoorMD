@@ -3,77 +3,86 @@ using Microsoft.Win32;
 using NoorMD.Core;
 using NoorMD.Core.Documents;
 using NoorMD.Core.Export;
-using NoorMD.Core.Recovery;
 using NoorMD.Core.Snapshots;
+using NoorMD.Host;
 using NoorMD.Ui;
 
 namespace NoorMD;
 
 /// <summary>Opening, saving, exporting and the unsaved-changes rules. No path ever comes from the page
-/// without validation: files are chosen in native dialogs, from the recent list, or by drag and drop.</summary>
+/// without validation: files are chosen in native dialogs, from the recent list, or by drag and drop.
+/// Every operation works on one named tab; the text it writes is read from that tab's own editor.</summary>
 public partial class MainWindow
 {
     private const string MarkdownFilter = "Markdown (*.md;*.markdown)|*.md;*.markdown;*.mdown;*.mkd|Text files (*.txt)|*.txt|All files (*.*)|*.*";
 
     // ------------------------------------------------------------------ unsaved changes
 
-    /// <summary>Returns true when it is OK to replace or close the current document.</summary>
-    private async Task<bool> ConfirmDiscardAsync(string reason)
+    /// <summary>Returns true when it is OK to replace or close the tab's document (Save / Don't save / Cancel).</summary>
+    private async Task<bool> ConfirmDiscardAsync(DocumentSession s, string reason)
     {
-        var st = await GetEditorStateAsync();
+        var st = await GetEditorStateAsync(s.TabId);
         if (st == null)
         {
             // The editor is not reachable (crashed renderer). The last autosave is in the recovery draft.
-            if (!_session.Dirty) return true;
+            if (!s.Dirty) return true;
             return ThemedDialog.Confirm(this, "The editor is not responding",
                 "NoorMD could not read the latest text from the editor. Everything up to the last autosave is kept in a recovery draft and will be offered next time.",
                 reason == "closing" ? "Close anyway" : "Continue anyway");
         }
         if (!st.Dirty) return true;
 
-        var name = _session.Path != null ? Path.GetFileName(_session.Path) : st.Title;
-        var choice = ThemedDialog.Show(this, $"Save changes to “{name}”?",
+        SelectTab(s);
+        var choice = ThemedDialog.Show(this, $"Save changes to “{s.FileName}”?",
             "Your changes will be lost if you don't save them.",
-            [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Don't save", "discard"), new DialogButton("Save", "save", Primary: true)]);
+            [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Don't save", "discard"), new DialogButton("Save", "save", Primary: true)],
+            s.Path);
         switch (choice)
         {
             case "save":
-                return await SaveCoreAsync(saveAs: false, st);
+                return await SaveCoreAsync(s, saveAs: false, st);
             case "discard":
-                _session.Dirty = false;
-                _session.LastMarkdown = null;
-                _recovery.DeleteOwn();
+                MarkDiscarded(s);
                 return true;
             default:
                 return false;
         }
     }
 
+    private void MarkDiscarded(DocumentSession s)
+    {
+        s.Dirty = false;
+        s.LastMarkdown = null;
+        if (s.Path == null) s.Discarded = true;
+        _recovery.DeleteOwn(s.TabId);
+    }
+
     // ------------------------------------------------------------------ new / open
 
-    private async Task<object?> NewDocumentAsync(string markdown, string? title)
+    private async Task<object?> NewDocumentAsync(string markdown, string? title, bool reuseBlank)
     {
-        if (!await ConfirmDiscardAsync("new")) return new { cancelled = true };
-        _session.ResetUntitled(title ?? "Untitled document");
-        _recovery.DeleteOwn();
-        _settings.LastDocumentPath = null;
-        ScheduleSettingsSave();
-        PushEvent("doc.load", DocumentPayload(markdown, dirty: false));
-        UpdateWindowTitle();
-        return new { opened = true };
+        var s = (reuseBlank ? await ReusableBlankTabAsync() : null) ?? AddTab();
+        s.ResetUntitled(title ?? "Untitled document");
+        _recovery.DeleteOwn(s.TabId);
+        PushEvent("doc.load", DocumentPayload(s, markdown, dirty: false));
+        PersistSession();
+        return new { opened = true, tabId = s.TabId };
     }
 
     private async Task<object?> OpenWithDialogAsync()
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Open Markdown file",
+            Title = "Open Markdown files",
             Filter = MarkdownFilter,
             CheckFileExists = true,
-            InitialDirectory = _session.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+            Multiselect = true,
+            InitialDirectory = ActiveSession?.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         };
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
-        return await OpenPathAsync(dlg.FileName);
+        object? last = null;
+        foreach (var file in dlg.FileNames) last = await OpenPathAsync(file);
+        return last;
     }
 
     private async Task<object?> OpenRecentAsync(string? path)
@@ -92,69 +101,70 @@ public partial class MainWindow
         return await OpenPathAsync(path);
     }
 
+    /// <summary>Opens a file in a new tab, or selects the tab that already has it open.</summary>
     internal async Task<object?> OpenPathAsync(string path)
     {
-        if (_session.Path != null && string.Equals(Path.GetFullPath(path), _session.Path, StringComparison.OrdinalIgnoreCase) && !_session.Dirty)
+        var existing = FindTabByPath(path);
+        if (existing != null)
         {
-            PushNotice("That document is already open.");
-            return new { opened = true };
+            SelectTab(existing);
+            return new { opened = true, existing = true, tabId = existing.TabId };
         }
         LoadedDocument loaded;
-        try { loaded = DocumentFile.Load(path); } // read first: a failed read must not cost the current document
+        try { loaded = DocumentFile.Load(path); }
         catch (Exception ex)
         {
             ThemedDialog.ShowError(this, "Could not open the file", FriendlyError(ex), path);
             return new { cancelled = true };
         }
-        if (!await ConfirmDiscardAsync("open")) return new { cancelled = true };
-        _recovery.DeleteOwn();
-        PushEvent("doc.load", ApplyLoaded(loaded));
-        return new { opened = true };
+        var s = await ReusableBlankTabAsync() ?? AddTab();
+        _recovery.DeleteOwn(s.TabId);
+        PushEvent("doc.load", ApplyLoaded(s, loaded));
+        return new { opened = true, tabId = s.TabId };
     }
 
-    /// <summary>Reads a file and makes it the session's document; returns the doc.load payload.</summary>
-    private object LoadFileIntoSession(string path, out LoadedDocument loaded)
+    private object ApplyLoaded(DocumentSession s, LoadedDocument loaded)
     {
-        loaded = DocumentFile.Load(path);
-        return ApplyLoaded(loaded);
-    }
-
-    private object ApplyLoaded(LoadedDocument loaded)
-    {
-        _session.SetFile(loaded.Path, loaded.Format, loaded.Stamp);
-        _session.Dirty = false;
-        _session.LastMarkdown = null;
+        s.SetFile(loaded.Path, loaded.Format, loaded.Stamp);
+        s.Dirty = false;
+        s.LastMarkdown = null;
+        s.Discarded = false;
         _settings.AddRecent(loaded.Path);
         _settings.LastDocumentPath = loaded.Path;
-        ScheduleSettingsSave();
+        PersistSession();
         PushRecent();
         UpdateWindowTitle();
-        return DocumentPayload(loaded.Markdown, dirty: false, warning: loaded.Warning);
+        return DocumentPayload(s, loaded.Markdown, dirty: false, warning: loaded.Warning);
     }
 
-    private object DocumentPayload(string markdown, bool dirty, string? notice = null, string? warning = null) => new
+    /// <summary>The doc.load payload for a tab. The page creates the tab if it doesn't have it yet.</summary>
+    private object DocumentPayload(DocumentSession s, string markdown, bool dirty, string? notice = null, string? warning = null, bool background = false) => new
     {
+        tabId = s.TabId,
         markdown,
-        path = _session.Path,
-        fileName = _session.Path == null ? null : Path.GetFileName(_session.Path),
-        title = _session.Title,
+        path = s.Path,
+        fileName = s.Path == null ? null : Path.GetFileName(s.Path),
+        title = s.Title,
         dirty,
-        encoding = _session.Format.EncodingName + (_session.Format.Bom ? " BOM" : ""),
-        eol = _session.Format.Eol.ToString(),
+        encoding = s.Format.EncodingName + (s.Format.Bom ? " BOM" : ""),
+        eol = s.Format.Eol.ToString(),
+        pinned = s.Pinned,
+        mode = s.Mode,
         notice,
         warning,
+        background,
     };
 
-    private async Task<object?> ReloadFromDiskAsync()
+    private async Task<object?> ReloadFromDiskAsync(DocumentSession s)
     {
-        if (_session.Path == null) throw new BridgeError("This document has not been saved yet.");
-        var st = await GetEditorStateAsync();
-        if (st is { Dirty: true } && !ThemedDialog.Confirm(this, "Reload from disk?", "Your unsaved changes in NoorMD will be replaced by the version on disk.", "Discard and reload"))
+        if (s.Path == null) throw new BridgeError("This document has not been saved yet.");
+        var st = await GetEditorStateAsync(s.TabId);
+        if (st is { Dirty: true } && !ThemedDialog.Confirm(this, "Reload from disk?", $"Your unsaved changes to “{s.FileName}” will be replaced by the version on disk.", "Discard and reload"))
             return new { cancelled = true };
         try
         {
-            var payload = LoadFileIntoSession(_session.Path, out _);
-            _recovery.DeleteOwn();
+            var payload = ApplyLoaded(s, DocumentFile.Load(s.Path));
+            _recovery.DeleteOwn(s.TabId);
             PushEvent("doc.load", payload);
             return new { opened = true };
         }
@@ -165,53 +175,79 @@ public partial class MainWindow
     {
         var draft = id == null ? null : _recovery.LoadOrphan(id);
         if (draft == null) throw new BridgeError("That draft is no longer available.");
-        if (!await ConfirmDiscardAsync("recover")) return new { restored = false };
 
+        // A draft of a file that is already open replaces that tab's text (after asking, if it has edits of its own).
+        var target = draft.Path != null ? FindTabByPath(draft.Path) : null;
+        if (target != null && !await ConfirmDiscardAsync(target, "recover")) return new { restored = false };
+        target ??= await ReusableBlankTabAsync() ?? AddTab();
+        AdoptDraft(target, draft);
+        PushEvent("doc.load", DocumentPayload(target, draft.Markdown, dirty: true, notice: $"Recovered unsaved work from {draft.SavedUtc.ToLocalTime():g}. Save to keep it."));
+        UpdateWindowTitle();
+        return new { restored = true, tabId = target.TabId };
+    }
+
+    /// <summary>Makes an orphaned draft this tab's document. Our own draft is written before the orphan is deleted,
+    /// so the text exists on disk at every moment.</summary>
+    private void AdoptDraft(DocumentSession s, Core.Recovery.RecoveryDraft draft)
+    {
         if (draft.Path != null && File.Exists(draft.Path))
-            _session.SetFile(draft.Path, draft.ToFormat(), FileStamp.Read(draft.Path));
+            s.SetFile(draft.Path, draft.ToFormat(), FileStamp.Read(draft.Path));
         else
         {
-            _session.ResetUntitled(draft.Title ?? "Recovered document");
+            s.ResetUntitled(draft.Title ?? "Recovered document");
             if (draft.Path != null) PushNotice($"The original file “{Path.GetFileName(draft.Path)}” no longer exists. Use Save As to keep this text.");
         }
-        _session.Dirty = true;
-        _session.LastMarkdown = draft.Markdown;
-        // Take ownership: write our own draft before deleting the orphan so the text always exists on disk.
-        _recovery.SaveOwn(draft.Markdown, _session.Title, _session.Path, _session.Format);
+        s.Dirty = true;
+        s.Discarded = false;
+        s.LastMarkdown = draft.Markdown;
+        _recovery.SaveOwn(s.TabId, draft.Markdown, s.Title, s.Path, s.Format);
         _recovery.DiscardOrphan(draft.Id);
-        PushEvent("doc.load", DocumentPayload(draft.Markdown, dirty: true, notice: $"Recovered unsaved work from {draft.SavedUtc.ToLocalTime():g}. Save to keep it."));
-        UpdateWindowTitle();
-        return new { restored = true };
+        PersistSession();
     }
 
     // ------------------------------------------------------------------ save
 
-    private async Task<object?> SaveAsync(bool saveAs)
+    private async Task<object?> SaveAsync(DocumentSession s, bool saveAs)
     {
-        var st = await GetEditorStateAsync() ?? throw new BridgeError("The editor is not responding, so nothing was saved. Your text is kept in the recovery draft.");
-        var saved = await SaveCoreAsync(saveAs, st);
-        return saved ? new { saved = true, fileName = _session.FileName } : new { saved = false };
+        var st = await GetEditorStateAsync(s.TabId) ?? throw new BridgeError("The editor is not responding, so nothing was saved. Your text is kept in the recovery draft.");
+        var saved = await SaveCoreAsync(s, saveAs, st);
+        return saved ? new { saved = true, fileName = s.FileName } : new { saved = false };
     }
 
-    private async Task<bool> SaveCoreAsync(bool saveAs, EditorState st)
+    /// <summary>Saves every tab with unsaved changes, in tab order. Stops at the first one the user cancels.</summary>
+    private async Task<object?> SaveAllAsync()
     {
-        var path = _session.Path;
-        if (!saveAs && path != null && !st.Dirty && _session.Stamp != null && FileStamp.Read(path) == _session.Stamp)
+        int saved = 0;
+        foreach (var s in OrderedTabs())
+        {
+            var st = await GetEditorStateAsync(s.TabId);
+            if (st is not { Dirty: true }) continue;
+            if (s.Path == null) SelectTab(s); // Save As dialog: show which document it is for
+            if (!await SaveCoreAsync(s, saveAs: false, st)) return new { saved, cancelled = true };
+            saved++;
+        }
+        return new { saved };
+    }
+
+    private async Task<bool> SaveCoreAsync(DocumentSession s, bool saveAs, EditorState st)
+    {
+        var path = s.Path;
+        if (!saveAs && path != null && !st.Dirty && s.Stamp != null && FileStamp.Read(path) == s.Stamp)
         {
             // Nothing was edited and the file is unchanged on disk: don't rewrite it. (Visual mode would
             // otherwise re-serialize the Markdown and change formatting in a file the user never touched.)
-            PushEvent("doc.saved", new { gen = st.Gen, path, fileName = Path.GetFileName(path), title = _session.Title });
+            PushEvent("doc.saved", new { tabId = s.TabId, gen = st.Gen, path, fileName = Path.GetFileName(path), title = s.Title });
             return true;
         }
         if (saveAs || path == null)
         {
-            path = AskSavePath("Save Markdown file", path ?? DocumentFile.SafeFileName(st.Title), MarkdownFilter, ".md");
+            path = AskSavePath("Save Markdown file", path ?? DocumentFile.SafeFileName(st.Title), MarkdownFilter, ".md", s);
             if (path == null) return false;
         }
         else
         {
             var onDisk = FileStamp.Read(path);
-            if (_session.Stamp != null && onDisk != null && onDisk != _session.Stamp)
+            if (s.Stamp != null && onDisk != null && onDisk != s.Stamp)
             {
                 var choice = ThemedDialog.Show(this, "The file changed on disk",
                     $"“{Path.GetFileName(path)}” was modified by another program after you opened it. Overwrite it with your version?",
@@ -219,17 +255,25 @@ public partial class MainWindow
                 if (choice == "cancel") return false;
                 if (choice == "saveAs")
                 {
-                    path = AskSavePath("Save Markdown file", path, MarkdownFilter, ".md");
+                    path = AskSavePath("Save Markdown file", path, MarkdownFilter, ".md", s);
                     if (path == null) return false;
                 }
             }
+        }
+
+        // Saving under the name of a file another tab has open would leave two tabs editing one file.
+        var other = FindTabByPath(path);
+        if (other != null && other != s)
+        {
+            ThemedDialog.ShowError(this, "That file is open in another tab", $"“{Path.GetFileName(path)}” is already open. Close that tab first, or choose a different name.", path);
+            return false;
         }
 
         FileStamp stamp;
         try
         {
             var target = path;
-            var format = _session.Format;
+            var format = s.Format;
             stamp = await Task.Run(() => DocumentFile.Save(target, st.Markdown, format, App.Paths.BackupFor(target)));
         }
         catch (Exception ex)
@@ -239,26 +283,27 @@ public partial class MainWindow
             return false;
         }
 
-        var oldKey = _session.SnapshotKey;
-        _session.SetFile(path, _session.Format, stamp);
-        if (oldKey != _session.SnapshotKey) _snapshots.Merge(oldKey, _session.SnapshotKey, _session.Path);
-        _session.Dirty = false;
-        _session.LastMarkdown = null;
-        _recovery.DeleteOwn();
+        var oldKey = s.SnapshotKey;
+        s.SetFile(path, s.Format, stamp);
+        if (oldKey != s.SnapshotKey) _snapshots.Merge(oldKey, s.SnapshotKey, s.Path);
+        s.Dirty = false;
+        s.Discarded = false;
+        s.LastMarkdown = null;
+        _recovery.DeleteOwn(s.TabId);
         _settings.AddRecent(path);
         _settings.LastDocumentPath = path;
-        ScheduleSettingsSave();
+        PersistSession();
         PushRecent();
         PushEvent("doc.saved", new
         {
-            gen = st.Gen, path, fileName = Path.GetFileName(path), title = _session.Title,
-            encoding = _session.Format.EncodingName + (_session.Format.Bom ? " BOM" : ""), eol = _session.Format.Eol.ToString(),
+            tabId = s.TabId, gen = st.Gen, path, fileName = Path.GetFileName(path), title = s.Title,
+            encoding = s.Format.EncodingName + (s.Format.Bom ? " BOM" : ""), eol = s.Format.Eol.ToString(),
         });
         UpdateWindowTitle();
         return true;
     }
 
-    private string? AskSavePath(string title, string suggested, string filter, string defaultExt)
+    private string? AskSavePath(string title, string suggested, string filter, string defaultExt, DocumentSession? s = null)
     {
         var dlg = new SaveFileDialog
         {
@@ -269,41 +314,41 @@ public partial class MainWindow
             OverwritePrompt = true,
             FileName = Path.GetFileName(suggested),
             InitialDirectory = Path.GetDirectoryName(suggested) is { Length: > 0 } dir && Directory.Exists(dir)
-                ? dir : _session.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
+                ? dir : (s ?? ActiveSession)?.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         };
         return dlg.ShowDialog(this) == true ? dlg.FileName : null;
     }
 
     // ------------------------------------------------------------------ export
 
-    private async Task<object?> ExportMarkdownCopyAsync()
+    private async Task<object?> ExportMarkdownCopyAsync(DocumentSession s)
     {
-        var st = await GetEditorStateAsync() ?? throw new BridgeError("The editor is not responding.");
+        var st = await GetEditorStateAsync(s.TabId) ?? throw new BridgeError("The editor is not responding.");
         var suggested = DocumentFile.SafeFileName(st.Title + " (copy)");
-        var path = AskSavePath("Export a copy as Markdown", _session.Folder != null ? Path.Combine(_session.Folder, suggested) : suggested, MarkdownFilter, ".md");
+        var path = AskSavePath("Export a copy as Markdown", s.Folder != null ? Path.Combine(s.Folder, suggested) : suggested, MarkdownFilter, ".md", s);
         if (path == null) return null;
-        if (_session.Path != null && string.Equals(Path.GetFullPath(path), _session.Path, StringComparison.OrdinalIgnoreCase))
-            throw new BridgeError("Choose a different file — use Save (Ctrl+S) to update the open document.");
-        var format = _session.Format;
+        if (FindTabByPath(path) != null)
+            throw new BridgeError("That file is open in NoorMD — choose a different file. Use Save (Ctrl+S) to update an open document.");
+        var format = s.Format;
         await Task.Run(() => DocumentFile.Save(path, st.Markdown, format, null));
         PushNotice("Markdown copy saved to " + path);
         return new { path };
     }
 
-    private async Task<object?> ExportHtmlAsync(string title, string bodyHtml)
+    private async Task<object?> ExportHtmlAsync(DocumentSession s, string title, string bodyHtml)
     {
         var suggested = DocumentFile.SafeFileName(title, ".html");
-        var path = AskSavePath("Export HTML", _session.Folder != null ? Path.Combine(_session.Folder, suggested) : suggested, "HTML document (*.html)|*.html", ".html");
+        var path = AskSavePath("Export HTML", s.Folder != null ? Path.Combine(s.Folder, suggested) : suggested, "HTML document (*.html)|*.html", ".html", s);
         if (path == null) return null;
         var html = HtmlExport.Build(title, bodyHtml);
         await Task.Run(() => AtomicFile.WriteAllText(path, html));
         return new { path };
     }
 
-    private async Task<object?> ExportPdfAsync(string title)
+    private async Task<object?> ExportPdfAsync(DocumentSession s, string title)
     {
         var suggested = DocumentFile.SafeFileName(title, ".pdf");
-        var path = AskSavePath("Export PDF", _session.Folder != null ? Path.Combine(_session.Folder, suggested) : suggested, "PDF document (*.pdf)|*.pdf", ".pdf");
+        var path = AskSavePath("Export PDF", s.Folder != null ? Path.Combine(s.Folder, suggested) : suggested, "PDF document (*.pdf)|*.pdf", ".pdf", s);
         if (path == null) return null;
         var settings = Core.Environment.CreatePrintSettings();
         settings.ShouldPrintHeaderAndFooter = false;
@@ -320,39 +365,46 @@ public partial class MainWindow
 
     // ------------------------------------------------------------------ external changes
 
+    /// <summary>Checks every open file (not just the visible one) when the window regains focus.</summary>
     private async Task CheckExternalChangesAsync()
     {
-        if (!_webReady || _session.Path == null || _docGate.CurrentCount == 0) return;
-        var onDisk = FileStamp.Read(_session.Path);
-        if (onDisk == null)
-        {
-            if (!_session.DeletionNoticeShown && !File.Exists(_session.Path))
-            {
-                _session.DeletionNoticeShown = true;
-                PushNotice($"“{Path.GetFileName(_session.Path)}” was moved or deleted outside NoorMD. Save to write it again.");
-            }
-            return;
-        }
-        if (_session.Stamp == null || onDisk == _session.Stamp || onDisk == _session.AcknowledgedExternalStamp) return;
-
+        if (!_webReady || _docGate.CurrentCount == 0) return;
         if (!await _docGate.WaitAsync(0)) return;
         try
         {
-            _session.AcknowledgedExternalStamp = onDisk;
-            var dirty = _session.Dirty;
-            var reload = ThemedDialog.Show(this, "File changed on disk",
-                dirty
-                    ? $"“{Path.GetFileName(_session.Path)}” was changed by another program. Reload it and lose your unsaved changes, or keep your version?"
-                    : $"“{Path.GetFileName(_session.Path)}” was changed by another program. Reload the new version?",
-                [new DialogButton("Keep my version", "keep", Cancel: true), new DialogButton("Reload", "reload", Primary: !dirty)]) == "reload";
-            if (!reload) return;
-            try
+            foreach (var s in OrderedTabs())
             {
-                var payload = LoadFileIntoSession(_session.Path, out _);
-                _recovery.DeleteOwn();
-                PushEvent("doc.load", payload);
+                if (s.Path == null || !_tabs.ContainsKey(s.TabId)) continue;
+                var onDisk = FileStamp.Read(s.Path);
+                if (onDisk == null)
+                {
+                    if (!s.DeletionNoticeShown && !File.Exists(s.Path))
+                    {
+                        s.DeletionNoticeShown = true;
+                        PushNotice($"“{Path.GetFileName(s.Path)}” was moved or deleted outside NoorMD. Save to write it again.");
+                    }
+                    continue;
+                }
+                if (s.Stamp == null || onDisk == s.Stamp || onDisk == s.AcknowledgedExternalStamp) continue;
+
+                s.AcknowledgedExternalStamp = onDisk;
+                SelectTab(s);
+                var st = await GetEditorStateAsync(s.TabId);
+                var dirty = st?.Dirty ?? s.Dirty;
+                var reload = ThemedDialog.Show(this, "File changed on disk",
+                    dirty
+                        ? $"“{Path.GetFileName(s.Path)}” was changed by another program. Reload it and lose your unsaved changes, or keep your version?"
+                        : $"“{Path.GetFileName(s.Path)}” was changed by another program. Reload the new version?",
+                    [new DialogButton("Keep my version", "keep", Cancel: true), new DialogButton("Reload", "reload", Primary: !dirty)], s.Path) == "reload";
+                if (!reload) continue;
+                try
+                {
+                    var payload = ApplyLoaded(s, DocumentFile.Load(s.Path));
+                    _recovery.DeleteOwn(s.TabId);
+                    PushEvent("doc.load", payload);
+                }
+                catch (Exception ex) { ThemedDialog.ShowError(this, "Could not reload", FriendlyError(ex)); }
             }
-            catch (Exception ex) { ThemedDialog.ShowError(this, "Could not reload", FriendlyError(ex)); }
         }
         finally { _docGate.Release(); }
     }

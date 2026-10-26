@@ -27,7 +27,6 @@ public partial class MainWindow : Window
     private readonly AppSettings _settings;
     private readonly RecoveryStore _recovery;
     private readonly SnapshotStore _snapshots;
-    private readonly DocumentSession _session = new();
     private readonly DispatcherTimer _settingsSaveTimer;
     private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
     private readonly SemaphoreSlim _docGate = new(1, 1);
@@ -57,6 +56,9 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         Closed += OnClosed;
         Activated += async (_, _) => await CheckExternalChangesAsync();
+        // WPF would treat Ctrl+Tab as "move focus to the next control" before the page ever sees it.
+        System.Windows.Input.KeyboardNavigation.SetControlTabNavigation(this, System.Windows.Input.KeyboardNavigationMode.None);
+        Web.PreviewKeyDown += OnWebPreviewKeyDown;
         UpdateWindowTitle();
         StartSelfTestWatchdog();
     }
@@ -128,7 +130,7 @@ public partial class MainWindow : Window
         {
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeMedia(uri, e)) return;
-            var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, _session.Folder) : null;
+            var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder) : null;
             if (file == null)
             {
                 e.Response = Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
@@ -202,7 +204,7 @@ public partial class MainWindow : Window
         if (e.ProcessFailedKind is not (CoreWebView2ProcessFailedKind.RenderProcessExited or CoreWebView2ProcessFailedKind.RenderProcessUnresponsive or CoreWebView2ProcessFailedKind.BrowserProcessExited)) return;
         Dispatcher.BeginInvoke(() =>
         {
-            var hasDraft = _session.Dirty && _session.LastMarkdown != null;
+            var hasDraft = _tabs.Values.Any(s => s.Dirty && s.LastMarkdown != null);
             var msg = hasDraft
                 ? "The editor stopped unexpectedly. Your text up to the last autosave (about a second before the problem) is safe in the recovery draft."
                 : "The editor stopped unexpectedly. No unsaved changes were lost.";
@@ -213,6 +215,23 @@ public partial class MainWindow : Window
             }
             if (ThemedDialog.Confirm(this, "Reload the editor?", msg, "Reload editor")) Core.Reload();
         });
+    }
+
+    private void OnWebPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        var mods = System.Windows.Input.Keyboard.Modifiers;
+        if (!mods.HasFlag(System.Windows.Input.ModifierKeys.Control) || mods.HasFlag(System.Windows.Input.ModifierKeys.Alt)) return;
+        var key = e.Key == System.Windows.Input.Key.System ? e.SystemKey : e.Key;
+        string? cmd = key switch
+        {
+            System.Windows.Input.Key.Tab => mods.HasFlag(System.Windows.Input.ModifierKeys.Shift) ? "tab.prev" : "tab.next",
+            System.Windows.Input.Key.PageDown when !mods.HasFlag(System.Windows.Input.ModifierKeys.Shift) => "tab.next",
+            System.Windows.Input.Key.PageUp when !mods.HasFlag(System.Windows.Input.ModifierKeys.Shift) => "tab.prev",
+            _ => null,
+        };
+        if (cmd == null || !_webReady) return;
+        e.Handled = true;
+        PushEvent("command", new { id = cmd });
     }
 
     // ------------------------------------------------------------------ chrome, placement, settings
@@ -230,8 +249,12 @@ public partial class MainWindow : Window
 
     private void SplashAction_Click(object sender, RoutedEventArgs e) => (SplashAction.Tag as Action)?.Invoke();
 
-    internal void UpdateWindowTitle() =>
-        Title = $"{(_session.Dirty ? "● " : "")}{_session.FileName} — NoorMD";
+    internal void UpdateWindowTitle()
+    {
+        var s = ActiveSession;
+        var others = _tabs.Values.Count(t => t.Dirty && t != s);
+        Title = s == null ? "NoorMD" : $"{(s.Dirty ? "● " : "")}{s.FileName}{(others > 0 ? $" (+{others} unsaved)" : "")} — NoorMD";
+    }
 
     private void RestorePlacement()
     {
@@ -261,7 +284,12 @@ public partial class MainWindow : Window
     private void SaveSettingsNow()
     {
         _settingsSaveTimer.Stop();
-        try { _settingsStore.Save(_settings); }
+        try
+        {
+            // An extra window never overwrites the main window's remembered tabs with its own stale copy.
+            if (!_persistSession) _settings.Session = _settingsStore.Load().Session;
+            _settingsStore.Save(_settings);
+        }
         catch (Exception ex) { Log.Error("Saving settings failed", ex); }
     }
 
@@ -274,7 +302,7 @@ public partial class MainWindow : Window
         if (!await _docGate.WaitAsync(0)) return; // a save/open dialog is already in progress
         try
         {
-            if (!await ConfirmDiscardAsync("closing")) return;
+            if (!await ConfirmCloseWindowAsync()) return;
         }
         finally { _docGate.Release(); }
         _closeConfirmed = true;
@@ -284,9 +312,11 @@ public partial class MainWindow : Window
     private void OnClosed(object? sender, EventArgs e)
     {
         CapturePlacement();
+        PersistSession();
         SaveSettingsNow();
-        // Keep the draft only if the user is leaving unsaved work behind (Windows shutdown, crash paths).
-        if (!_session.Dirty) _recovery.DeleteOwn();
+        // Keep a tab's draft only if the user is leaving unsaved work behind (Windows shutdown, crash paths).
+        foreach (var s in _tabs.Values)
+            if (!s.Dirty) _recovery.DeleteOwn(s.TabId);
         _recovery.Dispose();
         try { Web.Dispose(); } catch { }
     }

@@ -105,7 +105,9 @@ public sealed class AppSettings
     public EditorPrefs Prefs { get; set; } = new();
     public List<RecentFile> Recent { get; set; } = [];
     public WindowPlacement? Window { get; set; }
+    /// <summary>Kept for settings written by 1.x; the open tabs are in <see cref="Session"/>.</summary>
     public string? LastDocumentPath { get; set; }
+    public WorkspaceSession? Session { get; set; }
 
     public void AddRecent(string path)
     {
@@ -143,6 +145,7 @@ public sealed class SettingsStore(string filePath)
             settings.Recent ??= [];
             settings.Prefs.Normalize();
             settings.Recent.RemoveAll(r => string.IsNullOrWhiteSpace(r.Path));
+            settings.Session?.Normalize();
             return settings;
         }
         catch (Exception ex) when (ex is JsonException or NotSupportedException)

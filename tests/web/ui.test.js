@@ -83,7 +83,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('outline lists headings', JSON.stringify(outline) === JSON.stringify(['Zażółć gęślą jaźń', 'Lists', 'Table', 'Third']), outline);
 
       // Typing → dirty; Ctrl+S saves exactly once.
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.press('Control+End');
       await page.keyboard.type(' Nowy tekst ąę.');
       s = await state(page);
@@ -114,21 +114,21 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+3');
       check('Ctrl+3 switches to Split', (await state(page)).mode === 'split');
       const panes = await page.evaluate(() => {
-        const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect();
-        const b = document.querySelector('#editor .toastui-editor-md-preview').getBoundingClientRect();
+        const a = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor').getBoundingClientRect();
+        const b = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').getBoundingClientRect();
         return { a: a.width, b: b.width, ah: a.height, bh: b.height };
       });
       check('split shows two usable panes (~50/50)', panes.a > 300 && panes.b > 300 && Math.abs(panes.a - panes.b) < 40 && panes.ah > 200, panes);
       if (shots) await page.screenshot({ path: `${shots}/split-1440.png` });
       // Drag divider to ~65%.
-      const sp = await page.$('#editor .toastui-editor-md-splitter');
+      const sp = await page.$('#editor .doc-pane:not([hidden]) .toastui-editor-md-splitter');
       const box = await sp.boundingBox();
-      const cont = await page.evaluate(() => { const r = document.querySelector('#editor .toastui-editor-md-container').getBoundingClientRect(); return { x: r.x, w: r.width }; });
+      const cont = await page.evaluate(() => { const r = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container').getBoundingClientRect(); return { x: r.x, w: r.width }; });
       await page.mouse.move(box.x + box.width / 2, box.y + 100);
       await page.mouse.down();
       await page.mouse.move(cont.x + cont.w * 0.65, box.y + 120, { steps: 6 });
       await page.mouse.up();
-      const ratio = await page.evaluate(() => { const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect(); const c = document.querySelector('#editor .toastui-editor-md-container').getBoundingClientRect(); return a.width / c.width; });
+      const ratio = await page.evaluate(() => { const a = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor').getBoundingClientRect(); const c = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container').getBoundingClientRect(); return a.width / c.width; });
       check('dragging the divider resizes panes', Math.abs(ratio - 0.65) < 0.03, ratio);
       const prefMsg = await page.evaluate(() => window.__mock.log.filter((m) => m.type === 'prefs.set' && m.payload.splitRatio).pop());
       check('divider ratio is persisted', prefMsg && Math.abs(prefMsg.payload.splitRatio - 0.65) < 0.03, prefMsg);
@@ -138,12 +138,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.mouse.move(box.x + 2, box.y + 100);
       await page.setViewportSize({ width: 1024, height: 700 });
       await page.waitForTimeout(150);
-      const after = await page.evaluate(() => { const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect(); const c = document.querySelector('#editor .toastui-editor-md-container').getBoundingClientRect(); return { r: a.width / c.width, overflow: document.documentElement.scrollWidth > window.innerWidth }; });
+      const after = await page.evaluate(() => { const a = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor').getBoundingClientRect(); const c = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container').getBoundingClientRect(); return { r: a.width / c.width, overflow: document.documentElement.scrollWidth > window.innerWidth }; });
       check('split layout survives window resize', after.r > 0.29 && after.r < 0.71 && !after.overflow, after);
       if (shots) await page.screenshot({ path: `${shots}/split-1024.png` });
       await page.setViewportSize({ width: 1440, height: 900 });
       // Independent scrolling: the panes scroll, the page does not.
-      const scroll = await page.evaluate(() => ({ page: document.scrollingElement.scrollHeight <= window.innerHeight + 1, preview: getComputedStyle(document.querySelector('#editor .toastui-editor-md-preview')).overflowY }));
+      const scroll = await page.evaluate(() => ({ page: document.scrollingElement.scrollHeight <= window.innerHeight + 1, preview: getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview')).overflowY }));
       check('page never scrolls; preview scrolls independently', scroll.page && scroll.preview === 'auto', scroll);
 
       await page.keyboard.press('Control+1');
@@ -153,7 +153,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Focus mode
       await page.keyboard.press('F11');
-      const zen = await page.evaluate(() => ({ sidebar: getComputedStyle(document.querySelector('.sidebar')).display, card: document.querySelector('#editor-card').getBoundingClientRect().width, vw: window.innerWidth, editable: !!document.querySelector('#editor .ProseMirror[contenteditable=true]') }));
+      const zen = await page.evaluate(() => ({ sidebar: getComputedStyle(document.querySelector('.sidebar')).display, card: document.querySelector('#editor-card').getBoundingClientRect().width, vw: window.innerWidth, editable: !!document.querySelector('#editor .doc-pane:not([hidden]) .ProseMirror[contenteditable=true]') }));
       check('Focus mode hides chrome and uses the full width', zen.sidebar === 'none' && zen.card > zen.vw - 60 && zen.editable, zen);
       if (shots) await page.screenshot({ path: `${shots}/focus-1440.png` });
       await page.keyboard.press('Escape');
@@ -178,7 +178,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+1');
 
       // Find & replace
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.press('Control+f');
       await page.keyboard.type('two');
       await page.waitForTimeout(50);
@@ -209,7 +209,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Esc closes dialogs', (await page.$$('.modal')).length === 0);
 
       // Held Ctrl+S (key repeat) must not trigger repeated saves.
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.type('!');
       const savesBefore = await msgs(page, 'doc.save');
       await page.evaluate(() => {
@@ -226,7 +226,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Link click in Split preview goes to host, not navigation.
       await page.keyboard.press('Control+3');
       await page.waitForTimeout(150);
-      await page.click('#editor .toastui-editor-md-preview a[href="https://example.com"]');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview a[href="https://example.com"]');
       await page.waitForTimeout(100);
       check('preview link click is routed to host', (await page.evaluate(() => window.__mock.state.lastLink)) === 'https://example.com' && page.url() === url);
 
@@ -293,7 +293,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
     {
       const { page, errors } = await open(browser, url, { document: { markdown: LOSSLESS + '\n' + 'Long paragraph of text. '.repeat(60) + '\n', path: 'C:\\docs\\w.md', fileName: 'w.md', title: 'w' } }, { width: 1920, height: 1080 });
       const textWidth = () => page.evaluate(() => {
-        const pm = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror');
+        const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
         const cs = getComputedStyle(pm);
         return pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
       });
@@ -309,12 +309,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Shift+W');
       await page.waitForTimeout(150);
       const full = await textWidth();
-      const pane = await page.evaluate(() => document.querySelector('#editor .toastui-editor-ww-container .ProseMirror').clientWidth);
+      const pane = await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror').clientWidth);
       if (shots) await page.screenshot({ path: `${shots}/focus-fullwidth-1920.png` });
       check('Full width uses the pane with 24–40 px padding in Focus mode', full >= pane - 80 && full > 1700, { full, pane });
       check('width preset is persisted', await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.lineWidth === 'full')));
       check('width button shows the active preset', (await page.textContent('#width-toggle')).includes('Full width'));
-      check('editing still works at full width', await page.evaluate(() => !!document.querySelector('#editor .ProseMirror[contenteditable=true]')));
+      check('editing still works at full width', await page.evaluate(() => !!document.querySelector('#editor .doc-pane:not([hidden]) .ProseMirror[contenteditable=true]')));
       await page.keyboard.press('Escape');
       await page.keyboard.press('Control+Shift+W'); // back to comfortable
       await page.waitForTimeout(100);
@@ -325,7 +325,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         const ov = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
         check(`no overflow with width presets in ${m === 'Control+2' ? 'Markdown' : 'Split'} mode`, ov <= 0, ov);
       }
-      const grip = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-splitter'), '::after').height);
+      const grip = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-splitter'), '::after').height);
       check('split divider has a visible grip', grip === '44px', grip);
       await page.keyboard.press('Control+1');
 
@@ -347,16 +347,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const md0 = (await state(page)).markdown;
       await page.keyboard.press('Control+Shift+Y');
       await page.waitForTimeout(50);
-      const sp = await page.evaluate(() => [...document.querySelectorAll('#editor [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
+      const sp = await page.evaluate(() => [...document.querySelectorAll('#editor .doc-pane:not([hidden]) [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
       check('spellcheck off sets spellcheck=false on editing surfaces', sp.length > 0 && sp.every((v) => v === 'false'), sp);
       check('spellcheck toggle leaves the text unchanged', (await state(page)).markdown === md0);
       await page.keyboard.press('Control+2');
       await page.waitForTimeout(50);
-      const sp2 = await page.evaluate(() => [...document.querySelectorAll('#editor [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
+      const sp2 = await page.evaluate(() => [...document.querySelectorAll('#editor .doc-pane:not([hidden]) [contenteditable="true"]')].map((n) => n.getAttribute('spellcheck')));
       check('spellcheck setting survives mode switches', sp2.every((v) => v === 'false'), sp2);
       await page.keyboard.press('Control+1');
       await page.keyboard.press('Control+Shift+Y');
-      check('spellcheck can be turned back on', await page.evaluate(() => document.querySelector('#editor .ww-mode .ProseMirror, #editor .toastui-editor-ww-container .ProseMirror').getAttribute('spellcheck') === 'true'));
+      check('spellcheck can be turned back on', await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .ww-mode .ProseMirror, #editor .toastui-editor-ww-container .ProseMirror').getAttribute('spellcheck') === 'true'));
 
       // AltGr (Polish "ś") must type a letter, not take a snapshot.
       const snapsBefore = await msgs(page, 'snapshots.create');
@@ -389,28 +389,28 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForTimeout(200);
       check('Visual → Markdown without edits shows the exact original source', (await state(page)).markdown === BIG);
       const uniform = () => page.evaluate(() => {
-        const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror');
+        const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror');
         const sizes = new Set(), fams = new Set(), lhs = new Set();
         pm.querySelectorAll('*').forEach((n) => { const cs = getComputedStyle(n); sizes.add(cs.fontSize); fams.add(cs.fontFamily.split(',')[0]); lhs.add(cs.lineHeight); });
         return { sizes: [...sizes], fams: [...fams], lhs: [...lhs] };
       });
       let u = await uniform();
       check('source: one font size, one font, one line height (Markdown mode)', u.sizes.length === 1 && u.fams.length === 1 && u.lhs.length === 1, u);
-      const literal = await page.evaluate(() => [...document.querySelectorAll('#editor .toastui-editor-md-container .ProseMirror > div')].some((d) => d.textContent === '## Section 1: Systems'));
+      const literal = await page.evaluate(() => [...document.querySelectorAll('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div')].some((d) => d.textContent === '## Section 1: Systems'));
       check('heading markers stay literal text in source', literal);
       if (shots) await page.screenshot({ path: `${shots}/source-markdown-dark.png` });
 
       // Line numbers and wrap
-      const gutter = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div'), '::before').content);
+      const gutter = await page.evaluate(() => getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div'), '::before').content);
       check('line numbers shown by default', gutter && gutter !== 'none', gutter);
       await page.evaluate(() => window.NoorMD.runCommand('source.wrap'));
       await page.waitForTimeout(100);
-      const nowrap = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); return { sw: pm.scrollWidth, cw: pm.clientWidth, heights: new Set([...pm.children].slice(0, 400).map((d) => Math.round(d.getBoundingClientRect().height))).size }; });
+      const nowrap = await page.evaluate(() => { const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror'); return { sw: pm.scrollWidth, cw: pm.clientWidth, heights: new Set([...pm.children].slice(0, 400).map((d) => Math.round(d.getBoundingClientRect().height))).size }; });
       check('word wrap off: long lines scroll horizontally, every line has the same height', nowrap.sw > nowrap.cw && nowrap.heights === 1, nowrap);
       await page.evaluate(() => window.NoorMD.runCommand('source.wrap'));
       await page.evaluate(() => window.NoorMD.runCommand('source.lineNumbers'));
       await page.waitForTimeout(50);
-      check('line numbers can be turned off', await page.evaluate(() => getComputedStyle(document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div'), '::before').content === 'none'));
+      check('line numbers can be turned off', await page.evaluate(() => getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div'), '::before').content === 'none'));
       await page.evaluate(() => window.NoorMD.runCommand('source.lineNumbers'));
 
       // Repeated mode switching without edits never rewrites the source.
@@ -418,7 +418,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('repeated mode switches without edits keep the source byte-for-byte', (await state(page)).markdown === BIG && !(await state(page)).dirty);
 
       // Edit in source, go through Visual and back without editing there: the edited source survives exactly.
-      await page.click('#editor .toastui-editor-md-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror');
       await page.keyboard.press('Control+Home');
       await page.keyboard.type('- [ ] raw source line with  two spaces\n');
       const edited = (await state(page)).markdown;
@@ -429,37 +429,37 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Split: rapid typing, preview updates, caret stays, divider resize mid-typing, independent scrolling.
       await page.keyboard.press('Control+3'); await page.waitForTimeout(150);
-      await page.click('#editor .toastui-editor-md-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror');
       await page.keyboard.press('Control+Home');
       const t0 = Date.now();
       await page.keyboard.type('Rapid typing ąę test one two three four five six seven eight nine ten.\n', { delay: 0 });
       const typeMs = Date.now() - t0;
-      const sp = await page.$('#editor .toastui-editor-md-splitter');
+      const sp = await page.$('#editor .doc-pane:not([hidden]) .toastui-editor-md-splitter');
       const bx = await sp.boundingBox();
       await page.mouse.move(bx.x + bx.width / 2, bx.y + 200); await page.mouse.down();
       await page.mouse.move(bx.x - 150, bx.y + 220, { steps: 5 }); await page.mouse.up();
-      await page.click('#editor .toastui-editor-md-container .ProseMirror > div:first-child');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div:first-child');
       await page.keyboard.press('End');
       await page.keyboard.type('AFTER-RESIZE');
       await page.waitForTimeout(400);
-      const firstLine = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div').textContent);
+      const firstLine = await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div').textContent);
       check('typing stays in order across a divider resize', firstLine.startsWith('Rapid typing ąę') && firstLine.endsWith('AFTER-RESIZE'), firstLine);
       check(`rapid typing in Split with a ~${wordCount}-word document is responsive (${typeMs} ms for 72 chars)`, typeMs < 6000, typeMs);
-      check('preview updates while typing', await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').textContent.includes('AFTER-RESIZE')));
+      check('preview updates while typing', await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').textContent.includes('AFTER-RESIZE')));
       u = await uniform();
       check('source stays uniform in Split mode', u.sizes.length === 1 && u.lhs.length === 1, u);
-      const before = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').scrollTop);
-      await page.evaluate(() => { document.querySelector('#editor .toastui-editor-md-container .ProseMirror').scrollTop = 5000; });
+      const before = await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').scrollTop);
+      await page.evaluate(() => { document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror').scrollTop = 5000; });
       await page.waitForTimeout(300);
-      const after = await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-preview').scrollTop);
+      const after = await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').scrollTop);
       check('panes scroll independently by default', after === before, { before, after });
       if (shots) await page.screenshot({ path: `${shots}/source-split-dark.png` });
 
       // Commands: heading shortcut, copy source.
-      await page.click('#editor .toastui-editor-md-container .ProseMirror > div:first-child');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div:first-child');
       await page.keyboard.press('Control+Shift+Digit2');
       await page.waitForTimeout(80);
-      check('Ctrl+Shift+2 makes the line a level-2 heading', (await page.evaluate(() => document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div').textContent)).startsWith('## Rapid typing'));
+      check('Ctrl+Shift+2 makes the line a level-2 heading', (await page.evaluate(() => document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div').textContent)).startsWith('## Rapid typing'));
       await page.evaluate(() => window.NoorMD.runCommand('source.copy'));
       await page.waitForTimeout(100);
       check('Copy Markdown source copies the exact source', (await page.evaluate(() => window.__mock.state.clipboard)) === (await state(page)).markdown);
@@ -470,9 +470,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         const c = await page.evaluate(() => {
           const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
           const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
-          const bg = getComputedStyle(document.querySelector('#editor .toastui-editor-md-container > .toastui-editor')).backgroundColor;
-          const pick = (sel) => { const n = document.querySelector('#editor .toastui-editor-md-container .ProseMirror ' + sel); return n ? +ratio(getComputedStyle(n).color, bg).toFixed(2) : null; };
-          const line = document.querySelector('#editor .toastui-editor-md-container .ProseMirror > div');
+          const bg = getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor')).backgroundColor;
+          const pick = (sel) => { const n = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror ' + sel); return n ? +ratio(getComputedStyle(n).color, bg).toFixed(2) : null; };
+          const line = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div');
           return { text: +ratio(getComputedStyle(line).color, bg).toFixed(2), heading: pick('.toastui-editor-md-heading'), link: pick('.toastui-editor-md-link'), code: pick('.toastui-editor-md-code'), quote: pick('.toastui-editor-md-block-quote'), delim: pick('.toastui-editor-md-delimiter'),
             gutter: +ratio(getComputedStyle(line, '::before').color, bg).toFixed(2) };
         });
@@ -487,19 +487,19 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       for (const w of ['width.comfortable', 'width.wide', 'width.full']) {
         await page.evaluate((c) => window.NoorMD.runCommand(c), w);
         await page.waitForTimeout(80);
-        const r = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
+        const r = await page.evaluate(() => { const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
         check(`source editor usable in Focus+Compact with ${w}`, r.text > 600 && r.ov <= 0, r);
       }
       await page.keyboard.press('F11');
       await page.keyboard.press('Control+3');
       await page.setViewportSize({ width: 820, height: 640 });
       await page.waitForTimeout(150);
-      const narrow = await page.evaluate(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
+      const narrow = await page.evaluate(() => { const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror'); const cs = getComputedStyle(pm); return { text: pm.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight), ov: document.documentElement.scrollWidth - window.innerWidth }; });
       check('Split source pane is usable in a narrow window', narrow.text > 200 && narrow.ov <= 0, narrow);
       const overlap = await page.evaluate(() => {
-        const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect();
-        const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror').getBoundingClientRect();
-        const pv = document.querySelector('#editor .toastui-editor-md-preview').getBoundingClientRect();
+        const a = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container > .toastui-editor').getBoundingClientRect();
+        const pm = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-container .ProseMirror').getBoundingClientRect();
+        const pv = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview').getBoundingClientRect();
         return { stacked: pv.top >= a.bottom - 1, pmInside: pm.bottom <= a.bottom + 1, aBottom: a.bottom, pmBottom: pm.bottom, pvTop: pv.top };
       });
       check('narrow Split stacks panes without the source overlapping the preview', overlap.stacked && overlap.pmInside, overlap);
@@ -538,8 +538,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
           const lum = (rgb) => { const [r, g, b] = rgb.match(/\d+/g).slice(0, 3).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
           const ratio = (a, b) => { const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p); return (x + 0.05) / (y + 0.05); };
           const panel = getComputedStyle(document.querySelector('.editor-card')).backgroundColor;
-          const preview = document.querySelector('#editor .toastui-editor-md-preview p');
-          const ww = getComputedStyle(document.querySelector('#editor .toastui-editor-md-preview')).backgroundColor;
+          const preview = document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview p');
+          const ww = getComputedStyle(document.querySelector('#editor .doc-pane:not([hidden]) .toastui-editor-md-preview')).backgroundColor;
           return { preview: +ratio(getComputedStyle(preview).color, ww).toFixed(2), title: +ratio(getComputedStyle(document.querySelector('#doc-title')).color, getComputedStyle(document.body).backgroundColor).toFixed(2), ov: document.documentElement.scrollWidth - window.innerWidth };
         });
         check(`theme "${id}" renders readable text in editor, preview and header`, r.preview >= 4.5 && r.title >= 4.5 && r.ov <= 0, r);
@@ -598,7 +598,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const first = st.q.current;
 
       // Writing continues while music plays; playback survives document changes.
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.press('Control+End');
       await page.keyboard.type(' Typing while the music plays.');
       check('document editing works during playback', (await state(page)).markdown.includes('Typing while the music plays') && !(await ms()).paused);
@@ -636,7 +636,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('seeking jumps to the chosen position', Math.abs(st.time - st.duration / 2) < 0.6, { time: st.time, duration: st.duration });
 
       // Triage the playing track from anywhere (Alt+1 = Favorite).
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.press('Alt+Digit1');
       await page.waitForTimeout(150);
       const cur = (await ms()).q.current;
@@ -701,7 +701,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Escape');
 
       // Ctrl+Alt+Space pauses from the editor.
-      await page.click('#editor .toastui-editor-ww-container .ProseMirror');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
       await page.keyboard.press('Control+Alt+Space');
       await page.waitForTimeout(100);
       check('Ctrl+Alt+Space pauses from anywhere', (await ms()).paused);

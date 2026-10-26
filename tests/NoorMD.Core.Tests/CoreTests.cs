@@ -139,12 +139,15 @@ public class AtomicFileTests
 
 public class RecoveryStoreTests
 {
+    private const string TabA = "a1b2c3d4e5f60718";
+    private const string TabB = "0f1e2d3c4b5a6978";
+
     [Fact]
     public void LiveSession_IsNotOrphan_ButEndedSessionIs()
     {
         using var t = new TempDir();
         var a = new RecoveryStore(t.Path);
-        a.SaveOwn("draft text", "Doc", null, TextFormat.Default);
+        a.SaveOwn(TabA, "draft text", "Doc", null, TextFormat.Default);
         using var b = new RecoveryStore(t.Path);
         Assert.Empty(b.ListOrphans()); // a still running
 
@@ -158,28 +161,61 @@ public class RecoveryStoreTests
     }
 
     [Fact]
-    public void OwnDraft_IsNeverListedOrDiscardable()
+    public void Each_Tab_Has_Its_Own_Draft_And_Crash_Recovers_Them_Separately()
+    {
+        using var t = new TempDir();
+        var crashed = new RecoveryStore(t.Path);
+        crashed.SaveOwn(TabA, "first untitled", "Untitled document", null, TextFormat.Default);
+        crashed.SaveOwn(TabB, "second untitled", "Untitled document", null, TextFormat.Default);
+        crashed.SaveOwn(TabA, "first untitled, edited", "Untitled document", null, TextFormat.Default); // overwrites only tab A
+        Assert.Equal(2, crashed.OwnDraftCount);
+        crashed.Dispose();
+
+        using var next = new RecoveryStore(t.Path);
+        var orphans = next.ListOrphans();
+        Assert.Equal(2, orphans.Count);
+        var texts = orphans.Select(o => next.LoadOrphan(o.Id)!.Markdown).OrderBy(x => x).ToList();
+        Assert.Equal(["first untitled, edited", "second untitled"], texts);
+    }
+
+    [Fact]
+    public void Deleting_One_Tab_Draft_Leaves_The_Others()
     {
         using var t = new TempDir();
         using var a = new RecoveryStore(t.Path);
-        a.SaveOwn("x", null, null, TextFormat.Default);
+        a.SaveOwn(TabA, "x", null, null, TextFormat.Default);
+        a.SaveOwn(TabB, "y", null, null, TextFormat.Default);
+        a.DeleteOwn(TabA);
+        Assert.False(a.HasOwnDraft(TabA));
+        Assert.True(a.HasOwnDraft(TabB));
         Assert.Empty(a.ListOrphans());
-        Assert.False(a.DiscardOrphan(a.SessionId));
-        Assert.True(a.HasOwnDraft);
-        a.DeleteOwn();
-        Assert.False(a.HasOwnDraft);
+        Assert.False(a.DiscardOrphan($"{a.SessionId}-{TabB}")); // own drafts are never discardable as orphans
+    }
+
+    [Fact]
+    public void Legacy_Single_Draft_From_Older_Versions_Is_Still_Offered()
+    {
+        using var t = new TempDir();
+        var legacyId = Guid.NewGuid().ToString("N");
+        File.WriteAllText(Path.Combine(t.Path, legacyId + ".json"), $$"""{"id":"{{legacyId}}","markdown":"old draft","savedUtc":"2026-10-01T10:00:00Z"}""");
+        using var s = new RecoveryStore(t.Path);
+        Assert.Equal(legacyId, s.ListOrphans().Single().Id);
+        Assert.Equal("old draft", s.LoadOrphan(legacyId)!.Markdown);
     }
 
     [Theory]
     [InlineData("../../etc/passwd")]
     [InlineData("")]
     [InlineData("0123456789abcdef0123456789abcdeZ")]
+    [InlineData("0123456789abcdef0123456789abcdef-../x")]
+    [InlineData("0123456789abcdef0123456789abcdef-")]
     public void InvalidIds_AreRejected(string id)
     {
         using var t = new TempDir();
         using var a = new RecoveryStore(t.Path);
         Assert.Null(a.LoadOrphan(id));
         Assert.False(a.DiscardOrphan(id));
+        Assert.Throws<ArgumentException>(() => a.SaveOwn("../x", "m", null, null, TextFormat.Default));
     }
 }
 
@@ -307,13 +343,13 @@ public class ExportAndProtocolTests
     [Fact]
     public void Protocol_ParsesValid_RejectsInvalid()
     {
-        Assert.True(BridgeProtocol.TryParse("""{"v":1,"id":7,"type":"doc.save","payload":{"x":"y"}}""", out var r, out _));
+        Assert.True(BridgeProtocol.TryParse("""{"v":2,"id":7,"type":"doc.save","payload":{"x":"y"}}""", out var r, out _));
         Assert.Equal(7, r!.Id);
         Assert.Equal("doc.save", r.Type);
         Assert.Equal("y", r.GetString("x"));
         Assert.Null(r.GetString("missing"));
         Assert.False(BridgeProtocol.TryParse("""{"v":2,"type":"doc.save"}""", out _, out _));
-        Assert.False(BridgeProtocol.TryParse("""{"v":1,"type":"../x"}""", out _, out _));
+        Assert.False(BridgeProtocol.TryParse("""{"v":2,"type":"../x"}""", out _, out _));
         Assert.False(BridgeProtocol.TryParse("not json", out _, out _));
         Assert.False(BridgeProtocol.TryParse("[1]", out _, out _));
     }
@@ -397,5 +433,97 @@ public class ExportAndProtocolTests
         var s = new SettingsStore(t.File("settings.json")).Load();
         Assert.Equal("dark", s.Prefs.Theme);
         Assert.Single(Directory.GetFiles(t.Path, "settings.json.corrupt-*"));
+    }
+}
+
+public class WorkspaceSessionTests
+{
+    private const string TabA = "a1b2c3d4e5f60718";
+    private const string TabB = "0f1e2d3c4b5a6978";
+    private const string TabC = "1122334455667788";
+
+    [Fact]
+    public void Normalize_Drops_Bad_Ids_Duplicates_Relative_Paths_And_Unknown_Modes()
+    {
+        using var t = new TempDir();
+        var s = new WorkspaceSession
+        {
+            ActiveTabId = "nope",
+            Tabs =
+            [
+                new SessionTab { TabId = TabA, Path = t.File("a.md"), Mode = "split" },
+                new SessionTab { TabId = TabA, Path = t.File("dup-id.md") },
+                new SessionTab { TabId = TabB, Path = t.File("A.MD") },              // same file, other case
+                new SessionTab { TabId = "../../evil", Path = t.File("x.md") },
+                new SessionTab { TabId = TabC, Title = "Notes", Text = "hello", Mode = "<script>" },
+                new SessionTab { TabId = "99887766", Path = "relative.md" },
+            ],
+        };
+        s.Normalize();
+        Assert.Equal([TabA, TabC], s.Tabs.Select(x => x.TabId));
+        Assert.Equal("split", s.Tabs[0].Mode);
+        Assert.Null(s.Tabs[1].Mode);
+        Assert.Null(s.ActiveTabId);
+    }
+
+    [Fact]
+    public void Session_RoundTrips_Through_Settings_File()
+    {
+        using var t = new TempDir();
+        var store = new SettingsStore(t.File("settings.json"));
+        var settings = new AppSettings
+        {
+            Session = new WorkspaceSession
+            {
+                ActiveTabId = TabB,
+                Tabs = [new SessionTab { TabId = TabA, Path = t.File("a.md"), Pinned = true }, new SessionTab { TabId = TabB, Title = "Ideas", Text = "# Ideas\n" }],
+            },
+        };
+        store.Save(settings);
+        var back = store.Load().Session!;
+        Assert.Equal(TabB, back.ActiveTabId);
+        Assert.True(back.Tabs[0].Pinned);
+        Assert.Equal("# Ideas\n", back.Tabs[1].Text);
+    }
+
+    [Fact]
+    public void Plan_Gives_Each_Tab_Its_Own_Draft_Reopens_Files_And_Reports_Missing_Ones()
+    {
+        using var t = new TempDir();
+        var crashed = new RecoveryStore(t.File("rec"));
+        crashed.SaveOwn(TabA, "unsaved A", "Untitled document", null, TextFormat.Default);
+        crashed.SaveOwn(TabB, "unsaved B", "Untitled document", null, TextFormat.Default);
+        crashed.Dispose();
+        using var store = new RecoveryStore(t.File("rec"));
+
+        var exists = t.File("exists.md");
+        File.WriteAllText(exists, "x");
+        var session = new WorkspaceSession
+        {
+            Tabs =
+            [
+                new SessionTab { TabId = TabA, Title = "Untitled document" },
+                new SessionTab { TabId = "aaaabbbbccccdddd", Path = exists },
+                new SessionTab { TabId = TabB, Title = "Untitled document" },
+                new SessionTab { TabId = TabC, Path = t.File("gone.md") },
+            ],
+        };
+        var plan = SessionRestore.Plan(session, store.ListOrphans(), File.Exists);
+        Assert.Equal(4, plan.Count);
+        Assert.Equal("unsaved A", store.LoadOrphan(plan[0].DraftId!)!.Markdown);
+        Assert.Equal("unsaved B", store.LoadOrphan(plan[2].DraftId!)!.Markdown);
+        Assert.NotEqual(plan[0].DraftId, plan[2].DraftId);
+        Assert.Null(plan[1].DraftId);
+        Assert.False(plan[1].FileMissing);
+        Assert.True(plan[3].FileMissing);
+    }
+
+    [Fact]
+    public void TabIdOf_Reads_Tab_Part_And_Ignores_Legacy_Ids()
+    {
+        var session = Guid.NewGuid().ToString("N");
+        Assert.Equal(TabA, RecoveryStore.TabIdOf(session + "-" + TabA));
+        Assert.Null(RecoveryStore.TabIdOf(session));
+        Assert.Null(RecoveryStore.TabIdOf("garbage-" + TabA));
     }
 }

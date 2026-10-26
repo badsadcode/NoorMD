@@ -28,44 +28,68 @@
 
   let prefs = { ...DEFAULT_PREFS };
   let recent = [];
-  let editor = null;
-  let fallback = null;
-  let mode = 'wysiwyg';
   let suppress = 0;            // >0 while the app itself changes editor content
-  let gen = 0, savedGen = 0;   // dirty == gen !== savedGen
-  let lastPostedDirty = false;
-  // The exact Markdown source as it was when Visual mode took over, and the edit generation at that moment.
-  // Coming back to source without any edit in between restores this text byte-for-byte, so merely looking
-  // at a document in Visual mode never rewrites its Markdown (list markers, spacing, table pipes…).
-  let sourceBeforeVisual = null;
-  const doc = { title: 'Untitled document', path: null, fileName: null, encoding: 'UTF-8', eol: 'LF', untitled: true };
-  let changeTimer = null, statsTimer = null;
+  let statsTimer = null;
+
+  // ---------------------------------------------------------------- tabs: one document (and one editor) per tab
+  //
+  // Every tab owns its own TOAST UI editor instance, created the first time the tab is shown. Undo history,
+  // selection, scroll position and the dirty counter therefore belong to one document and can never leak into
+  // another. Hidden tabs keep their editor in the DOM (display: none). The host addresses tabs by id: it reads a
+  // tab's text with NoorMD.flush(tabId), so saving one tab can never take its text from another.
+
+  const tabs = [];      // in tab-strip order
+  let t = null;         // the tab on screen
+  let editor = null;    // t.editor (kept in sync by showTab)
+  let fallback = null;  // t.fallback
+
+  function newTab(id) {
+    const pane = el('div', { class: 'doc-pane', 'data-tab': id, hidden: true });
+    $('#editor').append(pane);
+    return {
+      id, pane, editor: null, fallback: null, mounted: false, pending: null,
+      mode: 'wysiwyg', gen: 0, savedGen: 0, lastPostedDirty: false, changeTimer: null,
+      // The exact Markdown source as it was when Visual mode took over, and the edit generation at that moment.
+      // Coming back to source without any edit in between restores this text byte-for-byte, so merely looking
+      // at a document in Visual mode never rewrites its Markdown (list markers, spacing, table pipes…).
+      sourceBeforeVisual: null,
+      doc: { title: 'Untitled document', path: null, fileName: null, encoding: 'UTF-8', eol: 'LF', untitled: true },
+      pinned: false, banner: null, scroll: [], activeLine: null,
+    };
+  }
+
+  const tabById = (id) => tabs.find((x) => x.id === id) || null;
 
   // ---------------------------------------------------------------- editor
 
-  const md = () => {
-    if (!editor) return fallback ? fallback.value : '';
-    // Unedited since Visual mode took over: the canonical text is still the original source.
-    if (sourceBeforeVisual && sourceBeforeVisual.gen === gen && editor.isWysiwygMode()) return sourceBeforeVisual.text;
-    return editor.getMarkdown();
-  };
-  const isDirty = () => gen !== savedGen;
+  const normalizeText = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
 
-  function createEditor(initialValue) {
+  function md(tab = t) {
+    if (!tab) return '';
+    if (!tab.mounted) return normalizeText(tab.pending ? tab.pending.markdown : '');
+    if (!tab.editor) return tab.fallback ? tab.fallback.value : '';
+    // Unedited since Visual mode took over: the canonical text is still the original source.
+    const sbv = tab.sourceBeforeVisual;
+    if (sbv && sbv.gen === tab.gen && tab.editor.isWysiwygMode()) return sbv.text;
+    return tab.editor.getMarkdown();
+  }
+  const isDirty = (tab = t) => !!tab && tab.gen !== tab.savedGen;
+
+  function createEditor(tab, initialValue, initialMode) {
     if (!window.toastui || !window.toastui.Editor) {
-      $('#editor').append(el('div', { class: 'editor-fallback' },
+      tab.pane.append(el('div', { class: 'editor-fallback' },
         el('p', { text: 'The visual editor failed to load. You can still edit and save plain Markdown here.' }),
-        fallback = el('textarea', { 'aria-label': 'Markdown source', spellcheck: 'true' })));
-      fallback.value = initialValue;
-      fallback.addEventListener('input', onEditorChange);
+        tab.fallback = el('textarea', { 'aria-label': 'Markdown source', spellcheck: 'true' })));
+      tab.fallback.value = initialValue;
+      tab.fallback.addEventListener('input', () => onEditorChange(tab));
       return;
     }
-    editor = new toastui.Editor({
-      el: $('#editor'),
+    tab.editor = new toastui.Editor({
+      el: tab.pane,
       height: '100%',
       minHeight: '200px',
-      initialEditType: 'wysiwyg',
-      previewStyle: 'vertical',
+      initialEditType: initialMode === 'wysiwyg' ? 'wysiwyg' : 'markdown',
+      previewStyle: initialMode === 'split' ? 'vertical' : 'tab',
       initialValue,
       usageStatistics: false,
       hideModeSwitch: true,
@@ -73,10 +97,23 @@
       autofocus: false,
       theme: isDarkTheme() ? 'dark' : 'light',
       toolbarItems: [['heading', 'bold', 'italic', 'strike'], ['hr', 'quote'], ['ul', 'ol', 'task', 'indent', 'outdent'], ['table', 'link', 'image'], ['code', 'codeblock']],
-      events: { change: onEditorChange },
+      events: { change: () => onEditorChange(tab) },
     });
-    setupSplitter();
-    setupSourceEditor();
+    setupSplitter(tab);
+    setupSourceEditor(tab);
+    if (tab.editor.eventEmitter) tab.editor.eventEmitter.emit('toggleScrollSync', !!prefs.syncScroll);
+  }
+
+  function destroyEditor(tab) {
+    clearTimeout(tab.changeTimer);
+    tab.changeTimer = null;
+    try { if (tab.editor) tab.editor.destroy(); } catch (err) { console.error(err); }
+    tab.editor = null;
+    tab.fallback = null;
+    tab.activeLine = null;
+    tab.pane.replaceChildren();
+    tab.mounted = false;
+    if (tab === t) { editor = null; fallback = null; }
   }
 
   /** Runs fn while ignoring editor change events (programmatic edits are not user edits). */
@@ -85,140 +122,184 @@
     try { return fn(); } finally { setTimeout(() => { suppress--; }, 0); }
   }
 
-  function onEditorChange() {
-    if (suppress > 0) return;
-    gen++;
-    afterContentChange();
+  function onEditorChange(tab) {
+    if (suppress > 0 || !tab.mounted) return;
+    tab.gen++;
+    afterContentChange(tab);
   }
 
-  function afterContentChange() {
-    updateDirtyUI();
-    if (lastPostedDirty !== isDirty()) {
-      lastPostedDirty = isDirty();
-      bridge.post('doc.state', { dirty: lastPostedDirty, title: currentTitle() });
+  function afterContentChange(tab) {
+    updateDirtyUI(tab);
+    if (tab.lastPostedDirty !== isDirty(tab)) {
+      tab.lastPostedDirty = isDirty(tab);
+      bridge.post('doc.state', { tabId: tab.id, dirty: tab.lastPostedDirty, title: titleOf(tab) });
     }
-    clearTimeout(changeTimer);
-    changeTimer = setTimeout(postContent, 600);
+    clearTimeout(tab.changeTimer);
+    tab.changeTimer = setTimeout(() => postContent(tab), 600);
+    if (tab !== t) return;
     clearTimeout(statsTimer);
     statsTimer = setTimeout(refreshStatsAndOutline, 220);
     clearFindHighlights();
   }
 
-  // Recovery: the host writes a draft whenever the document is dirty.
-  function postContent() {
-    changeTimer = null;
-    bridge.post('doc.changed', { markdown: md(), dirty: isDirty(), gen, title: currentTitle() });
+  // Recovery: the host writes a draft for this tab whenever it is dirty.
+  function postContent(tab) {
+    clearTimeout(tab.changeTimer);
+    tab.changeTimer = null;
+    if (!tabs.includes(tab)) return;
+    bridge.post('doc.changed', { tabId: tab.id, markdown: md(tab), dirty: isDirty(tab), gen: tab.gen, title: titleOf(tab) });
   }
 
-  const currentTitle = () => ($('#doc-title').value.trim() || 'Untitled document');
+  const titleOf = (tab) => ((tab && tab.doc.title || '').trim() || 'Untitled document');
+  const currentTitle = () => titleOf(t);
 
   /** State snapshot read synchronously by the host (ExecuteScriptAsync) before save/close/open. */
-  function getState() {
-    return { markdown: md(), title: currentTitle(), dirty: isDirty(), gen, mode };
+  function stateOf(tab) {
+    return { tabId: tab.id, markdown: md(tab), title: titleOf(tab), dirty: isDirty(tab), gen: tab.gen, mode: tab.mode };
   }
+  const getState = () => (t ? stateOf(t) : null);
 
   // ---------------------------------------------------------------- documents
 
-  function loadDocument(p) {
-    NoorUI.closeAll();
-    closeFind();
-    hideBanner();
-    $('#welcome').classList.add('hide');
-    const text = String(p.markdown ?? '').replace(/\r\n?/g, '\n');
-    doc.path = p.path || null;
-    doc.fileName = p.fileName || null;
-    doc.untitled = !doc.path;
-    doc.title = p.title || 'Untitled document';
-    doc.encoding = p.encoding || 'UTF-8';
-    doc.eol = p.eol || 'LF';
+  /** doc.load: a document for a tab. The host names the tab; a tab the page doesn't have yet is created. */
+  function onDocLoad(p) {
+    let tab = tabById(p.tabId);
+    if (!tab) {
+      tab = newTab(p.tabId || localId());
+      tabs.push(tab);
+      if (p.pinned) placePinned(tab);
+    } else {
+      destroyEditor(tab); // a fresh editor: undo history never reaches back into the previous document
+    }
+    tab.pending = p;
+    tab.pinned = !!p.pinned;
+    tab.doc = {
+      path: p.path || null, fileName: p.fileName || null, untitled: !p.path, title: p.title || 'Untitled document',
+      encoding: p.encoding || 'UTF-8', eol: p.eol || 'LF',
+    };
+    tab.mode = p.mode || (prefs.openMode === 'markdown' ? 'markdown' : 'wysiwyg');
+    tab.gen = p.dirty ? 1 : 0;
+    tab.savedGen = 0;
+    tab.lastPostedDirty = isDirty(tab);
+    tab.sourceBeforeVisual = null;
+    tab.banner = null;
+    tab.scroll = [];
+    hideWelcome();
+    renderTabs();
+    if (!p.background || !t) showTab(tab, { focus: !p.noFocus });
+    else if (tab === t) showTab(tab, { focus: false, force: true });
+  }
+
+  /** Creates the tab's editor from its pending document (first time it is shown, or after a reload). */
+  function mountTab(tab) {
+    const p = tab.pending || { markdown: '' };
+    tab.pending = null;
+    const text = normalizeText(p.markdown);
 
     // Decide the editing mode: Visual is preferred, but never at the cost of silently rewriting a file.
-    let target = p.mode || (prefs.openMode === 'markdown' ? 'markdown' : 'wysiwyg');
-    if (target === 'split') target = mode === 'split' ? 'split' : target;
+    let target = tab.mode || 'wysiwyg';
     let check = null;
     if (target === 'wysiwyg' && text.trim()) {
       check = NoorMarkdown.visualRoundTrip(text);
       if (!check.lossless) target = 'markdown';
     }
+    // The text is the editor's initial value, so its undo history starts with this document and nothing else.
     quietly(() => {
-      if (editor) {
-        applyMode(target === 'wysiwyg' ? 'wysiwyg' : target, true);
-        editor.setMarkdown(text, false);
-        if (editor.isMarkdownMode()) editor.setSelection([1, 1], [1, 1]);
-      } else if (fallback) {
-        fallback.value = text;
+      createEditor(tab, text, target);
+      tab.mounted = true;
+      if (tab === t) { editor = tab.editor; fallback = tab.fallback; }
+      if (tab.editor) {
+        applyMode(tab, target, true);
+        if (tab.editor.isMarkdownMode()) tab.editor.setSelection([1, 1], [1, 1]);
       }
     });
-    gen = p.dirty ? 1 : 0;
-    savedGen = 0;
-    sourceBeforeVisual = target === 'wysiwyg' ? { text, gen } : null;
-    lastPostedDirty = isDirty();
-    updateDocUI();
-    updateDirtyUI();
-    refreshStatsAndOutline();
-    scrollEditorToTop();
+    tab.sourceBeforeVisual = target === 'wysiwyg' ? { text, gen: tab.gen } : null;
+    applySpellcheck();
 
     if (check && !check.lossless) {
-      showBanner('This file uses Markdown the Visual editor cannot represent exactly (for example raw HTML, footnotes or hard line breaks). It opened in Markdown mode so nothing is rewritten.',
-        [{ label: 'Use Visual anyway', run: () => setMode('wysiwyg') }, { label: 'Dismiss', run: hideBanner }]);
-    } else if (p.notice) {
+      tab.banner = {
+        text: 'This file uses Markdown the Visual editor cannot represent exactly (for example raw HTML, footnotes or hard line breaks). It opened in Markdown mode so nothing is rewritten.',
+        actions: [{ label: 'Use Visual anyway', run: () => setMode('wysiwyg') }, { label: 'Dismiss', run: hideBanner }],
+      };
+    } else if (p.notice && tab === t) {
       notice(p.notice, 4200);
     }
-    if (p.warning) showBanner(p.warning, [{ label: 'Dismiss', run: hideBanner }]);
-    if (p.dirty) postContent();
-    if (editor && !p.noFocus) setTimeout(() => editor.focus(), 0);
+    if (p.warning) tab.banner = { text: p.warning, actions: [{ label: 'Dismiss', run: hideBanner }] };
+    if (p.dirty) postContent(tab);
+    reportTabs();
   }
 
   function scrollEditorToTop() {
     requestAnimationFrame(() => {
-      document.querySelectorAll('#editor .toastui-editor-contents, #editor .toastui-editor-md-preview').forEach((n) => { n.scrollTop = 0; });
+      t?.pane.querySelectorAll('.toastui-editor-contents, .toastui-editor-md-preview').forEach((n) => { n.scrollTop = 0; });
     });
   }
 
   function updateDocUI() {
+    if (!t) return;
     const title = $('#doc-title');
-    title.value = doc.title;
-    title.readOnly = !doc.untitled;
-    title.title = doc.untitled ? 'Document name — used as the file name when you first save' : 'Use Save As (Ctrl+Shift+S) to save under a new name';
-    $('#doc-path').textContent = doc.path || 'Not saved yet';
-    $('#doc-path').title = doc.path || '';
-    $('#file-format').textContent = `${doc.encoding} · ${doc.eol}`;
+    title.value = t.doc.title;
+    title.readOnly = !t.doc.untitled;
+    title.title = t.doc.untitled ? 'Document name — used as the file name when you first save' : 'Use Save As (Ctrl+Shift+S) to save under a new name';
+    $('#doc-path').textContent = t.doc.path || 'Not saved yet';
+    $('#doc-path').title = t.doc.path || '';
+    $('#file-format').textContent = `${t.doc.encoding} · ${t.doc.eol}`;
     updateCrumb();
   }
 
   function updateCrumb() {
     const name = $('#crumb-name');
-    name.textContent = doc.fileName || currentTitle();
+    name.textContent = t ? (t.doc.fileName || currentTitle()) : '';
     name.parentElement.querySelector('.dirty-dot')?.remove();
     if (isDirty()) name.after(el('span', { class: 'dirty-dot', title: 'Unsaved changes', text: '●' }));
   }
 
-  function updateDirtyUI() {
-    const dirty = isDirty();
+  function updateDirtyUI(tab = t) {
+    if (!tab) return;
+    updateTabEl(tab);
+    if (tab !== t) return;
+    const dirty = isDirty(tab), untitled = tab.doc.untitled;
     $('#status-dot').classList.toggle('dirty', dirty);
-    $('#status-text').textContent = dirty ? (doc.untitled ? 'Not saved yet · recovery draft kept locally' : 'Unsaved changes · recovery draft kept locally') : (doc.untitled ? 'Empty draft' : 'All changes saved');
-    $('#updated').textContent = dirty ? 'Edited' : (doc.untitled ? 'Ready to write' : 'Saved');
+    $('#status-dot').classList.remove('error');
+    $('#status-text').textContent = dirty ? (untitled ? 'Not saved yet · recovery draft kept locally' : 'Unsaved changes · recovery draft kept locally') : (untitled ? 'Empty draft' : 'All changes saved');
+    $('#updated').textContent = dirty ? 'Edited' : (untitled ? 'Ready to write' : 'Saved');
     $('#save-btn .label').textContent = dirty ? 'Save •' : 'Save';
     updateCrumb();
   }
 
   function onSaved(p) {
-    if (typeof p.gen === 'number' && p.gen > savedGen) savedGen = p.gen;
-    else if (typeof p.gen === 'number' && p.gen === gen) savedGen = gen;
+    const tab = tabById(p.tabId);
+    if (!tab) return;
+    if (typeof p.gen === 'number' && p.gen > tab.savedGen) tab.savedGen = p.gen;
+    else if (typeof p.gen === 'number' && p.gen === tab.gen) tab.savedGen = tab.gen;
     if (p.path) {
-      doc.path = p.path; doc.fileName = p.fileName || doc.fileName; doc.untitled = false;
-      doc.title = p.title || doc.title; doc.encoding = p.encoding || doc.encoding; doc.eol = p.eol || doc.eol;
+      const d = tab.doc;
+      d.path = p.path; d.fileName = p.fileName || d.fileName; d.untitled = false;
+      d.title = p.title || d.title; d.encoding = p.encoding || d.encoding; d.eol = p.eol || d.eol;
     }
-    lastPostedDirty = isDirty();
-    updateDocUI();
-    updateDirtyUI();
-    if (isDirty()) postContent();
+    tab.lastPostedDirty = isDirty(tab);
+    if (tab === t) updateDocUI();
+    updateDirtyUI(tab);
+    if (isDirty(tab)) postContent(tab);
   }
 
   // ---------------------------------------------------------------- modes
 
-  function applyMode(m, quiet) {
-    mode = m;
+  function applyMode(tab, m, quiet) {
+    tab.mode = m;
+    if (tab === t) showModeUI(m);
+    const ed = tab.editor;
+    if (!ed) return;
+    const run = () => {
+      if (m === 'wysiwyg') ed.changeMode('wysiwyg', true);
+      else { ed.changeMode('markdown', true); ed.changePreviewStyle(m === 'split' ? 'vertical' : 'tab'); }
+    };
+    if (quiet) run(); else quietly(run);
+    applySpellcheck();
+    if (tab === t) requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+
+  function showModeUI(m) {
     const host = $('#editor');
     host.classList.remove('mode-visual', 'mode-markdown', 'mode-split');
     host.classList.add('mode-' + (m === 'wysiwyg' ? 'visual' : m));
@@ -227,59 +308,55 @@
       b.classList.toggle('active', on);
       b.setAttribute('aria-selected', String(on));
     });
-    if (!editor) return;
-    const run = () => {
-      if (m === 'wysiwyg') editor.changeMode('wysiwyg', true);
-      else { editor.changeMode('markdown', true); editor.changePreviewStyle(m === 'split' ? 'vertical' : 'tab'); }
-    };
-    if (quiet) run(); else quietly(run);
-    applySpellcheck();
-    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 
   async function setMode(m) {
-    if (!editor) { notice('Visual editing is unavailable because the editor failed to load.'); return; }
-    if (m === mode) return;
+    const tab = t;
+    if (!tab) return;
+    if (!tab.editor) { notice('Visual editing is unavailable because the editor failed to load.'); return; }
+    if (m === tab.mode) return;
     if (m === 'wysiwyg') {
-      const text = md();
+      const text = md(tab);
       const check = NoorMarkdown.visualRoundTrip(text);
       if (!check.lossless) {
         const choice = await NoorUI.choose('Switch to Visual mode?', [
           'Visual mode cannot represent some of this Markdown exactly — raw HTML, footnotes, hard line breaks or other unsupported syntax would be rewritten or dropped.',
           'A revision snapshot of the current text is saved first, so you can restore it from Revision snapshots.',
         ], [{ label: 'Stay in Markdown', value: 'stay', primary: true }, { label: 'Switch anyway', value: 'switch' }]);
-        if (choice !== 'switch') return;
+        if (choice !== 'switch' || tab !== t) return;
         await createSnapshot('Before switching to Visual', true);
-        sourceBeforeVisual = null;
-        applyMode('wysiwyg');
+        tab.sourceBeforeVisual = null;
+        applyMode(tab, 'wysiwyg');
         hideBanner();
-        gen++;
-        afterContentChange();
+        tab.gen++;
+        afterContentChange(tab);
+        reportTabs();
         return;
       }
     }
-    const leavingVisual = mode === 'wysiwyg' && m !== 'wysiwyg';
-    if (m === 'wysiwyg' && mode !== 'wysiwyg') sourceBeforeVisual = { text: md(), gen };
-    applyMode(m);
-    if (leavingVisual) restoreSourceIfUnedited();
+    const leavingVisual = tab.mode === 'wysiwyg' && m !== 'wysiwyg';
+    if (m === 'wysiwyg' && tab.mode !== 'wysiwyg') tab.sourceBeforeVisual = { text: md(tab), gen: tab.gen };
+    applyMode(tab, m);
+    if (leavingVisual) restoreSourceIfUnedited(tab);
     refreshOutline();
+    reportTabs();
   }
 
-  function restoreSourceIfUnedited() {
-    if (!sourceBeforeVisual || sourceBeforeVisual.gen !== gen || !editor) return;
-    const { text } = sourceBeforeVisual;
-    if (md() === text) return;
+  function restoreSourceIfUnedited(tab) {
+    const sbv = tab.sourceBeforeVisual;
+    if (!sbv || sbv.gen !== tab.gen || !tab.editor) return;
+    if (md(tab) === sbv.text) return;
     quietly(() => {
-      editor.setMarkdown(text, false);
-      editor.setSelection([1, 1], [1, 1]);
+      tab.editor.setMarkdown(sbv.text, false);
+      tab.editor.setSelection([1, 1], [1, 1]);
     });
     scrollEditorToTop();
   }
 
   // ---------------------------------------------------------------- split divider
 
-  function setupSplitter() {
-    const splitter = document.querySelector('#editor .toastui-editor-md-splitter');
+  function setupSplitter(tab) {
+    const splitter = tab.pane.querySelector('.toastui-editor-md-splitter');
     if (!splitter) return;
     splitter.setAttribute('role', 'separator');
     splitter.setAttribute('aria-orientation', 'vertical');
@@ -369,8 +446,7 @@
     if (!themes().some((t) => t.id === prefs.theme)) prefs.theme = 'dark';
     root.dataset.theme = prefs.theme;
     root.style.background = '';
-    const ui = document.querySelector('#editor .toastui-editor-defaultUI');
-    if (ui) ui.classList.toggle('toastui-editor-dark', isDarkTheme());
+    document.querySelectorAll('#editor .toastui-editor-defaultUI').forEach((ui) => ui.classList.toggle('toastui-editor-dark', isDarkTheme()));
     root.style.setProperty('--doc-font', FONTS[prefs.fontFamily] || FONTS.inter);
     root.style.setProperty('--doc-size', Math.min(26, Math.max(12, Number(prefs.fontSize) || 16)) + 'px');
     root.style.setProperty('--measure', MEASURES[prefs.lineWidth] || MEASURES.comfortable);
@@ -487,20 +563,17 @@
 
   // ---- Markdown source editor (TOAST UI markdown mode = ProseMirror, one <div> per source line)
 
-  let activeLine = null;
-  function setupSourceEditor() {
-    if (!editor) return;
-    const wrapper = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor');
+  function setupSourceEditor(tab) {
+    const wrapper = tab.pane.querySelector('.toastui-editor-md-container > .toastui-editor');
     const pm = wrapper && wrapper.querySelector('.ProseMirror');
     if (!pm) return;
-    activeLine = el('div', { class: 'noor-active-line', 'aria-hidden': 'true' });
-    wrapper.prepend(activeLine); // a sibling of ProseMirror's DOM, never inside it
-    document.addEventListener('selectionchange', () => requestAnimationFrame(updateActiveLine));
+    tab.activeLine = el('div', { class: 'noor-active-line', 'aria-hidden': 'true' });
+    wrapper.prepend(tab.activeLine); // a sibling of ProseMirror's DOM, never inside it
     pm.addEventListener('scroll', updateActiveLine, { passive: true });
-    window.addEventListener('resize', () => requestAnimationFrame(updateActiveLine));
   }
 
   function updateActiveLine() {
+    const activeLine = t && t.activeLine;
     if (!activeLine || !editor || editor.isWysiwygMode()) return;
     const sel = window.getSelection();
     const pm = activeLine.parentElement.querySelector('.ProseMirror');
@@ -515,7 +588,7 @@
 
   // Split view scrolls the two panes independently unless the user turns synchronised scrolling on.
   function applyScrollSync() {
-    if (editor && editor.eventEmitter) editor.eventEmitter.emit('toggleScrollSync', !!prefs.syncScroll);
+    for (const tab of tabs) if (tab.editor && tab.editor.eventEmitter) tab.editor.eventEmitter.emit('toggleScrollSync', !!prefs.syncScroll);
   }
 
   function toggleSourcePref(key, label) {
@@ -608,7 +681,7 @@
           el('label', { for: 'pref-music', text: 'Music Bench' }), el('div', {},
             el('label', { class: 'inline' }, musicOn, 'Show the Music Bench (turning it off also stops playback)'),
             el('label', { class: 'inline' }, miniOn, 'Show the mini-player while music is loaded')),
-          el('label', { for: 'pref-restore', text: 'On startup' }), el('label', { class: 'inline' }, restore, 'Reopen the last document'),
+          el('label', { for: 'pref-restore', text: 'On startup' }), el('label', { class: 'inline' }, restore, 'Reopen the tabs from last time'),
         ),
         el('div', { class: 'pref-actions' },
           el('button', { class: 'utility-btn', onclick: () => runCommand('recovery.show') }, 'Recovery drafts…'),
@@ -628,7 +701,7 @@
   }
 
   async function clearRecovery() {
-    if (!await NoorUI.confirm('Delete all recovery drafts?', ['Recovery drafts hold unsaved work from previous sessions. Deleting them cannot be undone.', 'The draft for the document open in this window is kept.'], 'Delete drafts')) return;
+    if (!await NoorUI.confirm('Delete all recovery drafts?', ['Recovery drafts hold unsaved work from previous sessions. Deleting them cannot be undone.', 'Drafts for the documents open in this window are kept.'], 'Delete drafts')) return;
     bridge.request('recovery.clearAll').then((r) => notice(`${r?.deleted ?? 0} recovery draft(s) deleted`)).catch(showError);
   }
 
@@ -747,13 +820,22 @@
 
   // ---------------------------------------------------------------- banner
 
+  // The banner belongs to a document (e.g. "opened in Markdown mode so nothing is rewritten") and comes back with its tab.
   function showBanner(text, actions) {
-    $('#banner-text').textContent = text;
-    const box = $('#banner-actions');
-    box.replaceChildren(...actions.map((a) => el('button', { class: 'utility-btn', onclick: a.run }, a.label)));
-    $('#banner').classList.remove('hide');
+    if (t) t.banner = { text, actions };
+    renderBanner();
   }
-  function hideBanner() { $('#banner').classList.add('hide'); }
+  function hideBanner() {
+    if (t) t.banner = null;
+    renderBanner();
+  }
+  function renderBanner() {
+    const b = t && t.banner;
+    $('#banner').classList.toggle('hide', !b);
+    if (!b) return;
+    $('#banner-text').textContent = b.text;
+    $('#banner-actions').replaceChildren(...b.actions.map((a) => el('button', { class: 'utility-btn', onclick: a.run }, a.label)));
+  }
 
   // ---------------------------------------------------------------- find & replace
 
@@ -919,14 +1001,15 @@
 
   async function createSnapshot(label, quiet) {
     try {
-      await bridge.request('snapshots.create', { label: label || 'Manual snapshot' });
+      await bridge.request('snapshots.create', { tabId: t.id, label: label || 'Manual snapshot' });
       if (!quiet) notice('Snapshot saved ✓');
     } catch (err) { showError(err); }
   }
 
   async function showHistory() {
+    const tab = t;
     let list = [];
-    try { list = await bridge.request('snapshots.list') || []; } catch (err) { showError(err); return; }
+    try { list = await bridge.request('snapshots.list', { tabId: tab.id }) || []; } catch (err) { showError(err); return; }
     NoorUI.modal({ label: 'Revision snapshots', width: 680 }, (s, close) => {
       const body = el('div', { class: 'modal-body' });
       const render = () => {
@@ -939,25 +1022,25 @@
               el('div', { text: item.label || 'Snapshot' }),
               el('small', { text: `${when.toLocaleString()} · ${item.words.toLocaleString()} words` })),
             el('div', { class: 'row-actions' },
-              el('button', { class: 'utility-btn', onclick: () => previewSnapshot(item.id) }, 'Preview'),
-              el('button', { class: 'utility-btn', onclick: async () => { if (await restoreSnapshot(item)) close(); } }, 'Restore'),
+              el('button', { class: 'utility-btn', onclick: () => previewSnapshot(tab, item.id) }, 'Preview'),
+              el('button', { class: 'utility-btn', onclick: async () => { if (await restoreSnapshot(tab, item)) close(); } }, 'Restore'),
               el('button', { class: 'utility-btn danger', 'aria-label': 'Delete snapshot', onclick: async () => {
                 if (!await NoorUI.confirm('Delete snapshot?', 'This snapshot will be permanently removed.', 'Delete')) return;
-                try { await bridge.request('snapshots.delete', { id: item.id }); list = list.filter((x) => x.id !== item.id); render(); } catch (err) { showError(err); }
+                try { await bridge.request('snapshots.delete', { tabId: tab.id, id: item.id }); list = list.filter((x) => x.id !== item.id); render(); } catch (err) { showError(err); }
               } }, '✕'))));
         }
       };
       render();
-      s.append(NoorUI.head('◷ Revision snapshots', close), body,
+      s.append(NoorUI.head('◷ Revision snapshots — ' + titleOf(tab), close), body,
         el('div', { class: 'modal-foot' },
           el('span', { text: 'Stored in your Windows profile (%LOCALAPPDATA%\\NoorMD\\Snapshots) and kept across restarts.' }),
-          el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: async () => { await createSnapshot(); list = await bridge.request('snapshots.list') || []; render(); } }, 'Snapshot now'))));
+          el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: async () => { if (tab !== t) return; await createSnapshot(); list = await bridge.request('snapshots.list', { tabId: tab.id }) || []; render(); } }, 'Snapshot now'))));
     });
   }
 
-  async function previewSnapshot(id) {
+  async function previewSnapshot(tab, id) {
     let snap;
-    try { snap = await bridge.request('snapshots.get', { id }); } catch (err) { showError(err); return; }
+    try { snap = await bridge.request('snapshots.get', { tabId: tab.id, id }); } catch (err) { showError(err); return; }
     NoorUI.modal({ label: 'Snapshot preview', width: 760 }, (s, close) => {
       s.append(NoorUI.head(snap.label || 'Snapshot', close),
         el('div', { class: 'modal-body' }, el('div', { class: 'snapshot-preview', text: snap.markdown })),
@@ -966,7 +1049,8 @@
     });
   }
 
-  async function restoreSnapshot(item) {
+  async function restoreSnapshot(tab, item) {
+    if (tab !== t || !tab.mounted) { notice('Switch to “' + titleOf(tab) + '” to restore its snapshots.'); return false; }
     const ok = await NoorUI.confirm('Restore this snapshot?', [
       `The editor content will be replaced with the snapshot from ${new Date(item.createdUtc).toLocaleString()}.`,
       'Your current text is saved as a new snapshot first, and the file on disk is not changed until you save.',
@@ -974,13 +1058,14 @@
     if (!ok) return false;
     try {
       await createSnapshot('Before restoring a snapshot', true);
-      const snap = await bridge.request('snapshots.get', { id: item.id });
+      const snap = await bridge.request('snapshots.get', { tabId: tab.id, id: item.id });
+      if (!tabs.includes(tab)) return false;
       quietly(() => {
-        if (editor) editor.setMarkdown(snap.markdown.replace(/\r\n?/g, '\n'), false); else fallback.value = snap.markdown;
+        if (tab.editor) tab.editor.setMarkdown(normalizeText(snap.markdown), false); else tab.fallback.value = snap.markdown;
       });
-      gen++;
-      afterContentChange();
-      postContent();
+      tab.gen++;
+      afterContentChange(tab);
+      postContent(tab);
       notice('Snapshot restored ✓ — save to keep it');
       return true;
     } catch (err) { showError(err); return false; }
@@ -1028,7 +1113,7 @@
 
   async function exportHtml() {
     try {
-      const r = await bridge.request('export.html', { title: currentTitle(), bodyHtml: prepareRender() });
+      const r = await bridge.request('export.html', { tabId: t.id, title: currentTitle(), bodyHtml: prepareRender() });
       if (r && r.path) notice('HTML exported to ' + r.path, 4000);
     } catch (err) { showError(err); }
   }
@@ -1036,7 +1121,7 @@
   async function exportPdf() {
     prepareRender();
     try {
-      const r = await bridge.request('export.pdf', { title: currentTitle() });
+      const r = await bridge.request('export.pdf', { tabId: t.id, title: currentTitle() });
       if (r && r.path) notice('PDF saved to ' + r.path, 4000);
     } catch (err) { showError(err); }
   }
@@ -1049,16 +1134,26 @@
   // ---------------------------------------------------------------- command palette
 
   const COMMANDS = [
-    ['doc.new', 'New document', 'Document', 'Ctrl+N', () => bridge.request('doc.new').catch(showError)],
-    ['doc.open', 'Open file…', 'Document', 'Ctrl+O', () => bridge.request('doc.open').catch(showError)],
+    ['doc.new', 'New document', 'Document', 'Ctrl+N', () => newDocument()],
+    ['tab.new', 'New tab', 'Tabs', 'Ctrl+T', () => newDocument()],
+    ['doc.open', 'Open files in tabs…', 'Document', 'Ctrl+O', () => bridge.request('doc.open').catch(showError)],
     ['doc.save', 'Save', 'Document', 'Ctrl+S', () => save('doc.save')],
     ['doc.saveAs', 'Save as…', 'Document', 'Ctrl+Shift+S', () => save('doc.saveAs')],
-    ['doc.reveal', 'Show file in Explorer', 'Document', '', () => bridge.request('doc.reveal').catch(showError)],
+    ['doc.saveAll', 'Save all', 'Document', '', saveAll],
+    ['doc.reveal', 'Show file in Explorer', 'Document', '', () => bridge.request('doc.reveal', { tabId: t.id }).catch(showError)],
     ['app.newWindow', 'New window', 'Document', '', () => bridge.request('app.newWindow').catch(showError)],
-    ['doc.reload', 'Reload from disk', 'Document', '', () => bridge.request('doc.reload').catch(showError)],
-    ['doc.sample', 'Open the sample document', 'Document', '', () => bridge.request('doc.new', { markdown: SAMPLE, title: 'Welcome to NoorMD' }).catch(showError)],
+    ['doc.reload', 'Reload from disk', 'Document', '', () => bridge.request('doc.reload', { tabId: t.id }).catch(showError)],
+    ['doc.sample', 'Open the sample document', 'Document', '', () => newDocument({ markdown: SAMPLE, title: 'Welcome to NoorMD' })],
+    ['tab.close', 'Close tab', 'Tabs', 'Ctrl+W', () => closeTab(t)],
+    ['tab.next', 'Next tab', 'Tabs', 'Ctrl+Tab', () => cycleTab(1)],
+    ['tab.prev', 'Previous tab', 'Tabs', 'Ctrl+Shift+Tab', () => cycleTab(-1)],
+    ['tab.switch', 'Go to open document…', 'Tabs', 'Ctrl+E', showSwitcher],
+    ['tab.closeOthers', 'Close other tabs', 'Tabs', '', () => closeOthers()],
+    ['tab.closeRight', 'Close tabs to the right', 'Tabs', '', () => closeToRight()],
+    ['tab.pin', 'Pin / unpin tab', 'Tabs', '', () => togglePin()],
+    ['tab.copyPath', 'Copy file path', 'Tabs', '', () => copyPath()],
     ['recovery.show', 'Recover unsaved drafts…', 'Document', '', () => showRecovery()],
-    ['export.markdown', 'Export Markdown copy…', 'Export', '', () => bridge.request('export.markdown').catch(showError)],
+    ['export.markdown', 'Export Markdown copy…', 'Export', '', () => bridge.request('export.markdown', { tabId: t.id }).catch(showError)],
     ['export.html', 'Export HTML…', 'Export', '', exportHtml],
     ['export.pdf', 'Export PDF…', 'Export', '', exportPdf],
     ['print', 'Print…', 'Export', 'Ctrl+P', print],
@@ -1201,6 +1296,301 @@
     });
   }
 
+  // ---------------------------------------------------------------- tab strip
+
+  let localSeq = 0;
+  const localId = () => (Date.now().toString(16) + (++localSeq).toString(16).padStart(4, '0')).slice(-16).padStart(16, '0');
+
+  const tabLabel = (tab) => tab.doc.fileName || titleOf(tab);
+
+  function renderTabs() {
+    const box = $('#tabs');
+    const wanted = tabs.map((tab) => {
+      if (!tab.tabEl) tab.tabEl = buildTabEl(tab);
+      updateTabEl(tab);
+      return tab.tabEl;
+    });
+    if (box.children.length !== wanted.length || wanted.some((n, i) => box.children[i] !== n)) box.replaceChildren(...wanted);
+    $('#tabstrip').classList.toggle('single', tabs.length < 2);
+  }
+
+  function buildTabEl(tab) {
+    const name = el('span', { class: 'tab-name' });
+    const close = el('button', { class: 'tab-close', tabindex: '-1', 'aria-label': 'Close', title: 'Close (Ctrl+W)' }, '✕');
+    const node = el('div', { class: 'tab', role: 'tab', 'data-tab': tab.id, tabindex: '-1' },
+      el('span', { class: 'tab-pin', 'aria-hidden': 'true', title: 'Pinned', text: '📌' }), name,
+      el('span', { class: 'tab-dirty', 'aria-hidden': 'true', text: '●' }), close);
+    close.addEventListener('mousedown', (e) => e.stopPropagation());
+    close.addEventListener('click', (e) => { e.stopPropagation(); closeTab(tab); });
+    node.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); }); // no autoscroll
+    node.addEventListener('auxclick', (e) => {
+      if (e.button !== 1) return;
+      e.preventDefault();
+      if (tab.pinned) notice('Pinned tabs close from their menu (right-click) or with Ctrl+W.', 2600);
+      else closeTab(tab);
+    });
+    node.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabMenu(tab, e.clientX, e.clientY); });
+    node.addEventListener('pointerdown', (e) => startTabDrag(tab, e));
+    return node;
+  }
+
+  function updateTabEl(tab) {
+    const node = tab.tabEl;
+    if (!node) return;
+    const dirty = isDirty(tab);
+    node.querySelector('.tab-name').textContent = tabLabel(tab);
+    node.title = (tab.doc.path || titleOf(tab) + ' (not saved yet)') + (dirty ? ' — unsaved changes' : '') + (tab.pinned ? ' — pinned' : '');
+    node.classList.toggle('active', tab === t);
+    node.classList.toggle('dirty', dirty);
+    node.classList.toggle('pinned', tab.pinned);
+    node.setAttribute('aria-selected', String(tab === t));
+    node.querySelector('.tab-close').setAttribute('aria-label', 'Close ' + tabLabel(tab));
+  }
+
+  /** Tells the host the strip's order, pinning, modes and the shown tab (it remembers them for the next start). */
+  function reportTabs(wait) {
+    const payload = { tabs: tabs.map((x) => ({ id: x.id, pinned: x.pinned, mode: x.mode })), active: t ? t.id : null };
+    if (!wait || !bridge.available) { bridge.post('tabs.state', payload); return Promise.resolve(); }
+    // The host serves the shown document's relative images from its folder, so it must know before the editor renders.
+    return Promise.race([bridge.request('tabs.state', payload).catch(() => {}), new Promise((r) => setTimeout(r, 1500))]);
+  }
+
+  // Tab switches run one at a time, in order, however fast they are requested.
+  let switching = Promise.resolve();
+  function showTab(tab, opts = {}) {
+    switching = switching.then(() => doShowTab(tab, opts)).catch((err) => console.error(err));
+    return switching;
+  }
+
+  async function doShowTab(tab, { focus = true, force = false } = {}) {
+    if (!tabs.includes(tab)) return;
+    if (t === tab && tab.mounted && !force) { renderTabs(); return; }
+    const prev = t;
+    if (prev && prev !== tab && tabs.includes(prev)) {
+      // Keystrokes typed a moment ago are sent now, from this tab's own editor.
+      if (prev.changeTimer) postContent(prev);
+      saveView(prev);
+      prev.pane.hidden = true;
+    }
+    closeFind();
+    NoorUI.closeAll();
+    t = tab;
+    editor = tab.editor;
+    fallback = tab.fallback;
+    renderTabs();
+    await reportTabs(true);
+    if (t !== tab) return; // another switch was requested meanwhile; it runs next
+    tab.pane.hidden = false;
+    if (!tab.mounted) mountTab(tab);
+    editor = tab.editor;
+    fallback = tab.fallback;
+    showModeUI(tab.mode);
+    restoreView(tab);
+    outlineSignature = null;
+    updateDocUI();
+    updateDirtyUI(tab);
+    refreshStatsAndOutline();
+    renderBanner();
+    tab.tabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); updateActiveLine(); });
+    if (focus && !NoorUI.hasOpenModal()) setTimeout(() => { if (t === tab) (tab.editor || tab.fallback)?.focus(); }, 0);
+  }
+
+  function saveView(tab) {
+    tab.scroll = [...tab.pane.querySelectorAll('.ProseMirror, .toastui-editor-contents, .toastui-editor-md-preview, .editor-fallback textarea')]
+      .filter((n) => n.scrollTop > 0 || n.scrollLeft > 0).map((n) => [n, n.scrollTop, n.scrollLeft]);
+  }
+
+  function restoreView(tab) {
+    const list = tab.scroll || [];
+    requestAnimationFrame(() => list.forEach(([n, top, left]) => { n.scrollTop = top; n.scrollLeft = left; }));
+  }
+
+  function cycleTab(step) {
+    if (tabs.length < 2 || !t) return;
+    const i = tabs.indexOf(t);
+    showTab(tabs[(i + step + tabs.length) % tabs.length]);
+  }
+
+  /** Close one tab. The host asks Save / Don't save / Cancel if it has unsaved changes. */
+  async function closeTab(tab) {
+    if (!tab || !tabs.includes(tab)) return false;
+    if (!bridge.available) { removeTab(tab); if (!tabs.length) onDocLoad({ markdown: '' }); return true; }
+    if (tab.changeTimer) postContent(tab);
+    try {
+      const r = await bridge.request('tab.close', { tabId: tab.id });
+      if (r && r.busy) { notice('Finish the open dialog first.'); return false; }
+      if (!r || !r.closed) return false;
+      removeTab(tab);
+      return true;
+    } catch (err) { showError(err); return false; }
+  }
+
+  function removeTab(tab) {
+    const i = tabs.indexOf(tab);
+    if (i < 0) return;
+    destroyEditor(tab);
+    tab.pane.remove();
+    tab.tabEl?.remove();
+    tabs.splice(i, 1);
+    if (t === tab) {
+      t = null; editor = null; fallback = null;
+      const next = tabs[Math.min(i, tabs.length - 1)];
+      if (next) showTab(next);
+    } else reportTabs();
+    renderTabs();
+  }
+
+  /** Bulk close: pinned tabs are skipped, and the first Cancel stops the rest. */
+  async function closeMany(list) {
+    let skipped = 0;
+    for (const tab of list) {
+      if (tab.pinned) { skipped++; continue; }
+      if (!await closeTab(tab)) return;
+    }
+    if (skipped) notice(`${skipped} pinned tab${skipped === 1 ? '' : 's'} kept open`, 2200);
+  }
+  const closeOthers = (keep = t) => closeMany(tabs.filter((x) => x !== keep));
+  const closeToRight = (from = t) => closeMany(tabs.slice(tabs.indexOf(from) + 1));
+
+  /** Pinned tabs sit together at the start of the strip. */
+  function placePinned(tab) {
+    const i = tabs.indexOf(tab);
+    tabs.splice(i, 1);
+    const firstUnpinned = tabs.findIndex((x) => !x.pinned);
+    tabs.splice(firstUnpinned < 0 ? tabs.length : firstUnpinned, 0, tab);
+  }
+
+  function togglePin(tab = t) {
+    if (!tab) return;
+    tab.pinned = !tab.pinned;
+    if (tab.pinned) placePinned(tab);
+    else {
+      const i = tabs.indexOf(tab);
+      tabs.splice(i, 1);
+      const lastPinned = tabs.map((x) => x.pinned).lastIndexOf(true);
+      tabs.splice(lastPinned + 1, 0, tab);
+    }
+    renderTabs();
+    reportTabs();
+    notice(tab.pinned ? 'Tab pinned — kept open by Close Others / Close Tabs to the Right' : 'Tab unpinned', 2200);
+  }
+
+  async function copyPath(tab = t) {
+    if (!tab || !tab.doc.path) { notice('This document has not been saved yet.'); return; }
+    try { await bridge.request('doc.copyPath', { tabId: tab.id }); notice('Path copied', 1600); } catch (err) { showError(err); }
+  }
+
+  // Drag to reorder (pointer events; a click without movement just selects the tab).
+  function startTabDrag(tab, e) {
+    if (e.button !== 0 || e.target.closest('.tab-close')) return;
+    const startX = e.clientX;
+    let dragging = false;
+    const node = tab.tabEl;
+    const move = (ev) => {
+      if (!dragging && Math.abs(ev.clientX - startX) < 6) return;
+      if (!dragging) { dragging = true; node.setPointerCapture(ev.pointerId); node.classList.add('dragging'); }
+      const group = tabs.filter((x) => x.pinned === tab.pinned && x !== tab); // pinned and unpinned tabs don't mix
+      let index = 0;
+      for (const other of group) {
+        const r = other.tabEl.getBoundingClientRect();
+        if (ev.clientX > r.left + r.width / 2) index++;
+      }
+      const base = tab.pinned ? 0 : tabs.filter((x) => x.pinned).length;
+      const cur = tabs.indexOf(tab);
+      const target = base + index;
+      if (target !== cur) { tabs.splice(cur, 1); tabs.splice(target, 0, tab); renderTabs(); }
+    };
+    const up = () => {
+      node.removeEventListener('pointermove', move);
+      node.removeEventListener('pointerup', up);
+      node.removeEventListener('pointercancel', up);
+      node.classList.remove('dragging');
+      if (dragging) reportTabs();
+      else showTab(tab);
+    };
+    node.addEventListener('pointermove', move);
+    node.addEventListener('pointerup', up);
+    node.addEventListener('pointercancel', up);
+  }
+
+  function showTabMenu(tab, x, y) {
+    closeTabMenu();
+    const i = tabs.indexOf(tab);
+    const item = (label, run, disabled) => el('button', { role: 'menuitem', disabled: disabled || undefined, onclick: () => { closeTabMenu(); run(); } }, label);
+    const menu = el('div', { class: 'tab-menu', role: 'menu', id: 'tab-menu', 'aria-label': 'Tab actions' },
+      item('Close', () => closeTab(tab)),
+      item('Close Others', () => closeOthers(tab), tabs.length < 2),
+      item('Close Tabs to the Right', () => closeToRight(tab), i === tabs.length - 1),
+      el('hr'),
+      item('Copy Path', () => copyPath(tab), !tab.doc.path),
+      item('Reveal in Explorer', () => bridge.request('doc.reveal', { tabId: tab.id }).catch(showError), !tab.doc.path),
+      el('hr'),
+      item(tab.pinned ? 'Unpin' : 'Pin', () => togglePin(tab)));
+    document.body.append(menu);
+    const r = menu.getBoundingClientRect();
+    menu.style.left = Math.max(4, Math.min(x, window.innerWidth - r.width - 4)) + 'px';
+    menu.style.top = Math.max(4, Math.min(y, window.innerHeight - r.height - 4)) + 'px';
+    menu.querySelector('button:not([disabled])')?.focus();
+    menu.addEventListener('keydown', (e) => {
+      const items = [...menu.querySelectorAll('button:not([disabled])')];
+      const k = items.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); items[(k + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); }
+    });
+    setTimeout(() => document.addEventListener('mousedown', outsideMenu, true), 0);
+  }
+  function outsideMenu(e) { if (!e.target.closest('#tab-menu')) closeTabMenu(); }
+  function closeTabMenu() {
+    const m = $('#tab-menu');
+    document.removeEventListener('mousedown', outsideMenu, true);
+    if (!m) return false;
+    m.remove();
+    return true;
+  }
+
+  /** Searchable list of open documents (also the overflow menu when the strip is too narrow). */
+  function showSwitcher() {
+    NoorUI.closeAll();
+    NoorUI.modal({ label: 'Open documents' }, (s, close) => {
+      const query = el('input', { id: 'switcher-query', placeholder: 'Go to an open document…', autocomplete: 'off', 'aria-label': 'Search open documents', autofocus: true });
+      const results = el('div', { class: 'palette-results', role: 'listbox' });
+      let items = [], selected = 0;
+      const render = () => {
+        const q = query.value.trim().toLowerCase();
+        items = tabs.filter((x) => !q || tabLabel(x).toLowerCase().includes(q) || (x.doc.path || '').toLowerCase().includes(q));
+        selected = Math.min(selected, Math.max(0, items.length - 1));
+        results.replaceChildren(...items.map((x, i) => el('button', {
+          class: 'cmd-item' + (i === selected ? ' selected' : ''), role: 'option', 'aria-selected': String(i === selected), tabindex: '-1',
+          onclick: () => { close(); showTab(x); },
+        }, el('span', { text: (x.pinned ? '📌 ' : '') + tabLabel(x) + (isDirty(x) ? ' ●' : '') }), el('span', { class: 'meta' }, el('small', { text: x.doc.path || 'Not saved yet' })))));
+        if (!items.length) results.append(el('p', { text: 'No matching documents', style: 'padding:14px;margin:0;color:var(--muted)' }));
+      };
+      query.addEventListener('input', () => { selected = 0; render(); });
+      query.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown') { e.preventDefault(); selected = (selected + 1) % Math.max(1, items.length); render(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); selected = (selected - 1 + items.length) % Math.max(1, items.length); render(); }
+        else if (e.key === 'Enter') { e.preventDefault(); const x = items[selected]; if (x) { close(); showTab(x); } }
+      });
+      s.append(query, results, el('div', { class: 'modal-foot' }, el('span', { text: `${tabs.length} open document${tabs.length === 1 ? '' : 's'} · Ctrl+Tab cycles` }), el('span', { text: 'Esc to close' })));
+      render();
+    });
+  }
+
+  function setupTabStrip() {
+    $('#tab-new').addEventListener('click', () => runCommand('tab.new'));
+    $('#tab-list').addEventListener('click', () => runCommand('tab.switch'));
+    const box = $('#tabs');
+    box.addEventListener('wheel', (e) => {
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) { box.scrollLeft += e.deltaY; e.preventDefault(); }
+    }, { passive: false });
+    box.addEventListener('dblclick', (e) => { if (e.target === box) runCommand('tab.new'); });
+    window.addEventListener('resize', () => { closeTabMenu(); t?.tabEl?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); });
+  }
+
+  const welcomeVisible = () => !$('#welcome').classList.contains('hide');
+  function hideWelcome() { $('#welcome').classList.add('hide'); }
+  const newDocument = (extra = {}) => bridge.request('doc.new', { reuseBlank: welcomeVisible(), ...extra }).catch(showError);
+
   // ---------------------------------------------------------------- focus mode
 
   function toggleZen(force) {
@@ -1216,18 +1606,32 @@
 
   // ---------------------------------------------------------------- saving
 
+  /** Saves the tab on screen — only that tab, with the text the host reads from that tab's editor. */
   async function save(kind) {
-    clearTimeout(changeTimer);
+    const tab = t;
+    if (!tab) return;
+    clearTimeout(tab.changeTimer);
+    tab.changeTimer = null;
     $('#status-text').textContent = 'Saving…';
     try {
-      const r = await bridge.request(kind);
+      const r = await bridge.request(kind, { tabId: tab.id });
       if (r && r.saved) notice('Saved ✓ ' + (r.fileName || ''), 1800);
-      else updateDirtyUI();
+      else updateDirtyUI(tab);
     } catch (err) {
-      $('#status-dot').classList.add('error');
-      $('#status-text').textContent = 'Save failed — your text is still here and in the recovery draft';
+      if (tab === t) {
+        $('#status-dot').classList.add('error');
+        $('#status-text').textContent = 'Save failed — your text is still here and in the recovery draft';
+      }
       showError(err);
     }
+  }
+
+  async function saveAll() {
+    for (const tab of tabs) if (tab.changeTimer) postContent(tab);
+    try {
+      const r = await bridge.request('doc.saveAll');
+      if (r && !r.busy) notice(r.cancelled ? `Saved ${r.saved} — stopped at a cancelled save` : r.saved ? `Saved ${r.saved} document${r.saved === 1 ? '' : 's'} ✓` : 'Nothing to save', 2200);
+    } catch (err) { showError(err); }
   }
 
   function showError(err) {
@@ -1248,6 +1652,7 @@
       return;
     }
     if (key === 'Escape') {
+      if (closeTabMenu()) { e.preventDefault(); return; }
       if (closeFind()) { e.preventDefault(); return; }
       if (document.body.classList.contains('zen')) { e.preventDefault(); toggleZen(false); }
       return;
@@ -1263,8 +1668,13 @@
     // Never treat an AltGr keystroke as a shortcut.
     else if (e.getModifierState && e.getModifierState('AltGraph')) return;
     else if (ctrl && e.altKey && key === 's' && e.code === 'KeyS') cmd = 'snapshot.create';
+    else if (ctrl && !e.altKey && key === 'Tab') cmd = e.shiftKey ? 'tab.prev' : 'tab.next';
+    else if (ctrl && !e.altKey && !e.shiftKey && (key === 'PageDown' || key === 'PageUp')) cmd = key === 'PageDown' ? 'tab.next' : 'tab.prev';
     else if (ctrl && !e.altKey) {
       if (key === 's') cmd = e.shiftKey ? 'doc.saveAs' : 'doc.save';
+      else if (key === 't' && !e.shiftKey) cmd = 'tab.new';
+      else if (key === 'w' && !e.shiftKey) cmd = 'tab.close';
+      else if (key === 'e' && !e.shiftKey) cmd = 'tab.switch';
       else if (key === 'n' && !e.shiftKey) cmd = 'doc.new';
       else if (key === 'o' && !e.shiftKey) cmd = 'doc.open';
       else if (key === 'f' && !e.shiftKey) cmd = 'find.show';
@@ -1293,7 +1703,7 @@
     if (!cmd) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.repeat && cmd.startsWith('doc.')) return; // a held Ctrl+S saves exactly once
+    if (e.repeat && (cmd.startsWith('doc.') || cmd === 'tab.close' || cmd === 'tab.new')) return; // a held Ctrl+S saves exactly once
     runCommand(cmd);
   }
 
@@ -1328,7 +1738,8 @@
   // ---------------------------------------------------------------- host events
 
   function setupBridgeEvents() {
-    bridge.on('doc.load', loadDocument);
+    bridge.on('doc.load', onDocLoad);
+    bridge.on('tab.select', (p) => { const tab = tabById(p.tabId); if (tab) { hideWelcome(); showTab(tab); } });
     bridge.on('doc.saved', onSaved);
     bridge.on('recent.changed', (p) => { recent = p.recent || []; renderRecent(); });
     bridge.on('prefs.changed', (p) => { prefs = { ...prefs, ...p.prefs }; applyPrefs(); });
@@ -1336,31 +1747,34 @@
     bridge.on('error', (p) => showError(new Error(p.text)));
     bridge.on('recovery.available', (p) => showRecovery(p.drafts));
     bridge.on('insert.text', (p) => { if (editor && typeof p.markdown === 'string') { editor.insertText(p.markdown); editor.focus(); } });
-    bridge.on('command', (p) => runCommand(p.id));
+    bridge.on('command', (p) => { if (p.id.startsWith('tab.') && NoorUI.hasOpenModal()) return; runCommand(p.id); });
   }
 
   // ---------------------------------------------------------------- startup
 
   async function start() {
     setupBridgeEvents();
-    createEditor('');
     setupSidebar();
     setupFind();
+    setupTabStrip();
     setupDropAndLinks();
     NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError });
     window.addEventListener('keydown', onKeyDown, true);
+    document.addEventListener('selectionchange', () => requestAnimationFrame(updateActiveLine));
+    window.addEventListener('resize', () => requestAnimationFrame(updateActiveLine));
     document.querySelectorAll('[data-cmd]').forEach((b) => b.addEventListener('click', () => runCommand(b.dataset.cmd)));
     document.querySelectorAll('.pill button').forEach((b) => b.addEventListener('click', () => setMode(b.dataset.mode)));
     $('#doc-title').addEventListener('input', () => {
-      if (!doc.untitled) return;
+      if (!t || !t.doc.untitled) return;
+      t.doc.title = $('#doc-title').value;
       updateCrumb();
-      bridge.post('doc.state', { dirty: isDirty(), title: currentTitle() });
+      updateTabEl(t);
+      bridge.post('doc.state', { tabId: t.id, dirty: isDirty(t), title: currentTitle() });
     });
-    applyMode('wysiwyg', true);
 
     if (!bridge.available) {
       applyPrefs();
-      loadDocument({ markdown: SAMPLE, title: 'Welcome to NoorMD' });
+      onDocLoad({ markdown: SAMPLE, title: 'Welcome to NoorMD' });
       showBanner('Running outside the NoorMD desktop host — files cannot be opened or saved here.', [{ label: 'Dismiss', run: hideBanner }]);
       return;
     }
@@ -1372,11 +1786,11 @@
     recent = ready.recent || [];
     applyPrefs();
     renderRecent();
-    if (ready.document) loadDocument(ready.document);
-    else {
-      refreshStatsAndOutline();
-      updateDocUI();
-      updateDirtyUI();
+    // Restored tabs arrive in strip order; only the selected one gets an editor now, the rest when first shown.
+    for (const p of ready.tabs || []) onDocLoad({ ...p, background: true, noFocus: true });
+    const first = tabById(ready.activeTabId) || tabs[0];
+    if (first) await showTab(first, { focus: !ready.welcome });
+    if (ready.welcome) {
       $('#welcome').classList.remove('hide');
       $('#welcome .action.primary')?.focus();
     }
@@ -1387,8 +1801,16 @@
   // Exposed for the host (ExecuteScriptAsync) and for automated UI tests.
   window.NoorMD = Object.freeze({
     getState,
-    flush() { if (changeTimer) { clearTimeout(changeTimer); postContent(); } return getState(); },
-    mode: () => mode,
+    /** Sends any pending keystrokes of a tab (default: the one on screen) and returns that tab's state. */
+    flush(tabId) {
+      const tab = tabId ? tabById(tabId) : t;
+      if (!tab) return null;
+      if (tab.changeTimer) postContent(tab);
+      return stateOf(tab);
+    },
+    tabs: () => tabs.map((x) => ({ id: x.id, title: titleOf(x), path: x.doc.path, dirty: isDirty(x), pinned: x.pinned, mode: x.mode, mounted: x.mounted, active: x === t })),
+    activeTab: () => (t ? t.id : null),
+    mode: () => (t ? t.mode : null),
     runCommand,
   });
 

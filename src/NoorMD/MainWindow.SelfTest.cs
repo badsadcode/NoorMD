@@ -62,9 +62,10 @@ public partial class MainWindow
         try
         {
             await Task.Delay(2500);
-            var path = _session.Path;
+            var tab = ActiveSession!;
+            var path = tab.Path;
             Check("startup document opened", path != null && path.EndsWith("selftest.md"), path);
-            var st = await GetEditorStateAsync();
+            var st = await GetEditorStateAsync(tab.TabId);
             Check("editor state readable", st != null);
             if (st == null || path == null) { FinishSelfTest(); return; }
 
@@ -83,7 +84,7 @@ public partial class MainWindow
             // Markdown source editor: exact original source after Visual, uniform font size, line numbers.
             await Eval("window.NoorMD.runCommand('view.markdown')");
             await Task.Delay(600);
-            var source = await GetEditorStateAsync();
+            var source = await GetEditorStateAsync(tab.TabId);
             Check("Markdown mode shows the exact original source (no Visual normalization)", source?.Markdown == File.ReadAllText(path).Replace("\r\n", "\n"));
             Check("source lines use one font size and line height",
                 await Eval("(() => { const pm = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const s = new Set(), l = new Set(); pm.querySelectorAll('*').forEach(n => { const c = getComputedStyle(n); s.add(c.fontSize); l.add(c.lineHeight); }); return s.size === 1 && l.size === 1; })()") == "true");
@@ -91,19 +92,19 @@ public partial class MainWindow
             await Capture("screenshot-source.png");
             await Eval("window.NoorMD.runCommand('view.visual')");
             await Task.Delay(600);
-            Check("still clean after mode switches", (await GetEditorStateAsync()) is { Dirty: false });
+            Check("still clean after mode switches", (await GetEditorStateAsync(tab.TabId)) is { Dirty: false });
 
-            var noop = await SaveCoreAsync(saveAs: false, st);
+            var noop = await SaveCoreAsync(tab, saveAs: false, st);
             Check("Ctrl+S on an unedited file does not rewrite it", noop && File.ReadAllBytes(path).SequenceEqual(originalBytes));
 
             PushEvent("insert.text", new { markdown = " Dodano ąę." });
             await Task.Delay(1800);
-            var edited = await GetEditorStateAsync();
+            var edited = await GetEditorStateAsync(tab.TabId);
             Check("edit marks document dirty", edited is { Dirty: true });
-            Check("recovery draft written while dirty", _recovery.HasOwnDraft);
+            Check("recovery draft written while dirty", _recovery.HasOwnDraft(tab.TabId));
             Check("dirty marker in title", Title.StartsWith("● "), Title);
 
-            var saved = edited != null && await SaveCoreAsync(saveAs: false, edited);
+            var saved = edited != null && await SaveCoreAsync(tab, saveAs: false, edited);
             var bytes = File.ReadAllBytes(path);
             var text = Encoding.UTF8.GetString(bytes);
             Check("save succeeded", saved);
@@ -111,16 +112,16 @@ public partial class MainWindow
             Check("CRLF line endings preserved", text.Contains("\r\n") && !text.Replace("\r\n", "").Contains('\n'));
             Check("no BOM added", !(bytes.Length > 2 && bytes[0] == 0xEF));
             await Task.Delay(800);
-            var afterSave = await GetEditorStateAsync();
+            var afterSave = await GetEditorStateAsync(tab.TabId);
             Check("clean after save", afterSave is { Dirty: false });
-            Check("recovery draft removed after save", !_recovery.HasOwnDraft);
+            Check("recovery draft removed after save", !_recovery.HasOwnDraft(tab.TabId));
 
             await Eval("window.NoorMD.runCommand('view.split')");
             await Task.Delay(800);
             Check("split view shows two panes", await Eval("(() => { const a = document.querySelector('#editor .toastui-editor-md-container > .toastui-editor').getBoundingClientRect().width; const b = document.querySelector('#editor .toastui-editor-md-preview').getBoundingClientRect().width; return a > 200 && b > 200; })()") == "true");
             await Eval("window.NoorMD.runCommand('view.visual')");
             await Task.Delay(800);
-            var back = await GetEditorStateAsync();
+            var back = await GetEditorStateAsync(tab.TabId);
             Check("mode round trip keeps text", back != null && back.Markdown.TrimEnd() == afterSave?.Markdown.TrimEnd());
 
             await Eval("window.NoorMD.runCommand('view.focus')");
@@ -147,12 +148,12 @@ public partial class MainWindow
             await Capture("screenshot-compact.png");
             await Eval("window.NoorMD.runCommand('layout.compact')");
 
-            var before = (await GetEditorStateAsync())?.Markdown;
+            var before = (await GetEditorStateAsync(tab.TabId))?.Markdown;
             await Eval("window.NoorMD.runCommand('spell.toggle')");
             await Task.Delay(300);
             Check("spellcheck off: attribute set, text unchanged, persisted",
                 await Eval("[...document.querySelectorAll('#editor [contenteditable=\"true\"]')].every(n => n.getAttribute('spellcheck') === 'false')") == "true"
-                && (await GetEditorStateAsync())?.Markdown == before && !_settings.Prefs.Spellcheck);
+                && (await GetEditorStateAsync(tab.TabId))?.Markdown == before && !_settings.Prefs.Spellcheck);
             await Eval("window.NoorMD.runCommand('spell.toggle')");
 
             await Eval("window.NoorMD.runCommand('theme.toggle')");
@@ -250,7 +251,7 @@ public partial class MainWindow
         };
         File.WriteAllText(Path.Combine(SelfTestDir!, "result.json"), JsonSerializer.Serialize(report, SettingsStore.Json));
         _closeConfirmed = true;
-        _session.Dirty = false;
+        foreach (var s in _tabs.Values) s.Dirty = false;
         Application.Current.Shutdown(passed ? 0 : 1);
     }
 }

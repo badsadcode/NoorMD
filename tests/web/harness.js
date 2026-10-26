@@ -55,32 +55,89 @@ function mockHostScript(initial) {
   const listeners = [];
   const log = [];
   const files = initial.files || {};
-  const state = { path: (initial.document && initial.document.path) || null, prefs: initial.prefs || {}, recent: initial.recent || [], snapshots: [], recovery: initial.recovery || [], printed: 0 };
+  const state = { prefs: initial.prefs || {}, recent: initial.recent || [], snapshots: {}, recovery: initial.recovery || [], printed: 0,
+    tabs: new Map(), active: null, tabsState: null, prompts: [], closeChoices: initial.closeChoices || [], saveAsPaths: initial.saveAsPaths || [] };
+  let seq = 0;
+  const newId = () => (0xabc0000000000000 + (++seq)).toString(16).slice(0, 12) + String(seq).padStart(4, '0');
   const emit = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 0);
-  const reply = (id, ok, result, error) => id != null && emit({ v: 1, replyTo: id, ok, result, error });
-  const event = (name, payload) => emit({ v: 1, event: name, payload });
-  const loadFile = (p) => event('doc.load', { markdown: files[p], path: p, fileName: p.split(/[\\/]/).pop(), title: p.split(/[\\/]/).pop().replace(/\.(md|markdown|txt)$/i, '') });
+  const reply = (id, ok, result, error) => id != null && emit({ v: 2, replyTo: id, ok, result, error });
+  const event = (name, payload) => emit({ v: 2, event: name, payload });
+  const nameOf = (p) => p.split(/[\\/]/).pop();
+  const payloadFor = (id, p) => ({ tabId: id, markdown: files[p], path: p, fileName: nameOf(p), title: nameOf(p).replace(/\.(md|markdown|txt)$/i, '') });
+  const addTab = (path) => { const id = newId(); state.tabs.set(id, { path: path || null }); return id; };
+  const flush = (id) => window.NoorMD.flush(id);
+  const blankActive = () => {
+    const tab = state.tabs.get(state.active);
+    if (!tab || tab.path) return null;
+    const s = flush(state.active);
+    return s && !s.dirty && !s.markdown.trim() ? state.active : null;
+  };
+  const save = (id, as) => {
+    const tab = state.tabs.get(id);
+    const s = flush(id);
+    const target = (as || !tab.path) ? (state.saveAsPaths.shift() || initial.saveAsPath || 'C:\\docs\\saved.md') : tab.path;
+    files[target] = s.markdown; tab.path = target;
+    (state.saved = state.saved || []).push({ tabId: id, path: target });
+    event('doc.saved', { tabId: id, gen: s.gen, path: target, fileName: nameOf(target), title: nameOf(target).replace(/\.md$/, '') });
+    return target;
+  };
+  const docs = initial.tabs || (initial.document ? [initial.document] : []);
   window.__NOORMD_TEST_HOST__ = {
     addEventListener: (_t, fn) => listeners.push(fn),
     postMessage(m) {
       log.push(m);
       const p = m.payload || {};
-      const S = () => window.NoorMD.getState();
       switch (m.type) {
-        case 'app.ready': return reply(m.id, true, { prefs: state.prefs, recent: state.recent, document: initial.document || null, recovery: state.recovery });
-        case 'doc.save': case 'doc.saveAs': {
-          const s = S();
-          const target = (m.type === 'doc.saveAs' || !state.path) ? (initial.saveAsPath || 'C:\\docs\\saved.md') : state.path;
-          files[target] = s.markdown; state.path = target;
-          event('doc.saved', { gen: s.gen, path: target, fileName: target.split('\\').pop(), title: target.split('\\').pop().replace(/\.md$/, '') });
-          return reply(m.id, true, { saved: true, fileName: target.split('\\').pop() });
+        case 'app.ready': {
+          const tabs = docs.map((d) => { const id = d.tabId || addTab(d.path); if (d.tabId) state.tabs.set(id, { path: d.path || null }); return { ...d, tabId: id }; });
+          const welcome = !tabs.length;
+          if (welcome) tabs.push({ tabId: addTab(null), markdown: '', title: 'Untitled document' });
+          state.active = initial.activeTabId || tabs[0].tabId;
+          return reply(m.id, true, { prefs: state.prefs, recent: state.recent, tabs, activeTabId: state.active, welcome, recovery: state.recovery });
         }
-        case 'doc.open': case 'doc.openRecent': { const p2 = p.path || initial.openPath; state.path = p2; loadFile(p2); return reply(m.id, true, { opened: true }); }
-        case 'doc.new': state.path = null; event('doc.load', { markdown: p.markdown || '', title: p.title || 'Untitled document' }); return reply(m.id, true, {});
-        case 'snapshots.create': { const s = S(); state.snapshots.unshift({ id: 's' + state.snapshots.length, label: p.label, createdUtc: new Date().toISOString(), words: 1, markdown: s.markdown }); return reply(m.id, true, {}); }
-        case 'snapshots.list': return reply(m.id, true, state.snapshots.map(({ markdown, ...x }) => x));
-        case 'snapshots.get': return reply(m.id, true, state.snapshots.find((x) => x.id === p.id));
-        case 'snapshots.delete': state.snapshots = state.snapshots.filter((x) => x.id !== p.id); return reply(m.id, true, {});
+        case 'tabs.state': state.tabsState = p; if (p.active) state.active = p.active; return reply(m.id, true, null);
+        case 'doc.save': case 'doc.saveAs': {
+          const target = save(p.tabId, m.type === 'doc.saveAs');
+          return reply(m.id, true, { saved: true, fileName: nameOf(target) });
+        }
+        case 'doc.saveAll': {
+          let n = 0;
+          for (const id of state.tabs.keys()) if (flush(id).dirty) { save(id, false); n++; }
+          return reply(m.id, true, { saved: n });
+        }
+        case 'doc.open': case 'doc.openRecent': {
+          const path = p.path || (initial.openPaths && initial.openPaths.shift()) || initial.openPath;
+          const existing = [...state.tabs].find(([, v]) => v.path && v.path.toLowerCase() === path.toLowerCase());
+          if (existing) { event('tab.select', { tabId: existing[0] }); return reply(m.id, true, { opened: true, existing: true }); }
+          const id = blankActive() || addTab(path);
+          state.tabs.get(id).path = path;
+          event('doc.load', payloadFor(id, path));
+          return reply(m.id, true, { opened: true, tabId: id });
+        }
+        case 'doc.new': {
+          const id = (p.reuseBlank && blankActive()) || addTab(null);
+          state.tabs.get(id).path = null;
+          event('doc.load', { tabId: id, markdown: p.markdown || '', title: p.title || 'Untitled document' });
+          return reply(m.id, true, { opened: true, tabId: id });
+        }
+        case 'tab.close': {
+          const s = flush(p.tabId);
+          if (s && s.dirty) {
+            const choice = state.closeChoices.shift() || 'discard';
+            state.prompts.push({ tabId: p.tabId, title: s.title, choice });
+            event('tab.select', { tabId: p.tabId });
+            if (choice === 'cancel') return reply(m.id, true, { closed: false });
+            if (choice === 'save') save(p.tabId, false);
+          }
+          state.tabs.delete(p.tabId);
+          if (!state.tabs.size) { const id = addTab(null); event('doc.load', { tabId: id, markdown: '', title: 'Untitled document' }); }
+          return reply(m.id, true, { closed: true });
+        }
+        case 'doc.copyPath': state.clipboard = state.tabs.get(p.tabId).path; return reply(m.id, true, null);
+        case 'snapshots.create': { const s = flush(p.tabId); const list = state.snapshots[p.tabId] = state.snapshots[p.tabId] || []; list.unshift({ id: 's' + list.length, label: p.label, createdUtc: new Date().toISOString(), words: 1, markdown: s.markdown }); return reply(m.id, true, {}); }
+        case 'snapshots.list': return reply(m.id, true, (state.snapshots[p.tabId] || []).map(({ markdown, ...x }) => x));
+        case 'snapshots.get': return reply(m.id, true, (state.snapshots[p.tabId] || []).find((x) => x.id === p.id));
+        case 'snapshots.delete': state.snapshots[p.tabId] = (state.snapshots[p.tabId] || []).filter((x) => x.id !== p.id); return reply(m.id, true, {});
         case 'print': state.printed++; return reply(m.id, true, {});
         case 'export.html': state.exportedHtml = p.bodyHtml; return reply(m.id, true, { path: 'C:\\out.html' });
         case 'export.pdf': return reply(m.id, true, { path: 'C:\\out.pdf' });

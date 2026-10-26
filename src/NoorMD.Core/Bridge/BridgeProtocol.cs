@@ -15,10 +15,10 @@ public sealed record BridgeRequest(long? Id, string Type, JsonElement Payload)
     }
 }
 
-/// <summary>Parses and builds bridge messages (protocol v1). Unknown or malformed messages are rejected.</summary>
+/// <summary>Parses and builds bridge messages (protocol v2). Unknown or malformed messages are rejected.</summary>
 public static class BridgeProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
     private const int MaxTypeLength = 64;
 
     public static bool TryParse(string json, out BridgeRequest? request, out string? error)

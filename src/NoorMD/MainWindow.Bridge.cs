@@ -9,11 +9,13 @@ using NoorMD.Core.Documents;
 using NoorMD.Core.Recovery;
 using NoorMD.Core.Security;
 using NoorMD.Core.Settings;
+using NoorMD.Host;
 using NoorMD.Ui;
 
 namespace NoorMD;
 
-/// <summary>Bridge message dispatch (protocol v1, see docs/BRIDGE.md). Every request is validated here.</summary>
+/// <summary>Bridge message dispatch (protocol v2, see docs/BRIDGE.md). Every request is validated here.
+/// Document requests carry the tabId they are about.</summary>
 public partial class MainWindow
 {
     /// <summary>Thrown by a handler to send a user-readable error back to the page.</summary>
@@ -61,19 +63,25 @@ public partial class MainWindow
             case "doc.changed": OnDocChanged(req); return null;
             case "prefs.set": OnPrefsSet(req); return null;
 
-            // --- documents
-            case "doc.new": return await WithDocGate(() => NewDocumentAsync(req.GetString("markdown", 1_000_000) ?? "", req.GetString("title", 200)));
+            // --- documents and tabs
+            case "doc.new": return await WithDocGate(() => NewDocumentAsync(req.GetString("markdown", 1_000_000) ?? "", req.GetString("title", 200), Json.IsTrue(req.Payload, "reuseBlank")));
             case "doc.open": return await WithDocGate(() => OpenWithDialogAsync());
             case "doc.openRecent": return await WithDocGate(() => OpenRecentAsync(req.GetString("path", 4096)));
-            case "doc.save": return await WithDocGate(() => SaveAsync(saveAs: false));
-            case "doc.saveAs": return await WithDocGate(() => SaveAsync(saveAs: true));
-            case "doc.reload": return await WithDocGate(ReloadFromDiskAsync);
-            case "doc.reveal": RevealInExplorer(); return null;
+            case "doc.save": return await WithDocGate(() => SaveAsync(TabFrom(req), saveAs: false));
+            case "doc.saveAs": return await WithDocGate(() => SaveAsync(TabFrom(req), saveAs: true));
+            case "doc.saveAll": return await WithDocGate(SaveAllAsync);
+            case "doc.reload": return await WithDocGate(() => ReloadFromDiskAsync(TabFrom(req)));
+            case "doc.reveal": RevealInExplorer(TabFrom(req)); return null;
+            case "doc.copyPath":
+                CopyToClipboard(TabFrom(req).Path ?? throw new BridgeError("This document has not been saved yet."));
+                return null;
+            case "tabs.state": OnTabsState(req); return null;
+            case "tab.close": return await WithDocGate(() => CloseTabAsync(TabFrom(req)));
 
             // --- export
-            case "export.markdown": return await WithDocGate(ExportMarkdownCopyAsync);
-            case "export.html": return await WithDocGate(() => ExportHtmlAsync(req.GetString("title", 300) ?? _session.Title, req.GetString("bodyHtml") ?? ""));
-            case "export.pdf": return await WithDocGate(() => ExportPdfAsync(req.GetString("title", 300) ?? _session.Title));
+            case "export.markdown": return await WithDocGate(() => ExportMarkdownCopyAsync(TabFrom(req)));
+            case "export.html": { var s = TabFrom(req); return await WithDocGate(() => ExportHtmlAsync(s, req.GetString("title", 300) ?? s.Title, req.GetString("bodyHtml") ?? "")); }
+            case "export.pdf": { var s = TabFrom(req); return await WithDocGate(() => ExportPdfAsync(s, req.GetString("title", 300) ?? s.Title)); }
             case "print": Core.ShowPrintUI(CoreWebView2PrintDialogKind.System); return null;
 
             // --- recent files, recovery, snapshots
@@ -88,20 +96,20 @@ public partial class MainWindow
                 if (!_recovery.DiscardOrphan(req.GetString("id", 64) ?? "")) throw new BridgeError("That draft is no longer available.");
                 return null;
             case "recovery.clearAll": return new { deleted = _recovery.DiscardAllOrphans() };
-            case "snapshots.list": return _snapshots.List(_session.SnapshotKey);
-            case "snapshots.create": return await CreateSnapshotAsync(req.GetString("label", 200) ?? "Snapshot");
+            case "snapshots.list": return _snapshots.List(TabFrom(req).SnapshotKey);
+            case "snapshots.create": return await CreateSnapshotAsync(TabFrom(req), req.GetString("label", 200) ?? "Snapshot");
             case "snapshots.get":
-                return _snapshots.Get(_session.SnapshotKey, req.GetString("id", 64) ?? "") ?? throw new BridgeError("Snapshot not found.");
+                return _snapshots.Get(TabFrom(req).SnapshotKey, req.GetString("id", 64) ?? "") ?? throw new BridgeError("Snapshot not found.");
             case "snapshots.delete":
-                _snapshots.Delete(_session.SnapshotKey, req.GetString("id", 64) ?? "");
+                _snapshots.Delete(TabFrom(req).SnapshotKey, req.GetString("id", 64) ?? "");
                 return null;
 
             // --- shell
             case "clipboard.copyText": CopyToClipboard(req.GetString("text", (int)TextFileCodec.MaxFileBytes) ?? throw new BridgeError("Nothing to copy.")); return null;
-            case "link.open": await HandleLinkAsync(req.GetString("href", 4096) ?? ""); return null;
+            case "link.open": await HandleLinkAsync(req.GetString("href", 4096) ?? "", TryTabFrom(req)); return null;
             case "app.openDataFolder": OpenFolder(App.Paths.Local); return null;
             case "app.openLicenses": OpenFolder(Path.Combine(AppContext.BaseDirectory, "licenses")); return null;
-            case "app.newWindow": Process.Start(new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false }); return null;
+            case "app.newWindow": Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "--new-window") { UseShellExecute = false }); return null;
             case "app.about":
                 return new
                 {
@@ -131,62 +139,98 @@ public partial class MainWindow
     {
         _webReady = true;
         _readyCount++;
-        object? document = null;
-        string? startupError = null;
+        var tabs = new List<object>();
+        var notices = new List<string>();
+        var welcome = false;
 
         if (_readyCount > 1)
         {
-            // The renderer was reloaded (e.g. after a crash): put the user's text back.
-            document = _session.Dirty && _session.LastMarkdown != null
-                ? DocumentPayload(_session.LastMarkdown, dirty: true, notice: "Editor restored from the last autosave.")
-                : _session.Path != null && File.Exists(_session.Path) ? LoadFileIntoSession(_session.Path, out _) : null;
+            // The renderer was reloaded (e.g. after a crash): put every tab's text back.
+            tabs = PayloadsAfterRendererRestart();
         }
         else
         {
+            if (_persistSession && _settings.Prefs.RestoreSession)
+            {
+                tabs = RestoreSession(out var missing, out var recovered);
+                if (recovered > 0) notices.Add(recovered == 1 ? "Recovered unsaved work in 1 document. Save to keep it." : $"Recovered unsaved work in {recovered} documents. Save to keep it.");
+                if (missing.Count > 0)
+                    notices.Add((missing.Count == 1 ? "A file from your last session was not found: " : $"{missing.Count} files from your last session were not found: ")
+                        + string.Join(", ", missing.Take(5).Select(Path.GetFileName)) + (missing.Count > 5 ? "…" : "") + ". It may have been moved, renamed or deleted.");
+            }
             var path = _startupFile;
             _startupFile = null;
-            if (path == null && _settings.Prefs.RestoreSession && _settings.LastDocumentPath is { } last && File.Exists(last)) path = last;
             if (path != null)
             {
-                try { document = LoadFileIntoSession(path, out _); }
-                catch (Exception ex) { startupError = $"Could not open \"{path}\": {FriendlyError(ex)}"; Log.Error(startupError, ex); }
+                try
+                {
+                    var existing = FindTabByPath(path);
+                    if (existing != null) _activeTabId = existing.TabId;
+                    else
+                    {
+                        var loaded = DocumentFile.Load(path);
+                        var s = AddTab();
+                        tabs.Add(ApplyLoaded(s, loaded));
+                        _activeTabId = s.TabId;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    var msg = $"Could not open \"{path}\": {FriendlyError(ex)}";
+                    Log.Error(msg, ex);
+                    _ = Dispatcher.BeginInvoke(() => PushEvent("error", new { text = msg }));
+                }
             }
+            if (_tabs.Count == 0)
+            {
+                var blank = AddTab();
+                tabs.Add(DocumentPayload(blank, "", dirty: false));
+                welcome = true;
+            }
+            _activeTabId ??= _tabOrder[0];
+            PersistSession();
         }
 
-        if (startupError != null) _ = Dispatcher.BeginInvoke(() => PushEvent("error", new { text = startupError }));
+        foreach (var n in notices) _ = Dispatcher.BeginInvoke(() => PushEvent("notice", new { text = n, ms = 7000 }));
         if (SelfTestDir != null && _readyCount == 1) _ = Dispatcher.BeginInvoke(async () => await RunSelfTestAsync());
+        UpdateWindowTitle();
         await Task.CompletedTask;
         return new
         {
             prefs = _settings.Prefs,
             recent = RecentForPage(),
-            document,
+            tabs,
+            activeTabId = _activeTabId,
+            welcome,
             recovery = _readyCount == 1 ? _recovery.ListOrphans() : new List<RecoverySummary>(),
         };
     }
 
     private void OnDocState(BridgeRequest req)
     {
-        if (req.Payload.TryGetProperty("dirty", out var d) && d.ValueKind is JsonValueKind.True or JsonValueKind.False) _session.Dirty = d.GetBoolean();
-        if (_session.Path == null && req.GetString("title", 200) is { } t) _session.UntitledTitle = t;
+        var s = TryTabFrom(req);
+        if (s == null) return; // the tab was closed while the message was on its way
+        if (req.Payload.TryGetProperty("dirty", out var d) && d.ValueKind is JsonValueKind.True or JsonValueKind.False) s.Dirty = d.GetBoolean();
+        if (s.Path == null && req.GetString("title", 200) is { } t) s.UntitledTitle = t;
         UpdateWindowTitle();
     }
 
     private void OnDocChanged(BridgeRequest req)
     {
+        var s = TryTabFrom(req);
         var markdown = req.GetString("markdown", (int)TextFileCodec.MaxFileBytes);
-        if (markdown == null) return;
+        if (s == null || markdown == null) return;
         OnDocState(req);
-        if (_session.Dirty)
+        if (s.Dirty)
         {
-            _session.LastMarkdown = markdown;
-            try { _recovery.SaveOwn(markdown, _session.Title, _session.Path, _session.Format); }
+            s.LastMarkdown = markdown;
+            try { _recovery.SaveOwn(s.TabId, markdown, s.Title, s.Path, s.Format); }
             catch (Exception ex) { Log.Error("Writing recovery draft failed", ex); }
         }
         else
         {
-            _session.LastMarkdown = null;
-            _recovery.DeleteOwn();
+            s.LastMarkdown = null;
+            _recovery.DeleteOwn(s.TabId);
         }
     }
 
@@ -206,14 +250,18 @@ public partial class MainWindow
     {
         var paths = (objects ?? Array.Empty<object>()).OfType<CoreWebView2File>().Select(f => f.Path).Where(p => !string.IsNullOrEmpty(p)).ToList();
         if (paths.Count == 0) return null;
-        var doc = paths.FirstOrDefault(DocumentFile.IsOpenable);
-        if (doc != null)
+        var docs = paths.Where(DocumentFile.IsOpenable).Take(50).ToList();
+        if (docs.Count > 0)
         {
-            if (paths.Count > 1) PushNotice("Opened the first Markdown file. NoorMD edits one document per window.");
-            return await WithDocGate(() => OpenPathAsync(doc));
+            return await WithDocGate(async () =>
+            {
+                object? last = null;
+                foreach (var doc in docs) last = await OpenPathAsync(doc);
+                return last;
+            });
         }
         var image = paths.FirstOrDefault(p => AssetResolver.ImageExtensions.Contains(Path.GetExtension(p)));
-        if (image != null && _session.Folder is { } folder && Path.GetFullPath(image).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+        if (image != null && ActiveSession?.Folder is { } folder && Path.GetFullPath(image).StartsWith(folder + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
         {
             var rel = Path.GetRelativePath(folder, image).Replace('\\', '/');
             var encoded = string.Join('/', rel.Split('/').Select(Uri.EscapeDataString));
@@ -226,15 +274,16 @@ public partial class MainWindow
         return null;
     }
 
-    private async Task<object?> CreateSnapshotAsync(string label)
+    private async Task<object?> CreateSnapshotAsync(DocumentSession s, string label)
     {
-        var st = await GetEditorStateAsync() ?? throw new BridgeError("The editor is not responding.");
-        return _snapshots.Create(_session.SnapshotKey, st.Markdown, label, st.Title, _session.Path);
+        var st = await GetEditorStateAsync(s.TabId) ?? throw new BridgeError("The editor is not responding.");
+        return _snapshots.Create(s.SnapshotKey, st.Markdown, label, st.Title, s.Path);
     }
 
-    internal async Task HandleLinkAsync(string href)
+    /// <summary>A link clicked in a document; relative links resolve against that document's folder.</summary>
+    internal async Task HandleLinkAsync(string href, DocumentSession? from = null)
     {
-        var decision = LinkPolicy.Classify(href, _session.Folder);
+        var decision = LinkPolicy.Classify(href, (from ?? ActiveSession)?.Folder);
         switch (decision.Kind)
         {
             case LinkKind.External:
@@ -262,10 +311,10 @@ public partial class MainWindow
         }
     }
 
-    private void RevealInExplorer()
+    private static void RevealInExplorer(DocumentSession s)
     {
-        if (_session.Path == null) throw new BridgeError("This document has not been saved yet.");
-        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{_session.Path}\"") { UseShellExecute = false });
+        if (s.Path == null) throw new BridgeError("This document has not been saved yet.");
+        Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{s.Path}\"") { UseShellExecute = false });
     }
 
     private static void OpenFolder(string folder)
@@ -276,11 +325,13 @@ public partial class MainWindow
 
     // ------------------------------------------------------------------ messaging helpers
 
-    private async Task<EditorState?> GetEditorStateAsync()
+    /// <summary>Reads one tab's current text straight from its editor, including keystrokes not yet sent as doc.changed.</summary>
+    private async Task<EditorState?> GetEditorStateAsync(string tabId)
     {
+        if (!RecoveryStore.IsValidTabId(tabId)) return null;
         try
         {
-            var json = await Core.ExecuteScriptAsync("window.NoorMD ? window.NoorMD.flush() : null");
+            var json = await Core.ExecuteScriptAsync($"window.NoorMD ? window.NoorMD.flush('{tabId}') : null");
             if (string.IsNullOrEmpty(json) || json == "null") return null;
             return JsonSerializer.Deserialize<EditorState>(json, SettingsStore.Json);
         }
