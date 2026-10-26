@@ -1255,6 +1255,91 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in Vault checks', unexpected.length === 0, unexpected);
       await page.close();
     }
+
+    // ---- 14. Pack & Share: preview, exclusions, linked files, AI handoff, progress, cancel, unsaved edits.
+    {
+      const vfiles = {
+        'World/Rivers.md': '# Rivers\n\n![forest](../Images/forest.png)\n\nSee [gone](Gone.md).\n',
+        'World/Seas.md': '# Seas\n',
+        'World/.env': 'SECRET=1',
+        'Images/forest.png': 'PNGDATA',
+        'Index.md': '# Index\n',
+      };
+      const { page, errors } = await open(browser, url, { document: null, vault: { root: 'C:\\Vaults\\Atlas', files: vfiles }, musicTracks: 4, packDelay: 80 });
+      await waitFn(page, () => document.querySelectorAll('#vault-tree .vt-row').length > 0);
+      await page.click('#vault-tree .vt-row[data-path="World"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Pack & Share")');
+      await page.waitForSelector('.pack-summary strong');
+      check('right-click → Pack & Share opens a preview for that folder', (await page.textContent('.pack-form')).includes('“World”') && (await page.textContent('.pack-summary')).includes('2 files'), await page.textContent('.pack-summary'));
+      const sections = await page.$$eval('.pack-section > summary span', (n) => n.map((x) => x.textContent));
+      check('preview shows files, linked files, unresolved links, left-out files and the exclusion rules', ['Files in the package', 'Linked files outside the selection', 'Links that can’t be packed', 'Left out', 'Exclusion rules'].every((x) => sections.includes(x)), sections);
+      check('secrets are left out by a visible rule', (await page.textContent('.pack-details')).includes('World/.env') && (await page.textContent('.pack-details')).includes('.env'));
+      check('a missing linked file is reported', (await page.textContent('.pack-details')).includes('Gone.md'));
+      await page.check('#pk-dependencies');
+      await waitFn(page, () => document.querySelector('.pack-summary').textContent.includes('3 files'));
+      check('“Include linked files” adds the picture from outside the folder', [...await page.$$eval('.pack-item.dep span', (n) => n.map((x) => x.textContent))].includes('Images/forest.png'));
+      await page.uncheck('.pack-section:has-text("Linked files") input[type=checkbox]');
+      await waitFn(page, () => document.querySelector('.pack-summary').textContent.includes('2 files'));
+      check('a linked file can be left out individually', await page.evaluate(() => window.__mock.state.vault.lastPlanRequest.skipDependencies.includes('Images/forest.png')));
+      await page.check('.pack-section:has-text("Linked files") input[type=checkbox]');
+
+      // AI Handoff preset
+      await page.check('#pk-preset-handoff');
+      await page.waitForSelector('#pk-note');
+      await page.fill('#pk-note', 'Please review the river chapter.');
+      await waitFn(page, () => document.querySelectorAll('.pack-item.gen').length === 2);
+      check('AI Handoff adds MANIFEST.md and README.md in their own folder', (await page.$$eval('.pack-item.gen span', (n) => n.map((x) => x.textContent))).join() === '_noormd_handoff/MANIFEST.md,_noormd_handoff/README.md');
+
+      // Create with progress while music plays.
+      await page.evaluate(() => window.NoorMusic._testPlay([1, 2], 0, true));
+      await waitFn(page, () => !window.NoorMusic._state().paused, null, { timeout: 8000 });
+      await page.click('#pk-create');
+      await page.waitForSelector('.pack-progress');
+      await waitFn(page, () => document.querySelector('.pack-running span')?.textContent.startsWith('Packing'));
+      check('packing shows progress', true);
+      await page.waitForSelector('.pack-done');
+      const req = await page.evaluate(() => window.__mock.state.vault.packRequest);
+      check('the package request carries the user’s choices and only their own note', req.handoff === true && req.note === 'Please review the river chapter.' && req.dependencies === true && req.paths.join() === 'World');
+      check('completion shows the file, the count and any skipped (locked) files', (await page.textContent('.pack-done')).includes('C:\\Vaults\\Atlas.zip') && (await page.textContent('.pack-done')).includes('locked by another program'));
+      check('music kept playing while packing', !(await page.evaluate(() => window.NoorMusic._state().paused)));
+      await page.click('.modal button:has-text("Show in folder")');
+      check('“Show in folder” asks the host to reveal the archive', await page.evaluate(() => window.__mock.state.vault.revealed === true));
+      await page.click('.modal button:has-text("Done")');
+
+      // Cancel: no archive, form comes back.
+      await page.evaluate(() => window.NoorMD.runCommand('vault.pack'));
+      await page.waitForSelector('.pack-summary strong');
+      check('Workspace → Pack & Share offers the explorer selection or the whole Vault', await page.isVisible('#pk-scope-selection') && await page.isVisible('#pk-scope-vault'));
+      await page.check('#pk-scope-vault');
+      await waitFn(page, () => window.__mock.state.vault.lastPlanRequest.paths.length === 0);
+      await page.evaluate(() => { window.__mock.state.vault.packed = false; });
+      await page.click('#pk-create');
+      await page.waitForSelector('#pk-cancel');
+      await page.click('#pk-cancel');
+      await page.waitForSelector('#pk-create');
+      check('Cancel stops packing and reports that no archive was created', !(await page.evaluate(() => window.__mock.state.vault.packed)) && (await page.textContent('#notice')).includes('no archive'));
+      await page.keyboard.press('Escape');
+
+      // Unsaved edits in a packed note must be handled explicitly.
+      await page.click('#vault-tree .vt-row[data-path="Index.md"]');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Index');
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type(' unsaved words');
+      await page.evaluate(() => window.NoorMD.runCommand('vault.pack'));
+      await page.waitForSelector('.pack-unsaved');
+      check('unsaved changes in a packed note are pointed out with a choice', (await page.textContent('.pack-unsaved')).includes('Index.md') && await page.isChecked('#pk-save-first'));
+      await page.check('#pk-disk');
+      await page.click('#pk-create');
+      await page.waitForSelector('.pack-done');
+      check('choosing “saved versions” is passed to the host', (await page.evaluate(() => window.__mock.state.vault.packRequest.saveFirst)) === false);
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.NoorMusic.toggle());
+      if (shots) await page.screenshot({ path: `${shots}/pack.png` });
+      const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in Pack & Share checks', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

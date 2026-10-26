@@ -7,6 +7,7 @@ using Microsoft.Web.WebView2.Core;
 using NoorMD.Core;
 using NoorMD.Core.Export;
 using NoorMD.Core.Settings;
+using NoorMD.Core.Vaults;
 
 namespace NoorMD;
 
@@ -298,6 +299,16 @@ public partial class MainWindow
         Check("delete moves the file to the Recycle Bin", !File.Exists(junk));
         var unicodeNote = v.Ops.CreateNote("World", "Zażółć");
         Check("notes with Polish names can be created", File.Exists(Path.Combine(root, "World", "Zażółć.md")), unicodeNote);
+
+        var zipPath = Path.Combine(SelfTestDir!, "vault-pack.zip");
+        var plan = PackagePlanner.Build(root, new PackageOptions { Selection = ["World/Deep"], IncludeDependencies = true, Handoff = true, HandoffNote = "Review please." });
+        var packed = await Task.Run(() => ZipPackager.Create(plan, zipPath, null, CancellationToken.None));
+        using (var z = System.IO.Compression.ZipFile.OpenRead(zipPath))
+        {
+            var names = z.Entries.Select(e => e.FullName).ToList();
+            Check("Pack & Share: folder + linked picture + handoff files, Polish names intact",
+                names.Contains("World/Deep/Streams.md") && names.Contains("Images/pic.png") && names.Contains("_noormd_handoff/README.md") && packed.Failures.Count == 0, string.Join(", ", names));
+        }
 
         await CloseTabAsync(s);
         CloseVault(remember: false);

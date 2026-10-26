@@ -292,7 +292,7 @@ window.NoorVault = (() => {
       if (e && !e.d && isNote(e.p)) items.push('-', { label: 'Insert link to this note', run: () => insertLinkTo(e.p) });
       items.push('-', { label: 'Reveal in Explorer', run: () => req('vault.revealItem', { path: e.p }).catch(fail), disabled: many }, { label: 'Copy path', run: () => req('vault.copyPath', { path: e.p }).then(() => notice('Path copied', 1400)).catch(fail), disabled: many });
     }
-    if (app.hasCommand('vault.pack')) items.push('-', { label: 'Pack & Share…', run: () => app.runCommand('vault.pack', { paths: sel.length ? sel : [] }) });
+    items.push('-', { label: many ? `Pack & Share ${sel.length} items…` : 'Pack & Share…', run: () => showPack(sel) });
     items.push('-', { label: 'Refresh', run: () => req('vault.refresh').catch(fail) });
     NoorChrome.openMenu(null, items, { x, y });
   }
@@ -514,6 +514,165 @@ window.NoorVault = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- Pack & Share
+
+  const fmtSize = (b) => (b < 1024 ? b + ' B' : b < 1048576 ? (b / 1024).toFixed(1) + ' KB' : (b / 1048576).toFixed(1) + ' MB');
+
+  /** One right-click, one ZIP: preview what goes in, then pack it in the background. */
+  function showPack(paths) {
+    if (!vault) { notice('Open a Vault first.'); return; }
+    const selection = (paths && paths.length ? paths : []).slice();
+    const opts = { scope: selection.length ? 'selection' : 'vault', preset: 'zip', attachments: true, dependencies: false, preserve: true, manifest: false, note: '', skip: new Set(), exclusions: null, saveFirst: true };
+    let plan = null, seq = 0, timer = null, busy = false;
+    NoorUI.closeAll();
+    NoorUI.modal({ label: 'Pack & Share', width: 780 }, (s, close) => {
+      const body = el('div', { class: 'modal-body pack-body' });
+      const foot = el('div', { class: 'modal-foot' });
+      const radio = (name, value, label, checked) => {
+        const r = el('input', { type: 'radio', name, value, checked: checked || undefined, id: `pk-${name}-${value}` });
+        r.addEventListener('change', () => { opts[name] = value; renderForm(); refresh(); });
+        return el('label', { class: 'inline', for: r.id }, r, label);
+      };
+      const check = (key, label, hint) => {
+        const c = el('input', { type: 'checkbox', id: 'pk-' + key, checked: opts[key] || undefined });
+        c.addEventListener('change', () => { opts[key] = c.checked; refresh(); });
+        return el('label', { class: 'inline', for: c.id, title: hint || '' }, c, label);
+      };
+      const form = el('div', { class: 'pack-form' });
+      const summary = el('div', { class: 'pack-summary', 'aria-live': 'polite', text: 'Preparing preview…' });
+      const details = el('div', { class: 'pack-details' });
+      const note = el('textarea', { id: 'pk-note', rows: '4', placeholder: 'Optional. What should the recipient do with these files? Only what you write here is included.', 'aria-label': 'Instructions for the recipient' });
+      note.addEventListener('input', () => { opts.note = note.value; });
+      const rules = el('textarea', { id: 'pk-rules', rows: '6', spellcheck: 'false', 'aria-label': 'Exclusion rules, one per line' });
+      rules.addEventListener('input', () => { opts.exclusions = rules.value.split('\n').map((x) => x.trim()).filter(Boolean); refresh(); });
+
+      function renderForm() {
+        form.replaceChildren(
+          el('div', { class: 'pack-row' }, el('strong', { text: 'What' }),
+            selection.length ? radio('scope', 'selection', selection.length === 1 ? `“${selection[0] || vault.name}”` : `${selection.length} selected items`, opts.scope === 'selection') : null,
+            radio('scope', 'vault', `The whole Vault (${vault.name})`, opts.scope === 'vault')),
+          el('div', { class: 'pack-row' }, el('strong', { text: 'Kind' }),
+            radio('preset', 'zip', 'Standard ZIP', opts.preset === 'zip'),
+            radio('preset', 'handoff', 'AI Handoff Package', opts.preset === 'handoff')),
+          el('div', { class: 'pack-row pack-checks' },
+            check('attachments', 'Include pictures and other files', 'Files in the selection that are not notes'),
+            check('dependencies', 'Include linked files from elsewhere in the Vault', 'Files outside the selection that the notes link to — review them below'),
+            check('preserve', 'Keep folder structure (links keep working)'),
+            opts.preset === 'zip' ? check('manifest', 'Add a list of the files (manifest)') : null),
+          opts.preset === 'handoff' ? el('div', { class: 'pack-handoff' },
+            el('p', { class: 'pref-hint', text: 'Adds MANIFEST.md and README.md in a separate “_noormd_handoff” folder (your own README is never replaced). Nothing is uploaded: you get a ZIP to share yourself.' }),
+            el('label', { for: 'pk-note', text: 'Instructions for the recipient (written by you)' }), note) : null);
+      }
+
+      function req2() {
+        return {
+          paths: opts.scope === 'selection' ? selection : [], attachments: opts.attachments, dependencies: opts.dependencies, preserve: opts.preserve,
+          manifest: opts.manifest || opts.preset === 'handoff', handoff: opts.preset === 'handoff', note: opts.preset === 'handoff' ? opts.note : '',
+          skipDependencies: [...opts.skip], exclusions: opts.exclusions ?? undefined, saveFirst: opts.saveFirst,
+        };
+      }
+
+      function refresh() {
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const mine = ++seq;
+          try {
+            const r = await req('vault.pack.plan', req2());
+            if (mine !== seq) return;
+            plan = r;
+            if (opts.exclusions === null) { opts.exclusions = r.defaults.slice(); rules.value = opts.exclusions.join('\n'); }
+            renderPlan();
+          } catch (err) { summary.textContent = err.message; }
+        }, 200);
+      }
+
+      const openState = new Map(); // sections keep the open/closed state the user gave them across preview refreshes
+      function section(title, count, open, ...children) {
+        const d = el('details', { class: 'pack-section', open: (openState.has(title) ? openState.get(title) : open) || undefined }, el('summary', {}, el('span', { text: title }), el('small', { text: String(count) })), ...children);
+        d.addEventListener('toggle', () => openState.set(title, d.open));
+        return d;
+      }
+
+      function renderPlan() {
+        const deps = plan.dependencies || [];
+        const inc = deps.filter((d) => d.included).length;
+        summary.replaceChildren(
+          el('strong', { text: `${plan.fileCount.toLocaleString()} file${plan.fileCount === 1 ? '' : 's'}` }), ` · about ${fmtSize(plan.bytes)} before compression`,
+          plan.excludedCount ? ` · ${plan.excludedCount} left out` : '', deps.length ? ` · ${deps.length} linked file${deps.length === 1 ? '' : 's'} outside (${inc} included)` : '',
+          plan.unresolved.length ? el('span', { class: 'pack-warn', text: ` · ${plan.unresolved.length} link${plan.unresolved.length === 1 ? '' : 's'} not found` }) : '');
+        const fileList = el('div', { class: 'pack-list' }, ...plan.files.slice(0, 500).map((f) => el('div', { class: 'pack-item' + (f.dependency ? ' dep' : '') },
+          el('span', { text: f.entry }), el('small', { text: (f.dependency ? 'linked · ' : '') + fmtSize(f.size) }))),
+        plan.fileCount > 500 ? el('p', { class: 'pref-hint', text: `…and ${(plan.fileCount - 500).toLocaleString()} more` }) : null,
+        ...plan.generated.map((g) => el('div', { class: 'pack-item gen' }, el('span', { text: g }), el('small', { text: 'generated' }))));
+        const depList = el('div', { class: 'pack-list' }, ...deps.map((d) => {
+          const c = el('input', { type: 'checkbox', checked: !opts.skip.has(d.path) || undefined, disabled: !opts.dependencies || undefined, 'aria-label': 'Include ' + d.path });
+          c.addEventListener('change', () => { if (c.checked) opts.skip.delete(d.path); else opts.skip.add(d.path); refresh(); });
+          return el('label', { class: 'pack-item' }, c, el('span', { text: d.path }), el('small', { text: 'linked from ' + d.from }));
+        }));
+        const exList = el('div', { class: 'pack-list' }, ...plan.excluded.slice(0, 500).map((x) => el('div', { class: 'pack-item' }, el('span', { text: x.path }), el('small', { text: x.rule }))));
+        const unList = el('div', { class: 'pack-list' }, ...plan.unresolved.map((u) => el('div', { class: 'pack-item' }, el('span', { text: u.from + ' → ' + u.target }), el('small', { text: u.problem }))));
+        const unsaved = plan.unsaved || [];
+        details.replaceChildren(
+          unsaved.length ? el('div', { class: 'pack-unsaved' },
+            el('strong', { text: `${unsaved.length} open document${unsaved.length === 1 ? ' has' : 's have'} unsaved changes: ${unsaved.map((u) => u.name).join(', ')}` }),
+            (() => { const a = el('input', { type: 'radio', name: 'pk-unsaved', id: 'pk-save-first', checked: opts.saveFirst || undefined }); a.addEventListener('change', () => { opts.saveFirst = true; }); return el('label', { class: 'inline', for: 'pk-save-first' }, a, 'Save them first, then pack'); })(),
+            (() => { const b = el('input', { type: 'radio', name: 'pk-unsaved', id: 'pk-disk', checked: !opts.saveFirst || undefined }); b.addEventListener('change', () => { opts.saveFirst = false; }); return el('label', { class: 'inline', for: 'pk-disk' }, b, 'Pack the versions saved on disk (without the unsaved changes)'); })()) : null,
+          plan.warnings.length ? el('ul', { class: 'pack-warnings' }, ...plan.warnings.map((w) => el('li', { text: w }))) : null,
+          section('Files in the package', plan.fileCount, true, fileList),
+          deps.length ? section('Linked files outside the selection', deps.length, opts.dependencies, el('p', { class: 'pref-hint', text: opts.dependencies ? 'Untick any you don’t want to share.' : 'Turn on “Include linked files” above to add them.' }), depList) : null,
+          plan.unresolved.length ? section('Links that can’t be packed', plan.unresolved.length, false, unList) : null,
+          section('Left out', plan.excludedCount, false, exList),
+          section('Exclusion rules', opts.exclusions ? opts.exclusions.length : 0, false,
+            el('p', { class: 'pref-hint', text: 'One rule per line. “name/” leaves out every folder with that name; other rules match file names (* and ? wildcards). Defaults protect secrets like .env files and keys.' }),
+            rules, el('button', { class: 'utility-btn', onclick: () => { opts.exclusions = plan.defaults.slice(); rules.value = opts.exclusions.join('\n'); refresh(); } }, 'Restore default rules')));
+        renderFoot();
+      }
+
+      function renderFoot() {
+        foot.replaceChildren(el('span', { text: 'Your files are only read — never moved or changed.' }), el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => close() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'pk-create', disabled: !plan || !plan.fileCount || undefined, onclick: create }, opts.preset === 'handoff' ? 'Create handoff ZIP…' : 'Create ZIP…')));
+      }
+
+      async function create() {
+        if (busy) return;
+        busy = true;
+        const bar = el('div', { class: 'pack-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0' }, el('div', { class: 'pack-fill' }));
+        const label = el('span', { text: 'Choose where to save…' });
+        foot.replaceChildren(el('div', { class: 'pack-running' }, bar, label), el('div', { class: 'modal-buttons' }, el('button', { class: 'action', id: 'pk-cancel', onclick: () => req('vault.pack.cancel').catch(() => {}) }, 'Cancel')));
+        const onProgress = (p) => {
+          const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+          bar.firstChild.style.width = pct + '%';
+          bar.setAttribute('aria-valuenow', String(pct));
+          label.textContent = `Packing ${p.done.toLocaleString()} of ${p.total.toLocaleString()} · ${fmtSize(p.bytes)}`;
+        };
+        progressHandler = onProgress;
+        try {
+          const r = await req('vault.pack.create', req2());
+          progressHandler = null;
+          busy = false;
+          if (!r || r.cancelled) { notice('Packing cancelled — no archive was created.', 2600); renderFoot(); return; }
+          body.replaceChildren(el('div', { class: 'pack-done' },
+            el('p', {}, el('strong', { text: '✓ Package created' })),
+            el('p', { class: 'pack-path', text: r.path }),
+            el('p', { text: `${r.entries.toLocaleString()} files · ${fmtSize(r.bytes)} before compression.` }),
+            r.failures.length ? el('div', { class: 'pack-warn' }, el('p', { text: `${r.failures.length} file${r.failures.length === 1 ? ' was' : 's were'} skipped:` }),
+              el('ul', {}, ...r.failures.slice(0, 50).map((f) => el('li', { text: `${f.entry} — ${f.problem}` })))) : null));
+          foot.replaceChildren(el('span', { text: 'Nothing was uploaded. Share the ZIP yourself.' }), el('div', { class: 'modal-buttons' },
+            el('button', { class: 'action', onclick: () => req('vault.pack.reveal').catch(fail) }, 'Show in folder'),
+            el('button', { class: 'action primary', autofocus: true, onclick: () => close() }, 'Done')));
+        } catch (err) { progressHandler = null; busy = false; renderFoot(); fail(err); }
+      }
+
+      renderForm();
+      body.append(form, summary, details);
+      s.append(NoorUI.head('Pack & Share', close), body, foot);
+      renderFoot();
+      refresh();
+    });
+  }
+  let progressHandler = null;
+
   // ---------------------------------------------------------------- init
 
   function init(api) {
@@ -521,6 +680,7 @@ window.NoorVault = (() => {
     bridge.on('vault.changed', onChanged);
     bridge.on('vault.tree', onTree);
     bridge.on('vault.indexed', onIndexed);
+    bridge.on('vault.pack.progress', (p) => { if (progressHandler) progressHandler(p); });
     const box = $('#vault-tree');
     box.addEventListener('click', onTreeClick);
     box.addEventListener('keydown', onTreeKey);
@@ -541,7 +701,7 @@ window.NoorVault = (() => {
   }
 
   return {
-    init, onChanged, showSearch, createVault, showSettings, followLink, linkAtCaret, pickNoteToLink, refreshBacklinks, setView,
+    init, onChanged, showSearch, showPack, selection: () => [...selected], createVault, showSettings, followLink, linkAtCaret, pickNoteToLink, refreshBacklinks, setView,
     renderTree, notes, isOpen: () => !!vault, name: () => (vault ? vault.name : null), recent: () => recent,
     focusExplorer: () => { if (!vault) return; document.body.classList.remove('sidebar-collapsed'); setView('files'); (document.querySelector('#vault-tree .vt-row[tabindex="0"]') || $('#vault-filter')).focus(); },
     _state: () => ({ vault, entries: entries.length, expanded: [...expanded], selected: [...selected], focusPath, indexed }),

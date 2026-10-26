@@ -1265,6 +1265,7 @@
     ['vault.refresh', 'Refresh Vault', 'Vault', '', () => bridge.request('vault.refresh').catch(showError)],
     ['vault.settings', 'Vault settings…', 'Vault', '', () => NoorVault.showSettings()],
     ['vault.insertLink', 'Link to a note…', 'Vault', '', () => NoorVault.pickNoteToLink()],
+    ['vault.pack', 'Pack & Share…', 'Vault', '', () => NoorVault.showPack(document.body.classList.contains('side-files') ? NoorVault.selection() : [])],
     ['vault.followLink', 'Follow link at cursor', 'Vault', 'Ctrl+Click', () => NoorVault.followLink()],
     ['edit.undo', 'Undo', 'Edit', 'Ctrl+Z', () => fmt('undo')],
     ['edit.redo', 'Redo', 'Edit', 'Ctrl+Y', () => fmt('redo')],

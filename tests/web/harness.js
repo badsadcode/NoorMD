@@ -147,6 +147,7 @@ function mockHostScript(initial) {
         case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
         case 'recovery.list': return reply(m.id, true, state.recovery);
         default:
+          if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
           return reply(m.id, true, {});
@@ -227,6 +228,49 @@ function mockHostScript(initial) {
       case 'vault.duplicate': { const to = p.path.replace(/(\.md)?$/, ' copy$1'); V.files[to] = V.files[p.path]; pushTree(); return { path: to }; }
       case 'vault.delete': { for (const x of p.paths) { for (const f of Object.keys(V.files)) if (f === x || f.startsWith(x + '/')) { delete V.files[f]; V.deleted.push(f); } V.dirs.delete(x); } pushTree(); return { deleted: p.paths.length }; }
       case 'vault.settings.get': return { attachments: 'attachments', excluded: [] };
+      case 'vault.pack.plan': {
+        const sel = p.paths && p.paths.length ? p.paths : [''];
+        const rules = p.exclusions || ['.env', '*.pem', '.obsidian/'];
+        const inSel = (f) => sel.some((x) => x === '' || f === x || f.startsWith(x + '/'));
+        const ruleOf = (f) => rules.find((r) => (r.endsWith('/') ? f.split('/').slice(0, -1).includes(r.slice(0, -1)) : new RegExp('^' + r.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i').test(f.split('/').pop())));
+        const files = [], excluded = [], deps = [], unresolved = [];
+        for (const f of Object.keys(V.files).sort()) {
+          if (!inSel(f)) continue;
+          const r = ruleOf(f);
+          if (r) { excluded.push({ path: f, rule: r }); continue; }
+          if (!p.attachments && !/\.md$/.test(f)) { excluded.push({ path: f, rule: 'not a note (attachments off)' }); continue; }
+          files.push({ entry: f, size: V.files[f].length, dependency: false });
+          for (const m of V.files[f].matchAll(/!?\[[^\]]*\]\(([^)]+)\)/g)) {
+            const base = f.includes('/') ? f.slice(0, f.lastIndexOf('/')).split('/') : [];
+            for (const seg of m[1].split('/')) { if (seg === '..') base.pop(); else if (seg !== '.') base.push(seg); }
+            const target = base.join('/');
+            if (!(target in V.files)) unresolved.push({ from: f, target: m[1], problem: 'file not found' });
+            else if (!inSel(target) && !deps.some((d) => d.path === target)) deps.push({ path: target, from: f, included: !!p.dependencies && !(p.skipDependencies || []).includes(target) });
+          }
+        }
+        for (const d of deps) if (d.included) files.push({ entry: d.path, size: V.files[d.path].length, dependency: true });
+        V.lastPlanRequest = p;
+        return { defaults: ['.env', '*.pem', '.obsidian/'], files, fileCount: files.length, bytes: files.reduce((a, f) => a + f.size, 0), excluded, excludedCount: excluded.length, dependencies: deps, unresolved,
+          generated: p.handoff ? ['_noormd_handoff/MANIFEST.md', '_noormd_handoff/README.md'] : p.manifest ? ['_noormd_package/MANIFEST.md'] : [], warnings: [],
+          unsaved: [...state.tabs].filter(([id, t]) => t.path && t.path.startsWith(V.root) && window.NoorMD.flush(id).dirty).map(([id, t]) => ({ tabId: id, name: t.path.split('\\').pop() })), suggestedName: 'x.zip' };
+      }
+      case 'vault.pack.cancel': V.packCancelled = true; return null;
+      case 'vault.pack.reveal': V.revealed = true; return null;
+      default: return null;
+    }
+  }
+  async function packCreate(id, p) {
+    V.packRequest = p; V.packCancelled = false;
+    for (let i = 1; i <= 5; i++) {
+      await new Promise((r) => setTimeout(r, initial.packDelay || 60));
+      if (V.packCancelled) return reply(id, true, { cancelled: true });
+      event('vault.pack.progress', { done: i, total: 5, bytes: i * 1000 });
+    }
+    V.packed = true;
+    return reply(id, true, { path: 'C:\\Vaults\\Atlas.zip', entries: 5, bytes: 5000, failures: [{ entry: 'World/locked.md', problem: 'locked by another program' }] });
+  }
+  function vaultMockUnused() {
+    switch (0) {
       default: return null;
     }
   }

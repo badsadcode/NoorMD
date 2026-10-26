@@ -128,6 +128,8 @@ public partial class MainWindow
                     runtime = RuntimeInformation.FrameworkDescription,
                     webView2 = Core.Environment.BrowserVersionString,
                 };
+            case var pack when pack.StartsWith("vault.pack.", StringComparison.Ordinal):
+                return await DispatchPackAsync(req);
             case var vault when vault.StartsWith("vault.", StringComparison.Ordinal):
                 return await DispatchVaultAsync(req);
             case var music when music.StartsWith("music.", StringComparison.Ordinal):
