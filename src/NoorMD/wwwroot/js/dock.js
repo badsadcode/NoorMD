@@ -11,7 +11,7 @@ window.NoorDock = (() => {
   const AREA_LABEL = { left: 'Left', right: 'Right', bottom: 'Bottom', window: 'Own window' };
   const DEFAULT = Object.freeze({
     v: 1, sidebar: 'left',
-    place: { music: 'right', video: 'right', stream: 'right', apps: 'right' },
+    place: { music: 'right', video: 'right', stream: 'right', apps: 'right', voice: 'right' },
     size: { left: 400, right: 460, bottom: 300 },
   });
   // Ready-made layouts. `open` lists the panels a layout shows; `sidebar` may also be 'hidden'.

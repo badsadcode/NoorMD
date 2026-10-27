@@ -158,6 +158,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('stream.')) { try { return reply(m.id, true, streamMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -448,6 +449,34 @@ function mockHostScript(initial) {
       case 'apps.icon.pick': get(p.id).icon = '/_hubicon/custom.png'; return payload();
       case 'apps.icon.reset': get(p.id).icon = null; return payload();
       case 'apps.reveal': return null;
+      default: return null;
+    }
+  }
+
+
+  // ---- mock voice notes: chunks are joined like VoiceNotes.cs; the first bytes tell the format.
+  const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
+  state.voice = VOICE;
+  function voiceMock(type, p) {
+    const status = () => ({ folder: 'C:\\Vaults\\Atlas\\attachments\\Voice notes', inVault: true, recordings: VOICE.recordings.slice() });
+    switch (type) {
+      case 'voice.status': return status();
+      case 'voice.arm': VOICE.armed++; return null;
+      case 'voice.begin': { const token = 't' + Object.keys(VOICE.uploads).length + Date.now(); VOICE.uploads[token] = { name: p.name, ext: p.ext, parts: [] }; return { token }; }
+      case 'voice.chunk': VOICE.uploads[p.token].parts.push(p.data); return null;
+      case 'voice.cancel': delete VOICE.uploads[p.token]; return null;
+      case 'voice.finish': {
+        const u = VOICE.uploads[p.token]; delete VOICE.uploads[p.token];
+        const bytes = u.parts.map((b) => atob(b)).join('');
+        const name = u.name || `Voice note ${VOICE.saved.length + 1}`;
+        const file = name + u.ext;
+        VOICE.saved.push({ name, ext: u.ext, size: bytes.length, head: [...bytes.slice(0, 4)].map((c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join(''), seconds: p.seconds });
+        VOICE.recordings.unshift({ name, file, size: bytes.length, created: new Date().toISOString(), url: '/_voice/' + encodeURIComponent(file) });
+        const sec = Math.floor(p.seconds || 0);
+        return { path: 'C:\\Vaults\\Atlas\\attachments\\Voice notes\\' + file, name, link: `[🎙 ${name} (${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')})](<attachments/Voice notes/${file}>)`, status: status() };
+      }
+      case 'voice.delete': VOICE.recordings = VOICE.recordings.filter((r) => r.file !== p.file); return status();
+      case 'voice.link': return { link: `[🎙 ${p.file}](<attachments/Voice notes/${p.file}>)` };
       default: return null;
     }
   }

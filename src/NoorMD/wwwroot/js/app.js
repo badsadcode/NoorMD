@@ -1295,6 +1295,8 @@
     ['stream.supporters', 'Supporters…', 'Stream', '', () => NoorStream.open('supporters')],
     ['stream.log', 'Stream log…', 'Stream', '', () => NoorStream.open('log')],
     ['apps.toggle', 'Apps Hub (your programs, games and sites)', 'Tools', 'Ctrl+Alt+H', () => NoorApps.toggle()],
+    ['voice.toggle', 'Voice notes (recorder)', 'Tools', '', () => NoorVoice.toggle()],
+    ['voice.record', 'Record a voice note / stop', 'Tools', 'Ctrl+Alt+D', () => NoorVoice.quickRecord()],
     ['mic.toggle', 'Mute / unmute microphone (Mic Guard)', 'Stream', '', () => NoorStream.toggleMic()],
     ['mic.settings', 'Mic Guard: microphone, OBS, hotkey, indicator…', 'Stream', '', () => NoorStream.open('mic')],
     ['music.play', 'Play / pause music', 'Music', 'Ctrl+Alt+Space', () => NoorMusic.toggle()],
@@ -1370,7 +1372,7 @@
     const hasEditor = !!(t && t.editor);
     const checked = {
       'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'), 'view.sidebarRight': document.body.classList.contains('sidebar-right'),
-      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
       'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
@@ -1424,6 +1426,36 @@
     if (cut) { editor.focus(); editor.replaceSelection(''); }
   }
   const clipboardCut = () => clipboardCopy(true);
+
+  /**
+   * Inserts Markdown at the cursor of a tab. In Markdown mode it is typed as is; in Visual mode it is parsed and
+   * inserted as formatted content (a link stays a link, a list a list) — insertText would show the characters
+   * escaped there. Used by every "insert into the document" (notes, voice notes, sketches, drops, note links).
+   */
+  function insertMarkdown(md, tab = t) {
+    const ed = tab && tab.editor;
+    if (!ed || typeof md !== 'string' || !md) return false;
+    if (!ed.isWysiwygMode()) { ed.insertText(md); return true; }
+    try {
+      const Parser = ed.toastMark.constructor;
+      const doc = ed.convertor.toWysiwygModel(new Parser(md.replace(/\r\n?/g, '\n')).getRootNode());
+      const view = ed.wwEditor.view;
+      const Slice = view.state.selection.content().constructor;
+      // One paragraph (a link, a few words) goes into the current line; blocks (lists, several lines) as blocks.
+      const inline = doc.childCount === 1 && doc.firstChild.isTextblock;
+      const from = view.state.selection.from;
+      let tr = view.state.tr.replaceSelection(new Slice(doc.content, inline ? 1 : 0, inline ? 1 : 0));
+      // The parser drops spaces around a snippet; keep them, so " [link]" doesn't stick to the previous word.
+      if (inline && /^[ \t]/.test(md)) tr = tr.insertText(' ', from);
+      if (inline && /[ \t]$/.test(md)) tr = tr.insertText(' ', tr.selection.from);
+      view.dispatch(tr.scrollIntoView());
+      return true;
+    } catch (err) {
+      console.warn('Inserting as formatted Markdown failed; inserting the text', err);
+      ed.insertText(md);
+      return true;
+    }
+  }
 
   async function clipboardPaste() {
     if (!editor) return;
@@ -1987,6 +2019,7 @@
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyV') cmd = 'video.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyB') cmd = 'stream.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyH') cmd = 'apps.toggle';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyD') cmd = 'voice.record';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
     else if (key === 'F11') cmd = 'view.focus';
@@ -2093,7 +2126,7 @@
       // Inserted into the tab it was meant for (a drop or a sketch for one document never lands in another).
       const tab = (p.tabId && tabById(p.tabId)) || t;
       if (!tab || !tab.editor || typeof p.markdown !== 'string') { if (p.tabId) notice('That document is no longer open; nothing was inserted.'); return; }
-      tab.editor.insertText(p.markdown);
+      insertMarkdown(p.markdown, tab);
       if (tab === t) tab.editor.focus();
     });
     bridge.on('command', (p) => { if (p.id.startsWith('tab.') && NoorUI.hasOpenModal()) return; runCommand(p.id); });
@@ -2114,6 +2147,7 @@
       panels: {
         music: { label: 'Music Bench', el: () => $('#music'), open: () => NoorMusic.togglePanel(true), close: () => NoorMusic.togglePanel(false), isOpen: () => NoorMusic.isOpen() },
         video: { label: 'Video Bench', el: () => $('#videobench'), open: () => NoorVideo.open(), close: () => NoorVideo.close(), isOpen: () => NoorVideo.isOpen() },
+        voice: { label: 'Voice notes', el: () => $('#voicedesk'), open: () => NoorVoice.open(), close: () => NoorVoice.close(), isOpen: () => NoorVoice.isOpen() },
         apps: { label: 'Apps Hub', el: () => $('#appshub'), open: () => NoorApps.open(), close: () => NoorApps.close(), isOpen: () => NoorApps.isOpen() },
         stream: { label: 'Stream Desk', el: () => $('#streamdesk'), open: () => NoorStream.open(), close: () => NoorStream.close(), isOpen: () => document.body.classList.contains('stream-open') },
       },
@@ -2122,6 +2156,7 @@
     NoorVideo.init({ showError, onPlay: () => NoorMusic.pauseForVideo() });
     NoorStream.init({ showError });
     NoorApps.init({ showError });
+    NoorVoice.init({ showError, insertMarkdown: (md) => { if (!editor) return false; editor.focus(); return insertMarkdown(md); }, hasDocument: () => !!editor });
     NoorChrome.init({
       command: (id) => commandById.get(id) || null,
       run: runCommand,
@@ -2141,7 +2176,7 @@
       hasCommand: (id) => commandById.has(id),
       activeTabId: () => (t ? t.id : null),
       activeVaultPath: () => (t ? vaultRel(t.doc.path) : null),
-      insertText: (text) => { if (editor) { editor.focus(); editor.insertText(text); } },
+      insertText: (text) => { if (editor) { editor.focus(); insertMarkdown(text); } },
       findInDocument: async (q) => { await switching; showFind(false); $('#find-input').value = q; runFind(false); },
       searchOpenTabs, revealMatch, openTabCount: () => tabs.length,
     });
@@ -2191,6 +2226,7 @@
 
   // Exposed for the host (ExecuteScriptAsync) and for automated UI tests.
   window.NoorMD = Object.freeze({
+    insertMarkdown: (md) => { if (editor) editor.focus(); return insertMarkdown(md); },
     getState,
     /** Sends any pending keystrokes of a tab (default: the one on screen) and returns that tab's state. */
     flush(tabId) {

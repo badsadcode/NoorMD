@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0-preview.15 — Voice notes
+
+- **Voice notes** (Ctrl+Alt+D, or Tools › Voice notes) is a small recorder in a dock panel.
+  - Record with a level meter, and pause and continue.
+  - Listen to the take, give it a name, then save it or discard it.
+  - Recordings are saved next to your notes: the Vault's `attachments/Voice notes`, or
+    `Documents\NoorMD\Voice notes` without a Vault.
+  - Formats: **Opus** (small) or **WAV** (opens in every player).
+  - *Put a link into the document* adds `🎙 Name (0:42)` at the cursor, as a real link.
+  - Your recordings are listed with play, link, show in Explorer and delete (to the Recycle Bin).
+  - Music pauses while you record.
+  - NoorMD may use the microphone only for a few seconds after you press Record in NoorMD. Every
+    other request is refused, and the microphone is released when you stop.
+- **Fix: inserting into a document in Visual mode.** Video notes ("Into document"), Vault note
+  links, sketches, dropped files and voice notes used to appear as escaped text (`\[name\](…)`) in
+  Visual mode. They're now inserted as real links, lists and formatting. Markdown mode is unchanged.
+
 ## 2.0.0-preview.14 — Apps Hub
 
 - **Apps Hub** (Ctrl+Alt+H, or Tools › Apps Hub) holds your shortcuts to programs, games, folders,

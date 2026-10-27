@@ -119,7 +119,7 @@ public partial class MainWindow : Window
         Core.NewWindowRequested += OnNewWindowRequested;
         Core.FrameNavigationStarting += (_, e) => { if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || !AssetResolver.IsAppUri(u)) e.Cancel = true; };
         Core.DownloadStarting += (_, e) => { e.Cancel = true; };
-        Core.PermissionRequested += (_, e) => { e.State = CoreWebView2PermissionState.Deny; };
+        Core.PermissionRequested += OnPermissionRequested; // everything denied, except the microphone right after Record (voice notes)
         Core.ContextMenuRequested += OnContextMenuRequested;
         Core.ProcessFailed += OnProcessFailed;
         Core.WebMessageReceived += OnWebMessageReceived;
@@ -136,6 +136,7 @@ public partial class MainWindow : Window
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeMedia(uri, e)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeHubIcon(uri, e, Core.Environment)) return;
+            if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVoice(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVideo(uri, e, Core.Environment)) return;
             var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder, VaultRootFor(ActiveSession?.Path)) : null;
             if (file == null)
@@ -145,7 +146,7 @@ public partial class MainWindow : Window
             }
             var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
             if (AssetResolver.IsAppPage(uri) || AssetResolver.IsSketchPage(uri))
-                headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+                headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
             e.Response = Core.Environment.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", headers);
         }
         catch (Exception ex)

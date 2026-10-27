@@ -76,7 +76,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
   const shotsIdx = process.argv.indexOf('--screenshots');
   const shots = shotsIdx > 0 ? process.argv[shotsIdx + 1] : null;
   const { server, url } = await serve();
-  const browser = await chromium.launch({ args: ['--enable-blink-features=AudioVideoTracks'], ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}) });
+  const browser = await chromium.launch({ args: ['--enable-blink-features=AudioVideoTracks', '--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'], ...(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {}) });
   try {
     // ---- 1. Lossless document: Visual mode, exact content, not dirty, offline.
     {
@@ -2603,6 +2603,66 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const unexpected = errors.filter((e) => !/status of 404|addresses can't be added/.test(e));
       check('no page errors in the Apps Hub', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/apps-hub.png` });
+      await page.close();
+    }
+
+    // ---- 29. Voice notes: record (fake microphone), listen, save as Opus or WAV, link into the document; Visual-mode inserts.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Ideas\n\nToday:\n', path: 'C:\\Vaults\\Atlas\\Ideas.md', fileName: 'Ideas.md', title: 'Ideas' } }, { width: 1500, height: 950 });
+      const VS = () => page.evaluate(() => window.NoorVoice._state());
+      const VM = () => page.evaluate(() => window.__mock.state.voice);
+      await page.click('.toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+End');
+      await page.keyboard.press('Control+Alt+d');
+      await waitFn(page, () => window.NoorVoice._state().recording, null, { timeout: 5000 });
+      check('Ctrl+Alt+D opens the recorder and starts recording', await page.isVisible('#voicedesk'));
+      check('the microphone is asked for only after Record was pressed', (await VM()).armed === 1);
+      let levels = 0;
+      for (let i = 0; i < 12; i++) { await page.waitForTimeout(150); if ((await page.evaluate(() => parseFloat(document.querySelector('#voice-level').style.width) || 0)) > 0) levels++; }
+      check('the level meter moves while recording', levels > 0);
+      await page.click('#voice-pause');
+      check('pause pauses', (await VS()).paused);
+      await page.waitForTimeout(300);
+      await page.click('#voice-pause');
+      await page.waitForTimeout(500);
+      await page.keyboard.press('Control+Alt+d');
+      await page.waitForSelector('#voice-take-audio');
+      const take = (await VS()).take;
+      check('stopping keeps a take to listen to (the microphone is released)', take.size > 1000 && take.seconds > 1 && /webm/.test(take.type) && !(await VS()).recording, take);
+      await page.fill('#voice-name', 'Boss idea');
+      await page.click('#voice-save');
+      await waitFn(page, () => window.__mock.state.voice.saved.length === 1);
+      const saved = (await VM()).saved[0];
+      check('it is saved as Opus/WebM, sent in pieces and named', saved.name === 'Boss idea' && saved.ext === '.webm' && saved.head === '1a45dfa3' && saved.size === take.size, saved);
+      await waitFn(page, () => /Boss idea/.test(window.NoorMD.getState().markdown));
+      const md1 = await page.evaluate(() => window.NoorMD.getState().markdown);
+      check('a link to it goes into the document — a real link in Visual mode, not escaped text', /\[🎙 Boss idea \(0:0\d\)\]\(attachments\/Voice%20notes\/Boss%20idea\.webm\)/.test(md1) && !md1.includes('\\['), md1);
+      check('the recording is listed', (await page.textContent('#voice-list')).includes('Boss idea'));
+      // WAV for players that don't open Opus.
+      await page.selectOption('#voice-format', 'wav');
+      await page.click('#voice-rec');
+      await waitFn(page, () => window.NoorVoice._state().recording, null, { timeout: 5000 });
+      await page.waitForTimeout(900);
+      await page.click('#voice-rec');
+      await page.waitForSelector('#voice-take-audio');
+      await page.uncheck('#voice-insert');
+      await page.click('#voice-save');
+      await waitFn(page, () => window.__mock.state.voice.saved.length === 2, null, { timeout: 8000 });
+      const wav = (await VM()).saved[1];
+      check('WAV is written as real PCM WAV (RIFF)', wav.ext === '.wav' && wav.head === '52494646' && wav.size > 44 + 48000 * 0.5, wav);
+      check('without “Put a link” the document is left alone', (await page.evaluate(() => window.NoorMD.getState().markdown.match(/🎙/g) || [])).length === 1);
+      // Delete (after asking).
+      await page.click('.voice-item[data-file="Voice note 2.wav"] button[aria-label^="Delete"]');
+      await page.click('.modal button:has-text("Delete")');
+      await waitFn(page, () => !document.querySelector('.voice-item[data-file="Voice note 2.wav"]'));
+      check('a recording can be deleted', (await VM()).recordings.length === 1);
+      // Other inserts in Visual mode (notes into the document, sketches, drops) are formatted too.
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'insert.text', payload: { markdown: '\n- **0:05** First\n- **0:09** Second\n' } }));
+      await waitFn(page, () => /\* \*\*0:05\*\* First/.test(window.NoorMD.getState().markdown));
+      check('inserted Markdown becomes a real list in Visual mode', !(await page.evaluate(() => window.NoorMD.getState().markdown)).includes('\\*'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with voice notes', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/voice-notes.png` });
       await page.close();
     }
   } finally {

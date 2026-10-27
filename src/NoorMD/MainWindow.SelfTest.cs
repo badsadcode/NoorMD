@@ -578,6 +578,28 @@ public partial class MainWindow
             Hub.Remove(hubItem.Id);
         }
 
+        // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
+        await Eval(@"window.__vt = null; (async () => {
+            let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }
+            const ctx = new AudioContext(); const osc = ctx.createOscillator(); const dest = ctx.createMediaStreamDestination(); osc.connect(dest); osc.start(); await ctx.resume();
+            const mr = new MediaRecorder(dest.stream, { mimeType: 'audio/webm;codecs=opus' }); const chunks = []; mr.ondataavailable = e => chunks.push(e.data);
+            const stopped = new Promise(r => mr.onstop = r); mr.start(200); await new Promise(r => setTimeout(r, 1200)); mr.stop(); await stopped; osc.stop(); ctx.close();
+            const blob = new Blob(chunks, { type: 'audio/webm' });
+            const b64 = await new Promise(r => { const f = new FileReader(); f.onload = () => r(String(f.result).split(',')[1]); f.readAsDataURL(blob); });
+            const t = (await NoorBridge.request('voice.begin', { name: 'NoorMD self-test', ext: '.webm' })).token;
+            await NoorBridge.request('voice.chunk', { token: t, data: b64 });
+            const r = await NoorBridge.request('voice.finish', { token: t, seconds: 1.2 });
+            window.__vt = JSON.stringify({ path: r.path, link: r.link, size: blob.size, denied });
+          })().catch(e => window.__vt = JSON.stringify({ error: String(e) }))");
+        var vt = "null";
+        for (var i = 0; i < 60 && vt == "null"; i++) { await Task.Delay(200); vt = await Eval("window.__vt"); }
+        var voice = System.Text.Json.JsonDocument.Parse(JsonSerializer.Deserialize<string>(vt) ?? "{}").RootElement;
+        Check("voice notes: the page can't use the microphone unless Record was pressed", voice.TryGetProperty("denied", out var dn) && dn.GetString() == "NotAllowedError", vt);
+        var voicePath = voice.TryGetProperty("path", out var vp) ? vp.GetString() : null;
+        var head = voicePath != null && File.Exists(voicePath) ? File.ReadAllBytes(voicePath).Take(4).ToArray() : [];
+        Check("…a recording is saved as a real WebM file, with a link to it", head.SequenceEqual(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }) && voice.GetProperty("link").GetString()!.Contains("NoorMD self-test"), vt);
+        if (voicePath != null && File.Exists(voicePath)) File.Delete(voicePath);
+
         var status = await PageRequest("mic.status", "{}");
         Check("the page reads Mic Guard's state (off until switched on)", status.Contains("\"verdict\":\"notsetup\"") && status.Contains("\"windows\":false") && status.Contains("\"devices\":["), status.Length > 300 ? status[..300] : status);
     }
