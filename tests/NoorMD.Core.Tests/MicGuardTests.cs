@@ -103,6 +103,50 @@ public class MicGuardTests
         await Assert.ThrowsAsync<ObsException>(() => client.GetMuteAsync("Mic/Aux"));
     }
 
+    [Theory]
+    [InlineData("Ctrl+Alt+M", "Ctrl+Alt+M", "M")]
+    [InlineData("ctrl+shift+/", "Ctrl+Shift+/", "Oem2")]
+    [InlineData("Alt+\\", "Alt+\\", "Oem5")]
+    [InlineData("Ctrl+.", "Ctrl+.", "OemPeriod")]
+    [InlineData("Ctrl+1", "Ctrl+D1", "D1")]
+    [InlineData("F13", "F13", "F13")]
+    [InlineData("Pause", "Pause", "Pause")]
+    [InlineData("Win+Shift+Up", "Shift+Win+Up", "Up")]
+    public void Keys_Including_Characters_Are_Understood(string text, string shown, string key)
+    {
+        Assert.True(HotkeyGesture.TryParse(text, out var g, out var error), error);
+        Assert.Equal(shown, g!.ToString());
+        Assert.Equal(key, g.Key);
+        Assert.Equal(HotkeyMouse.None, g.Mouse);
+    }
+
+    [Theory]
+    [InlineData("Mouse4", HotkeyMouse.Back, "Mouse4")]
+    [InlineData("XButton2", HotkeyMouse.Forward, "Mouse5")]
+    [InlineData("Ctrl+MiddleMouse", HotkeyMouse.Middle, "Ctrl+MiddleMouse")]
+    public void Mouse_Buttons_Are_Understood(string text, HotkeyMouse button, string shown)
+    {
+        Assert.True(HotkeyGesture.TryParse(text, out var g, out var error), error);
+        Assert.Equal(button, g!.Mouse);
+        Assert.Null(g.Key);
+        Assert.Equal(shown, g.ToString());
+    }
+
+    [Theory]
+    [InlineData("M", "Add Ctrl")]
+    [InlineData("/", "Add Ctrl")]
+    [InlineData("MiddleMouse", "middle button")]
+    [InlineData("Ctrl+Alt", "Add a key")]
+    [InlineData("Ctrl+M+K", "one key")]
+    [InlineData("Ctrl+€", "not a key")]
+    [InlineData("", "Press a key")]
+    public void Risky_Or_Broken_Gestures_Are_Refused_With_A_Reason(string text, string reason)
+    {
+        Assert.False(HotkeyGesture.TryParse(text, out var g, out var error));
+        Assert.Null(g);
+        Assert.Contains(reason, error);
+    }
+
     private static int FreePort()
     {
         var l = new TcpListener(IPAddress.Loopback, 0);

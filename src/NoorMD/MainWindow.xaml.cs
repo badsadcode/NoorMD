@@ -313,6 +313,7 @@ public partial class MainWindow : Window
         }
         finally { _docGate.Release(); }
         try { _videoWindow?.Close(); } catch { /* the pop-out player goes with the main window */ }
+        try { _streamWindow?.Close(); } catch { /* the Stream Desk window goes with the main window */ }
         try { _overlay?.StopAsync().Wait(2000); } catch { /* the overlay server stops with the app */ }
         _closeConfirmed = true;
         Close();

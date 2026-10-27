@@ -201,6 +201,11 @@ public partial class MainWindow
         var p = req.Payload;
         switch (req.Type)
         {
+            case "stream.window":
+                return OpenStreamWindow(req.GetString("tab", 20), NoorMD.Core.Bridge.Json.IsTrue(p, "toggle"), NoorMD.Core.Bridge.Json.IsTrue(p, "close"));
+            case "stream.track":
+                SendTrackToStreamWindow();
+                return null;
             case "stream.status":
             {
                 var cfg = StreamCfg;
@@ -406,6 +411,7 @@ public partial class MainWindow
         }
         _overlay?.Broadcast("np.track", (_nowPlaying ?? new JsonObject()).ToJsonString());
         WriteNowPlayingTxt();
+        SendTrackToStreamWindow();
     }
 
     /// <summary>While a stream session runs, every newly started track is added to its tracklist with its offset.</summary>

@@ -17,22 +17,36 @@ window.NoorStream = (() => {
   let current = null;       // the stream being edited (StreamEntry for the page)
   let lastTrack = null, lastSent = 0;
   let saveNpTimer = 0, saveCrTimer = 0, statusTimer = 0;
-  let mic = null, micState = null; // Mic Guard: settings + devices from the host, live state from mic.state events
+  let mic = null, micState = null, micSettled = false; // Mic Guard: settings + devices from the host, live state from mic.state events
   const SAMPLE_TRACK = { id: 0, title: 'Night Drive', artist: 'Noor', playing: true, position: 74, duration: 200, art: null };
   const SAMPLE_PEOPLE = [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold' }, { name: 'Bartek', tier: 'Gold' }, { name: 'Celina', channel: 'https://www.twitch.tv/celina', tier: 'Silver' }, { name: 'Dawid', tier: 'Silver' }, { name: 'Ela' }];
   const isOpen = () => document.body.classList.contains('stream-open');
+  /** Today on the user's calendar (not UTC: a late-evening stream in Poland would otherwise be dated tomorrow). */
+  const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  // In its own window (stream.html) the Stream Desk is the whole page: the window's title bar closes it.
+  const inWindow = () => document.body.classList.contains('stream-window');
+  function setDirty(v) {
+    supportersDirty = v;
+    if (inWindow()) req('streamwin.dirty', { dirty: v }).catch(() => {});
+  }
 
   function init(h) {
     hooks = { ...hooks, ...h };
     NoorBridge.on('mic.state', (m) => { micState = m; renderMicState(); });
-    NoorBridge.on('mic.open', () => open('mic'));
+    NoorBridge.on('stream.tab', (p) => open(p && p.tab));
+    NoorBridge.on('stream.track', (p) => showTrack(p ? p.track : null));
+  }
+
+  /** The Now Playing preview follows the Music Bench (in the window, the host relays the playing song). */
+  function showTrack(t) {
+    lastTrack = t;
+    if (npPreview && isOpen() && tab === 'np') npPreview.setTrack(t || SAMPLE_TRACK);
   }
 
   // ------------------------------------------------------------------ now playing from the Music Bench
 
   function nowPlaying(t) {
-    lastTrack = t;
-    if (npPreview && isOpen() && tab === 'np') npPreview.setTrack(t || SAMPLE_TRACK);
+    showTrack(t);
     const now = Date.now();
     // The host only needs changes and a slow progress tick.
     const key = t ? `${t.id}|${t.playing}` : '';
@@ -57,7 +71,8 @@ window.NoorStream = (() => {
   async function close() {
     if (!built || !isOpen()) return;
     if (supportersDirty && !await NoorUI.confirm('Close with unsaved supporters?', 'The supporters list has changes that are not saved yet.', 'Close without saving')) return;
-    supportersDirty = false;
+    setDirty(false);
+    if (inWindow()) { req('streamwin.close').catch(() => {}); return; }
     document.body.classList.remove('stream-open');
     $('#streamdesk').hidden = true;
     clearInterval(statusTimer);
@@ -86,15 +101,15 @@ window.NoorStream = (() => {
     built = true;
     const tabs = [['np', '🎵 Now Playing'], ['credits', '🎬 Credits roll'], ['supporters', '💜 Supporters'], ['log', '📼 Stream log'], ['mic', '🎙 Mic Guard']];
     document.body.append(el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
-      el('header', { class: 'vb-head' },
-        el('strong', { class: 'vb-title' }, '📡 Stream Desk'),
+      el('header', { class: 'sd-head' },
+        el('strong', { class: 'sd-title' }, '📡 Stream Desk'),
         el('div', { class: 'sd-tabs', role: 'tablist' }, ...tabs.map(([id, label]) => el('button', { role: 'tab', 'data-sdtab': id, onclick: () => setTab(id) }, label))),
         el('button', { class: 'sd-mic-pill', id: 'sd-mic-pill', hidden: true, title: 'Mic Guard: click to mute / unmute', onclick: () => toggleMic() }),
         el('span', { class: 'sd-server', id: 'sd-server' }),
-        el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕')),
+        el('button', { class: 'icon-btn sd-close', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕')),
       el('div', { class: 'sd-body', id: 'sd-body' })));
     $('#streamdesk').addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && !e.target.closest('input, textarea, select')) { e.preventDefault(); e.stopPropagation(); close(); }
+      if (e.key === 'Escape' && !inWindow() && !e.target.closest('input, textarea, select')) { e.preventDefault(); e.stopPropagation(); close(); }
     });
   }
 
@@ -106,7 +121,9 @@ window.NoorStream = (() => {
     if (crPreview) { crPreview.destroy(); crPreview = null; }
     npPreview = null;
     const body = $('#sd-body');
-    body.replaceChildren();
+    // Mic Guard redraws after every setting: it swaps its content in one go (no empty flash, see renderMic).
+    if (id !== 'mic') body.replaceChildren();
+    micSettled = false;
     if (id === 'np') renderNowPlaying(body);
     else if (id === 'credits') renderCredits(body, gen);
     else if (id === 'supporters') renderSupporters(body, gen);
@@ -223,7 +240,7 @@ window.NoorStream = (() => {
   // ------------------------------------------------------------------ Credits roll and effect builder
 
   async function loadSupporters() {
-    try { const r = await req('stream.supporters.get'); supporters = r.supporters; supportersPath = r.path; supportersDirty = false; return true; }
+    try { const r = await req('stream.supporters.get'); supporters = r.supporters; supportersPath = r.path; setDirty(false); return true; }
     catch { supporters = []; return false; }
   }
 
@@ -349,8 +366,8 @@ window.NoorStream = (() => {
     const table = el('div', { class: 'sd-table', id: 'sup-table', role: 'table', 'aria-label': 'Supporters' });
     const saveBtn = el('button', { class: 'action primary', id: 'sup-save', onclick: saveSupporters }, 'Save');
     const counts = el('span', { class: 'pref-hint', id: 'sup-counts' });
-    const dirty = () => { supportersDirty = true; saveBtn.textContent = 'Save ●'; };
-    const today = () => new Date().toISOString().slice(0, 10);
+    const dirty = () => { if (!supportersDirty) setDirty(true); saveBtn.textContent = 'Save ●'; };
+    const today = localDate;
     function draw() {
       const list = supporters.map((s, i) => [s, i]).filter(([s]) => supportersFilter === 'all' || (supportersFilter === 'active' ? s.active : !s.active));
       counts.textContent = `${supporters.filter((s) => s.active).length} active · ${supporters.filter((s) => !s.active).length} left · ${supportersPath}`;
@@ -376,7 +393,7 @@ window.NoorStream = (() => {
     filter.addEventListener('change', () => { supportersFilter = filter.value; draw(); });
     async function saveSupporters() {
       for (const s of supporters) { s.active = !s.until; }
-      try { const r = await req('stream.supporters.save', { supporters }); supportersDirty = false; saveBtn.textContent = 'Save'; notice(`Saved ${r.count} supporters to ${r.path}`, 2500); await loadSupporters(); draw(); }
+      try { const r = await req('stream.supporters.save', { supporters }); setDirty(false); saveBtn.textContent = 'Save'; notice(`Saved ${r.count} supporters to ${r.path}`, 2500); await loadSupporters(); draw(); }
       catch (err) { hooks.showError(err); }
     }
     body.append(el('div', { class: 'sd-supporters' },
@@ -385,7 +402,7 @@ window.NoorStream = (() => {
         el('button', { class: 'utility-btn', id: 'sup-import', onclick: importSupporters }, '⇩ Paste from an export…'),
         filter, counts,
         el('span', { class: 'sd-spacer' }),
-        el('button', { class: 'utility-btn', onclick: () => req('vault.openFile', { path: supportersPath }).then(close).catch(hooks.showError) }, 'Open the note'),
+        el('button', { class: 'utility-btn', onclick: () => req('vault.openFile', { path: supportersPath }).then(() => { if (!inWindow()) close(); }).catch(hooks.showError) }, 'Open the note'),
         saveBtn),
       table));
     draw();
@@ -460,7 +477,7 @@ window.NoorStream = (() => {
       el('div', { class: 'sd-card' }, el('h3', { text: 'Tracklist' }), el('div', { id: 'log-session' }), el('ol', { class: 'sd-tracks', id: 'log-tracks' })),
       el('div', { class: 'sd-row sd-top' }, el('span', { class: 'sd-label', text: 'Notes' }), field('notes', { rows: '3' })),
       el('div', { class: 'sd-row' }, el('span', { class: 'sd-spacer' }),
-        e.path ? el('button', { class: 'utility-btn', onclick: () => req('vault.openFile', { path: e.path }).then(close).catch(hooks.showError) }, 'Open the note') : null,
+        e.path ? el('button', { class: 'utility-btn', onclick: () => req('vault.openFile', { path: e.path }).then(() => { if (!inWindow()) close(); }).catch(hooks.showError) }, 'Open the note') : null,
         el('button', { class: 'action primary', id: 'log-save', onclick: saveEntry }, e.path ? 'Save' : 'Save to Vault')));
     body.append(el('div', { class: 'sd-log' }, list, form));
     renderSession();
@@ -491,7 +508,7 @@ window.NoorStream = (() => {
     }
   }
 
-  function blank(number) { return { title: '', date: new Date().toISOString().slice(0, 10), number, description: '', keywords: '', thumbnail: null, thumbnailData: null, url: '', notes: '', tracklist: [], path: null }; }
+  function blank(number) { return { title: '', date: localDate(), number, description: '', keywords: '', thumbnail: null, thumbnailData: null, url: '', notes: '', tracklist: [], path: null }; }
 
   /** Inside the description, {tracklist} is replaced by YouTube-style chapters built from the tracklist. */
   async function withChapters(text) {
@@ -555,17 +572,32 @@ window.NoorStream = (() => {
     try { mic = await req('mic.toggle'); micState = null; renderMicState(); } catch (err) { hooks.showError(err); }
   }
 
-  /** Turns a keydown into a gesture the host understands ("Ctrl+Alt+M", "Ctrl+Shift+F9"); null while only modifiers are held. */
+  const KEY_NAMES = {
+    Slash: '/', Backslash: '\\', IntlBackslash: 'IntlBackslash', Comma: ',', Period: '.', Semicolon: ';', Quote: "'", BracketLeft: '[', BracketRight: ']',
+    Backquote: '`', Minus: '-', Equal: '=', ArrowUp: 'Up', ArrowDown: 'Down', ArrowLeft: 'Left', ArrowRight: 'Right',
+    NumpadAdd: 'Add', NumpadSubtract: 'Subtract', NumpadMultiply: 'Multiply', NumpadDivide: 'Divide', NumpadDecimal: 'Decimal', NumpadEnter: 'Enter',
+    Enter: 'Enter', Backspace: 'Back', Delete: 'Delete', Insert: 'Insert', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown',
+    PrintScreen: 'PrintScreen', Pause: 'Pause', ScrollLock: 'Scroll', Space: 'Space', ContextMenu: 'Apps',
+    MediaPlayPause: 'MediaPlayPause', MediaTrackNext: 'MediaNextTrack', MediaTrackPrevious: 'MediaPreviousTrack', MediaStop: 'MediaStop',
+  };
+  const MOUSE_NAMES = { 1: 'MiddleMouse', 3: 'Mouse4', 4: 'Mouse5' };
+  const mods = (e) => [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win'].filter(Boolean);
+
+  /** Turns a keydown (or a middle/side mouse button) into a gesture the host understands ("Ctrl+Alt+M", "Ctrl+/", "Mouse4"). */
   function gestureFrom(e) {
+    if (e.type === 'mousedown' || e.type === 'auxclick' || ('button' in e && !('code' in e))) {
+      const b = MOUSE_NAMES[e.button];
+      return b ? [...mods(e), b].join('+') : null;
+    }
     const c = e.code || '';
     let key = null;
     if (/^Key[A-Z]$/.test(c)) key = c.slice(3);
     else if (/^Digit\d$/.test(c)) key = 'D' + c.slice(5);
     else if (/^F\d{1,2}$/.test(c)) key = c;
     else if (/^Numpad\d$/.test(c)) key = 'NumPad' + c.slice(6);
-    else key = { Pause: 'Pause', ScrollLock: 'Scroll', Insert: 'Insert', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'Next', Backquote: 'Oem3', Minus: 'OemMinus', Equal: 'OemPlus', Space: 'Space' }[c] || null;
+    else key = KEY_NAMES[c] || null;
     if (!key) return null;
-    return [e.ctrlKey && 'Ctrl', e.altKey && 'Alt', e.shiftKey && 'Shift', e.metaKey && 'Win', key].filter(Boolean).join('+');
+    return [...mods(e), key].join('+');
   }
 
   function renderMicState() {
@@ -589,7 +621,9 @@ window.NoorStream = (() => {
     if (gen !== renderGen) return;
     micState = null;
     const c = mic.config;
+    const frag = document.createDocumentFragment();
     const save = async (patch, redraw = true) => {
+      if (redraw) micSettled = false;
       try { mic = await req('mic.config', patch); micState = null; } catch (err) { hooks.showError(err); }
       if (redraw && tab === 'mic') setTab('mic'); else renderMicState();
     };
@@ -610,7 +644,13 @@ window.NoorStream = (() => {
         mic = await req('mic.obs.connect', { password: pw.value, remember: remember.checked });
         pw.value = '';
         notice('Connected to OBS', 1600);
-      } catch (err) { hooks.showError(err); }
+      } catch (err) {
+        // Keep the form as it is, so a mistyped password can just be corrected.
+        hooks.showError(err);
+        const line = $('#mic-obs-line');
+        if (line) line.textContent = err.message;
+        return;
+      }
       if (tab === 'mic') setTab('mic');
     };
     const input = el('select', { id: 'mic-obs-input', 'aria-label': 'OBS microphone source', disabled: !mic.obs.inputs.length || undefined },
@@ -618,17 +658,21 @@ window.NoorStream = (() => {
     input.value = c.obsInput || '';
     input.addEventListener('change', () => save({ obsInput: input.value }, false));
 
-    const hk = el('input', { type: 'text', id: 'mic-hotkey', readonly: true, value: c.hotkey || '', placeholder: 'Click, then press keys', 'aria-label': 'Mic Guard hotkey' });
+    const hk = el('input', { type: 'text', id: 'mic-hotkey', readonly: true, value: c.hotkey || '', placeholder: 'Click here, then press keys or a mouse button', 'aria-label': 'Mic Guard hotkey' });
     hk.addEventListener('keydown', (e) => {
-      if (e.key === 'Tab') return;
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) return;
       e.preventDefault(); e.stopPropagation();
-      if (e.key === 'Escape' || e.key === 'Backspace' || e.key === 'Delete') { hk.value = ''; return; }
+      const plain = !e.ctrlKey && !e.altKey && !e.shiftKey && !e.metaKey;
+      if (e.key === 'Escape' || (plain && (e.key === 'Backspace' || e.key === 'Delete'))) { hk.value = ''; return; }
       const g = gestureFrom(e);
       if (g) hk.value = g;
     });
+    // Middle and side mouse buttons: record them, and keep the side buttons from acting as Back / Forward here.
+    hk.addEventListener('mousedown', (e) => { const g = gestureFrom(e); if (g) { e.preventDefault(); hk.focus(); hk.value = g; } });
+    ['mouseup', 'auxclick'].forEach((t) => hk.addEventListener(t, (e) => { if (e.button !== 0) e.preventDefault(); }));
     const range = (id, key, min, max, step) => { const r = el('input', { type: 'range', id, min, max, step, value: String(c[key]) }); r.addEventListener('change', () => save({ [key]: Number(r.value) }, false)); return r; };
 
-    body.append(el('div', { class: 'sd-grid' },
+    frag.append(el('div', { class: 'sd-grid' },
       el('div', { class: 'sd-col' },
         el('section', { class: 'sd-card' },
           el('div', { class: 'mic-verdict', id: 'mic-verdict' }),
@@ -658,7 +702,7 @@ window.NoorStream = (() => {
           el('div', { class: 'sd-row' }, hk, el('button', { class: 'utility-btn', id: 'mic-hotkey-save', onclick: () => save({ hotkey: hk.value }) }, 'Use this key'),
             el('button', { class: 'utility-btn', onclick: () => save({ hotkey: '' }) }, 'Clear')),
           mic.hotkey.error ? el('p', { class: 'mic-error', text: mic.hotkey.error }) : null,
-          el('p', { class: 'pref-hint', text: 'Works everywhere, also in games. If anything is live it mutes everything; only when everything is muted does it unmute. Use a key that OBS and Discord do NOT also use, and remove their own mute keybinds: two switches on one key is what makes them drift apart.' })),
+          el('p', { class: 'pref-hint', text: 'A key with Ctrl/Alt/Shift (also / \\ , . and the like), a function key up to F24, or a side mouse button. Works everywhere, also in games. If anything is live it mutes everything; only when everything is muted does it unmute. Use a key that OBS and Discord do NOT also use, and remove their own mute keybinds: two switches on one key is what makes them drift apart.' })),
         el('section', { class: 'sd-card' },
           el('h3', { text: 'Floating indicator' }),
           check('mic-indicator', c.indicator, 'Show the indicator on top of other windows', (on) => save({ indicator: on })),
@@ -669,11 +713,13 @@ window.NoorStream = (() => {
         el('section', { class: 'sd-card' },
           el('h3', { text: 'Discord' }),
           el('p', { class: 'pref-hint', text: 'Discord doesn’t let other apps read or press its own mute button reliably, so NoorMD doesn’t try. With the Windows microphone muted, Discord hears silence; Discord’s mute icon just won’t change. NoorMD never logs into Discord or automates your account.' })))));
+    body.replaceChildren(frag);
+    micSettled = true;
     renderMicState();
   }
 
   return {
     init, open, close, toggle, isOpen, nowPlaying, toggleMic, _gesture: gestureFrom,
-    _state: () => ({ open: isOpen(), tab, mic: mic && mic.config, micVerdict: (micState || mic || {}).verdict, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
+    _state: () => ({ open: isOpen(), tab, micSettled, mic: mic && mic.config, micVerdict: (micState || mic || {}).verdict, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
   };
 })();

@@ -34,6 +34,9 @@ public static class AssetResolver
     public const string VideoPagePath = "/_noormd/video.html";
     public static bool IsVideoPage(Uri uri) => IsAppUri(uri) && uri.AbsolutePath == VideoPagePath;
 
+    public const string StreamPagePath = "/_noormd/stream.html";
+    public static bool IsStreamPage(Uri uri) => IsAppUri(uri) && uri.AbsolutePath == StreamPagePath;
+
     public static bool IsAppPage(Uri uri) => IsAppUri(uri) && (uri.AbsolutePath == "/" || uri.AbsolutePath == "/index.html");
 
     /// <summary>Returns the file to serve, or null (404). Never returns a path outside the allowed roots.</summary>

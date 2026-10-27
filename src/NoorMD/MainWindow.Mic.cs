@@ -195,7 +195,7 @@ public partial class MainWindow
     internal void MicToggleFromIndicator() => _ = MicToggleAsync("indicator");
     internal void MicSetFromIndicator(bool muted) => _ = MicSetAsync(muted);
     internal void HideMicIndicator() { MicCfg["indicator"] = false; SaveStreamCfg(); _micIndicator?.Close(); _micIndicator = null; MicPublish(); }
-    internal void ShowMicSettings() { if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal; Activate(); PushEvent("mic.open", null); }
+    internal void ShowMicSettings() => OpenStreamWindow("mic", false, false);
 
     internal void MicIndicatorMoved(double x, double y)
     {
@@ -259,7 +259,9 @@ public partial class MainWindow
         }
         if (verdict != _lastVerdict && verdict == MicVerdict.Mismatch) Log.Info($"Mic Guard: out of step (Windows {_micWin}, OBS {_micObs})");
         _lastVerdict = verdict;
-        if (_webReady) PushEvent("mic.state", new { verdict = verdict.ToString().ToLowerInvariant(), label = MicGuard.Label(verdict), explain = MicGuard.Explain(verdict, _micWin, _micObs), windows = SideName(_micWin), obs = SideName(_micObs), obsConnected = _obs is { Connected: true }, obsError = _obsError });
+        var state = new { verdict = verdict.ToString().ToLowerInvariant(), label = MicGuard.Label(verdict), explain = MicGuard.Explain(verdict, _micWin, _micObs), windows = SideName(_micWin), obs = SideName(_micObs), obsConnected = _obs is { Connected: true }, obsError = _obsError };
+        if (_webReady) PushEvent("mic.state", state);
+        _streamWindow?.PostEvent("mic.state", state);
     }
 
     private static string MicWord(MicSide s) => s switch { MicSide.Live => "live", MicSide.Muted => "muted", _ => "?" };
@@ -288,8 +290,9 @@ public partial class MainWindow
                 if (p.TryGetProperty("hotkey", out _))
                 {
                     var g = req.GetString("hotkey", 60)?.Trim();
-                    if (!string.IsNullOrEmpty(g) && !GlobalHotkey.TryParse(g, out _, out _, out var err)) throw new BridgeError(err!);
-                    MicCfg["hotkey"] = string.IsNullOrEmpty(g) ? null : g;
+                    HotkeyGesture? parsed = null;
+                    if (!string.IsNullOrEmpty(g) && !GlobalHotkey.TryParse(g, out parsed, out _, out var err)) throw new BridgeError(err!);
+                    MicCfg["hotkey"] = parsed?.ToString();
                 }
                 SaveStreamCfg();
                 ApplyMicConfig();

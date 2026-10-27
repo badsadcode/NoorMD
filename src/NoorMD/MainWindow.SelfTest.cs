@@ -501,6 +501,11 @@ public partial class MainWindow
             var err = hk.Set("Ctrl+Alt+Shift+F11");
             Check("a system-wide hotkey can be registered and released", err == null && hk.Gesture == "Ctrl+Alt+Shift+F11", err);
             Check("plain letters are refused as a global hotkey", hk.Set("M") is { } e && e.Contains("Ctrl"));
+            var slash = hk.Set("Ctrl+Alt+Shift+/");
+            Check("keys like / can be a hotkey", slash == null && hk.Gesture == "Ctrl+Alt+Shift+/", slash);
+            var side = hk.Set("Mouse5");
+            Check("a side mouse button can be the hotkey (mouse hook installs and releases)", side == null && hk.Gesture == "Mouse5", side);
+            hk.Clear();
         }
 
         var ind = new MicIndicatorWindow(this);
@@ -511,6 +516,25 @@ public partial class MainWindow
         Check("the floating mic indicator opens on top without taking focus", ind.IsVisible && ind.Topmost && !ind.IsActive && ind.ActualWidth > 60, $"{ind.ActualWidth:0}×{ind.ActualHeight:0}");
         Check("…and is hidden from screen capture (Windows 10 2004+)", ind.ExcludedFromCapture);
         ind.Close();
+
+        // The Stream Desk's own window: opens with its page at full size, reaches the Stream Desk, and nothing else.
+        OpenStreamWindow("mic", false, false);
+        var sw = _streamWindow!;
+        var page = "";
+        for (var i = 0; i < 40; i++)
+        {
+            await Task.Delay(200);
+            try { page = await sw.EvalAsync("JSON.stringify([window.innerWidth, !!document.querySelector('#streamdesk:not([hidden])'), !!document.querySelector('#mic-verdict'), document.querySelector('[data-sdtab=\"mic\"]')?.getAttribute('aria-selected')])"); } catch { }
+            if (page.Contains("true,true")) break;
+        }
+        Check("the Stream Desk opens in its own window, on the requested tab, at full size", page.Contains("true,true,\\\"true\\\"") && int.TryParse(page.Trim('"').TrimStart('[').Split(',')[0], out var sww) && sww > 500, page);
+        await sw.EvalAsync("window.__sw = null; NoorBridge.request('doc.save', {}).then(() => window.__sw = 'allowed', e => window.__sw = 'refused: ' + e.message)");
+        var refused = "";
+        for (var i = 0; i < 20 && !refused.Contains("refused") && !refused.Contains("allowed"); i++) { await Task.Delay(100); refused = await sw.EvalAsync("window.__sw"); }
+        Check("the Stream Desk window can't use the editor's commands", refused.Contains("refused"), refused);
+        OpenStreamWindow(null, false, close: true);
+        await Task.Delay(300);
+        Check("…and closes, remembering where it was", _streamWindow == null && StreamCfg["window"] is System.Text.Json.Nodes.JsonObject);
 
         var status = await PageRequest("mic.status", "{}");
         Check("the page reads Mic Guard's state (off until switched on)", status.Contains("\"verdict\":\"notsetup\"") && status.Contains("\"windows\":false") && status.Contains("\"devices\":["), status.Length > 300 ? status[..300] : status);

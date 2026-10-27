@@ -148,6 +148,9 @@ function mockHostScript(initial) {
         case 'export.pdf': return reply(m.id, true, { path: 'C:\\out.pdf' });
         case 'link.open': state.lastLink = p.href; return reply(m.id, true, {});
         case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
+        case 'streamwin.ready': return reply(m.id, true, { tab: initial.streamTab || null });
+        case 'streamwin.close': state.streamClosed = (state.streamClosed || 0) + 1; return reply(m.id, true, null);
+        case 'streamwin.dirty': state.streamDirty = !!p.dirty; return reply(m.id, true, null);
         case 'recovery.list': return reply(m.id, true, state.recovery);
         default:
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
@@ -294,7 +297,7 @@ function mockHostScript(initial) {
   state.vault = V;
 
   // ---- mock Stream Desk host (MainWindow.Stream.cs): config in memory, supporters/streams as objects.
-  const ST = { running: false, port: 47321, clients: 0, np: null, cr: null, effects: [], templates: [], txt: { enabled: false, path: 'C:\\Users\\me\\now-playing.txt', format: '{artist} - {title}' },
+  const ST = { windows: [], running: false, port: 47321, clients: 0, np: null, cr: null, effects: [], templates: [], txt: { enabled: false, path: 'C:\\Users\\me\\now-playing.txt', format: '{artist} - {title}' },
     updates: [], starts: 0, stops: 0, supporters: initial.supporters || [], streams: [], session: null, saved: [], vault: initial.streamVault ? 'C:\\Vault' : null };
   state.stream = ST;
   function streamMock(type, p) {
@@ -303,6 +306,8 @@ function mockHostScript(initial) {
       case 'stream.status': return { server: { running: ST.running, port: ST.port, url: `http://127.0.0.1:${ST.port}/`, clients: ST.clients }, enabled: ST.running, nowPlaying: ST.np, credits: ST.cr, effects: ST.effects, templates: ST.templates, txt: ST.txt, vault: ST.vault, supportersNote: 'Stream/Supporters.md', streamsFolder: 'Streams', session: ST.session };
       case 'stream.server': ST.running = !!p.enabled; ST.port = p.port || ST.port; return ST.running ? { running: true, url: `http://127.0.0.1:${ST.port}/` } : { running: false };
       case 'stream.np.config': ST.np = p.config; return null;
+      case 'stream.window': ST.windows.push({ ...p }); return { open: !p.close };
+      case 'stream.track': return null;
       case 'stream.np.update': ST.updates.push(p.track); if (ST.session && p.track && p.track.playing && ST.session.last !== p.track.id) { ST.session.marks.push({ offset: ST.session.marks.length * 200, text: (p.track.artist ? p.track.artist + ' – ' : '') + p.track.title, stamp: '00:0' + ST.session.marks.length + ':00' }); ST.session.last = p.track.id; } return null;
       case 'stream.credits.config': ST.cr = p.config; ST.effects = p.effects || ST.effects; return null;
       case 'stream.credits.start': if (!ST.running) throw new Error('Turn on the OBS overlay server first.'); ST.starts++; return { clients: 1 };

@@ -147,6 +147,12 @@ Windows Credential Manager as `NoorMD/obs-websocket` and never returned to the p
 | `mic.obs.connect` | `{ password?, remember }` | the status (a stored password is used when none is given) |
 | `mic.obs.forget` / `mic.toggle` / `mic.set` | — / — / `{ muted }` | the status |
 
+The Stream Desk runs in its own window (`/_noormd/stream.html`, StreamWindow.cs). Its page may only send `stream.*`,
+`mic.*`, `clipboard.copyText`, `vault.open` and `vault.openFile`, plus `streamwin.ready` (→ `{ tab }`),
+`streamwin.close` and `streamwin.dirty` (`{ dirty }`). The host sends it `stream.tab`, `stream.track` (the playing
+song) and `mic.state`. The main page opens it with `stream.window` (`{ tab?, close? }` → `{ open }`) and gets
+`stream.window` (`{ open: false }`) when it closes.
+
 Events: `mic.state` (`{ verdict, label, explain, windows, obs, obsConnected, obsError }` on every change),
 `mic.open` (the indicator's "Mic Guard settings…").
 

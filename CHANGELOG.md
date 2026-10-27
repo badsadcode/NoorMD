@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-preview.10 — Stream Desk window, mouse buttons for Mic Guard
+
+- **The Stream Desk has its own window.** You can put it on a second monitor next to OBS, and the
+  editor stays free. Ctrl+Alt+B, the Stream menu and Ctrl+K open it or bring it forward; the
+  title bar closes it. It remembers its size and position. It only gets the Stream Desk and Mic
+  Guard commands. If you close it with unsaved changes to the supporters list, it asks first.
+- **Mic Guard hotkey: mouse buttons and more keys.**
+  - The side buttons on the mouse (Mouse4 / Mouse5) work, alone or with Ctrl/Alt/Shift. So does the
+    middle button with a modifier.
+  - The click that mutes is not passed on, so a browser or game doesn't also go "back".
+  - Keys like `/ \ , . ; ' [ ] - =`, the arrow keys, the numpad, F13–F24 and the media keys now
+    work too.
+- **Layout fixes:**
+  - The Stream Desk header no longer breaks into lines with the ✕ out of place.
+  - Text fields and menus have the app's style.
+  - The microphone menu stays inside its card.
+  - A mistyped OBS password stays in the field so it can be corrected.
+- Dates in the Stream Desk (supporters "Left on", a new stream's date) use your local date. Before,
+  they used UTC, so a late-evening stream in Poland could be dated the next day.
+
 ## 2.0.0-preview.9 — Mic Guard
 
 **Mic Guard** (Stream Desk › 🎙 Mic Guard) ends the "OBS muted, Discord live" mix-ups. Everything is

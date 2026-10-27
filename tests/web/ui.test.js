@@ -57,6 +57,18 @@ async function open(browser, base, initial, viewport = { width: 1440, height: 90
 }
 
 const settleClose = (page) => page.waitForTimeout(250);
+
+/** The Stream Desk's own window (stream.html), with the same mock host as the main page. */
+async function openStream(browser, base, initial, viewport = { width: 1440, height: 900 }) {
+  const page = await browser.newPage({ viewport });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  await page.addInitScript(mockHostScript, initial);
+  await page.goto(base + '_noormd/stream.html');
+  await page.waitForSelector('#streamdesk:not([hidden])');
+  return { page, errors };
+}
 const state = (page) => page.evaluate(() => window.NoorMD.getState());
 const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) => m.type === t).length, type);
 
@@ -2066,15 +2078,35 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 4, streamVault: true,
         supporters: [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold', since: '2026-01-01', until: null }, { name: 'Bartek', channel: null, tier: null, since: '2025-05-05', until: '2026-02-02' }] }, { width: 1600, height: 1000 });
-      const S = () => page.evaluate(() => window.__mock.state.stream);
-      // Music → Stream Desk: what plays is reported to the host.
+      // The main window: the Music Bench reports what plays; Ctrl+Alt+B and the menu open the Stream Desk window.
+      const M = () => page.evaluate(() => window.__mock.state.stream);
       await page.evaluate(() => window.NoorMusic.playRandom());
       await waitFn(page, () => window.__mock.state.stream.updates.some((t) => t && t.playing), null, { timeout: 6000 });
-      check('the playing song is reported for overlays and the tracklist', (await S()).updates.find((t) => t && t.playing).title.length > 0);
+      check('the playing song is reported for overlays and the tracklist', (await M()).updates.find((t) => t && t.playing).title.length > 0);
+      check('the Stream Desk is no longer drawn over the editor', !(await page.$('#streamdesk')));
       await page.keyboard.press('Control+Alt+b');
-      await page.waitForSelector('#streamdesk:not([hidden])');
-      check('Ctrl+Alt+B opens the Stream Desk on Now Playing', await page.isVisible('#np-frame .ovnp'));
-      check('the preview shows the song that is playing', (await page.textContent('#np-frame')).length > 0 && !(await page.textContent('#np-frame')).includes('Night Drive'));
+      await waitFn(page, () => window.__mock.state.stream.windows.length === 1);
+      check('Ctrl+Alt+B opens the Stream Desk window', true);
+      await page.keyboard.press('Control+k');
+      await page.keyboard.type('Credits roll');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.stream.windows.length === 2);
+      check('menu and Ctrl+K items open its tabs', (await M()).windows[1].tab === 'credits');
+      const mainErrors = errors.filter((e) => !/Empty src|status of 404/.test(e));
+      check('no page errors in the main window', mainErrors.length === 0, mainErrors);
+      await page.close();
+    }
+    {
+      const { page, errors } = await openStream(browser, url, { streamVault: true,
+        supporters: [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold', since: '2026-01-01', until: null }, { name: 'Bartek', channel: null, tier: null, since: '2025-05-05', until: '2026-02-02' }] }, { width: 1600, height: 1000 });
+      const S = () => page.evaluate(() => window.__mock.state.stream);
+      check('the Stream Desk window opens on Now Playing', await page.isVisible('#np-frame .ovnp'));
+      check('in its own window it has no ✕ of its own (the title bar closes it)', !(await page.isVisible('.sd-close')));
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'stream.track', payload: { track: { id: 7, title: 'Żółta łódź', artist: 'Noor', playing: true, position: 3, duration: 120 } } }));
+      await waitFn(page, () => /Żółta łódź/.test(document.querySelector('#np-frame').textContent));
+      check('the preview shows the song the Music Bench is playing', !(await page.textContent('#np-frame')).includes('Night Drive'));
+      const head = await page.evaluate(() => { const h = document.querySelector('.sd-head').getBoundingClientRect(); const t = document.querySelector('.sd-tabs').getBoundingClientRect(); return { h: h.height, top: t.top - h.top }; });
+      check('the header keeps the title, tabs and status on one tidy row', head.h < 60 && head.top < 20, head);
       await page.check('#sd-server-on');
       await waitFn(page, () => window.__mock.state.stream.running === true);
       await waitFn(page, () => /127\.0\.0\.1:47321/.test(document.querySelector('#sd-server').textContent));
@@ -2134,7 +2166,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#sup-save');
       await waitFn(page, () => window.__mock.state.stream.supporters.length === 4);
       const sup = (await S()).supporters;
-      check('supporters are saved: new ones added, people who left kept with a date', sup.find((x) => x.name === 'Dawid') && !sup.find((x) => x.name === 'Celina').until && sup.find((x) => x.name === 'Ania').until === '2026-10-26' && sup.find((x) => x.name === 'Bartek').until === '2026-02-02', sup);
+      const todayLocal = await page.evaluate(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; });
+      check('supporters are saved: new ones added, people who left kept with today’s date', sup.find((x) => x.name === 'Dawid') && !sup.find((x) => x.name === 'Celina').until && sup.find((x) => x.name === 'Ania').until === todayLocal && sup.find((x) => x.name === 'Bartek').until === '2026-02-02', sup);
 
       // Stream log: template, recording the tracklist, chapters in the copied description, thumbnail, save.
       await page.click('[data-sdtab="log"]');
@@ -2153,8 +2186,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a template fills the title, description and keywords', (await page.inputValue('#log-desc')).includes('{tracklist}') && (await page.inputValue('#log-keywords')).includes('suno'));
       await page.click('#log-record');
       await waitFn(page, () => !!window.__mock.state.stream.session);
-      await page.evaluate(() => window.NoorMusic.next());
-      await page.evaluate(() => window.NoorMusic.nowPlaying());
+      // The host relays each song the Music Bench starts (the main window sends it, see above).
+      await page.evaluate(() => NoorBridge.request('stream.np.update', { track: { id: 9, title: 'Night shift', artist: 'Suno', playing: true, position: 0, duration: 200 } }));
       await waitFn(page, () => window.__mock.state.stream.session.marks.length >= 1, null, { timeout: 4000 });
       await page.evaluate(async () => { const r = await NoorBridge.request('stream.status'); return r; });
       await page.click('[data-sdtab="log"]');
@@ -2174,7 +2207,10 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => document.querySelectorAll('#log-history .vb-item').length === 1);
       check('the stream appears in the history', (await page.textContent('#log-history')).includes('Suno music stream #1'));
       await page.keyboard.press('Escape');
+      check('Esc does not close the Stream Desk window', await page.isVisible('#streamdesk'));
       await page.evaluate(() => window.NoorStream.close());
+      await waitFn(page, () => window.__mock.state.streamClosed === 1);
+      check('closing asks the host to close the window', true);
       const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
       check('no page errors in the Stream Desk', unexpected.length === 0, unexpected);
       if (shots) { await page.evaluate(() => window.NoorStream.open('credits')); await page.waitForTimeout(800); await page.screenshot({ path: `${shots}/stream.png` }); }
@@ -2203,20 +2239,21 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
     // ---- 24. Mic Guard: one switch for the Windows microphone and OBS, read back, with a hotkey and an indicator.
     {
-      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const { page, errors } = await openStream(browser, url, { streamTab: 'mic' }, { width: 1500, height: 1000 });
       const MIC = () => page.evaluate(() => window.__mock.state.mic);
-      await page.evaluate(() => window.NoorStream.open('mic'));
       await page.waitForSelector('#mic-verdict .mic-big');
+      check('the host can open the Stream Desk window straight on Mic Guard', (await page.getAttribute('[data-sdtab="mic"]', 'aria-selected')) === 'true');
       check('Mic Guard starts switched off', (await page.textContent('#mic-verdict')).includes('Not set up') && !(await MIC()).cfg.windows);
       check('the microphones are listed, the default first', (await page.$$eval('#mic-device option', (o) => o.map((x) => x.textContent))).join('|') === 'Default microphone (Microphone (Blue Yeti))|Microphone (Blue Yeti)|Headset Microphone');
       await page.check('#mic-windows');
-      await waitFn(page, () => window.__mock.state.mic.cfg.windows === true);
+      await waitFn(page, () => window.__mock.state.mic.cfg.windows === true && window.NoorStream._state().micSettled);
       await page.waitForSelector('#mic-verdict.live');
       check('with the Windows mic on, the verdict shows LIVE', (await page.textContent('#mic-verdict .mic-big')) === 'LIVE');
       check('…and the Stream Desk header shows it too', (await page.textContent('#sd-mic-pill')).includes('LIVE'));
 
       // OBS: a wrong password is explained; the right one connects and is remembered (by the host, not the page).
       await page.check('#mic-obs');
+      await waitFn(page, () => window.__mock.state.mic.cfg.obs === true && window.NoorStream._state().micSettled);
       await page.fill('#mic-obs-pw', 'nope');
       await page.click('#mic-obs-connect');
       await page.waitForSelector('.modal, .toast, [role="alert"]', { timeout: 3000 }).catch(() => {});
@@ -2258,26 +2295,47 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the hotkey is saved and shown on the Toggle button', true);
       check('letters, digits and the Pause key map to Windows key names', await page.evaluate(() => {
         const g = (o) => window.NoorStream._gesture({ ctrlKey: false, altKey: false, shiftKey: false, metaKey: false, ...o });
-        return g({ code: 'KeyM', ctrlKey: true, shiftKey: true }) === 'Ctrl+Shift+M' && g({ code: 'Digit1', altKey: true }) === 'Alt+D1' && g({ code: 'Pause' }) === 'Pause' && g({ code: 'ControlLeft', ctrlKey: true }) === null;
+        return g({ code: 'KeyM', ctrlKey: true, shiftKey: true }) === 'Ctrl+Shift+M' && g({ code: 'Digit1', altKey: true }) === 'Alt+D1' && g({ code: 'Pause' }) === 'Pause' && g({ code: 'ControlLeft', ctrlKey: true }) === null
+          && g({ code: 'Slash', ctrlKey: true }) === 'Ctrl+/' && g({ code: 'Backslash', altKey: true }) === 'Alt+\\' && g({ code: 'Comma', ctrlKey: true }) === 'Ctrl+,' && g({ code: 'F13' }) === 'F13';
       }));
+      // Mouse buttons: the side buttons (and the middle one with a modifier) can be the hotkey.
+      await page.dispatchEvent('#mic-hotkey', 'mousedown', { button: 3 });
+      check('pressing a side mouse button records Mouse4', (await page.inputValue('#mic-hotkey')) === 'Mouse4');
+      await page.dispatchEvent('#mic-hotkey', 'mousedown', { button: 4, ctrlKey: true });
+      check('…the other one with Ctrl records Ctrl+Mouse5', (await page.inputValue('#mic-hotkey')) === 'Ctrl+Mouse5');
+      await page.click('#mic-hotkey');
+      await page.keyboard.press('Control+Shift+Slash');
+      check('keys like / are recorded', (await page.inputValue('#mic-hotkey')) === 'Ctrl+Shift+/');
+      await page.keyboard.press('Escape');
+      check('Esc clears the field', (await page.inputValue('#mic-hotkey')) === '');
 
-      // Indicator and Ctrl+K.
+      // Indicator.
       await page.check('#mic-indicator');
-      await waitFn(page, () => window.__mock.state.mic.cfg.indicator === true);
+      await waitFn(page, () => window.__mock.state.mic.cfg.indicator === true && window.NoorStream._state().micSettled);
       check('the floating indicator can be switched on (hidden from capture by default)', (await MIC()).cfg.hideFromCapture === true);
-      await page.evaluate(() => window.NoorStream.close());
-      const calls = (await MIC()).calls.length;
-      await page.keyboard.press('Control+k');
-      await page.keyboard.type('mute / unmute microphone');
-      await page.keyboard.press('Enter');
-      await waitFn(page, (n) => window.__mock.state.mic.calls.length === n + 1, calls);
-      check('Ctrl+K › Mute / unmute microphone uses Mic Guard', true);
-      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'mic.open', payload: null }));
-      await waitFn(page, () => window.NoorStream._state().open && window.NoorStream._state().tab === 'mic');
-      check('“Mic Guard settings…” from the indicator opens this tab', true);
+      const narrow = await page.evaluate(() => { const card = document.querySelector('#mic-device').closest('.sd-card').getBoundingClientRect(); const d = document.querySelector('#mic-device').getBoundingClientRect(); return { card: card.right, sel: d.right }; });
+      check('the microphone menu stays inside its card', narrow.sel <= narrow.card + 1, narrow);
       const unexpected = errors.filter((e) => !/status of 404|refused the password/.test(e)); // the wrong password above is on purpose
       check('no page errors in Mic Guard', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/mic-guard.png` });
+      await page.close();
+    }
+    {
+      // From the main window: Ctrl+K toggles the microphone and opens Mic Guard in the Stream Desk window.
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } });
+      await page.evaluate(() => { Object.assign(window.__mock.state.mic.cfg, { windows: true }); });
+      await page.keyboard.press('Control+k');
+      await page.keyboard.type('mute / unmute microphone');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.mic.calls.length === 1);
+      check('Ctrl+K › Mute / unmute microphone uses Mic Guard', (await page.evaluate(() => window.__mock.state.mic.win)) === true);
+      await page.keyboard.press('Control+k');
+      await page.keyboard.type('Mic Guard:');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.stream.windows.some((w) => w.tab === 'mic'));
+      check('Ctrl+K › Mic Guard settings opens the Stream Desk window on that tab', true);
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors when using Mic Guard from the main window', unexpected.length === 0, unexpected);
       await page.close();
     }
   } finally {
