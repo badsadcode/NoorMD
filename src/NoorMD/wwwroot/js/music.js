@@ -1684,6 +1684,12 @@ window.NoorMusic = (() => {
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },
     shuffleOn: () => !!q.shuffle,
+    // For other panels (Gallery slideshows): music playlists, play one, pause and continue.
+    listPlaylists: () => req('music.playlists'),
+    playPlaylist: async (id) => { await start(); await playPlaylist(id); },
+    pause: () => { if (!audio.paused) audio.pause(); },
+    resume: () => { if (audio.paused && currentId() != null) audio.play().catch(() => {}); },
+    isPlaying: () => !audio.paused,
     repeatMode: () => q.repeat,
     // test hooks (used by the automated UI tests and NoorMD.exe --self-test)
     _testEnded: () => next(true),

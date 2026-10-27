@@ -1010,3 +1010,62 @@ public class VideoTests
         Assert.Single(lib.Notes(v.Id));
     }
 }
+
+public class GalleryTests
+{
+    private static (TempDir, GalleryLibrary, long) Library()
+    {
+        var t = new TempDir();
+        t.Copy("photo-exif.jpg", "Pics", "Wakacje 2023", "Plaża.jpg");
+        t.Copy("plain.png", "Pics", "Wakacje 2023", "Mapa.png");
+        t.Copy("plain.png", "Pics", "Okładka.png");
+        t.Copy("plain.png", "Pics", "notes.txt");
+        var lib = new GalleryLibrary(t.P("gallery.db"));
+        var id = lib.AddFolder(t.P("Pics"));
+        return (t, lib, id);
+    }
+
+    [Fact]
+    public void Scan_Finds_Pictures_With_Size_Date_Taken_And_Albums_By_Folder()
+    {
+        var (t, lib, folder) = Library();
+        using var _ = t;
+        Assert.Equal((3, 3, 0), lib.Scan(folder));
+        var all = lib.Query(new GalleryQuery(Sort: "name", Descending: false));
+        Assert.Equal(["Mapa", "Okładka", "Plaża"], all.Select(i => i.Name));
+        var beach = all.Single(i => i.Name == "Plaża");
+        Assert.Equal((64, 48), (beach.Width, beach.Height));
+        Assert.Equal(new DateTime(2023, 7, 14, 18, 30, 5), beach.TakenUtc.ToLocalTime()); // EXIF date, not the file date
+        Assert.Equal("Wakacje 2023", beach.Album);
+        Assert.Equal(["Pics", "Wakacje 2023"], lib.Albums().Select(a => a.Name));
+        Assert.Equal(2, lib.Albums().Single(a => a.Name == "Wakacje 2023").Count);
+        Assert.Equal(["Plaża"], lib.Query(new GalleryQuery(Search: "plaza")).Select(i => i.Name)); // without Polish letters too
+        Assert.Equal("Plaża", lib.Query(new GalleryQuery(Sort: "taken", Descending: false))[0].Name); // 2023 before today's files
+    }
+
+    [Fact]
+    public void Favourites_And_Slideshows_Survive_A_Rescan_And_Missing_Files()
+    {
+        var (t, lib, folder) = Library();
+        using var _ = t;
+        lib.Scan(folder);
+        var ids = lib.Query(new GalleryQuery(Sort: "name", Descending: false)).Select(i => i.Id).ToList();
+        lib.SetFavorite([ids[2]], true);
+        var show = lib.CreateSlideshow("  Lato ", [ids[2], 999, ids[0]], "{\"interval\":5}");
+        Assert.Equal(["Plaża", "Mapa"], lib.Query(new GalleryQuery(SlideshowId: show)).Select(i => i.Name));
+        lib.AddItems(show, [ids[0], ids[1]]);
+        Assert.Equal(3, lib.GetSlideshow(show)!.Count);
+        Assert.Equal("Lato", lib.GetSlideshow(show)!.Name);
+        Assert.Equal("{\"interval\":5}", lib.GetSlideshow(show)!.Settings);
+        File.Delete(t.P("Pics", "Wakacje 2023", "Mapa.png"));
+        Assert.Equal((2, 0, 1), lib.Scan(folder));
+        Assert.Equal(["Plaża", "Okładka"], lib.Query(new GalleryQuery(SlideshowId: show)).Select(i => i.Name)); // a missing picture is skipped
+        Assert.Equal(["Plaża"], lib.Query(new GalleryQuery(Filter: "favorites")).Select(i => i.Name));
+        lib.UpdateSlideshow(show, null, "not json");
+        Assert.Equal("{}", lib.GetSlideshow(show)!.Settings);
+        Assert.ThrowsAny<ArgumentException>(() => lib.CreateSlideshow(" ", [], "{}"));
+        lib.RemoveFolder(folder);
+        Assert.Equal(0, lib.Count());
+        Assert.Equal(0, lib.GetSlideshow(show)!.Count);
+    }
+}

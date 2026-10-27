@@ -84,6 +84,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 |---|---|
 | Open the Stream Desk (in its dock, or bring its own window forward) | Ctrl+Alt+B |
 | Apps Hub (your programs, games and sites) | Ctrl+Alt+H |
+| Gallery (your pictures) | Ctrl+Alt+G |
 | Voice note: record / stop (opens the recorder) | Ctrl+Alt+D |
 | Mic Guard: mute / unmute everywhere (works in any program; you choose a key, e.g. Ctrl+/ or F13, or a side mouse button) | your hotkey (Stream Desk › Mic Guard) |
 | Mic Guard indicator: mute / unmute · move · menu | click · drag · right-click |

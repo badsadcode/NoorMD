@@ -2757,6 +2757,97 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/apps-categories.png` });
       await page.close();
     }
+
+    // ---- 31. Gallery: pictures in a dock panel, albums, viewer (zoom, favourite, into note), saved slideshows with music.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, musicTracks: 4, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const G = () => page.evaluate(() => NoorGallery._state());
+      const GM = () => page.evaluate(() => window.__mock.state.gallery);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('#dock-right #gallery:not([hidden]) .gallery-tile');
+      check('Ctrl+Alt+G opens the Gallery in a dock with every picture', (await page.$$('.gallery-tile')).length === 12);
+      await waitFn(page, () => [...document.querySelectorAll('.gallery-tile img')].slice(0, 4).every((i) => i.complete && i.naturalWidth > 0));
+      check('previews load from /_thumb/', (await page.getAttribute('.gallery-tile img', 'src')).startsWith('/_thumb/'));
+      check('newest first by default', (await G()).items[0] === 'Zdjęcie 012');
+      await page.selectOption('#gallery-source', { label: 'Zima (4)' });
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 4);
+      check('an album shows only its pictures', (await G()).items.every((n) => ['Zdjęcie 003', 'Zdjęcie 006', 'Zdjęcie 009', 'Zdjęcie 012'].includes(n)));
+      await page.selectOption('#gallery-source', 'all');
+      await page.fill('#gallery-search', 'zdjecie 005');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 1);
+      check('search works without Polish letters', (await G()).items[0] === 'Zdjęcie 005');
+      await page.fill('#gallery-search', '');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 12);
+      await page.selectOption('#gallery-sort', 'taken-asc');
+      await waitFn(page, () => NoorGallery._state().items[0] === 'Zdjęcie 001');
+      check('order can change (oldest first)', true);
+
+      // Viewer
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.waitForSelector('#gallery-viewer:not([hidden])');
+      await waitFn(page, () => { const i = document.querySelector('#gv-img'); return i.complete && i.naturalWidth > 0; });
+      check('clicking a picture opens it full size', (await page.getAttribute('#gv-img', 'src')) === '/_img/1' && (await page.textContent('#gv-meta')).startsWith('1 / 12'));
+      await page.keyboard.press('ArrowRight');
+      check('→ shows the next picture', (await G()).viewer === 2);
+      await page.keyboard.press('f');
+      await waitFn(page, () => window.__mock.state.gallery.images[1].favorite === true);
+      check('F marks a favourite', await page.evaluate(() => document.querySelector('#gv-fav').classList.contains('on')));
+      await page.keyboard.press('+');
+      check('+ zooms in', (await G()).zoom > 1);
+      await page.keyboard.press('0');
+      await page.keyboard.press('i');
+      await waitFn(page, () => window.__mock.state.gallery.inserted.length === 1);
+      check('I puts the picture into the note', (await GM()).inserted[0] === 2);
+      await page.keyboard.press('Escape');
+      check('Esc closes the viewer', await page.isHidden('#gallery-viewer'));
+      await page.selectOption('#gallery-source', 'fav');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 1);
+      check('Favourites lists the starred pictures', (await G()).items[0] === 'Zdjęcie 002');
+      await page.selectOption('#gallery-source', 'all');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 12);
+
+      // A saved slideshow from a selection; drag to reorder.
+      await page.click('.gallery-tile[data-index="0"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="1"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="2"]', { modifiers: ['Control'] });
+      check('Ctrl+click selects pictures', (await G()).sel.length === 3 && (await page.textContent('#gallery-foot')).includes('3 selected'));
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Add to slideshow")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("New slideshow")');
+      await page.fill('.modal input', 'Wakacje');
+      await page.click('.modal button:has-text("Create")');
+      await waitFn(page, () => NoorGallery._state().source === 'show:1');
+      check('a slideshow is saved from the selection and opened', (await G()).ids.join(',') === '1,2,3' && (await page.inputValue('#gallery-source')) === 'show:1');
+      await page.dragAndDrop('.gallery-tile[data-id="3"]', '.gallery-tile[data-id="1"]');
+      await waitFn(page, () => window.__mock.state.gallery.slideshows[0].ids[0] === 3);
+      check('pictures in a slideshow are put in order by dragging', (await GM()).slideshows[0].ids.join(',') === '3,1,2');
+
+      // Play it with a music playlist.
+      await page.evaluate(() => window.__mock.state.music.playlists.push({ id: 1, name: 'Spokojne', items: [1, 2] }));
+      await page.click('#gallery-play');
+      await page.waitForSelector('#ss-music');
+      await page.selectOption('#ss-interval', '3');
+      await page.selectOption('#ss-music', 'pl:1');
+      await page.click('#ss-play');
+      await page.waitForSelector('#gallery-slideshow:not([hidden]) .ss-layer.active img');
+      check('the slideshow plays in the saved order', (await G()).show.current === 3 && (await page.textContent('#ss-pos')) === '1 / 3');
+      await waitFn(page, () => window.NoorMusic._state().q.current === 1 && !window.NoorMusic._state().paused, null, { timeout: 8000 });
+      check('…with the chosen music playlist', true);
+      check('its settings are saved with it', (await GM()).slideshows[0].settings.interval === 3 && (await GM()).slideshows[0].settings.playlistId === 1);
+      await waitFn(page, () => NoorGallery._state().show.pos === 1, null, { timeout: 6000 });
+      check('pictures change by themselves', (await G()).show.current === 1);
+      await page.keyboard.press('Space');
+      check('Space pauses', (await G()).show.paused === true);
+      await page.keyboard.press('ArrowRight');
+      check('→ goes to the next picture', (await G()).show.current === 2);
+      await page.keyboard.press('Escape');
+      await page.waitForSelector('#gallery-slideshow', { state: 'hidden' });
+      check('Esc ends the slideshow and pauses its music', (await page.evaluate(() => window.NoorMusic._state().paused)) === true);
+      check('the chosen view is remembered', (await GM()).session.source === 'show:1');
+      check('no page errors in the Gallery', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/gallery.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -578,6 +578,31 @@ public partial class MainWindow
             Hub.Remove(hubItem.Id);
         }
 
+        // Gallery: a photo taken sideways (EXIF orientation 6) gets an upright preview; the page loads the preview and the picture.
+        {
+            var picDir = Path.Combine(SelfTestDir!, "Pictures", "Lato");
+            Directory.CreateDirectory(picDir);
+            var photo = Path.Combine(picDir, "Plaża.jpg");
+            var bmp = System.Windows.Media.Imaging.BitmapSource.Create(80, 40, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null, new byte[80 * 40 * 3], 80 * 3);
+            var meta = new System.Windows.Media.Imaging.BitmapMetadata("jpg");
+            meta.SetQuery("/app1/ifd/{ushort=274}", (ushort)6);
+            var jpg = new System.Windows.Media.Imaging.JpegBitmapEncoder();
+            jpg.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bmp, null, meta, null));
+            using (var fs = File.Create(photo)) jpg.Save(fs);
+            var gid = Gallery.AddFolder(Path.Combine(SelfTestDir!, "Pictures"));
+            await ScanGalleryAsync([gid]);
+            var img = Gallery.Query(new NoorMD.Media.GalleryQuery(Search: "plaza")).FirstOrDefault();
+            var thumb = img != null ? await Task.Run(() => EnsureThumb(img)) : null;
+            var tw = 0; var th = 0;
+            if (thumb != null) { var f = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(thumb))); tw = f.PixelWidth; th = f.PixelHeight; }
+            Check("Gallery: a picture is found in its album and gets an upright preview", img != null && img.Album == "Lato" && th == 80 && tw == 40, $"{img?.Album} {tw}x{th}");
+            await Eval($"window.__gt = null; (() => {{ const a = new Image(), b = new Image(); let n = 0; const done = () => {{ if (++n === 2) window.__gt = a.naturalHeight + 'x' + b.naturalWidth; }}; a.onload = b.onload = done; a.onerror = b.onerror = () => window.__gt = 'error'; a.src = '/_thumb/{img?.Id}'; b.src = '/_img/{img?.Id}'; }})()");
+            var gt = "null";
+            for (var i = 0; i < 40 && gt == "null"; i++) { await Task.Delay(100); gt = await Eval("window.__gt"); }
+            Check("…and the page shows the preview and the picture", gt.Trim('"') == "80x80" || gt.Trim('"').StartsWith("80x"), gt);
+            Gallery.RemoveFolder(gid);
+        }
+
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
         await Eval(@"window.__vt = null; (async () => {
             let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }

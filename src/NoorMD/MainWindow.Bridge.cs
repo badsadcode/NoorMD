@@ -141,6 +141,8 @@ public partial class MainWindow
                 return await DispatchAppsAsync(req);
             case var mic when mic.StartsWith("mic.", StringComparison.Ordinal):
                 return await DispatchMicAsync(req);
+            case var gallery when gallery.StartsWith("gallery.", StringComparison.Ordinal):
+                return await DispatchGalleryAsync(req);
             case var video when video.StartsWith("video.", StringComparison.Ordinal):
                 return await DispatchVideoAsync(req);
             case var music when music.StartsWith("music.", StringComparison.Ordinal):
@@ -293,33 +295,41 @@ public partial class MainWindow
             });
         }
         var image = paths.FirstOrDefault(p => AssetResolver.ImageExtensions.Contains(Path.GetExtension(p)));
-        if (image != null && ActiveSession is { Folder: { } folder } s)
-        {
-            if (LinkPaths.TryRelative(folder, image, AllowedImageRoot(s), out var link))
-            {
-                PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{Path.GetFileNameWithoutExtension(image)}]({link})" });
-                return null;
-            }
-            if (VaultRootFor(s.Path) is { } root && _vault is { } v)
-            {
-                // From outside the Vault: offer to copy it into the Vault's attachments folder.
-                var attachments = VaultPaths.Resolve(root, v.Info.Attachments) ?? root;
-                if (ThemedDialog.Confirm(this, "Copy the picture into the Vault?", $"“{Path.GetFileName(image)}” is outside this Vault. Copy it to “{v.Info.Attachments}” and link to the copy, so the note keeps working wherever the Vault goes?", "Copy and insert", image))
-                {
-                    Directory.CreateDirectory(attachments);
-                    var dest = Path.Combine(attachments, VaultPaths.UniqueName(attachments, Path.GetFileNameWithoutExtension(image), Path.GetExtension(image)));
-                    File.Copy(image, dest, overwrite: false);
-                    if (LinkPaths.TryRelative(folder, dest, root, out link))
-                        PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{Path.GetFileNameWithoutExtension(image)}]({link})" });
-                    ScheduleRescan(0);
-                }
-                return null;
-            }
-        }
-        PushNotice(image != null
-            ? "Images can be inserted by dropping them from the document's own folder (or its Vault), so the link keeps working. Save the document first if it is new."
-            : "Only Markdown (.md, .markdown) and text (.txt) files can be opened.");
+        if (image != null && ActiveSession is { } s) { InsertPicture(s, image); return null; }
+        PushNotice("Only Markdown (.md, .markdown) and text (.txt) files can be opened.");
         return null;
+    }
+
+    /// <summary>
+    /// Inserts ![name](link) for a picture into a document. A picture the document can't reach by a relative link (outside
+    /// its Vault or folder) is copied first, after asking: into the Vault's attachments, or an "images" folder next to the
+    /// document. Returns false when nothing was inserted.
+    /// </summary>
+    internal bool InsertPicture(DocumentSession s, string image, string? title = null)
+    {
+        var alt = (title ?? Path.GetFileNameWithoutExtension(image)).Replace("[", "").Replace("]", "");
+        if (s.Folder is not { } folder)
+        {
+            PushNotice("Save the document first, so the picture's link has somewhere to start from.");
+            return false;
+        }
+        if (LinkPaths.TryRelative(folder, image, AllowedImageRoot(s), out var link))
+        {
+            PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{alt}]({link})" });
+            return true;
+        }
+        var root = VaultRootFor(s.Path);
+        var target = root != null && _vault is { } v ? VaultPaths.Resolve(root, v.Info.Attachments) ?? root : Path.Combine(folder, "images");
+        var where = root != null && _vault != null ? $"the Vault's “{_vault.Info.Attachments}” folder" : "an “images” folder next to the document";
+        if (!ThemedDialog.Confirm(this, "Copy the picture?", $"“{Path.GetFileName(image)}” is outside {(root != null ? "this Vault" : "the document's folder")}. Copy it to {where} and link to the copy, so the note keeps working wherever it goes?", "Copy and insert", image))
+            return false;
+        Directory.CreateDirectory(target);
+        var dest = Path.Combine(target, VaultPaths.UniqueName(target, Path.GetFileNameWithoutExtension(image), Path.GetExtension(image)));
+        File.Copy(image, dest, overwrite: false);
+        if (!LinkPaths.TryRelative(folder, dest, AllowedImageRoot(s), out link)) return false;
+        PushEvent("insert.text", new { tabId = s.TabId, markdown = $"![{alt}]({link})" });
+        if (root != null) ScheduleRescan(0);
+        return true;
     }
 
     private async Task<object?> CreateSnapshotAsync(DocumentSession s, string label)

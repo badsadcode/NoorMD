@@ -123,6 +123,24 @@ public partial class MainWindow : Window
         Core.ContextMenuRequested += OnContextMenuRequested;
         Core.ProcessFailed += OnProcessFailed;
         Core.WebMessageReceived += OnWebMessageReceived;
+        // A slideshow or video asking for full screen fills the whole screen, then the window comes back as it was.
+        WindowState? beforeFull = null;
+        Core.ContainsFullScreenElementChanged += (_, _) =>
+        {
+            if (Core.ContainsFullScreenElement)
+            {
+                beforeFull = WindowState;
+                WindowStyle = WindowStyle.None;
+                if (WindowState == WindowState.Maximized) WindowState = WindowState.Normal; // re-maximize to cover the taskbar
+                WindowState = WindowState.Maximized;
+            }
+            else if (beforeFull is { } st)
+            {
+                WindowStyle = WindowStyle.SingleBorderWindow;
+                WindowState = st;
+                beforeFull = null;
+            }
+        };
 
         var boot = JsonSerializer.Serialize(new { theme = _settings.Prefs.Theme, background = ThemeCatalog.Get(_settings.Prefs.Theme).Bg }, SettingsStore.Json);
         await Core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__NOORMD_BOOT__ = Object.freeze({boot});");
@@ -138,6 +156,7 @@ public partial class MainWindow : Window
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeHubIcon(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVoice(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVideo(uri, e, Core.Environment)) return;
+            if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeGallery(uri, e, Core.Environment)) return;
             var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder, VaultRootFor(ActiveSession?.Path)) : null;
             if (file == null)
             {

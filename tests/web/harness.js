@@ -42,6 +42,8 @@ function serve() {
     if (vid) { serveMedia(Number(vid[1]), req, res, true); return; }
     if (/^\/_sub\/\d+\/0$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }); res.end('WEBVTT\n\n00:00:00.500 --> 00:00:05.000\nHello from the subtitles\n'); return; }
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
+    const pic = /^\/_(img|thumb)\/(\d+)$/.exec(url.pathname); // Gallery: every picture id under 900 is the same small photo
+    if (pic) { if (Number(pic[2]) >= 900) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'image/jpeg' }); res.end(fs.readFileSync(path.join(FIXTURES, 'photo-exif.jpg'))); return; }
     if (url.pathname.startsWith('/_hubicon/')) { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M9QzwAEjDAGNzYAAA1bAgNOzQdTAAAAAElFTkSuQmCC', 'base64')); return; }
     let rel = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/_noormd/') ? url.pathname.slice('/_noormd/'.length) : null;
     if (!rel) { res.writeHead(404); res.end(); return; }
@@ -158,6 +160,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('gallery.')) { try { return reply(m.id, true, galleryMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -479,6 +482,50 @@ function mockHostScript(initial) {
   // ---- mock voice notes: chunks are joined like VoiceNotes.cs; the first bytes tell the format.
   const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
   state.voice = VOICE;
+  // ---- mock Gallery: initial.gallery = number of pictures (in albums "Lato" and "Zima"); slideshows and favourites like GalleryLibrary.
+  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0 };
+  state.gallery = GAL;
+  function galAdd(n) {
+    for (let i = 0; i < n; i++) {
+      const id = GAL.next++;
+      const album = i % 3 === 2 ? 'Zima' : 'Lato';
+      GAL.images.push({ id, name: `Zdjęcie ${String(id).padStart(3, '0')}`, album, albumKey: 'c:\\pics\\' + album.toLowerCase(), size: 120000 + id, width: 64, height: 48, taken: new Date(Date.UTC(2023, 0, 1) + id * 86400000).toISOString(), favorite: false, fileName: `IMG_${id}.jpg`, folder: 'C:\\Pics\\' + album });
+    }
+  }
+  if (initial.gallery) { GAL.folders.push({ id: 1, path: 'C:\\Pics', count: initial.gallery }); galAdd(initial.gallery); }
+  function galleryMock(type, p) {
+    const status = () => {
+      const albums = [...new Set(GAL.images.map((i) => i.albumKey))].map((k) => { const list = GAL.images.filter((i) => i.albumKey === k); return { key: k, name: list[0].album, folder: list[0].folder, count: list.length, coverId: list[0].id }; });
+      return { folders: GAL.folders.map((f) => ({ ...f, count: GAL.images.length })), count: GAL.images.length, albums, slideshows: GAL.slideshows.map((s) => ({ id: s.id, name: s.name, count: s.ids.length, settings: s.settings })), scanning: false };
+    };
+    const get = (id) => GAL.images.find((i) => i.id === id) || (() => { throw new Error('That picture is no longer in the Gallery.'); })();
+    const show = (id) => GAL.slideshows.find((s) => s.id === id) || (() => { throw new Error('That slideshow is gone.'); })();
+    switch (type) {
+      case 'gallery.status': return status();
+      case 'gallery.query': {
+        if (p.slideshow) return show(p.slideshow).ids.map(get).map((i) => ({ ...i }));
+        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album));
+        if (p.search) { const t = p.search.toLowerCase(); list = list.filter((i) => (i.name + ' ' + i.album).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').includes(t)); }
+        const key = p.sort === 'name' ? (i) => i.name : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : (i) => i.taken;
+        list.sort((a, b) => key(a).localeCompare(key(b)) * (p.descending ? -1 : 1));
+        return list.map((i) => ({ ...i }));
+      }
+      case 'gallery.addFolder': GAL.folders.push({ id: GAL.folders.length + 1, path: 'C:\\Pics' }); galAdd(5); return status();
+      case 'gallery.removeFolder': GAL.folders = GAL.folders.filter((f) => f.id !== p.id); GAL.images = []; return status();
+      case 'gallery.rescan': GAL.scans++; return status();
+      case 'gallery.favorite': p.ids.forEach((id) => { get(id).favorite = !!p.on; }); return null;
+      case 'gallery.insert': GAL.inserted.push(p.id); return { inserted: true, document: 'x.md' };
+      case 'gallery.reveal': GAL.revealed.push(p.id); return null;
+      case 'gallery.slideshow.create': { const name = String(p.name || '').trim(); if (!name) throw new Error('Give the slideshow a name.'); const id = GAL.slideshows.length + 1; GAL.slideshows.push({ id, name, ids: p.ids.filter((x) => GAL.images.some((i) => i.id === x)), settings: p.settings || {} }); return { id, status: status() }; }
+      case 'gallery.slideshow.update': { const s = show(p.id); if (p.name) s.name = p.name.trim(); if (p.settings) s.settings = p.settings; if (p.ids) s.ids = [...p.ids]; return status(); }
+      case 'gallery.slideshow.add': { const s = show(p.id); p.ids.forEach((x) => { if (!s.ids.includes(x)) s.ids.push(x); }); return status(); }
+      case 'gallery.slideshow.delete': GAL.slideshows = GAL.slideshows.filter((s) => s.id !== p.id); return status();
+      case 'gallery.session.get': return GAL.session;
+      case 'gallery.session.save': GAL.session = p.state; return null;
+      default: return null;
+    }
+  }
+
   function voiceMock(type, p) {
     const status = () => ({ folder: 'C:\\Vaults\\Atlas\\attachments\\Voice notes', inVault: true, recordings: VOICE.recordings.slice() });
     switch (type) {
@@ -615,6 +662,7 @@ function mockHostScript(initial) {
       }
       case 'music.undo': { const u = lib.undo; const t = lib.byId.get(u.trackId); t.fileName = u.old.fileName; t.title = u.old.title; lib.undo = null; return { ok: true, tagsSaved: true, renamed: true, problems: [], track: musicMock('music.track', { id: t.id }), undo: null }; }
       case 'music.suggestName': return [p.artist, p.title].filter(Boolean).join(' - ');
+      case 'music.playlists': return lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length }));
       case 'music.playlist.create': { const id = lib.playlists.length + 1; lib.playlists.push({ id, name: p.name, items: p.ids || [] }); return { id }; }
       case 'music.playlist.add': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items.push(...p.ids); return lib.playlists.map((x) => ({ id: x.id, name: x.name, count: x.items.length })); }
       case 'music.playlist.setItems': { const pl = lib.playlists.find((x) => x.id === p.id); pl.items = [...p.ids]; return null; }
