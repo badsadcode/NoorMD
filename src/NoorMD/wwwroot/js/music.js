@@ -210,6 +210,9 @@ window.NoorMusic = (() => {
     $('#music').classList.toggle('wide', on);
     if (on && tab === 'queue') setTab('library'); // Up next is always shown on the left
     renderColumns();
+    // The list's height changes with the row height: set it first, or the browser cuts the new scroll position short.
+    const spacer = $('#music-spacer');
+    if (spacer) spacer.style.height = view.total * rowH() + 'px';
     if (list) list.scrollTop = topIndex * rowH();
     renderList();
     renderQueue();

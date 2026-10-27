@@ -1332,6 +1332,60 @@ public class GalleryOrganizingTests
     }
 
     [Fact]
+    public void Turning_Writes_A_Short_Orientation_In_Place_And_Fixes_Old_Long_Ones_And_Xmp()
+    {
+        using var t = new TempDir();
+        var f = t.Copy("photo-exif.jpg", "a.jpg");
+        var before = File.ReadAllBytes(f);
+        Assert.Equal(6, PictureRotate.Jpeg(f, clockwise: true));
+        var after = File.ReadAllBytes(f);
+        Assert.Equal((6, 3), (JpegOrientation.Find(after)!.Value.Value, JpegOrientation.Find(after)!.Value.Type)); // a SHORT, as browsers need
+        Assert.Equal(6, PictureRotate.Orientation(f));
+        Assert.False(File.Exists(f + ".noormd-turn.jpg"));
+        // Only the orientation entry changed (when the photo already had one): same length, a few bytes apart.
+        Assert.Equal(3, PictureRotate.Jpeg(f, clockwise: true));
+        var third = File.ReadAllBytes(f);
+        Assert.Equal(after.Length, third.Length);
+        Assert.True(after.Zip(third).Count(x => x.First != x.Second) <= 2);
+        // An entry written as a LONG (as TagLib does) is read, and made a SHORT on the next turn.
+        var e = JpegOrientation.Find(third)!.Value;
+        third[e.Entry + (e.Big ? 3 : 2)] = 4; // type LONG
+        if (e.Big) { third[e.Entry + 8] = 0; third[e.Entry + 9] = 0; third[e.Entry + 10] = 0; third[e.Entry + 11] = 3; } else { third[e.Entry + 8] = 3; third[e.Entry + 9] = 0; third[e.Entry + 10] = 0; third[e.Entry + 11] = 0; }
+        File.WriteAllBytes(f, third);
+        Assert.Equal(3, PictureRotate.Orientation(f));
+        Assert.Equal(8, PictureRotate.Jpeg(f, clockwise: true));
+        Assert.Equal((8, 3), (JpegOrientation.Find(File.ReadAllBytes(f))!.Value.Value, JpegOrientation.Find(File.ReadAllBytes(f))!.Value.Type));
+        // XMP's tiff:Orientation follows (one digit for one digit).
+        var xmp = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0<x:xmpmeta><rdf:Description tiff:Orientation=\"8\"/></x:xmpmeta>");
+        var withXmp = new List<byte>(File.ReadAllBytes(f)[..2]) { 0xFF, 0xE1, (byte)((xmp.Length + 2) >> 8), (byte)((xmp.Length + 2) & 0xFF) };
+        withXmp.AddRange(xmp);
+        withXmp.AddRange(File.ReadAllBytes(f)[2..]);
+        File.WriteAllBytes(f, withXmp.ToArray());
+        Assert.Equal(1, PictureRotate.Jpeg(f, clockwise: true));
+        Assert.Contains("tiff:Orientation=\"1\"", Encoding.ASCII.GetString(File.ReadAllBytes(f)));
+        Assert.NotEqual(before, File.ReadAllBytes(f));
+    }
+
+    [Fact]
+    public void Refreshing_Keeps_The_Date_Of_A_Picture_Without_One_And_Removed_Pictures_Leave_No_Tags()
+    {
+        using var t = new TempDir();
+        t.Copy("plain.png", "P", "mapa.png");
+        var lib = new GalleryLibrary(t.P("g.db"));
+        var folder = lib.AddFolder(t.P("P"));
+        lib.Scan(folder);
+        var img = lib.Query(new GalleryQuery()).Single();
+        File.SetLastWriteTimeUtc(img.Path, DateTime.UtcNow.AddDays(3)); // as turning it does
+        Assert.Equal(img.TakenUtc, lib.Refresh(img.Id)!.TakenUtc);
+        lib.AddTags([img.Id], ["stary"]);
+        lib.RemoveFolder(folder);
+        t.Copy("plain.png", "Q", "nowy.png");
+        lib.Scan(lib.AddFolder(t.P("Q")));
+        Assert.Empty(lib.Query(new GalleryQuery()).Single().Tags!); // not the removed picture's tag, even with its id
+        Assert.Empty(lib.Tags());
+    }
+
+    [Fact]
     public void Converting_Picks_Formats_Sizes_And_Free_Names()
     {
         Assert.Equal(".jpg", PictureConvert.Extension(@"C:\a\x.JPEG", "keep"));

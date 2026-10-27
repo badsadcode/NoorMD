@@ -27,6 +27,7 @@ public partial class MainWindow
 
     private GalleryLibrary Gallery => _galleryLib ??= new GalleryLibrary(Path.Combine(App.Paths.Local, "Gallery", "library.db"));
     private GalleryOrganizer? _galleryOrganizer;
+    private readonly HashSet<string> _convertFolders = new(StringComparer.OrdinalIgnoreCase);
     private GalleryOrganizer Organizer => _galleryOrganizer ??= new GalleryOrganizer(Gallery);
     // "thumbs2": previews made before preview.21 could be upside down (top-down thumbnails from Affinity); they are made again.
     private static string ThumbFolder => Path.Combine(App.Paths.Local, "Gallery", "thumbs2");
@@ -148,8 +149,10 @@ public partial class MainWindow
                 var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
                 var first = decoder.Frames[0];
                 // The orientation may be stored as a short or a long (TagLib writes it either way when a photo is turned).
-                try { if (first.Metadata is BitmapMetadata md && md.GetQuery("/app1/ifd/{ushort=274}") is { } o and (ushort or short or uint or int)) orientation = (ushort)Convert.ToInt32(o); } catch (Exception) { /* no EXIF */ }
-                if (orientation == 1 && PictureRotate.CanRotateLosslessly(path)) orientation = (ushort)PictureRotate.Orientation(path);
+                // The orientation may be stored as a short or (written by older tools) a long; read the JPEG itself when Windows finds none.
+                ushort? found = null;
+                try { if (first.Metadata is BitmapMetadata md && md.GetQuery("/app1/ifd/{ushort=274}") is { } o and (ushort or short or uint or int)) found = (ushort)Convert.ToInt32(o); } catch (Exception) { /* no EXIF */ }
+                orientation = found ?? (PictureRotate.CanRotateLosslessly(path) ? (ushort)PictureRotate.Orientation(path) : (ushort)1);
                 var w = first.PixelWidth; var h = first.PixelHeight;
                 var scale = Math.Min(1.0, (double)size / Math.Max(w, h));
                 fs.Position = 0;
@@ -163,8 +166,15 @@ public partial class MainWindow
                 frame = bi;
             }
             // Turn the preview the way the camera was held (the browser does the same for the full picture).
-            var angle = orientation switch { 3 => 180, 6 => 90, 8 => 270, _ => 0 };
-            if (angle != 0) frame = new TransformedBitmap(frame, new RotateTransform(angle));
+            // Mirrored ones (2, 4, 5, 7) are flipped first.
+            var (angle, flip) = orientation switch { 2 => (0, true), 3 => (180, false), 4 => (180, true), 5 => (270, true), 6 => (90, false), 7 => (90, true), 8 => (270, false), _ => (0, false) };
+            if (angle != 0 || flip)
+            {
+                var t = new TransformGroup();
+                if (flip) t.Children.Add(new ScaleTransform(-1, 1));
+                if (angle != 0) t.Children.Add(new RotateTransform(angle));
+                frame = new TransformedBitmap(frame, t);
+            }
             frame.Freeze();
             return frame;
         }
@@ -389,7 +399,7 @@ public partial class MainWindow
                     int count;
                     if (copy) count = (await Task.Run(() => Organizer.Copy(ids, dest))).Count;
                     else count = (await Task.Run(() => Organizer.Move(ids, dest, anywhere: true))).Count;
-                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => dest.StartsWith(f.Path, StringComparison.OrdinalIgnoreCase)).Select(f => f.Id).ToList());
+                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => IsUnder(dest, f.Path)).Select(f => f.Id).ToList());
                     return new { count, folder = dest, inside, status = GalleryStatus(), undo = !copy };
                 }
                 case "gallery.zip":
@@ -489,8 +499,13 @@ public partial class MainWindow
                         var img = Gallery.Get(id);
                         if (img == null || !File.Exists(img.Path)) continue;
                         try { await Task.Run(() => TurnPicture(img.Path, clockwise)); }
-                        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException)
-                        { refused.Add($"{Path.GetFileName(img.Path)}: {ex.Message}"); continue; }
+                        catch (Exception ex) when (ex is not OutOfMemoryException)
+                        {
+                            // One damaged picture doesn't stop the others (and those already turned are still reported).
+                            if (ex is not ArgumentException) Log.Error("Gallery: turning failed: " + img.Path, ex);
+                            refused.Add($"{Path.GetFileName(img.Path)}: {ex.Message}");
+                            continue;
+                        }
                         if (Gallery.Refresh(id) is { } now) turned.Add(ImageForPage(now));
                     }
                     if (turned.Count == 0 && refused.Count > 0) throw new BridgeError(refused[0]);
@@ -512,16 +527,19 @@ public partial class MainWindow
                     }
                     var (made, failed) = await Task.Run(() => ConvertPictures(ids, opts, dest));
                     var folders = made.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    foreach (var f in folders) if (f != null) _convertFolders.Add(f);
                     var inside = folders.Any(f => f != null && Gallery.IsInside(f));
-                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => folders.Any(d => d != null && d.StartsWith(f.Path, StringComparison.OrdinalIgnoreCase))).Select(f => f.Id).ToList());
+                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => folders.Any(d => d != null && IsUnder(d, f.Path))).Select(f => f.Id).ToList());
                     if (made.Count == 0 && failed.Count > 0) throw new BridgeError(failed[0]);
                     return new { count = made.Count, folder = folders.Count == 1 ? folders[0] : null, failed, inside, status = GalleryStatus() };
                 }
                 case "gallery.convert.reveal":
                 {
+                    // Only a folder this session's conversions wrote to.
                     var folder = req.GetString("folder", 4000) ?? "";
+                    if (!_convertFolders.Contains(folder)) throw new BridgeError("That is not a folder the converted pictures went to.");
                     if (!Directory.Exists(folder)) throw new BridgeError("That folder is not there any more.");
-                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = false });
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = false, ArgumentList = { folder } });
                     return null;
                 }
                 case "gallery.session.get": return Gallery.GetState("session");
@@ -571,23 +589,86 @@ public partial class MainWindow
     private static void TurnPicture(string path, bool clockwise)
     {
         if (PictureRotate.CanRotateLosslessly(path)) { PictureRotate.Jpeg(path, clockwise); return; }
-        BitmapEncoder enc = Path.GetExtension(path).ToLowerInvariant() switch
-        {
-            ".png" => new PngBitmapEncoder(),
-            ".bmp" => new BmpBitmapEncoder(),
-            ".tif" or ".tiff" => new TiffBitmapEncoder(),
-            _ => throw new ArgumentException("This format can't be turned here; turn it in your picture editor."),
-        };
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+        if (ext is not (".png" or ".bmp" or ".tif" or ".tiff")) throw new ArgumentException("This format can't be turned here; turn it in your picture editor.");
+        var bytes = File.ReadAllBytes(path);
+        if (ext == ".png" && bytes.AsSpan().IndexOf("acTL"u8) is >= 0 and < 4096) throw new ArgumentException("Animated PNGs can't be turned here; turn it in your picture editor.");
         BitmapFrame frame;
-        using (var ms = new MemoryStream(File.ReadAllBytes(path)))
+        using (var ms = new MemoryStream(bytes))
         {
-            var dec = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            var dec = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat | BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
             if (dec.Frames.Count != 1) throw new ArgumentException("Pictures with several pages can't be turned here.");
             frame = dec.Frames[0];
         }
-        var rotated = new TransformedBitmap(frame, new System.Windows.Media.RotateTransform(clockwise ? 90 : 270));
+        BitmapMetadata? meta = null;
+        try { meta = (frame.Metadata as BitmapMetadata)?.Clone(); } catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException) { }
+        BitmapEncoder enc = ext switch { ".png" => new PngBitmapEncoder(), ".bmp" => new BmpBitmapEncoder(), _ => new TiffBitmapEncoder() };
+        if (enc is TiffBitmapEncoder tiff)
+        {
+            // Photoshop layers live in a private TIFF tag that can't be carried over: leave those to Photoshop.
+            if (Query(meta, "/ifd/{ushort=37724}") != null) throw new ArgumentException("This TIFF has Photoshop layers; turn it in Photoshop.");
+            tiff.Compression = Query(meta, "/ifd/{ushort=259}") is { } comp ? Convert.ToInt32(comp) switch
+            {
+                1 => TiffCompressOption.None, 5 => TiffCompressOption.Lzw, 8 or 32946 => TiffCompressOption.Zip, 32773 => TiffCompressOption.Rle, _ => TiffCompressOption.Default,
+            } : TiffCompressOption.Default;
+            // The pixels are turned now: an orientation in the file would turn them a second time.
+            try { if (Query(meta, "/ifd/{ushort=274}") != null) meta!.SetQuery("/ifd/{ushort=274}", (ushort)1); } catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or ArgumentException) { }
+        }
+        var rotated = new TransformedBitmap(frame, new RotateTransform(clockwise ? 90 : 270));
         rotated.Freeze();
-        Write(path, enc, rotated);
+        // Kept: the colour profile and the picture's details (text, EXIF/XMP); without them only if this format won't take them back.
+        WriteFrame(path, enc, rotated, meta, frame.ColorContexts);
+    }
+
+    private static object? Query(BitmapMetadata? md, string query)
+    {
+        try { return md?.GetQuery(query); } catch (Exception ex) when (ex is NotSupportedException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException) { return null; }
+    }
+
+    /// <summary>Writes a picture with its metadata and colour profile, falling back step by step when the encoder refuses them.</summary>
+    private static void WriteFrame(string file, BitmapEncoder enc, BitmapSource pixels, BitmapMetadata? meta, System.Collections.ObjectModel.ReadOnlyCollection<ColorContext>? colors)
+    {
+        var attempts = new (BitmapMetadata?, System.Collections.ObjectModel.ReadOnlyCollection<ColorContext>?)[] { (meta, colors), (null, colors), (null, null) };
+        Exception? last = null;
+        foreach (var (m, c) in attempts)
+        {
+            var e = (BitmapEncoder)Activator.CreateInstance(enc.GetType())!;
+            if (e is JpegBitmapEncoder je && enc is JpegBitmapEncoder src) je.QualityLevel = src.QualityLevel;
+            if (e is TiffBitmapEncoder te && enc is TiffBitmapEncoder ts) te.Compression = ts.Compression;
+            try
+            {
+                e.Frames.Add(BitmapFrame.Create(pixels, null, m, c));
+                var tmp = file + ".tmp";
+                using (var outFs = File.Create(tmp)) e.Save(outFs);
+                File.Move(tmp, file, overwrite: true);
+                return;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException or ArgumentException or System.Runtime.InteropServices.COMException)
+            {
+                last = ex;
+                try { File.Delete(file + ".tmp"); } catch (IOException) { }
+            }
+        }
+        throw new IOException("The picture could not be saved: " + last?.Message, last);
+    }
+
+    /// <summary>The colour profile a picture carries (Display P3, Adobe RGB…), so a converted copy looks the same.</summary>
+    private static System.Collections.ObjectModel.ReadOnlyCollection<ColorContext>? SourceColors(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var f = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None).Frames[0];
+            return f.ColorContexts is { Count: > 0 } c ? c : null;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or IOException or InvalidOperationException or ArgumentException or System.Runtime.InteropServices.COMException) { return null; }
+    }
+
+    private static bool IsUnder(string path, string root)
+    {
+        var r = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
+        var p = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+        return p.Equals(r, StringComparison.OrdinalIgnoreCase) || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -622,7 +703,7 @@ public partial class MainWindow
                         _ => new TiffBitmapEncoder(),
                     };
                     if (ext is ".jpg" or ".bmp") frame = OnWhite(frame); // no see-through in these: transparent parts become white, not black
-                    Write(outPath, enc, frame);
+                    WriteFrame(outPath, enc, frame, null, ext == ".bmp" ? null : SourceColors(img.Path));
                     if (ext == ".jpg") PictureConvert.KeepDate(outPath, img.TakenUtc);
                     File.SetLastWriteTimeUtc(outPath, File.GetLastWriteTimeUtc(img.Path));
                     made.Add(outPath);

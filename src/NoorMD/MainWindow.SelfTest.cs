@@ -665,7 +665,14 @@ public partial class MainWindow
                 TurnPicture(marked.Path, clockwise: true);
                 var turnedJpg = Gallery.Refresh(img.Id)!;
                 var jpgOk = (turnedJpg.Width, turnedJpg.Height) == (before.Height, before.Width) && NoorMD.Media.PictureRotate.Orientation(marked.Path) == 3;
-                TurnPicture(marked.Path, clockwise: false);
+                // The browser itself must follow the orientation NoorMD writes (a SHORT value): turned to 8, the photo shows standing.
+                TurnPicture(marked.Path, clockwise: true); // 3 → 8
+                await Eval($"window.__gr = null; (() => {{ const i = new Image(); i.onload = () => window.__gr = i.naturalWidth + 'x' + i.naturalHeight; i.onerror = () => window.__gr = 'error'; i.src = '/_img/{img.Id}?r=' + Date.now(); }})()");
+                var gr = "null";
+                for (var i = 0; i < 40 && gr == "null"; i++) { await Task.Delay(100); gr = await Eval("window.__gr"); }
+                Check("Gallery: a photo turned in NoorMD is shown turned by the page too", gr.Trim('"') == "40x80", gr);
+                TurnPicture(marked.Path, clockwise: false); // 8 → 3
+                TurnPicture(marked.Path, clockwise: false); // 3 → 6
                 Gallery.Refresh(img.Id);
                 var upFile = Path.Combine(SelfTestDir!, "Pictures", "orientation.png");
                 TurnPicture(upFile, clockwise: true);

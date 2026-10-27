@@ -141,6 +141,8 @@ public sealed class GalleryLibrary
             while (r.Read()) columns.Add(r.GetString(1));
         if (!columns.Contains("rating")) Exec(c, "ALTER TABLE images ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
         if (!columns.Contains("label")) Exec(c, "ALTER TABLE images ADD COLUMN label TEXT");
+        // Tags of pictures removed by preview.22–24 (a removed folder kept them, and new pictures could take over their ids).
+        Exec(c, "DELETE FROM image_tags WHERE image_id NOT IN (SELECT id FROM images)");
     }
 
     /// <summary>Colour labels, as in photo tools.</summary>
@@ -175,6 +177,7 @@ public sealed class GalleryLibrary
         using var c = Open();
         using var tx = c.BeginTransaction();
         using (var s = Cmd(c, "DELETE FROM slideshow_items WHERE image_id IN (SELECT id FROM images WHERE folder_id = $f)", tx, ("$f", id))) s.ExecuteNonQuery();
+        using (var t = Cmd(c, "DELETE FROM image_tags WHERE image_id IN (SELECT id FROM images WHERE folder_id = $f)", tx, ("$f", id))) t.ExecuteNonQuery();
         using (var v = Cmd(c, "DELETE FROM images WHERE folder_id = $f", tx, ("$f", id))) v.ExecuteNonQuery();
         using (var f = Cmd(c, "DELETE FROM folders WHERE id = $f", tx, ("$f", id))) f.ExecuteNonQuery();
         tx.Commit();
@@ -281,7 +284,8 @@ public sealed class GalleryLibrary
             var w = tf.Properties?.PhotoWidth ?? 0;
             var h = tf.Properties?.PhotoHeight ?? 0;
             // Turned by its EXIF orientation (5–8: a quarter turn): the size as it is shown.
-            if ((int)((tf as TagLib.Image.File)?.ImageTag?.Orientation ?? 0) is >= 5 and <= 8) (w, h) = (h, w);
+            var orientation = PictureRotate.CanRotateLosslessly(path) ? PictureRotate.Orientation(path) : (int)((tf as TagLib.Image.File)?.ImageTag?.Orientation ?? 0);
+            if (orientation is >= 5 and <= 8) (w, h) = (h, w);
             DateTime? taken = (tf.Tag as TagLib.Image.CombinedImageTag)?.DateTime;
             // EXIF dates have no time zone: they are the camera's local time.
             var utc = taken is { } t && t.Year > 1900 ? DateTime.SpecifyKind(t, DateTimeKind.Local).ToUniversalTime() : fileDateUtc;
@@ -366,7 +370,8 @@ public sealed class GalleryLibrary
         var img = Get(id);
         if (img == null || !File.Exists(img.Path)) return img;
         var info = new FileInfo(img.Path);
-        var (w, h, taken) = ReadInfo(img.Path, info.LastWriteTimeUtc);
+        // No date in the picture: keep the one it had (turning it just changed the file's date).
+        var (w, h, taken) = ReadInfo(img.Path, img.TakenUtc);
         using (var c = Open())
         using (var u = Cmd(c, "UPDATE images SET size=$s, mtime=$m, width=$w, height=$h, taken=$t WHERE id = $id", null,
             ("$s", info.Length), ("$m", info.LastWriteTimeUtc.Ticks), ("$w", w), ("$h", h), ("$t", Iso(taken)), ("$id", id)))
@@ -470,6 +475,7 @@ public sealed class GalleryLibrary
         var info = new FileInfo(full);
         using var c = Open();
         using var tx = c.BeginTransaction();
+        using (var staleTags = Cmd(c, "DELETE FROM image_tags WHERE image_id IN (SELECT id FROM images WHERE path_key = $k AND id <> $id)", tx, ("$k", MusicLibrary.PathKey(full)), ("$id", id))) staleTags.ExecuteNonQuery();
         using (var stale = Cmd(c, "DELETE FROM images WHERE path_key = $k AND id <> $id", tx, ("$k", MusicLibrary.PathKey(full)), ("$id", id))) stale.ExecuteNonQuery();
         using (var u = Cmd(c, "UPDATE images SET folder_id=$f, path=$p, path_key=$k, name=$n, album=$al, album_key=$ak, mtime=$m, missing=0 WHERE id=$id", tx,
             ("$f", folder.Id), ("$p", full), ("$k", MusicLibrary.PathKey(full)), ("$n", System.IO.Path.GetFileNameWithoutExtension(full)),
@@ -1012,32 +1018,161 @@ public static class PictureRotate
 
     public static bool CanRotateLosslessly(string path) => System.IO.Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg";
 
-    /// <summary>Turns a JPEG by 90° (clockwise or not). Returns the new EXIF orientation.</summary>
+    /// <summary>
+    /// Turns a JPEG by 90° (clockwise or not). Only the orientation value changes (in EXIF, and in XMP when it has one);
+    /// the new file is written next to the photo and then replaces it, so a failure never leaves a broken photo.
+    /// Returns the new EXIF orientation.
+    /// </summary>
     public static int Jpeg(string path, bool clockwise)
     {
         if (!CanRotateLosslessly(path)) throw new ArgumentException("Only JPEG photos are turned by their orientation flag.");
+        var tmp = path + ".noormd-turn.jpg"; // TagLib knows a file by its extension
         try
         {
-            using var f = TagLib.File.Create(path) as TagLib.Image.File ?? throw new ArgumentException("This photo can't be read.");
-            var tag = f.ImageTag ?? throw new ArgumentException("This photo has no room for an orientation.");
-            var now = (int)tag.Orientation;
+            var bytes = File.ReadAllBytes(path);
+            var now = JpegOrientation.Find(bytes)?.Value ?? 1;
             if (now == 0) now = 1;
             if (!Clockwise.ContainsKey(now)) throw new ArgumentException("This photo is mirrored; turn it in your picture editor.");
             var next = clockwise ? Clockwise[now] : Clockwise.First(kv => kv.Value == now).Key;
-            if (f.GetTag(TagLib.TagTypes.TiffIFD, true) is TagLib.IFD.IFDTag ifd) ifd.Orientation = (TagLib.Image.ImageOrientation)next;
-            else tag.Orientation = (TagLib.Image.ImageOrientation)next;
-            f.Save();
+            if (!JpegOrientation.Write(bytes, next))
+            {
+                // No orientation in the photo yet: TagLib adds one (to a copy), then it is made a proper SHORT value.
+                File.WriteAllBytes(tmp, bytes);
+                using (var f = TagLib.File.Create(tmp) as TagLib.Image.File ?? throw new ArgumentException("This photo can't be read."))
+                {
+                    if (f.GetTag(TagLib.TagTypes.TiffIFD, true) is not TagLib.IFD.IFDTag ifd) throw new ArgumentException("This photo has no room for an orientation.");
+                    ifd.Orientation = (TagLib.Image.ImageOrientation)next;
+                    f.Save();
+                }
+                bytes = File.ReadAllBytes(tmp);
+                if (!JpegOrientation.Write(bytes, next)) throw new ArgumentException("The orientation could not be written into this photo.");
+            }
+            JpegOrientation.WriteXmp(bytes, next);
+            File.WriteAllBytes(tmp, bytes);
+            File.Move(tmp, path, overwrite: true);
             return next;
         }
         catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException)
         {
             throw new ArgumentException("The photo could not be turned: " + ex.Message);
         }
+        finally
+        {
+            try { if (File.Exists(tmp)) File.Delete(tmp); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        }
     }
 
+    /// <summary>The EXIF orientation of a JPEG (1 when it has none); other formats through TagLib.</summary>
     public static int Orientation(string path)
     {
-        try { using var f = TagLib.File.Create(path) as TagLib.Image.File; var o = (int)(f?.ImageTag?.Orientation ?? 0); return o == 0 ? 1 : o; }
+        try
+        {
+            if (CanRotateLosslessly(path))
+            {
+                using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+                var head = new byte[(int)Math.Min(fs.Length, 256 * 1024)];
+                fs.ReadExactly(head);
+                var o = JpegOrientation.Find(head)?.Value ?? 1;
+                return o is >= 1 and <= 8 ? o : 1;
+            }
+            using var f = TagLib.File.Create(path) as TagLib.Image.File;
+            var t = (int)(f?.ImageTag?.Orientation ?? 0);
+            return t is >= 1 and <= 8 ? t : 1;
+        }
         catch (Exception) { return 1; }
+    }
+}
+
+/// <summary>
+/// The orientation value inside a JPEG's EXIF block (APP1), read and changed in place: 2 bytes, nothing else is touched.
+/// The entry is always left as a SHORT, the type the EXIF standard asks for (browsers ignore other types).
+/// </summary>
+internal static class JpegOrientation
+{
+    /// <summary>The orientation entry: its value, its stored type (3 = SHORT, 4 = LONG) and where the entry starts; null if none.</summary>
+    public static (int Value, int Type, int Entry, bool Big)? Find(byte[] jpeg)
+    {
+        foreach (var (start, end) in Segments(jpeg, 0xE1))
+        {
+            if (end - start < 14 || !jpeg.AsSpan(start, 6).SequenceEqual("Exif\0\0"u8)) continue;
+            var tiff = start + 6;
+            bool big;
+            if (jpeg[tiff] == 'I' && jpeg[tiff + 1] == 'I') big = false;
+            else if (jpeg[tiff] == 'M' && jpeg[tiff + 1] == 'M') big = true;
+            else continue;
+            if (U16(jpeg, tiff + 2, big) != 42) continue;
+            var ifd = tiff + (int)U32(jpeg, tiff + 4, big);
+            if (ifd < tiff || ifd + 2 > end) continue;
+            var count = U16(jpeg, ifd, big);
+            for (var k = 0; k < count; k++)
+            {
+                var e = ifd + 2 + k * 12;
+                if (e + 12 > end) break;
+                if (U16(jpeg, e, big) != 0x0112) continue;
+                var type = U16(jpeg, e + 2, big);
+                var value = type == 3 ? U16(jpeg, e + 8, big) : type == 4 ? (int)U32(jpeg, e + 8, big) : 0;
+                return (value, type, e, big);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Sets the orientation (as a SHORT); false when the photo has no orientation entry to change.</summary>
+    public static bool Write(byte[] jpeg, int value)
+    {
+        if (Find(jpeg) is not { } f || f.Type is not (3 or 4)) return false;
+        Put16(jpeg, f.Entry + 2, 3, f.Big);
+        Put32(jpeg, f.Entry + 4, 1, f.Big);
+        Put16(jpeg, f.Entry + 8, value, f.Big);
+        jpeg[f.Entry + 10] = 0; jpeg[f.Entry + 11] = 0;
+        return true;
+    }
+
+    /// <summary>Changes tiff:Orientation in the XMP block too (one digit for one digit), so programs reading XMP agree.</summary>
+    public static void WriteXmp(byte[] jpeg, int value)
+    {
+        var header = "http://ns.adobe.com/xap/1.0/\0"u8;
+        foreach (var (start, end) in Segments(jpeg, 0xE1))
+        {
+            if (end - start < header.Length || !jpeg.AsSpan(start, header.Length).SequenceEqual(header)) continue;
+            var span = jpeg.AsSpan(start, end - start);
+            foreach (var key in new[] { "tiff:Orientation=\""u8.ToArray(), "<tiff:Orientation>"u8.ToArray() })
+            {
+                var at = span.IndexOf(key);
+                if (at < 0) continue;
+                var d = at + key.Length;
+                if (d + 1 < span.Length && span[d] is >= (byte)'1' and <= (byte)'8' && span[d + 1] is (byte)'"' or (byte)'<') span[d] = (byte)('0' + value);
+            }
+        }
+    }
+
+    /// <summary>The data of each segment with this marker, before the picture data starts.</summary>
+    private static IEnumerable<(int Start, int End)> Segments(byte[] j, int marker)
+    {
+        if (j.Length < 4 || j[0] != 0xFF || j[1] != 0xD8) yield break;
+        var i = 2;
+        while (i + 4 <= j.Length)
+        {
+            if (j[i] != 0xFF) yield break;
+            var m = j[i + 1];
+            if (m == 0xFF) { i++; continue; }
+            if (m is 0xDA or 0xD9) yield break;
+            if (m is >= 0xD0 and <= 0xD7 or 0x01) { i += 2; continue; }
+            var len = (j[i + 2] << 8) | j[i + 3];
+            if (len < 2 || i + 2 + len > j.Length) yield break;
+            if (m == marker) yield return (i + 4, i + 2 + len);
+            i += 2 + len;
+        }
+    }
+
+    private static int U16(byte[] b, int at, bool big) => big ? (b[at] << 8) | b[at + 1] : b[at] | (b[at + 1] << 8);
+    private static uint U32(byte[] b, int at, bool big) => big
+        ? (uint)((b[at] << 24) | (b[at + 1] << 16) | (b[at + 2] << 8) | b[at + 3])
+        : (uint)(b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24));
+    private static void Put16(byte[] b, int at, int v, bool big) { if (big) { b[at] = (byte)(v >> 8); b[at + 1] = (byte)v; } else { b[at] = (byte)v; b[at + 1] = (byte)(v >> 8); } }
+    private static void Put32(byte[] b, int at, uint v, bool big)
+    {
+        if (big) { b[at] = (byte)(v >> 24); b[at + 1] = (byte)(v >> 16); b[at + 2] = (byte)(v >> 8); b[at + 3] = (byte)v; }
+        else { b[at] = (byte)v; b[at + 1] = (byte)(v >> 8); b[at + 2] = (byte)(v >> 16); b[at + 3] = (byte)(v >> 24); }
     }
 }
