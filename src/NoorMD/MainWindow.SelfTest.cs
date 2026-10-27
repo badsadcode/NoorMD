@@ -770,7 +770,7 @@ public partial class MainWindow
             // A WAV of your own as a layer: read when it was picked, refused when nobody picked it.
             var wavPath = Path.Combine(SelfTestDir!, "Sound sample.wav");
             await File.WriteAllBytesAsync(wavPath, SoundEngine.Render(SoundPresets.Make("hit-metal"), 44100).ToWav());
-            var withSample = new SoundRecipe { Duration = 1, Loop = false, Layers = [new SoundLayer { Type = "sample", Path = wavPath, SampleName = "Sound sample.wav", Gain = 0, Semitones = -5, Reverse = true }] };
+            var withSample = new SoundRecipe { Duration = 1, Loop = false, Layers = [new SoundLayer { Type = "sample", Path = wavPath, SampleName = "Sound sample.wav", Gain = 0, Semitones = -5 }] }; // (backwards, the first second would be the clang's quiet tail)
             var notPicked = SoundEngine.Render(withSample, 48000, LoadSample);
             _soundSampleFiles.Add(Path.GetFullPath(wavPath));
             var used = SoundEngine.Render(withSample, 48000, LoadSample);

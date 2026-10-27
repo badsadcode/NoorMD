@@ -1631,8 +1631,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Play next for a selection, then copy titles.
       await page.click(row(0));
       await page.click(row(1), { modifiers: ['Shift'] });
+      await waitFn(page, () => JSON.stringify(window.NoorMusic._state().sel) === '[0,1]'); // the selection settles before Enter
       await page.keyboard.press('Enter');
-      await waitFn(page, () => window.NoorMusic._state().q.current != null, null, { timeout: 6000 });
+      await waitFn(page, () => window.NoorMusic._state().q.current != null && window.NoorMusic._state().q.ids.length === 2, null, { timeout: 6000 });
       const q1 = (await ms()).q;
       check('Enter on a multi-selection plays just those tracks', q1.ids.length === 2);
       await page.click(row(1), { button: 'right' });
