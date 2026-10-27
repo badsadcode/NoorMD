@@ -483,20 +483,22 @@ function mockHostScript(initial) {
   const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
   state.voice = VOICE;
   // ---- mock Gallery: initial.gallery = number of pictures (in albums "Lato" and "Zima"); slideshows and favourites like GalleryLibrary.
-  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null };
+  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null, renamedAlbums: [], copies: [], movedOut: [], zips: [], editors: [{ name: 'Krita', detected: true }], opened: [] };
   state.gallery = GAL;
   function galAdd(n) {
     for (let i = 0; i < n; i++) {
       const id = GAL.next++;
       const album = i % 3 === 2 ? 'Zima' : 'Lato';
-      GAL.images.push({ id, name: `Zdjęcie ${String(id).padStart(3, '0')}`, album, albumKey: 'c:\\pics\\' + album.toLowerCase(), size: 120000 + id, width: 64, height: 48, taken: new Date(Date.UTC(2023, 0, 1) + id * 86400000).toISOString(), favorite: false, fileName: `IMG_${id}.jpg`, folder: 'C:\\Pics\\' + album });
+      const psd = id % 5 === 0;
+      GAL.images.push({ id, name: `Zdjęcie ${String(id).padStart(3, '0')}`, album, albumKey: 'c:\\pics\\' + album.toLowerCase(), size: 120000 + id, width: 64, height: 48, taken: new Date(Date.UTC(2023, 0, 1) + id * 86400000).toISOString(), favorite: false, fileName: `IMG_${id}.${psd ? 'psd' : 'jpg'}`, folder: 'C:\\Pics\\' + album, format: psd ? 'PSD' : 'JPG', web: !psd });
     }
   }
   if (initial.gallery) { GAL.folders.push({ id: 1, path: 'C:\\Pics', count: initial.gallery }); galAdd(initial.gallery); }
   function galleryMock(type, p) {
     const status = () => {
       const albums = [...new Set(GAL.images.map((i) => i.albumKey))].map((k) => { const list = GAL.images.filter((i) => i.albumKey === k); return { key: k, name: list[0].album, folder: list[0].folder, count: list.length, coverId: list[0].id }; });
-      return { folders: GAL.folders.map((f) => ({ ...f, count: GAL.images.length })), count: GAL.images.length, albums, slideshows: GAL.slideshows.map((s) => ({ id: s.id, name: s.name, count: s.ids.length, settings: s.settings })), scanning: false };
+      const formats = [...new Set(GAL.images.map((i) => i.format))].map((f) => ({ format: f, count: GAL.images.filter((i) => i.format === f).length }));
+      return { folders: GAL.folders.map((f) => ({ ...f, count: GAL.images.length })), count: GAL.images.length, albums, slideshows: GAL.slideshows.map((s) => ({ id: s.id, name: s.name, count: s.ids.length, settings: s.settings })), scanning: false, formats, editors: GAL.editors.map((e) => ({ ...e })) };
     };
     const get = (id) => GAL.images.find((i) => i.id === id) || (() => { throw new Error('That picture is no longer in the Gallery.'); })();
     const show = (id) => GAL.slideshows.find((s) => s.id === id) || (() => { throw new Error('That slideshow is gone.'); })();
@@ -504,9 +506,9 @@ function mockHostScript(initial) {
       case 'gallery.status': return status();
       case 'gallery.query': {
         if (p.slideshow) return show(p.slideshow).ids.map(get).map((i) => ({ ...i }));
-        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album));
+        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album) && (!p.format || i.format === p.format));
         if (p.search) { const t = p.search.toLowerCase(); list = list.filter((i) => (i.name + ' ' + i.album).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').includes(t)); }
-        const key = p.sort === 'name' ? (i) => i.name : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : (i) => i.taken;
+        const key = p.sort === 'name' ? (i) => i.name : p.sort === 'type' ? (i) => i.format + i.name : p.sort === 'size' ? (i) => String(i.size).padStart(12, '0') : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : (i) => i.taken;
         list.sort((a, b) => key(a).localeCompare(key(b)) * (p.descending ? -1 : 1));
         return list.map((i) => ({ ...i }));
       }
@@ -527,6 +529,16 @@ function mockHostScript(initial) {
       case 'gallery.move': { const album = p.folder.split('\\').pop(); GAL.last = p.ids.map((id) => { const i = get(id); return { id, name: i.name, album: i.album, albumKey: i.albumKey }; }); p.ids.forEach((id) => { const i = get(id); i.album = album; i.albumKey = 'c:\\pics\\' + album.toLowerCase(); }); GAL.moves.push({ ids: [...p.ids], folder: p.folder }); return { moved: p.ids.length, status: status(), undo: true }; }
       case 'gallery.undo': { if (!GAL.last) throw new Error('There is nothing to undo.'); GAL.last.forEach((b) => Object.assign(get(b.id), { name: b.name, album: b.album, albumKey: b.albumKey })); const n = GAL.last.length; GAL.last = null; return { restored: n, status: status() }; }
       case 'gallery.delete': { GAL.images = GAL.images.filter((i) => !p.ids.includes(i.id)); GAL.deleted.push(...p.ids); return { deleted: p.ids.length, status: status() }; }
+      case 'gallery.album.rename': { const a = p.folder.split('\\').pop(); const n = p.name.trim(); GAL.images.filter((i) => i.album === a).forEach((i) => { i.album = n; i.albumKey = 'c:\\pics\\' + n.toLowerCase(); i.folder = 'C:\\Pics\\' + n; }); GAL.renamedAlbums.push([a, n]); return { path: 'C:\\Pics\\' + n, key: 'c:\\pics\\' + n.toLowerCase(), status: status(), undo: true }; }
+      case 'gallery.revealFolder': GAL.revealed.push(p.folder); return null;
+      case 'gallery.copyTo': GAL.copies.push([...p.ids]); return { count: p.ids.length, folder: 'D:\\Export', inside: false, status: status(), undo: false };
+      case 'gallery.moveTo': GAL.images = GAL.images.filter((i) => !p.ids.includes(i.id)); GAL.movedOut.push(...p.ids); return { count: p.ids.length, folder: 'D:\\Elsewhere', inside: false, status: status(), undo: true };
+      case 'gallery.zip': GAL.zips.push({ ids: [...p.ids], name: p.name }); return { path: 'D:\\' + p.name + '.zip', count: p.ids.length };
+      case 'gallery.editors': return GAL.editors;
+      case 'gallery.editor.add': GAL.editors.push({ name: 'Affinity Photo 2', detected: false }); return { editors: GAL.editors };
+      case 'gallery.editor.remove': GAL.editors.splice(p.index, 1); return { editors: GAL.editors };
+      case 'gallery.openWith': GAL.opened.push({ ids: [...p.ids], how: p.how, editor: p.editor }); return null;
+      case 'gallery.duplicates': { const by = new Map(); GAL.images.forEach((i) => { const k = i.id % 4; by.set(k, [...(by.get(k) || []), i]); }); return [...by.values()].filter((g) => g.length > 1).slice(0, 2).map((g) => ({ kind: 'same', items: g.slice(0, 3).map((i) => ({ ...i })) })); }
       case 'gallery.session.get': return GAL.session;
       case 'gallery.session.save': GAL.session = p.state; return null;
       default: return null;

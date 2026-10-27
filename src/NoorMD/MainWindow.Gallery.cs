@@ -42,31 +42,36 @@ public partial class MainWindow
             e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
             return true;
         }
-        if (!thumb)
+        if (!thumb && ImageFormats.IsWeb(img.Path))
         {
             var stream = new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             e.Response = env.CreateWebResourceResponse(stream, 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
             return true;
         }
-        // Making a preview can take a moment for a big photo: off the UI thread, a few at a time.
+        // Making a preview can take a moment for a big photo: off the UI thread, a few at a time. Work files (PSD, Affinity,
+        // TIFF…) are shown through a big preview in the viewer too, since the browser can't show them.
         var deferral = e.GetDeferral();
-        _ = ServeThumbAsync(img, e, env, deferral);
+        _ = ServeThumbAsync(img, thumb ? ThumbSize : PreviewSize, e, env, deferral);
         return true;
     }
 
-    private async Task ServeThumbAsync(GalleryImage img, CoreWebView2WebResourceRequestedEventArgs e, CoreWebView2Environment env, CoreWebView2Deferral deferral)
+    public const int PreviewSize = 1600;
+
+    private async Task ServeThumbAsync(GalleryImage img, int size, CoreWebView2WebResourceRequestedEventArgs e, CoreWebView2Environment env, CoreWebView2Deferral deferral)
     {
         try
         {
             var file = await Task.Run(async () =>
             {
                 await ThumbGate.WaitAsync();
-                try { return EnsureThumb(img); } finally { ThumbGate.Release(); }
+                try { return EnsureThumb(img, size); } finally { ThumbGate.Release(); }
             });
             e.Response = file != null
                 ? env.CreateWebResourceResponse(new MemoryStream(await File.ReadAllBytesAsync(file)), 200, "OK", $"Content-Type: {(file.EndsWith(".png") ? "image/png" : "image/jpeg")}\r\nCache-Control: max-age=600\r\nX-Content-Type-Options: nosniff")
-                // A format Windows can't decode here (some AVIF/WebP): the page shows the picture itself instead.
-                : env.CreateWebResourceResponse(new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+                : ImageFormats.IsWeb(img.Path)
+                    // A format Windows can't decode here (some AVIF/WebP): the page shows the picture itself instead.
+                    ? env.CreateWebResourceResponse(new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
+                    : env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain"); // no preview: the page shows the format's name
         }
         catch (Exception ex)
         {
@@ -76,24 +81,60 @@ public partial class MainWindow
         finally { deferral.Complete(); }
     }
 
-    /// <summary>The preview file for a picture (made or remade when the picture changed), or null if it can't be decoded.</summary>
-    internal static string? EnsureThumb(GalleryImage img)
+    /// <summary>
+    /// A preview file for a picture, at most <paramref name="size"/> pixels on its long side (made or remade when the picture
+    /// changed), or null. Windows' own decoders first (JPEG, PNG, TIFF, HEIC with its extension…); for work files the
+    /// thumbnail their program gives Explorer (Affinity, Photoshop), or the small preview inside a PSD.
+    /// </summary>
+    internal static string? EnsureThumb(GalleryImage img, int size = ThumbSize)
     {
         var src = new FileInfo(img.Path);
-        var alpha = img.Path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || img.Path.EndsWith(".gif", StringComparison.OrdinalIgnoreCase) || img.Path.EndsWith(".webp", StringComparison.OrdinalIgnoreCase);
-        var file = Path.Combine(ThumbFolder, img.Id + (alpha ? ".png" : ".jpg"));
-        if (File.Exists(file) && File.GetLastWriteTimeUtc(file) >= src.LastWriteTimeUtc) return file;
+        var stem = Path.Combine(ThumbFolder, img.Id + (size == ThumbSize ? "" : "-" + size));
+        foreach (var ext in new[] { ".jpg", ".png" })
+            if (File.Exists(stem + ext) && File.GetLastWriteTimeUtc(stem + ext) >= src.LastWriteTimeUtc) return stem + ext;
+        Directory.CreateDirectory(ThumbFolder);
+        if (Decode(img.Path, size) is { } frame)
+        {
+            var alpha = Path.GetExtension(img.Path).ToLowerInvariant() is ".png" or ".gif" or ".webp" or ".ico" or ".tif" or ".tiff"; // may be see-through
+            return Write(stem + (alpha ? ".png" : ".jpg"), alpha ? new PngBitmapEncoder() : new JpegBitmapEncoder { QualityLevel = 85 }, frame);
+        }
+        if (ShellIcons.Thumbnail(img.Path, size) is { } png) return WriteBytes(stem + ".png", png);
+        if (img.Path.EndsWith(".psd", StringComparison.OrdinalIgnoreCase) || img.Path.EndsWith(".psb", StringComparison.OrdinalIgnoreCase))
+            if (PsdPreview.Jpeg(img.Path) is { } jpeg) return WriteBytes(stem + ".jpg", jpeg);
+        return null;
+    }
+
+    private static string WriteBytes(string file, byte[] bytes)
+    {
+        var tmp = file + ".tmp";
+        File.WriteAllBytes(tmp, bytes);
+        File.Move(tmp, file, overwrite: true);
+        return file;
+    }
+
+    private static string? Write(string file, BitmapEncoder enc, BitmapSource frame)
+    {
+        enc.Frames.Add(BitmapFrame.Create(frame));
+        var tmp = file + ".tmp";
+        using (var outFs = File.Create(tmp)) enc.Save(outFs);
+        File.Move(tmp, file, overwrite: true);
+        return file;
+    }
+
+    /// <summary>Decodes a picture with Windows' imaging, scaled down to <paramref name="size"/> and turned upright; null if Windows can't read it.</summary>
+    private static BitmapSource? Decode(string path, int size)
+    {
         try
         {
             BitmapSource frame;
             ushort orientation = 1;
-            using (var fs = new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
+            using (var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
             {
                 var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
                 var first = decoder.Frames[0];
                 try { if (first.Metadata is BitmapMetadata md && md.GetQuery("/app1/ifd/{ushort=274}") is ushort o) orientation = o; } catch (Exception) { /* no EXIF */ }
                 var w = first.PixelWidth; var h = first.PixelHeight;
-                var scale = Math.Min(1.0, (double)ThumbSize / Math.Max(w, h));
+                var scale = Math.Min(1.0, (double)size / Math.Max(w, h));
                 fs.Position = 0;
                 var bi = new BitmapImage();
                 bi.BeginInit();
@@ -108,13 +149,7 @@ public partial class MainWindow
             var angle = orientation switch { 3 => 180, 6 => 90, 8 => 270, _ => 0 };
             if (angle != 0) frame = new TransformedBitmap(frame, new RotateTransform(angle));
             frame.Freeze();
-            BitmapEncoder enc = alpha ? new PngBitmapEncoder() : new JpegBitmapEncoder { QualityLevel = 82 };
-            enc.Frames.Add(BitmapFrame.Create(frame));
-            Directory.CreateDirectory(ThumbFolder);
-            var tmp = file + ".tmp";
-            using (var outFs = File.Create(tmp)) enc.Save(outFs);
-            File.Move(tmp, file, overwrite: true);
-            return file;
+            return frame;
         }
         catch (Exception ex) when (ex is NotSupportedException or FileFormatException or IOException or InvalidOperationException or ArgumentException or OverflowException or System.Runtime.InteropServices.COMException)
         {
@@ -122,11 +157,82 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>A 9×8 grey version of a picture's preview, for finding look-alikes.</summary>
+    internal static byte[]? Grey9x8(GalleryImage img)
+    {
+        var file = EnsureThumb(img);
+        if (file == null) return null;
+        try
+        {
+            var bmp = BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(file)), BitmapCreateOptions.IgnoreColorProfile, BitmapCacheOption.OnLoad);
+            var small = new TransformedBitmap(bmp, new ScaleTransform(9.5 / bmp.PixelWidth, 8.5 / bmp.PixelHeight)); // 9×8 or a pixel more
+            var grey = new FormatConvertedBitmap(small, PixelFormats.Gray8, null, 0);
+            if (grey.PixelWidth < 9 || grey.PixelHeight < 8) return null;
+            var all = new byte[grey.PixelWidth * grey.PixelHeight];
+            grey.CopyPixels(all, grey.PixelWidth, 0);
+            var outp = new byte[72];
+            for (var y = 0; y < 8; y++) for (var x = 0; x < 9; x++) outp[y * 9 + x] = all[y * grey.PixelWidth + x];
+            return outp;
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or IOException or ArgumentException or System.Runtime.InteropServices.COMException) { return null; }
+    }
+
     private object GalleryStatus() => new
     {
         folders = Gallery.Folders(), count = Gallery.Count(), albums = Gallery.Albums().Select(AlbumForPage),
         slideshows = Gallery.Slideshows().Select(SlideshowForPage), scanning = _galleryScan is { IsCompleted: false },
+        formats = Gallery.Formats().Select(f => new { format = f.Format, count = f.Count }), editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }),
     };
+
+    // ------------------------------------------------------------------ editing programs ("Open in Affinity Photo")
+
+    private sealed record PictureEditor(string Name, string Path, bool Detected);
+
+    /// <summary>Picture editors: the ones found on this PC (Affinity, Photoshop, GIMP, Krita, Paint.NET) and the ones you added.</summary>
+    private List<PictureEditor> Editors()
+    {
+        var list = new List<PictureEditor>();
+        try
+        {
+            var saved = Gallery.GetState("editors");
+            if (saved != null && JsonSerializer.Deserialize<List<string[]>>(saved) is { } items)
+                foreach (var it in items) if (it.Length == 2 && File.Exists(it[1])) list.Add(new PictureEditor(it[0], it[1], false));
+        }
+        catch (JsonException) { /* start again */ }
+        foreach (var (name, path) in DetectEditors())
+            if (!list.Any(e => string.Equals(e.Path, path, StringComparison.OrdinalIgnoreCase))) list.Add(new PictureEditor(name, path, true));
+        return list;
+    }
+
+    private static IEnumerable<(string Name, string Path)> DetectEditors()
+    {
+        var pf = new[] { Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86) }.Where(d => d.Length > 0).Distinct();
+        foreach (var root in pf)
+        {
+            foreach (var (name, rel) in new[] { ("Affinity Photo 2", @"Affinity\Photo 2\Photo.exe"), ("Affinity Photo", @"Affinity\Photo\Photo.exe"), ("Affinity Designer 2", @"Affinity\Designer 2\Designer.exe"),
+                ("Affinity (all apps)", @"Affinity\Affinity\Affinity.exe"), ("Krita", @"Krita (x64)\bin\krita.exe"), ("Paint.NET", @"paint.net\paintdotnet.exe") })
+                if (File.Exists(Path.Combine(root, rel))) yield return (name, Path.Combine(root, rel));
+            var adobe = Path.Combine(root, "Adobe");
+            if (Directory.Exists(adobe))
+                foreach (var d in Directory.EnumerateDirectories(adobe, "Adobe Photoshop*").OrderByDescending(x => x))
+                    if (File.Exists(Path.Combine(d, "Photoshop.exe"))) { yield return (Path.GetFileName(d), Path.Combine(d, "Photoshop.exe")); break; }
+            if (Directory.Exists(root))
+                foreach (var d in Directory.EnumerateDirectories(root, "GIMP*"))
+                    foreach (var exe in Directory.EnumerateFiles(Path.Combine(d, "bin"), "gimp-*.exe").Where(f => !f.Contains("console", StringComparison.OrdinalIgnoreCase)).Take(1))
+                        yield return ("GIMP", exe);
+        }
+    }
+
+    private void SaveEditors(IEnumerable<PictureEditor> mine) =>
+        Gallery.SetState("editors", JsonSerializer.Serialize(mine.Where(e => !e.Detected).Select(e => new[] { e.Name, e.Path }).ToList()));
+
+    private void OpenInEditor(IReadOnlyList<GalleryImage> imgs, PictureEditor ed)
+    {
+        var psi = new ProcessStartInfo(ed.Path) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(ed.Path)! };
+        foreach (var i in imgs.Take(50)) psi.ArgumentList.Add(i.Path); // each file its own argument: names with spaces stay whole
+        Process.Start(psi);
+        Log.Info($"Gallery: opened {imgs.Count} picture(s) in {ed.Name}");
+    }
 
     private async Task<object?> DispatchGalleryAsync(BridgeRequest req)
     {
@@ -139,7 +245,7 @@ public partial class MainWindow
                 case "gallery.query":
                 {
                     var q = new GalleryQuery(req.GetString("search", 200), req.GetString("filter", 20) ?? "all", req.GetString("album", 2000),
-                        NoorMD.Core.Bridge.Json.OptLong(p, "slideshow"), req.GetString("sort", 20) ?? "taken", !p.TryGetProperty("descending", out var d) || d.ValueKind != JsonValueKind.False);
+                        NoorMD.Core.Bridge.Json.OptLong(p, "slideshow"), req.GetString("sort", 20) ?? "taken", !p.TryGetProperty("descending", out var d) || d.ValueKind != JsonValueKind.False, Format: req.GetString("format", 20));
                     return Gallery.Query(q).Select(ImageForPage);
                 }
                 case "gallery.addFolder":
@@ -203,6 +309,8 @@ public partial class MainWindow
                 case "gallery.undo":
                 {
                     var back = Organizer.Undo();
+                    // Pictures that had left the Gallery (moved out) come back into it: a rescan finds them again.
+                    if (back.Any(m => Gallery.Get(m.Id) == null)) await ScanGalleryAsync(Gallery.Folders().Select(f => f.Id).ToList());
                     return new { restored = back.Count, status = GalleryStatus() };
                 }
                 case "gallery.places":
@@ -236,6 +344,105 @@ public partial class MainWindow
                     await Task.Run(() => RecycleBin.Send(files, permanently: !recycle));
                     Gallery.Forget(imgs.Select(i => i.Id));
                     return new { deleted = imgs.Count, status = GalleryStatus() };
+                }
+                case "gallery.revealFolder":
+                {
+                    var folder = req.GetString("folder", 4000) ?? "";
+                    if (!Directory.Exists(folder) || !Gallery.IsInside(folder)) throw new BridgeError("That album is not in the Gallery.");
+                    Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = false, ArgumentList = { folder } });
+                    return null;
+                }
+                case "gallery.album.rename":
+                {
+                    var to = Organizer.RenameAlbum(req.GetString("folder", 4000) ?? "", req.GetString("name", 200) ?? "");
+                    return new { path = to, key = NoorMD.Media.MusicLibrary.PathKey(to), status = GalleryStatus(), undo = true };
+                }
+                case "gallery.copyTo" or "gallery.moveTo":
+                {
+                    var copy = req.Type == "gallery.copyTo";
+                    var ids = Ids(p, "ids");
+                    if (ids.Count == 0) return new { cancelled = true };
+                    var dlg = new OpenFolderDialog { Title = copy ? $"Copy {ids.Count} picture(s) to… (you can make a new folder here)" : $"Move {ids.Count} picture(s) to… (you can make a new folder here)" };
+                    Ui.NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var dest = dlg.FolderName;
+                    var inside = Gallery.IsInside(dest);
+                    int count;
+                    if (copy) count = (await Task.Run(() => Organizer.Copy(ids, dest))).Count;
+                    else count = (await Task.Run(() => Organizer.Move(ids, dest, anywhere: true))).Count;
+                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => dest.StartsWith(f.Path, StringComparison.OrdinalIgnoreCase)).Select(f => f.Id).ToList());
+                    return new { count, folder = dest, inside, status = GalleryStatus(), undo = !copy };
+                }
+                case "gallery.zip":
+                {
+                    var imgs = Ids(p, "ids").Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
+                    if (imgs.Count == 0) throw new BridgeError("Choose some pictures to pack.");
+                    var dlg = new SaveFileDialog { Title = $"Pack {imgs.Count} picture(s) into a ZIP", Filter = "ZIP archive (*.zip)|*.zip", FileName = (req.GetString("name", 120) is { Length: > 0 } n ? n : "Pictures") + ".zip", OverwritePrompt = true, AddExtension = true, DefaultExt = ".zip" };
+                    Ui.NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var count = await Task.Run(() => GalleryZip.Create(imgs.Select(i => i.Path).ToList(), dlg.FileName));
+                    return new { path = dlg.FileName, count };
+                }
+                case "gallery.editors": return Editors().Select(e => new { name = e.Name, detected = e.Detected });
+                case "gallery.editor.add":
+                {
+                    var dlg = new OpenFileDialog { Title = "Choose your picture editor (for example Affinity Photo or Photoshop)", Filter = "Programs (*.exe)|*.exe", InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), DereferenceLinks = true };
+                    Ui.NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var list = Editors();
+                    if (!list.Any(e => string.Equals(e.Path, dlg.FileName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var name = FileVersionInfo.GetVersionInfo(dlg.FileName).FileDescription is { Length: > 0 } d ? d : Path.GetFileNameWithoutExtension(dlg.FileName);
+                        list.Add(new PictureEditor(name.Length > 60 ? name[..60] : name, dlg.FileName, false));
+                        SaveEditors(list);
+                    }
+                    return new { editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }) };
+                }
+                case "gallery.editor.remove":
+                {
+                    var list = Editors();
+                    var i = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "index") ?? -1);
+                    if (i >= 0 && i < list.Count && !list[i].Detected) { list.RemoveAt(i); SaveEditors(list); }
+                    return new { editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }) };
+                }
+                case "gallery.openWith":
+                {
+                    var imgs = Ids(p, "ids").Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
+                    if (imgs.Count == 0) throw new BridgeError("Those pictures are not there any more.");
+                    var how = req.GetString("how", 20) ?? "default";
+                    if (how == "default")
+                        foreach (var i in imgs.Take(20)) Process.Start(new ProcessStartInfo(i.Path) { UseShellExecute = true });
+                    else if (how == "choose")
+                        Process.Start(new ProcessStartInfo("rundll32.exe") { UseShellExecute = false, ArgumentList = { "shell32.dll,OpenAs_RunDLL", imgs[0].Path } }); // Windows' "Open with" list
+                    else
+                    {
+                        var list = Editors();
+                        var i = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "editor") ?? -1);
+                        if (i < 0 || i >= list.Count) throw new BridgeError("That program is no longer in the list.");
+                        OpenInEditor(imgs, list[i]);
+                    }
+                    return null;
+                }
+                case "gallery.duplicates":
+                {
+                    var similar = NoorMD.Core.Bridge.Json.IsTrue(p, "similar");
+                    var scope = Gallery.Query(new GalleryQuery(AlbumKey: req.GetString("album", 2000), Limit: 20000));
+                    var progress = new Progress<int>(n => PushEvent("gallery.dupProgress", new { done = n, total = scope.Count }));
+                    var groups = await Task.Run(() =>
+                    {
+                        var exact = GalleryDuplicates.Exact(scope, progress);
+                        if (!similar) return exact.Select(g => (Kind: "same", Items: g)).ToList();
+                        var inExact = new HashSet<long>(exact.SelectMany(g => g).Select(i => i.Id));
+                        var hashed = new List<(GalleryImage, ulong)>();
+                        var n = 0;
+                        foreach (var img in scope.Where(i => !inExact.Contains(i.Id)))
+                        {
+                            if (Grey9x8(img) is { } g) hashed.Add((img, GalleryDuplicates.DHash(g)));
+                            if (++n % 25 == 0) ((IProgress<int>)progress).Report(n);
+                        }
+                        return exact.Select(g => (Kind: "same", Items: g)).Concat(GalleryDuplicates.Similar(hashed).Select(g => (Kind: "alike", Items: g))).ToList();
+                    });
+                    return groups.Select(g => new { kind = g.Kind, items = g.Items.OrderByDescending(i => i.Width * (long)i.Height).ThenByDescending(i => i.Size).Select(ImageForPage) });
                 }
                 case "gallery.session.get": return Gallery.GetState("session");
                 case "gallery.session.save":
@@ -280,7 +487,7 @@ public partial class MainWindow
     private static object ImageForPage(GalleryImage i) => new
     {
         id = i.Id, name = i.Name, album = i.Album, albumKey = i.AlbumKey, size = i.Size, width = i.Width, height = i.Height,
-        taken = i.TakenUtc, favorite = i.Favorite, fileName = Path.GetFileName(i.Path), folder = Path.GetDirectoryName(i.Path),
+        taken = i.TakenUtc, favorite = i.Favorite, fileName = Path.GetFileName(i.Path), folder = Path.GetDirectoryName(i.Path), format = i.Format, web = ImageFormats.IsWeb(i.Path),
     };
 
     private static object AlbumForPage(GalleryAlbum a) => new { key = a.Key, name = a.Name, folder = a.Folder, count = a.Count, coverId = a.CoverId, latest = a.LatestUtc };

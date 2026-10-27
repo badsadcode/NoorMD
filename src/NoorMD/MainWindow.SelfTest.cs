@@ -610,6 +610,28 @@ public partial class MainWindow
                 Organizer.Undo();
                 Check("Gallery: rename, new album, move and undo work on Windows", movedOk && File.Exists(Path.Combine(picDir, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Lato");
             }
+            // Work files: a Photoshop file shows its own embedded preview; an album can be renamed (and back); pictures pack into a ZIP.
+            {
+                var jpegBytes = File.ReadAllBytes(Path.Combine(picDir, "Morze o zachodzie.jpg"));
+                var ms = new MemoryStream();
+                void BE(uint v, int n) { for (var k = n - 1; k >= 0; k--) ms.WriteByte((byte)(v >> (8 * k))); }
+                ms.Write("8BPS"u8); BE(1, 2); ms.Write(new byte[6]); BE(3, 2); BE(1000, 4); BE(2000, 4); BE(8, 2); BE(3, 2); BE(0, 4);
+                var resLen = 12 + 28 + jpegBytes.Length + (jpegBytes.Length % 2);
+                BE((uint)resLen, 4); ms.Write("8BIM"u8); BE(1036, 2); ms.WriteByte(0); ms.WriteByte(0); BE((uint)(28 + jpegBytes.Length), 4); ms.Write(new byte[28]); ms.Write(jpegBytes);
+                if (jpegBytes.Length % 2 == 1) ms.WriteByte(0);
+                BE(0, 4);
+                File.WriteAllBytes(Path.Combine(picDir, "Projekt.psd"), ms.ToArray());
+                await ScanGalleryAsync([gid]);
+                var psd = Gallery.Query(new NoorMD.Media.GalleryQuery(Format: "PSD")).FirstOrDefault();
+                var psdThumb = psd != null ? await Task.Run(() => EnsureThumb(psd)) : null;
+                Check("Gallery: a PSD is listed (2000×1000) with a preview", psd is { Width: 2000, Height: 1000 } && psdThumb != null, $"{psd?.Width}x{psd?.Height} {psdThumb}");
+                Organizer.RenameAlbum(picDir, "Lato 2024");
+                var renamedOk = Directory.Exists(Path.Combine(SelfTestDir!, "Pictures", "Lato 2024")) && Gallery.Get(psd!.Id)?.Album == "Lato 2024";
+                Organizer.Undo();
+                var zip = Path.Combine(SelfTestDir!, "pictures.zip");
+                var packed = NoorMD.Media.GalleryZip.Create(Gallery.Query(new NoorMD.Media.GalleryQuery()).Select(i => i.Path).ToList(), zip);
+                Check("Gallery: album rename and back, and a ZIP of the pictures", renamedOk && Directory.Exists(picDir) && packed == 2 && File.Exists(zip), $"{renamedOk} {packed}");
+            }
             Gallery.RemoveFolder(gid);
         }
 

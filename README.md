@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.18-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.19-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -111,6 +111,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   the Music Bench. Saved slideshows keep their order and settings. With room (in the middle) it becomes a
   picture manager: albums on the left, details on the right, rename (also as a numbered series), move to
   albums by dragging, new albums, delete to the Recycle Bin, and Ctrl+Z to undo a rename or move.
+  It shows work files too (PSD, Affinity, TIFF, HEIC) with their previews, opens pictures in your editor
+  (right-click › Open in), copies or moves them to any folder, packs them into a ZIP, and finds duplicates.
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
 - **Apps Hub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
@@ -162,8 +164,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.18-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.18-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.19-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.19-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

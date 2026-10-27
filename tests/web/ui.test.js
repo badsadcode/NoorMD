@@ -2791,7 +2791,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('→ shows the next picture', (await G()).viewer === 2);
       await page.keyboard.press('f');
       await waitFn(page, () => window.__mock.state.gallery.images[1].favorite === true);
-      check('F marks a favourite', await page.evaluate(() => document.querySelector('#gv-fav').classList.contains('on')));
+      await waitFn(page, () => document.querySelector('#gv-fav').classList.contains('on'));
+      check('F marks a favourite', true);
       await page.keyboard.press('+');
       check('+ zooms in', (await G()).zoom > 1);
       await page.keyboard.press('0');
@@ -2976,6 +2977,92 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Escape');
       check('no page errors in the middle and the manager', errors.length === 0, errors);
       if (shots) await page.screenshot({ path: `${shots}/gallery-manager.png` });
+      await page.close();
+    }
+
+    // ---- 34. Video Bench in the middle (lists beside the player); notes on the video; Gallery albums, formats, Open in, copy/move, ZIP, duplicates.
+    {
+      const { page, errors } = await open(browser, url, { videos: true, gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.evaluate(() => { window.__mock.state.video.notes.push({ id: 900, videoId: 1, time: 0.2, text: 'Tu zaczyna się akcja' }); });
+      await page.keyboard.press('Control+Alt+v');
+      await page.waitForSelector('#videobench:not([hidden])');
+      await page.evaluate(() => NoorDock.place('video', 'center'));
+      await waitFn(page, () => NoorDock._state().center.active === 'video');
+      const geo = await page.evaluate(() => { const st = document.querySelector('#vb-stage').getBoundingClientRect(); const tabs = document.querySelector('#videobench .music-tabs').getBoundingClientRect(); const list = document.querySelector('#vb-list').getBoundingClientRect(); return { stageRight: st.right, tabsLeft: tabs.left, listH: list.height, tabsVisible: tabs.height > 0 }; });
+      check('in the middle, Library / Up next / Playlists / Notes sit beside the player', geo.tabsVisible && geo.tabsLeft >= geo.stageRight - 2 && geo.listH > 150, geo);
+      await page.dblclick('.vtrack[data-id="1"] .track-title');
+      await waitFn(page, () => !document.querySelector('#vb-note-pop').hidden, null, { timeout: 8000 });
+      check('a note shows on the video at its moment', (await page.textContent('#vb-note-pop')).includes('Tu zaczyna się akcja'));
+      await page.click('#vb-notes-on-video');
+      check('…and the 💬 button turns that off', await page.isHidden('#vb-note-pop') && (await page.getAttribute('#vb-notes-on-video', 'aria-pressed')) === 'false');
+      await page.click('#vb-notes-on-video');
+      await page.evaluate(() => NoorVideo.close());
+
+      // Gallery
+      const GM = () => page.evaluate(() => window.__mock.state.gallery);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.evaluate(() => NoorDock.place('gallery', 'center'));
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      check('work files (PSD) are listed with a format badge', (await page.$$('.gallery-tile .gallery-fmt')).length === 2);
+      await page.selectOption('#gallery-format', 'PSD');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 2);
+      check('pictures can be filtered by format', true);
+      await page.selectOption('#gallery-format', '');
+      await page.selectOption('#gallery-sort', 'type');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 12 && document.querySelector('.gallery-tile:last-child .gallery-fmt'));
+      check('…and sorted by type', true);
+      // Albums: right-click › Rename, and F2.
+      await page.click('#gallery-nav .gnav-item[data-source$="zima"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Rename album")');
+      await page.fill('.modal input', 'Zima 2024');
+      await page.click('.modal button:has-text("Rename")');
+      await waitFn(page, () => window.__mock.state.gallery.renamedAlbums.length === 1);
+      check('an album can be renamed from its right-click menu', JSON.stringify((await GM()).renamedAlbums[0]) === '["Zima","Zima 2024"]');
+      await waitFn(page, () => !!document.querySelector('#gallery-nav .gnav-item[data-source$="lato"]'));
+      await page.focus('#gallery-nav .gnav-item[data-source$="lato"]');
+      await page.keyboard.press('F2');
+      await page.waitForSelector('.modal input');
+      check('…and with F2 (not the music track editor)', (await page.inputValue('.modal input')) === 'Lato' && !(await page.$('.modal #edit-title')));
+      await page.keyboard.press('Escape');
+      // Open in, copy, move, ZIP.
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.click('.gallery-tile[data-index="1"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Open in")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Krita")');
+      await waitFn(page, () => window.__mock.state.gallery.opened.length === 1);
+      check('right-click › Open in › an editor opens the selected pictures in it', (await GM()).opened[0].ids.length === 2 && (await GM()).opened[0].how === 'editor');
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Open in")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Add a program")');
+      await waitFn(page, () => window.__mock.state.gallery.editors.length === 2);
+      check('your own editor (Affinity Photo) can be added', true);
+      await page.click('#ginfo-zip');
+      await waitFn(page, () => window.__mock.state.gallery.zips.length === 1);
+      check('the selection can be packed into a ZIP', (await GM()).zips[0].ids.length === 2);
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Copy to a folder")');
+      await waitFn(page, () => window.__mock.state.gallery.copies.length === 1);
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Move to a folder")');
+      await waitFn(page, () => window.__mock.state.gallery.movedOut.length === 2);
+      check('pictures can be copied or moved to any folder', (await GM()).copies[0].length === 2 && (await GM()).images.length === 10);
+      // Duplicates
+      await page.click('#gallery-more');
+      await page.click('.menu-popup .menu-item:has-text("Find duplicates")');
+      await page.waitForSelector('.dup-group');
+      const marked = await page.$$eval('.dup-item.marked', (n) => n.length);
+      check('duplicates are grouped; all but the biggest of each are marked', (await page.$$('.dup-group')).length === 2 && marked === 4, marked);
+      await page.click('.dup-group >> nth=0 >> .dup-item.marked >> nth=0');
+      check('a click changes keep / delete', (await page.$$eval('.dup-item.marked', (n) => n.length)) === 3);
+      await page.click('#dup-delete');
+      await waitFn(page, () => window.__mock.state.gallery.deleted.length === 3);
+      check('marked duplicates are deleted (Recycle Bin)', true);
+      await page.keyboard.press('Escape');
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in video/gallery additions', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/video-middle.png` });
       await page.close();
     }
   } finally {

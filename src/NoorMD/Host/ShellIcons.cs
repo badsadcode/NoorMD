@@ -12,13 +12,27 @@ namespace NoorMD.Host;
 /// </summary>
 public static class ShellIcons
 {
-    public static byte[]? Png(string path, int size = 96, bool iconOnly = true)
+    public static byte[]? Png(string path, int size = 96, bool iconOnly = true) => Render(path, size, 0x1 /* BIGGERSIZEOK */ | (iconOnly ? 0x4 /* ICONONLY */ : 0));
+
+    /// <summary>
+    /// The picture Windows shows for a file in Explorer (its thumbnail handler: Affinity, Photoshop, HEIC…), as PNG, or null
+    /// when no program provides one. Runs on its own STA thread: some thumbnail handlers need that.
+    /// </summary>
+    public static byte[]? Thumbnail(string path, int size)
+    {
+        byte[]? result = null;
+        var t = new Thread(() => { try { result = Render(path, size, 0x1 /* BIGGERSIZEOK */ | 0x8 /* THUMBNAILONLY */); } catch (Exception) { result = null; } }) { IsBackground = true };
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+        return t.Join(TimeSpan.FromSeconds(20)) ? result : null;
+    }
+
+    private static byte[]? Render(string path, int size, int flags)
     {
         if (SHCreateItemFromParsingName(path, IntPtr.Zero, typeof(IShellItemImageFactory).GUID, out var item) != 0 || item == null) return null;
         IntPtr hbmp = IntPtr.Zero;
         try
         {
-            var flags = 0x1 /* BIGGERSIZEOK */ | (iconOnly ? 0x4 /* ICONONLY */ : 0);
             if (item.GetImage(new NativeSize { Cx = size, Cy = size }, flags, out hbmp) != 0 || hbmp == IntPtr.Zero) return null;
             if (GetObject(hbmp, Marshal.SizeOf<Bitmap>(), out var bm) == 0 || bm.BitsPixel != 32 || bm.Bits == IntPtr.Zero) return null;
             var stride = bm.WidthBytes;

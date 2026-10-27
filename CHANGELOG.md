@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0-preview.19 — Picture manager for work files; video notes on the video
+
+- **Video Bench in the middle:** the player is on the left, and Library, Up next, Playlists and Notes are on
+  the right. Before, the lists were squeezed out of view.
+- **Notes on the video.** A note pops up over the picture at its moment, for a few seconds, in full screen
+  too. 💬 next to the player turns it off or on, and the choice is remembered.
+- **Gallery albums:** right-click an album (or press F2 on it) to rename it. The pictures inside keep
+  their favourites and slideshow places, and Ctrl+Z renames it back. The menu also has *New album inside*,
+  *Slideshow of this album*, *Pack into a ZIP* and *Show in Explorer*.
+- **Work files in the Gallery:** PSD/PSB, Affinity (.afphoto, .afdesign), TIFF, HEIC, Krita and GIMP
+  files are listed.
+  - Their previews come from the program that made them, through Windows (when Affinity or Photoshop is
+    installed). A PSD also has a small preview inside it, which NoorMD reads without Photoshop.
+  - A format badge marks them. The viewer shows a big preview.
+- **Format filter and sorting:** choose one format (JPG, PNG, PSD, AFPHOTO…), or sort by type or by file
+  size.
+- **Open in your editor:** right-click › *Open in* opens the selected pictures in Affinity Photo,
+  Photoshop, GIMP, Krita or Paint.NET (found automatically when installed), in a program you add, in the
+  default program, or through Windows' *Open with* list.
+- **Copy or move anywhere:** *Copy to a folder…* and *Move to a folder…* use Windows' folder dialog, where
+  you can also make a new folder. Pictures moved outside your Gallery folders leave the Gallery, and Ctrl+Z
+  brings them back.
+- **Pack into a ZIP:** choose the name and the folder, and the ZIP appears there. Names are made unique and
+  photos are stored without re-compressing.
+- **Find duplicates** (⋯ › Find duplicates):
+  - It finds exact copies, and optionally look-alikes (resized or re-saved).
+  - The biggest picture of each group is kept and the rest are marked. Click to change, or use *Keep the
+    newest / oldest*.
+  - Marked pictures go to the Recycle Bin after one more question.
+- **Fixes:** turning off notes on the video now hides a note that is already showing. Marking a favourite
+  in the picture viewer no longer resets the zoom.
+
 ## 2.0.0-preview.18 — Panels in the middle; the Gallery as a picture manager
 
 - **The middle of the window is a dock area too.** Choose *In the middle* from a panel's ⊞ button (Gallery,

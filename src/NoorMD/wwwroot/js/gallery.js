@@ -6,14 +6,14 @@ window.NoorGallery = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
   const PAGE = 240; // tiles drawn at a time; "Show more" adds the next ones
-  const SORTS = { 'taken-desc': ['taken', true, 'Newest first'], 'taken-asc': ['taken', false, 'Oldest first'], name: ['name', false, 'By name'], 'added-desc': ['added', true, 'Recently added'] };
+  const SORTS = { 'taken-desc': ['taken', true, 'Newest first'], 'taken-asc': ['taken', false, 'Oldest first'], name: ['name', false, 'By name'], type: ['type', false, 'By type (format)'], 'size-desc': ['size', true, 'Largest files first'], 'added-desc': ['added', true, 'Recently added'] };
   const TRANSITIONS = { fade: 'Fade', kenburns: 'Slow zoom (Ken Burns)', slide: 'Slide', none: 'None' };
   const DEFAULT_SHOW = { interval: 5, transition: 'fade', shuffle: false, loop: true, music: 'keep', playlistId: null, captions: true, stopMusic: true };
 
   let hooks = { showError: (e) => console.error(e), insertedInto: () => {} };
   let built = false;
   let status = { folders: [], count: 0, albums: [], slideshows: [], scanning: false };
-  let view = { source: 'all', sort: 'taken-desc', search: '' };
+  let view = { source: 'all', sort: 'taken-desc', search: '', format: '' };
   let items = [];
   let shown = PAGE;
   const sel = new Set();
@@ -24,6 +24,7 @@ window.NoorGallery = (() => {
 
   function init(h) {
     hooks = { ...hooks, ...h };
+    NoorBridge.on('gallery.dupProgress', (p) => { if (onDupProgress) onDupProgress(p); });
     NoorBridge.on('gallery.scanned', (p) => { if (built) { notice(p.added ? `Gallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'Gallery is up to date', 1800); refresh(); } });
   }
 
@@ -70,6 +71,7 @@ window.NoorGallery = (() => {
         el('input', { id: 'gallery-search', type: 'search', placeholder: 'Find by name or album…', 'aria-label': 'Find pictures', autocomplete: 'off', spellcheck: 'false' }),
         el('div', { class: 'gallery-row' },
           el('select', { id: 'gallery-source', 'aria-label': 'What to show' }),
+          el('select', { id: 'gallery-format', 'aria-label': 'Format', title: 'Only one format (JPG, PNG, PSD, Affinity…)' }),
           el('select', { id: 'gallery-sort', 'aria-label': 'Order' }, ...Object.entries(SORTS).map(([k, v]) => el('option', { value: k, text: v[2] }))))),
       el('div', { class: 'gallery-main' },
         el('nav', { class: 'gallery-nav', id: 'gallery-nav', 'aria-label': 'Albums and slideshows' }),
@@ -89,6 +91,7 @@ window.NoorGallery = (() => {
     $('#gallery-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { view.search = e.target.value.trim(); load(); }, 180); });
     $('#gallery-source').addEventListener('change', (e) => { view.source = e.target.value; saveSession(); load(); });
     $('#gallery-sort').addEventListener('change', (e) => { view.sort = e.target.value; saveSession(); load(); });
+    $('#gallery-format').addEventListener('change', (e) => { view.format = e.target.value; load(); });
     root.addEventListener('keydown', onPanelKeys);
   }
 
@@ -100,6 +103,8 @@ window.NoorGallery = (() => {
       { label: 'Add a picture folder…', run: addFolder },
       { label: 'Look for new pictures', disabled: !status.folders.length, run: async () => { notice('Looking for new pictures…', 1200); try { status = await req('gallery.rescan'); renderSources(); load(); } catch (err) { hooks.showError(err); } } },
       { label: 'Undo the last rename or move', disabled: !canUndo, run: undo },
+      { label: 'Find duplicates…', disabled: !status.count, run: findDuplicates },
+      { label: 'Picture editors (Open in)', sub: () => openInMenu([]).filter((x) => x === '-' || (x.label && (x.label.startsWith('Add') || x.label.startsWith('Remove')))) },
       { label: 'Folders', disabled: !status.folders.length, sub: () => status.folders.map((f) => ({ label: `${f.path} (${f.count})`, sub: [{ label: 'Remove from the Gallery…', run: () => removeFolder(f) }] })) },
       '-',
       { label: 'Save these pictures as a slideshow…', disabled: !items.length, run: () => saveSlideshow(sel.size ? [...sel] : items.map((i) => i.id)) },
@@ -128,7 +133,18 @@ window.NoorGallery = (() => {
     try { status = await req('gallery.removeFolder', { id: f.id }); renderSources(); load(); } catch (err) { hooks.showError(err); }
   }
 
+  function renderFormats() {
+    const f = $('#gallery-format');
+    if (!f) return;
+    const list = status.formats || [];
+    if (view.format && !list.some((x) => x.format === view.format)) view.format = '';
+    f.replaceChildren(el('option', { value: '', text: 'All formats' }), ...list.map((x) => el('option', { value: x.format, text: `${x.format} (${x.count})` })));
+    f.value = view.format;
+    f.hidden = list.length < 2;
+  }
+
   function renderSources() {
+    renderFormats();
     if (!built) return;
     $('#gallery-count').textContent = status.count ? String(status.count) : '';
     const s = $('#gallery-source');
@@ -148,7 +164,7 @@ window.NoorGallery = (() => {
     if (!built) return;
     const gen = ++loadGen;
     const [sort, descending] = SORTS[view.sort] || SORTS['taken-desc'];
-    const q = { search: view.search || null, sort, descending, filter: view.source === 'fav' ? 'favorites' : 'all' };
+    const q = { search: view.search || null, sort, descending, filter: view.source === 'fav' ? 'favorites' : 'all', format: view.format || null };
     if (view.source.startsWith('album:')) q.album = view.source.slice(6);
     if (view.source.startsWith('show:')) q.slideshow = Number(view.source.slice(5));
     let rows;
@@ -191,7 +207,10 @@ window.NoorGallery = (() => {
       onclick: (e) => onTileClick(e, i),
       ondblclick: () => openViewer(i),
       oncontextmenu: (e) => { e.preventDefault(); if (!sel.has(it.id)) { sel.clear(); sel.add(it.id); anchor = i; markSelection(); } tileMenu(it, i, e.clientX, e.clientY); },
-    }, el('img', { src: '/_thumb/' + it.id, alt: it.name, loading: 'lazy', decoding: 'async', draggable: 'false' }),
+    }, el('img', { src: '/_thumb/' + it.id, alt: it.name, loading: 'lazy', decoding: 'async', draggable: 'false',
+      // No preview (a work file whose program isn't installed): its format and name instead.
+      onerror: (e) => { e.target.replaceWith(el('span', { class: 'gallery-nothumb' }, el('b', { text: it.format || '?' }), el('small', { text: it.name }))); } }),
+    ...(it.web === false ? [el('span', { class: 'gallery-fmt', 'aria-hidden': 'true', text: it.format })] : []),
     el('span', { class: 'gallery-star', 'aria-hidden': 'true', text: '★' }));
     b.addEventListener('dragstart', (e) => {
       // Dragging carries the selected pictures (or this one) to an album on the left, or to a new place in a slideshow.
@@ -260,11 +279,152 @@ window.NoorGallery = (() => {
       ...(showing ? [{ label: 'Remove from this slideshow', run: () => removeFromSlideshow(showing, ids) }] : []),
       '-',
       many ? { label: `Rename as a numbered series…`, run: () => renameSeries(ids) } : { label: 'Rename…  (F2)', run: () => renamePicture(it) },
+      { label: 'Open in', sub: () => openInMenu(ids) },
       { label: 'Move to album', sub: () => moveMenu(ids) },
+      { label: 'Move to a folder…', run: () => copyOrMove(ids, false) },
+      { label: 'Copy to a folder…', run: () => copyOrMove(ids, true) },
+      { label: many ? `Pack ${ids.length} into a ZIP…` : 'Pack into a ZIP…', run: () => packZip(ids) },
       { label: 'Show in Explorer', disabled: many, run: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) },
       '-',
       { label: many ? `Delete ${ids.length} pictures…` : 'Delete…  (Del)', run: () => deletePictures(ids) },
     ], { x, y });
+  }
+
+  // ---------------------------------------------------------------- open in an editor, copy/move anywhere, ZIP
+
+  function openInMenu(ids) {
+    const eds = status.editors || [];
+    return [
+      ...eds.map((e, i) => ({ label: e.name, run: () => req('gallery.openWith', { ids, how: 'editor', editor: i }).catch(hooks.showError) })),
+      ...(eds.length ? ['-'] : []),
+      { label: 'The default program', run: () => req('gallery.openWith', { ids, how: 'default' }).catch(hooks.showError) },
+      { label: 'Choose in Windows (Open with)…', disabled: ids.length > 1, run: () => req('gallery.openWith', { ids, how: 'choose' }).catch(hooks.showError) },
+      '-',
+      { label: 'Add a program (Affinity Photo, Photoshop…)…', run: addEditor },
+      ...eds.filter((e) => !e.detected).length ? [{ label: 'Remove a program', sub: () => eds.map((e, i) => (e.detected ? null : { label: e.name, run: () => removeEditor(i) })).filter(Boolean) }] : [],
+    ];
+  }
+
+  async function addEditor() {
+    try { const r = await req('gallery.editor.add'); if (r && r.editors) { status.editors = r.editors; notice('Added. Right-click pictures › Open in to use it.', 2200); } } catch (err) { hooks.showError(err); }
+  }
+
+  async function removeEditor(i) {
+    try { const r = await req('gallery.editor.remove', { index: i }); status.editors = r.editors; } catch (err) { hooks.showError(err); }
+  }
+
+  async function copyOrMove(ids, copy) {
+    try {
+      const r = await req(copy ? 'gallery.copyTo' : 'gallery.moveTo', { ids });
+      if (!r || r.cancelled) return;
+      if (!copy) sel.clear();
+      await afterChange(r, `${copy ? 'Copied' : 'Moved'} ${r.count} picture${r.count === 1 ? '' : 's'} to ${r.folder}${!copy && !r.inside ? ' (outside the Gallery folders, so they left the Gallery)' : ''}`);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function packZip(ids) {
+    const album = view.source.startsWith('album:') ? status.albums.find((a) => 'album:' + a.key === view.source) : null;
+    try {
+      const r = await req('gallery.zip', { ids, name: album ? album.name.split('/').pop() : 'Pictures' });
+      if (r && !r.cancelled) notice(`Packed ${r.count} picture${r.count === 1 ? '' : 's'} into ${r.path}`, 3500);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- albums: rename, new inside, Explorer
+
+  function albumMenu(a, x, y) {
+    NoorChrome.openMenu(null, [
+      { label: 'Rename album…  (F2)', run: () => renameAlbum(a) },
+      { label: 'New album inside…', run: () => newAlbum(null, a.folder) },
+      { label: 'Slideshow of this album', run: async () => { view.source = 'album:' + a.key; await load(); slideshowSetup(); } },
+      { label: 'Pack the album into a ZIP…', run: async () => { const list = await req('gallery.query', { album: a.key, sort: 'name', descending: false }); packZip(list.map((i) => i.id)); } },
+      { label: 'Show in Explorer', run: () => req('gallery.revealFolder', { folder: a.folder }).catch(hooks.showError) },
+    ], { x, y });
+  }
+
+  async function renameAlbum(a) {
+    const old = a.name.split('/').pop();
+    const name = await NoorUI.prompt('Rename album', `New name for the folder “${old}” (its pictures stay in it):`, old, { okLabel: 'Rename' });
+    if (!name || !name.trim() || name.trim() === old) return;
+    try {
+      const r = await req('gallery.album.rename', { folder: a.folder, name });
+      if (view.source === 'album:' + a.key) view.source = 'album:' + r.key;
+      await afterChange(r, `Album renamed to “${name.trim()}”`);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- duplicates
+
+  let onDupProgress = null;
+
+  async function findDuplicates() {
+    const album = view.source.startsWith('album:') ? status.albums.find((a) => 'album:' + a.key === view.source) : null;
+    let groups = null;
+    const marked = new Set();
+    let busy = false;
+    NoorUI.modal({ label: 'Find duplicates', width: 980 }, (s, closeModal) => {
+      const similar = el('input', { type: 'checkbox', id: 'dup-similar' });
+      const statusLine = el('span', { class: 'dup-status', id: 'dup-status', text: '' });
+      const body = el('div', { class: 'modal-body dup-body', id: 'dup-body' });
+      const del = el('button', { class: 'action danger', id: 'dup-delete', disabled: true, onclick: async () => {
+        const ids = [...marked];
+        try {
+          const r = await req('gallery.delete', { ids });
+          if (!r || r.cancelled || !r.deleted) return;
+          for (const g of groups) g.items = g.items.filter((i) => !ids.includes(i.id));
+          groups = groups.filter((g) => g.items.length > 1);
+          marked.clear();
+          status = r.status; renderSources(); load();
+          draw();
+          notice(`Deleted ${r.deleted} picture${r.deleted === 1 ? '' : 's'} (in the Recycle Bin)`, 2400);
+        } catch (err) { hooks.showError(err); }
+      } }, 'Delete marked');
+      const keep = (how) => {
+        marked.clear();
+        for (const g of groups) {
+          const sorted = [...g.items].sort(how === 'newest' ? (a, b) => String(b.taken).localeCompare(String(a.taken)) : how === 'oldest' ? (a, b) => String(a.taken).localeCompare(String(b.taken)) : (a, b) => (b.width * b.height - a.width * a.height) || (b.size - a.size));
+          sorted.slice(1).forEach((i) => marked.add(i.id));
+        }
+        draw();
+      };
+      const draw = () => {
+        del.disabled = !marked.size;
+        del.textContent = marked.size ? `Delete ${marked.size} marked` : 'Delete marked';
+        if (!groups) return;
+        if (!groups.length) { body.replaceChildren(el('p', { class: 'music-none', text: 'No duplicates found. 🎉' })); return; }
+        body.replaceChildren(...groups.map((g, gi) => el('section', { class: 'dup-group' },
+          el('h4', { text: `${g.kind === 'same' ? 'Same file' : 'Look alike'} · ${g.items.length} pictures` }),
+          el('div', { class: 'dup-row' }, ...g.items.map((i) => el('button', {
+            class: 'dup-item' + (marked.has(i.id) ? ' marked' : ''), 'data-id': String(i.id), title: `${i.folder}\\${i.fileName}`,
+            onclick: () => { if (marked.has(i.id)) marked.delete(i.id); else if (g.items.filter((x) => !marked.has(x.id)).length > 1) marked.add(i.id); else notice('Keep at least one of each group.', 1600); draw(); },
+          }, el('img', { src: '/_thumb/' + i.id, alt: '', loading: 'lazy' }),
+          el('span', { class: 'dup-mark', text: marked.has(i.id) ? 'Delete' : 'Keep' }),
+          el('small', { text: `${i.album} · ${i.width ? i.width + '×' + i.height + ' · ' : ''}${sizeText(i.size)}` }),
+          el('small', { class: 'dup-name', text: i.fileName })))))));
+      };
+      const run = async () => {
+        if (busy) return;
+        busy = true; groups = null; marked.clear();
+        body.replaceChildren(el('p', { class: 'music-none', text: 'Looking…' }));
+        try { groups = await req('gallery.duplicates', { similar: similar.checked, album: album ? album.key : null }); keep('largest'); statusLine.textContent = groups.length ? `${groups.length} group${groups.length === 1 ? '' : 's'}: the biggest of each is kept, the rest marked. Click a picture to change it.` : ''; }
+        catch (err) { hooks.showError(err); body.replaceChildren(); }
+        finally { busy = false; }
+      };
+      onDupProgress = (p) => { if (busy) statusLine.textContent = `Checked ${p.done} of ${p.total}…`; };
+      const off = () => { onDupProgress = null; };
+      s.append(NoorUI.head(`⧉ Find duplicates ${album ? 'in ' + album.name : 'in the Gallery'}`, () => { if (typeof off === 'function') off(); closeModal(); }),
+        el('div', { class: 'dup-toolbar' },
+          el('button', { class: 'action primary', id: 'dup-run', onclick: run }, 'Look for duplicates'),
+          el('label', { class: 'check' }, similar, ' Also look-alikes (resized or re-saved; slower)'),
+          el('span', { class: 'sd-spacer' }),
+          el('button', { class: 'utility-btn', onclick: () => groups && keep('largest') }, 'Keep the biggest'),
+          el('button', { class: 'utility-btn', onclick: () => groups && keep('newest') }, 'Keep the newest'),
+          el('button', { class: 'utility-btn', onclick: () => groups && keep('oldest') }, 'Keep the oldest')),
+        statusLine, body,
+        el('div', { class: 'modal-foot' }, el('span', { class: 'pref-hint', text: 'Marked pictures go to the Recycle Bin after one more question.' }),
+          el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => { if (typeof off === 'function') off(); closeModal(); } }, 'Close'), del)));
+      run();
+    });
   }
 
   // ---------------------------------------------------------------- organizing (rename, move, albums, delete, undo)
@@ -310,6 +470,7 @@ window.NoorGallery = (() => {
       ...(list.length > 60 ? [{ label: `More albums… (${list.length})`, run: () => pickPlace(ids) }] : []),
       '-',
       { label: 'New album…', run: () => newAlbum(ids) },
+      { label: 'Another folder on disk…', run: () => copyOrMove(ids, false) },
     ];
   }
 
@@ -324,10 +485,10 @@ window.NoorGallery = (() => {
   }
 
   /** A new album inside the Gallery folder of the current album (or the first Gallery folder); the pictures move there if given. */
-  async function newAlbum(ids) {
+  async function newAlbum(ids, inFolder) {
     const list = places || await loadPlaces();
     const album = view.source.startsWith('album:') ? status.albums.find((a) => 'album:' + a.key === view.source) : null;
-    const parent = (album && list.find((pl) => pl.key === album.key)?.path) || (status.folders[0] && status.folders[0].path);
+    const parent = inFolder || (album && list.find((pl) => pl.key === album.key)?.path) || (status.folders[0] && status.folders[0].path);
     if (!parent) { notice('Add a picture folder first.', 2000); return; }
     const name = await NoorUI.prompt('New album', `A new folder in “${list.find((pl) => pl.path === parent)?.label || parent}”:`, '', { okLabel: 'Create' });
     if (!name || !name.trim()) return;
@@ -364,6 +525,10 @@ window.NoorGallery = (() => {
       const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + extra.depth * 14}px` : null,
         onclick: () => { view.source = source; sel.clear(); saveSession(); load(); } },
       el('span', { class: 'gnav-label', text: label }), count != null ? el('small', { text: String(count) }) : null);
+      if (extra.album) {
+        b.addEventListener('contextmenu', (e) => { e.preventDefault(); albumMenu(extra.album, e.clientX, e.clientY); });
+        b.addEventListener('keydown', (e) => { if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); renameAlbum(extra.album); } });
+      }
       if (extra.folder) {
         // Drop pictures here to move them into this album.
         b.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('text/x-noormd-gallery-ids')) { e.preventDefault(); b.classList.add('drop-target'); } });
@@ -377,7 +542,7 @@ window.NoorGallery = (() => {
       item('all', 'All pictures', status.count),
       item('fav', '★ Favourites', null),
       el('div', { class: 'gnav-head' }, el('span', { text: 'Albums' }), el('button', { class: 'icon-btn', id: 'gallery-new-album', title: 'New album (a folder)', 'aria-label': 'New album', onclick: () => newAlbum(null) }, '＋')),
-      ...albums.map((a) => item('album:' + a.key, a.name.split('/').pop(), a.count, { depth: a.name.split('/').length - 1, folder: a.folder, title: a.name })),
+      ...albums.map((a) => item('album:' + a.key, a.name.split('/').pop(), a.count, { depth: a.name.split('/').length - 1, folder: a.folder, title: a.name + ' (right-click to rename)', album: a })),
       ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []));
   }
 
@@ -419,6 +584,7 @@ window.NoorGallery = (() => {
           el('button', { class: 'utility-btn' + (it.favorite ? ' on' : ''), id: 'ginfo-fav', onclick: () => setFavorite([it.id], !it.favorite) }, it.favorite ? '★ Favourite' : '☆ Favourite'),
           el('button', { class: 'utility-btn', onclick: () => insert(it) }, '⤓ Into note'),
           el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu([it.id])); } }, '→ Move…'),
+          el('button', { class: 'utility-btn', id: 'ginfo-openin', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…'),
           el('button', { class: 'utility-btn', onclick: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) }, '📁 Explorer'),
           el('button', { class: 'utility-btn danger', onclick: () => deletePictures([it.id]) }, '🗑 Delete…')));
       return;
@@ -434,6 +600,9 @@ window.NoorGallery = (() => {
         el('button', { class: 'utility-btn', id: 'ginfo-series', onclick: () => renameSeries(ids) }, '✎ Rename as series…'),
         el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu(ids)); } }, '→ Move…'),
         el('button', { class: 'utility-btn', onclick: () => saveSlideshow(ids) }, '＋ New slideshow…'),
+        el('button', { class: 'utility-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu(ids)) }, '✎ Open in…'),
+        el('button', { class: 'utility-btn', onclick: () => copyOrMove(ids, true) }, '⧉ Copy to…'),
+        el('button', { class: 'utility-btn', id: 'ginfo-zip', onclick: () => packZip(ids) }, '🗜 ZIP…'),
         el('button', { class: 'utility-btn danger', onclick: () => deletePictures(ids) }, '🗑 Delete…')));
   }
 
@@ -442,7 +611,7 @@ window.NoorGallery = (() => {
       await req('gallery.favorite', { ids, on });
       for (const it of items) if (ids.includes(it.id)) it.favorite = on;
       if (view.source === 'fav' && !on) await load(); else render();
-      if (viewer.open) renderViewer();
+      if (viewer.open) { const it = viewer.list[viewer.index]; $('#gv-fav').classList.toggle('on', !!it.favorite); $('#gv-fav').setAttribute('aria-pressed', String(!!it.favorite)); } // just the star: zoom and picture stay
       notice(on ? '★ Favourite' : 'No longer a favourite', 1000);
     } catch (err) { hooks.showError(err); }
   }
@@ -609,9 +778,17 @@ window.NoorGallery = (() => {
     viewer.zoom = 1; viewer.x = 0; viewer.y = 0;
     const img = $('#gv-img');
     img.style.transform = '';
+    img.hidden = false;
+    $('#gv-nopreview')?.remove();
+    img.onerror = () => {
+      // A work file without a preview here: say so, and offer the editor.
+      img.hidden = true;
+      $('#gv-stage').append(el('div', { class: 'gv-nopreview', id: 'gv-nopreview' }, el('b', { text: it.format }), el('p', { text: 'Windows has no preview for this file here. Open it in its program:' }),
+        el('button', { class: 'gv-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…')));
+    };
     img.src = '/_img/' + it.id;
     img.alt = it.name;
-    $('#gv-name').textContent = it.name;
+    $('#gv-name').textContent = it.name + (it.web === false ? ` (${it.format})` : '');
     $('#gv-meta').textContent = [`${viewer.index + 1} / ${viewer.list.length}`, it.album, dateText(it.taken), it.width ? `${it.width} × ${it.height}` : '', sizeText(it.size)].filter(Boolean).join(' · ');
     $('#gv-fav').classList.toggle('on', !!it.favorite);
     $('#gv-fav').setAttribute('aria-pressed', String(!!it.favorite));

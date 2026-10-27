@@ -1144,3 +1144,47 @@ body.center-active .tabs .tab.active::before { display: none; }
 .ginfo-sub { display: block; color: var(--muted); margin-bottom: 10px; }
 .gallery.wide .gallery-toolbar { flex-direction: row; align-items: center; }
 .gallery.wide .gallery-toolbar #gallery-search { flex: 1; }
+/* Video Bench in the middle: the player on the left, Library / Up next / Playlists / Notes on the right. */
+.center-dock > .videobench { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 32%); grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.center-dock > .videobench > .music-head { grid-column: 1 / -1; }
+.center-dock > .videobench > .vb-player, .center-dock > .videobench > .vb-empty { grid-column: 1; grid-row: 2 / 5; display: flex; flex-direction: column; min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); }
+.center-dock > .videobench > .vb-empty[hidden] { display: none; }
+.center-dock > .videobench > .music-tabs { grid-column: 2; grid-row: 2; }
+.center-dock > .videobench > .vb-pane { grid-column: 2; grid-row: 3; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.center-dock > .videobench > .vb-pane.hide, .center-dock > .videobench > .vb-pane[hidden] { display: none; }
+.center-dock > .videobench > .music-foot { grid-column: 2; grid-row: 4; }
+.center-dock .vb-stage { flex: 1 1 auto; max-height: none; min-height: 200px; aspect-ratio: auto; }
+.vb-note-pop { position: absolute; left: 50%; top: 14px; transform: translateX(-50%); max-width: min(80%, 640px); display: flex; gap: 10px; align-items: baseline; padding: 8px 14px; border-radius: 10px; background: rgba(12, 12, 16, .82); color: #fff; font-size: 14px; line-height: 1.4; box-shadow: 0 6px 20px rgba(0,0,0,.35); pointer-events: none; z-index: 2; animation: vb-pop-in .25s ease; }
+.vb-note-pop[hidden] { display: none; }
+.vb-note-pop-time { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; flex: none; }
+.vb-note-pop-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+@keyframes vb-pop-in { from { opacity: 0; transform: translate(-50%, -6px); } to { opacity: 1; transform: translateX(-50%); } }
+#vb-notes-on-video.on { color: var(--accent); }
+.vb-stage:fullscreen { max-height: none; width: 100vw; height: 100vh; }
+.vb-stage:fullscreen .vb-note-pop { font-size: 20px; top: 28px; }
+/* Gallery: formats, pictures without a preview, duplicates */
+.gallery-fmt { position: absolute; left: 5px; bottom: 4px; font-size: 9.5px; font-weight: 800; letter-spacing: .04em; padding: 1px 5px; border-radius: 4px; background: rgba(0,0,0,.65); color: #fff; }
+.gallery-nothumb { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; text-align: center; background: var(--surface2); color: var(--muted); }
+.gallery-nothumb b { font-size: 18px; color: var(--accent); letter-spacing: .05em; }
+.gallery-nothumb small { font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+#gallery-format { width: auto; }
+#gallery-format[hidden] { display: none; }
+.gallery.wide .gallery-row { grid-template-columns: auto auto auto; }
+.dup-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px 20px 4px; }
+.dup-toolbar .sd-spacer { flex: 1; }
+.dup-status { display: block; padding: 4px 20px; color: var(--muted); font-size: 12px; min-height: 18px; }
+.dup-body { max-height: 60vh; overflow-y: auto; }
+.dup-group { margin-bottom: 14px; }
+.dup-group h4 { margin: 4px 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.dup-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.dup-item { position: relative; flex: 0 0 150px; display: flex; flex-direction: column; gap: 3px; padding: 6px; border-radius: 10px; border: 2px solid var(--border); background: var(--surface); color: var(--text); cursor: pointer; font: inherit; text-align: left; }
+.dup-item img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 6px; }
+.dup-item small { color: var(--muted); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dup-item .dup-mark { position: absolute; top: 10px; left: 10px; font-size: 10.5px; font-weight: 700; padding: 2px 7px; border-radius: 999px; background: #2e8b57; color: #fff; }
+.dup-item.marked { border-color: #c0392b; opacity: .75; }
+.dup-item.marked .dup-mark { background: #c0392b; }
+.action.danger:not(:disabled) { background: #c0392b; border-color: #c0392b; color: #fff; }
+.action:disabled { opacity: .5; cursor: default; }
+.gv-nopreview { display: flex; flex-direction: column; align-items: center; gap: 10px; color: #ccc; text-align: center; } .gv-nopreview b { font-size: 40px; color: var(--accent); }
+.center-dock > .videobench { height: 100%; min-height: 0; }
+.center-dock > .videobench > .vb-player { contain: size; } /* the player column fills its rows instead of stretching them */

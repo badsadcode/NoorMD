@@ -5,25 +5,97 @@ namespace NoorMD.Media;
 
 public static class ImageFormats
 {
-    private static readonly Dictionary<string, string> Types = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>Pictures a web page shows as they are.</summary>
+    private static readonly Dictionary<string, string> Web = new(StringComparer.OrdinalIgnoreCase)
     {
         [".jpg"] = "image/jpeg", [".jpeg"] = "image/jpeg", [".png"] = "image/png", [".gif"] = "image/gif", [".webp"] = "image/webp",
         [".bmp"] = "image/bmp", [".avif"] = "image/avif",
     };
-    public static bool IsImage(string path) => Types.ContainsKey(Path.GetExtension(path));
-    public static string ContentType(string path) => Types.TryGetValue(Path.GetExtension(path), out var t) ? t : "application/octet-stream";
+    /// <summary>Work files and other formats: shown through a preview (Windows' thumbnail, or the one inside a PSD).</summary>
+    private static readonly HashSet<string> Previewed = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".psd", ".psb", ".afphoto", ".afdesign", ".afpub", ".tif", ".tiff", ".heic", ".heif", ".jxl", ".kra", ".xcf", ".ico",
+    };
+    public static bool IsImage(string path) => Web.ContainsKey(Path.GetExtension(path)) || Previewed.Contains(Path.GetExtension(path));
+    /// <summary>Whether the browser can show the file itself (otherwise NoorMD makes a preview).</summary>
+    public static bool IsWeb(string path) => Web.ContainsKey(Path.GetExtension(path));
+    public static string ContentType(string path) => Web.TryGetValue(Path.GetExtension(path), out var t) ? t : "application/octet-stream";
+    /// <summary>"JPG", "PSD", "AFPHOTO"…</summary>
+    public static string Format(string path) { var e = Path.GetExtension(path).TrimStart('.').ToUpperInvariant(); return e == "JPEG" ? "JPG" : e == "TIFF" ? "TIF" : e; }
+}
+
+/// <summary>
+/// Photoshop files (.psd, .psb) keep a small JPEG preview among their "image resources" (id 1036, or 1033 in old files).
+/// Reading it needs no Photoshop, and only the start of the file is read.
+/// </summary>
+public static class PsdPreview
+{
+    public static (int Width, int Height)? Size(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var h = new byte[26];
+            if (fs.Read(h, 0, 26) != 26 || h[0] != '8' || h[1] != 'B' || h[2] != 'P' || h[3] != 'S') return null;
+            return ((int)BE32(h, 18), (int)BE32(h, 14));
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
+    }
+
+    /// <summary>The embedded JPEG preview, or null.</summary>
+    public static byte[]? Jpeg(string path)
+    {
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var br = new BinaryReader(fs);
+            var h = br.ReadBytes(26);
+            if (h.Length != 26 || h[0] != '8' || h[1] != 'B' || h[2] != 'P' || h[3] != 'S') return null;
+            var colorLen = BE32(br.ReadBytes(4), 0);
+            fs.Seek(colorLen, SeekOrigin.Current);
+            var resLen = BE32(br.ReadBytes(4), 0);
+            var end = fs.Position + resLen;
+            if (resLen > 64 * 1024 * 1024 || end > fs.Length) return null;
+            while (fs.Position + 12 <= end)
+            {
+                var sig = br.ReadBytes(4);
+                if (sig.Length < 4 || sig[0] != '8' || sig[1] != 'B' || sig[2] != 'I' || sig[3] != 'M') return null;
+                var id = (br.ReadByte() << 8) | br.ReadByte();
+                var nameLen = br.ReadByte();
+                fs.Seek(nameLen + ((nameLen + 1) % 2 == 0 ? 0 : 1), SeekOrigin.Current); // Pascal string, padded to even
+                var size = BE32(br.ReadBytes(4), 0);
+                if (size > end - fs.Position) return null;
+                if ((id == 1036 || id == 1033) && size > 28)
+                {
+                    fs.Seek(28, SeekOrigin.Current); // format, width, height, row bytes, sizes, bits, planes
+                    var jpeg = br.ReadBytes((int)size - 28);
+                    return jpeg.Length > 3 && jpeg[0] == 0xFF && jpeg[1] == 0xD8 ? jpeg : null;
+                }
+                fs.Seek(size + (size % 2), SeekOrigin.Current);
+            }
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or EndOfStreamException) { return null; }
+    }
+
+    private static uint BE32(byte[] b, int i) => b.Length < i + 4 ? 0 : (uint)(b[i] << 24 | b[i + 1] << 16 | b[i + 2] << 8 | b[i + 3]);
 }
 
 public sealed record GalleryImage(long Id, string Path, string Name, string Album, string AlbumKey, long Size, int Width, int Height,
-    DateTime TakenUtc, bool Favorite, bool Missing);
+    DateTime TakenUtc, bool Favorite, bool Missing)
+{
+    public string Format => ImageFormats.Format(Path);
+}
 
 public sealed record GalleryAlbum(string Key, string Name, string Folder, int Count, long? CoverId, DateTime? LatestUtc);
 public sealed record GalleryFolder(long Id, string Path, int Count);
 public sealed record Slideshow(long Id, string Name, int Count, string Settings, DateTime CreatedUtc);
 
 /// <param name="Filter">"all" or "favorites".</param>
-/// <param name="Sort">"taken" (date taken), "name" or "added".</param>
-public sealed record GalleryQuery(string? Search = null, string Filter = "all", string? AlbumKey = null, long? SlideshowId = null, string Sort = "taken", bool Descending = true, int Limit = 5000);
+/// <param name="Sort">"taken" (date taken), "name", "added", "type" (format, then name) or "size".</param>
+/// <param name="Format">Only one format ("JPG", "PSD"…), or null for all.</param>
+public sealed record GalleryQuery(string? Search = null, string Filter = "all", string? AlbumKey = null, long? SlideshowId = null, string Sort = "taken", bool Descending = true, int Limit = 5000, string? Format = null);
 
 /// <summary>
 /// The Gallery: pictures in the folders you add (subfolders are albums), indexed in a local database with the size and
@@ -183,6 +255,9 @@ public sealed class GalleryLibrary
     {
         try
         {
+            if (System.IO.Path.GetExtension(path).ToLowerInvariant() is ".psd" or ".psb")
+                return PsdPreview.Size(path) is { } ps ? (ps.Width, ps.Height, fileDateUtc) : (0, 0, fileDateUtc);
+            if (!ImageFormats.IsWeb(path) && System.IO.Path.GetExtension(path).ToLowerInvariant() is not (".tif" or ".tiff")) return (0, 0, fileDateUtc); // work files: their own formats
             using var tf = TagLib.File.Create(path, TagLib.ReadStyle.Average);
             var w = tf.Properties?.PhotoWidth ?? 0;
             var h = tf.Properties?.PhotoHeight ?? 0;
@@ -220,6 +295,10 @@ public sealed class GalleryLibrary
         return Convert.ToInt32(cmd.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    /// <summary>The formats in the library with how many pictures each ("JPG" 1200, "PSD" 40…).</summary>
+    public IReadOnlyList<(string Format, int Count)> Formats() =>
+        Rows($"SELECT {Cols} FROM images i WHERE i.missing = 0").GroupBy(i => i.Format).Select(g => (g.Key, g.Count())).OrderByDescending(x => x.Item2).ToList();
+
     public IReadOnlyList<GalleryAlbum> Albums()
     {
         using var c = Open();
@@ -243,12 +322,14 @@ public sealed class GalleryLibrary
         var args = new List<(string, object?)>();
         if (q.Filter == "favorites") where.Add("i.favorite = 1");
         if (!string.IsNullOrEmpty(q.AlbumKey)) { where.Add("i.album_key = $ak"); args.Add(("$ak", q.AlbumKey)); }
-        var order = q.Sort switch { "name" => "lower(i.name)", "added" => "i.added", _ => "i.taken" } + (q.Descending ? " DESC" : "") + ", i.id";
+        var order = q.Sort switch { "name" or "type" => "lower(i.name)", "added" => "i.added", "size" => "i.size", _ => "i.taken" } + (q.Descending ? " DESC" : "") + ", i.id";
         var rows = Rows($"SELECT {Cols} FROM images i WHERE {string.Join(" AND ", where)} ORDER BY {order}", [.. args]);
+        if (!string.IsNullOrWhiteSpace(q.Format)) rows = rows.Where(i => string.Equals(i.Format, q.Format, StringComparison.OrdinalIgnoreCase)).ToList();
+        if (q.Sort == "type") rows = (q.Descending ? rows.OrderByDescending(i => i.Format) : rows.OrderBy(i => i.Format)).ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         if (!string.IsNullOrWhiteSpace(q.Search))
         {
             var terms = TextFold.Fold(q.Search).Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6).ToList();
-            rows = rows.Where(i => terms.All(t => TextFold.Fold(i.Name + " " + i.Album).Contains(t, StringComparison.Ordinal))).ToList();
+            rows = rows.Where(i => terms.All(t => TextFold.Fold(i.Name + " " + i.Album + " " + i.Format).Contains(t, StringComparison.Ordinal))).ToList();
         }
         return rows.Take(Math.Clamp(q.Limit, 1, 20000)).ToList();
     }
@@ -283,6 +364,21 @@ public sealed class GalleryLibrary
             ("$al", AlbumName(System.IO.Path.TrimEndingDirectorySeparator(folder.Path), dir)), ("$ak", MusicLibrary.PathKey(dir)), ("$m", info.Exists ? info.LastWriteTimeUtc.Ticks : 0), ("$id", id)))
             u.ExecuteNonQuery();
         tx.Commit();
+    }
+
+    /// <summary>A folder was renamed by NoorMD: every picture inside follows (and the Gallery folder itself, if it was one).</summary>
+    public void RelocateFolder(string oldDir, string newDir)
+    {
+        var from = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(oldDir));
+        var to = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(newDir));
+        using (var c = Open())
+        using (var tx = c.BeginTransaction())
+        {
+            using (var f = Cmd(c, "UPDATE folders SET path = $p, path_key = $k WHERE path_key = $old", tx, ("$p", to), ("$k", MusicLibrary.PathKey(to)), ("$old", MusicLibrary.PathKey(from)))) f.ExecuteNonQuery();
+            tx.Commit();
+        }
+        var inside = Rows($"SELECT {Cols} FROM images i").Where(i => i.Path.StartsWith(from + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)).ToList();
+        foreach (var i in inside) Relocate(i.Id, to + i.Path[from.Length..]);
     }
 
     /// <summary>Pictures that were deleted (to the Recycle Bin) by NoorMD leave the library and their slideshows.</summary>
@@ -479,10 +575,11 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         name.EndsWith(System.IO.Path.GetExtension(path), StringComparison.OrdinalIgnoreCase) ? name[..^System.IO.Path.GetExtension(path).Length].TrimEnd() : name;
 
     /// <summary>Moves pictures into another folder of the Gallery (an album). Nothing moves if any name is taken there.</summary>
-    public IReadOnlyList<PictureMove> Move(IReadOnlyList<long> ids, string folder)
+    /// <param name="anywhere">Also a folder outside the Gallery folders (chosen in Windows' folder dialog); the pictures then leave the Gallery.</param>
+    public IReadOnlyList<PictureMove> Move(IReadOnlyList<long> ids, string folder, bool anywhere = false)
     {
         var target = System.IO.Path.GetFullPath(folder);
-        if (!Directory.Exists(target) || !library.IsInside(target)) throw new ArgumentException("Choose an album (a folder) of the Gallery.");
+        if (!Directory.Exists(target) || (!anywhere && !library.IsInside(target))) throw new ArgumentException("Choose an album (a folder) of the Gallery.");
         var plan = new List<PictureMove>();
         foreach (var id in ids.Distinct())
         {
@@ -511,8 +608,66 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
     }
 
     /// <summary>Puts the last rename or move back (only pictures still where it left them).</summary>
+    /// <summary>Copies pictures into any folder (the originals stay). Nothing is copied if a name is taken there. Returns the new files.</summary>
+    public IReadOnlyList<string> Copy(IReadOnlyList<long> ids, string folder)
+    {
+        var target = System.IO.Path.GetFullPath(folder);
+        if (!Directory.Exists(target)) throw new ArgumentException("That folder doesn't exist.");
+        var plan = new List<(string From, string To)>();
+        foreach (var id in ids.Distinct())
+        {
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            if (!File.Exists(img.Path)) throw new ArgumentException($"“{System.IO.Path.GetFileName(img.Path)}” is not there any more.");
+            var dest = System.IO.Path.Combine(target, System.IO.Path.GetFileName(img.Path));
+            if (File.Exists(dest) || Directory.Exists(dest)) throw new ArgumentException($"“{System.IO.Path.GetFileName(dest)}” already exists there. Nothing was copied.");
+            plan.Add((img.Path, dest));
+        }
+        if (plan.Select(x => x.To).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Count) throw new ArgumentException("Two of these pictures have the same name, so they can't go into one folder.");
+        var made = new List<string>();
+        foreach (var (from, to) in plan)
+        {
+            try { File.Copy(from, to, overwrite: false); made.Add(to); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException($"Copying stopped at “{System.IO.Path.GetFileName(from)}”: {ex.Message} ({made.Count} copied before it)."); }
+        }
+        return made;
+    }
+
+    private (string From, string To)? _lastAlbum;
+
+    /// <summary>Renames an album (a folder inside, or one of, the Gallery folders). The pictures inside follow.</summary>
+    public string RenameAlbum(string folder, string newName)
+    {
+        var n = (newName ?? "").Trim();
+        if (n.Length == 0 || n.IndexOfAny(Invalid) >= 0 || n.Any(char.IsControl) || n.EndsWith('.') || n is "." or "..") throw new ArgumentException("That is not a valid folder name.");
+        var from = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(folder));
+        if (!Directory.Exists(from) || !library.IsInside(from)) throw new ArgumentException("That album is not in the Gallery.");
+        var parent = System.IO.Path.GetDirectoryName(from) ?? throw new ArgumentException("A drive can't be renamed.");
+        var to = System.IO.Path.Combine(parent, n);
+        if (string.Equals(from, to, StringComparison.Ordinal)) return to;
+        var caseOnly = string.Equals(from, to, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnly && (Directory.Exists(to) || File.Exists(to))) throw new ArgumentException($"“{n}” already exists there.");
+        try
+        {
+            if (caseOnly) { var tmp = from + ".noormd-" + Guid.NewGuid().ToString("N")[..8]; Directory.Move(from, tmp); Directory.Move(tmp, to); }
+            else Directory.Move(from, to);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException($"Windows could not rename the folder (a file in it may be open in another program): {ex.Message}"); }
+        library.RelocateFolder(from, to);
+        _lastAlbum = (from, to);
+        LastChange = null;
+        return to;
+    }
+
     public IReadOnlyList<PictureMove> Undo()
     {
+        if (_lastAlbum is { } la && LastChange == null)
+        {
+            _lastAlbum = null;
+            if (!Directory.Exists(la.To) || Directory.Exists(la.From)) throw new ArgumentException("The album was changed since, so it can't be renamed back.");
+            Directory.Move(la.To, la.From);
+            library.RelocateFolder(la.To, la.From);
+            return [];
+        }
         var last = LastChange ?? throw new ArgumentException("There is nothing to undo.");
         var back = last.Where(m => File.Exists(m.To) && !File.Exists(m.From)).Select(m => new PictureMove(m.Id, m.To, m.From)).ToList();
         if (back.Count == 0) throw new ArgumentException("The pictures were changed since, so there is nothing to put back.");
@@ -543,15 +698,111 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         var failed = new List<string>();
         foreach (var (m, tmp) in temps)
         {
-            try { File.Move(tmp, m.To, overwrite: false); library.Relocate(m.Id, m.To); done.Add(m); }
+            try
+            {
+                File.Move(tmp, m.To, overwrite: false);
+                if (library.IsInside(System.IO.Path.GetDirectoryName(m.To)!)) library.Relocate(m.Id, m.To); else library.Forget([m.Id]); // moved out of the Gallery
+                done.Add(m);
+            }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
                 try { File.Move(tmp, m.From, overwrite: false); } catch (Exception) { failed.Add(System.IO.Path.GetFileName(tmp)); }
             }
         }
         LastChange = done;
+        _lastAlbum = null;
         if (failed.Count > 0) throw new ArgumentException($"Some pictures were left with a temporary name ({string.Join(", ", failed)}); rename them by hand.");
         if (done.Count < plan.Count) throw new ArgumentException($"{plan.Count - done.Count} picture(s) could not be moved; the others were.");
         return done;
+    }
+}
+
+
+/// <summary>
+/// Finding the same picture more than once: exact copies (same bytes, found by size and then SHA-256 of the content), and
+/// optionally look-alikes (resized or re-saved: a "difference hash" of a tiny grey version, compared bit by bit).
+/// </summary>
+public static class GalleryDuplicates
+{
+    public static List<List<GalleryImage>> Exact(IEnumerable<GalleryImage> images, IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        var groups = new List<List<GalleryImage>>();
+        var done = 0;
+        foreach (var bySize in images.Where(i => i.Size > 0 && File.Exists(i.Path)).GroupBy(i => i.Size).Where(g => g.Count() > 1))
+        {
+            var byHash = new Dictionary<string, List<GalleryImage>>();
+            foreach (var img in bySize)
+            {
+                ct.ThrowIfCancellationRequested();
+                string h;
+                try
+                {
+                    using var fs = new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1 << 16, FileOptions.SequentialScan);
+                    h = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(fs));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; }
+                (byHash.TryGetValue(h, out var l) ? l : byHash[h] = []).Add(img);
+                progress?.Report(++done);
+            }
+            groups.AddRange(byHash.Values.Where(l => l.Count > 1));
+        }
+        return groups;
+    }
+
+    /// <summary>A 64-bit difference hash from 9×8 grey values (row by row): each bit says "brighter than the pixel to the right".</summary>
+    public static ulong DHash(ReadOnlySpan<byte> grey9x8)
+    {
+        if (grey9x8.Length < 72) throw new ArgumentException("Need 9×8 grey values.");
+        ulong h = 0;
+        for (var y = 0; y < 8; y++)
+            for (var x = 0; x < 8; x++)
+                h = (h << 1) | (grey9x8[y * 9 + x] > grey9x8[y * 9 + x + 1] ? 1UL : 0UL);
+        return h;
+    }
+
+    public static int Distance(ulong a, ulong b) => System.Numerics.BitOperations.PopCount(a ^ b);
+
+    /// <summary>Groups pictures whose hashes differ in at most <paramref name="maxBits"/> bits (5 ≈ the same picture resized or re-saved).</summary>
+    public static List<List<GalleryImage>> Similar(IReadOnlyList<(GalleryImage Image, ulong Hash)> hashed, int maxBits = 5)
+    {
+        var parent = Enumerable.Range(0, hashed.Count).ToArray();
+        int Find(int i) { while (parent[i] != i) i = parent[i] = parent[parent[i]]; return i; }
+        for (var i = 0; i < hashed.Count; i++)
+            for (var j = i + 1; j < hashed.Count; j++)
+                if (Distance(hashed[i].Hash, hashed[j].Hash) <= maxBits) parent[Find(i)] = Find(j);
+        return Enumerable.Range(0, hashed.Count).GroupBy(Find).Where(g => g.Count() > 1).Select(g => g.Select(i => hashed[i].Image).ToList()).ToList();
+    }
+}
+
+/// <summary>Packs pictures into one ZIP (names made unique: "IMG_1.jpg", "IMG_1 (2).jpg"). Already-compressed formats are stored as they are.</summary>
+public static class GalleryZip
+{
+    public static int Create(IReadOnlyList<string> files, string destination)
+    {
+        if (files.Count == 0) throw new ArgumentException("Choose some pictures to pack.");
+        var dest = System.IO.Path.GetFullPath(destination);
+        var tmp = dest + ".noormd-tmp";
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var count = 0;
+        try
+        {
+            using (var zip = System.IO.Compression.ZipFile.Open(tmp, System.IO.Compression.ZipArchiveMode.Create))
+                foreach (var f in files)
+                {
+                    if (!File.Exists(f)) continue;
+                    var name = System.IO.Path.GetFileName(f);
+                    var stem = System.IO.Path.GetFileNameWithoutExtension(f);
+                    var ext = System.IO.Path.GetExtension(f);
+                    for (var i = 2; !names.Add(name); i++) name = $"{stem} ({i}){ext}";
+                    var stored = ext.ToLowerInvariant() is ".jpg" or ".jpeg" or ".png" or ".gif" or ".webp" or ".avif" or ".heic";
+                    System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(zip, f, name, stored ? System.IO.Compression.CompressionLevel.NoCompression : System.IO.Compression.CompressionLevel.Optimal);
+                    count++;
+                }
+            using (var check = System.IO.Compression.ZipFile.OpenRead(tmp))
+                if (check.Entries.Count != count) throw new IOException("The ZIP could not be verified after writing.");
+            File.Move(tmp, dest, overwrite: true); // the save dialog already asked before replacing an existing file
+            return count;
+        }
+        finally { if (File.Exists(tmp)) try { File.Delete(tmp); } catch (IOException) { } }
     }
 }

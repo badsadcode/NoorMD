@@ -106,7 +106,7 @@ window.NoorVideo = (() => {
           el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕'))),
       el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
         el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); } },
-          video, el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
+          video, el('div', { class: 'vb-note-pop', id: 'vb-note-pop', hidden: true, 'aria-live': 'polite' }), el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
         el('div', { class: 'np-text vb-text' },
           el('div', { class: 'np-title', id: 'vb-title', text: 'Nothing playing', title: 'Show in the list', onclick: () => revealPlaying() }),
           el('div', { class: 'np-sub', id: 'vb-sub' }),
@@ -479,7 +479,33 @@ window.NoorVideo = (() => {
 
   function toggleFullscreen() {
     if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
-    else video.requestFullscreen().catch(() => {});
+    else $('#vb-stage').requestFullscreen().catch(() => {}); // the stage, so notes on the video show in full screen too
+  }
+
+  // Notes on the video: a note appears over the picture at its moment, for a few seconds. Can be switched off (💬).
+  const NOTE_SECONDS = 6;
+  let notesOnVideo = (() => { try { return localStorage.getItem('noormd.video.notesOnVideo') !== 'off'; } catch { return true; } })();
+  let shownNote = null;
+
+  function setNotesOnVideo(on) {
+    notesOnVideo = on;
+    try { localStorage.setItem('noormd.video.notesOnVideo', on ? 'on' : 'off'); } catch { /* fine */ }
+    shownNote = undefined; // redraw whatever is (or isn't) showing now
+    renderNotePop();
+    renderExtras();
+    notice(on ? 'Notes show on the video at their moment' : 'Notes on the video: off', 1600);
+  }
+
+  function renderNotePop() {
+    const pop = $('#vb-note-pop');
+    if (!pop) return;
+    const t = video.currentTime;
+    const n = notesOnVideo && current && current.notes.length
+      ? current.notes.filter((x) => t >= x.time && t < x.time + NOTE_SECONDS).sort((a, b) => b.time - a.time)[0] : null;
+    if ((n ? n.id + ':' + n.text : null) === shownNote) return;
+    shownNote = n ? n.id + ':' + n.text : null;
+    pop.hidden = !n;
+    if (n) pop.replaceChildren(el('span', { class: 'vb-note-pop-time', text: n.stamp || fmt(n.time) }), el('span', { class: 'vb-note-pop-text', text: n.text }));
   }
 
   // ------------------------------------------------------------------ playing
@@ -544,6 +570,7 @@ window.NoorVideo = (() => {
     renderTime();
     const ts = $('#vb-note-time');
     if (ts && !$('#vb-note-input')?.value) ts.textContent = fmt(video.currentTime);
+    renderNotePop();
   }
 
   function renderTime() {
@@ -655,6 +682,7 @@ window.NoorVideo = (() => {
     const ic = (label, title, fn, id) => el('button', { class: 'icon-btn', title, 'aria-label': title, id, onclick: fn, disabled: !current || undefined }, label);
     box.replaceChildren(speed, subs, ...(audio ? [audio] : []),
       el('span', { class: 'sd-spacer' }),
+      el('button', { class: 'icon-btn' + (notesOnVideo ? ' on' : ''), id: 'vb-notes-on-video', title: notesOnVideo ? 'Notes show on the video at their moment (click to hide them)' : 'Show notes on the video at their moment', 'aria-label': 'Notes on the video', 'aria-pressed': String(notesOnVideo), onclick: () => setNotesOnVideo(!notesOnVideo) }, '💬'),
       ic('⧉', 'Pop out: a small window that stays on top', popOut, 'vb-popout'),
       ic('⛶', 'Full screen (F)', toggleFullscreen),
       ic(current && current.video.watched ? '↺' : '✓', current && current.video.watched ? 'Mark as not watched' : 'Mark as watched', () => current && markWatched([current.video.id], !current.video.watched)));

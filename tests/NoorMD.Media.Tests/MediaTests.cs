@@ -1180,3 +1180,116 @@ public class OverlapTests
         Assert.Equal(1, video.Count());
     }
 }
+
+public class GalleryManagerTests
+{
+    /// <summary>A minimal Photoshop file: header (2000×1000), no colour data, one image resource 1036 holding a JPEG.</summary>
+    private static byte[] FakePsd(byte[] jpeg)
+    {
+        var ms = new MemoryStream();
+        void BE(uint v, int n) { for (var i = n - 1; i >= 0; i--) ms.WriteByte((byte)(v >> (8 * i))); }
+        ms.Write("8BPS"u8); BE(1, 2); ms.Write(new byte[6]); BE(3, 2); BE(1000, 4); BE(2000, 4); BE(8, 2); BE(3, 2);
+        BE(0, 4); // colour mode data
+        var res = new MemoryStream();
+        void RBE(uint v, int n) { for (var i = n - 1; i >= 0; i--) res.WriteByte((byte)(v >> (8 * i))); }
+        res.Write("8BIM"u8); RBE(1036, 2); res.WriteByte(0); res.WriteByte(0); // empty name, padded
+        RBE((uint)(28 + jpeg.Length), 4); res.Write(new byte[28]); res.Write(jpeg);
+        if (jpeg.Length % 2 == 1) res.WriteByte(0);
+        BE((uint)res.Length, 4); ms.Write(res.ToArray());
+        BE(0, 4); // layers
+        return ms.ToArray();
+    }
+
+    [Fact]
+    public void Psd_Files_Are_Listed_With_Size_And_Their_Embedded_Preview()
+    {
+        using var t = new TempDir();
+        var jpeg = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "Fixtures", "photo-exif.jpg"));
+        Directory.CreateDirectory(t.P("Art"));
+        File.WriteAllBytes(t.P("Art", "Okładka.psd"), FakePsd(jpeg));
+        t.Copy("plain.png", "Art", "Szkic.png");
+        File.WriteAllText(t.P("Art", "Projekt.afphoto"), "not really");
+        var lib = new GalleryLibrary(t.P("g.db"));
+        lib.Scan(lib.AddFolder(t.P("Art")));
+        var psd = lib.Query(new GalleryQuery(Format: "PSD")).Single();
+        Assert.Equal((2000, 1000), (psd.Width, psd.Height));
+        Assert.Equal(jpeg, PsdPreview.Jpeg(psd.Path));
+        Assert.Null(PsdPreview.Jpeg(t.P("Art", "Szkic.png")));
+        Assert.Equal(["AFPHOTO", "PNG", "PSD"], lib.Query(new GalleryQuery(Sort: "type", Descending: false)).Select(i => i.Format));
+        Assert.Equal(3, lib.Formats().Sum(f => f.Count));
+        Assert.Single(lib.Query(new GalleryQuery(Search: "psd")));
+        Assert.False(ImageFormats.IsWeb(psd.Path));
+    }
+
+    [Fact]
+    public void Albums_Can_Be_Renamed_And_Pictures_Copied_Or_Moved_Anywhere()
+    {
+        using var t = new TempDir();
+        t.Copy("photo-exif.jpg", "Pics", "Lato", "a.jpg");
+        t.Copy("plain.png", "Pics", "Lato", "b.png");
+        var lib = new GalleryLibrary(t.P("g.db"));
+        lib.Scan(lib.AddFolder(t.P("Pics")));
+        var org = new GalleryOrganizer(lib);
+        var a = lib.Query(new GalleryQuery(Search: "a")).Single(i => i.Name == "a");
+        var show = lib.CreateSlideshow("S", [a.Id], "{}");
+        org.RenameAlbum(t.P("Pics", "Lato"), "Lato 2024");
+        Assert.True(Directory.Exists(t.P("Pics", "Lato 2024")));
+        Assert.Equal("Lato 2024", lib.Get(a.Id)!.Album);
+        Assert.Equal([a.Id], lib.Query(new GalleryQuery(SlideshowId: show)).Select(i => i.Id));
+        org.Undo();
+        Assert.True(Directory.Exists(t.P("Pics", "Lato")));
+        Assert.Equal("Lato", lib.Get(a.Id)!.Album);
+
+        Directory.CreateDirectory(t.P("Elsewhere"));
+        var copies = org.Copy([a.Id], t.P("Elsewhere"));
+        Assert.True(File.Exists(t.P("Elsewhere", "a.jpg")) && File.Exists(t.P("Pics", "Lato", "a.jpg")));
+        Assert.ThrowsAny<ArgumentException>(() => org.Copy([a.Id], t.P("Elsewhere"))); // never overwrites
+        var b = lib.Query(new GalleryQuery()).Single(i => i.Name == "b");
+        Assert.ThrowsAny<ArgumentException>(() => org.Move([b.Id], t.P("Elsewhere"))); // albums only, unless chosen anywhere
+        org.Move([b.Id], t.P("Elsewhere"), anywhere: true);
+        Assert.True(File.Exists(t.P("Elsewhere", "b.png")));
+        Assert.Null(lib.Get(b.Id)); // it left the Gallery
+        org.Undo();
+        Assert.True(File.Exists(t.P("Pics", "Lato", "b.png")));
+    }
+
+    [Fact]
+    public void Exact_Duplicates_Are_Found_And_Look_Alikes_By_Hash()
+    {
+        using var t = new TempDir();
+        t.Copy("photo-exif.jpg", "P", "a.jpg");
+        t.Copy("photo-exif.jpg", "P", "kopia", "a (copy).jpg");
+        t.Copy("plain.png", "P", "c.png");
+        var lib = new GalleryLibrary(t.P("g.db"));
+        lib.Scan(lib.AddFolder(t.P("P")));
+        var groups = GalleryDuplicates.Exact(lib.Query(new GalleryQuery()));
+        Assert.Single(groups);
+        Assert.Equal(["a", "a (copy)"], groups[0].Select(i => i.Name).OrderBy(x => x));
+
+        var grey = new byte[72];
+        for (var i = 0; i < 72; i++) grey[i] = (byte)(i * 3 % 251);
+        var h1 = GalleryDuplicates.DHash(grey);
+        grey[5] ^= 0xFF; // a small change
+        var h2 = GalleryDuplicates.DHash(grey);
+        Assert.InRange(GalleryDuplicates.Distance(h1, h2), 0, 3);
+        var imgs = lib.Query(new GalleryQuery()).ToList();
+        var similar = GalleryDuplicates.Similar([(imgs[0], h1), (imgs[1], h2), (imgs[2], ~h1)]);
+        Assert.Single(similar);
+        Assert.Equal(2, similar[0].Count);
+    }
+
+    [Fact]
+    public void Pictures_Are_Packed_Into_A_Zip_With_Unique_Names()
+    {
+        using var t = new TempDir();
+        var a = t.Copy("photo-exif.jpg", "x", "IMG.jpg");
+        var b = t.Copy("photo-exif.jpg", "y", "IMG.jpg");
+        var c = t.Copy("plain.png", "y", "Mapa.png");
+        var zip = t.P("out", "Wakacje.zip");
+        Directory.CreateDirectory(t.P("out"));
+        Assert.Equal(3, GalleryZip.Create([a, b, c], zip));
+        using var z = System.IO.Compression.ZipFile.OpenRead(zip);
+        Assert.Equal(["IMG (2).jpg", "IMG.jpg", "Mapa.png"], z.Entries.Select(e => e.FullName).OrderBy(x => x, StringComparer.Ordinal));
+        Assert.False(File.Exists(zip + ".noormd-tmp"));
+    }
+}
