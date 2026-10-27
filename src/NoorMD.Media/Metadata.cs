@@ -56,12 +56,30 @@ public sealed record TagEdit
     public bool IsEmpty => Title == null && Artist == null && Album == null && AlbumArtist == null && Genre == null
         && Year == null && TrackNumber == null && Comment == null;
 
-    /// <summary>An edit that restores exactly these tags (used by undo).</summary>
-    public static TagEdit RestoreTo(TrackTags t) => new()
+    /// <summary>
+    /// An edit for undo: puts back the fields the change altered (old ≠ new) and leaves every other field alone, so a
+    /// tag with several values ("Rock; Pop") that the change didn't touch keeps all of them.
+    /// </summary>
+    public static TagEdit RestoreTo(TrackTags old, TrackTags? changed = null)
     {
-        Title = t.Title ?? "", Artist = t.Artist ?? "", Album = t.Album ?? "", AlbumArtist = t.AlbumArtist ?? "",
-        Genre = t.Genre ?? "", Year = t.Year ?? 0, TrackNumber = t.TrackNumber ?? 0, Comment = t.Comment ?? "",
-    };
+        bool D<T>(T a, T b) => changed == null || !EqualityComparer<T>.Default.Equals(a, b);
+        return new()
+        {
+            Title = D(old.Title, changed?.Title) ? old.Title ?? "" : null,
+            Artist = D(old.Artist, changed?.Artist) ? old.Artist ?? "" : null,
+            Album = D(old.Album, changed?.Album) ? old.Album ?? "" : null,
+            AlbumArtist = D(old.AlbumArtist, changed?.AlbumArtist) ? old.AlbumArtist ?? "" : null,
+            Genre = D(old.Genre, changed?.Genre) ? old.Genre ?? "" : null,
+            Year = D(old.Year, changed?.Year) ? old.Year ?? 0 : null,
+            TrackNumber = D(old.TrackNumber, changed?.TrackNumber) ? old.TrackNumber ?? 0 : null,
+            Comment = D(old.Comment, changed?.Comment) ? old.Comment ?? "" : null,
+        };
+    }
+
+    /// <summary>Whether the file's tags are still what NoorMD wrote (another program may have changed them since).</summary>
+    public static bool SameTags(TrackTags? a, TrackTags? b) =>
+        a != null && b != null && a.Title == b.Title && a.Artist == b.Artist && a.Album == b.Album && a.AlbumArtist == b.AlbumArtist
+        && a.Genre == b.Genre && a.Year == b.Year && a.TrackNumber == b.TrackNumber && a.Comment == b.Comment;
 }
 
 public sealed class MetadataException(string message, Exception? inner = null) : Exception(message, inner);
@@ -146,6 +164,11 @@ public static class TagIO
         catch (UnauthorizedAccessException ex)
         {
             throw new MetadataException($"Windows denied write access to \"{info.Name}\".", ex);
+        }
+        catch (Exception ex) when (ex is ArgumentException or IndexOutOfRangeException or OverflowException or NullReferenceException or InvalidOperationException)
+        {
+            // TagLib's way of failing on some damaged files (the same set Read treats as "can't read").
+            throw new MetadataException($"\"{info.Name}\" can't be tagged: the file looks damaged ({ex.Message}).", ex);
         }
 
         var after = Read(path);

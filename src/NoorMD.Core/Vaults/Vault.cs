@@ -308,7 +308,9 @@ public sealed record VaultLink(string Target, bool Wiki);
 /// <summary>Finds and resolves links between notes: relative Markdown links and Obsidian-style [[wiki links]].</summary>
 public static class VaultLinks
 {
-    private static readonly System.Text.RegularExpressions.Regex MdLink = new(@"(?<!!)\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+""[^""]*"")?\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+    /// <summary>A Markdown link target: &lt;with spaces&gt;, or a path where parentheses come in pairs ("Plan (v2).md").</summary>
+    public const string MdTargetPattern = @"(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)";
+    private static readonly System.Text.RegularExpressions.Regex MdLink = new(@"(?<!!)\[[^\]]*\]\(\s*" + MdTargetPattern + @"(?:\s+""[^""]*"")?\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex WikiLink = new(@"(?<!!)\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // \[\[Note\]\]: a wiki link typed in an editor that escaped the brackets (older NoorMD Visual mode did this).
@@ -316,7 +318,7 @@ public static class VaultLinks
 
     public static IEnumerable<VaultLink> Extract(string text)
     {
-        foreach (System.Text.RegularExpressions.Match m in MdLink.Matches(text)) yield return new VaultLink(m.Groups[1].Value, false);
+        foreach (System.Text.RegularExpressions.Match m in MdLink.Matches(text)) yield return new VaultLink(m.Groups[1].Value.Trim('<', '>'), false);
         foreach (System.Text.RegularExpressions.Match m in WikiLink.Matches(text)) yield return new VaultLink(m.Groups[1].Value.Trim(), true);
         foreach (System.Text.RegularExpressions.Match m in EscapedWikiLink.Matches(text))
             if (SplitWiki(Unescape(m.Groups[1].Value)).Target is { Length: > 0 } t) yield return new VaultLink(t, true);

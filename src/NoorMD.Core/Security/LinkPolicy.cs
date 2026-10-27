@@ -51,12 +51,17 @@ public static class LinkPolicy
     {
         if (!DocumentFile.IsOpenable(path))
             return Block("Only Markdown and text files can be opened from links. Other local files (programs, scripts, documents) are blocked for safety.");
-        if (path.StartsWith(@"\\")) return Block("Network paths are not opened from documents.");
+        // Only a plain local path (C:\…): device and NT paths such as \\?\ or \??\UNC\… could reach a network share,
+        // and nothing about the file is looked up before this check.
+        if (path.StartsWith(@"\\") || path.Contains('?') || path.Contains('*') || (OperatingSystem.IsWindows() && !IsDrivePath(path)))
+            return Block("Network paths are not opened from documents.");
         if (mustBeInsideFolder && folder != null && !path.StartsWith(Path.GetFullPath(folder), StringComparison.OrdinalIgnoreCase))
             return Block("The linked file is outside the document's folder.");
         if (!File.Exists(path)) return Block($"\"{Path.GetFileName(path)}\" was not found.");
         return new LinkDecision(LinkKind.LocalDocument, path, "");
     }
+
+    private static bool IsDrivePath(string p) => p.Length >= 3 && char.IsAsciiLetter(p[0]) && p[1] == ':' && p[2] == '\\';
 
     private static LinkDecision Block(string reason) => new(LinkKind.Blocked, "", reason);
 }

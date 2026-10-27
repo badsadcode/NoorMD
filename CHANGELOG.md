@@ -1,5 +1,50 @@
 # Changelog
 
+## 2.0.0-preview.17 — Gallery and slideshows; a full review of the app
+
+- **Gallery** (Ctrl+Alt+G, or Tools › Gallery) is a dock panel for your pictures.
+  - Add folders: subfolders become albums. NoorMD reads the date taken (EXIF) and the size, and makes small
+    previews (turned upright like the camera was held).
+  - Browse all pictures, ★ favourites, an album or a saved slideshow. Sort by date or name, and search by
+    name or album (Polish letters optional).
+  - Click a picture to view it full size: ← → to move, wheel or + − to zoom (drag to pan), F for a favourite,
+    I to put it into the note. A picture from outside the Vault or the document's folder is copied there
+    first, after asking.
+  - **Slideshows:** choose how long each picture stays (3–20 s), the transition (fade, slow zoom, slide),
+    shuffle, loop and captions. Music can be what the Music Bench plays or one of your music playlists, and
+    it pauses when the slideshow ends. Space pauses, F is full screen, Esc ends.
+  - Save a selection as a slideshow. Drag pictures to put them in order. Its settings are saved with it.
+  - The pictures themselves are never changed, moved or deleted.
+- **Opening a file while NoorMD is running** opens it in a tab of that window, instead of starting a second
+  NoorMD that restored the whole session again and saved its settings over the first one. *New window*
+  still opens a separate window, and the Stream Desk and Mic Guard stay in the first one.
+- **Fixes from a full review of the app.** The serious ones:
+  - **Privacy:** the microphone permission could be remembered by WebView2 after the first recording. It is
+    now never remembered, and any remembered answer is cleared at start. Two quick presses of Record no
+    longer leave the microphone open.
+  - **Delete** on a drive without a Recycle Bin (network shares, some USB drives) deleted for good while
+    saying it could be restored. NoorMD now checks first and asks "Delete permanently?".
+  - **Moving several notes** where one name was taken moved some and stopped, without updating their
+    links. Everything is checked first now. A folder selected together with notes inside it moves once.
+  - **Links:** names with parentheses ("Plan (v2).md") broke on the second move and didn't show as
+    backlinks. A stray backtick no longer stops link updates for whole paragraphs. Renaming a note to a
+    name with a dot ("Spotkanie 27.10.2026") no longer drops its .md. Pack & Share now includes
+    `![[embedded]]` pictures and `<angle bracket>` links.
+  - **Documents:** restoring a snapshot that Visual mode can't show exactly now restores it in Markdown
+    mode, unchanged. A recovered draft no longer overwrites a file changed on disk after the crash without
+    asking. Snapshots of untitled documents survive a restart.
+  - **Music and Video:** renaming a track to the name of a file deleted in Explorer broke undo. Folders
+    that overlap (D:\Music and D:\Music\Rock) or an imported playlist plus its folder made every scan fail.
+    Undo kept only the first of several genres or artists, and it overwrote tag changes made in other
+    programs. Removing from a filtered video playlist deleted the hidden entries too. Clearing Up next
+    then toggling shuffle brought the songs back. Save & Next started the next song partway through.
+  - **Stream Desk:** an OBS browser source that stops reading could freeze NoorMD. Quitting with unsaved
+    supporters in the Stream Desk window lost them even after "Cancel". A hand-edited stream note with a
+    Windows path broke the stream history. Apps Hub web shortcuts with an unknown launcher scheme now ask
+    before they are added.
+  - **Links in documents** are checked before anything on disk is touched, so a crafted link can't make
+    Windows contact a network share.
+
 ## 2.0.0-preview.16 — Apps Hub categories, fixes
 
 - **Apps Hub categories.** A row of chips above the tiles chooses what is shown:

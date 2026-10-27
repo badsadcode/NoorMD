@@ -73,9 +73,15 @@ public sealed class TrackEditor(MusicLibrary library)
             }
         }
 
-        var row = library.Refresh(trackId, path);
-        var fp = Fingerprint.Compute(path);
-        library.JournalFinish(journal, problems.Count == 0 ? "done" : "partial", path, fp, TagIO.Read(path), problems.Count == 0 ? null : string.Join(" ", problems));
+        // The journal first: whatever happens to the library row, the edit can be undone.
+        library.JournalFinish(journal, problems.Count == 0 ? "done" : "partial", path, Fingerprint.Compute(path), TagIO.Read(path), problems.Count == 0 ? null : string.Join(" ", problems));
+        TrackRow? row;
+        try { row = library.Refresh(trackId, path); }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
+        {
+            problems.Add("The library could not be updated (a rescan fixes it): " + ex.Message);
+            row = library.Get(trackId);
+        }
         return new EditResult(tagsSaved, renamed, path, row, problems, journal);
 
         EditResult Fail(string message) => new(false, false, track?.Path ?? "", track, [message], null);
@@ -91,7 +97,8 @@ public sealed class TrackEditor(MusicLibrary library)
         if (entry == null) return new EditResult(false, false, "", null, ["That change is no longer in the history."], null);
         if (entry.Status is not ("done" or "partial")) return new EditResult(false, false, entry.NewPath, null, [$"That change can't be undone (status: {entry.Status})."], journalId);
         if (!File.Exists(entry.NewPath)) return new EditResult(false, false, entry.NewPath, null, [$"\"{Path.GetFileName(entry.NewPath)}\" was moved or deleted since the change, so it can't be undone safely."], journalId);
-        if (entry.NewFingerprint != null && Fingerprint.Compute(entry.NewPath) != entry.NewFingerprint)
+        if ((entry.NewFingerprint != null && Fingerprint.Compute(entry.NewPath) != entry.NewFingerprint)
+            || (entry.NewTags != null && !TagEdit.SameTags(TagIO.Read(entry.NewPath), entry.NewTags)))
             return new EditResult(false, false, entry.NewPath, null, ["The file was modified after this change (by NoorMD or another program), so undoing it could lose newer changes."], journalId);
 
         var path = entry.NewPath;
@@ -107,7 +114,8 @@ public sealed class TrackEditor(MusicLibrary library)
         }
         if (entry.OldTags != null)
         {
-            try { TagIO.Write(path, TagEdit.RestoreTo(entry.OldTags)); tagsSaved = true; }
+            var restore = TagEdit.RestoreTo(entry.OldTags, entry.NewTags);
+            try { if (!restore.IsEmpty) TagIO.Write(path, restore); tagsSaved = true; }
             catch (MetadataException ex) { problems.Add("The name was restored but the old tags could not be written back: " + ex.Message); }
         }
         var row = library.Refresh(entry.TrackId, path);

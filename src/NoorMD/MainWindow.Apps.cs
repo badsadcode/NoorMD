@@ -7,6 +7,7 @@ using NoorMD.Core.Bridge;
 using NoorMD.Core.Hub;
 using NoorMD.Core.Security;
 using NoorMD.Host;
+using NoorMD.Ui;
 
 namespace NoorMD;
 
@@ -67,12 +68,16 @@ public partial class MainWindow
                 case "apps.addWeb":
                 {
                     var url = req.GetString("url", 2000)?.Trim() ?? "";
+                    if (AppsHub.AddressProblem(url) is { } bad) throw new BridgeError(bad);
+                    if (!ConsentToScheme(url)) return new { cancelled = true };
                     var name = req.GetString("name", 80);
                     if (string.IsNullOrWhiteSpace(name) && Uri.TryCreate(url, UriKind.Absolute, out var u)) name = u.Scheme is "http" or "https" ? u.Host.Replace("www.", "") : u.Scheme;
                     var item = Hub.Add(new HubItem { Name = name ?? "", Kind = HubKind.Web, Target = url, Group = req.GetString("group", 40) ?? "Web" });
                     return new { added = new[] { HubItemForPage(item) }, hub = HubPayload() };
                 }
                 case "apps.update":
+                    if (req.GetString("url", 2000) is { } newUrl && Hub.Get(req.GetString("id", 40) ?? "") is { Kind: HubKind.Web } web && web.Target != newUrl.Trim()
+                        && AppsHub.AddressProblem(newUrl) == null && !ConsentToScheme(newUrl)) return HubPayload();
                     Hub.Update(req.GetString("id", 40) ?? "", req.GetString("name", 80), req.GetString("group", 40), req.GetString("arguments", 1000), req.GetString("color", 10), req.GetString("url", 2000));
                     return HubPayload();
                 case "apps.remove":
@@ -107,7 +112,7 @@ public partial class MainWindow
                 }
                 case "apps.icon.pick":
                 {
-                    var id = req.GetString("id", 40) ?? "";
+                    var id = (Hub.Get(req.GetString("id", 40) ?? "") ?? throw new BridgeError("That shortcut is no longer in the hub.")).Id; // a real id, never a path
                     var dlg = new OpenFileDialog { Title = "Choose a picture", Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp" };
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var info = new FileInfo(dlg.FileName);
@@ -151,6 +156,13 @@ public partial class MainWindow
         var name = $"{id}-shell.png";
         await File.WriteAllBytesAsync(Path.Combine(Hub.IconsFolder, name), png);
         return name;
+    }
+
+    /// <summary>Asks before adding a link that starts some other program (a scheme NoorMD doesn't know).</summary>
+    private bool ConsentToScheme(string url)
+    {
+        if (!AppsHub.NeedsConsent(url) || !Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u)) return true;
+        return ThemedDialog.Confirm(this, $"Add a “{u.Scheme}:” link?", $"Links like this start another program on your computer, not a website. Only add it if you know which program handles “{u.Scheme}:” and you trust it.", "Add it", url.Trim());
     }
 
     private object LaunchHubItem(string id)

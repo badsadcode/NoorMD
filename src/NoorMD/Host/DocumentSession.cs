@@ -51,6 +51,13 @@ internal sealed class DocumentSession(string tabId)
         DeletionNoticeShown = false;
     }
 
+    /// <summary>An untitled document coming back after a restart keeps its snapshots.</summary>
+    public void KeepSnapshotKey(string? key)
+    {
+        if (Path == null && key != null && key.StartsWith("untitled-", StringComparison.Ordinal) && key.Length <= 80 && key.All(c => char.IsAsciiLetterOrDigit(c) || c == '-'))
+            SnapshotKey = key;
+    }
+
     public void SetFile(string path, TextFormat format, FileStamp? stamp)
     {
         Path = System.IO.Path.GetFullPath(path);

@@ -588,6 +588,7 @@ function mockHostScript(initial) {
       case 'video.playlist.create': { const pl = { id: VID.nextPl++, name: String(p.name).trim(), ids: [...(p.ids || [])] }; VID.playlists.push(pl); return { id: pl.id, playlists: playlists() }; }
       case 'video.playlist.rename': VID.playlists.find((x) => x.id === p.id).name = p.name; return playlists();
       case 'video.playlist.delete': VID.playlists = VID.playlists.filter((x) => x.id !== p.id); return playlists();
+      case 'video.playlist.items': return [...VID.playlists.find((x) => x.id === p.id).ids];
       case 'video.playlist.setItems': VID.playlists.find((x) => x.id === p.id).ids = [...p.ids]; return playlists();
       case 'video.playlist.add': VID.playlists.find((x) => x.id === p.id).ids.push(...p.ids); return playlists();
       case 'video.episodes': return eps(p.key).map(row);

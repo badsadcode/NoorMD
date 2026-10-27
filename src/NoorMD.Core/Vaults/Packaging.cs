@@ -61,7 +61,8 @@ public static class PackagePlanner
         "*.tmp", "*.noormd-tmp", "~$*", "*.swp", "Thumbs.db", ".DS_Store", "desktop.ini",
     ];
 
-    private static readonly Regex MdTarget = new(@"!?\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+""[^""]*"")?\s*\)", RegexOptions.Compiled);
+    private static readonly Regex MdTarget = new(@"!?\[[^\]]*\]\(\s*" + VaultLinks.MdTargetPattern + @"(?:\s+""[^""]*"")?\s*\)", RegexOptions.Compiled);
+    private static readonly Regex WikiTarget = new(@"!?\[\[([^\]\|#\n]+)", RegexOptions.Compiled); // links and ![[embeds]]
     private static readonly Regex HtmlSrc = new(@"<img[^>]+src\s*=\s*[""']([^""']+)[""']", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     public static PackagePlan Build(string root, PackageOptions o, CancellationToken ct = default)
@@ -99,7 +100,7 @@ public static class PackagePlanner
 
         // 2. Links from the selected notes: missing ones are reported; ones outside the selection are dependencies.
         var notes = new List<string>();
-        var allNotes = new Lazy<List<string>>(() => VaultScanner.Scan(fullRoot, []).Where(e => !e.IsFolder && VaultPaths.IsNote(e.Path)).Select(e => e.Path).ToList());
+        var allFiles = new Lazy<List<string>>(() => VaultScanner.Scan(fullRoot, []).Where(e => !e.IsFolder).Select(e => e.Path).ToList());
         var deps = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var (rel, item) in chosen.Where(c => VaultPaths.IsNote(c.Key)).ToList())
         {
@@ -110,7 +111,7 @@ public static class PackagePlanner
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { plan.Warnings.Add($"Could not read “{rel}” to check its links."); continue; }
             foreach (var target in LinkTargets(text))
             {
-                var resolved = ResolveLocal(fullRoot, rel, target, allNotes);
+                var resolved = ResolveLocal(fullRoot, rel, target, allFiles);
                 if (resolved.Problem != null) { if (resolved.Problem != "external") plan.Unresolved.Add(new UnresolvedLink(rel, target.Text, resolved.Problem)); continue; }
                 if (resolved.Rel == null || chosen.ContainsKey(resolved.Rel)) continue;
                 deps.TryAdd(resolved.Rel, rel);
@@ -193,17 +194,18 @@ public static class PackagePlanner
 
     private static IEnumerable<Target> LinkTargets(string text)
     {
-        foreach (Match m in MdTarget.Matches(text)) yield return new Target(m.Groups[1].Value, false);
+        foreach (Match m in MdTarget.Matches(text)) yield return new Target(m.Groups[1].Value.Trim('<', '>'), false);
         foreach (Match m in HtmlSrc.Matches(text)) yield return new Target(m.Groups[1].Value, false);
-        foreach (var l in VaultLinks.Extract(text).Where(l => l.Wiki)) yield return new Target(l.Target, true);
+        foreach (Match m in WikiTarget.Matches(text)) yield return new Target(m.Groups[1].Value.Trim(), true);
     }
 
-    private static (string? Rel, string? Problem) ResolveLocal(string root, string fromRel, Target t, Lazy<List<string>> allNotes)
+    private static (string? Rel, string? Problem) ResolveLocal(string root, string fromRel, Target t, Lazy<List<string>> allFiles)
     {
         if (t.Wiki)
         {
-            var rel = VaultLinks.Resolve(fromRel, new VaultLink(t.Text, true), allNotes.Value);
-            return rel == null ? (null, "no note with that name") : (rel, null);
+            // [[Note]], or a picture or file by name: ![[photo.png]], [[manual.pdf]].
+            var rel = VaultLinkRewriter.ResolveWiki(fromRel, t.Text, allFiles.Value.Where(VaultPaths.IsNote).ToList(), allFiles.Value);
+            return rel == null ? (null, VaultPaths.IsNote(t.Text) || !Path.HasExtension(t.Text) ? "no note with that name" : "file not found") : (rel, null);
         }
         var target = t.Text;
         if (target.StartsWith('#') || target.Contains("://") || target.StartsWith("mailto:", StringComparison.OrdinalIgnoreCase) || target.StartsWith("data:", StringComparison.OrdinalIgnoreCase)) return (null, "external");
@@ -320,10 +322,16 @@ public static class ZipPackager
                 {
                     ct.ThrowIfCancellationRequested();
                     if (!PackagePlanner.SafeEntry(f.Entry) || !names.Add(f.Entry)) { failures.Add(new PackFailure(f.Entry, "unsafe or duplicate path")); continue; }
+                    var created = false;
                     try
                     {
-                        using var src = new FileStream(f.Source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 81920, FileOptions.SequentialScan);
+                        using var file = new FileStream(f.Source, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 81920, FileOptions.SequentialScan);
+                        // Read first (up to 128 MB), so a file that fails while reading (an offline OneDrive file) is skipped
+                        // cleanly instead of leaving half an entry in the archive.
+                        System.IO.Stream src = file;
+                        if (file.Length <= 128L * 1024 * 1024) { var mem = new MemoryStream((int)file.Length); file.CopyTo(mem); mem.Position = 0; src = mem; }
                         var entry = zip.CreateEntry(f.Entry, IsCompressed(f.Entry) ? CompressionLevel.NoCompression : CompressionLevel.Optimal);
+                        created = true;
                         entry.LastWriteTime = File.GetLastWriteTime(f.Source) is var t && t.Year >= 1980 ? t : new DateTime(1980, 1, 1);
                         using (var es = entry.Open())
                         {
@@ -341,7 +349,8 @@ public static class ZipPackager
                     catch (OperationCanceledException) { throw; }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                     {
-                        failures.Add(new PackFailure(f.Entry, ex is FileNotFoundException or DirectoryNotFoundException ? "no longer exists" : (ex.HResult & 0xFFFF) is 32 or 33 ? "locked by another program" : ex.Message));
+                        if (created) { entries++; failures.Add(new PackFailure(f.Entry, "only partly copied: " + ex.Message)); }
+                        else failures.Add(new PackFailure(f.Entry, ex is FileNotFoundException or DirectoryNotFoundException ? "no longer exists" : (ex.HResult & 0xFFFF) is 32 or 33 ? "locked by another program" : ex.Message));
                     }
                     progress?.Report(new PackProgress(++done, total, bytes));
                 }

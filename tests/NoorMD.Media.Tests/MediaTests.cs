@@ -335,6 +335,42 @@ public class EditorTests
     }
 
     [Fact]
+    public void Undo_Keeps_Untouched_Multi_Value_Tags_And_Refuses_After_Outside_Tag_Changes()
+    {
+        var (t, lib, ed, row) = Setup();
+        using var _ = t;
+        using (var f = TagLib.File.Create(row.Path)) { f.Tag.Genres = ["Rock", "Pop"]; f.Save(); }
+        lib.Refresh(row.Id, row.Path);
+        var res = ed.Apply(row.Id, new TagEdit { Title = "Nowy tytuł" }, null);
+        Assert.True(res.Ok, string.Join(" ", res.Problems));
+        var undo = ed.Undo(res.JournalId!.Value);
+        Assert.True(undo.Ok, string.Join(" ", undo.Problems));
+        using (var f = TagLib.File.Create(row.Path)) Assert.Equal(["Rock", "Pop"], f.Tag.Genres); // not collapsed to "Rock"
+
+        var again = ed.Apply(row.Id, new TagEdit { Title = "Drugi" }, null);
+        using (var f = TagLib.File.Create(again.Path)) { f.Tag.Comment = "changed in Mp3tag"; f.Save(); } // fits in the padding
+        var refused = ed.Undo(again.JournalId!.Value);
+        Assert.False(refused.Ok);
+        Assert.Equal("changed in Mp3tag", TagIO.Read(again.Path).Comment);
+    }
+
+    [Fact]
+    public void Renaming_Onto_A_File_Deleted_Outside_NoorMD_Works_And_Can_Be_Undone()
+    {
+        var (t, lib, ed, row) = Setup();
+        using var _ = t;
+        File.Delete(t.P("m", "Taken.mp3")); // deleted in Explorer, no rescan: its row still looks present
+        var res = ed.Apply(row.Id, new TagEdit(), "Taken");
+        Assert.True(res.Ok, string.Join(" ", res.Problems));
+        Assert.Equal(row.Id, lib.Get(row.Id)!.Id);
+        Assert.EndsWith("Taken.mp3", lib.Get(row.Id)!.Path);
+        Assert.Single(lib.Query(new LibraryQuery()).Rows); // the stale row is gone
+        var undo = ed.Undo(res.JournalId!.Value);
+        Assert.True(undo.Ok, string.Join(" ", undo.Problems));
+        Assert.True(File.Exists(row.Path));
+    }
+
+    [Fact]
     public void Edit_Title_And_Rename_Keeps_Id_Queue_References_And_Can_Be_Undone()
     {
         var (t, lib, ed, row) = Setup();
@@ -1067,5 +1103,38 @@ public class GalleryTests
         lib.RemoveFolder(folder);
         Assert.Equal(0, lib.Count());
         Assert.Equal(0, lib.GetSlideshow(show)!.Count);
+    }
+
+    [Fact]
+    public void Overlapping_Folders_Share_Pictures_Instead_Of_Failing()
+    {
+        var (t, lib, child) = Library();
+        using var _ = t;
+        lib.Scan(child);
+        var parent = lib.AddFolder(t.Path); // the folder above, added later
+        var r = lib.Scan(parent);
+        Assert.Equal(0, r.Added); // nothing doubled, nothing failed
+        Assert.Equal(3, lib.Count());
+    }
+}
+
+public class OverlapTests
+{
+    [Fact]
+    public void Music_And_Video_Folders_That_Overlap_Scan_Without_Errors()
+    {
+        using var t = new TempDir();
+        t.Copy("tone.mp3", "Music", "Rock", "a.mp3");
+        t.Copy("clip.webm", "Video", "Show", "e01.webm");
+        var music = new MusicLibrary(t.P("m.db"));
+        music.ScanFolder(music.AddFolder(t.P("Music", "Rock")));
+        var all = music.ScanFolder(music.AddFolder(t.P("Music")));
+        Assert.Equal(0, all.Errors);
+        Assert.Single(music.Query(new LibraryQuery()).Rows);
+        var video = new VideoLibrary(t.P("v.db"));
+        video.Scan(video.AddFolder(t.P("Video", "Show")));
+        var r = video.Scan(video.AddFolder(t.P("Video")));
+        Assert.Equal(0, r.Added);
+        Assert.Equal(1, video.Count());
     }
 }

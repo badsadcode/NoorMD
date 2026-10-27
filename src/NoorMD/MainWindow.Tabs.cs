@@ -178,6 +178,7 @@ public partial class MainWindow
                 Text = s.Path == null ? s.SessionText : null,
                 Pinned = s.Pinned,
                 Mode = s.Mode,
+                SnapshotKey = s.Path == null ? s.SnapshotKey : null,
             }).ToList(),
         };
         ScheduleSettingsSave();
@@ -202,6 +203,7 @@ public partial class MainWindow
                     var s = AddTab(tab.TabId);
                     s.Pinned = tab.Pinned; s.Mode = tab.Mode;
                     AdoptDraft(s, draft);
+                    if (s.Path == null) s.KeepSnapshotKey(tab.SnapshotKey);
                     payloads.Add(DocumentPayload(s, draft.Markdown, dirty: true, background: true));
                     recovered++;
                 }
@@ -219,6 +221,7 @@ public partial class MainWindow
                     var s = AddTab(tab.TabId);
                     s.Pinned = tab.Pinned; s.Mode = tab.Mode;
                     s.ResetUntitled(tab.Title ?? "Untitled document");
+                    s.KeepSnapshotKey(tab.SnapshotKey);
                     s.SessionText = tab.Text;
                     payloads.Add(DocumentPayload(s, tab.Text ?? "", dirty: false, background: true));
                 }

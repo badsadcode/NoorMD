@@ -32,6 +32,9 @@ public partial class MainWindow
         public CancellationTokenSource Cts { get; } = new();
         public Task Ready { get; set; } = Task.CompletedTask;
         public bool Indexed { get; set; }
+        /// <summary>Scans run one at a time; one waiting behind a newer request is skipped (the newer one sees more).</summary>
+        public SemaphoreSlim ScanGate { get; } = new(1, 1);
+        public int ScanSeq;
     }
 
     private VaultState? _vault;
@@ -153,7 +156,7 @@ public partial class MainWindow
                     var v = V();
                     var rel = req.GetString("path", 1000) ?? "";
                     var name = req.GetString("name", 200) ?? "";
-                    if (VaultPaths.IsNote(rel) && !VaultPaths.IsNote(name) && !name.Contains('.')) name += Path.GetExtension(rel);
+                    if (VaultPaths.IsNote(rel) && !VaultPaths.IsNote(name)) name += Path.GetExtension(rel); // "Spotkanie 27.10.2026" stays a note
                     var parent = rel.Contains('/') ? rel[..rel.LastIndexOf('/')] + "/" : "";
                     var plan = await PlanLinkUpdatesAsync(v, [(rel, parent + name)]);
                     var update = ConfirmLinkUpdates(plan, "Rename");
@@ -172,10 +175,14 @@ public partial class MainWindow
                     var plan = await PlanLinkUpdatesAsync(v, paths.Select(p => (p, (folder.Length > 0 ? folder + "/" : "") + p[(p.LastIndexOf('/') + 1)..])).ToList());
                     var update = ConfirmLinkUpdates(plan, "Move");
                     if (update == null) return new { cancelled = true };
-                    var moves = VaultOp(() => v.Ops.Move(paths, folder));
+                    List<VaultMove> moves;
+                    string? stopped = null;
+                    try { moves = VaultOp(() => v.Ops.Move(paths, folder)); }
+                    catch (VaultPartialMoveException ex) { moves = [.. ex.Done]; stopped = ex.Message; } // what moved is followed below
                     FollowMoves(moves);
                     var links = update.Value && moves.Count > 0 ? await ApplyLinkUpdatesAsync(v, moves, plan.FilesBefore) : null;
                     ScheduleRescan(0);
+                    if (stopped != null) throw new BridgeError(stopped);
                     return new { moved = moves.Count, links };
                 }
             case "vault.duplicate":
@@ -284,8 +291,11 @@ public partial class MainWindow
     /// <summary>Scans and indexes on a background thread; the editor and music never wait for it.</summary>
     private async Task RescanAsync(VaultState v)
     {
+        var seq = Interlocked.Increment(ref v.ScanSeq);
+        await v.ScanGate.WaitAsync();
         try
         {
+            if (seq != v.ScanSeq) return;
             var entries = await Task.Run(() => VaultScanner.Scan(v.Root, v.Info.Excluded, v.Cts.Token));
             if (_vault != v) return;
             v.Entries = entries;
@@ -298,6 +308,7 @@ public partial class MainWindow
         }
         catch (OperationCanceledException) { }
         catch (Exception ex) { Log.Error("Vault scan failed", ex); }
+        finally { v.ScanGate.Release(); }
     }
 
     private void StartWatcher(VaultState v)
@@ -464,13 +475,18 @@ public partial class MainWindow
     {
         var v = V();
         var fulls = rels.Select(r => VaultPaths.Resolve(v.Root, r)).Where(f => f != null && f != v.Root && (File.Exists(f) || Directory.Exists(f))).Cast<string>().Distinct().ToList();
+        fulls = fulls.Where(f => !fulls.Any(o => f.StartsWith(o + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList(); // a folder takes its contents along
         if (fulls.Count == 0) return new { deleted = 0 };
         var label = fulls.Count == 1 ? $"“{Path.GetFileName(fulls[0])}”" : $"{fulls.Count} items";
-        if (!ThemedDialog.Confirm(this, $"Delete {label}?", "It will be moved to the Windows Recycle Bin, where you can restore it.", "Move to Recycle Bin", fulls.Count == 1 ? fulls[0] : null)) return new { cancelled = true };
+        var recycle = RecycleBin.CanRecycle(fulls);
+        if (recycle
+            ? !ThemedDialog.Confirm(this, $"Delete {label}?", "It will be moved to the Windows Recycle Bin, where you can restore it.", "Move to Recycle Bin", fulls.Count == 1 ? fulls[0] : null)
+            : !ThemedDialog.Confirm(this, $"Delete {label} for good?", "This drive has no Recycle Bin (a network share or some USB drives), so it can't be restored afterwards.", "Delete permanently", fulls.Count == 1 ? fulls[0] : null))
+            return new { cancelled = true };
 
         // Open documents among them: unchanged ones are closed, ones with unsaved edits stay open (Save writes them again).
         var affected = OrderedTabs().Where(s => s.Path != null && fulls.Any(f => string.Equals(s.Path, f, StringComparison.OrdinalIgnoreCase) || s.Path.StartsWith(f + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
-        try { await Task.Run(() => RecycleBin.Send(fulls)); }
+        try { await Task.Run(() => RecycleBin.Send(fulls, permanently: !recycle)); }
         catch (Exception ex) { throw new BridgeError(FriendlyError(ex)); }
         int kept = 0;
         foreach (var s in affected)
@@ -500,10 +516,16 @@ public partial class MainWindow
         var fromRel = from?.Path != null ? VaultPaths.ToRelative(v.Root, from.Path) ?? "" : "";
         var rel = VaultLinks.Resolve(fromRel, new VaultLink(target, true), v.Index.NotePaths());
         if (rel != null) return await WithDocGate(() => OpenPathAsync(VaultFull(rel)));
-        var name = target.Replace('\\', '/').Split('/').Last().Trim();
+        var clean = target.Replace('\\', '/').Trim('/');
+        var name = clean.Split('/').Last().Trim();
         if (VaultPaths.NameProblem(name) != null) throw new BridgeError($"“{target}” is not a valid note name.");
-        if (!ThemedDialog.Confirm(this, "Create the note?", $"No note called “{name}” exists in this Vault yet. Create it next to the current note?", "Create note")) return new { cancelled = true };
-        var folder = fromRel.Contains('/') ? fromRel[..fromRel.LastIndexOf('/')] : "";
+        if (Path.HasExtension(name) && !VaultPaths.IsNote(name)) throw new BridgeError($"“{name}” is not in this Vault."); // [[manual.pdf]]: not a note to create
+        // [[Projects/Alpha]] makes Projects/Alpha.md (from the Vault's top, as wiki links resolve); [[Alpha]] goes next to the current note.
+        var folder = clean.Contains('/') ? clean[..clean.LastIndexOf('/')] : fromRel.Contains('/') ? fromRel[..fromRel.LastIndexOf('/')] : "";
+        if (folder.Length > 0 && VaultPaths.Resolve(v.Root, folder) == null) throw new BridgeError($"“{target}” points outside the Vault.");
+        var where = folder.Length == 0 ? "at the top of the Vault" : clean.Contains('/') ? $"in “{folder}”" : "next to the current note";
+        if (!ThemedDialog.Confirm(this, "Create the note?", $"No note called “{name}” exists in this Vault yet. Create it {where}?", "Create note")) return new { cancelled = true };
+        if (folder.Length > 0 && VaultPaths.Resolve(v.Root, folder) is { } dir) Directory.CreateDirectory(dir);
         var created = VaultOp(() => v.Ops.CreateNote(folder, name, $"# {name}\n\n"));
         ScheduleRescan(0);
         return await WithDocGate(() => OpenPathAsync(VaultFull(created)));

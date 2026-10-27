@@ -36,9 +36,17 @@ public partial class App : Application
         AppDomain.CurrentDomain.UnhandledException += (_, args) => Log.Error("Unhandled exception", args.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, args) => { Log.Error("Unobserved task exception", args.Exception); args.SetObserved(); };
 
+        // NoorMD is already open: the file opens there, in a new tab.
+        if (selfTest < 0 && !e.Args.Contains("--new-window") && !Host.SingleInstance.TryClaim() && Host.SingleInstance.Forward(file))
+        {
+            Shutdown();
+            return;
+        }
+
         var window = new NoorMD.MainWindow(file);
         MainWindow = window;
         window.Show();
+        if (selfTest < 0 && !e.Args.Contains("--new-window")) Host.SingleInstance.Listen(Dispatcher, window.OpenFromOtherStart);
     }
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)

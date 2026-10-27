@@ -57,6 +57,17 @@ public class PackagingTests
     }
 
     [Fact]
+    public void Embedded_Pictures_And_Angle_Bracket_Links_Are_Packed_Too()
+    {
+        using var t = MakeVault();
+        File.WriteAllText(Path.Combine(t.Path, "Trip.md"), "![[forest.png]] and [[manual.pdf]] and ![u](<Images/unused.png>) and [[Nowhere]]\n");
+        var plan = PackagePlanner.Build(t.Path, new PackageOptions { Selection = ["Trip.md"], IncludeDependencies = true });
+        Assert.Equal(["Images/forest.png", "Images/unused.png", "Trip.md"], plan.Files.Select(f => f.Entry).OrderBy(x => x, StringComparer.Ordinal));
+        Assert.Contains(plan.Unresolved, u => u.Target == "manual.pdf" && u.Problem == "file not found");
+        Assert.Contains(plan.Unresolved, u => u.Target == "Nowhere" && u.Problem == "no note with that name");
+    }
+
+    [Fact]
     public void Dependencies_Can_Be_Included_Or_Skipped_One_By_One()
     {
         using var t = MakeVault();

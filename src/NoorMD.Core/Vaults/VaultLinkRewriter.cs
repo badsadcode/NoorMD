@@ -11,7 +11,7 @@ namespace NoorMD.Core.Vaults;
 /// </summary>
 public static partial class VaultLinkRewriter
 {
-    [GeneratedRegex(@"(!?\[(?:[^\]\\]|\\.)*\]\()(\s*)(<[^>\n]+>|[^)\s]+)((?:\s+""[^""\n]*"")?\s*\))")]
+    [GeneratedRegex(@"(!?\[(?:[^\]\\]|\\.)*\]\()(\s*)(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)((?:\s+""[^""\n]*"")?\s*\))")]
     private static partial Regex MdLinkRx();
 
     [GeneratedRegex(@"(!?\[\[)([^\]\|#\n]+)((?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\])")]
@@ -108,7 +108,7 @@ public static partial class VaultLinkRewriter
     }
 
     /// <summary>A wiki link's target: a note (VaultLinks rules) or, for ![[photo.png]] and the like, any file by path or name.</summary>
-    private static string? ResolveWiki(string fromNote, string target, IReadOnlyCollection<string> notes, IReadOnlyCollection<string> files)
+    internal static string? ResolveWiki(string fromNote, string target, IReadOnlyCollection<string> notes, IReadOnlyCollection<string> files)
     {
         var t = target.Replace('\\', '/').Trim('/');
         var ext = System.IO.Path.GetExtension(t);
@@ -148,7 +148,7 @@ public static partial class VaultLinkRewriter
         return string.Join('/', up.Concat(to.Skip(common)));
     }
 
-    private static string Encode(string path) => string.Join('/', path.Split('/').Select(p => p == ".." ? p : Uri.EscapeDataString(p).Replace("%28", "(").Replace("%29", ")")));
+    private static string Encode(string path) => string.Join('/', path.Split('/').Select(p => p == ".." ? p : Uri.EscapeDataString(p)));
 
     /// <summary>Splits text into prose and code (fenced blocks and inline `code`), so links in code are never changed.</summary>
     private static IEnumerable<(string Text, bool Code)> Segments(string text)
@@ -172,6 +172,8 @@ public static partial class VaultLinkRewriter
                 continue;
             }
             sb.Append(line);
+            // Inline `code` never spans a blank line (CommonMark), so one stray backtick can't hide later paragraphs' links.
+            if (t.Trim().Length == 0) { foreach (var s in Inline(sb.ToString())) yield return s; sb.Clear(); }
         }
         if (sb.Length > 0) foreach (var s in Inline(sb.ToString())) yield return s;
     }

@@ -120,6 +120,9 @@ public partial class MainWindow : Window
         Core.FrameNavigationStarting += (_, e) => { if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) || !AssetResolver.IsAppUri(u)) e.Cancel = true; };
         Core.DownloadStarting += (_, e) => { e.Cancel = true; };
         Core.PermissionRequested += OnPermissionRequested; // everything denied, except the microphone right after Record (voice notes)
+        // Earlier versions let WebView2 remember a microphone answer; forget it so the Record-only rule always applies.
+        try { await Core.Profile.SetPermissionStateAsync(CoreWebView2PermissionKind.Microphone, AssetResolver.Origin, CoreWebView2PermissionState.Default); }
+        catch (Exception ex) when (ex is NotImplementedException or System.Runtime.InteropServices.COMException or ArgumentException) { Log.Error("Could not reset the microphone permission", ex); }
         Core.ContextMenuRequested += OnContextMenuRequested;
         Core.ProcessFailed += OnProcessFailed;
         Core.WebMessageReceived += OnWebMessageReceived;
@@ -333,8 +336,9 @@ public partial class MainWindow : Window
             if (!ConfirmCloseSketches()) return;
         }
         finally { _docGate.Release(); }
-        try { _videoWindow?.Close(); } catch { /* the pop-out player goes with the main window */ }
         try { _streamWindow?.Close(); } catch { /* the Stream Desk window goes with the main window */ }
+        if (_streamWindow != null) { _streamWindow.Activate(); return; } // it asked about unsaved supporters and you kept it open
+        try { _videoWindow?.Close(); } catch { /* the pop-out player goes with the main window */ }
         try { _overlay?.StopAsync().Wait(2000); } catch { /* the overlay server stops with the app */ }
         _closeConfirmed = true;
         Close();

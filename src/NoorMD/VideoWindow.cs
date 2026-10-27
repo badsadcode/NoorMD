@@ -102,7 +102,7 @@ public sealed class VideoWindow : Window
         core.NavigationCompleted += (_, _) => { _web.Focus(); NudgeLayout(); };
         core.NewWindowRequested += (_, e) => e.Handled = true;
         core.DownloadStarting += (_, e) => e.Cancel = true;
-        core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
+        core.PermissionRequested += (_, e) => { e.State = CoreWebView2PermissionState.Deny; e.SavesInProfile = false; };
         core.ContextMenuRequested += MainWindow.OnContextMenuRequested;
         core.ContainsFullScreenElementChanged += (_, _) =>
         {

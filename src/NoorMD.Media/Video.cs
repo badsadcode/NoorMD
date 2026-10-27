@@ -258,6 +258,12 @@ public sealed class VideoLibrary
                     continue;
                 }
             }
+            if (!known.ContainsKey(key))
+            {
+                // Indexed under another (overlapping) folder: this folder takes it over, keeping its id, position and notes.
+                using var other = Cmd(c, "SELECT id FROM videos WHERE path_key = $k", tx, ("$k", key));
+                if (other.ExecuteScalar() is long otherId) { known[key] = (otherId, -1, -1); seen.Add(otherId); }
+            }
             var (season, episode) = EpisodeParser.Parse(f);
             double duration = 0; int w = 0, h = 0;
             try
@@ -273,7 +279,7 @@ public sealed class VideoLibrary
                 ("$o", $"{season ?? 0:D4}|{episode ?? 0:D5}|{EpisodeParser.NaturalKey(title)}"), ("$d", duration), ("$w", w), ("$h", h), ("$a", Iso(DateTime.UtcNow)) };
             if (known.TryGetValue(key, out var existing))
             {
-                using var u = Cmd(c, "UPDATE videos SET size=$s, mtime=$m, title=$t, series=$se, series_key=$sk, season=$sn, episode=$ep, sort_key=$o, duration=$d, width=$w, height=$h, missing=0 WHERE id = $id", tx, [.. args, ("$id", existing.Id)]);
+                using var u = Cmd(c, "UPDATE videos SET folder_id=$f, size=$s, mtime=$m, title=$t, series=$se, series_key=$sk, season=$sn, episode=$ep, sort_key=$o, duration=$d, width=$w, height=$h, missing=0 WHERE id = $id", tx, [.. args, ("$id", existing.Id)]);
                 u.ExecuteNonQuery();
             }
             else

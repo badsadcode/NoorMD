@@ -97,7 +97,7 @@ public sealed class SketchWindow : Window
         core.NavigationCompleted += (_, _) => { _web.Focus(); NudgeLayout(); };
         core.NewWindowRequested += (_, e) => e.Handled = true;
         core.DownloadStarting += (_, e) => e.Cancel = true;
-        core.PermissionRequested += (_, e) => e.State = CoreWebView2PermissionState.Deny;
+        core.PermissionRequested += (_, e) => { e.State = CoreWebView2PermissionState.Deny; e.SavesInProfile = false; };
         core.ContextMenuRequested += MainWindow.OnContextMenuRequested;
         core.WebMessageReceived += OnMessage;
         var boot = JsonSerializer.Serialize(new { theme = _main.CurrentTheme, background = ThemeCatalog.Get(_main.CurrentTheme).Bg }, SettingsStore.Json);

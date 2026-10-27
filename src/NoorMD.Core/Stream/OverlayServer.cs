@@ -202,21 +202,53 @@ public sealed class OverlayServer : IAsyncDisposable
         finally { _sse.TryRemove(id, out _); c.Close(); }
     }
 
-    private sealed class SseClient(NetworkStream stream)
+    /// <summary>
+    /// One overlay connection. Sending only queues the frame; a background writer sends it with a time limit. A client
+    /// that stops reading (a hung OBS source) falls behind and is dropped, and nobody ever waits on its socket.
+    /// </summary>
+    private sealed class SseClient
     {
-        private readonly object _lock = new();
-        public bool Closed { get; private set; }
+        private readonly NetworkStream _stream;
+        private readonly System.Threading.Channels.Channel<byte[]> _queue =
+            System.Threading.Channels.Channel.CreateBounded<byte[]>(new System.Threading.Channels.BoundedChannelOptions(64) { FullMode = System.Threading.Channels.BoundedChannelFullMode.DropWrite, SingleReader = true });
+        private volatile bool _closed;
+
+        public SseClient(NetworkStream stream)
+        {
+            _stream = stream;
+            _stream.WriteTimeout = 5000;
+            _ = Task.Run(WriteLoop);
+        }
+
+        public bool Closed => _closed;
 
         public bool TrySend(byte[] frame)
         {
-            lock (_lock)
-            {
-                if (Closed) return false;
-                try { stream.Write(frame); stream.Flush(); return true; }
-                catch (Exception) { Closed = true; return false; }
-            }
+            if (_closed) return false;
+            if (_queue.Reader.Count >= 64) { Close(); return false; } // 64 frames behind: it isn't reading
+            return _queue.Writer.TryWrite(frame);
         }
 
-        public void Close() { lock (_lock) { Closed = true; try { stream.Close(); } catch { } } }
+        private async Task WriteLoop()
+        {
+            try
+            {
+                await foreach (var frame in _queue.Reader.ReadAllAsync().ConfigureAwait(false))
+                {
+                    using var cts = new CancellationTokenSource(5000);
+                    await _stream.WriteAsync(frame, cts.Token).ConfigureAwait(false);
+                    await _stream.FlushAsync(cts.Token).ConfigureAwait(false);
+                }
+            }
+            catch (Exception) { Close(); }
+        }
+
+        public void Close()
+        {
+            if (_closed) return;
+            _closed = true;
+            _queue.Writer.TryComplete();
+            try { _stream.Close(); } catch { }
+        }
     }
 }

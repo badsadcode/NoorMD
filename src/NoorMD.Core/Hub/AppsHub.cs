@@ -32,7 +32,13 @@ public sealed class AppsHub
     public const int MaxItems = 500;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true, Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) } };
     // Address schemes that may never be launched from the hub (they run code or reach into the computer).
-    private static readonly string[] Blocked = ["javascript", "vbscript", "data", "file", "about", "ms-msdt", "search-ms", "ms-officecmd", "shell"];
+    private static readonly string[] Blocked = ["javascript", "vbscript", "data", "file", "about", "ms-msdt", "search-ms", "search", "ms-officecmd", "shell", "ms-appinstaller", "ms-word", "ms-excel", "ms-powerpoint", "hcp", "its", "mk", "res"];
+    /// <summary>Websites, mail and the game/chat launchers people add; any other scheme needs your OK when it is added.</summary>
+    private static readonly string[] Known = ["http", "https", "mailto", "steam", "com.epicgames.launcher", "discord", "spotify", "battlenet", "uplay", "origin", "origin2", "goggalaxy", "itch", "obsproject", "twitch", "zoommtg", "msteams", "slack", "tg", "whatsapp"];
+
+    /// <summary>A launcher scheme NoorMD doesn't know: it starts some program, so you are asked before it is added.</summary>
+    public static bool NeedsConsent(string url) =>
+        Uri.TryCreate(url.Trim(), UriKind.Absolute, out var u) && !Known.Contains(u.Scheme, StringComparer.OrdinalIgnoreCase);
 
     public const int MaxCategories = 60;
 

@@ -202,20 +202,26 @@ public partial class MainWindow
     private static string SettingsJson(JsonElement p) =>
         p.TryGetProperty("settings", out var s) && s.ValueKind == JsonValueKind.Object ? s.GetRawText() : "{}";
 
+    private readonly SemaphoreSlim _galleryScanGate = new(1, 1);
+
     private async Task ScanGalleryAsync(IReadOnlyList<long> folderIds)
     {
-        if (_galleryScan is { IsCompleted: false }) await _galleryScan;
-        _galleryScan = Task.Run(() =>
+        await _galleryScanGate.WaitAsync(); // one scan at a time: two at once would both add the same new files
+        try
         {
-            var found = 0; var added = 0; var missing = 0;
-            foreach (var id in folderIds)
+            _galleryScan = Task.Run(() =>
             {
-                try { var r = Gallery.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { Log.Error("Gallery scan failed", ex); }
-            }
-            Dispatcher.BeginInvoke(() => PushEvent("gallery.scanned", new { found, added, missing }));
-        });
-        await _galleryScan;
+                var found = 0; var added = 0; var missing = 0;
+                foreach (var id in folderIds)
+                {
+                    try { var r = Gallery.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { Log.Error("Gallery scan failed", ex); }
+                }
+                Dispatcher.BeginInvoke(() => PushEvent("gallery.scanned", new { found, added, missing }));
+            });
+            await _galleryScan;
+        }
+        finally { _galleryScanGate.Release(); }
     }
 
     private static object ImageForPage(GalleryImage i) => new

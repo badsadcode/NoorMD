@@ -102,6 +102,26 @@ public partial class MainWindow
     }
 
     /// <summary>Opens a file in a new tab, or selects the tab that already has it open.</summary>
+    /// <summary>A file opened from Explorer while NoorMD was already running (see SingleInstance): it opens here, in a tab.</summary>
+    internal async void OpenFromOtherStart(string? file)
+    {
+        try
+        {
+            if (WindowState == System.Windows.WindowState.Minimized) WindowState = System.Windows.WindowState.Normal;
+            Activate();
+            Topmost = true; Topmost = false; // to the front, even from behind other windows
+            for (var i = 0; i < 150 && !_webReady; i++) await Task.Delay(200); // still starting up
+            if (file == null || !_webReady) return;
+            if (!File.Exists(file) || !DocumentFile.IsOpenable(file)) { PushNotice($"“{Path.GetFileName(file)}” can't be opened in NoorMD."); return; }
+            await WithDocGate(() => OpenPathAsync(file));
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Opening a file from another start failed", ex);
+            PushNotice(FriendlyError(ex));
+        }
+    }
+
     internal async Task<object?> OpenPathAsync(string path)
     {
         var existing = FindTabByPath(path);
@@ -191,7 +211,13 @@ public partial class MainWindow
     private void AdoptDraft(DocumentSession s, Core.Recovery.RecoveryDraft draft)
     {
         if (draft.Path != null && File.Exists(draft.Path))
-            s.SetFile(draft.Path, draft.ToFormat(), FileStamp.Read(draft.Path));
+        {
+            var onDisk = FileStamp.Read(draft.Path);
+            // Changed since the draft was written (another editor, a sync)? Then saving must ask, not overwrite it quietly.
+            var newer = onDisk != null && onDisk.LastWriteUtc > draft.SavedUtc.AddSeconds(2);
+            s.SetFile(draft.Path, draft.ToFormat(), newer ? new FileStamp(draft.SavedUtc, -1) : onDisk);
+            if (newer) PushNotice($"“{Path.GetFileName(draft.Path)}” was changed on disk after this draft was written. Saving will ask which version to keep.");
+        }
         else
         {
             s.ResetUntitled(draft.Title ?? "Recovered document");

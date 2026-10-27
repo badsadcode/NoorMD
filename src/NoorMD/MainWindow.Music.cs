@@ -255,9 +255,17 @@ public partial class MainWindow
         return new { ok = r.Ok, tagsSaved = r.TagsSaved, renamed = r.Renamed, problems = r.Problems, track = r.Track == null ? null : Detail(r.Track), undo = DescribeUndo() };
     }
 
+    private readonly List<long> _scanQueued = [];
+
     private void StartScan(IReadOnlyList<long> folderIds)
     {
-        if (_scanTask is { IsCompleted: false }) { PushNotice("A scan is already running."); return; }
+        if (_scanTask is { IsCompleted: false })
+        {
+            // Scanned right after the running scan (a folder added meanwhile is not forgotten).
+            foreach (var id in folderIds) if (!_scanQueued.Contains(id)) _scanQueued.Add(id);
+            PushNotice("A scan is running; this folder is scanned right after it.");
+            return;
+        }
         _scanCts = new CancellationTokenSource();
         var ct = _scanCts.Token;
         var lastPush = DateTime.MinValue;
@@ -277,7 +285,11 @@ public partial class MainWindow
                 try { lib.ScanFolder(id, progress, ct); }
                 catch (Exception ex) { Log.Error("Music scan failed", ex); ((IProgress<ScanProgress>)progress).Report(new ScanProgress(id, "error", 0, 0, 0, 0, 0, 0, 1, ex.Message)); }
             }
-        }, ct).ContinueWith(_ => Dispatcher.BeginInvoke(() => PushEvent("music.changed", new { scanFinished = true })), TaskScheduler.Default);
+        }, ct).ContinueWith(_ => Dispatcher.BeginInvoke(() =>
+        {
+            PushEvent("music.changed", new { scanFinished = true });
+            if (_scanQueued.Count > 0 && !ct.IsCancellationRequested) { var next = _scanQueued.ToList(); _scanQueued.Clear(); StartScan(next); }
+        }), TaskScheduler.Default);
     }
 
     private async Task<object?> ImportPlaylistAsync()

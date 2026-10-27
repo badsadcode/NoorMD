@@ -123,6 +123,10 @@ public class StreamLogTests
         Assert.Equal(e.Tracklist, back.Tracklist);
         Assert.Equal(e.Notes, back.Notes);
         Assert.Null(StreamLog.Parse("# Just a note"));
+        // Hand-edited with Windows paths: backslashes that aren't escapes are kept, and nothing throws.
+        var edited = StreamLog.Parse("---\nnoormd: stream\ntitle: \"C:\\Users stream\"\nthumbnail: \"..\\Thumbs\\a.png\"\nkeywords: [\"a\\b\", c]\n---\n")!;
+        Assert.Equal(@"..\Thumbs\a.png", edited.Thumbnail);
+        Assert.Equal(["a\\b", "c"], edited.Keywords);
     }
 
     [Fact]
@@ -168,6 +172,24 @@ public class OverlayServerTests
         await server.StopAsync();
         Assert.False(server.Running);
         Directory.Delete(dir, true);
+    }
+
+    [Fact]
+    public async Task An_Overlay_That_Stops_Reading_Never_Blocks_Broadcasts()
+    {
+        await using var server = new OverlayServer(Path.GetTempPath(), _ => null);
+        server.Start(0);
+        using var c = new TcpClient { ReceiveBufferSize = 1024 };
+        await c.ConnectAsync(IPAddress.Loopback, server.Port);
+        await c.GetStream().WriteAsync(Encoding.ASCII.GetBytes($"GET /events HTTP/1.1\r\nHost: 127.0.0.1:{server.Port}\r\n\r\n"));
+        for (var i = 0; i < 50 && server.SseClients == 0; i++) await Task.Delay(20);
+        Assert.Equal(1, server.SseClients);
+        var big = "{\"t\":\"" + new string('x', 60_000) + "\"}";
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        for (var i = 0; i < 400; i++) server.Broadcast("nowplaying", big); // ~24 MB to a client that reads nothing
+        Assert.True(sw.ElapsedMilliseconds < 1500, $"{sw.ElapsedMilliseconds} ms");
+        for (var i = 0; i < 100 && server.SseClients > 0; i++) await Task.Delay(50);
+        Assert.Equal(0, server.SseClients); // dropped once it fell behind
     }
 
     [Fact]

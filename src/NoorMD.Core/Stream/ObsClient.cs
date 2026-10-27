@@ -122,7 +122,12 @@ public sealed class ObsClient : IAsyncDisposable
         _pending[id] = tcs;
         var d = new JsonObject { ["requestType"] = type, ["requestId"] = id };
         if (data != null) d["requestData"] = data;
-        await SendAsync(ws, new JsonObject { ["op"] = 6, ["d"] = d }, ct);
+        try { await SendAsync(ws, new JsonObject { ["op"] = 6, ["d"] = d }, ct); }
+        catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException or InvalidOperationException or IOException)
+        {
+            _pending.TryRemove(id, out _);
+            throw new ObsException("The connection to OBS was lost."); // OBS closed in the meantime: one kind of error for callers
+        }
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(ct);
         limit.CancelAfter(TimeSpan.FromSeconds(5));
         using var reg = limit.Token.Register(() => { if (_pending.TryRemove(id, out var t)) t.TrySetException(new ObsException("OBS did not answer.")); });

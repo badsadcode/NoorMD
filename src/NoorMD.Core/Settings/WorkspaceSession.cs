@@ -13,6 +13,8 @@ public sealed class SessionTab
     /// <summary>Text of a clean untitled document (for example the sample). Unsaved edits live in recovery drafts instead.</summary>
     public string? Text { get; set; }
     public bool Pinned { get; set; }
+    /// <summary>Where an untitled document's revision snapshots are kept, so they are still there after a restart.</summary>
+    public string? SnapshotKey { get; set; }
     /// <summary>"wysiwyg", "markdown" or "split".</summary>
     public string? Mode { get; set; }
 }

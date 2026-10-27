@@ -125,6 +125,7 @@ public partial class MainWindow
             var pw = password ?? (CredentialStore.Exists(ObsCredential) ? CredentialStore.Read(ObsCredential) : null);
             client = new ObsClient();
             await client.ConnectAsync(url, pw, TimeSpan.FromSeconds(4));
+            if (!MicBool("obs")) { await client.DisposeAsync(); client = null; _micObs = MicSide.Off; MicPublish(); return; } // switched off meanwhile
             if (password != null && remember) CredentialStore.Write(ObsCredential, password);
             var c = client;
             client.MuteChanged += (name, muted) => Dispatcher.BeginInvoke(() => { if (name == MicString("obsInput")) { _micObs = muted ? MicSide.Muted : MicSide.Live; MicPublish(); } });
@@ -139,6 +140,7 @@ public partial class MainWindow
                 SaveStreamCfg();
             }
             await ReadObsAsync();
+            if (!MicBool("obs") && _obs == client) { await DisconnectObsAsync(); _micObs = MicSide.Off; MicPublish(); }
         }
         catch (ObsException ex)
         {

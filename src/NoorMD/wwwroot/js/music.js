@@ -387,8 +387,9 @@ window.NoorMusic = (() => {
     if (!pl) return;
     try {
       const current = await req('music.ids', { playlistId: pl.id, sort: 'playlist' });
-      const drop = new Set(ids);
-      await req('music.playlist.setItems', { id: pl.id, ids: current.filter((id) => !drop.has(id)) });
+      // One entry per selected row: a track that is in the playlist twice keeps its other place.
+      for (const id of ids) { const at = current.indexOf(id); if (at >= 0) current.splice(at, 1); }
+      await req('music.playlist.setItems', { id: pl.id, ids: current });
       notice(`Removed ${ids.length} track${ids.length === 1 ? '' : 's'} from “${pl.name}” (the files are not touched)`, 2200);
       await refreshStatus(false);
       sel = new Set(); anchor = -1;
@@ -701,10 +702,21 @@ window.NoorMusic = (() => {
     renderQueue(); scheduleSave();
   }
 
+  /** Drops queue entries no longer in the play order, so shuffle on/off or a reshuffle can't bring removed songs back. */
+  function compactQueue() {
+    const keep = new Set(q.order);
+    const remap = new Map();
+    const ids = [];
+    q.ids.forEach((id, i) => { if (keep.has(i)) { remap.set(i, ids.length); ids.push(id); } });
+    q.ids = ids;
+    q.order = q.order.map((i) => remap.get(i));
+  }
+
   function removeFromQueue(orderPos) {
     if (orderPos === q.pos) { notice('That track is playing. Skip it first.', 1600); return; }
     q.order.splice(orderPos, 1);
     if (orderPos < q.pos) q.pos--;
+    compactQueue();
     renderQueue(); scheduleSave();
   }
 
@@ -715,7 +727,7 @@ window.NoorMusic = (() => {
     renderQueue(); scheduleSave();
   }
 
-  function clearUpcoming() { q.order = q.order.slice(0, q.pos + 1); renderQueue(); scheduleSave(); }
+  function clearUpcoming() { q.order = q.order.slice(0, q.pos + 1); compactQueue(); renderQueue(); scheduleSave(); }
 
   function scheduleSave() {
     clearTimeout(saveTimer);
@@ -1575,7 +1587,8 @@ window.NoorMusic = (() => {
         mediaVersion++;
         if (r.track) { cache.set(id, { ...(cache.get(id) || {}), ...r.track, ...r.track.tags, title: r.track.tags.title, displayTitle: r.track.displayTitle }); }
         for (const [i, row] of viewRows) if (row.id === id && r.track) viewRows.set(i, { ...row, displayTitle: r.track.displayTitle, title: r.track.tags.title, artist: r.track.tags.artist, fileName: r.track.fileName });
-        if (isCurrent) {
+        // Reload the edited song where it was, unless Save & Next moves on (the next song must start at 0:00).
+        if (isCurrent && !(andNext && r.ok)) {
           restorePosition = resumeAt;
           audio.src = `_media/${id}?v=${mediaVersion}`;
           if (wasPlaying && !andNext) audio.play().catch(() => {});
@@ -1679,7 +1692,6 @@ window.NoorMusic = (() => {
     _forgetBrowsing: () => { userBrowsedAt = 0; },
     /** A video started: music pauses so the two don't play over each other (it doesn't resume by itself). */
     revealPlaying,
-    nowPlaying: () => { lastEmit.key = ''; emitNowPlaying(true); },
     pauseForVideo: () => { if (!audio.paused) { audio.pause(); notice('Music paused for the video', 1600); } },
     /** For the main toolbar: what is loaded and whether it is playing. */
     nowPlaying: () => { const id = currentId(); const row = id != null ? cache.get(id) : null; return { playing: !audio.paused, title: row ? row.displayTitle : null, loaded: id != null }; },

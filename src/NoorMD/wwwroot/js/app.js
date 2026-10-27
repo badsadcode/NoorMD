@@ -388,7 +388,7 @@
           'A revision snapshot of the current text is saved first, so you can restore it from Revision snapshots.',
         ], [{ label: 'Stay in Markdown', value: 'stay', primary: true }, { label: 'Switch anyway', value: 'switch' }]);
         if (choice !== 'switch' || tab !== t) return;
-        await createSnapshot('Before switching to Visual', true);
+        if (!await createSnapshot('Before switching to Visual', true)) return; // no safety copy: stay in Markdown
         tab.sourceBeforeVisual = null;
         applyMode(tab, 'wysiwyg');
         hideBanner();
@@ -1111,11 +1111,13 @@
 
   // ---------------------------------------------------------------- snapshots
 
+  /** Returns false when the snapshot could not be saved (callers that promised one then stop). */
   async function createSnapshot(label, quiet) {
     try {
       await bridge.request('snapshots.create', { tabId: t.id, label: label || 'Manual snapshot' });
       if (!quiet) notice('Snapshot saved ✓');
-    } catch (err) { showError(err); }
+      return true;
+    } catch (err) { showError(err); return false; }
   }
 
   async function showHistory() {
@@ -1169,16 +1171,19 @@
     ], 'Restore');
     if (!ok) return false;
     try {
-      await createSnapshot('Before restoring a snapshot', true);
+      if (!await createSnapshot('Before restoring a snapshot', true)) return false;
       const snap = await bridge.request('snapshots.get', { tabId: tab.id, id: item.id });
       if (!tabs.includes(tab)) return false;
+      // Visual mode would rewrite what it can't represent (raw HTML, footnotes…): such a snapshot comes back in Markdown mode.
+      const toMarkdown = tab.editor && tab.mode === 'wysiwyg' && !NoorMarkdown.visualRoundTrip(normalizeText(snap.markdown)).lossless;
+      if (toMarkdown) { tab.sourceBeforeVisual = null; applyMode(tab, 'markdown'); reportTabs(); }
       quietly(() => {
         if (tab.editor) tab.editor.setMarkdown(normalizeText(snap.markdown), false); else tab.fallback.value = snap.markdown;
       });
       tab.gen++;
       afterContentChange(tab);
       postContent(tab);
-      notice('Snapshot restored ✓ — save to keep it');
+      notice(toMarkdown ? 'Snapshot restored ✓ in Markdown mode (Visual mode would change it) — save to keep it' : 'Snapshot restored ✓ — save to keep it', toMarkdown ? 4000 : undefined);
       return true;
     } catch (err) { showError(err); return false; }
   }
@@ -1988,8 +1993,8 @@
   async function save(kind) {
     const tab = t;
     if (!tab) return;
-    clearTimeout(tab.changeTimer);
-    tab.changeTimer = null;
+    // Send the latest text now (not just drop the pending update): if the save is cancelled or fails, the recovery draft has it.
+    if (tab.changeTimer) postContent(tab);
     $('#status-text').textContent = 'Saving…';
     try {
       const r = await bridge.request(kind, { tabId: tab.id });
@@ -2093,7 +2098,7 @@
     if (!cmd) return;
     e.preventDefault();
     e.stopPropagation();
-    if (e.repeat && (cmd.startsWith('doc.') || cmd === 'tab.close' || cmd === 'tab.new')) return; // a held Ctrl+S saves exactly once
+    if (e.repeat && (cmd.startsWith('doc.') || cmd === 'tab.close' || cmd === 'tab.new' || cmd === 'voice.record' || cmd.endsWith('.toggle'))) return; // a held Ctrl+S saves exactly once; a held toggle doesn't flicker
     runCommand(cmd);
   }
 

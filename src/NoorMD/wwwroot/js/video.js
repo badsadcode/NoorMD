@@ -450,6 +450,16 @@ window.NoorVideo = (() => {
     scheduleSave();
   }
 
+  /** Drops queue entries no longer in the play order, so shuffle on/off can't bring removed videos back (and the queue survives a restart). */
+  function compactQueue() {
+    const keep = new Set(q.order);
+    const remap = new Map();
+    const ids = [];
+    q.ids.forEach((id, i) => { if (keep.has(i)) { remap.set(i, ids.length); ids.push(id); } });
+    q.ids = ids;
+    q.order = q.order.map((i) => remap.get(i));
+  }
+
   function setShuffle(on) {
     q.shuffle = on;
     if (q.order.length) {
@@ -678,12 +688,12 @@ window.NoorVideo = (() => {
         el('span', { class: 'qactions' },
           el('button', { class: 'icon-btn', title: 'Move up', 'aria-label': 'Move up', onclick: () => moveQueue(orderPos, -1) }, '↑'),
           el('button', { class: 'icon-btn', title: 'Move down', 'aria-label': 'Move down', onclick: () => moveQueue(orderPos, 1) }, '↓'),
-          el('button', { class: 'icon-btn', title: 'Remove', 'aria-label': 'Remove from Up next', onclick: () => { q.order.splice(orderPos, 1); renderQueue(); scheduleSave(); } }, '✕')));
+          el('button', { class: 'icon-btn', title: 'Remove', 'aria-label': 'Remove from Up next', onclick: () => { q.order.splice(orderPos, 1); compactQueue(); renderQueue(); scheduleSave(); } }, '✕')));
     };
     box.replaceChildren(
       el('div', { class: 'music-viewbar' }, el('span', { text: `${upcoming.length} upcoming · ${q.shuffle ? 'shuffled' : 'in order'} · repeat ${q.repeat}` }),
         el('button', { class: 'utility-btn', disabled: !q.order.length || undefined, onclick: () => createPlaylist(q.order.map((i) => q.ids[i])) }, 'Save as playlist'),
-        el('button', { class: 'utility-btn danger', onclick: () => { q.order = q.order.slice(0, q.pos + 1); renderQueue(); scheduleSave(); } }, 'Clear upcoming')),
+        el('button', { class: 'utility-btn danger', onclick: () => { q.order = q.order.slice(0, q.pos + 1); compactQueue(); renderQueue(); scheduleSave(); } }, 'Clear upcoming')),
       ...(nowRow ? [el('div', { class: 'qitem playing' }, el('span', { class: 'qpos', text: '▶' }), el('span', { class: 'qtitle', text: nowRow.title }), el('small', { text: fmt(nowRow.duration) }))] : []),
       ...upcoming.slice(0, 500).map((_, k) => item(q.pos + 1 + k)),
       ...(upcoming.length ? [] : [el('p', { class: 'music-none', text: 'Nothing queued. Right-click videos → Add to Up next, or play a playlist.' })]));
@@ -766,9 +776,13 @@ window.NoorVideo = (() => {
   async function removeFromPlaylist(ids) {
     const pl = status.playlists.find((p) => p.id === view.playlistId);
     if (!pl || !ids.length) return;
-    const drop = new Set([...sel].map((i) => i));
-    const keep = rows.filter((_, i) => !drop.has(i)).map((r) => r.id);
-    try { status.playlists = await req('video.playlist.setItems', { id: pl.id, ids: keep }); } catch (err) { hooks.showError(err); return; }
+    // Edit the whole playlist, not just what is shown: hidden entries (filtered, searched, missing) stay in it.
+    let keep;
+    try {
+      keep = await req('video.playlist.items', { id: pl.id });
+      for (const id of ids) { const at = keep.indexOf(id); if (at >= 0) keep.splice(at, 1); }
+      status.playlists = await req('video.playlist.setItems', { id: pl.id, ids: keep });
+    } catch (err) { hooks.showError(err); return; }
     notice(`Removed ${ids.length} from “${pl.name}” (the files are not touched)`, 2200);
     sel = new Set(); selected = -1; anchor = -1;
     renderPlaylists(); renderViewbar();
@@ -778,12 +792,18 @@ window.NoorVideo = (() => {
   async function moveInPlaylist(delta) {
     const pl = status.playlists.find((p) => p.id === view.playlistId);
     if (!pl || selected < 0) return;
-    if (view.sort !== 'series' || view.search || view.filter !== 'all') { notice('Clear the search and filter to reorder the playlist.'); return; }
+    if (view.sort !== 'series' || view.search || view.filter !== 'all' || view.desc) { notice('Clear the search and filter (and ⇅) to reorder the playlist.'); return; }
     const to = selected + delta;
     if (to < 0 || to >= rows.length) return;
-    const ids = rows.map((r) => r.id);
-    [ids[selected], ids[to]] = [ids[to], ids[selected]];
-    try { status.playlists = await req('video.playlist.setItems', { id: pl.id, ids }); } catch (err) { hooks.showError(err); return; }
+    let ids;
+    try {
+      // Swap the two entries in the whole playlist (missing videos aren't shown but keep their places).
+      ids = await req('video.playlist.items', { id: pl.id });
+      const a = ids.indexOf(rows[selected].id), b = ids.indexOf(rows[to].id);
+      if (a < 0 || b < 0) return;
+      [ids[a], ids[b]] = [ids[b], ids[a]];
+      status.playlists = await req('video.playlist.setItems', { id: pl.id, ids });
+    } catch (err) { hooks.showError(err); return; }
     await loadView();
     selectIndex(to, false);
   }
@@ -894,7 +914,12 @@ window.NoorVideo = (() => {
     poppedOut = null;
     if (!built) return;
     showPlayerMessage(null);
-    if (current && current.video.id === p.id) await loadCurrent(isOpen(), p.time);
+    if (current && current.video.id === p.id) { await loadCurrent(isOpen(), p.time); return; }
+    if (p.id == null) return;
+    // The pop-out moved on (next episode): continue that one here, where it stopped.
+    const k = q.order.findIndex((i) => q.ids[i] === p.id);
+    if (k >= 0) { q.pos = k; await loadCurrent(isOpen(), p.time); scheduleSave(); }
+    else await select(p.id, { autoplay: isOpen(), at: p.time });
   }
 
   // ------------------------------------------------------------------ folders, keys, session
@@ -976,8 +1001,9 @@ window.NoorVideo = (() => {
       audioLang = s.audioLang || null;
       pauseOnNote = s.pauseOnNote !== false;
       if (s.view) { view = { ...view, ...s.view, search: '' }; $('#vb-sort').value = view.sort; renderChips(); renderViewbar(); await loadView(); }
-      if (Array.isArray(s.ids) && s.ids.length && Array.isArray(s.order) && s.order.length === s.ids.length) {
+      if (Array.isArray(s.ids) && s.ids.length && Array.isArray(s.order) && s.order.length && s.order.every((i) => Number.isInteger(i) && i >= 0 && i < s.ids.length)) {
         q.ids = s.ids; q.order = s.order; q.pos = Math.min(Math.max(0, s.pos | 0), s.order.length - 1);
+        compactQueue(); // a queue saved with removed entries (older versions) comes back without them
         await loadCurrent(false);
       }
     }

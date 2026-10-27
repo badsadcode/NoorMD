@@ -35,6 +35,28 @@ public class LinkRewriteTests
     }
 
     [Fact]
+    public void Names_With_Parentheses_Survive_Two_Moves_And_Show_As_Backlinks()
+    {
+        string[] files = ["Index.md", "attachments/Screenshot (1).png", "Plan (v2).md"];
+        var text = "![s](attachments/Screenshot%20%281%29.png) and [p](Plan%20(v2).md) and [q](<Plan (v2).md>)\n";
+        var once = VaultLinkRewriter.Rewrite(text, "Index.md", Map(("attachments/Screenshot (1).png", "img/Screenshot (1).png")), files);
+        Assert.Equal("![s](img/Screenshot%20%281%29.png) and [p](Plan%20(v2).md) and [q](<Plan (v2).md>)\n", once.Text);
+        string[] after = ["Index.md", "img/Screenshot (1).png", "Plan (v2).md"];
+        var twice = VaultLinkRewriter.Rewrite(once.Text, "Index.md", Map(("img/Screenshot (1).png", "pics/Screenshot (1).png"), ("Plan (v2).md", "Plan v3.md")), after);
+        Assert.Equal("![s](pics/Screenshot%20%281%29.png) and [p](Plan%20v3.md) and [q](<Plan v3.md>)\n", twice.Text);
+        Assert.Equal(["Plan%20(v2).md", "Plan (v2).md"], VaultLinks.Extract(text).Where(l => !l.Wiki).Select(l => l.Target));
+    }
+
+    [Fact]
+    public void A_Stray_Backtick_Does_Not_Hide_Links_In_Later_Paragraphs()
+    {
+        var text = "I don`t know.\n\nSee [r](World/Rivers.md) and [[World/Rivers]].\n\nUse `x`.\n";
+        var r = VaultLinkRewriter.Rewrite(text, "Index.md", Map(("World/Rivers.md", "World/Streams.md")), Files);
+        Assert.Equal(2, r.Changed);
+        Assert.Contains("[r](World/Streams.md) and [[World/Streams]]", r.Text);
+    }
+
+    [Fact]
     public void A_Moved_Note_Keeps_Its_Own_Relative_Links_And_Images_Working()
     {
         var text = "![map](../Images/map.png)\n[lakes](Lakes.md) and [home](../Index.md)\n![p](<../Images/my photo.jpg>) ![p2](../Images/my%20photo.jpg)\n";

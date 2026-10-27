@@ -82,14 +82,18 @@ window.NoorVoice = (() => {
 
   // ------------------------------------------------------------------ recording
 
+  let starting = false;
+
   async function start() {
-    if (rec) return;
-    if (!isOpen()) await open();
-    if (take) discardTake();
+    if (rec || starting) return; // a second press while the microphone opens must not open it twice
+    starting = true;
+    let stream = null;
     try {
+      if (!isOpen()) await open();
+      if (take) discardTake();
       await req('voice.arm'); // the host allows the microphone for this one request
       const device = pref(DEVICE_KEY, '');
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: device ? { deviceId: { ideal: device } } : true });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: device ? { deviceId: { ideal: device } } : true });
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm';
       const recorder = new MediaRecorder(stream, { mimeType: mime, audioBitsPerSecond: 96000 });
       const ctx = new AudioContext();
@@ -107,9 +111,10 @@ window.NoorVoice = (() => {
       meter();
       if (window.NoorMusic && NoorMusic.pauseForVideo) NoorMusic.pauseForVideo(); // your music would be in the recording
     } catch (err) {
+      if (stream && (!rec || rec.stream !== stream)) stream.getTracks().forEach((t) => t.stop());
       cleanup();
       hooks.showError(new Error(err && err.name === 'NotAllowedError' ? 'The microphone is not available. Check Windows Settings › Privacy › Microphone (desktop apps).' : (err && err.message) || String(err)));
-    }
+    } finally { starting = false; }
   }
 
   function meter() {

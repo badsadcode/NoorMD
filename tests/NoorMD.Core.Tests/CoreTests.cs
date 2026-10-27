@@ -304,6 +304,9 @@ public class LinkPolicyTests
     [InlineData("ms-settings:privacy", LinkKind.Blocked)]
     [InlineData("\\\\server\\share\\x.md", LinkKind.Blocked)]
     [InlineData("//server/share/x.md", LinkKind.Blocked)]
+    [InlineData("/%3F%3F/UNC/server/share/x.md", LinkKind.Blocked)] // \??\UNC\… would reach a share
+    [InlineData("%5C%5C%3F%5CUNC%5Cserver%5Cshare%5Cx.md", LinkKind.Blocked)]
+    [InlineData("%5C%5Cserver%5Cshare%5Cx.md", LinkKind.Blocked)]
     [InlineData("run.bat", LinkKind.Blocked)]
     [InlineData("#heading", LinkKind.Blocked)]
     public void Classifies(string href, LinkKind kind)

@@ -277,8 +277,8 @@ public sealed class BatchOrganizer(MusicLibrary library)
             }
         }
 
-        // 4. Index and journal.
-        library.RefreshMany(work.Where(w => !results.ContainsKey(w.Item.TrackId)).Select(w => (w.Item.TrackId, current[w.Item.TrackId])).ToList());
+        // 4. Journal (first, so the batch can always be undone), then the index.
+        var refresh = work.Where(w => !results.ContainsKey(w.Item.TrackId)).Select(w => (w.Item.TrackId, current[w.Item.TrackId])).ToList();
         foreach (var (item, source, journal) in work)
         {
             if (results.ContainsKey(item.TrackId)) continue;
@@ -288,6 +288,12 @@ public sealed class BatchOrganizer(MusicLibrary library)
             var status = note == null ? "done" : tagged ? "partial" : "failed";
             library.JournalFinish(journal, status == "failed" ? "failed" : status, path, Fingerprint.Compute(path), TagIO.Read(path), note == null ? null : (tagged ? note + " The tag changes were saved." : note));
             results[item.TrackId] = new(item.TrackId, item.OldName, Path.GetFileName(path), status, note == null ? null : (tagged ? note + " The tag changes were saved." : note));
+        }
+        try { library.RefreshMany(refresh); }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
+        {
+            foreach (var (id, _) in refresh)
+                if (results.TryGetValue(id, out var r)) results[id] = r with { Message = ((r.Message ?? "") + " The library could not be updated (a rescan fixes it).").Trim() };
         }
         var ordered = preview.Items.Select(i => results[i.TrackId]).ToList();
         return new BatchResult(work.Count > 0 ? batchId : null, ordered);
@@ -307,7 +313,7 @@ public sealed class BatchOrganizer(MusicLibrary library)
         {
             string? why = null;
             if (!File.Exists(e.NewPath)) why = $"\"{Path.GetFileName(e.NewPath)}\" was moved or deleted since the batch.";
-            else if (e.NewFingerprint != null && Fingerprint.Compute(e.NewPath) != e.NewFingerprint) why = "The file was modified after the batch, so undoing it could lose newer changes.";
+            else if ((e.NewFingerprint != null && Fingerprint.Compute(e.NewPath) != e.NewFingerprint) || (e.NewTags != null && !TagEdit.SameTags(TagIO.Read(e.NewPath), e.NewTags))) why = "The file was modified after the batch, so undoing it could lose newer changes.";
             if (why != null) results[e.Id] = new(e.TrackId, Path.GetFileName(e.NewPath), Path.GetFileName(e.NewPath), "skipped", why);
             else ok.Add(e);
         }
@@ -344,7 +350,7 @@ public sealed class BatchOrganizer(MusicLibrary library)
         foreach (var e in ok)
         {
             if (e.OldTags == null || e.NewTags == null || SameTags(e.OldTags, e.NewTags)) continue;
-            try { TagIO.Write(current[e.Id], TagEdit.RestoreTo(e.OldTags)); }
+            try { var restore = TagEdit.RestoreTo(e.OldTags, e.NewTags); if (!restore.IsEmpty) TagIO.Write(current[e.Id], restore); }
             catch (MetadataException ex) { notes[e.Id] = (notes.GetValueOrDefault(e.Id) is { } n ? n + " " : "") + "The old tags could not be written back: " + ex.Message; }
         }
         library.RefreshMany(ok.Select(e => (e.TrackId, current[e.Id])).ToList());

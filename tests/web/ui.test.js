@@ -2848,6 +2848,68 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/gallery.png` });
       await page.close();
     }
+
+    // ---- 32. Audit fixes: lossy snapshots come back in Markdown mode; queues and playlists keep what isn't shown; one microphone.
+    {
+      const LOSSY_DOC = '# Raw\n\n<div align="center">Centered</div>\n';
+      const { page, errors } = await open(browser, url, { musicTracks: 6, videos: true, document: { markdown: LOSSY_DOC, path: 'C:\\docs\\raw.md', fileName: 'raw.md', title: 'raw' }, files: { 'C:\\docs\\raw.md': LOSSY_DOC } }, { width: 1500, height: 950 });
+      const tabId = (await state(page)).tabId;
+      await page.evaluate(({ id, md }) => { window.__mock.state.snapshots[id] = [{ id: 's0', label: 'Earlier', createdUtc: new Date().toISOString(), words: 2, markdown: md }]; }, { id: tabId, md: LOSSY_DOC });
+      if ((await state(page)).mode !== 'wysiwyg') {
+        await page.keyboard.press('Control+1');
+        await page.click('.modal button:has-text("Switch anyway")');
+        await waitFn(page, () => window.NoorMD.getState().mode === 'wysiwyg');
+      }
+      await page.keyboard.press('Control+Shift+h');
+      await page.click('.modal button:has-text("Restore") >> nth=-1');
+      await page.click('.modal button:has-text("Restore") >> nth=-1'); // the confirmation
+      await waitFn(page, () => window.NoorMD.getState().markdown.includes('<div align="center">'));
+      check('a snapshot Visual mode would change is restored exactly, in Markdown mode', (await state(page)).mode === 'markdown' && (await state(page)).markdown === LOSSY_DOC, await state(page));
+
+      // Music: clearing Up next and toggling shuffle doesn't bring the cleared songs back.
+      await page.evaluate(() => window.NoorMusic._testPlay([1, 2, 3, 4, 5, 6], 0, true));
+      await page.evaluate(() => window.NoorMusic.togglePanel(true));
+      await page.click('.music-tabs [data-tab="queue"]');
+      await page.click('#music-queue button:has-text("Clear upcoming")');
+      await page.evaluate(() => { NoorMusic.setShuffle(); NoorMusic.setShuffle(); });
+      const mq = await page.evaluate(() => NoorMusic._state().q);
+      check('cleared songs stay out of Up next after shuffle on/off', mq.ids.length === 1 && mq.order.length === 1 && mq.current === 1, mq);
+      await page.evaluate(() => window.NoorMusic.togglePanel(false));
+
+      // Video: removing from a filtered playlist keeps the entries the filter hides.
+      await page.evaluate(() => { const v = window.__mock.state.video; v.videos[0].watched = true; v.playlists.push({ id: 1, name: 'All of it', ids: [1, 2, 3, 4] }); });
+      await page.keyboard.press('Control+Alt+v');
+      await page.waitForSelector('#videobench:not([hidden])');
+      await page.click('[data-vbtab="playlists"]');
+      await page.click('#vb-playlists .qitem[data-playlist="1"] .qtitle');
+      await page.click('#vb-chips [data-filter="unwatched"], .chip[data-filter="unwatched"]');
+      await waitFn(page, () => JSON.stringify(window.NoorVideo._state().rows) === '[2,3,4]');
+      await page.click('.vtrack[data-id="3"] .track-title');
+      await page.focus('#vb-list');
+      await page.keyboard.press('Delete');
+      await waitFn(page, () => window.__mock.state.video.playlists[0].ids.length === 3);
+      check('removing from a filtered playlist keeps the hidden entries', JSON.stringify((await page.evaluate(() => window.__mock.state.video.playlists[0].ids))) === '[1,2,4]');
+      await page.keyboard.press('Control+Alt+v');
+
+      // Voice: two quick presses of Record open the microphone once.
+      await page.evaluate(() => {
+        window.__gum = 0;
+        const orig = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+        navigator.mediaDevices.getUserMedia = async (c) => { window.__gum++; await new Promise((r) => setTimeout(r, 200)); return orig(c); };
+      });
+      await page.evaluate(() => NoorVoice.toggle());
+      await page.waitForSelector('#voice-rec');
+      await page.click('#voice-rec');
+      await page.click('#voice-rec', { force: true });
+      await waitFn(page, () => document.body.classList.contains('voice-recording'));
+      await page.waitForTimeout(400);
+      check('a double press of Record opens the microphone once', (await page.evaluate(() => window.__gum)) === 1);
+      await page.click('#voice-rec');
+      await waitFn(page, () => !document.body.classList.contains('voice-recording'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in the audit checks', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

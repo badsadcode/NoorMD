@@ -134,6 +134,12 @@ public sealed class GalleryLibrary
                     continue;
                 }
             }
+            if (!known.ContainsKey(key))
+            {
+                // Indexed under another (overlapping) folder: this folder takes it over, keeping its favourite and slideshows.
+                using var other = Cmd(c, "SELECT id FROM images WHERE path_key = $k", tx, ("$k", key));
+                if (other.ExecuteScalar() is long otherId) { known[key] = (otherId, -1, -1); seen.Add(otherId); }
+            }
             var dir = System.IO.Path.GetDirectoryName(f)!;
             var album = AlbumName(rootTrim, dir);
             var (w, h, taken) = ReadInfo(f, info.LastWriteTimeUtc);
@@ -141,7 +147,7 @@ public sealed class GalleryLibrary
                 ("$n", System.IO.Path.GetFileNameWithoutExtension(f)), ("$al", album), ("$ak", MusicLibrary.PathKey(dir)), ("$w", w), ("$h", h), ("$t", Iso(taken)), ("$a", Iso(DateTime.UtcNow)) };
             if (known.TryGetValue(key, out var existing))
             {
-                using var u = Cmd(c, "UPDATE images SET size=$s, mtime=$m, name=$n, album=$al, album_key=$ak, width=$w, height=$h, taken=$t, missing=0 WHERE id = $id", tx, [.. args, ("$id", existing.Id)]);
+                using var u = Cmd(c, "UPDATE images SET folder_id=$f, size=$s, mtime=$m, name=$n, album=$al, album_key=$ak, width=$w, height=$h, taken=$t, missing=0 WHERE id = $id", tx, [.. args, ("$id", existing.Id)]);
                 u.ExecuteNonQuery();
             }
             else

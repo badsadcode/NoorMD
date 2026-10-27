@@ -57,6 +57,27 @@ public class VaultTests
     public void Names_Are_Checked_Like_Windows_Does(string name, bool ok) => Assert.Equal(ok, VaultPaths.NameProblem(name) == null);
 
     [Fact]
+    public void Move_Checks_Everything_First_And_Takes_A_Folders_Contents_Along()
+    {
+        using var t = new TempDir();
+        var ops = new VaultFileOps(t.Path);
+        ops.CreateFolder("", "X");
+        ops.CreateFolder("", "A");
+        File.WriteAllText(Path.Combine(t.Path, "a.md"), "a");
+        File.WriteAllText(Path.Combine(t.Path, "b.md"), "b");
+        File.WriteAllText(Path.Combine(t.Path, "X", "b.md"), "other b");
+        File.WriteAllText(Path.Combine(t.Path, "A", "x.md"), "x");
+        // b.md is taken in X: nothing moves, not even a.md.
+        Assert.Throws<VaultOperationException>(() => ops.Move(["a.md", "b.md"], "X"));
+        Assert.True(File.Exists(Path.Combine(t.Path, "a.md")));
+        // A folder and a file inside it, selected together (Shift+click over an open folder): the folder moves once.
+        var moved = ops.Move(["A", "A/x.md", "a.md"], "X");
+        Assert.Equal(2, moved.Count);
+        Assert.True(File.Exists(Path.Combine(t.Path, "X", "A", "x.md")));
+        Assert.True(File.Exists(Path.Combine(t.Path, "X", "a.md")));
+    }
+
+    [Fact]
     public void FileOps_Create_Rename_Move_Duplicate_Never_Overwrite()
     {
         using var t = new TempDir();

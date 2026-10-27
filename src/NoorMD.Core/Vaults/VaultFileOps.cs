@@ -3,6 +3,13 @@ namespace NoorMD.Core.Vaults;
 /// <summary>Thrown with a message that can be shown to the user as is.</summary>
 public sealed class VaultOperationException(string message) : Exception(message);
 
+/// <summary>A move that stopped partway: <see cref="Done"/> moved, the rest did not.</summary>
+public sealed class VaultPartialMoveException(IReadOnlyList<VaultMove> done, Exception inner)
+    : Exception($"Only {done.Count} item{(done.Count == 1 ? "" : "s")} could be moved: {inner.Message}", inner)
+{
+    public IReadOnlyList<VaultMove> Done { get; } = done;
+}
+
 /// <summary>A path that moved: open documents follow it.</summary>
 public sealed record VaultMove(string OldFull, string NewFull, bool IsFolder);
 
@@ -82,22 +89,39 @@ public sealed class VaultFileOps(string root)
         return new VaultMove(full, target, isFolder);
     }
 
-    /// <summary>Moves files and folders into a folder. Stops at the first problem; earlier moves are reported.</summary>
+    /// <summary>
+    /// Moves files and folders into a folder. Everything is checked before anything moves (a name already taken there, a
+    /// folder into itself); items inside a folder that is also being moved go along with it. If the disk fails partway,
+    /// <see cref="VaultPartialMoveException"/> carries the moves that did happen, so tabs and links can follow them.
+    /// </summary>
     public List<VaultMove> Move(IEnumerable<string> rels, string targetFolderRel)
     {
         var target = Folder(targetFolderRel);
-        var moves = new List<VaultMove>();
-        foreach (var rel in rels)
+        var fulls = rels.Select(r => Full(r)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        fulls = fulls.Where(f => !fulls.Any(o => f.StartsWith(o + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
+        var plan = new List<(string Full, string Dest, bool IsFolder)>();
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var full in fulls)
         {
-            var full = Full(rel);
             if (full == Root) throw new VaultOperationException("The Vault folder itself can't be moved.");
             var isFolder = Directory.Exists(full);
+            if (!isFolder && !File.Exists(full)) throw new VaultOperationException($"“{Path.GetFileName(full)}” no longer exists.");
             if (isFolder && (string.Equals(full, target, StringComparison.OrdinalIgnoreCase) || target.StartsWith(full + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)))
                 throw new VaultOperationException($"“{Path.GetFileName(full)}” can't be moved into itself.");
             var dest = Path.Combine(target, Path.GetFileName(full));
             if (string.Equals(dest, full, StringComparison.OrdinalIgnoreCase)) continue; // already there
+            if (!names.Add(Path.GetFileName(full))) throw new VaultOperationException($"Two items called “{Path.GetFileName(full)}” can't go into the same folder.");
             CheckFree(dest);
-            MovePath(full, dest, isFolder, false);
+            plan.Add((full, dest, isFolder));
+        }
+        var moves = new List<VaultMove>();
+        foreach (var (full, dest, isFolder) in plan)
+        {
+            try { MovePath(full, dest, isFolder, false); }
+            catch (Exception ex) when (moves.Count > 0 && ex is IOException or UnauthorizedAccessException or VaultOperationException)
+            {
+                throw new VaultPartialMoveException(moves, ex);
+            }
             moves.Add(new VaultMove(full, dest, isFolder));
         }
         return moves;

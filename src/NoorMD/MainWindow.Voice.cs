@@ -5,6 +5,7 @@ using NoorMD.Core;
 using NoorMD.Core.Bridge;
 using NoorMD.Core.Media;
 using NoorMD.Host;
+using NoorMD.Ui;
 
 namespace NoorMD;
 
@@ -30,6 +31,7 @@ public partial class MainWindow
         var allow = MicrophoneGate.Allow(e.PermissionKind == CoreWebView2PermissionKind.Microphone,
             Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) && NoorMD.Core.Security.AssetResolver.IsAppPage(u), DateTime.UtcNow, _micArmedUntilUtc);
         e.State = allow ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
+        e.SavesInProfile = false; // never remembered: every recording needs its own press of Record
         if (allow) _micArmedUntilUtc = DateTime.MinValue; // once per press
     }
 
@@ -72,7 +74,9 @@ public partial class MainWindow
                 case "voice.delete":
                 {
                     var file = VoiceFile(req.GetString("file", 300));
-                    await Task.Run(() => RecycleBin.Send([file]));
+                    var recycle = RecycleBin.CanRecycle([file]);
+                    if (!recycle && !ThemedDialog.Confirm(this, "Delete the recording for good?", "This drive has no Recycle Bin, so it can't be restored afterwards.", "Delete permanently", file)) return VoiceStatus();
+                    await Task.Run(() => RecycleBin.Send([file], permanently: !recycle));
                     return VoiceStatus();
                 }
                 case "voice.reveal":

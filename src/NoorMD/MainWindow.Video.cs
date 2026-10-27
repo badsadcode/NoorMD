@@ -93,6 +93,7 @@ public partial class MainWindow
                 case "video.playlist.delete":
                     Videos.DeletePlaylist(Long(p, "id"));
                     return Videos.Playlists();
+                case "video.playlist.items": return Videos.PlaylistItems(Long(p, "id"));
                 case "video.playlist.setItems":
                     Videos.SetPlaylistItems(Long(p, "id"), Ids(p, "ids"));
                     return Videos.Playlists();
@@ -178,20 +179,26 @@ public partial class MainWindow
         catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
     }
 
+    private readonly SemaphoreSlim _videoScanGate = new(1, 1);
+
     private async Task ScanVideosAsync(IReadOnlyList<long> folderIds)
     {
-        if (_videoScan is { IsCompleted: false }) { await _videoScan; }
-        _videoScan = Task.Run(() =>
+        await _videoScanGate.WaitAsync(); // one scan at a time: two at once would both add the same new files
+        try
         {
-            var found = 0; var added = 0; var missing = 0;
-            foreach (var id in folderIds)
+            _videoScan = Task.Run(() =>
             {
-                try { var r = Videos.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) { Log.Error("Video scan failed", ex); }
-            }
-            Dispatcher.BeginInvoke(() => PushEvent("video.scanned", new { found, added, missing }));
-        });
-        await _videoScan;
+                var found = 0; var added = 0; var missing = 0;
+                foreach (var id in folderIds)
+                {
+                    try { var r = Videos.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { Log.Error("Video scan failed", ex); }
+                }
+                Dispatcher.BeginInvoke(() => PushEvent("video.scanned", new { found, added, missing }));
+            });
+            await _videoScan;
+        }
+        finally { _videoScanGate.Release(); }
     }
 
     internal void VideoWindowClosed(long? id, double time)

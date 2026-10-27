@@ -222,6 +222,16 @@ public sealed class MusicLibrary
                         updated++;
                         continue;
                     }
+                    // Already in the library under another folder (an overlapping folder, or a file from an imported
+                    // playlist): this folder takes it over, keeping its id, playlists and history.
+                    using (var other = Cmd(c, "SELECT id FROM tracks WHERE path_key = $k", tx, ("$k", key)))
+                        if (other.ExecuteScalar() is long otherId)
+                        {
+                            WriteScanned(c, tx, otherId, folderId, file, info, mtime);
+                            seen.Add(otherId);
+                            updated++;
+                            continue;
+                        }
                     var fp = Fingerprint.Compute(file);
                     long? relinkId = null;
                     using (var find = Cmd(c, "SELECT id FROM tracks WHERE fingerprint = $fp AND missing = 1 LIMIT 1", tx, ("$fp", fp)))
@@ -298,9 +308,9 @@ public sealed class MusicLibrary
     {
         var info = new FileInfo(currentPath);
         using var c = Open();
-        // A stale "missing" row may still hold the new path (a file that used to live there); it can't be the
-        // same file, so drop it rather than violating the unique path key.
-        using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id AND missing = 1", null, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
+        // Another row may still hold the new path: a file that used to live there (missing, or deleted in Explorer
+        // and not rescanned yet). NoorMD has just put this file there, so that row is stale: drop it.
+        using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id", null, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
         WriteTrack(c, null, id, null, info.FullName, info.Length, info.LastWriteTimeUtc.Ticks, Fingerprint.Compute(info.FullName), TagIO.Read(info.FullName));
         return Get(id)!;
     }
@@ -319,7 +329,7 @@ public sealed class MusicLibrary
         foreach (var (id, path) in items)
         {
             var info = new FileInfo(path);
-            using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id AND missing = 1", tx, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
+            using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id", tx, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
             WriteTrack(c, tx, id, null, info.FullName, info.Length, info.LastWriteTimeUtc.Ticks, Fingerprint.Compute(info.FullName), TagIO.Read(info.FullName));
         }
         tx.Commit();

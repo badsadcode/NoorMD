@@ -152,9 +152,29 @@ public static class StreamLog
     private static string? Unyaml(string? s)
     {
         if (string.IsNullOrEmpty(s)) return null;
-        if (s.Length >= 2 && s[0] == '"' && s[^1] == '"') return Regex.Unescape(s[1..^1]);
+        if (s.Length >= 2 && s[0] == '"' && s[^1] == '"') return Unquote(s[1..^1]);
         if (s.Length >= 2 && s[0] == '\'' && s[^1] == '\'') return s[1..^1].Replace("''", "'");
         return s;
+    }
+
+    /// <summary>YAML double-quoted text: \\ \" \n \t; any other backslash is kept as typed (a hand-edited "..\Thumbs").</summary>
+    private static string Unquote(string s)
+    {
+        var sb = new StringBuilder(s.Length);
+        for (var i = 0; i < s.Length; i++)
+        {
+            if (s[i] != '\\' || i + 1 >= s.Length) { sb.Append(s[i]); continue; }
+            var c = s[i + 1];
+            switch (c)
+            {
+                case '\\': sb.Append('\\'); i++; break;
+                case '"': sb.Append('"'); i++; break;
+                case 'n': sb.Append('\n'); i++; break;
+                case 't': sb.Append('\t'); i++; break;
+                default: sb.Append('\\'); break;
+            }
+        }
+        return sb.ToString();
     }
 
     private static IReadOnlyList<string> ParseList(string? s)
@@ -165,7 +185,7 @@ public static class StreamLog
         var items = new List<string>();
         foreach (Match m in Regex.Matches(s, @"\s*(?:""((?:[^""\\]|\\.)*)""|'([^']*)'|([^,]+))"))
         {
-            var v = m.Groups[1].Success ? Regex.Unescape(m.Groups[1].Value) : m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value.Trim();
+            var v = m.Groups[1].Success ? Unquote(m.Groups[1].Value) : m.Groups[2].Success ? m.Groups[2].Value : m.Groups[3].Value.Trim();
             if (v.Length > 0) items.Add(v);
         }
         return items;
