@@ -1,5 +1,33 @@
 # Changelog
 
+## 2.0.0-preview.27 — The Sound Bench for every kind of sound
+
+- **🎲 Generate:** pick a kind of sound and press 🎲. Each press makes a new one, which you can then shape like any
+  other. Kinds: pickup/coin, jump, laser/shot, explosion, hit/hurt, power-up, UI blip, error, whoosh/swing,
+  footstep (gravel, wood, snow, stone, grass), impact (wood or metal), magic, sci-fi (beeps, warbles,
+  teleports), alarm and engine hum.
+- **Your own sounds as layers:** add a WAV file (a voice, a creature, real foley). Pitch it like tape, trim it,
+  play it backwards, loop or repeat it, fade it, filter it, and layer it with the made sounds. Only files you
+  picked (or that a recipe or preset you opened names) are read.
+- **New building blocks for any layer:**
+  - **Filter sweeps:** the filter moves from one frequency to another over the sound (whooshes, risers,
+    closing doors).
+  - **Drive** adds grit and distortion. **Crush** gives a retro, 8-bit sound.
+  - **Synth voices** get FM (bells, metal, sci-fi), pulse width, a pitch jump (coins, confirmations), a
+    filter, and vibrato wide enough for a siren.
+  - **Events** can be evenly spaced (steps, ticks) and come as clusters (gravel under a step, rattles).
+- **30 new presets**, 48 in all:
+  - footsteps on gravel, wood and snow, and walking on gravel (loop);
+  - impacts (wooden knock, metal clang, punch, body fall);
+  - whooshes (sword swing, riser);
+  - machines (engine idle, computer fan, electric buzz);
+  - sci-fi (teleport, shield, computer beeps);
+  - magic (sparkle, healing chime);
+  - UI (confirm, cancel, error, notification, typewriter tick);
+  - retro (jump, power-up, hurt);
+  - alarms (siren, beeps), cave drips and a heartbeat.
+- **Find a preset** with the search box above the list.
+
 ## 2.0.0-preview.26 — Sound Bench: wind, rain and effects for your games
 
 - **Sound Bench** (Ctrl+Alt+K, or Tools › Sound Bench): make sound effects and ambiences for games. It opens

@@ -127,4 +127,92 @@ public class SoundTests
         Assert.Equal(200, peaks.Length);
         Assert.True(peaks.Max() > 0.5f);
     }
+
+    private static SoundRecipe One(SoundLayer layer, double seconds = 2, bool loop = false) =>
+        new() { Duration = seconds, Loop = loop, Gust = new GustSettings { Depth = 0 }, Layers = [layer] };
+
+    [Fact]
+    public void Events_Sound_And_Get_Louder_With_More_Of_Them_And_Can_Be_Evenly_Spaced()
+    {
+        SoundLayer Ev(double density, double rhythm = 0, int burst = 1) => new() { Type = "events", Density = density, Decay = 10, Pitch = 2000, Tone = 0.5, Gain = -20, Rhythm = rhythm, Burst = burst, BurstSpread = 40 };
+        var few = SoundEngine.Render(One(Ev(10)), 22050);
+        var many = SoundEngine.Render(One(Ev(100)), 22050);
+        Assert.True(few.RmsDb > -80, "events alone make sound");
+        Assert.InRange(many.RmsDb - few.RmsDb, 6, 14); // ten times as many: about 10 dB louder
+        Assert.True(SoundEngine.Render(One(Ev(10, burst: 8)), 22050).RmsDb > few.RmsDb + 4, "clusters are fuller than single hits");
+        // Evenly spaced: 4 per second gives about 4 loud moments a second, a steady distance apart.
+        var even = SoundEngine.Render(One(Ev(4, rhythm: 1), 3), 22050);
+        var threshold = even.Left.Max(Math.Abs) * 0.08;
+        var onsets = new List<int>();
+        for (var i = 1; i < even.Left.Length; i++)
+            if (Math.Abs(even.Left[i]) > threshold && (onsets.Count == 0 || i - onsets[^1] > 22050 / 10)) onsets.Add(i);
+        var gaps = onsets.Zip(onsets.Skip(1), (a, b) => b - a).ToList();
+        Assert.InRange(onsets.Count, 10, 13);
+        Assert.All(gaps, g => Assert.InRange(g, 22050 / 4 * 0.85, 22050 / 4 * 1.15));
+    }
+
+    [Fact]
+    public void Synth_Fm_Drive_Crush_And_Filter_Sweeps_Change_The_Sound()
+    {
+        SoundLayer Tone() => new() { Type = "synth", Wave = "sine", Pitch = 440, Attack = 0.01, Hold = 1, Release = 0.2, Gain = -10, Width = 0 };
+        var plain = SoundEngine.Render(One(Tone()), 22050);
+        var fm = Tone(); fm.FmRatio = 2.76; fm.FmDepth = 4;
+        Assert.NotEqual(plain.Left, SoundEngine.Render(One(fm), 22050).Left);
+        var driven = Tone(); driven.Drive = 1; driven.Gain = 0;
+        var d = SoundEngine.Render(One(driven), 22050);
+        Assert.True(d.PeakDb - d.RmsDb < plain.PeakDb - plain.RmsDb - 1, "drive flattens the peaks (squarer wave)");
+        var crushed = Tone(); crushed.Crush = 1;
+        var c = SoundEngine.Render(One(crushed), 22050);
+        static double Rough(SoundRender x) { double d = 0, e = 0; for (var i = 1; i < x.Left.Length; i++) { d += Math.Pow(x.Left[i] - x.Left[i - 1], 2); e += x.Left[i] * (double)x.Left[i]; } return d / e; }
+        Assert.True(Rough(c) > Rough(plain) * 2, "crush adds hard steps (a rougher, retro sound)");
+        // A whoosh: band-passed noise sweeping up is darker at the start than at the end.
+        var sweep = new SoundLayer { Type = "noise", Color = "white", Filter = "bandpass", Freq = 300, FreqEnd = 6000, Q = 3, Attack = 0.9, Release = 0.6, Gain = 0, Width = 0 };
+        var w = SoundEngine.Render(One(sweep, 1.5), 22050);
+        double Zero(int from, int to) { var z = 0; for (var i = from + 1; i < to; i++) if (Math.Sign(w.Left[i]) != Math.Sign(w.Left[i - 1])) z++; return z; }
+        Assert.True(Zero(22050 * 6 / 10, 22050 * 8 / 10) > Zero(2205, 22050 * 2 / 10) * 3, "the sweep ends higher than it starts");
+        var arp = Tone(); arp.Arp = 12; arp.ArpTime = 0.5;
+        var a = SoundEngine.Render(One(arp), 22050);
+        double Rate(SoundRender x, int from, int to) { var z = 0; for (var i = from + 1; i < to; i++) if (Math.Sign(x.Left[i]) != Math.Sign(x.Left[i - 1])) z++; return z; }
+        Assert.InRange(Rate(a, 22050 * 6 / 10, 22050 * 9 / 10) / Rate(a, 2205, 22050 * 4 / 10), 1.8, 2.2); // an octave up
+    }
+
+    [Fact]
+    public void Samples_Of_Your_Own_Are_Read_Reversed_Pitched_And_Missing_Ones_Reported()
+    {
+        // A WAV made by the engine itself: a falling tone.
+        var source = SoundEngine.Render(One(new SoundLayer { Type = "synth", Wave = "sine", Pitch = 880, PitchEnd = 220, Attack = 0.001, Hold = 0.5, Release = 0.1, Gain = -6, Width = 0 }, 0.6), 44100);
+        var audio = SampleAudio.ReadWav(source.ToWav(24));
+        Assert.Equal(44100, audio.Rate);
+        Assert.Equal(source.Left.Length, audio.Left.Length);
+        Assert.InRange(audio.Left[1000] - source.Left[1000], -0.001, 0.001);
+        Assert.Throws<ArgumentException>(() => SampleAudio.ReadWav(new byte[100]));
+        SampleAudio? Load(string path) => path == "tone.wav" ? audio : null;
+        SoundLayer Smp() => new() { Type = "sample", Path = "tone.wav", SampleName = "tone.wav", Gain = 0, Width = 1 };
+        var same = SoundEngine.Render(One(Smp(), 0.6), 44100, Load);
+        Assert.True(same.RmsDb > -30);
+        var up = Smp(); up.Semitones = 12; // twice as fast: half as long
+        var u = SoundEngine.Render(One(up, 0.6), 44100, Load);
+        var lastLoud = Array.FindLastIndex(u.Left, x => Math.Abs(x) > 0.01);
+        Assert.InRange(lastLoud, 44100 * 0.25, 44100 * 0.33);
+        var rev = Smp(); rev.Reverse = true;
+        var r = SoundEngine.Render(One(rev, 0.6), 44100, Load);
+        double Zc(SoundRender x, int from, int to) { var z = 0; for (var i = from + 1; i < to; i++) if (Math.Sign(x.Left[i]) != Math.Sign(x.Left[i - 1])) z++; return z; }
+        Assert.True(Zc(r, 2000, 8000) < Zc(r, 18000, 24000), "reversed, the falling tone rises");
+        var missing = SoundEngine.Render(One(new SoundLayer { Type = "sample", Path = "gone.wav", SampleName = "gone.wav" }, 0.3), 22050, Load);
+        Assert.Contains(missing.Warnings, w => w.Contains("gone.wav"));
+    }
+
+    [Fact]
+    public void The_Generator_Makes_Every_Kind_Repeatably_And_Differently_Per_Seed()
+    {
+        foreach (var c in SoundGenerator.Categories)
+        {
+            var a = SoundGenerator.Make(c.Id, 7);
+            Assert.Equal(a.ToJson(), SoundGenerator.Make(c.Id, 7).ToJson());
+            Assert.NotEqual(a.ToJson(), SoundGenerator.Make(c.Id, 8).ToJson());
+            var r = SoundEngine.Render(a, 22050);
+            Assert.True(r.RmsDb > -40 && r.PeakDb <= -0.9, $"{c.Id}: rms {r.RmsDb}, peak {r.PeakDb}");
+        }
+        Assert.Throws<ArgumentException>(() => SoundGenerator.Make("nope", 1));
+    }
 }

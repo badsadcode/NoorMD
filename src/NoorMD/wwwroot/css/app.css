@@ -1366,3 +1366,10 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sb-ms.on { background: var(--accent); color: var(--on-accent); }
 .sb-choices { display: flex; gap: 12px; margin-bottom: 6px; }
 .utility-btn[hidden], .action[hidden] { display: none; }
+.sb-generate { margin-bottom: 6px; }
+.sb-genrow { display: flex; gap: 6px; padding: 0 4px 0 10px; }
+.sb-genrow select { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 6px; font: inherit; font-size: 12.5px; }
+.sb-genrow .action { padding: 4px 10px; }
+#sb-filter { display: block; width: calc(100% - 14px); margin: 10px 4px 4px 10px; box-sizing: border-box; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 12.5px; }
+.sb-file { font-size: 12.5px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-choices { flex-wrap: wrap; align-items: center; }

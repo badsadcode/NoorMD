@@ -118,6 +118,158 @@ public static class SoundPresets
             new SoundLayer { Type = "noise", Name = "Boom", Color = "brown", Filter = "lowpass", Freq = 800, Q = 0.7, Gain = 0, Attack = 0.005, Release = 1.2, Width = 0.6 },
             new SoundLayer { Type = "noise", Name = "Blast", Color = "white", Filter = "lowpass", Freq = 3000, Q = 0.7, Gain = -8, Attack = 0.002, Release = 0.3, Width = 0.8 },
             Synth("Thump", "sine", 90, 40, 0.002, 0, 0.6, -4))),
+        // Footsteps: a heel thump and the surface (a cluster of small hits); walking loops repeat them evenly.
+        new("step-gravel", "Footsteps", "Step on gravel", "One step: a soft heel and crunching stones.", () => OneShot("Footsteps", "Step on gravel", 0.45,
+            Synth("Heel", "sine", 110, 55, 0.002, 0, 0.07, -5),
+            new SoundLayer { Type = "events", Name = "Gravel", Density = 1, Rhythm = 1, Burst = 18, BurstSpread = 70, Pitch = 3500, PitchSpread = 1, Tone = 0.1, Decay = 4, Gain = -10, Release = 0.14, GainSpread = 8, Width = 0.5 })),
+        new("step-wood", "Footsteps", "Step on a wooden floor", "A hollow knock of a step on boards.", () => OneShot("Footsteps", "Step on a wooden floor", 0.45,
+            Synth("Heel", "triangle", 170, 110, 0.002, 0, 0.09, -4),
+            new SoundLayer { Type = "events", Name = "Boards", Density = 1, Rhythm = 1, Burst = 2, BurstSpread = 25, Pitch = 700, PitchSpread = 0.3, Tone = 0.7, Decay = 35, Gain = -10, Release = 0.12, Width = 0.3 })),
+        new("step-snow", "Footsteps", "Step in snow", "A soft, squeaky crunch.", () => OneShot("Footsteps", "Step in snow", 0.5,
+            Synth("Heel", "sine", 90, 50, 0.004, 0, 0.08, -12),
+            new SoundLayer { Type = "events", Name = "Snow", Density = 1, Rhythm = 1, Burst = 26, BurstSpread = 130, Pitch = 2800, PitchSpread = 0.8, Tone = 0.05, Decay = 3, Gain = -10, Release = 0.2, GainSpread = 6, Width = 0.4 },
+            new SoundLayer { Type = "noise", Name = "Hush", Color = "white", Filter = "bandpass", Freq = 4000, Q = 0.8, Gain = -24, Attack = 0.01, Release = 0.12, Width = 0.4 })),
+        new("walk-gravel", "Footsteps", "Walking on gravel", "Steady steps on a gravel path (loops).", () =>
+        {
+            var r = Ambience("Footsteps", "Walking on gravel", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Heels", Wave = "sine", Pitch = 110, PitchEnd = 55, Attack = 0.002, Release = 0.07, Repeat = 0.55, Gain = -8, Width = 0 },
+                new SoundLayer { Type = "events", Name = "Gravel", Density = 1 / 0.55, Rhythm = 1, Burst = 18, BurstSpread = 80, Pitch = 3500, PitchSpread = 1, Tone = 0.1, Decay = 4, Gain = -14, GainSpread = 8, Width = 0.5 });
+            r.Duration = 4.4;
+            return r;
+        }),
+        // Impacts and weapons.
+        new("hit-wood", "Impacts", "Wooden knock", "Knuckles or a stick on wood.", () => OneShot("Impacts", "Wooden knock", 0.5,
+            Synth("Knock", "triangle", 190, 150, 0.001, 0, 0.12, -4),
+            new SoundLayer { Type = "noise", Name = "Wood", Color = "pink", Filter = "bandpass", Freq = 1100, Q = 4, Gain = -8, Attack = 0.001, Release = 0.06, Width = 0 })),
+        new("hit-metal", "Impacts", "Metal clang", "A struck metal bar, ringing out.", () => OneShot("Impacts", "Metal clang", 2.2,
+            new SoundLayer { Type = "synth", Name = "Ring", Wave = "sine", Pitch = 420, FmRatio = 2.76, FmDepth = 4, Attack = 0.001, Release = 1.8, Gain = -6, Width = 0 },
+            new SoundLayer { Type = "synth", Name = "Overtone", Wave = "sine", Pitch = 1130, FmRatio = 1.41, FmDepth = 2, Attack = 0.001, Release = 1.1, Gain = -12, Width = 0 },
+            new SoundLayer { Type = "noise", Name = "Strike", Color = "white", Filter = "highpass", Freq = 3500, Q = 0.7, Gain = -12, Attack = 0.001, Release = 0.03, Width = 0 })),
+        new("hit-punch", "Impacts", "Punch", "A heavy body blow.", () => OneShot("Impacts", "Punch", 0.4,
+            new SoundLayer { Type = "noise", Name = "Thud", Color = "brown", Filter = "lowpass", Freq = 900, Q = 0.7, Gain = -2, Attack = 0.001, Release = 0.15, Drive = 0.5, Width = 0 },
+            Synth("Body", "sine", 120, 50, 0.001, 0, 0.12, -2),
+            new SoundLayer { Type = "noise", Name = "Slap", Color = "white", Filter = "bandpass", Freq = 2500, Q = 1, Gain = -12, Attack = 0.001, Release = 0.02, Width = 0 })),
+        new("hit-fall", "Impacts", "Body fall", "Someone hitting the ground.", () => OneShot("Impacts", "Body fall", 0.9,
+            new SoundLayer { Type = "noise", Name = "Weight", Color = "brown", Filter = "lowpass", Freq = 400, Q = 0.7, Gain = -2, Attack = 0.004, Release = 0.35, Drive = 0.3, Width = 0.3 },
+            new SoundLayer { Type = "noise", Name = "Cloth", Color = "pink", Filter = "bandpass", Freq = 1500, Q = 0.8, Gain = -14, Attack = 0.01, Release = 0.25, Width = 0.5 },
+            new SoundLayer { Type = "events", Name = "Gear", Density = 1, Rhythm = 1, Burst = 6, BurstSpread = 150, Pitch = 2500, PitchSpread = 0.8, Tone = 0.4, Decay = 15, Gain = -18, Release = 0.3, Width = 0.6 })),
+        new("whoosh-swing", "Whooshes", "Sword swing", "A fast blade cutting the air.", () => OneShot("Whooshes", "Sword swing", 0.5,
+            new SoundLayer { Type = "noise", Name = "Air", Color = "pink", Filter = "bandpass", Freq = 400, FreqEnd = 2500, Q = 2, Gain = -4, Attack = 0.12, Release = 0.25, Width = 0.6 },
+            new SoundLayer { Type = "noise", Name = "Edge", Color = "white", Filter = "bandpass", Freq = 3000, FreqEnd = 7000, Q = 4, Gain = -16, Attack = 0.1, Release = 0.15, Width = 0.6 })),
+        new("whoosh-riser", "Whooshes", "Riser", "A build-up that rises for three seconds.", () => OneShot("Whooshes", "Riser", 3.2,
+            new SoundLayer { Type = "noise", Name = "Rise", Color = "white", Filter = "bandpass", Freq = 300, FreqEnd = 6000, Q = 3, Gain = -6, Attack = 2.8, Release = 0.2, Width = 0.8 },
+            new SoundLayer { Type = "synth", Name = "Tone", Wave = "saw", Pitch = 200, PitchEnd = 1200, Attack = 2.8, Release = 0.2, Gain = -16, Vibrato = 0.2, VibratoRate = 7, UseFilter = true, Filter = "lowpass", Freq = 2000, Width = 0 })),
+        // Machines.
+        new("machine-engine", "Machines", "Engine idle", "A running motor (loops).", () =>
+        {
+            var r = Ambience("Machines", "Engine idle", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Motor", Wave = "saw", Pitch = 45, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -10, Drive = 0.5, UseFilter = true, Filter = "lowpass", Freq = 400, Vibrato = 0.1, VibratoRate = 6, Width = 0 },
+                new SoundLayer { Type = "noise", Name = "Rumble", Color = "brown", Filter = "lowpass", Freq = 180, Gain = -12, Wobble = 0.4, WobbleRate = 7, Width = 0.4 });
+            r.Duration = 4;
+            return r;
+        }),
+        new("machine-fan", "Machines", "Computer fan hum", "A quiet room with a PC running (loops).", () =>
+        {
+            var r = Ambience("Machines", "Computer fan hum", 6, 0, 0.5,
+                new SoundLayer { Type = "noise", Name = "Air", Color = "pink", Filter = "bandpass", Freq = 900, Q = 0.8, Gain = -18, Width = 0.6 },
+                new SoundLayer { Type = "synth", Name = "Hum", Wave = "sine", Pitch = 120, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -26, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Blade tone", Wave = "sine", Pitch = 240, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -34, Vibrato = 0.02, VibratoRate = 0.3, Width = 0 });
+            r.Duration = 6;
+            return r;
+        }),
+        new("machine-buzz", "Machines", "Electric buzz", "A faulty light or a transformer (loops).", () =>
+        {
+            var r = Ambience("Machines", "Electric buzz", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Buzz", Wave = "saw", Pitch = 50, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -12, Drive = 0.6, Crush = 0.3, UseFilter = true, Filter = "bandpass", Freq = 800, Q = 1, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Hum", Wave = "sine", Pitch = 100, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -18, Width = 0 },
+                new SoundLayer { Type = "events", Name = "Crackle", Density = 3, Decay = 3, Pitch = 5000, PitchSpread = 0.5, Tone = 0, Gain = -24, Burst = 4, BurstSpread = 20, Width = 0.3 });
+            r.Duration = 4;
+            return r;
+        }),
+        // Sci-fi and magic.
+        new("scifi-teleport", "Sci-fi", "Teleport", "A shimmering upward sweep.", () => OneShot("Sci-fi", "Teleport", 1.3,
+            new SoundLayer { Type = "synth", Name = "Sweep", Wave = "sine", Pitch = 300, PitchEnd = 2400, FmRatio = 3, FmDepth = 3, Vibrato = 1, VibratoRate = 18, Attack = 0.05, Release = 0.8, Gain = -8, Width = 0 },
+            new SoundLayer { Type = "noise", Name = "Rush", Color = "white", Filter = "bandpass", Freq = 2000, FreqEnd = 8000, Q = 2, Gain = -16, Attack = 0.05, Release = 0.8, Width = 0.8 })),
+        new("scifi-shield", "Sci-fi", "Shield up", "A force field switching on.", () => OneShot("Sci-fi", "Shield up", 1.2,
+            new SoundLayer { Type = "synth", Name = "Charge", Wave = "triangle", Pitch = 220, PitchEnd = 880, Attack = 0.3, Release = 0.6, Gain = -8, Vibrato = 0.3, VibratoRate = 12, Width = 0 },
+            new SoundLayer { Type = "synth", Name = "Field", Wave = "sine", Pitch = 660, FmRatio = 1.5, FmDepth = 2, Start = 0.25, Attack = 0.02, Release = 0.8, Gain = -12, Width = 0 })),
+        new("scifi-computer", "Sci-fi", "Computer beeps", "A busy console chattering (loops).", () =>
+        {
+            var r = Ambience("Sci-fi", "Computer beeps", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Beep", Wave = "square", Pitch = 1200, Attack = 0.002, Release = 0.05, Repeat = 0.37, Gain = -16, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Beep 2", Wave = "sine", Pitch = 1800, Attack = 0.002, Release = 0.04, Repeat = 0.29, Start = 0.1, Gain = -18, Pan = 0.3, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Low blip", Wave = "triangle", Pitch = 600, Arp = 7, ArpTime = 0.05, Attack = 0.002, Release = 0.08, Repeat = 1.11, Start = 0.2, Gain = -18, Pan = -0.3, Width = 0 });
+            r.Duration = 3.33;
+            return r;
+        }),
+        new("magic-sparkle", "Magic", "Sparkle", "Chimes and shimmer of a spell.", () =>
+        {
+            var r = OneShot("Magic", "Sparkle", 1.6,
+                new SoundLayer { Type = "events", Name = "Chimes", Density = 45, Decay = 140, Pitch = 4000, PitchSpread = 1, Tone = 1, Gain = -16, Release = 1.2, Width = 1, GainSpread = 6 },
+                new SoundLayer { Type = "synth", Name = "Tone", Wave = "sine", Pitch = 1760, FmRatio = 3.5, FmDepth = 1, Attack = 0.02, Release = 1.2, Gain = -14, Width = 0 },
+                new SoundLayer { Type = "noise", Name = "Shimmer", Color = "white", Filter = "highpass", Freq = 6000, Gain = -26, Attack = 0.05, Release = 0.8, Width = 1 });
+            r.Master.Reverb = 0.35;
+            return r;
+        }),
+        new("magic-heal", "Magic", "Healing chime", "A warm, rising two-note chime.", () =>
+        {
+            var r = OneShot("Magic", "Healing chime", 2,
+                new SoundLayer { Type = "synth", Name = "Bell", Wave = "sine", Pitch = 880, Arp = 7, ArpTime = 0.14, FmRatio = 2, FmDepth = 0.6, Attack = 0.005, Release = 1.5, Gain = -8, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Octave", Wave = "sine", Pitch = 1760, Arp = 7, ArpTime = 0.14, Attack = 0.005, Release = 1.2, Gain = -18, Width = 0 });
+            r.Master.Reverb = 0.3;
+            return r;
+        }),
+        // More interface sounds.
+        new("ui-confirm", "UI", "Confirm", "A friendly, rising OK.", () => OneShot("UI", "Confirm", 0.35,
+            new SoundLayer { Type = "synth", Name = "Note", Wave = "sine", Pitch = 660, Arp = 7, ArpTime = 0.06, Attack = 0.002, Hold = 0.05, Release = 0.15, Gain = -6, Width = 0 })),
+        new("ui-cancel", "UI", "Cancel", "A soft, falling no.", () => OneShot("UI", "Cancel", 0.35,
+            new SoundLayer { Type = "synth", Name = "Note", Wave = "triangle", Pitch = 440, Arp = -5, ArpTime = 0.07, Attack = 0.002, Hold = 0.04, Release = 0.15, Gain = -6, Width = 0 })),
+        new("ui-error", "UI", "Error", "A buzzy double beep.", () => OneShot("UI", "Error", 0.35,
+            new SoundLayer { Type = "synth", Name = "Buzz", Wave = "square", Pitch = 180, Duty = 0.3, Attack = 0.002, Hold = 0.06, Release = 0.04, Repeat = 0.14, Crush = 0.3, Gain = -6, Width = 0 })),
+        new("ui-notify", "UI", "Notification", "A gentle two-tone chime.", () => OneShot("UI", "Notification", 0.9,
+            new SoundLayer { Type = "synth", Name = "First", Wave = "sine", Pitch = 988, FmRatio = 2, FmDepth = 0.3, Attack = 0.003, Release = 0.4, Gain = -8, Width = 0 },
+            new SoundLayer { Type = "synth", Name = "Second", Wave = "sine", Pitch = 1319, FmRatio = 2, FmDepth = 0.3, Attack = 0.003, Release = 0.6, Start = 0.12, Gain = -8, Width = 0 })),
+        new("ui-type", "UI", "Typewriter tick", "A tiny mechanical key tick (for text appearing).", () => OneShot("UI", "Typewriter tick", 0.12,
+            new SoundLayer { Type = "noise", Name = "Tick", Color = "white", Filter = "highpass", Freq = 2000, Gain = -6, Attack = 0.0005, Release = 0.015, Width = 0 },
+            Synth("Body", "sine", 2500, 1800, 0.0005, 0, 0.01, -10))),
+        new("retro-jump", "Retro / arcade", "Jump", "A classic 8-bit jump.", () => OneShot("Retro / arcade", "Jump", 0.35,
+            new SoundLayer { Type = "synth", Name = "Sweep", Wave = "square", Duty = 0.25, Pitch = 250, PitchEnd = 800, Attack = 0.002, Release = 0.25, Crush = 0.35, Gain = -6, Width = 0 })),
+        new("retro-powerup", "Retro / arcade", "Power-up", "Rising, warbling 8-bit power-up.", () => OneShot("Retro / arcade", "Power-up", 0.8,
+            new SoundLayer { Type = "synth", Name = "Rise", Wave = "square", Duty = 0.5, Pitch = 300, PitchEnd = 1500, Vibrato = 0.6, VibratoRate = 16, Attack = 0.01, Release = 0.6, Crush = 0.4, Gain = -6, Width = 0 })),
+        new("retro-hurt", "Retro / arcade", "Hurt", "A short, crunchy 8-bit hit.", () => OneShot("Retro / arcade", "Hurt", 0.3,
+            new SoundLayer { Type = "synth", Name = "Hit", Wave = "noise", Pitch = 400, Attack = 0.001, Release = 0.15, Crush = 0.7, Gain = -6, Width = 0 },
+            new SoundLayer { Type = "synth", Name = "Drop", Wave = "square", Pitch = 300, PitchEnd = 80, Attack = 0.001, Release = 0.15, Crush = 0.5, Gain = -10, Width = 0 })),
+        // Alarms, water, body.
+        new("alarm-siren", "Alarms", "Siren", "A wailing siren (loops).", () =>
+        {
+            var r = Ambience("Alarms", "Siren", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Siren", Wave = "saw", Pitch = 700, Vibrato = 4, VibratoRate = 0.5, Attack = 0.01, Hold = 600, Release = 0.1, Gain = -14, UseFilter = true, Filter = "lowpass", Freq = 3000, Width = 0 });
+            r.Duration = 4; r.Master.Reverb = 0.2; r.Master.Room = 0.8;
+            return r;
+        }),
+        new("alarm-beeps", "Alarms", "Alarm beeps", "An urgent repeating beep (loops).", () =>
+        {
+            var r = Ambience("Alarms", "Alarm beeps", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Beep", Wave = "square", Pitch = 880, Attack = 0.003, Hold = 0.18, Release = 0.03, Repeat = 0.4, Gain = -16, Width = 0 });
+            r.Duration = 3.2;
+            return r;
+        }),
+        new("water-drips", "Water", "Cave drips", "Slow drops echoing in a cave (loops).", () =>
+        {
+            var r = Ambience("Water", "Cave drips", 6, 0, 0.5,
+                new SoundLayer { Type = "events", Name = "Drops", Density = 2, Decay = 60, Pitch = 1400, PitchSpread = 0.6, Tone = 1, Gain = -12, GainSpread = 6, Width = 0.8 },
+                new SoundLayer { Type = "noise", Name = "Air", Color = "brown", Filter = "lowpass", Freq = 200, Gain = -32, Wobble = 0.3, Width = 0.8 });
+            r.Master.Reverb = 0.6; r.Master.Room = 0.95; r.Duration = 12;
+            return r;
+        }),
+        new("body-heartbeat", "Body", "Heartbeat", "A calm heartbeat (loops).", () =>
+        {
+            var r = Ambience("Body", "Heartbeat", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Lub", Wave = "sine", Pitch = 60, PitchEnd = 45, Attack = 0.005, Release = 0.12, Repeat = 0.85, Gain = -2, Width = 0 },
+                new SoundLayer { Type = "synth", Name = "Dub", Wave = "sine", Pitch = 70, PitchEnd = 50, Attack = 0.005, Release = 0.1, Repeat = 0.85, Start = 0.22, Gain = -6, Width = 0 });
+            r.Duration = 3.4; r.Master.LowPass = 400;
+            return r;
+        }),
     ];
 
     /// <summary>
@@ -129,6 +281,7 @@ public static class SoundPresets
         ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 19,
         ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-downpour"] = 12, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
         ["fire-camp"] = 11, ["water-stream"] = 15, ["water-falls"] = 6,
+        ["walk-gravel"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 18,
     };
 
     public static SoundRecipe Make(string id)

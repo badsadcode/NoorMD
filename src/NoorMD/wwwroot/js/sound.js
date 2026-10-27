@@ -10,21 +10,29 @@ window.NoorSound = (() => {
   const MACROS = [['intensity', 'Gentle', 'Violent'], ['gust', 'Calm', 'Gusty'], ['brightness', 'Soft', 'Sharp'], ['distance', 'Near', 'Distant'], ['shelter', 'Outdoors', 'Indoors']];
   const COMMON = [['gain', 'Level', -60, 12, 0.5, 'db'], ['pan', 'Pan', -1, 1, 0.05, 'pan'], ['width', 'Stereo width', 0, 1, 0.05, 'pct'], ['gustAmount', 'Follows gusts', 0, 1, 0.05, 'pct']];
   const SHOT = [['start', 'Start', 0, 30, 0.01, 's'], ['attack', 'Attack', 0, 5, 0.001, 's'], ['release', 'Release (0 = continuous)', 0, 20, 0.01, 's']];
+  const GRIT = [['drive', 'Drive (grit)', 0, 1, 0.05, 'pct'], ['crush', 'Crush (retro)', 0, 1, 0.05, 'pct']];
+  const FILTERED = [['freq', 'Filter frequency', 20, 20000, 1, 'hz'], ['freqEnd', 'Filter at the end (0 = stays)', 0, 20000, 1, 'hz0'], ['q', 'Filter sharpness (Q)', 0.1, 60, 0.1, 'q']];
   const FIELDS = {
-    noise: [...COMMON, ['freq', 'Filter frequency', 20, 20000, 1, 'hz'], ['q', 'Filter sharpness (Q)', 0.1, 60, 0.1, 'q'], ['gustFilter', 'Filter opens with gusts', 0, 1, 0.05, 'pct'],
-      ['drift', 'Drift (a moving whistle)', 0, 1, 0.05, 'pct'], ['wobble', 'Wobble', 0, 1, 0.05, 'pct'], ['wobbleRate', 'Wobble speed', 0.05, 20, 0.05, 'rate'], ...SHOT],
-    events: [...COMMON, ['density', 'Events per second', 0, 3000, 1, 'count'], ['decay', 'Ring time', 0.5, 500, 0.5, 'ms'], ['pitch', 'Pitch', 30, 12000, 1, 'hz'],
-      ['pitchSpread', 'Pitch spread (octaves)', 0, 3, 0.05, 'num'], ['tone', 'Click ↔ ring', 0, 1, 0.05, 'pct'], ['gainSpread', 'Loudness spread', 0, 30, 0.5, 'db'], ...SHOT],
-    synth: [...COMMON, ['pitch', 'Pitch', 30, 12000, 1, 'hz'], ['pitchEnd', 'Pitch at the end (0 = steady)', 0, 12000, 1, 'hz0'], ['attack', 'Attack', 0, 2, 0.001, 's'],
-      ['hold', 'Hold', 0, 5, 0.001, 's'], ['release', 'Decay', 0.001, 10, 0.001, 's'], ['vibrato', 'Vibrato', 0, 1, 0.05, 'pct'], ['vibratoRate', 'Vibrato speed', 0.1, 30, 0.1, 'rate'],
-      ['start', 'Start', 0, 30, 0.01, 's'], ['repeat', 'Repeat every (0 = once)', 0, 10, 0.01, 's']],
+    noise: [...COMMON, ...FILTERED, ['gustFilter', 'Filter opens with gusts', 0, 1, 0.05, 'pct'],
+      ['drift', 'Drift (a moving whistle)', 0, 1, 0.05, 'pct'], ['wobble', 'Wobble', 0, 1, 0.05, 'pct'], ['wobbleRate', 'Wobble speed', 0.05, 20, 0.05, 'rate'], ...SHOT, ['hold', 'Hold', 0, 10, 0.001, 's'], ...GRIT],
+    events: [...COMMON, ['density', 'Events per second', 0, 3000, 1, 'count'], ['rhythm', 'Random ↔ evenly spaced', 0, 1, 0.05, 'pct'], ['burst', 'Hits per event (clusters)', 1, 40, 1, 'count'],
+      ['burstSpread', 'Cluster spread', 0, 1000, 1, 'ms'], ['decay', 'Ring time', 0.5, 500, 0.5, 'ms'], ['pitch', 'Pitch', 30, 12000, 1, 'hz'],
+      ['pitchSpread', 'Pitch spread (octaves)', 0, 3, 0.05, 'num'], ['tone', 'Click ↔ ring', 0, 1, 0.05, 'pct'], ['gainSpread', 'Loudness spread', 0, 30, 0.5, 'db'], ...SHOT, ...GRIT],
+    synth: [...COMMON, ['pitch', 'Pitch', 30, 12000, 1, 'hz'], ['pitchEnd', 'Pitch at the end (0 = steady)', 0, 12000, 1, 'hz0'], ['arp', 'Pitch jump (semitones)', -24, 24, 1, 'num'], ['arpTime', '…after', 0.001, 2, 0.001, 's'],
+      ['attack', 'Attack', 0, 2, 0.001, 's'], ['hold', 'Hold', 0, 10, 0.001, 's'], ['release', 'Decay', 0.001, 10, 0.001, 's'], ['duty', 'Pulse width (square)', 0.05, 0.95, 0.01, 'pct'],
+      ['fmRatio', 'FM ratio (0 = off)', 0, 16, 0.01, 'num'], ['fmDepth', 'FM depth', 0, 20, 0.05, 'num'], ['vibrato', 'Vibrato (5 = siren)', 0, 5, 0.01, 'num'], ['vibratoRate', 'Vibrato speed', 0.1, 30, 0.1, 'rate'],
+      ['start', 'Start', 0, 30, 0.01, 's'], ['repeat', 'Repeat every (0 = once)', 0, 10, 0.01, 's'], ...FILTERED, ...GRIT],
+    sample: [...COMMON.filter(([k]) => k !== 'gustAmount'), ['semitones', 'Pitch (semitones, like tape)', -24, 24, 0.1, 'num'], ['trimStart', 'Use from', 0, 60, 0.001, 's'], ['trimEnd', '…to (0 = the end)', 0, 60, 0.001, 's'],
+      ['start', 'Start', 0, 30, 0.01, 's'], ['attack', 'Fade in', 0, 5, 0.001, 's'], ['hold', 'Hold', 0, 30, 0.01, 's'], ['release', 'Fade out (0 = none)', 0, 20, 0.01, 's'],
+      ['repeat', 'Repeat every (0 = once)', 0, 10, 0.01, 's'], ...FILTERED, ...GRIT],
   };
   const CHOICES = { color: ['white', 'pink', 'brown'], filter: ['lowpass', 'highpass', 'bandpass', 'none'], wave: ['sine', 'square', 'saw', 'triangle', 'noise'] };
-  const TYPE_LABEL = { noise: 'Noise bed', events: 'Events (drops, crackles)', synth: 'Synth voice' };
+  const TYPE_LABEL = { noise: 'Noise bed', events: 'Events (drops, crackles, steps)', synth: 'Synth voice', sample: 'Sample (your WAV)' };
   const NEW_LAYER = {
     noise: { type: 'noise', name: 'Noise bed', gain: -18, color: 'pink', filter: 'lowpass', freq: 1000, q: 0.7, width: 0.8 },
     events: { type: 'events', name: 'Events', gain: -24, density: 30, decay: 10, pitch: 3000, pitchSpread: 0.7, tone: 0.3, gainSpread: 6, width: 0.9 },
     synth: { type: 'synth', name: 'Synth voice', gain: -12, wave: 'sine', pitch: 440, pitchEnd: 0, attack: 0.005, hold: 0, release: 0.3, width: 0 },
+    sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0 },
   };
   const MASTER = [['gain', 'Level', -40, 24, 0.5, 'db'], ['highPass', 'Low cut', 10, 5000, 1, 'hz'], ['lowPass', 'High cut', 200, 20000, 1, 'hz'], ['width', 'Stereo width', 0, 2, 0.05, 'pct'],
     ['reverb', 'Room sound', 0, 1, 0.05, 'pct'], ['room', 'Room size', 0, 1, 0.05, 'pct'], ['ceiling', 'Ceiling', -24, 0, 0.5, 'db']];
@@ -32,7 +40,9 @@ window.NoorSound = (() => {
 
   let hooks = { showError: (e) => console.error(e), onPlay: () => {} };
   let built = false;
-  let presets = { builtIn: [], mine: [] };
+  let presets = { builtIn: [], mine: [], categories: [] };
+  let presetFilter = '';
+  let genCategory = 'pickup';
   let recipe = null;
   let family = null;
   let tab = 'quick';
@@ -146,7 +156,7 @@ window.NoorSound = (() => {
         if (wasPlaying) audio.play().catch(() => {});
       }, { once: true });
       drawWave();
-      setStatus(`${listening === 'A' ? 'A (pinned) · ' : ''}${out.seconds.toFixed(out.seconds < 2 ? 2 : 1)} s · peak ${out.peakDb} dB · RMS ${out.rmsDb} dB${out.cut ? ' · preview: first 30 s' : ''}`);
+      setStatus(`${listening === 'A' ? 'A (pinned) · ' : ''}${out.seconds.toFixed(out.seconds < 2 ? 2 : 1)} s · peak ${out.peakDb} dB · RMS ${out.rmsDb} dB${out.cut ? ' · preview: first 30 s' : ''}${out.warnings && out.warnings.length ? ' · ⚠ ' + out.warnings.join('; ') : ''}`);
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); }
   }
 
@@ -238,15 +248,29 @@ window.NoorSound = (() => {
   function renderPresets() {
     const nav = $('#sb-presets');
     if (!nav) return;
-    const families = [...new Set(presets.builtIn.map((p) => p.family))];
+    const q = presetFilter.toLowerCase();
+    const match = (p) => !q || `${p.name} ${p.family} ${p.description}`.toLowerCase().includes(q);
+    const shownBuiltIn = presets.builtIn.filter(match);
+    const families = [...new Set(shownBuiltIn.map((p) => p.family))];
     const item = (p) => el('button', { class: 'gnav-item' + (recipe && recipe.name === p.name ? ' active' : ''), 'data-preset': p.id, title: p.description,
       onclick: () => loadPreset(p.id),
       oncontextmenu: (e) => { if (!p.id.startsWith('user:')) return; e.preventDefault(); NoorChrome.openMenu(null, [{ label: 'Delete this preset…', run: () => deletePreset(p) }], { x: e.clientX, y: e.clientY }); } },
     el('span', { class: 'gnav-label', text: p.name }));
+    const keepFocus = document.activeElement && document.activeElement.id === 'sb-filter';
+    const gen = el('select', { id: 'sb-gen-kind', 'aria-label': 'Kind of sound to generate' }, ...presets.categories.map((c) => el('option', { value: c.id, text: c.name, title: c.description })));
+    gen.value = genCategory;
+    gen.addEventListener('change', () => { genCategory = gen.value; });
+    const filter = el('input', { type: 'search', id: 'sb-filter', placeholder: 'Find a preset…', value: presetFilter, 'aria-label': 'Find a preset', spellcheck: 'false' });
+    filter.addEventListener('input', () => { presetFilter = filter.value; renderPresets(); });
+    const mine = presets.mine.filter(match);
     nav.replaceChildren(
-      ...families.flatMap((f) => [el('div', { class: 'gnav-head' }, el('span', { text: f })), ...presets.builtIn.filter((p) => p.family === f).map(item)]),
+      el('div', { class: 'sb-generate' }, el('div', { class: 'gnav-head' }, el('span', { text: 'Generate' })),
+        el('div', { class: 'sb-genrow' }, gen, el('button', { class: 'action primary', id: 'sb-generate', title: 'A new sound of this kind each time', onclick: generate }, '🎲'))),
+      filter,
+      ...families.flatMap((f) => [el('div', { class: 'gnav-head' }, el('span', { text: f })), ...shownBuiltIn.filter((p) => p.family === f).map(item)]),
       el('div', { class: 'gnav-head' }, el('span', { text: 'My presets' })),
-      ...(presets.mine.length ? presets.mine.map(item) : [el('p', { class: 'pref-hint sb-none', text: 'Save a sound you like with “Save as my preset”.' })]));
+      ...(mine.length ? mine.map(item) : [el('p', { class: 'pref-hint sb-none', text: q ? 'None match.' : 'Save a sound you like with “Save as my preset”.' })]));
+    if (keepFocus) { const f = $('#sb-filter'); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
   }
 
   function renderHeader() {
@@ -325,6 +349,11 @@ window.NoorSound = (() => {
         s.addEventListener('change', () => { l[key] = s.value; changed(false); });
         return el('label', { class: 'sb-inline' }, el('span', { text: key === 'color' ? 'Noise' : key === 'filter' ? 'Filter' : 'Wave' }), s);
       };
+      const check = (key, label) => {
+        const c = el('input', { type: 'checkbox', checked: l[key] || undefined, 'data-key': key });
+        c.addEventListener('change', () => { l[key] = c.checked; changed(false); });
+        return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
+      };
       const toggleBtn = (key, label, title) => el('button', { class: 'icon-btn sb-ms' + (l[key] ? ' on' : ''), title, 'aria-pressed': String(!!l[key]), onclick: () => { l[key] = !l[key]; changed(true); } }, label);
       return el('section', { class: 'sb-layer' + (l.mute ? ' muted' : ''), 'data-index': String(i) },
         el('div', { class: 'sb-layer-head' },
@@ -332,7 +361,11 @@ window.NoorSound = (() => {
           toggleBtn('mute', 'M', 'Mute this layer'), toggleBtn('solo', 'S', 'Solo: hear only the soloed layers'),
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), name: l.name + ' copy', solo: false }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
-        el('div', { class: 'sb-choices' }, ...(l.type === 'noise' ? [choice('color'), choice('filter')] : l.type === 'synth' ? [choice('wave')] : [])),
+        el('div', { class: 'sb-choices' }, ...(l.type === 'noise' ? [choice('color'), choice('filter')]
+          : l.type === 'synth' ? [choice('wave'), check('useFilter', 'Filter'), choice('filter')]
+            : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
+              el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
+              check('reverse', 'Backwards'), check('loopSample', 'Loop it'), check('useFilter', 'Filter'), choice('filter')] : [])),
         el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))));
     });
     return [
@@ -340,6 +373,10 @@ window.NoorSound = (() => {
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-add': t, onclick: () => {
         if (recipe.layers.length >= 16) { notice('Sixteen layers is the most.', 1500); return; }
+        if (t === 'sample') {
+          pickSample().then((f) => { if (!f) return; recipe.layers.push({ ...clone(NEW_LAYER.sample), path: f.path, sampleName: f.name, name: f.name.replace(/\.wav$/i, '') }); changed(true); });
+          return;
+        }
         recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
       } }, '＋ ' + TYPE_LABEL[t]))),
     ];
@@ -375,6 +412,19 @@ window.NoorSound = (() => {
   function saveExportPrefs(p) { try { localStorage.setItem('noormd.sound.export', JSON.stringify(p)); } catch { /* private storage off */ } }
 
   // ---------------------------------------------------------------- actions
+
+  async function generate() {
+    try {
+      const r = await req('sound.generate', { category: genCategory, seed: Math.floor(Math.random() * 2147483646) + 1 });
+      setRecipe(r, true);
+      family = r.family;
+      renderPresets();
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function pickSample() {
+    try { const f = await req('sound.sample.pick'); return f && !f.cancelled ? f : null; } catch (err) { hooks.showError(err); return null; }
+  }
 
   function newVariation() {
     if (!recipe) return;

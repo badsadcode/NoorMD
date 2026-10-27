@@ -5,6 +5,7 @@ using System.Windows;
 using System.Windows.Threading;
 using Microsoft.Web.WebView2.Core;
 using NoorMD.Core;
+using NoorMD.Media;
 using NoorMD.Core.Export;
 using NoorMD.Core.Settings;
 using NoorMD.Core.Vaults;
@@ -766,6 +767,15 @@ public partial class MainWindow
             for (var i = 0; i < 40 && dur == "null"; i++) { await Task.Delay(100); dur = await Eval("window.__sbd"); }
             Check("Sound Bench: a preset renders and the page can play its preview", sb.Contains("_sound") && double.TryParse(dur, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sbSeconds) && Math.Abs(sbSeconds - 20) < 0.1, $"{sb} duration {dur}");
             await Eval("NoorSound.close()");
+            // A WAV of your own as a layer: read when it was picked, refused when nobody picked it.
+            var wavPath = Path.Combine(SelfTestDir!, "Sound sample.wav");
+            await File.WriteAllBytesAsync(wavPath, SoundEngine.Render(SoundPresets.Make("hit-metal"), 44100).ToWav());
+            var withSample = new SoundRecipe { Duration = 1, Loop = false, Layers = [new SoundLayer { Type = "sample", Path = wavPath, SampleName = "Sound sample.wav", Gain = 0, Semitones = -5, Reverse = true }] };
+            var notPicked = SoundEngine.Render(withSample, 48000, LoadSample);
+            _soundSampleFiles.Add(Path.GetFullPath(wavPath));
+            var used = SoundEngine.Render(withSample, 48000, LoadSample);
+            Check("Sound Bench: a WAV of your own plays as a layer only once you picked it", notPicked.Warnings.Count == 1 && used.Warnings.Count == 0 && used.RmsDb > -40,
+                $"not picked: {string.Join("; ", notPicked.Warnings)} used: {used.RmsDb} dB");
         }
 
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.

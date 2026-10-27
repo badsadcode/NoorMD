@@ -3349,7 +3349,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
       await waitFn(page, () => NoorSound._state().render !== null);
       check('Ctrl+Alt+K opens the Sound Bench in the middle with a preset ready', (await page.evaluate(() => NoorDock._state().center.active)) === 'sound' && (await page.inputValue('#sb-name')) === 'Gentle forest breeze');
-      check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Wind,Rain,UI,My presets');
+      check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Generate,Wind,Rain,UI,My presets');
       check('the preview shows its waveform and levels', /peak .* dB · RMS/.test(await page.textContent('#sb-status')));
       const before = (await SM()).renders.length;
       await slide('[data-macro="intensity"]', 1);
@@ -3421,6 +3421,27 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorSound._state().recipe?.name === 'Thornwake breeze');
       check('your preset loads back as you saved it', (await SS()).recipe.layers[1].mute === true);
       check('A/B is hidden when nothing is pinned', await page.isHidden('#sb-ab'));
+      // Universal: generate any kind of sound, find presets, and layer a WAV file of your own.
+      await page.selectOption('#sb-gen-kind', 'footstep');
+      await page.click('#sb-generate');
+      await waitFn(page, () => NoorSound._state().recipe?.family === 'Generated');
+      const g1 = (await SS()).recipe.seed;
+      await page.click('#sb-generate');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed !== s, g1);
+      check('🎲 Generate makes a new sound of the chosen kind each time', (await SM()).generated.length === 2 && (await SM()).generated.every((x) => x.category === 'footstep'));
+      await page.fill('#sb-filter', 'rain');
+      await waitFn(page, () => document.querySelectorAll('#sb-presets [data-preset]').length === 1);
+      check('presets can be searched', (await page.getAttribute('#sb-presets [data-preset]', 'data-preset')) === 'rain-steady' && (await page.evaluate(() => document.activeElement.id)) === 'sb-filter');
+      await page.fill('#sb-filter', '');
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('[data-add="sample"]');
+      await waitFn(page, () => NoorSound._state().recipe.layers.some((l) => l.type === 'sample'));
+      const smp = (await SS()).recipe.layers.find((l) => l.type === 'sample');
+      check('＋ Sample asks for a WAV and adds it as a layer', smp.path === 'C:\\Sounds\\door creak.wav' && smp.name === 'door creak' && /door creak\.wav/.test(await page.textContent('#sb-pane')));
+      await page.check('.sb-layer:last-of-type input[data-key="reverse"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.at(-1).reverse === true);
+      check('…and can be played backwards', true);
+      check('synth layers have FM, pulse width, pitch jumps and a filter', await page.evaluate(() => ['fmRatio', 'duty', 'arp', 'drive', 'crush'].every((k) => document.querySelector(`#sb-pane input[data-key="${k}"]`))));
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors in the Sound Bench', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/sound-bench.png` });

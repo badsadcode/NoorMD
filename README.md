@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.26-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.27-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -118,8 +118,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   size) into copies, for sharing or the web; the originals stay as they are.
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
-- **Sound Bench** (Ctrl+Alt+K): sound effects and ambiences for games, made on your computer. Start from wind,
-  rain, fire, water, thunder or UI presets. Shape them with plain controls (gentle ↔ violent, near ↔ distant,
+- **Sound Bench** (Ctrl+Alt+K): sound effects and ambiences for games, made on your computer. 🎲 Generate a
+  pickup, laser, explosion, footstep, impact, whoosh, magic or sci-fi sound and more, start from one of 48
+  presets (weather, footsteps, machines, UI, retro, alarms…), or layer your own WAV files. Shape them with plain controls (gentle ↔ violent, near ↔ distant,
   outdoors ↔ indoors…) or layer by layer. Listen as you change things, compare A/B, make variations, and export
   WAV files (seamless loops or one-shots) with the recipe beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
@@ -177,8 +178,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.26-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.26-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.27-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.27-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

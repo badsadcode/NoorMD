@@ -28,6 +28,35 @@ public partial class MainWindow
 
     private static string UserSoundFolder => Path.Combine(App.Paths.Local, "Sound", "Presets");
 
+    // Sample layers read only files you picked, or that a recipe or preset you opened names (never a path the page made up).
+    private readonly HashSet<string> _soundSampleFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (DateTime Stamp, SampleAudio Audio)> _soundSampleCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private void AllowSamples(SoundRecipe r)
+    {
+        foreach (var l in r.Layers) if (l.Type == "sample" && !string.IsNullOrEmpty(l.Path)) _soundSampleFiles.Add(Path.GetFullPath(l.Path));
+    }
+
+    private SampleAudio? LoadSample(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            if (!_soundSampleFiles.Contains(full) || !File.Exists(full)) return null;
+            var stamp = File.GetLastWriteTimeUtc(full);
+            lock (_soundSampleCache)
+            {
+                if (_soundSampleCache.TryGetValue(full, out var hit) && hit.Stamp == stamp) return hit.Audio;
+                if (new FileInfo(full).Length > 100 * 1024 * 1024) return null;
+                var audio = SampleAudio.ReadWav(File.ReadAllBytes(full));
+                if (_soundSampleCache.Count >= 8) _soundSampleCache.Remove(_soundSampleCache.Keys.First());
+                _soundSampleCache[full] = (stamp, audio);
+                return audio;
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
+    }
+
     /// <summary>Serves /_sound/{key}.wav: a preview rendered moments ago.</summary>
     private bool TryServeSound(Uri uri, CoreWebView2WebResourceRequestedEventArgs e, CoreWebView2Environment env)
     {
@@ -84,11 +113,29 @@ public partial class MainWindow
             switch (req.Type)
             {
                 case "sound.presets":
-                    return new { builtIn = SoundPresets.All.Select(x => new { id = x.Id, family = x.Family, name = x.Name, description = x.Description }), mine = UserPresets() };
+                    return new
+                    {
+                        builtIn = SoundPresets.All.Select(x => new { id = x.Id, family = x.Family, name = x.Name, description = x.Description }), mine = UserPresets(),
+                        categories = SoundGenerator.Categories.Select(c => new { id = c.Id, name = c.Name, description = c.Description }),
+                    };
+                case "sound.generate":
+                    return RecipeForPage(SoundGenerator.Make(req.GetString("category", 40) ?? "", (int)Math.Clamp(NoorMD.Core.Bridge.Json.OptDouble(p, "seed") ?? 1, 0, int.MaxValue)));
+                case "sound.sample.pick":
+                {
+                    var dlg = new OpenFileDialog { Title = "Choose a sound file (WAV)", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var full = Path.GetFullPath(dlg.FileName);
+                    if (new FileInfo(full).Length > 100 * 1024 * 1024) throw new BridgeError("That file is too big (over 100 MB) for a sample.");
+                    _soundSampleFiles.Add(full);
+                    var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
+                    return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
+                }
                 case "sound.preset":
                 {
                     var id = req.GetString("id", 300) ?? "";
                     var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? SoundRecipe.FromJson(await File.ReadAllTextAsync(UserPresetPath(id))) : SoundPresets.Make(id);
+                    AllowSamples(recipe);
                     return RecipeForPage(recipe);
                 }
                 case "sound.render":
@@ -101,7 +148,7 @@ public partial class MainWindow
                     var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..20].ToLowerInvariant();
                     SoundRender render;
                     await SoundGate.WaitAsync();
-                    try { render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate)); } finally { SoundGate.Release(); }
+                    try { render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample)); } finally { SoundGate.Release(); }
                     var wav = render.ToWav(16);
                     lock (_soundPreviews)
                     {
@@ -110,7 +157,7 @@ public partial class MainWindow
                     }
                     return new
                     {
-                        url = $"/_sound/{key}.wav", seconds = render.Seconds, peakDb = render.PeakDb, rmsDb = render.RmsDb, cut,
+                        url = $"/_sound/{key}.wav", seconds = render.Seconds, peakDb = render.PeakDb, rmsDb = render.RmsDb, cut, warnings = render.Warnings,
                         peaks = render.Peaks(600).Select(v => MathF.Round(v, 3)),
                     };
                 }
@@ -134,7 +181,7 @@ public partial class MainWindow
                         v.Seed = recipe.Seed + i;
                         var name = count == 1 ? stem : $"{stem}_{i + 1:00}";
                         var path = PictureConvert.FreePath(folder, name, ".wav", taken);
-                        var render = await Task.Run(() => SoundEngine.Render(v, rate));
+                        var render = await Task.Run(() => SoundEngine.Render(v, rate, LoadSample));
                         await File.WriteAllBytesAsync(path, render.ToWav(bits));
                         files.Add(path);
                         PushEvent("sound.exportProgress", new { done = i + 1, total = count });
@@ -156,6 +203,9 @@ public partial class MainWindow
                 case "sound.save":
                 {
                     var recipe = RecipeFrom(p);
+                    // Only files already allowed are kept, so a preset can't smuggle in another path.
+                    foreach (var l in recipe.Layers)
+                        if (l.Type == "sample" && !string.IsNullOrEmpty(l.Path) && !_soundSampleFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
                     Directory.CreateDirectory(UserSoundFolder);
                     var file = NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name, ".json");
                     var path = Path.Combine(UserSoundFolder, file);
@@ -172,7 +222,9 @@ public partial class MainWindow
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 200_000) throw new BridgeError("That file is too big for a sound recipe.");
-                    return new { recipe = RecipeForPage(SoundRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName))) };
+                    var opened = SoundRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName));
+                    AllowSamples(opened);
+                    return new { recipe = RecipeForPage(opened) };
                 }
                 default: throw new BridgeError($"Unknown command \"{req.Type}\".");
             }

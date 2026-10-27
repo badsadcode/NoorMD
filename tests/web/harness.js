@@ -430,7 +430,14 @@ function mockHostScript(initial) {
   function soundMock(type, p) {
     const builtIn = [{ id: 'wind-forest', family: 'Wind', name: 'Gentle forest breeze', description: 'Soft air through trees.' }, { id: 'rain-steady', family: 'Rain', name: 'Steady rain', description: 'Rain all around.' }, { id: 'ui-coin', family: 'UI', name: 'Coin pickup', description: 'Two notes.' }];
     switch (type) {
-      case 'sound.presets': return { builtIn, mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })) };
+      case 'sound.presets': return { builtIn, mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })),
+        categories: [{ id: 'pickup', name: 'Pickup / coin', description: 'Bright.' }, { id: 'footstep', name: 'Footstep', description: 'One step.' }, { id: 'explosion', name: 'Explosion', description: 'Boom.' }] };
+      case 'sound.generate': {
+        SND.generated = (SND.generated || []).concat([{ category: p.category, seed: p.seed }]);
+        const r = JSON.parse(JSON.stringify(SND.recipes['ui-coin']));
+        return { ...r, family: 'Generated', name: `${p.category} ${p.seed % 1000}`, seed: p.seed };
+      }
+      case 'sound.sample.pick': SND.picks = (SND.picks || 0) + 1; return { path: 'C:\\Sounds\\door creak.wav', name: 'door creak.wav', seconds: 1.8 };
       case 'sound.preset': {
         const mine = SND.mine.find((x) => x.id === p.id);
         if (mine) return JSON.parse(JSON.stringify(mine.recipe));
@@ -440,7 +447,8 @@ function mockHostScript(initial) {
       case 'sound.render': {
         SND.renders.push(JSON.parse(JSON.stringify(p.recipe)));
         const peaks = []; for (let i = 0; i < 600; i++) { const v = 0.3 + 0.2 * Math.sin(i / 20) * (p.recipe.macros.intensity + 0.2); peaks.push(-v, v); }
-        return { url: '/_media/4', seconds: Math.min(30, p.recipe.duration), peakDb: -6.5 + p.recipe.macros.intensity * 4, rmsDb: -23 + p.recipe.macros.intensity * 6, cut: p.recipe.duration > 30, peaks };
+        const warnings = p.recipe.layers.filter((l) => l.type === 'sample' && !/door creak/.test(l.path || '')).map((l) => `“${l.sampleName || l.name}”: the file is missing or can't be read`);
+        return { url: '/_media/4', seconds: Math.min(30, p.recipe.duration), peakDb: -6.5 + p.recipe.macros.intensity * 4, rmsDb: -23 + p.recipe.macros.intensity * 6, cut: p.recipe.duration > 30, peaks, warnings };
       }
       case 'sound.export': {
         SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits });
