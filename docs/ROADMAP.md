@@ -8,6 +8,9 @@ first, and anything that conflicts with it waits.
 - Picture manager tools (stars, colour labels, tags, the date view, lossless turning): 2.0.0-preview.22.
 - Batch convert / resize of pictures: preview.23.
 - Music Bench in the middle: preview.24.
+- Sound Bench MVP (presets, Quick controls, layers, live preview, A/B, variations, WAV export with recipes):
+  preview.26. Next for it, from the concept: imported samples and granular texture, surface-specific
+  weather (leaves, roof, window), a reference clip for A/B, stems, and OGG/FLAC export.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

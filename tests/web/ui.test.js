@@ -2564,7 +2564,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const H = () => page.evaluate(() => window.__mock.state.hub);
       await page.keyboard.press('Control+Alt+h');
       await page.waitForSelector('#dock-right #appshub:not([hidden])');
-      check('Ctrl+Alt+H opens the Apps Hub in a dock', (await page.textContent('#apps-body')).includes('Your apps, games and sites'));
+      await waitFn(page, () => (document.querySelector('#apps-body')?.textContent || '').includes('Your apps, games and sites'));
+      check('Ctrl+Alt+H opens the Apps Hub in a dock', true);
       await page.click('#apps-body button:has-text("Program or game")');
       await page.waitForSelector('.app-tile');
       check('programs and games are added with their pictures', (await page.$$('.app-tile')).length === 2 && await page.evaluate(() => document.querySelector('.app-tile img.app-pic').complete && document.querySelector('.app-tile img.app-pic').naturalWidth > 0));
@@ -3335,6 +3336,94 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const unexpected = errors.filter((e) => !/status of 404|can't be reached/.test(e));
       check('no page errors in the Radio', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/radio.png` });
+      await page.close();
+    }
+
+    // ---- 38. Sound Bench: presets, Quick controls, live preview, variations, undo, A/B, layers, export and presets of your own.
+    {
+      const { page, errors } = await open(browser, url, { musicTracks: 4, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const SM = () => page.evaluate(() => window.__mock.state.sound);
+      const SS = () => page.evaluate(() => NoorSound._state());
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.keyboard.press('Control+Alt+k');
+      await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      check('Ctrl+Alt+K opens the Sound Bench in the middle with a preset ready', (await page.evaluate(() => NoorDock._state().center.active)) === 'sound' && (await page.inputValue('#sb-name')) === 'Gentle forest breeze');
+      check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Wind,Rain,UI,My presets');
+      check('the preview shows its waveform and levels', /peak .* dB · RMS/.test(await page.textContent('#sb-status')));
+      const before = (await SM()).renders.length;
+      await slide('[data-macro="intensity"]', 1);
+      await waitFn(page, (n) => window.__mock.state.sound.renders.length > n, before);
+      check('moving a Quick control renders the sound again', (await SM()).renders.at(-1).macros.intensity === 1);
+      await page.click('#sb-play');
+      await waitFn(page, () => NoorSound._state().playing);
+      check('▶ plays the preview', (await SS()).src === '/_media/4');
+      await page.evaluate(() => NoorMusic._testPlay([1], 0, true));
+      await waitFn(page, () => !NoorSound._state().playing);
+      check('music starting stops the preview (one sound at a time)', true);
+      const seed = (await SS()).recipe.seed;
+      await page.click('#sb-vary');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed !== s, seed);
+      await waitFn(page, (s) => window.__mock.state.sound.renders.at(-1).seed !== s, seed);
+      check('🎲 Variation renders another take (a new seed)', true);
+      await page.waitForTimeout(700); // the change settles into the undo history
+      await page.focus('#sb-play');
+      await page.keyboard.press('Control+z');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed === s, seed);
+      check('Ctrl+Z undoes it', (await SS()).future === 1);
+      await page.keyboard.press('Control+y');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed !== s, seed);
+      check('…and Ctrl+Y redoes it', true);
+      await page.click('#sb-pin');
+      const pinnedSeed = (await SS()).recipe.seed;
+      await page.click('#sb-vary');
+      await page.waitForSelector('#sb-ab:not([hidden])');
+      await page.click('#sb-ab');
+      await waitFn(page, (s) => window.__mock.state.sound.renders.at(-1).seed === s && NoorSound._state().listening === 'A', pinnedSeed);
+      check('📌 Pin as A, then A/B plays the pinned version', (await page.textContent('#sb-ab')) === 'A/B: A');
+      await page.click('#sb-ab');
+      await waitFn(page, () => NoorSound._state().listening === 'B');
+      // Layers
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.waitForSelector('.sb-layer');
+      check('the Layers tab shows how the sound is built', (await page.$$('.sb-layer')).length === 3 && /Gust strength/.test(await page.textContent('#sb-pane')));
+      await page.click('.sb-layer[data-index="1"] .sb-ms[title^="Mute"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers[1].mute === true);
+      check('M mutes a layer', await page.evaluate(() => document.querySelector('.sb-layer[data-index="1"]').classList.contains('muted')));
+      await page.click('[data-add="events"]');
+      await waitFn(page, () => document.querySelectorAll('.sb-layer').length === 4);
+      await slide('.sb-layer[data-index="3"] input[data-key="density"]', 500);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers[3]?.density === 500);
+      check('layers can be added and shaped', (await SS()).recipe.layers[3].type === 'events');
+      await page.click('.sb-layer[data-index="3"] button[title="Remove this layer"]');
+      await waitFn(page, () => document.querySelectorAll('.sb-layer').length === 3);
+      // Output and export
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.selectOption('#sb-variations', '5');
+      await page.selectOption('#sb-bits', '24');
+      await page.click('#sb-export');
+      await page.waitForSelector('#sb-reveal');
+      const ex = (await SM()).exports[0];
+      check('Export writes the chosen number of variations with the recipe', ex.variations === 5 && ex.bits === 24 && ex.sampleRate === 48000 && /Saved 5 files and the recipe/.test(await page.textContent('#sb-export-status')), ex);
+      await page.click('#sb-reveal');
+      await waitFn(page, () => window.__mock.state.sound.opened === 'D:\\Game\\Audio');
+      check('…and opens the folder', true);
+      await page.click('#sb-save');
+      await page.fill('.modal input', 'Thornwake breeze');
+      await page.click('.modal button:has-text("Save")');
+      await page.waitForSelector('#sb-presets [data-preset="user:Thornwake breeze.json"]');
+      check('Save as my preset adds it to My presets', (await SM()).mine[0].recipe.layers[1].mute === true);
+      await page.click('#sb-presets [data-preset="ui-coin"]');
+      await waitFn(page, () => NoorSound._state().recipe?.name === 'Coin pickup');
+      await page.click('#soundbench .sb-tabs button[data-tab="quick"]');
+      check('a one-shot preset is not a loop', !(await page.isChecked('#sb-loop')));
+      await page.click('#sb-presets [data-preset="user:Thornwake breeze.json"]');
+      await waitFn(page, () => NoorSound._state().recipe?.name === 'Thornwake breeze');
+      check('your preset loads back as you saved it', (await SS()).recipe.layers[1].mute === true);
+      check('A/B is hidden when nothing is pinned', await page.isHidden('#sb-ab'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in the Sound Bench', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/sound-bench.png` });
       await page.close();
     }
   } finally {

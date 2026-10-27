@@ -160,6 +160,7 @@ public partial class MainWindow : Window
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVoice(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVideo(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeGallery(uri, e, Core.Environment)) return;
+            if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeSound(uri, e, Core.Environment)) return;
             var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder, VaultRootFor(ActiveSession?.Path)) : null;
             if (file == null)
             {

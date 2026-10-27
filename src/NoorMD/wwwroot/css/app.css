@@ -1324,3 +1324,45 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .radio-results { max-height: 50vh; overflow-y: auto; margin-top: 6px; }
 .radio-result { border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
 .radio-saved { color: var(--ok); font-size: 12px; white-space: nowrap; }
+/* Sound Bench. */
+.soundbench { display: flex; flex-direction: column; min-height: 0; background: var(--panel); outline: none; --sb-wave: var(--accent); --sb-head: var(--text); }
+.soundbench[hidden] { display: none; }
+.dock .soundbench, .center-dock > .soundbench { height: 100%; }
+.sb-main { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.soundbench.wide .sb-main { display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+.sb-presets { max-height: 160px; overflow-y: auto; padding: 0 8px; border-bottom: 1px solid var(--border); }
+.soundbench.wide .sb-presets { max-height: none; border-bottom: 0; border-right: 1px solid var(--border); padding-bottom: 12px; }
+.sb-none { margin: 4px 10px; }
+.sb-editor { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px 0; }
+.sb-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sb-top #sb-name { flex: 1; min-width: 140px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 14px; font-weight: 650; }
+.sb-seed { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+.sb-seed input { width: 92px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12px; }
+#sb-ab.on { color: var(--accent); border-color: var(--accent); }
+.sb-wave { width: 100%; height: 84px; margin-top: 10px; border-radius: 10px; background: var(--surface); border: 1px solid var(--border); cursor: pointer; display: block; }
+.sb-status { margin: 4px 2px 8px; min-height: 1.2em; font-variant-numeric: tabular-nums; }
+.sb-tabs { margin: 0 0 6px; }
+.sb-pane { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 2px 14px; }
+.sb-macros { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 14px; }
+.sb-macro { display: grid; grid-template-columns: 90px minmax(0, 1fr) 90px; align-items: center; gap: 10px; font-size: 13px; }
+.sb-macro span:last-child { text-align: right; }
+.sb-macro input, .sb-slider input { accent-color: var(--accent); width: 100%; }
+.sb-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 8px 0; font-size: 12.5px; }
+.sb-inline { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.sb-inline input[type=number], .sb-inline select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
+.sb-inline input[type=number] { width: 80px; }
+.sb-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 6px 16px; }
+.sb-slider { display: grid; grid-template-columns: minmax(0, 1fr) 70px; grid-template-rows: auto auto; gap: 0 8px; font-size: 11.5px; color: var(--muted); }
+.sb-slider span { grid-column: 1 / -1; }
+.sb-slider output { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.sb-layer, .sb-group { border: 1px solid var(--border); border-radius: 12px; padding: 8px 10px 10px; margin: 0 0 10px; background: var(--surface); }
+.sb-layer.muted { opacity: .55; }
+.sb-group summary { cursor: pointer; font-size: 12.5px; font-weight: 650; margin-bottom: 6px; }
+.sb-layer-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.sb-layer-head input { flex: 1; min-width: 0; background: transparent; color: var(--text); border: 1px solid transparent; border-radius: 6px; padding: 3px 6px; font: inherit; font-weight: 650; }
+.sb-layer-head input:hover, .sb-layer-head input:focus { border-color: var(--border); outline: 0; }
+.sb-type { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--accent); white-space: nowrap; }
+.sb-ms { width: 26px; height: 26px; font-size: 11px; font-weight: 700; }
+.sb-ms.on { background: var(--accent); color: var(--on-accent); }
+.sb-choices { display: flex; gap: 12px; margin-bottom: 6px; }
+.utility-btn[hidden], .action[hidden] { display: none; }

@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.0.0-preview.26 — Sound Bench: wind, rain and effects for your games
+
+- **Sound Bench** (Ctrl+Alt+K, or Tools › Sound Bench): make sound effects and ambiences for games. It opens
+  in the middle, next to your documents, and docks elsewhere too. It's the first of the indie developer benches.
+  - **Presets to start from:**
+    - wind: forest breeze, open-field gusts, storm through trees, wind around ruins, window draft;
+    - rain: drizzle, steady rain, downpour, rain on a tent, rain on a metal roof;
+    - campfire, forest stream, distant waterfall and distant thunder;
+    - UI sounds: click, coin pickup, laser, explosion.
+  - **Quick:** shape it with five sliders, *gentle ↔ violent*, *calm ↔ gusty*, *soft ↔ sharp*,
+    *near ↔ distant* and *outdoors ↔ indoors*. Set the length and whether it's a seamless loop or a one-shot.
+  - **Listen while you change things:** the preview is made again a moment after each change and keeps
+    playing from the same spot. You see its waveform, peak and RMS level. Space plays and stops.
+  - **🎲 Variation** (V) makes another take of the same sound. **📌 Pin as A**, change things, then **A/B** (B)
+    to compare. Ctrl+Z / Ctrl+Y undo and redo.
+  - **Layers** show how a sound is built, and you can change everything:
+    - noise beds (white, pink, brown; filters that open with the gusts; drifting whistles; wobble);
+    - streams of events (drops, crackles, ticks: how many, how they ring, click or ping);
+    - synth voices (pitch sweeps, vibrato, repeats);
+    - each layer has its level, pan, width, mute and solo, and an envelope for one-shots;
+    - **Gusts** are the slow, irregular movement that layers follow, so the leaves rustle harder when the
+      wind swells.
+  - **Output:** level, low and high cut, stereo width, room sound, a ceiling, and normalize for one-shots.
+  - **Export** WAV (48 or 44.1 kHz, 16 or 24 bit): one file, or up to 10 variations, each a different take.
+    The recipe is saved next to them (.noorsound.json), so you can open it later and make more.
+  - **Save as my preset** keeps your sounds in the list. Loops have no seam: the end flows into the start.
+  - **One sound at a time:** the preview stops when music, a video or the radio plays, and pauses them when
+    it plays.
+- The same recipe and seed always make exactly the same sound. All of it is made on your computer, with
+  nothing online.
+
 ## 2.0.0-preview.25 — Radio, and fixes from a review
 
 - **Radio** (Ctrl+Alt+I, or Tools › Radio): your internet radio stations, in a panel that docks like the

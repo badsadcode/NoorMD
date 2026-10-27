@@ -162,6 +162,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
           if (m.type.startsWith('gallery.')) { try { return reply(m.id, true, galleryMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('sound.')) { try { return reply(m.id, true, soundMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -423,6 +424,43 @@ function mockHostScript(initial) {
 
 
   // ---- mock Apps Hub (same address rules as AppsHub.cs: http(s) and launcher links; javascript:, file: and the like refused).
+  // Sound Bench: real preset recipes (from the C# presets), renders recorded, the test tone as the preview.
+  const SND = { recipes: {"wind-forest":{"version":1,"name":"Gentle forest breeze","family":"Wind","seed":1,"duration":20,"loop":true,"macros":{"intensity":0.5,"gust":0.5,"brightness":0.5,"distance":0,"shelter":0},"gust":{"rate":5,"depth":0.5,"base":0.35},"layers":[{"type":"noise","name":"Air","mute":false,"solo":false,"gain":-14,"pan":0,"width":0.8,"gustAmount":0.7,"start":0,"attack":0,"release":0,"color":"pink","filter":"lowpass","freq":600,"q":0.7,"gustFilter":0.6,"drift":0,"wobble":0,"wobbleRate":1,"density":20,"decay":10,"pitch":3000,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"noise","name":"Leaves","mute":false,"solo":false,"gain":-30,"pan":0,"width":1,"gustAmount":1,"start":0,"attack":0,"release":0,"color":"white","filter":"bandpass","freq":4500,"q":0.8,"gustFilter":0.3,"drift":0,"wobble":0.5,"wobbleRate":3,"density":20,"decay":10,"pitch":3000,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"events","name":"Leaf ticks","mute":false,"solo":false,"gain":-36,"pan":0,"width":0.9,"gustAmount":1,"start":0,"attack":0,"release":0,"color":"pink","filter":"lowpass","freq":1000,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":25,"decay":6,"pitch":5000,"pitchSpread":1,"tone":0.1,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0}],"master":{"gain":14,"highPass":20,"lowPass":20000,"width":1,"reverb":0,"room":0.5,"normalize":false,"ceiling":-1}},"rain-steady":{"version":1,"name":"Steady rain","family":"Rain","seed":1,"duration":20,"loop":true,"macros":{"intensity":0.5,"gust":0.5,"brightness":0.5,"distance":0,"shelter":0},"gust":{"rate":3,"depth":0.3,"base":0.45},"layers":[{"type":"noise","name":"Rain bed","mute":false,"solo":false,"gain":-22,"pan":0,"width":0.8,"gustAmount":0.4,"start":0,"attack":0,"release":0,"color":"white","filter":"bandpass","freq":3500,"q":0.4,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":20,"decay":10,"pitch":3000,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"noise","name":"Wash","mute":false,"solo":false,"gain":-30,"pan":0,"width":0.8,"gustAmount":0.3,"start":0,"attack":0,"release":0,"color":"pink","filter":"lowpass","freq":1200,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":20,"decay":10,"pitch":3000,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"events","name":"Near drops","mute":false,"solo":false,"gain":-30,"pan":0,"width":0.9,"gustAmount":0.4,"start":0,"attack":0,"release":0,"color":"pink","filter":"lowpass","freq":1000,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":220,"decay":6,"pitch":3000,"pitchSpread":1,"tone":0.3,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"events","name":"Splashes","mute":false,"solo":false,"gain":-28,"pan":0,"width":0.9,"gustAmount":0.4,"start":0,"attack":0,"release":0,"color":"pink","filter":"lowpass","freq":1000,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":15,"decay":25,"pitch":1200,"pitchSpread":0.8,"tone":0.6,"gainSpread":6,"wave":"sine","pitchEnd":0,"hold":0,"vibrato":0,"vibratoRate":6,"repeat":0}],"master":{"gain":15.5,"highPass":20,"lowPass":20000,"width":1,"reverb":0,"room":0.5,"normalize":false,"ceiling":-1}},"ui-coin":{"version":1,"name":"Coin pickup","family":"UI","seed":1,"duration":0.5,"loop":false,"macros":{"intensity":0.5,"gust":0.5,"brightness":0.5,"distance":0,"shelter":0},"gust":{"rate":6,"depth":0,"base":0.5},"layers":[{"type":"synth","name":"Low note","mute":false,"solo":false,"gain":-10,"pan":0,"width":0,"gustAmount":0,"start":0,"attack":0.002,"release":0.02,"color":"pink","filter":"lowpass","freq":1000,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":20,"decay":10,"pitch":988,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"square","pitchEnd":0,"hold":0.05,"vibrato":0,"vibratoRate":6,"repeat":0},{"type":"synth","name":"High note","mute":false,"solo":false,"gain":-10,"pan":0,"width":0,"gustAmount":0,"start":0.07,"attack":0.002,"release":0.3,"color":"pink","filter":"lowpass","freq":1000,"q":0.7,"gustFilter":0,"drift":0,"wobble":0,"wobbleRate":1,"density":20,"decay":10,"pitch":1319,"pitchSpread":0.7,"tone":0.3,"gainSpread":6,"wave":"square","pitchEnd":0,"hold":0.05,"vibrato":0,"vibratoRate":6,"repeat":0}],"master":{"gain":0,"highPass":20,"lowPass":20000,"width":1,"reverb":0,"room":0.5,"normalize":true,"ceiling":-1}}}, renders: [], exports: [], mine: [], opened: null };
+  state.sound = SND;
+  function soundMock(type, p) {
+    const builtIn = [{ id: 'wind-forest', family: 'Wind', name: 'Gentle forest breeze', description: 'Soft air through trees.' }, { id: 'rain-steady', family: 'Rain', name: 'Steady rain', description: 'Rain all around.' }, { id: 'ui-coin', family: 'UI', name: 'Coin pickup', description: 'Two notes.' }];
+    switch (type) {
+      case 'sound.presets': return { builtIn, mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })) };
+      case 'sound.preset': {
+        const mine = SND.mine.find((x) => x.id === p.id);
+        if (mine) return JSON.parse(JSON.stringify(mine.recipe));
+        if (!SND.recipes[p.id]) throw new Error('Unknown preset.');
+        return JSON.parse(JSON.stringify(SND.recipes[p.id]));
+      }
+      case 'sound.render': {
+        SND.renders.push(JSON.parse(JSON.stringify(p.recipe)));
+        const peaks = []; for (let i = 0; i < 600; i++) { const v = 0.3 + 0.2 * Math.sin(i / 20) * (p.recipe.macros.intensity + 0.2); peaks.push(-v, v); }
+        return { url: '/_media/4', seconds: Math.min(30, p.recipe.duration), peakDb: -6.5 + p.recipe.macros.intensity * 4, rmsDb: -23 + p.recipe.macros.intensity * 6, cut: p.recipe.duration > 30, peaks };
+      }
+      case 'sound.export': {
+        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits });
+        const stem = p.recipe.name.replace(/ /g, '_');
+        const files = p.variations > 1 ? Array.from({ length: p.variations }, (_, i) => `${stem}_${String(i + 1).padStart(2, '0')}.wav`) : [stem + '.wav'];
+        return { folder: 'D:\\Game\\Audio', files, recipe: stem + '.noorsound.json' };
+      }
+      case 'sound.reveal': if (p.folder !== 'D:\\Game\\Audio') throw new Error('That is not a folder the sounds went to.'); SND.opened = p.folder; return null;
+      case 'sound.save': {
+        const id = 'user:' + p.recipe.name + '.json';
+        const replaced = SND.mine.some((x) => x.id === id);
+        SND.mine = SND.mine.filter((x) => x.id !== id).concat([{ id, recipe: JSON.parse(JSON.stringify(p.recipe)) }]);
+        return { id, replaced, mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })) };
+      }
+      case 'sound.delete': SND.mine = SND.mine.filter((x) => x.id !== p.id); return { mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })) };
+      case 'sound.open': return { recipe: { ...JSON.parse(JSON.stringify(SND.recipes['ui-coin'])), name: 'Opened coin' } };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+
   // Radio: stations, the relay (a token and the test tone as the "stream"), and the online directory.
   const RAD = { stations: (initial.radio || []).map((x, i) => ({ id: i + 1, homepage: null, tags: [], favorite: false, added: '2024-01-01T00:00:00Z', lastPlayed: null, plays: 0, ...x })), next: (initial.radio || []).length + 1,
     played: [], stops: 0, searches: [], token: 0, push: (name, payload) => event(name, payload) };

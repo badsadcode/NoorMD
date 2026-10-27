@@ -751,6 +751,23 @@ public partial class MainWindow
             upstream.Stop();
         }
 
+        // Sound Bench: a preset renders in the app and the page plays the preview (a WAV served from memory).
+        {
+            await Eval("NoorSound.open()");
+            var sb = "";
+            for (var i = 0; i < 60; i++)
+            {
+                await Task.Delay(100);
+                sb = await Eval("(() => { const s = NoorSound._state(); return s.render ? JSON.stringify({ url: s.render.url, seconds: s.render.seconds, peak: s.render.peakDb, rms: s.render.rmsDb }) : ''; })()");
+                if (sb.Contains("_sound")) break;
+            }
+            await Eval("window.__sbd = null; (() => { const a = new Audio(); a.muted = true; a.onloadedmetadata = () => window.__sbd = a.duration; a.onerror = () => window.__sbd = 'error ' + (a.error && a.error.code); a.src = NoorSound._state().render.url; })()");
+            var dur = "null";
+            for (var i = 0; i < 40 && dur == "null"; i++) { await Task.Delay(100); dur = await Eval("window.__sbd"); }
+            Check("Sound Bench: a preset renders and the page can play its preview", sb.Contains("_sound") && double.TryParse(dur, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sbSeconds) && Math.Abs(sbSeconds - 20) < 0.1, $"{sb} duration {dur}");
+            await Eval("NoorSound.close()");
+        }
+
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
         await Eval(@"window.__vt = null; (async () => {
             let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }
