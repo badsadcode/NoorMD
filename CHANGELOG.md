@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.0.0-preview.21 — Affinity previews the right way up
+
+- **Fix: Affinity Photo files showed upside down and mirrored** in the Gallery (previews and the viewer).
+  Their thumbnails come from Windows already the right way up, and NoorMD flipped them as if they were
+  icons. NoorMD now checks which way each picture is stored. Old previews are made again once.
+
 ## 2.0.0-preview.20 — Video controls in full screen and in the pop-out
 
 - **Full screen in the Video Bench** now has controls on the video: the timeline, previous / play / next,

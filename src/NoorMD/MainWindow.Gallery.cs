@@ -28,7 +28,17 @@ public partial class MainWindow
     private GalleryLibrary Gallery => _galleryLib ??= new GalleryLibrary(Path.Combine(App.Paths.Local, "Gallery", "library.db"));
     private GalleryOrganizer? _galleryOrganizer;
     private GalleryOrganizer Organizer => _galleryOrganizer ??= new GalleryOrganizer(Gallery);
-    private static string ThumbFolder => Path.Combine(App.Paths.Local, "Gallery", "thumbs");
+    // "thumbs2": previews made before preview.21 could be upside down (top-down thumbnails from Affinity); they are made again.
+    private static string ThumbFolder => Path.Combine(App.Paths.Local, "Gallery", "thumbs2");
+    private static bool _oldThumbsCleared;
+
+    private static void ClearOldThumbs()
+    {
+        if (_oldThumbsCleared) return;
+        _oldThumbsCleared = true;
+        var old = Path.Combine(App.Paths.Local, "Gallery", "thumbs");
+        if (Directory.Exists(old)) _ = Task.Run(() => { try { Directory.Delete(old, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Removing old Gallery previews failed", ex); } });
+    }
 
     /// <summary>Serves /_img/{id} (the picture) and /_thumb/{id} (a small preview, made on first use).</summary>
     private bool TryServeGallery(Uri uri, CoreWebView2WebResourceRequestedEventArgs e, CoreWebView2Environment env)
@@ -92,6 +102,7 @@ public partial class MainWindow
     /// </summary>
     internal static string? EnsureThumb(GalleryImage img, int size = ThumbSize)
     {
+        ClearOldThumbs();
         var src = new FileInfo(img.Path);
         var stem = Path.Combine(ThumbFolder, img.Id + (size == ThumbSize ? "" : "-" + size));
         foreach (var ext in new[] { ".jpg", ".png" })

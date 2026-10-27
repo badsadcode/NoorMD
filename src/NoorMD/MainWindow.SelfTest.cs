@@ -632,6 +632,28 @@ public partial class MainWindow
                 var packed = NoorMD.Media.GalleryZip.Create(Gallery.Query(new NoorMD.Media.GalleryQuery()).Select(i => i.Path).ToList(), zip);
                 Check("Gallery: album rename and back, and a ZIP of the pictures", renamedOk && Directory.Exists(picDir) && packed == 2 && File.Exists(zip), $"{renamedOk} {packed}");
             }
+            // Windows' thumbnails (the way Affinity and Photoshop files get previews) come out the right way up.
+            {
+                var px = new byte[60 * 40 * 3];
+                for (var y = 0; y < 40; y++) for (var x = 0; x < 60; x++) { var i = (y * 60 + x) * 3; if (y < 20) px[i + 2] = 255; else px[i] = 255; } // red on top, blue below (BGR)
+                var up = System.Windows.Media.Imaging.BitmapSource.Create(60, 40, 96, 96, System.Windows.Media.PixelFormats.Bgr24, null, px, 60 * 3);
+                var upEnc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+                upEnc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(up));
+                var upFile = Path.Combine(SelfTestDir!, "Pictures", "orientation.png");
+                using (var fs = File.Create(upFile)) upEnc.Save(fs);
+                var thumbPng = await Task.Run(() => Host.ShellIcons.Thumbnail(upFile, 64));
+                var orientation = "no thumbnail";
+                if (thumbPng != null)
+                {
+                    var f = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(thumbPng));
+                    var conv = new System.Windows.Media.Imaging.FormatConvertedBitmap(f, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+                    var top = new byte[4]; var bottom = new byte[4];
+                    conv.CopyPixels(new System.Windows.Int32Rect(conv.PixelWidth / 2, 2, 1, 1), top, 4, 0);
+                    conv.CopyPixels(new System.Windows.Int32Rect(conv.PixelWidth / 2, conv.PixelHeight - 3, 1, 1), bottom, 4, 0);
+                    orientation = top[2] > 200 && top[0] < 60 && bottom[0] > 200 && bottom[2] < 60 ? "upright" : $"top {top[2]},{top[1]},{top[0]} bottom {bottom[2]},{bottom[1]},{bottom[0]}";
+                }
+                Check("Gallery: Windows thumbnails (Affinity, Photoshop) are the right way up", orientation is "upright" or "no thumbnail", orientation);
+            }
             Gallery.RemoveFolder(gid);
         }
 
