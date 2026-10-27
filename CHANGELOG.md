@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0-preview.14 — Apps Hub
+
+- **Apps Hub** (Ctrl+Alt+H, or Tools › Apps Hub) holds your shortcuts to programs, games, folders,
+  files and websites, as tiles with their pictures.
+  - It's a dock panel like the benches: left, right or bottom.
+  - Programs, games, folders and files get the icon Windows shows for them. That includes Steam and
+    Epic desktop shortcuts (.url) and .lnk shortcuts.
+  - Websites get a coloured letter tile, or a picture you choose. NoorMD downloads nothing for
+    them.
+  - Shortcuts sit in groups (Apps, Games, Web… or your own) with a *Recently used* row and search.
+    Enter starts the first match.
+  - Right-click to start, edit (name, group, start arguments such as `-novid`), change the picture
+    or go back to the Windows icon, show in Explorer, move to the start, or remove.
+  - Web addresses can be http(s) or launcher links such as `steam://` and `discord://`.
+    `javascript:`, `file:` and similar are refused. Programs start only from what you added, by its
+    id, so a document or web page can never start a program.
+
 ## 2.0.0-preview.13 — Tags and the new-Vault wizard
 
 - **Tags in Vault notes**, written the Obsidian way: `#idea`, nested `#project/alpha`, or

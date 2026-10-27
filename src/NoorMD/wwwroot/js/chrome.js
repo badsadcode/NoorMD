@@ -276,7 +276,7 @@ window.NoorChrome = (() => {
     ]],
     ['Tools', 't', () => [
       { id: 'palette.show' }, { id: 'stats.show' }, { id: 'goal.set' }, '-', { id: 'snapshot.create' }, { id: 'history.show' }, '-',
-      { label: 'NoorSketch', sub: () => [{ id: 'sketch.new' }, { id: 'sketch.open' }] },
+      { label: 'NoorSketch', sub: () => [{ id: 'sketch.new' }, { id: 'sketch.open' }] }, { id: 'apps.toggle' },
     ]],
     ['Help', 'h', () => [
       { id: 'shortcuts.show' }, { id: 'help.guide' }, '-', { id: 'help.diagnostics' }, { id: 'help.repo' }, { id: 'about.show' },

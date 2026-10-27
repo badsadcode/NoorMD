@@ -2545,6 +2545,66 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with tags and the Vault wizard', unexpected.length === 0, unexpected);
       await page.close();
     }
+
+    // ---- 28. Apps Hub: shortcuts with pictures in a dock panel; start, edit, group, remove; safe addresses only.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const H = () => page.evaluate(() => window.__mock.state.hub);
+      await page.keyboard.press('Control+Alt+h');
+      await page.waitForSelector('#dock-right #appshub:not([hidden])');
+      check('Ctrl+Alt+H opens the Apps Hub in a dock', (await page.textContent('#apps-body')).includes('Your apps, games and sites'));
+      await page.click('#apps-body button:has-text("Program or game")');
+      await page.waitForSelector('.app-tile');
+      check('programs and games are added with their pictures', (await page.$$('.app-tile')).length === 2 && await page.evaluate(() => document.querySelector('.app-tile img.app-pic').complete && document.querySelector('.app-tile img.app-pic').naturalWidth > 0));
+      check('…grouped (Apps, Games)', (await page.$$eval('.apps-group h4', (n) => n.map((x) => x.textContent))).join(',') === 'Apps,Games');
+      check('a shortcut without a picture gets a letter tile', (await page.textContent('.app-tile[data-id="h2"] .app-letter')) === 'D');
+      // Websites: launcher links are fine, dangerous schemes are refused.
+      await page.click('#apps-add');
+      await page.click('.menu-popup .menu-item:has-text("Website")');
+      await page.fill('#apps-url', 'javascript:alert(1)');
+      await page.click('#apps-web-ok');
+      await page.waitForTimeout(150);
+      check('javascript: and file: addresses are refused', (await H()).items.length === 2 && await page.isVisible('#apps-url'));
+      if ((await page.$$('.modal')).length > 1) await page.keyboard.press('Escape'); // close the error, keep the form
+      await page.fill('#apps-url', 'https://studio.youtube.com');
+      await page.fill('#apps-name', 'YouTube Studio');
+      await page.click('#apps-web-ok');
+      await waitFn(page, () => window.__mock.state.hub.items.length === 3);
+      check('a website is added (name and group)', (await H()).items[2].name === 'YouTube Studio' && (await H()).items[2].group === 'Web');
+      // Start, recently used, search.
+      await page.click('.app-tile[data-id="h1"]');
+      await page.click('.app-tile[data-id="h3"]');
+      await waitFn(page, () => window.__mock.state.hub.launched.length === 2);
+      await waitFn(page, () => !!document.querySelector('.apps-group h4') && document.querySelector('.apps-group h4').textContent === 'Recently used');
+      check('a click starts it, by id only, and it shows under Recently used', JSON.stringify((await H()).launched) === '["h1","h3"]');
+      await page.fill('#apps-search', 'dota');
+      await waitFn(page, () => document.querySelectorAll('.app-tile').length === 1);
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.hub.launched.length === 3);
+      check('search + Enter starts the first match', (await H()).launched[2] === 'h2');
+      await page.fill('#apps-search', '');
+      // Right-click: edit, move to the start, remove.
+      await page.click('.apps-group[data-group="Games"] .app-tile[data-id="h2"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Edit")');
+      await page.fill('#apps-name', 'Dota 2 (beta)');
+      await page.fill('#apps-args', '-novid');
+      await page.click('#apps-edit-ok');
+      await waitFn(page, () => window.__mock.state.hub.items.find((i) => i.id === 'h2').name === 'Dota 2 (beta)');
+      check('Edit changes the name and the start arguments', (await H()).items.find((i) => i.id === 'h2').arguments === '-novid');
+      await page.click('.apps-group[data-group="Web"] .app-tile[data-id="h3"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Move to the start")');
+      await waitFn(page, () => window.__mock.state.hub.items[0].id === 'h3');
+      await page.click('.apps-group[data-group="Apps"] .app-tile[data-id="h1"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Remove from the hub")');
+      await page.click('.modal button:has-text("Remove")');
+      await waitFn(page, () => window.__mock.state.hub.items.length === 2);
+      check('Remove takes the shortcut out (after asking)', !(await H()).items.some((i) => i.id === 'h1'));
+      check('the Apps Hub can move to another dock like the benches', await page.evaluate(() => { window.NoorDock.place('apps', 'left'); return !!document.querySelector('#dock-left #appshub'); }));
+      const unexpected = errors.filter((e) => !/status of 404|addresses can't be added/.test(e));
+      check('no page errors in the Apps Hub', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/apps-hub.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

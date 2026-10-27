@@ -555,6 +555,29 @@ public partial class MainWindow
         await Eval("NoorDock.applyPreset('classic'); NoorMusic.togglePanel(false); NoorStream.close()");
         await Task.Delay(300);
 
+        // Apps Hub: the Windows icon of a program, with transparency, shown in the page (nothing is started).
+        var notepad = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "notepad.exe");
+        if (File.Exists(notepad))
+        {
+            var hubItem = await AddHubPathAsync(notepad, null);
+            var iconFile = hubItem.Icon != null ? Path.Combine(Hub.IconsFolder, hubItem.Icon) : null;
+            var png = iconFile != null && File.Exists(iconFile) ? File.ReadAllBytes(iconFile) : [];
+            var transparentCorner = false;
+            if (png.Length > 0)
+            {
+                var frame = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(png));
+                var px = new byte[4];
+                frame.CopyPixels(new System.Windows.Int32Rect(0, 0, 1, 1), px, 4, 0);
+                transparentCorner = px[3] < 40;
+            }
+            Check("Apps Hub: a program gets its Windows icon, with a transparent background", png.Length > 200 && transparentCorner, $"{png.Length} bytes");
+            await Eval($"window.__hi = null; (() => {{ const i = new Image(); i.onload = () => window.__hi = i.naturalWidth; i.onerror = () => window.__hi = -1; i.src = '/_hubicon/{hubItem.Icon}'; }})()");
+            var shown = "null";
+            for (var i = 0; i < 20 && shown == "null"; i++) { await Task.Delay(100); shown = await Eval("window.__hi"); }
+            Check("…and the page shows it", int.TryParse(shown, out var hw) && hw >= 32, shown);
+            Hub.Remove(hubItem.Id);
+        }
+
         var status = await PageRequest("mic.status", "{}");
         Check("the page reads Mic Guard's state (off until switched on)", status.Contains("\"verdict\":\"notsetup\"") && status.Contains("\"windows\":false") && status.Contains("\"devices\":["), status.Length > 300 ? status[..300] : status);
     }

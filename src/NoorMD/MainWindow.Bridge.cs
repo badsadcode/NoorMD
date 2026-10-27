@@ -135,6 +135,8 @@ public partial class MainWindow
                 return await DispatchVaultAsync(req);
             case var stream when stream.StartsWith("stream.", StringComparison.Ordinal):
                 return await DispatchStreamAsync(req);
+            case var apps when apps.StartsWith("apps.", StringComparison.Ordinal):
+                return await DispatchAppsAsync(req);
             case var mic when mic.StartsWith("mic.", StringComparison.Ordinal):
                 return await DispatchMicAsync(req);
             case var video when video.StartsWith("video.", StringComparison.Ordinal):

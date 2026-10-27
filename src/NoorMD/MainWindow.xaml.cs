@@ -135,6 +135,7 @@ public partial class MainWindow : Window
         {
             if (!Uri.TryCreate(e.Request.Uri, UriKind.Absolute, out var uri)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeMedia(uri, e)) return;
+            if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeHubIcon(uri, e, Core.Environment)) return;
             if (e.Request.Method == "GET" && AssetResolver.IsAppUri(uri) && TryServeVideo(uri, e, Core.Environment)) return;
             var file = e.Request.Method == "GET" ? AssetResolver.Resolve(uri, _webRoot, ActiveSession?.Folder, VaultRootFor(ActiveSession?.Path)) : null;
             if (file == null)

@@ -42,6 +42,7 @@ function serve() {
     if (vid) { serveMedia(Number(vid[1]), req, res, true); return; }
     if (/^\/_sub\/\d+\/0$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }); res.end('WEBVTT\n\n00:00:00.500 --> 00:00:05.000\nHello from the subtitles\n'); return; }
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
+    if (url.pathname.startsWith('/_hubicon/')) { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M9QzwAEjDAGNzYAAA1bAgNOzQdTAAAAAElFTkSuQmCC', 'base64')); return; }
     let rel = url.pathname === '/' ? 'index.html' : url.pathname.startsWith('/_noormd/') ? url.pathname.slice('/_noormd/'.length) : null;
     if (!rel) { res.writeHead(404); res.end(); return; }
     const file = path.join(WWW, decodeURIComponent(rel));
@@ -157,6 +158,7 @@ function mockHostScript(initial) {
           if (m.type === 'vault.pack.create') { packCreate(m.id, p); return; }
           if (m.type.startsWith('vault.')) { try { return reply(m.id, true, vaultMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
+          if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('stream.')) { try { return reply(m.id, true, streamMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('video.')) { try { return reply(m.id, true, videoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -410,6 +412,42 @@ function mockHostScript(initial) {
       case 'mic.obs.forget': MIC.stored = false; return status();
       case 'mic.set': set(!!p.muted); return status();
       case 'mic.toggle': set(verdict() !== 'muted'); return status();
+      default: return null;
+    }
+  }
+
+
+  // ---- mock Apps Hub (same address rules as AppsHub.cs: http(s) and launcher links; javascript:, file: and the like refused).
+  const HUB = { items: [], launched: [], next: 1 };
+  state.hub = HUB;
+  function appsMock(type, p) {
+    const payload = () => ({ items: HUB.items.map((i) => ({ ...i })), groups: [...new Set(HUB.items.map((i) => i.group))] });
+    const get = (id) => HUB.items.find((i) => i.id === id) || (() => { throw new Error('That shortcut is no longer in the hub.'); })();
+    const item = (o) => ({ id: 'h' + HUB.next++, arguments: null, color: null, icon: null, lastUsed: null, uses: 0, exists: true, ...o });
+    switch (type) {
+      case 'apps.list': return payload();
+      case 'apps.add': {
+        const added = p.kind === 'folder' ? [item({ name: 'Projects', kind: 'folder', target: 'C:\\Projects', group: 'Folders' })]
+          : [item({ name: 'OBS Studio', kind: 'app', target: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', group: 'Apps', icon: '/_hubicon/obs.png' }),
+            item({ name: 'Dota 2', kind: 'app', target: 'C:\\Users\\me\\Desktop\\Dota 2.url', group: 'Games' })];
+        HUB.items.push(...added);
+        return { added, hub: payload() };
+      }
+      case 'apps.addWeb': {
+        const m = /^([a-z][a-z0-9+.-]*):/i.exec(String(p.url || '').trim());
+        if (!m || !/^[a-z][a-z0-9+.-]*:\/?\/?\S+/i.test(p.url)) throw new Error('That is not a full address (for example https://example.com or steam://rungameid/570).');
+        if (['javascript', 'vbscript', 'data', 'file', 'about', 'ms-msdt', 'search-ms', 'shell'].includes(m[1].toLowerCase())) throw new Error(`“${m[1]}:” addresses can't be added to the hub.`);
+        const it = item({ name: p.name || new URL(p.url).host.replace('www.', '') || m[1], kind: 'web', target: p.url.trim(), group: p.group || 'Web' });
+        HUB.items.push(it);
+        return { added: [it], hub: payload() };
+      }
+      case 'apps.update': { const i = get(p.id); if (p.name) i.name = p.name; if (p.group != null) i.group = p.group || 'Apps'; if (p.arguments != null) i.arguments = p.arguments || null; if (p.url != null && i.kind === 'web') i.target = p.url; return payload(); }
+      case 'apps.remove': HUB.items = HUB.items.filter((i) => i.id !== p.id); return payload();
+      case 'apps.reorder': { const first = p.ids.map(get); HUB.items = [...first, ...HUB.items.filter((i) => !first.includes(i))]; return payload(); }
+      case 'apps.launch': { const i = get(p.id); HUB.launched.push(i.id); i.uses++; i.lastUsed = new Date(Date.now() + HUB.launched.length).toISOString(); return { ...i }; }
+      case 'apps.icon.pick': get(p.id).icon = '/_hubicon/custom.png'; return payload();
+      case 'apps.icon.reset': get(p.id).icon = null; return payload();
+      case 'apps.reveal': return null;
       default: return null;
     }
   }
