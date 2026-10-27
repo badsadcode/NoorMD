@@ -3211,6 +3211,47 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/gallery-tools.png` });
       await page.close();
     }
+
+    // ---- 36. Music Bench in the middle: Now playing and Up next on the left, the library as a table with sortable columns.
+    {
+      const { page, errors } = await open(browser, url, { musicTracks: 300, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.keyboard.press('Control+Shift+M');
+      await page.waitForSelector('#music-list .track[data-index]');
+      check('in a side dock the library keeps two-line rows', !(await page.$('#music.wide')) && (await page.$eval('#music-list .track[data-index]', (n) => n.offsetHeight)) === 50);
+      await page.evaluate(() => NoorDock.place('music', 'center'));
+      await page.waitForSelector('#music.wide #music-list .track.wide-row');
+      const g = await page.evaluate(() => {
+        const r = (q) => document.querySelector(q).getBoundingClientRect();
+        return { np: r('#nowplaying'), side: r('#music-side'), list: r('#music-list'), art: r('#np-art').width, row: document.querySelector('#music-list .track.wide-row').offsetHeight,
+          heads: [...document.querySelectorAll('#music-cols .col')].map((c) => c.textContent.trim()), queueTab: document.querySelector('#music .music-tabs button[data-tab="queue"]').offsetParent !== null };
+      });
+      check('in the middle, Now playing and Up next sit on the left of the library', g.np.right <= g.list.left && g.side.right <= g.list.left && g.side.top >= g.np.bottom - 1, g);
+      check('…with a big cover and one-line rows', g.art >= 200 && g.row === 34, g);
+      check('…and column heads (Title, Artist, Album, Year, Time…)', ['Title ▲', 'Artist', 'Album', 'Year', 'Time'].every((h) => g.heads.includes(h)), g.heads);
+      check('…and Up next is not a tab there (it is always shown)', !g.queueTab);
+      check('artist and genre have their own columns', await page.evaluate(() => [...document.querySelectorAll('#music-list .c-artist')].some((n) => n.textContent === 'Noor') && [...document.querySelectorAll('#music-list .c-genre')].some((n) => n.textContent === 'Synthwave')));
+      await page.click('#music-cols .col[data-sort="duration"]');
+      await waitFn(page, () => document.querySelector('#music-list .track[data-index="0"] .c-time')?.textContent === '0:02');
+      check('a click on a column head sorts by it', (await page.textContent('#music-cols .col.active')).includes('Time ▲'));
+      await page.click('#music-cols .col[data-sort="duration"]');
+      await waitFn(page, () => document.querySelector('#music-list .track[data-index="0"] .c-time')?.textContent === '4:59');
+      check('…and a second click turns the order around', (await page.getAttribute('#music-cols .col.active', 'aria-sort')) === 'descending' && (await page.inputValue('#music-sort')) === 'duration');
+      await page.dblclick('#music-list .track[data-index="0"] .c-title');
+      await waitFn(page, () => !!document.querySelector('#music-side-queue .qitem.current'));
+      check('playing fills Up next on the left', (await page.$$('#music-side-queue .qitem')).length > 5);
+      check('the mini-player steps aside while the Music Bench is shown in the middle', await page.isHidden('#miniplayer'));
+      await page.evaluate(() => NoorDock.showDocuments());
+      await page.waitForSelector('#miniplayer', { state: 'visible' });
+      check('…and is back with the document', true);
+      await page.evaluate(() => NoorDock.activate('music'));
+      await page.evaluate(() => NoorDock.place('music', 'right'));
+      await waitFn(page, () => !document.querySelector('#music.wide') && document.querySelector('#music-list .track[data-index]')?.offsetHeight === 50);
+      check('back in a side dock it is the narrow bench again', await page.isVisible('#music .music-tabs button[data-tab="queue"]') && await page.isHidden('#music-cols'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in the wide Music Bench', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/music-middle.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

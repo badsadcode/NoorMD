@@ -85,6 +85,7 @@ window.NoorDock = (() => {
     center.active = panel;
     for (const p of center.open) hooks.panels[p].el()?.classList.toggle('center-hidden', p !== panel);
     document.body.classList.add('center-active');
+    document.body.dataset.center = panel; // CSS: e.g. no mini-player while the Music Bench itself is shown
     renderModuleTabs();
     requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); hooks.panels[panel].el()?.focus({ preventScroll: true }); });
   }

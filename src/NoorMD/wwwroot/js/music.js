@@ -6,7 +6,12 @@ window.NoorMusic = (() => {
   const { $, el, notice } = NoorUI;
   const bridge = NoorBridge;
 
-  const ROW = 50;            // px per virtual-list row
+  // px per virtual-list row: two lines in a side panel; one line with columns when the bench is wide (in the middle).
+  let wide = false;
+  const rowH = () => (wide ? 34 : 50);
+  // Columns of the wide library: [label, sort key or null, class].
+  const COLUMNS = [['Title', 'title', 'c-title'], ['Artist', 'artist', 'c-artist'], ['Album', null, 'c-album'], ['Genre', 'genre', 'c-genre'], ['Year', 'year', 'c-year'],
+    ['', 'triage', 'c-triage'], ['Plays', 'plays', 'c-plays'], ['Time', 'duration', 'c-time']];
   const PAGE = 200;          // rows fetched per request
   const TRIAGE = [
     { v: 0, key: '0', label: 'Untriaged', short: '—', icon: '○' },
@@ -144,11 +149,15 @@ window.NoorMusic = (() => {
           el('button', { class: 'icon-btn', id: 'music-locate', title: 'Show the playing song in the list', 'aria-label': 'Show the playing song in the list', onclick: () => revealPlaying() }, '◎')),
         el('div', { class: 'music-chips', id: 'music-chips' }),
         el('div', { class: 'music-viewbar', id: 'music-viewbar' }),
+        el('div', { class: 'music-cols', id: 'music-cols', role: 'row', 'aria-label': 'Sort by column' }),
         el('div', { class: 'music-list', id: 'music-list', tabindex: '0', role: 'listbox', 'aria-label': 'Tracks' }, el('div', { class: 'music-spacer', id: 'music-spacer' })),
         el('div', { class: 'music-empty hide', id: 'music-empty' })),
       el('div', { class: 'music-pane hide', 'data-pane': 'queue' }, el('div', { class: 'music-queue', id: 'music-queue' })),
       el('div', { class: 'music-pane hide', 'data-pane': 'playlists' }, el('div', { class: 'music-playlists', id: 'music-playlists' })),
       el('div', { class: 'music-pane hide', 'data-pane': 'sound' }, el('div', { class: 'music-sound', id: 'music-sound' })),
+      el('section', { class: 'music-side', id: 'music-side', 'aria-label': 'Up next' },
+        el('h4', { class: 'music-subhead', text: 'Up next' }),
+        el('div', { class: 'music-queue', id: 'music-side-queue' })),
       el('div', { class: 'music-foot' },
         el('span', { id: 'music-scan', class: 'music-scan' }),
         el('button', { class: 'utility-btn', onclick: showFolders }, '📁 Folders')),
@@ -185,9 +194,36 @@ window.NoorMusic = (() => {
       playView(Number(node.dataset.index));
     });
     new ResizeObserver(() => requestAnimationFrame(renderList)).observe(list);
+    // With room (in the middle) the bench spreads out: Now playing and Up next on the left, the library with columns on the right.
+    new ResizeObserver(() => setWide(panel.clientWidth >= 900)).observe(panel);
     renderChips();
+    renderColumns();
 
     // Its size is the dock's (dock.js), resized from the dock's inner edge.
+  }
+
+  function setWide(on) {
+    if (on === wide) return;
+    const list = $('#music-list');
+    const topIndex = list ? Math.floor(list.scrollTop / rowH()) : 0;
+    wide = on;
+    $('#music').classList.toggle('wide', on);
+    if (on && tab === 'queue') setTab('library'); // Up next is always shown on the left
+    renderColumns();
+    if (list) list.scrollTop = topIndex * rowH();
+    renderList();
+    renderQueue();
+  }
+
+  /** The column heads of the wide library: a click sorts by that column, a second click turns the order around. */
+  function renderColumns() {
+    const box = $('#music-cols');
+    if (!box) return;
+    box.replaceChildren(el('span', { class: 'track-state' }), ...COLUMNS.map(([label, key, cls]) => key
+      ? el('button', { class: 'col ' + cls + (view.sort === key ? ' active' : ''), 'data-sort': key, title: key === 'triage' ? 'Sort by triage' : `Sort by ${label.toLowerCase()}`, 'aria-sort': view.sort === key ? (view.desc ? 'descending' : 'ascending') : 'none',
+        onclick: () => setView(view.sort === key ? { desc: !view.desc } : { sort: key, desc: key === 'plays' || key === 'year' }) },
+        (label || '★') + (view.sort === key ? (view.desc ? ' ▼' : ' ▲') : ''))
+      : el('span', { class: 'col ' + cls, text: label })), el('span', { class: 'track-actions-space' }));
   }
 
   function setTab(id) {
@@ -263,6 +299,7 @@ window.NoorMusic = (() => {
     selected = -1; sel = new Set(); anchor = -1;
     $('#music-list').scrollTop = 0;
     renderChips();
+    renderColumns();
     renderViewbar();
     await loadView(true);
   }
@@ -296,14 +333,14 @@ window.NoorMusic = (() => {
     const list = $('#music-list');
     if (!list || list.offsetParent === null) return;
     const spacer = $('#music-spacer');
-    spacer.style.height = view.total * ROW + 'px';
-    const first = Math.max(0, Math.floor(list.scrollTop / ROW) - 5);
-    const last = Math.min(view.total, Math.ceil((list.scrollTop + list.clientHeight) / ROW) + 5);
+    spacer.style.height = view.total * rowH() + 'px';
+    const first = Math.max(0, Math.floor(list.scrollTop / rowH()) - 5);
+    const last = Math.min(view.total, Math.ceil((list.scrollTop + list.clientHeight) / rowH()) + 5);
     const missingPages = new Set();
     const nodes = [];
     for (let i = first; i < last; i++) {
       const row = viewRows.get(i);
-      if (!row) { missingPages.add(Math.floor(i / PAGE) * PAGE); nodes.push(el('div', { class: 'track loading', style: `top:${i * ROW}px` }, el('span', { class: 'muted', text: '…' }))); continue; }
+      if (!row) { missingPages.add(Math.floor(i / PAGE) * PAGE); nodes.push(el('div', { class: 'track loading', style: `top:${i * rowH()}px` }, el('span', { class: 'muted', text: '…' }))); continue; }
       nodes.push(trackRow(row, i));
     }
     spacer.replaceChildren(...nodes);
@@ -314,9 +351,27 @@ window.NoorMusic = (() => {
   function trackRow(row, i) {
     const playing = row.id === currentId();
     const t = TRIAGE[row.triage] || TRIAGE[0];
+    if (wide) return el('div', {
+      class: 'track wide-row' + (sel.has(i) ? ' selected' : '') + (i === selected ? ' cursor' : '') + (playing ? ' playing' : '') + (row.missing ? ' missing' : ''),
+      style: `top:${i * rowH()}px`, role: 'option', 'aria-selected': String(sel.has(i)), 'data-index': String(i), 'data-id': String(row.id),
+      title: row.folder + '\\' + row.fileName + (row.missing ? '\nMissing on disk' : row.readError ? '\nTags unreadable' : ''),
+    },
+    el('span', { class: 'track-state', text: playing ? (audio.paused ? '❚❚' : '▶') : '' }),
+    el('span', { class: 'track-title c-title', text: row.displayTitle }),
+    el('span', { class: 'c-artist', text: row.artist || '' }),
+    el('span', { class: 'c-album', text: row.album || '' }),
+    el('span', { class: 'c-genre', text: row.genre || '' }),
+    el('span', { class: 'c-year', text: row.year ? String(row.year) : '' }),
+    el('span', { class: 'track-triage c-triage t' + row.triage, title: t.label, text: row.triage ? t.icon : '' }),
+    el('span', { class: 'c-plays', text: row.plays ? String(row.plays) : '' }),
+    el('span', { class: 'track-time c-time', text: fmt(row.duration) }),
+    el('span', { class: 'track-actions' },
+      el('button', { class: 'icon-btn', title: 'Play next', 'aria-label': 'Play next', onclick: (e) => { e.stopPropagation(); playNext([row.id]); } }, '⤵'),
+      el('button', { class: 'icon-btn', title: 'Add to Up next', 'aria-label': 'Add to queue', onclick: (e) => { e.stopPropagation(); enqueue([row.id]); } }, '＋'),
+      el('button', { class: 'icon-btn', title: 'Add to playlist', 'aria-label': 'Add to playlist', onclick: (e) => { e.stopPropagation(); addToPlaylist([row.id]); } }, '♪')));
     const node = el('div', {
       class: 'track' + (sel.has(i) ? ' selected' : '') + (i === selected ? ' cursor' : '') + (playing ? ' playing' : '') + (row.missing ? ' missing' : ''),
-      style: `top:${i * ROW}px`, role: 'option', 'aria-selected': String(sel.has(i)), 'data-index': String(i), 'data-id': String(row.id),
+      style: `top:${i * rowH()}px`, role: 'option', 'aria-selected': String(sel.has(i)), 'data-index': String(i), 'data-id': String(row.id),
       title: row.folder + '\\' + row.fileName,
     },
     el('span', { class: 'track-state', text: playing ? (audio.paused ? '❚❚' : '▶') : '' }),
@@ -458,15 +513,15 @@ window.NoorMusic = (() => {
       for (let k = Math.min(anchor, selected); k <= Math.max(anchor, selected); k++) sel.add(k);
     } else { sel = new Set([selected]); anchor = selected; }
     const list = $('#music-list');
-    const top = selected * ROW;
+    const top = selected * rowH();
     if (top < list.scrollTop) list.scrollTop = top;
-    else if (top + ROW > list.scrollTop + list.clientHeight) list.scrollTop = top + ROW - list.clientHeight;
+    else if (top + rowH() > list.scrollTop + list.clientHeight) list.scrollTop = top + rowH() - list.clientHeight;
     renderList();
   }
 
   function onListKey(e) {
     const row = viewRows.get(selected);
-    const page = Math.max(1, Math.floor($('#music-list').clientHeight / ROW) - 1);
+    const page = Math.max(1, Math.floor($('#music-list').clientHeight / rowH()) - 1);
     const map = { ArrowDown: 1, ArrowUp: -1, PageDown: page, PageUp: -page };
     if (map[e.key] != null && !e.ctrlKey && !e.altKey) { e.preventDefault(); selectIndex((selected < 0 ? -1 : selected) + map[e.key], e.shiftKey); return; }
     if (e.key === 'Home' && !e.ctrlKey) { e.preventDefault(); selectIndex(0, e.shiftKey); return; }
@@ -476,7 +531,7 @@ window.NoorMusic = (() => {
       e.preventDefault(); e.stopPropagation();
       const node = document.querySelector(`#music-list .track[data-index="${selected}"]`);
       const r = (node || $('#music-list')).getBoundingClientRect();
-      showTrackMenu(r.left + 40, r.top + ROW);
+      showTrackMenu(r.left + 40, r.top + rowH());
       return;
     }
     if (e.key === 'Escape' && sel.size > 1) { e.preventDefault(); e.stopPropagation(); sel = new Set(selected >= 0 ? [selected] : []); anchor = selected; updateSelection(); return; }
@@ -518,9 +573,9 @@ window.NoorMusic = (() => {
     if (i < 0) return;
     const list = $('#music-list');
     if (!list) return;
-    const top = i * ROW, bottom = top + ROW;
+    const top = i * rowH(), bottom = top + rowH();
     if (top >= list.scrollTop && bottom <= list.scrollTop + list.clientHeight) return; // already visible
-    list.scrollTop = Math.max(0, top - list.clientHeight / 2 + ROW / 2);
+    list.scrollTop = Math.max(0, top - list.clientHeight / 2 + rowH() / 2);
     requestAnimationFrame(renderList);
   }
 
@@ -533,7 +588,7 @@ window.NoorMusic = (() => {
     if (i < 0) { notice('The playing song is not in this view (search, filter or playlist).', 3000); return; }
     setTab('library');
     const list = $('#music-list');
-    list.scrollTop = Math.max(0, i * ROW - list.clientHeight / 2 + ROW / 2);
+    list.scrollTop = Math.max(0, i * rowH() - list.clientHeight / 2 + rowH() / 2);
     selected = i; sel = new Set([i]); anchor = i;
     requestAnimationFrame(() => { renderList(); updateSelection(); });
   }
@@ -816,7 +871,7 @@ window.NoorMusic = (() => {
 
   const currentTriage = () => cache.get(currentId())?.triage ?? 0;
 
-  function renderAll() { renderTransport(); renderTime(); renderList(); if (tab === 'queue') renderQueue(); applyVisibility(); }
+  function renderAll() { renderTransport(); renderTime(); renderList(); renderQueue(); applyVisibility(); }
 
   let lastEmit = { key: '', at: 0 };
   /** Tells the Stream Desk what is playing (for the OBS overlay, now-playing.txt and the stream tracklist). */
@@ -880,8 +935,10 @@ window.NoorMusic = (() => {
   }
 
   function renderQueue() {
-    const box = $('#music-queue');
-    if (!box) return;
+    for (const box of [tab === 'queue' ? $('#music-queue') : null, wide ? $('#music-side-queue') : null]) if (box) fillQueue(box);
+  }
+
+  function fillQueue(box) {
     if (!q.order.length) { box.replaceChildren(el('p', { class: 'music-none', text: 'Up next is empty. Double-click a track, or use ＋ to add tracks.' })); return; }
     const from = Math.max(0, q.pos - 3), to = Math.min(q.order.length, q.pos + 150);
     const items = [];

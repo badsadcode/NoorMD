@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.23-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.24-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -124,6 +124,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **The middle is a dock too:** put any panel (Gallery, Stream Desk, Music Bench…) *In the middle* from its
   ⊞ button. It opens as a tab next to your documents and fills the editing space. Click a document tab to
   get back to writing. The *Streaming, desk in the middle* layout does this for the Stream Desk.
+  There the Music Bench becomes a full player (Now playing and Up next beside a library with sortable
+  columns), the Gallery a picture manager, and the Video Bench puts its lists beside the player.
 - **Docks and layouts:** the Music Bench, Video Bench and Stream Desk dock left, right or under the
   document (⊞ on each panel). The sidebar can sit on either side. Use ready-made layouts (Writing,
   Music + video, Streaming…) or save your own (View › Layout).
@@ -167,8 +169,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.23-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.23-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.24-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.24-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

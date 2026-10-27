@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.0-preview.24 — The Music Bench in the middle
+
+- **Put the Music Bench in the middle** (⊞ › *In the middle*) and it spreads out like a music player:
+  - **on the left:** Now playing with a big cover, the controls and triage, and **Up next** under it, always
+    in view (so it is no longer a tab there);
+  - **on the right:** the library as a table, one line per track, with columns for title, artist, album,
+    genre, year, triage, plays and length. **Click a column head to sort** by it; click it again to turn the
+    order around. In a narrower middle, genre and plays step aside.
+- The mini-player at the bottom steps aside while the Music Bench is shown in the middle, and comes back
+  when you switch to a document.
+- In a side dock the bench stays as it was: two-line rows and the four tabs.
+
 ## 2.0.0-preview.23 — Convert and resize pictures
 
 - **Convert or resize** many pictures at once (right-click › *Convert or resize…*, or ⇲ in the details
