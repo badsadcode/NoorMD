@@ -144,6 +144,8 @@ public partial class MainWindow
                 return await DispatchAppsAsync(req);
             case var mic when mic.StartsWith("mic.", StringComparison.Ordinal):
                 return await DispatchMicAsync(req);
+            case var radio when radio.StartsWith("radio.", StringComparison.Ordinal):
+                return await DispatchRadioAsync(req);
             case var gallery when gallery.StartsWith("gallery.", StringComparison.Ordinal):
                 return await DispatchGalleryAsync(req);
             case var video when video.StartsWith("video.", StringComparison.Ordinal):

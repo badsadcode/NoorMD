@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <!-- The host also sends this policy as a response header. Scripts may only come from the app itself,
      so inline handlers in untrusted Markdown/HTML can never execute. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob: http://127.0.0.1:*; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
 <title>NoorMD</title>
 <link rel="icon" href="data:,">
 <script src="_noormd/js/boot.js"></script>
@@ -193,6 +193,7 @@
 <script src="_noormd/js/apps.js"></script>
 <script src="_noormd/js/voice.js"></script>
 <script src="_noormd/js/gallery.js"></script>
+<script src="_noormd/js/radio.js"></script>
 <script src="_noormd/js/music.js"></script>
 <script src="_noormd/js/player-controls.js"></script>
 <script src="_noormd/js/video.js"></script>

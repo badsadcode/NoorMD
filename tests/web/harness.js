@@ -162,6 +162,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('music.')) return reply(m.id, true, musicMock(m.type, p));
           if (m.type.startsWith('gallery.')) { try { return reply(m.id, true, galleryMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('stream.')) { try { return reply(m.id, true, streamMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -422,6 +423,48 @@ function mockHostScript(initial) {
 
 
   // ---- mock Apps Hub (same address rules as AppsHub.cs: http(s) and launcher links; javascript:, file: and the like refused).
+  // Radio: stations, the relay (a token and the test tone as the "stream"), and the online directory.
+  const RAD = { stations: (initial.radio || []).map((x, i) => ({ id: i + 1, homepage: null, tags: [], favorite: false, added: '2024-01-01T00:00:00Z', lastPlayed: null, plays: 0, ...x })), next: (initial.radio || []).length + 1,
+    played: [], stops: 0, searches: [], token: 0, push: (name, payload) => event(name, payload) };
+  state.radio = RAD;
+  function radioMock(type, p) {
+    const list = () => ({ stations: [...RAD.stations].sort((a, b) => a.name.localeCompare(b.name)).map((x) => ({ ...x, tags: [...x.tags] })) });
+    const get = (id) => RAD.stations.find((x) => x.id === id) || (() => { throw new Error('That station is gone.'); })();
+    const clean = (u) => { if (!/^https?:\/\/[^\s/@]+(\/|$)/i.test(String(u || '').trim())) throw new Error('A station address starts with http:// or https://.'); return String(u).trim(); };
+    switch (type) {
+      case 'radio.list': return list();
+      case 'radio.add': {
+        let url = clean(p.url);
+        if (/\.pls$/i.test(url)) url = url.replace(/\.pls$/i, '/stream'); // the playlist is read for the stream address
+        const known = RAD.stations.find((x) => x.url.toLowerCase() === url.toLowerCase());
+        if (known) return { id: known.id, added: false, ...list() };
+        const st = { id: RAD.next++, name: (p.name || '').trim() || new URL(url).host, url, homepage: p.homepage || null, tags: p.tags || [], favorite: false, added: new Date().toISOString(), lastPlayed: null, plays: 0 };
+        RAD.stations.push(st);
+        return { id: st.id, added: true, ...list() };
+      }
+      case 'radio.update': { const st = get(p.id); Object.assign(st, { name: p.name.trim() || st.name, url: clean(p.url), homepage: p.homepage || null, tags: p.tags || [] }); return list(); }
+      case 'radio.delete': RAD.stations = RAD.stations.filter((x) => x.id !== p.id); return list();
+      case 'radio.favorite': get(p.id).favorite = !!p.on; return list();
+      case 'radio.play': {
+        const url = p.id != null ? get(p.id).url : clean(p.url);
+        if (/broken/.test(url)) throw new Error('The station can\'t be reached: no such host.');
+        RAD.played.push(p.id != null ? p.id : url);
+        if (p.id != null) { const st = get(p.id); st.plays++; st.lastPlayed = new Date().toISOString(); }
+        return { token: 't' + (++RAD.token), url: '/_media/4' };
+      }
+      case 'radio.stop': RAD.stops++; return null;
+      case 'radio.import': RAD.stations.push({ id: RAD.next++, name: 'Imported FM', url: 'http://imported.example/s', homepage: null, tags: [], favorite: false, added: '2024-01-01T00:00:00Z', lastPlayed: null, plays: 0 }); return { added: 1, known: 0, ...list() };
+      case 'radio.export': return { path: 'C:\\Users\\me\\Radio stations.m3u8', count: RAD.stations.length };
+      case 'radio.search': {
+        RAD.searches.push(p.query);
+        const saved = new Set(RAD.stations.map((x) => x.url.toLowerCase()));
+        return [{ name: 'Jazz Radio Kraków', url: 'https://jazz.example/live', homepage: null, tags: ['jazz', 'polish'], country: 'PL', codec: 'MP3', bitrate: 128, hls: false },
+          { name: 'Lofi HLS', url: 'https://hls.example/live.m3u8', homepage: null, tags: ['lofi'], country: 'US', codec: 'AAC', bitrate: 64, hls: true }].map((x) => ({ ...x, saved: saved.has(x.url) }));
+      }
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+
   const HUB = { items: [], launched: [], next: 1, categories: [], view: 'all' };
   state.hub = HUB;
   function appsMock(type, p) {

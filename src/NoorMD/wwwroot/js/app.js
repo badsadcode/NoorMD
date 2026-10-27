@@ -1325,6 +1325,9 @@
     ['stream.supporters', 'Supporters…', 'Stream', '', () => NoorStream.open('supporters')],
     ['stream.log', 'Stream log…', 'Stream', '', () => NoorStream.open('log')],
     ['apps.toggle', 'Apps Hub (your programs, games and sites)', 'Tools', 'Ctrl+Alt+H', () => NoorApps.toggle()],
+    ['radio.toggle', 'Radio (your internet stations)', 'Tools', 'Ctrl+Alt+I', () => NoorRadio.toggle()],
+    ['radio.playpause', 'Radio: play / stop', 'Tools', '', () => NoorRadio.playPause()],
+    ['radio.find', 'Radio: find stations online…', 'Tools', '', () => { NoorRadio.open(); NoorRadio.findOnline(); }],
     ['voice.toggle', 'Voice notes (recorder)', 'Tools', '', () => NoorVoice.toggle()],
     ['gallery.toggle', 'Gallery (your pictures)', 'Tools', 'Ctrl+Alt+G', () => NoorGallery.toggle()],
     ['gallery.slideshow', 'Slideshow of pictures…', 'Tools', '', () => NoorGallery.slideshow()],
@@ -1404,7 +1407,7 @@
     const hasEditor = !!(t && t.editor);
     const checked = {
       'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'), 'view.sidebarRight': document.body.classList.contains('sidebar-right'),
-      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'radio.toggle': !!(window.NoorRadio && NoorRadio.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
       'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
@@ -2055,6 +2058,7 @@
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyB') cmd = 'stream.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyH') cmd = 'apps.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyG') cmd = 'gallery.toggle';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyI') cmd = 'radio.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyD') cmd = 'voice.record';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
@@ -2185,12 +2189,15 @@
         video: { label: 'Video Bench', el: () => $('#videobench'), open: () => NoorVideo.open(), close: () => NoorVideo.close(), isOpen: () => NoorVideo.isOpen() },
         voice: { label: 'Voice notes', el: () => $('#voicedesk'), open: () => NoorVoice.open(), close: () => NoorVoice.close(), isOpen: () => NoorVoice.isOpen() },
         gallery: { label: 'Gallery', el: () => $('#gallery'), open: () => NoorGallery.open(), close: () => NoorGallery.close(), isOpen: () => NoorGallery.isOpen() },
+        radio: { label: 'Radio', el: () => $('#radiobench'), open: () => NoorRadio.open(), close: () => NoorRadio.close(), isOpen: () => NoorRadio.isOpen() },
         apps: { label: 'Apps Hub', el: () => $('#appshub'), open: () => NoorApps.open(), close: () => NoorApps.close(), isOpen: () => NoorApps.isOpen() },
         stream: { label: 'Stream Desk', el: () => $('#streamdesk'), open: () => NoorStream.open(), close: () => NoorStream.close(), isOpen: () => document.body.classList.contains('stream-open') },
       },
     });
-    NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError, onNowPlaying: (t) => window.NoorStream && NoorStream.nowPlaying(t) });
-    NoorVideo.init({ showError, onPlay: () => NoorMusic.pauseForVideo() });
+    // One sound at a time: music, a video and the radio make way for each other.
+    NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError, onNowPlaying: (t) => { if (t && t.playing) NoorRadio.stopForOther(); if (window.NoorStream && ((t && t.playing) || !NoorRadio.isPlaying())) NoorStream.nowPlaying(t); } });
+    NoorVideo.init({ showError, onPlay: () => { NoorMusic.pauseForVideo(); NoorRadio.stopForOther(); } });
+    NoorRadio.init({ showError, onPlay: () => { if (NoorMusic.isPlaying()) NoorMusic.toggle(); NoorVideo.pause(); }, onNowPlaying: (t) => window.NoorStream && NoorStream.nowPlaying(t) });
     NoorStream.init({ showError });
     NoorApps.init({ showError });
     NoorGallery.init({ showError, hasDocument: () => !!editor });

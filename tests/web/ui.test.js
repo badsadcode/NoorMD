@@ -3252,6 +3252,91 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/music-middle.png` });
       await page.close();
     }
+
+    // ---- 37. Radio Bench: stations, playing through the relay with song titles, one sound at a time, adding and finding stations.
+    {
+      const radio = [{ name: 'Radio Nowy Świat', url: 'https://nowyswiat.example/s', tags: ['polskie'] }, { name: 'Jazz FM', url: 'http://jazz.example/fm' }];
+      const { page, errors } = await open(browser, url, { radio, musicTracks: 4 }, { width: 1400, height: 900 });
+      const RM = () => page.evaluate(() => window.__mock.state.radio);
+      const RS = () => page.evaluate(() => NoorRadio._state());
+      await page.keyboard.press('Control+Alt+i');
+      await page.waitForSelector('#radiobench:not([hidden]) .radio-item');
+      check('Ctrl+Alt+I opens the Radio with your stations', (await page.$$('.radio-item')).length === 2);
+      check('…and tags become filters', !!(await page.$('#radio-views [data-view="tag:polskie"]')));
+      await page.dblclick('.radio-item[data-id="1"]');
+      await waitFn(page, () => NoorRadio._state().on?.state === 'playing', null, { timeout: 8000 });
+      check('a double-click plays the station through the relay', JSON.stringify((await RM()).played) === '[1]' && (await RS()).src === '/_media/4' && /Radio Nowy Świat/.test(await page.textContent('#radio-now-name')));
+      await page.evaluate(() => window.__mock.state.radio.push('radio.title', { token: 't1', title: 'Kult – Arahja' }));
+      await waitFn(page, () => document.querySelector('#radio-now-title')?.textContent === 'Kult – Arahja');
+      check('the song title from the stream is shown', true);
+      await page.evaluate(() => window.__mock.state.radio.push('radio.title', { token: 'old', title: 'Not this one' }));
+      await page.waitForTimeout(100);
+      check('…titles from an older stream are ignored', (await page.textContent('#radio-now-title')) === 'Kult – Arahja');
+      await page.evaluate(() => NoorMusic._testPlay([1], 0, true));
+      await waitFn(page, () => NoorRadio._state().on === null);
+      check('music starting stops the radio (one sound at a time)', (await RS()).paused && (await RM()).stops >= 1);
+      await page.click('#radio-play');
+      await waitFn(page, () => NoorRadio._state().on?.state === 'playing', null, { timeout: 8000 });
+      check('▶ plays the last station again, and the music pauses', (await RS()).on.name === 'Radio Nowy Świat' && (await page.evaluate(() => !NoorMusic.isPlaying())));
+      await page.click('#radio-play');
+      await waitFn(page, () => NoorRadio._state().on === null);
+      check('■ stops it', (await RS()).src === null);
+      await page.click('.radio-item[data-id="2"] .radio-fav');
+      await page.click('#radio-views [data-view="fav"]');
+      await waitFn(page, () => document.querySelectorAll('.radio-item').length === 1);
+      check('☆ makes a favourite, and Favourites shows them', (await page.getAttribute('.radio-item', 'data-id')) === '2');
+      await page.click('#radio-views [data-view="all"]');
+      // Adding: a .pls link is read for the stream; a bad address is refused with a reason.
+      await page.click('#radio-add');
+      await page.fill('#rs-url', 'ftp://nope');
+      await page.click('#rs-save');
+      await waitFn(page, () => /http:\/\/ or https:\/\//.test(document.querySelector('#rs-msg')?.textContent || ''));
+      check('a bad address is refused with a reason', await page.isVisible('#rs-url'));
+      await page.fill('#rs-url', 'https://trojka.example/listen.pls');
+      await page.fill('#rs-tags', 'polskie, talk');
+      await page.click('#rs-save');
+      await waitFn(page, () => document.querySelectorAll('.radio-item').length === 3);
+      const added = (await RM()).stations.find((x) => x.id === 3);
+      check('a station is added (a .pls link becomes its stream; no name: the host)', added.url === 'https://trojka.example/listen/stream' && added.name === 'trojka.example' && added.tags.join() === 'polskie,talk', added);
+      // Finding stations online (only when you search).
+      check('nothing is asked online before you search', (await RM()).searches.length === 0);
+      await page.click('#radio-more');
+      await page.click('.menu-popup .menu-item:has-text("Find stations online")');
+      await page.fill('#rf-query', 'jazz');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('.radio-result');
+      const res = await page.$$eval('.radio-result', (n) => n.map((r) => ({ text: r.textContent, addDisabled: r.querySelector('button:last-of-type')?.disabled })));
+      check('the directory lists stations; HLS ones can’t be added yet', res.length === 2 && /PL · MP3 128 kbps/.test(res[0].text) && res[1].addDisabled === true, res);
+      await page.click('.radio-result >> nth=0 >> button:has-text("Add")');
+      await page.waitForSelector('.radio-result .radio-saved');
+      check('＋ Add saves a found station', (await RM()).stations.some((x) => x.url === 'https://jazz.example/live') && (await RM()).searches[0] === 'jazz');
+      await page.click('.modal button:has-text("Done")');
+      // A station that can't be reached says so.
+      await page.click('#radio-add');
+      await page.fill('#rs-url', 'http://broken.example/s');
+      await page.fill('#rs-name', 'Broken');
+      await page.click('#rs-save');
+      await page.waitForSelector('.radio-item:has-text("Broken")');
+      await page.dblclick('.radio-item:has-text("Broken")');
+      await waitFn(page, () => document.querySelector('#radio-now')?.classList.contains('error'));
+      check('a station that can’t be reached shows why', /can't be reached/.test(await page.textContent('#radio-now-title')));
+      // Sleep timer and the middle.
+      await page.selectOption('#radio-sleep', '15');
+      check('the sleep timer can be set', (await RS()).sleepUntil > Date.now() + 14 * 60000);
+      await page.selectOption('#radio-sleep', '0');
+      await page.evaluate(() => NoorDock.place('radio', 'center'));
+      await waitFn(page, () => NoorDock._state().center.active === 'radio');
+      check('the Radio can go in the middle too', await page.isVisible('#radiobench .radio-item'));
+      await page.focus('.radio-item:has-text("Broken")');
+      await page.keyboard.press('Delete');
+      await page.click('.modal button:has-text("Delete")');
+      await waitFn(page, () => !document.querySelector('.radio-item[data-id]') || ![...document.querySelectorAll('.radio-item')].some((n) => n.textContent.includes('Broken')));
+      check('Delete removes a station (after asking)', !(await RM()).stations.some((x) => x.name === 'Broken'));
+      const unexpected = errors.filter((e) => !/status of 404|can't be reached/.test(e));
+      check('no page errors in the Radio', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/radio.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -168,7 +168,7 @@ public partial class MainWindow : Window
             }
             var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
             if (AssetResolver.IsAppPage(uri) || AssetResolver.IsSketchPage(uri))
-                headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+                headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob: http://127.0.0.1:*; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
             e.Response = Core.Environment.CreateWebResourceResponse(new MemoryStream(File.ReadAllBytes(file)), 200, "OK", headers);
         }
         catch (Exception ex)
@@ -340,6 +340,7 @@ public partial class MainWindow : Window
         if (_streamWindow != null) { _streamWindow.Activate(); return; } // it asked about unsaved supporters and you kept it open
         try { _videoWindow?.Close(); } catch { /* the pop-out player goes with the main window */ }
         try { _overlay?.StopAsync().Wait(2000); } catch { /* the overlay server stops with the app */ }
+        try { _radioRelay?.DisposeAsync().AsTask().Wait(1000); } catch { /* the radio relay stops with the app */ }
         _closeConfirmed = true;
         Close();
     }

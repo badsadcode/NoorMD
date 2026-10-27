@@ -1058,6 +1058,8 @@ window.NoorVideo = (() => {
 
   return {
     init, open, close, toggle, isOpen, select, addFolder,
+    /** The radio started: the video pauses (one sound at a time). */
+    pause: () => { if (!video.paused) video.pause(); },
     _state: () => ({
       open: isOpen(), current: current ? { id: current.video.id, title: current.video.title, notes: current.notes.length, subtitles: current.subtitles.length } : null,
       rows: rows.map((r) => r.id), sel: [...sel].sort((a, b) => a - b), view: { ...view }, q: { ...q, current: currentId() },

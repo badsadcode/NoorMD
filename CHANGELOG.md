@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.0.0-preview.25 — Radio, and fixes from a review
+
+- **Radio** (Ctrl+Alt+I, or Tools › Radio): your internet radio stations, in a panel that docks like the
+  others (left, right, bottom or the middle).
+  - **Add a station** by its stream address. A .pls or .m3u link is read for you. Give it a name and tags.
+  - **Import** .m3u/.pls lists and **export** your stations as .m3u8.
+  - **Find stations online** in Radio Browser, a free community directory. It is asked only when you
+    search, and only what you type is sent. Try a station before adding it.
+  - **The song title** comes from the stream (when the station sends it). It also goes to the Stream Desk's
+    Now Playing overlay, and into the stream's tracklist.
+  - Favourites (☆), Recent, tags as filters, volume, and a **sleep timer** (15–90 minutes; it fades out).
+  - **One sound at a time:** the radio pauses the music and the video, and stops when they start.
+  - Nothing is recorded or downloaded. Stations play through a small relay on 127.0.0.1 inside NoorMD,
+    which is how the song titles are read. Stations that send HLS (a stream in pieces) can't play yet.
+- **Fixes from a review of the last releases:**
+  - **Turned photos now show turned everywhere.** NoorMD wrote the orientation in a form the viewer and the
+    slideshow ignored (previews were right, the full picture wasn't). It now writes only that one value,
+    in the standard form, and fixes photos turned by preview.22–24 the next time you turn them.
+  - **Turning is safer:** a JPEG is replaced only once the new file is complete. PNG and TIFF keep their
+    colour profile and details; animated PNGs and Photoshop-layered TIFFs are left to their programs.
+  - **Turning no longer changes the date** of a picture without a date of its own (screenshots, scans).
+  - **Tags of removed pictures** could appear on new ones. They are cleaned up.
+  - Converted copies keep the colour profile (iPhone and Adobe RGB photos keep their colours), and mirrored
+    photos are shown the right way.
+  - A damaged picture in a batch turn no longer stops the others.
+  - The Music Bench keeps its place in the list when it leaves the middle.
+
 ## 2.0.0-preview.24 — The Music Bench in the middle
 
 - **Put the Music Bench in the middle** (⊞ › *In the middle*) and it spreads out like a music player:

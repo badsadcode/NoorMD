@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.24-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.25-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -118,6 +118,10 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   size) into copies, for sharing or the web; the originals stay as they are.
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
+- **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
+  timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
+  by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
+  you search). One sound at a time: radio, music and video make way for each other.
 - **Apps Hub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
   files and websites, with their Windows icons or your own pictures. Category chips (All, Recent,
   and your own categories) choose what is shown.
@@ -169,8 +173,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.24-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.24-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.25-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.25-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

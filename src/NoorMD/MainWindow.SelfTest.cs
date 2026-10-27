@@ -707,6 +707,54 @@ public partial class MainWindow
             Gallery.RemoveFolder(gid);
         }
 
+        // Radio: a station plays through the loopback relay (the page's content rules allow it), and its song title arrives.
+        {
+            // A tiny ICY station: a 3-second WAV tone, with metadata every 4096 bytes.
+            const int rate = 22050, metaInt = 4096;
+            var pcm = new byte[rate * 3 * 2];
+            for (var i = 0; i < rate * 3; i++) { var v = (short)(Math.Sin(i * 2 * Math.PI * 440 / rate) * 8000); pcm[i * 2] = (byte)v; pcm[i * 2 + 1] = (byte)(v >> 8); }
+            var wav = new MemoryStream();
+            void W32(int x) => wav.Write(BitConverter.GetBytes(x));
+            void W16(short x) => wav.Write(BitConverter.GetBytes(x));
+            wav.Write("RIFF"u8); W32(36 + pcm.Length); wav.Write("WAVEfmt "u8); W32(16); W16(1); W16(1); W32(rate); W32(rate * 2); W16(2); W16(16); wav.Write("data"u8); W32(pcm.Length); wav.Write(pcm);
+            var sound = wav.ToArray();
+            var icy = new MemoryStream();
+            var meta = Encoding.UTF8.GetBytes("StreamTitle='NoorMD – Self-test tune';");
+            var metaLen = (meta.Length + 15) / 16;
+            for (var off = 0; off < sound.Length; off += metaInt)
+            {
+                icy.Write(sound, off, Math.Min(metaInt, sound.Length - off));
+                if (off + metaInt >= sound.Length) break;
+                if (off == 0) { icy.WriteByte((byte)metaLen); icy.Write(meta); icy.Write(new byte[metaLen * 16 - meta.Length]); } else icy.WriteByte(0);
+            }
+            var upstream = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+            upstream.Start();
+            var upPort = ((System.Net.IPEndPoint)upstream.LocalEndpoint).Port;
+            var station = Task.Run(async () =>
+            {
+                for (var n = 0; n < 4; n++) // the page may connect more than once
+                {
+                    using var c = await upstream.AcceptTcpClientAsync();
+                    var st = c.GetStream();
+                    await st.ReadAsync(new byte[4096]);
+                    await st.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nicy-metaint: {metaInt}\r\nConnection: close\r\n\r\n"));
+                    await st.WriteAsync(icy.ToArray());
+                    await Task.Delay(6000); // a live station keeps sending; ending at once would read as "stopped"
+                }
+            });
+            await Eval($"NoorRadio._testPlay('http://127.0.0.1:{upPort}/live')");
+            var rs = "";
+            for (var i = 0; i < 60; i++)
+            {
+                await Task.Delay(100);
+                rs = await Eval("(() => { const s = NoorRadio._state(); return JSON.stringify({ state: s.on && s.on.state, title: s.on && s.on.title, message: s.on && s.on.message }); })()");
+                if (rs.Contains("Self-test tune") && rs.Contains("playing")) break;
+            }
+            Check("Radio: a station plays through the loopback relay and its song title arrives", rs.Contains("playing") && rs.Contains("Self-test tune"), rs);
+            await Eval("NoorRadio.stop()");
+            upstream.Stop();
+        }
+
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
         await Eval(@"window.__vt = null; (async () => {
             let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }

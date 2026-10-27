@@ -3,28 +3,13 @@
 Nothing here is scheduled. Each item still needs its own plan before work starts. The current work comes
 first, and anything that conflicts with it waits.
 
-## Next candidates (small, near the existing benches)
+## Done since this list was written
 
-- **Picture manager tools:** ratings and colour labels, tags on pictures, a date view, lossless rotation.
-- **Batch picture work:** resize or convert a selection (PSD/PNG → JPG for the web) with name templates.
-- **Music Bench in the middle:** a big artwork view with the lists beside it, like the Video Bench.
-
-## Radio Bench: internet radio (idea)
-
-Keep favourite internet radio stations and listen to them, in a panel that docks like the other benches.
-
-- Stations are a name and a stream address (MP3/AAC/Ogg/HLS), added by hand or imported from .m3u/.pls.
-  Optionally search the free, community-run Radio Browser directory. That would be online, opt-in, and
-  only when searching.
-- Favourites, groups or tags, recently played, and a sleep timer. The now-playing title comes from the
-  stream (ICY metadata) where the station sends it, and can feed the Stream Desk's Now Playing overlay.
-- Shares one player with the Music Bench (one sound at a time, the same EQ and loudness, the mini player).
-- Technical notes:
-  - Streams are played by the page.
-  - Station addresses are checked like Apps Hub web links (http/https only).
-  - Reading the song titles from the stream needs a small host-side relay, because browsers don't expose
-    ICY metadata.
-  - No recording or downloading of streams.
+- Picture manager tools (stars, colour labels, tags, the date view, lossless turning): 2.0.0-preview.22.
+- Batch convert / resize of pictures: preview.23.
+- Music Bench in the middle: preview.24.
+- Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
+  stations (streams cut into pieces), which NoorMD doesn't play yet.
 
 ## Indie developer benches (concept)
 
