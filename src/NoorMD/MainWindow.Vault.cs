@@ -63,7 +63,15 @@ public partial class MainWindow
                     }
                     return OpenVault(known.Path);
                 }
-            case "vault.create": return CreateVault(req.GetString("name", 200));
+            case "vault.create": return CreateVault(req.GetString("name", 200), req.GetString("preset", 40));
+            case "vault.presets": return VaultPresets.All.Select(p => new { id = p.Id, name = p.Name, icon = p.Icon, description = p.Description, folders = p.Folders.Where(f => f != "attachments"), notes = p.Notes.Keys });
+            case "vault.applyPreset":
+                {
+                    var v = V();
+                    var home = await Task.Run(() => VaultPresets.Apply(v.Root, req.GetString("preset", 40), Path.GetFileName(v.Root)));
+                    ScheduleRescan(0);
+                    return new { home = VaultPaths.ToRelative(v.Root, home) };
+                }
             case "vault.close": CloseVault(remember: true); return null;
             case "vault.reveal": OpenFolder(V().Root); return null;
             case "vault.tree": return TreePayload();
@@ -102,6 +110,19 @@ public partial class MainWindow
                     if (_vault is not { } v || TryTabFrom(req) is not { Path: { } path } || VaultPaths.ToRelative(v.Root, path) is not { } rel) return new { refs = Array.Empty<object>(), inVault = false };
                     await v.Ready;
                     return new { refs = await Task.Run(() => v.Index.Backlinks(rel)), inVault = true, path = rel };
+                }
+            case "vault.tags":
+                {
+                    var v = V();
+                    await v.Ready;
+                    return new { tags = v.Index.Tags(), indexed = v.Index.Count };
+                }
+            case "vault.tagged":
+                {
+                    var v = V();
+                    var tag = (req.GetString("tag", 100) ?? "").Trim().TrimStart('#');
+                    await v.Ready;
+                    return v.Index.Tagged(tag).Select(p => new { path = p, name = Path.GetFileNameWithoutExtension(p), folder = p.Contains('/') ? p[..p.LastIndexOf('/')] : "", tags = v.Index.TagsOf(p) });
                 }
             case "vault.openWiki": return await OpenWikiAsync(req.GetString("target", 500) ?? "", TryTabFrom(req));
             case "vault.linkTo":
@@ -215,7 +236,7 @@ public partial class MainWindow
         return new { opened = true };
     }
 
-    private object CreateVault(string? name)
+    private object CreateVault(string? name, string? preset)
     {
         if (VaultPaths.NameProblem(name) is { } problem) throw new BridgeError(problem);
         var dlg = new OpenFolderDialog { Title = $"Where should the Vault “{name}” be created?", Multiselect = false };
@@ -224,8 +245,7 @@ public partial class MainWindow
         if (File.Exists(root) || (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any()))
             throw new BridgeError($"“{name}” already exists in that folder. Choose another name, or open it with Open Folder as Vault.");
         Directory.CreateDirectory(root);
-        var welcome = Path.Combine(root, "Welcome.md");
-        File.WriteAllText(welcome, $"# {name}\n\nThis Vault is an ordinary folder. Every note is a plain Markdown file you can open in any editor.\n\n- Create notes and folders from the explorer on the left (right-click for more).\n- Search every note with Ctrl+Shift+F, jump to one with Ctrl+E.\n- Link notes with relative links like [this one](Welcome.md) or with [[Welcome]].\n", new System.Text.UTF8Encoding(false));
+        var welcome = VaultPresets.Apply(root, preset, name.Trim());
         var result = OpenVault(root);
         _ = Dispatcher.BeginInvoke(async () => await WithDocGate(() => OpenPathAsync(welcome)));
         return result;

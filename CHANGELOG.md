@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.0.0-preview.13 — Tags and the new-Vault wizard
+
+- **Tags in Vault notes**, written the Obsidian way: `#idea`, nested `#project/alpha`, or
+  `tags: [idea, lore]` (also `- item` lines) in the front matter.
+  - Sidebar › **Tags** lists every tag with how many notes use it, with a filter.
+  - Click a tag to see its notes, then click one to open it.
+  - `#project` also finds notes tagged `#project/alpha`.
+  - Headings, `page#part` links, numbers like `#123` and code are not tags.
+- **New-Vault wizard** (Workspace › Create new Vault…): a name and a starting point.
+  - The starting points are Empty, Personal notes, Writer, Worldbuilding, Streamer / creator (matches
+    the Stream Desk folders) and Game development.
+  - Each one creates folders, a Home note with links, and a few short templates.
+  - **Add folders from a preset…** does the same for an open Vault. It only adds what's missing and
+    never replaces a file.
+
 ## 2.0.0-preview.12 — Docks and layouts
 
 - **Docks, one rule for the whole window.** There are three dock areas: left, right, and bottom

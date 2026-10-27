@@ -163,6 +163,7 @@ public static class TextFold
 
 public sealed record VaultSearchHit(string Path, string Name, int Line, string Snippet, bool NameMatch);
 public sealed record VaultLinkRef(string Source, int Line, string Snippet);
+public sealed record VaultTagCount(string Tag, int Count);
 
 /// <summary>
 /// In-memory text index of a Vault's notes, for search and backlinks. It is a cache: rebuilt from the files at any
@@ -171,7 +172,7 @@ public sealed record VaultLinkRef(string Source, int Line, string Snippet);
 public sealed class VaultIndex
 {
     public const long MaxNoteBytes = 2 * 1024 * 1024;
-    private sealed record Note(string Path, DateTime Modified, long Size, string Text, string[] FoldedLines);
+    private sealed record Note(string Path, DateTime Modified, long Size, string Text, string[] FoldedLines, IReadOnlyList<string> Tags);
 
     private readonly Dictionary<string, Note> _notes = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _lock = new();
@@ -201,7 +202,7 @@ public sealed class VaultIndex
                 try { text = TextFileCodec.NormalizeNewlines(TextFileCodec.Decode(File.ReadAllBytes(full)).Text); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; } // locked: try again next time
             }
-            var note = new Note(e.Path, e.ModifiedUtc, e.Size, text, text.Split('\n').Select(TextFold.Fold).ToArray());
+            var note = new Note(e.Path, e.ModifiedUtc, e.Size, text, text.Split('\n').Select(TextFold.Fold).ToArray(), VaultTags.Extract(text));
             lock (_lock) _notes[e.Path] = note;
             read++;
         }
@@ -277,6 +278,28 @@ public sealed class VaultIndex
     }
 
     public IReadOnlyList<string> NotePaths() { lock (_lock) return _notes.Keys.ToList(); }
+
+    /// <summary>Every tag in the Vault with the number of notes using it (the spelling used most often wins).</summary>
+    public List<VaultTagCount> Tags()
+    {
+        lock (_lock)
+        {
+            return _notes.Values.SelectMany(n => n.Tags).GroupBy(t => t, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new VaultTagCount(g.GroupBy(x => x, StringComparer.Ordinal).OrderByDescending(x => x.Count()).First().Key, g.Count()))
+                .OrderBy(t => t.Tag, StringComparer.CurrentCultureIgnoreCase).ToList();
+        }
+    }
+
+    /// <summary>Notes tagged with a tag or a tag nested under it, by path.</summary>
+    public List<string> Tagged(string tag)
+    {
+        lock (_lock)
+            return _notes.Values.Where(n => n.Tags.Any(t => VaultTags.Matches(t, tag))).Select(n => n.Path)
+                .OrderBy(p => p, Comparer<string>.Create(VaultScanner.NaturalCompare)).ToList();
+    }
+
+    /// <summary>The tags of one note (for the document sidebar).</summary>
+    public IReadOnlyList<string> TagsOf(string path) { lock (_lock) return _notes.TryGetValue(path, out var n) ? n.Tags : []; }
 }
 
 /// <summary>A link found in Markdown text.</summary>

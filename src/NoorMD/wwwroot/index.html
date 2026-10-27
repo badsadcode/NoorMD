@@ -32,8 +32,14 @@
 
     <div class="side-switch" id="side-switch" role="tablist" aria-label="Sidebar view">
       <button role="tab" data-view="files">Files</button>
+      <button role="tab" data-view="tags">Tags</button>
       <button role="tab" data-view="doc" class="active">Document</button>
     </div>
+
+    <section class="side-section tags-panel" id="tags-panel" aria-label="Tags">
+      <input class="vault-filter" id="tags-filter" placeholder="Filter tags…" aria-label="Filter tags" autocomplete="off" spellcheck="false">
+      <div class="tags-box" id="tags-box"></div>
+    </section>
 
     <section class="side-section vault-panel" id="vault-panel" aria-label="Vault explorer">
       <div class="vault-head">

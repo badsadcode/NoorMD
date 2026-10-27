@@ -264,8 +264,8 @@ window.NoorChrome = (() => {
       { id: 'theme.pick' }, { id: 'theme.next' }, '-', { id: 'toolbar.customize' },
     ]],
     ['Workspace', 'w', () => [
-      { id: 'vault.open' }, { id: 'vault.create' }, { label: 'Recent vaults', sub: () => api.recentVaults() }, { id: 'vault.close' }, { id: 'vault.reveal' }, '-',
-      { id: 'vault.explorer' }, { id: 'vault.search' }, { id: 'tab.switch' }, { id: 'vault.backlinks' }, { id: 'vault.refresh' }, '-',
+      { id: 'vault.open' }, { id: 'vault.create' }, { label: 'Recent vaults', sub: () => api.recentVaults() }, { id: 'vault.close' }, { id: 'vault.reveal' }, { id: 'vault.addPreset' }, '-',
+      { id: 'vault.explorer' }, { id: 'vault.tags' }, { id: 'vault.search' }, { id: 'tab.switch' }, { id: 'vault.backlinks' }, { id: 'vault.refresh' }, '-',
       { id: 'vault.pack' }, '-', { id: 'tab.closeOthers' }, { id: 'tab.pin' }, { id: 'recovery.show' }, { id: 'session.restore' },
     ]],
     ['Media', 'm', () => [

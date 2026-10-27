@@ -64,14 +64,67 @@ window.NoorVault = (() => {
     renderTree();
   }
 
-  function onIndexed() { indexed = true; refreshBacklinks(); }
+  function onIndexed() { indexed = true; refreshBacklinks(); if (sideView === 'tags') renderTags(); }
 
   // ---------------------------------------------------------------- sidebar views
 
+  let sideView = 'doc';
   function setView(view) {
-    const files = view === 'files' && !!vault;
-    document.body.classList.toggle('side-files', files);
-    document.querySelectorAll('#side-switch button').forEach((b) => { const on = b.dataset.view === (files ? 'files' : 'doc'); b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+    const v = vault && (view === 'files' || view === 'tags') ? view : 'doc';
+    sideView = v;
+    document.body.classList.toggle('side-files', v === 'files');
+    document.body.classList.toggle('side-tags', v === 'tags');
+    document.querySelectorAll('#side-switch button').forEach((b) => { const on = b.dataset.view === v; b.classList.toggle('active', on); b.setAttribute('aria-selected', String(on)); });
+    if (v === 'tags') renderTags();
+  }
+
+  // ---------------------------------------------------------------- tags (#tag in notes and tags: in front matter)
+
+  let tagList = [], openTag = null, tagSeq = 0;
+
+  async function renderTags() {
+    const box = $('#tags-box');
+    if (!box || !vault) return;
+    const mine = ++tagSeq;
+    if (openTag) {
+      let notes;
+      try { notes = await req('vault.tagged', { tag: openTag }); } catch (err) { fail(err); return; }
+      if (mine !== tagSeq) return;
+      box.replaceChildren(
+        el('div', { class: 'tags-head' },
+          el('button', { class: 'utility-btn', id: 'tags-back', onclick: () => { openTag = null; renderTags(); } }, '← All tags'),
+          el('strong', { text: '#' + openTag }), el('small', { text: `${notes.length} note${notes.length === 1 ? '' : 's'}` })),
+        ...notes.map((n) => el('button', { class: 'tag-note', title: n.path, 'data-path': n.path, onclick: () => req('vault.openFile', { path: n.path }).catch(fail) },
+          el('span', { class: 'tag-note-name', text: '📝 ' + n.name }), el('small', { text: [n.folder, n.tags.filter((t) => t.toLowerCase() !== openTag.toLowerCase()).map((t) => '#' + t).join(' ')].filter(Boolean).join(' · ') }))),
+        ...(notes.length ? [] : [el('p', { class: 'empty', text: 'No notes have this tag any more.' })]));
+      return;
+    }
+    let r;
+    try { r = await req('vault.tags'); } catch (err) { fail(err); return; }
+    if (mine !== tagSeq) return;
+    tagList = r.tags || [];
+    drawTagList();
+  }
+
+  function drawTagList() {
+    const box = $('#tags-box');
+    const f = fold($('#tags-filter').value.trim().replace(/^#/, ''));
+    const shownTags = tagList.filter((t) => !f || fold(t.tag).includes(f));
+    box.replaceChildren(
+      ...(tagList.length ? [] : [el('p', { class: 'empty', text: indexed ? 'No tags yet. Write #idea in a note, or tags: [idea] in its front matter.' : 'Reading the Vault…' })]),
+      el('div', { class: 'tag-cloud', id: 'tag-cloud' }, ...shownTags.map((t) => {
+        const depth = t.tag.split('/').length - 1;
+        return el('button', { class: 'tag-chip' + (depth ? ' nested' : ''), 'data-tag': t.tag, title: depth ? `#${t.tag} (also listed under #${t.tag.split('/')[0]})` : `Notes tagged #${t.tag}`, onclick: () => { openTag = t.tag; renderTags(); } },
+          '#' + t.tag, el('small', { text: String(t.count) }));
+      })));
+  }
+
+  /** Shows the notes with a tag (from a click on #tag in a note, or the command palette). */
+  function showTag(tag) {
+    if (!vault) return;
+    document.body.classList.remove('sidebar-collapsed');
+    openTag = String(tag).replace(/^#/, '');
+    setView('tags');
   }
 
   function saveExpanded() {
@@ -543,10 +596,59 @@ window.NoorVault = (() => {
 
   // ---------------------------------------------------------------- create / settings
 
+  /** Preset cards (from the host, so the list matches what gets created). */
+  function presetPicker(presets, chosen, onPick) {
+    const box = el('div', { class: 'preset-grid', role: 'radiogroup', 'aria-label': 'Starting point' });
+    const draw = () => box.replaceChildren(...presets.map((p) => el('button', {
+      class: 'preset-card' + (p.id === chosen ? ' active' : ''), role: 'radio', 'aria-checked': String(p.id === chosen), 'data-preset': p.id,
+      onclick: () => { chosen = p.id; onPick(p.id); draw(); },
+    }, el('span', { class: 'preset-icon', text: p.icon }), el('strong', { text: p.name }), el('small', { text: p.description }),
+    p.folders.length ? el('span', { class: 'preset-folders', text: p.folders.map((f) => '📁 ' + f).join('  ') }) : null)));
+    draw();
+    return box;
+  }
+
+  /** New Vault wizard: a name, a starting point (folders + a few notes), then where on disk. */
   async function createVault() {
-    const name = await NoorUI.prompt('Create a new Vault', 'Name of the Vault (a new folder with this name is created where you choose next):', 'My Vault', { okLabel: 'Choose location…' });
-    if (!name || !name.trim()) return;
-    req('vault.create', { name: name.trim() }).catch(fail);
+    let presets;
+    try { presets = await req('vault.presets'); } catch (err) { fail(err); return; }
+    NoorUI.modal({ label: 'Create a new Vault', width: 760 }, (s, close) => {
+      let preset = 'notes';
+      const name = el('input', { id: 'vw-name', value: 'My Vault', 'aria-label': 'Vault name', spellcheck: 'false' });
+      const create = async () => {
+        const n = name.value.trim();
+        if (!n) { name.focus(); return; }
+        close();
+        try { const r = await req('vault.create', { name: n, preset }); if (r && !r.cancelled) notice(`Vault “${n}” created`, 2200); } catch (err) { fail(err); }
+      };
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+      s.append(NoorUI.head('🗂 Create a new Vault', close),
+        el('div', { class: 'modal-body vw-body' },
+          el('label', { class: 'vw-row' }, el('span', { text: 'Name' }), name),
+          el('p', { class: 'pref-hint', text: 'A Vault is an ordinary folder of Markdown notes. Pick a starting point; you can change everything later, and nothing outside the new folder is touched.' }),
+          presetPicker(presets, preset, (id) => { preset = id; })),
+        el('div', { class: 'modal-foot' }, el('span', { text: 'Next: choose where the folder goes' }), el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => close() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'vw-create', onclick: create }, 'Choose location…'))));
+      setTimeout(() => name.select(), 0);
+    });
+  }
+
+  /** Adds a preset's folders and starter notes to the open Vault (existing files are kept). */
+  async function addPreset() {
+    if (!vault) return;
+    let presets;
+    try { presets = await req('vault.presets'); } catch (err) { fail(err); return; }
+    NoorUI.modal({ label: 'Add folders from a preset', width: 760 }, (s, close) => {
+      let preset = 'notes';
+      s.append(NoorUI.head('🗂 Add folders from a preset — ' + vault.name, close),
+        el('div', { class: 'modal-body vw-body' },
+          el('p', { class: 'pref-hint', text: 'Adds the folders and starter notes that are missing. Nothing you already have is changed or replaced.' }),
+          presetPicker(presets.filter((p) => p.id !== 'blank'), preset, (id) => { preset = id; })),
+        el('div', { class: 'modal-foot' }, el('span'), el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => close() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'vw-apply', onclick: async () => { close(); try { await req('vault.applyPreset', { preset }); notice('Folders added', 1800); } catch (err) { fail(err); } } }, 'Add folders'))));
+    });
   }
 
   async function showSettings() {
@@ -752,6 +854,7 @@ window.NoorVault = (() => {
       else if (e.key === 'Escape' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; renderTree(); }
     });
     document.querySelectorAll('#side-switch button').forEach((b) => b.addEventListener('click', () => setView(b.dataset.view)));
+    $('#tags-filter').addEventListener('input', () => { if (openTag) { openTag = null; renderTags(); } else drawTagList(); });
     $('#vault-new-note').addEventListener('click', () => newNote(targetFolder()));
     $('#vault-new-folder').addEventListener('click', () => newFolder(targetFolder()));
     $('#vault-collapse').addEventListener('click', () => { expanded = new Set(); saveExpanded(); renderTree(); });
@@ -759,7 +862,7 @@ window.NoorVault = (() => {
   }
 
   return {
-    init, onChanged, showSearch, showPack, selection: () => [...selected], createVault, showSettings, followLink, linkAtCaret, pickNoteToLink, refreshBacklinks, setView,
+    init, onChanged, showSearch, showPack, selection: () => [...selected], createVault, showSettings, followLink, linkAtCaret, pickNoteToLink, refreshBacklinks, setView, showTag, addPreset,
     renderTree, notes, isOpen: () => !!vault, name: () => (vault ? vault.name : null), recent: () => recent,
     focusExplorer: () => { if (!vault) return; document.body.classList.remove('sidebar-collapsed'); setView('files'); (document.querySelector('#vault-tree .vt-row[tabindex="0"]') || $('#vault-filter')).focus(); },
     _state: () => ({ vault, entries: entries.length, expanded: [...expanded], selected: [...selected], focusPath, indexed }),

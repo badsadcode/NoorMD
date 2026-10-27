@@ -199,6 +199,33 @@ function mockHostScript(initial) {
       case 'vault.tree': return treePayload();
       case 'vault.refresh': pushTree(); return null;
       case 'vault.openFile': if (!(p.path in V.files)) throw new Error('That file no longer exists.'); return openRel(p.path);
+      case 'vault.presets': return [
+        { id: 'blank', name: 'Empty', icon: '▫', description: 'Just a Home note.', folders: [], notes: [] },
+        { id: 'notes', name: 'Personal notes', icon: '🗂', description: 'Inbox, notes, journal.', folders: ['Inbox', 'Notes', 'Journal'], notes: ['Inbox/Read me first.md'] },
+        { id: 'creator', name: 'Streamer / creator', icon: '📡', description: 'Streams, supporters.', folders: ['Streams', 'Stream'], notes: [] }];
+      case 'vault.create': V.created = { ...p }; return { cancelled: false };
+      case 'vault.applyPreset': V.applied = p.preset; V.dirs.add('Inbox'); pushTree(); return { home: 'Home.md' };
+      case 'vault.tags': case 'vault.tagged': {
+        // Same rules as VaultTags.cs for the cases the tests use: #tag outside code, tags: [..] in front matter.
+        const tagsOf = (text) => {
+          const out = [];
+          const add = (t) => { t = t.trim().replace(/^#/, ''); if (t && !/^\d+$/.test(t) && !out.some((x) => x.toLowerCase() === t.toLowerCase())) out.push(t); };
+          const fm = /^---\n([\s\S]*?)\n---/.exec(text);
+          if (fm) { const m = /^tags?:\s*\[?([^\]\n]*)\]?/m.exec(fm[1]); if (m) m[1].split(',').forEach((x) => add(x.replace(/["']/g, ''))); }
+          const body = (fm ? text.slice(fm[0].length) : text).replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '');
+          for (const m of body.matchAll(/(?<![\p{L}\p{N}_&/#\])(`])#([\p{L}\p{N}_\-/]*[\p{L}_\-][\p{L}\p{N}_\-/]*)/gu)) add(m[1]);
+          return out;
+        };
+        const all = Object.entries(V.files).filter(([f]) => /\.md$/i.test(f)).map(([f, t]) => ({ f, tags: tagsOf(t) }));
+        if (type === 'vault.tagged') {
+          const want = String(p.tag).toLowerCase();
+          return all.filter((n) => n.tags.some((t) => t.toLowerCase() === want || t.toLowerCase().startsWith(want + '/')))
+            .map((n) => ({ path: n.f, name: n.f.split('/').pop().replace(/\.md$/i, ''), folder: n.f.includes('/') ? n.f.slice(0, n.f.lastIndexOf('/')) : '', tags: n.tags }));
+        }
+        const counts = new Map();
+        for (const n of all) for (const t of n.tags) counts.set(t.toLowerCase(), { tag: (counts.get(t.toLowerCase()) || {}).tag || t, count: ((counts.get(t.toLowerCase()) || {}).count || 0) + 1 });
+        return { tags: [...counts.values()].sort((a, b) => a.tag.localeCompare(b.tag)), indexed: all.length };
+      }
       case 'vault.search': {
         const terms = fold(p.query).split(/\s+/).filter(Boolean);
         const hits = [];

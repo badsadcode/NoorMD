@@ -2500,6 +2500,51 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.evaluate(() => window.NoorDock.applyPreset('streaming')); await page.waitForTimeout(500); await page.screenshot({ path: `${shots}/layout-streaming.png` }); }
       await page.close();
     }
+
+    // ---- 27. Tags (#tag and front matter) in the sidebar; the new-Vault wizard with presets.
+    {
+      const tfiles = {
+        'Home.md': '# Home\n\nPlans for #project/alpha and #idea.\n',
+        'World/Rivers.md': '---\ntags: [lore, idea]\n---\n# Rivers\n\nNot a tag: page#part, issue #12, `#code`.\n',
+        'World/Seas.md': '# Seas\n\n#lore #project\n',
+      };
+      const { page, errors } = await open(browser, url, { document: null, vault: { root: 'C:\\Vaults\\Tags', files: tfiles } });
+      await waitFn(page, () => document.body.classList.contains('has-vault'));
+      await page.click('#side-switch [data-view="tags"]');
+      await page.waitForSelector('#tag-cloud .tag-chip');
+      const chips = await page.$$eval('#tag-cloud .tag-chip', (n) => n.map((x) => x.dataset.tag + ':' + x.querySelector('small').textContent));
+      check('the Tags view lists every tag with how many notes use it', chips.join(',') === 'idea:2,lore:2,project:1,project/alpha:1', chips);
+      check('page#part, #12 and `#code` are not tags', !chips.some((c) => /part|12|code/.test(c)));
+      await page.click('#tag-cloud .tag-chip[data-tag="project"]');
+      await page.waitForSelector('.tag-note');
+      const notes = await page.$$eval('.tag-note', (n) => n.map((x) => x.dataset.path));
+      check('#project also lists notes tagged #project/alpha', notes.join(',') === 'Home.md,World/Seas.md', notes);
+      await page.click('.tag-note[data-path="World/Seas.md"]');
+      await waitFn(page, () => window.NoorMD.getState()?.title === 'Seas');
+      check('clicking a note opens it', true);
+      await page.click('#tags-back');
+      await page.fill('#tags-filter', 'lo');
+      await waitFn(page, () => document.querySelectorAll('#tag-cloud .tag-chip').length === 1);
+      check('the filter narrows the tags', (await page.textContent('#tag-cloud')).includes('#lore'));
+      // New Vault wizard: name + starting point; adding a preset to the open Vault never replaces files.
+      await page.evaluate(() => window.NoorMD.runCommand('vault.create'));
+      await page.waitForSelector('#vw-name');
+      check('the wizard offers starting points', (await page.$$('.preset-card')).length === 3 && (await page.getAttribute('.preset-card[data-preset="notes"]', 'aria-checked')) === 'true');
+      await page.fill('#vw-name', 'Atlas Żółw');
+      await page.click('.preset-card[data-preset="creator"]');
+      await page.click('#vw-create');
+      await waitFn(page, () => !!window.__mock.state.vault?.created || !!window.__mock.vaultCreated);
+      check('Create sends the name and the chosen preset', await page.evaluate(() => { const c = window.__mock.state.vault.created; return c.name === 'Atlas Żółw' && c.preset === 'creator'; }));
+      await page.evaluate(() => window.NoorMD.runCommand('vault.addPreset'));
+      await page.waitForSelector('#vw-apply');
+      check('“Add folders from a preset” leaves out Empty', !(await page.$('.preset-card[data-preset="blank"]')));
+      await page.click('#vw-apply');
+      await waitFn(page, () => window.__mock.state.vault.applied === 'notes');
+      check('…and adds the chosen preset’s folders to the open Vault', true);
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with tags and the Vault wizard', unexpected.length === 0, unexpected);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
