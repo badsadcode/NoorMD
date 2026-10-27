@@ -483,7 +483,7 @@ function mockHostScript(initial) {
   const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
   state.voice = VOICE;
   // ---- mock Gallery: initial.gallery = number of pictures (in albums "Lato" and "Zima"); slideshows and favourites like GalleryLibrary.
-  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null, renamedAlbums: [], copies: [], movedOut: [], zips: [], editors: [{ name: 'Krita', detected: true }], opened: [], rotations: [] };
+  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null, renamedAlbums: [], copies: [], movedOut: [], zips: [], editors: [{ name: 'Krita', detected: true }], opened: [], rotations: [], conversions: [] };
   state.gallery = GAL;
   function galAdd(n) {
     for (let i = 0; i < n; i++) {
@@ -554,6 +554,14 @@ function mockHostScript(initial) {
         ok.forEach((i) => { [i.width, i.height] = [i.height, i.width]; GAL.rotations.push({ id: i.id, clockwise: p.clockwise !== false }); });
         return { images: ok.map((i) => ({ ...i, tags: [...i.tags] })), refused };
       }
+      case 'gallery.convert': {
+        GAL.conversions.push({ ...p, ids: [...p.ids] });
+        const ok = p.ids.filter((id) => get(id).format !== 'PSD');
+        const failed = p.ids.filter((id) => get(id).format === 'PSD').map((id) => `${get(id).fileName}: Windows can't read this format here; export it from its program.`);
+        if (!ok.length && failed.length) throw new Error(failed[0]);
+        return { count: ok.length, folder: p.where === 'beside' ? null : 'D:\\Web', failed, inside: false, status: status() };
+      }
+      case 'gallery.convert.reveal': GAL.revealed.push(p.folder); return null;
       case 'gallery.session.get': return GAL.session;
       case 'gallery.session.save': GAL.session = p.state; return null;
       default: return null;

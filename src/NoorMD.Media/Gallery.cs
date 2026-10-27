@@ -720,7 +720,6 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         return full;
     }
 
-    /// <summary>Puts the last rename or move back (only pictures still where it left them).</summary>
     /// <summary>Copies pictures into any folder (the originals stay). Nothing is copied if a name is taken there. Returns the new files.</summary>
     public IReadOnlyList<string> Copy(IReadOnlyList<long> ids, string folder)
     {
@@ -933,6 +932,74 @@ public static class GalleryZip
     }
 }
 
+
+/// <summary>How pictures are converted: the format, the longest side (0 = as they are) and the JPEG quality.</summary>
+/// <param name="Format">"keep", "jpg" or "png".</param>
+/// <param name="Suffix">Added to each name ("-web" → "plaza-web.jpg"); may be empty.</param>
+public sealed record ConvertOptions(string Format = "keep", int MaxSide = 0, int Quality = 88, string Suffix = "");
+
+/// <summary>
+/// Batch convert / resize: the names, formats and sizes of the new files. The originals are never changed and nothing is
+/// overwritten; the pixels themselves are made by the app with Windows' imaging.
+/// </summary>
+public static class PictureConvert
+{
+    public static readonly string[] Formats = ["keep", "jpg", "png"];
+
+    /// <summary>The new file's extension: the chosen format, or for "keep" the same format when it can be written
+    /// (JPEG, PNG, BMP, TIFF), else JPEG for photos and PNG for pictures that may be see-through (GIF, WebP, ICO…).</summary>
+    public static string Extension(string source, string format) => format switch
+    {
+        "jpg" => ".jpg",
+        "png" => ".png",
+        "keep" => System.IO.Path.GetExtension(source).ToLowerInvariant() switch
+        {
+            ".jpg" or ".jpeg" or ".jfif" => ".jpg",
+            ".png" => ".png",
+            ".bmp" => ".bmp",
+            ".tif" or ".tiff" => ".tif",
+            ".gif" or ".webp" or ".ico" => ".png",
+            _ => ".jpg",
+        },
+        _ => throw new ArgumentException("Unknown format."),
+    };
+
+    /// <summary>The size after fitting the longest side into <paramref name="maxSide"/>; pictures are never made bigger.</summary>
+    public static (int Width, int Height) Fit(int width, int height, int maxSide)
+    {
+        if (maxSide <= 0 || width <= 0 || height <= 0 || Math.Max(width, height) <= maxSide) return (width, height);
+        var scale = (double)maxSide / Math.Max(width, height);
+        return (Math.Max(1, (int)Math.Round(width * scale)), Math.Max(1, (int)Math.Round(height * scale)));
+    }
+
+    public static ConvertOptions Clean(ConvertOptions o)
+    {
+        if (!Formats.Contains(o.Format)) throw new ArgumentException("Unknown format.");
+        var suffix = new string((o.Suffix ?? "").Where(ch => !char.IsControl(ch) && System.IO.Path.GetInvalidFileNameChars().Concat("<>:\"/\\|?*").All(x => x != ch)).ToArray()).TrimEnd(' ', '.');
+        return o with { MaxSide = o.MaxSide <= 0 ? 0 : Math.Clamp(o.MaxSide, 16, 20000), Quality = Math.Clamp(o.Quality, 30, 100), Suffix = suffix.Length > 40 ? suffix[..40] : suffix };
+    }
+
+    /// <summary>Writes the date a photo was taken into a converted JPEG (the rest of the camera's details are left out).</summary>
+    public static void KeepDate(string jpeg, DateTime takenUtc)
+    {
+        try
+        {
+            using var f = TagLib.File.Create(jpeg) as TagLib.Image.File;
+            if (f?.GetTag(TagLib.TagTypes.TiffIFD, true) is TagLib.IFD.IFDTag ifd) { ifd.DateTime = takenUtc.ToLocalTime(); f.Save(); }
+        }
+        catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException or NotSupportedException) { /* the picture is fine without it */ }
+    }
+
+    /// <summary>A free file name in <paramref name="folder"/>: "name.jpg", then "name (2).jpg"… (also not one in <paramref name="taken"/>).</summary>
+    public static string FreePath(string folder, string stem, string extension, ISet<string> taken)
+    {
+        for (var n = 1; ; n++)
+        {
+            var path = System.IO.Path.Combine(folder, (n == 1 ? stem : $"{stem} ({n})") + extension);
+            if (!File.Exists(path) && !Directory.Exists(path) && !taken.Contains(path)) { taken.Add(path); return path; }
+        }
+    }
+}
 
 /// <summary>
 /// Turning photos without losing quality: a JPEG only gets its EXIF orientation changed (the picture data stays as it

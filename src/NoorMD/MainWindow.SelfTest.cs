@@ -679,6 +679,24 @@ public partial class MainWindow
                     marked is { Rating: 4, Label: "green" } && marked.Tags is ["morze", "Wakacje"] && jpgOk && pngOk && Gallery.Get(img.Id)!.Width == before.Width,
                     $"{marked.Rating} {marked.Label} [{string.Join(",", marked.Tags ?? [])}] jpg {before} → {turnedJpg.Width}x{turnedJpg.Height} png {pc.PixelWidth}x{pc.PixelHeight} L{left[2]},{left[0]} R{right[2]},{right[0]}");
             }
+            // Convert / resize: a sideways JPEG comes out upright and smaller with its date; a PNG becomes a JPEG; the originals stay.
+            if (img != null)
+            {
+                var outDir = Path.Combine(SelfTestDir!, "Converted out");
+                Directory.CreateDirectory(outDir);
+                var src = Gallery.Get(img.Id)!;
+                var srcBytes = File.ReadAllBytes(src.Path);
+                var (made, failed) = await Task.Run(() => ConvertPictures([img.Id], new NoorMD.Media.ConvertOptions("keep", 40, 90, "-web"), outDir));
+                var again = await Task.Run(() => ConvertPictures([img.Id], new NoorMD.Media.ConvertOptions("png", 0, 90, "-web"), outDir));
+                var cw = 0; var ch = 0;
+                if (made.Count == 1) { var f = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(made[0]))); cw = f.PixelWidth; ch = f.PixelHeight; }
+                var dateKept = made.Count == 1 && Math.Abs((NoorMD.Media.GalleryLibrary.ReadInfo(made[0], DateTime.UtcNow.AddYears(1)).TakenUtc - src.TakenUtc).TotalSeconds) < 1.5; // EXIF keeps whole seconds
+                var names = string.Join(",", made.Concat(again.Made).Select(Path.GetFileName));
+                Check("Gallery: convert / resize makes upright, smaller copies (with the date) and leaves the original alone",
+                    failed.Count == 0 && cw == 20 && ch == 40 && dateKept && Path.GetFileName(made[0]) == "Morze o zachodzie-web.jpg"
+                        && again.Made.Count == 1 && again.Made[0].EndsWith("-web.png") && File.ReadAllBytes(src.Path).AsSpan().SequenceEqual(srcBytes),
+                    $"{cw}x{ch} date {dateKept} {names} {string.Join("; ", failed.Concat(again.Failed))}");
+            }
             Gallery.RemoveFolder(gid);
         }
 

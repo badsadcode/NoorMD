@@ -1248,3 +1248,11 @@ body.center-active .tabs .tab.active::before { display: none; }
 .center-dock > .videobench.lists-hidden > .music-tabs, .center-dock > .videobench.lists-hidden > .vb-pane, .center-dock > .videobench.lists-hidden > .music-foot { display: none !important; }
 .center-dock > .videobench.lists-hidden > .vb-player { border-right: 0; }
 .center-dock > .videobench.lists-hidden .vb-list-toggle { color: var(--muted); }
+/* Gallery: convert / resize. */
+.cv-where { display: flex; flex-direction: column; gap: 6px; padding-left: 100px; }
+.apps-form .cv-where label { display: flex; align-items: center; gap: 8px; color: var(--text); }
+.apps-form .cv-where input { width: auto; }
+.cv-quality { display: flex; align-items: center; gap: 8px; }
+.apps-form .cv-quality input { padding: 0; border: 0; background: none; }
+@media (max-width: 560px) { .cv-where { padding-left: 0; } }
+.apps-form label[hidden] { display: none; }

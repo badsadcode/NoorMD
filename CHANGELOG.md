@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.0.0-preview.23 — Convert and resize pictures
+
+- **Convert or resize** many pictures at once (right-click › *Convert or resize…*, or ⇲ in the details
+  panel). Choose:
+  - the format: the same as now, JPEG (small files for sharing) or PNG (sharp, keeps see-through parts);
+  - the longest side: as they are, 3840 (4K), 2560, 1920 (Full HD), 1280, 1024, 800 or any size in pixels;
+  - the JPEG quality, and an ending for the names ("-web" makes *plaża-web.jpg*);
+  - where: a folder you choose, or a "Converted" folder next to each picture.
+- **The originals are never changed** and nothing is overwritten: a name that is already taken gets (2).
+  Smaller pictures are never made bigger. Photos come out the way they were taken (not sideways), and
+  see-through parts become white in a JPEG instead of black.
+- **Good for sharing:** a converted JPEG keeps the date the photo was taken, but not the camera details
+  or the location. Pictures Windows can't read (PSD, Affinity) are listed with the reason; export those
+  from their program.
+- The dialog shows its progress, says what was made, and opens the folder. It remembers your last choices.
+- **Fix:** rows in some dialogs that should be hidden (for example the JPEG quality when PNG is chosen)
+  stayed visible.
+
 ## 2.0.0-preview.22 — Picture tools: stars, colour labels, tags, dates, turning
 
 - **Stars and colour labels.** Give pictures 1–5 stars with the keys 1–5 (0 takes them away), or with the

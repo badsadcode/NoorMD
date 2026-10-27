@@ -494,6 +494,34 @@ public partial class MainWindow
                     if (turned.Count == 0 && refused.Count > 0) throw new BridgeError(refused[0]);
                     return new { images = turned, refused };
                 }
+                case "gallery.convert":
+                {
+                    var ids = Ids(p, "ids");
+                    if (ids.Count == 0) return new { cancelled = true };
+                    var opts = PictureConvert.Clean(new ConvertOptions(req.GetString("format", 10) ?? "keep", (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "maxSide") ?? 0),
+                        (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "quality") ?? 88), req.GetString("suffix", 60) ?? ""));
+                    string? dest = null;
+                    if (req.GetString("where", 10) != "beside")
+                    {
+                        var dlg = new OpenFolderDialog { Title = $"Save the {ids.Count} converted picture(s) in… (you can make a new folder here)" };
+                        Ui.NativeCursor.Restore();
+                        if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                        dest = dlg.FolderName;
+                    }
+                    var (made, failed) = await Task.Run(() => ConvertPictures(ids, opts, dest));
+                    var folders = made.Select(Path.GetDirectoryName).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    var inside = folders.Any(f => f != null && Gallery.IsInside(f));
+                    if (inside) await ScanGalleryAsync(Gallery.Folders().Where(f => folders.Any(d => d != null && d.StartsWith(f.Path, StringComparison.OrdinalIgnoreCase))).Select(f => f.Id).ToList());
+                    if (made.Count == 0 && failed.Count > 0) throw new BridgeError(failed[0]);
+                    return new { count = made.Count, folder = folders.Count == 1 ? folders[0] : null, failed, inside, status = GalleryStatus() };
+                }
+                case "gallery.convert.reveal":
+                {
+                    var folder = req.GetString("folder", 4000) ?? "";
+                    if (!Directory.Exists(folder)) throw new BridgeError("That folder is not there any more.");
+                    Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder}\"") { UseShellExecute = false });
+                    return null;
+                }
                 case "gallery.session.get": return Gallery.GetState("session");
                 case "gallery.session.save":
                 {
@@ -558,6 +586,87 @@ public partial class MainWindow
         var rotated = new TransformedBitmap(frame, new System.Windows.Media.RotateTransform(clockwise ? 90 : 270));
         rotated.Freeze();
         Write(path, enc, rotated);
+    }
+
+    /// <summary>
+    /// Makes converted copies (format, size, quality) in <paramref name="dest"/>, or next to each picture in a “Converted”
+    /// folder. The originals are not touched and nothing is overwritten. Reports progress to the page.
+    /// </summary>
+    private (List<string> Made, List<string> Failed) ConvertPictures(IReadOnlyList<long> ids, ConvertOptions o, string? dest)
+    {
+        var made = new List<string>();
+        var failed = new List<string>();
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var done = 0;
+        var lastPush = DateTime.MinValue;
+        foreach (var id in ids.Distinct().Take(5000))
+        {
+            var img = Gallery.Get(id);
+            if (img != null && File.Exists(img.Path))
+            {
+                var name = Path.GetFileName(img.Path);
+                try
+                {
+                    var folder = dest ?? Path.Combine(Path.GetDirectoryName(img.Path)!, "Converted");
+                    Directory.CreateDirectory(folder);
+                    var ext = PictureConvert.Extension(img.Path, o.Format);
+                    var outPath = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(img.Path) + o.Suffix, ext, taken);
+                    var frame = Decode(img.Path, o.MaxSide > 0 ? o.MaxSide : int.MaxValue) ?? throw new NotSupportedException("Windows can't read this format here; export it from its program.");
+                    BitmapEncoder enc = ext switch
+                    {
+                        ".jpg" => new JpegBitmapEncoder { QualityLevel = o.Quality },
+                        ".png" => new PngBitmapEncoder(),
+                        ".bmp" => new BmpBitmapEncoder(),
+                        _ => new TiffBitmapEncoder(),
+                    };
+                    if (ext is ".jpg" or ".bmp") frame = OnWhite(frame); // no see-through in these: transparent parts become white, not black
+                    Write(outPath, enc, frame);
+                    if (ext == ".jpg") PictureConvert.KeepDate(outPath, img.TakenUtc);
+                    File.SetLastWriteTimeUtc(outPath, File.GetLastWriteTimeUtc(img.Path));
+                    made.Add(outPath);
+                }
+                catch (Exception ex) when (ex is NotSupportedException or IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException or FileFormatException or System.Runtime.InteropServices.COMException)
+                {
+                    failed.Add($"{name}: {ex.Message}");
+                }
+            }
+            done++;
+            if ((DateTime.UtcNow - lastPush).TotalMilliseconds > 250 || done == ids.Count)
+            {
+                lastPush = DateTime.UtcNow;
+                var (d, t) = (done, ids.Count);
+                Dispatcher.BeginInvoke(() => PushEvent("gallery.convertProgress", new { done = d, total = t }));
+            }
+        }
+        Log.Info($"Gallery: converted {made.Count} picture(s), {failed.Count} not");
+        return (made, failed);
+    }
+
+    /// <summary>A picture with see-through parts put onto white (for JPEG and BMP).</summary>
+    private static BitmapSource OnWhite(BitmapSource frame)
+    {
+        var f = frame.Format;
+        var alpha = f == PixelFormats.Bgra32 || f == PixelFormats.Pbgra32 || f == PixelFormats.Rgba64 || f == PixelFormats.Prgba64 || f == PixelFormats.Rgba128Float
+            || f == PixelFormats.Prgba128Float || (frame.Palette?.Colors.Any(c => c.A < 255) ?? false);
+        if (!alpha) return frame;
+        var pb = new FormatConvertedBitmap(frame, PixelFormats.Pbgra32, null, 0);
+        var stride = pb.PixelWidth * 4;
+        var px = new byte[stride * pb.PixelHeight];
+        pb.CopyPixels(px, stride, 0);
+        var any = false;
+        for (var i = 3; i < px.Length; i += 4)
+        {
+            var a = px[i];
+            if (a == 255) continue;
+            any = true;
+            var add = (byte)(255 - a); // premultiplied: colour + white × (1 − alpha)
+            px[i - 3] = (byte)Math.Min(255, px[i - 3] + add); px[i - 2] = (byte)Math.Min(255, px[i - 2] + add); px[i - 1] = (byte)Math.Min(255, px[i - 1] + add);
+            px[i] = 255;
+        }
+        if (!any) return frame;
+        var flat = BitmapSource.Create(pb.PixelWidth, pb.PixelHeight, 96, 96, PixelFormats.Bgr32, null, px, stride);
+        flat.Freeze();
+        return flat;
     }
 
     private static object ImageForPage(GalleryImage i) => new

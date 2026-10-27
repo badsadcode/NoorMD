@@ -1332,6 +1332,30 @@ public class GalleryOrganizingTests
     }
 
     [Fact]
+    public void Converting_Picks_Formats_Sizes_And_Free_Names()
+    {
+        Assert.Equal(".jpg", PictureConvert.Extension(@"C:\a\x.JPEG", "keep"));
+        Assert.Equal(".png", PictureConvert.Extension("x.webp", "keep")); // may be see-through
+        Assert.Equal(".jpg", PictureConvert.Extension("x.heic", "keep"));
+        Assert.Equal(".tif", PictureConvert.Extension("x.tiff", "keep"));
+        Assert.Equal(".png", PictureConvert.Extension("x.jpg", "png"));
+        Assert.Throws<ArgumentException>(() => PictureConvert.Extension("x.jpg", "psd"));
+        Assert.Equal((1920, 1440), PictureConvert.Fit(4000, 3000, 1920));
+        Assert.Equal((1080, 1920), PictureConvert.Fit(3000, 5333, 1920));
+        Assert.Equal((800, 600), PictureConvert.Fit(800, 600, 1920)); // never made bigger
+        Assert.Equal((800, 600), PictureConvert.Fit(800, 600, 0));
+        var o = PictureConvert.Clean(new ConvertOptions("jpg", 5, 150, " -web?. "));
+        Assert.Equal((16, 100, " -web"), (o.MaxSide, o.Quality, o.Suffix));
+        Assert.Throws<ArgumentException>(() => PictureConvert.Clean(new ConvertOptions("gif")));
+        using var t = new TempDir();
+        File.WriteAllText(t.P("plaża.jpg"), "x");
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(t.P("plaża (2).jpg"), PictureConvert.FreePath(t.Path, "plaża", ".jpg", taken));
+        Assert.Equal(t.P("plaża (3).jpg"), PictureConvert.FreePath(t.Path, "plaża", ".jpg", taken)); // not the one just given out
+        Assert.Equal(t.P("mapa.png"), PictureConvert.FreePath(t.Path, "mapa", ".png", taken));
+    }
+
+    [Fact]
     public void Jpeg_Photos_Turn_By_Their_Orientation_Without_Touching_The_Picture()
     {
         using var t = new TempDir();

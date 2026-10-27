@@ -34,6 +34,7 @@ window.NoorGallery = (() => {
   function init(h) {
     hooks = { ...hooks, ...h };
     NoorBridge.on('gallery.dupProgress', (p) => { if (onDupProgress) onDupProgress(p); });
+    NoorBridge.on('gallery.convertProgress', (p) => { if (onConvertProgress) onConvertProgress(p); });
     NoorBridge.on('gallery.scanned', (p) => {
       if (!built) return;
       if (p.added || manualScan) notice(p.added ? `Gallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'Gallery is up to date', 1800);
@@ -431,6 +432,7 @@ window.NoorGallery = (() => {
       { label: 'Move to album', sub: () => moveMenu(ids) },
       { label: 'Move to a folder…', run: () => copyOrMove(ids, false) },
       { label: 'Copy to a folder…', run: () => copyOrMove(ids, true) },
+      { label: many ? `Convert or resize ${ids.length}…` : 'Convert or resize…', run: () => convertPictures(ids) },
       { label: many ? `Pack ${ids.length} into a ZIP…` : 'Pack into a ZIP…', run: () => packZip(ids) },
       { label: 'Show in Explorer', disabled: many, run: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) },
       '-',
@@ -504,6 +506,72 @@ window.NoorGallery = (() => {
   // ---------------------------------------------------------------- duplicates
 
   let onDupProgress = null;
+  let onConvertProgress = null;
+
+  // ---------------------------------------------------------------- convert / resize (copies; the originals stay)
+
+  const CONVERT_SIZES = [[0, 'As they are'], [3840, '3840 px (4K)'], [2560, '2560 px'], [1920, '1920 px (Full HD)'], [1280, '1280 px'], [1024, '1024 px'], [800, '800 px'], [-1, 'Other…']];
+  function convertSettings() { try { return { format: 'jpg', maxSide: 1920, quality: 88, suffix: '', where: 'choose', ...JSON.parse(localStorage.getItem('noormd.convert') || '{}') }; } catch { return { format: 'jpg', maxSide: 1920, quality: 88, suffix: '', where: 'choose' }; } }
+
+  function convertPictures(ids) {
+    if (!ids.length) return;
+    const st = convertSettings();
+    NoorUI.modal({ label: 'Convert or resize pictures', width: 520 }, (s, closeModal) => {
+      const format = el('select', { id: 'cv-format', 'aria-label': 'Format' },
+        el('option', { value: 'keep', text: 'Same as now (JPEG stays JPEG, PNG stays PNG…)' }), el('option', { value: 'jpg', text: 'JPEG (photos, small files)' }), el('option', { value: 'png', text: 'PNG (sharp, keeps see-through parts)' }));
+      format.value = st.format;
+      const known = CONVERT_SIZES.some(([n]) => n === st.maxSide);
+      const size = el('select', { id: 'cv-size', 'aria-label': 'Longest side' }, ...CONVERT_SIZES.map(([n, t]) => el('option', { value: String(n), text: t })));
+      size.value = known ? String(st.maxSide) : '-1';
+      const custom = el('input', { type: 'number', id: 'cv-custom', min: '16', max: '20000', step: '1', value: String(known || !st.maxSide ? 1600 : st.maxSide), 'aria-label': 'Longest side in pixels' });
+      const customRow = el('label', { hidden: size.value !== '-1' }, el('span', { text: 'Pixels' }), custom);
+      size.addEventListener('change', () => { customRow.hidden = size.value !== '-1'; if (!customRow.hidden) custom.focus(); });
+      const quality = el('input', { type: 'range', id: 'cv-quality', min: '50', max: '100', step: '1', value: String(st.quality), 'aria-label': 'JPEG quality' });
+      const qText = el('small', { text: String(st.quality) });
+      quality.addEventListener('input', () => { qText.textContent = quality.value; });
+      const qRow = el('label', { hidden: format.value === 'png' }, el('span', { text: 'JPEG quality' }), el('span', { class: 'cv-quality' }, quality, qText));
+      format.addEventListener('change', () => { qRow.hidden = format.value === 'png'; });
+      const suffix = el('input', { type: 'text', id: 'cv-suffix', value: st.suffix, placeholder: 'e.g. -web (optional)', maxlength: '40', spellcheck: 'false', 'aria-label': 'Name ending' });
+      const whereChoose = el('input', { type: 'radio', name: 'cv-where', id: 'cv-where-choose', value: 'choose', checked: st.where !== 'beside' || undefined });
+      const whereBeside = el('input', { type: 'radio', name: 'cv-where', id: 'cv-where-beside', value: 'beside', checked: st.where === 'beside' || undefined });
+      const statusLine = el('p', { class: 'pref-hint', id: 'cv-status', 'aria-live': 'polite', text: 'The originals stay as they are. Nothing is overwritten: a name already there gets (2).' });
+      const go = el('button', { class: 'action primary', id: 'cv-go', autofocus: true }, `Convert ${ids.length} picture${ids.length === 1 ? '' : 's'}`);
+      const cancel = el('button', { class: 'action', onclick: () => closeModal() }, 'Cancel');
+      const read = () => ({ format: format.value, maxSide: size.value === '-1' ? Math.max(16, Number(custom.value) || 0) : Number(size.value), quality: Number(quality.value), suffix: suffix.value, where: whereBeside.checked ? 'beside' : 'choose' });
+      let busy = false;
+      go.addEventListener('click', async () => {
+        if (busy) return;
+        const o = read();
+        try { localStorage.setItem('noormd.convert', JSON.stringify(o)); } catch { /* private storage off */ }
+        busy = true; go.disabled = true;
+        statusLine.textContent = o.where === 'choose' ? 'Choose where to save them…' : 'Converting…';
+        onConvertProgress = (p) => { if (busy) statusLine.textContent = `Converting… ${p.done} of ${p.total}`; };
+        try {
+          const r = await req('gallery.convert', { ids, ...o });
+          if (!r || r.cancelled) { statusLine.textContent = 'Cancelled. Nothing was made.'; return; }
+          if (r.status) { status = r.status; renderSources(); if (r.inside) await load(); }
+          statusLine.textContent = `Made ${r.count} picture${r.count === 1 ? '' : 's'}${r.folder ? ` in ${r.folder}` : ' (in a “Converted” folder next to each)'}.`
+            + (r.failed && r.failed.length ? ` Not converted (${r.failed.length}): ${r.failed.slice(0, 3).join('; ')}${r.failed.length > 3 ? '…' : ''}` : '');
+          go.replaceWith(...(r.folder ? [el('button', { class: 'action', id: 'cv-open', onclick: () => req('gallery.convert.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder')] : []),
+            el('button', { class: 'action primary', id: 'cv-done', onclick: () => closeModal() }, 'Done'));
+          cancel.remove();
+          $('#cv-done')?.focus();
+        } catch (err) { statusLine.textContent = String(err && err.message ? err.message : err); } finally { busy = false; go.disabled = false; onConvertProgress = null; }
+      });
+      s.append(NoorUI.head(`⇲ Convert or resize · ${ids.length} picture${ids.length === 1 ? '' : 's'}`, closeModal),
+        el('div', { class: 'modal-body apps-form' },
+          el('label', {}, el('span', { text: 'Format' }), format),
+          el('label', {}, el('span', { text: 'Longest side' }), size),
+          customRow, qRow,
+          el('label', {}, el('span', { text: 'Name ending' }), suffix),
+          el('div', { class: 'cv-where', role: 'radiogroup', 'aria-label': 'Where' },
+            el('label', {}, whereChoose, el('span', { text: 'In a folder I choose' })),
+            el('label', {}, whereBeside, el('span', { text: 'Next to each picture, in a “Converted” folder' }))),
+          el('p', { class: 'pref-hint', text: 'Smaller pictures are never made bigger. Photos are turned the way they were taken. JPEG keeps the date taken but not the camera details or the location.' }),
+          statusLine),
+        el('div', { class: 'modal-foot' }, el('span'), el('div', { class: 'modal-buttons' }, cancel, go)));
+    });
+  }
 
   async function findDuplicates() {
     const album = view.source.startsWith('album:') ? status.albums.find((a) => 'album:' + a.key === view.source) : null;
@@ -761,6 +829,7 @@ window.NoorGallery = (() => {
           el('button', { class: 'utility-btn', onclick: () => insert(it) }, '⤓ Into note'),
           el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu([it.id])); } }, '→ Move…'),
           el('button', { class: 'utility-btn', id: 'ginfo-openin', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…'),
+          el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures([it.id]) }, '⇲ Convert…'),
           el('button', { class: 'utility-btn', onclick: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) }, '📁 Explorer'),
           el('button', { class: 'utility-btn danger', onclick: () => deletePictures([it.id]) }, '🗑 Delete…')));
       return;
@@ -779,6 +848,7 @@ window.NoorGallery = (() => {
         el('button', { class: 'utility-btn', onclick: () => saveSlideshow(ids) }, '＋ New slideshow…'),
         el('button', { class: 'utility-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu(ids)) }, '✎ Open in…'),
         el('button', { class: 'utility-btn', onclick: () => copyOrMove(ids, true) }, '⧉ Copy to…'),
+        el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures(ids) }, '⇲ Convert or resize…'),
         el('button', { class: 'utility-btn', id: 'ginfo-zip', onclick: () => packZip(ids) }, '🗜 ZIP…'),
         el('button', { class: 'utility-btn danger', onclick: () => deletePictures(ids) }, '🗑 Delete…')));
   }
