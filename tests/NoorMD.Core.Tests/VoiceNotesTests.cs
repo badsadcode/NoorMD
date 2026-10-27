@@ -54,4 +54,16 @@ public class VoiceNotesTests
         Assert.Equal("[🎙 Voice note 1](<../attachments/Voice notes/Voice note 1.webm>)", VoiceNotes.LinkFor(rec, Path.Combine(root, "World", "Rivers.md"), 0));
         Assert.Contains("](<" + rec.Replace('\\', '/') + ">)", VoiceNotes.LinkFor(rec, null, 3));
     }
+
+    [Fact]
+    public void The_Microphone_Is_Only_Allowed_Right_After_Record_For_The_App_Page()
+    {
+        var now = new DateTime(2026, 10, 27, 15, 0, 0, DateTimeKind.Utc);
+        var armed = now + MicrophoneGate.Window;
+        Assert.True(MicrophoneGate.Allow(true, true, now.AddSeconds(5), armed));
+        Assert.False(MicrophoneGate.Allow(true, true, now, DateTime.MinValue));      // never pressed
+        Assert.False(MicrophoneGate.Allow(true, true, armed.AddSeconds(1), armed)); // too late
+        Assert.False(MicrophoneGate.Allow(true, false, now, armed));                // another page (a pop-out, an overlay)
+        Assert.False(MicrophoneGate.Allow(false, true, now, armed));                // camera, location… never
+    }
 }

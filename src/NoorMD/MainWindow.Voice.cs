@@ -27,8 +27,8 @@ public partial class MainWindow
     /// <summary>Microphone access for the app page only right after Record was pressed in NoorMD.</summary>
     private void OnPermissionRequested(object? sender, CoreWebView2PermissionRequestedEventArgs e)
     {
-        var allow = e.PermissionKind == CoreWebView2PermissionKind.Microphone && DateTime.UtcNow < _micArmedUntilUtc
-            && Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) && NoorMD.Core.Security.AssetResolver.IsAppPage(u);
+        var allow = MicrophoneGate.Allow(e.PermissionKind == CoreWebView2PermissionKind.Microphone,
+            Uri.TryCreate(e.Uri, UriKind.Absolute, out var u) && NoorMD.Core.Security.AssetResolver.IsAppPage(u), DateTime.UtcNow, _micArmedUntilUtc);
         e.State = allow ? CoreWebView2PermissionState.Allow : CoreWebView2PermissionState.Deny;
         if (allow) _micArmedUntilUtc = DateTime.MinValue; // once per press
     }
@@ -48,7 +48,7 @@ public partial class MainWindow
             {
                 case "voice.status": return VoiceStatus();
                 case "voice.arm":
-                    _micArmedUntilUtc = DateTime.UtcNow.AddSeconds(15);
+                    _micArmedUntilUtc = DateTime.UtcNow + MicrophoneGate.Window;
                     return null;
                 case "voice.begin": return new { token = Voice.Begin(req.GetString("name", 120), req.GetString("ext", 8) ?? ".webm") };
                 case "voice.chunk":

@@ -91,3 +91,12 @@ public sealed class VoiceNotes
         return $"[{label}](<{target}>)";
     }
 }
+
+/// <summary>When the app page may use the microphone: only for a short time after Record was pressed in NoorMD, once.</summary>
+public static class MicrophoneGate
+{
+    public static readonly TimeSpan Window = TimeSpan.FromSeconds(15);
+
+    public static bool Allow(bool isMicrophone, bool fromAppPage, DateTime nowUtc, DateTime armedUntilUtc) =>
+        isMicrophone && fromAppPage && nowUtc < armedUntilUtc;
+}

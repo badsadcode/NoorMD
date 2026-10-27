@@ -594,7 +594,8 @@ public partial class MainWindow
         var vt = "null";
         for (var i = 0; i < 60 && vt == "null"; i++) { await Task.Delay(200); vt = await Eval("window.__vt"); }
         var voice = System.Text.Json.JsonDocument.Parse(JsonSerializer.Deserialize<string>(vt) ?? "{}").RootElement;
-        Check("voice notes: the page can't use the microphone unless Record was pressed", voice.TryGetProperty("denied", out var dn) && dn.GetString() == "NotAllowedError", vt);
+        // Without a microphone (CI) Chromium answers "no device" before asking for permission, so either answer means "not used".
+        Check("voice notes: the page can't use the microphone unless Record was pressed", voice.TryGetProperty("denied", out var dn) && dn.GetString() is "NotAllowedError" or "NotFoundError", vt);
         var voicePath = voice.TryGetProperty("path", out var vp) ? vp.GetString() : null;
         var head = voicePath != null && File.Exists(voicePath) ? File.ReadAllBytes(voicePath).Take(4).ToArray() : [];
         Check("…a recording is saved as a real WebM file, with a link to it", head.SequenceEqual(new byte[] { 0x1A, 0x45, 0xDF, 0xA3 }) && voice.GetProperty("link").GetString()!.Contains("NoorMD self-test"), vt);
