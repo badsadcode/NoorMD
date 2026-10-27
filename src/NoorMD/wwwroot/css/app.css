@@ -598,7 +598,8 @@ body.show-mnemonics .menu-title u { text-decoration: underline; }
 .vault-name::after { content: '/'; color: var(--muted); margin-left: 6px; font-weight: 400; }
 .menu-popup { position: fixed; z-index: 320; min-width: 250px; max-width: 420px; max-height: calc(100vh - 16px); overflow-y: auto; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 16px 44px rgba(0,0,0,.38); display: flex; flex-direction: column; }
 .menu-item { display: grid; grid-template-columns: 18px 1fr auto; align-items: center; gap: 6px; text-align: left; border: 0; background: none; color: var(--text); padding: 6px 10px 6px 6px; border-radius: 6px; font-size: 13px; white-space: nowrap; }
-.menu-item:hover:not([disabled]), .menu-item:focus, .menu-item.sub-open { background: var(--surface2); outline: none; }
+.menu-item:focus { outline: none; }
+.menu-item:hover:not([disabled]), .menu-item.active, .menu-item.sub-open { background: var(--surface2); }
 .menu-item[disabled] { color: var(--muted); opacity: .55; }
 .menu-check { color: var(--accent); font-size: 12px; text-align: center; }
 .menu-keys { color: var(--muted); font-size: 11.5px; padding-left: 18px; }
@@ -991,6 +992,8 @@ body.has-vault.side-tags .sidebar > .side-section:not(.tags-panel), body.has-vau
 .appshub { display: flex; flex-direction: column; min-height: 0; background: var(--panel); outline: none; }
 .appshub[hidden] { display: none; }
 .apps-toolbar { padding: 0 12px 8px; }
+.apps-cats { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 8px; }
+.apps-cats .chip { cursor: pointer; max-width: 160px; overflow: hidden; text-overflow: ellipsis; }
 .apps-toolbar input { width: 100%; box-sizing: border-box; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; }
 .apps-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 12px 12px; }
 .apps-group h4 { margin: 10px 2px 6px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }

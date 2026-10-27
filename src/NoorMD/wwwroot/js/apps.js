@@ -8,7 +8,7 @@ window.NoorApps = (() => {
 
   let hooks = { showError: (e) => console.error(e) };
   let built = false;
-  let hub = { items: [], groups: [] };
+  let hub = { items: [], groups: [], view: 'all' };
   let filter = '';
 
   const isOpen = () => document.body.classList.contains('apps-open');
@@ -47,7 +47,8 @@ window.NoorApps = (() => {
           el('button', { class: 'icon-btn', id: 'apps-add', title: 'Add a program, game, file, folder or website', 'aria-label': 'Add to the Apps Hub', onclick: (e) => addMenu(e.currentTarget) }, '＋'),
           el('button', { class: 'icon-btn', id: 'apps-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Apps Hub', onclick: (e) => NoorDock.showMenu('apps', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+H)', 'aria-label': 'Close Apps Hub', onclick: close }, '✕'))),
-      el('div', { class: 'apps-toolbar' }, el('input', { id: 'apps-search', type: 'search', placeholder: 'Find a shortcut…', 'aria-label': 'Find a shortcut', autocomplete: 'off', spellcheck: 'false' })),
+      el('div', { class: 'apps-toolbar' }, el('input', { id: 'apps-search', type: 'search', placeholder: 'Find a shortcut…', 'aria-label': 'Find a shortcut', autocomplete: 'off', spellcheck: 'false' }),
+        el('div', { class: 'apps-cats', id: 'apps-cats', role: 'tablist', 'aria-label': 'Categories' })),
       el('div', { class: 'apps-body', id: 'apps-body' }));
     ($('#app') || document.body).append(root);
     $('#apps-search').addEventListener('input', (e) => { filter = e.target.value.trim().toLowerCase(); render(); });
@@ -68,7 +69,7 @@ window.NoorApps = (() => {
 
   async function add(kind) {
     try {
-      const r = await req('apps.add', { kind });
+      const r = await req('apps.add', { kind, group: currentGroup() || undefined });
       if (!r || r.cancelled) return;
       hub = r.hub;
       render();
@@ -81,7 +82,7 @@ window.NoorApps = (() => {
     NoorUI.modal({ label: editing ? 'Edit shortcut' : 'Add a website', width: 520 }, (s, closeModal) => {
       const url = el('input', { id: 'apps-url', type: 'text', value: item ? item.target : 'https://', placeholder: 'https://… or steam://rungameid/570', 'aria-label': 'Address', spellcheck: 'false' });
       const name = el('input', { id: 'apps-name', type: 'text', value: item ? item.name : '', placeholder: 'Name (optional)', 'aria-label': 'Name' });
-      const group = groupInput(item ? item.group : 'Web');
+      const group = groupInput(item ? item.group : currentGroup() || 'Web');
       const go = async () => {
         try {
           hub = editing ? await req('apps.update', { id: item.id, url: url.value, name: name.value, group: group.value }) : (await req('apps.addWeb', { url: url.value, name: name.value, group: group.value })).hub;
@@ -149,6 +150,11 @@ window.NoorApps = (() => {
       { label: 'Change picture…', run: async () => { try { const r = await req('apps.icon.pick', { id: item.id }); if (r && !r.cancelled) { hub = r; render(); } } catch (err) { hooks.showError(err); } } },
       { label: item.kind === 'web' ? 'Use a letter tile' : 'Use the Windows icon', run: async () => { try { hub = await req('apps.icon.reset', { id: item.id }); render(); } catch (err) { hooks.showError(err); } } },
       { label: 'Show in Explorer', disabled: item.kind === 'web', run: () => req('apps.reveal', { id: item.id }).catch(hooks.showError) },
+      { label: 'Move to category', sub: () => [
+        ...hub.groups.map((g) => ({ label: (g === item.group ? '✓ ' : '') + g, disabled: g === item.group, run: () => moveTo(item, g) })),
+        '-',
+        { label: 'New category…', run: async () => { const g = await newCategory(); if (g) moveTo(item, g); } },
+      ] },
       { label: 'Move to the start', run: async () => { try { hub = await req('apps.reorder', { ids: [item.id] }); render(); } catch (err) { hooks.showError(err); } } },
       '-',
       { label: 'Remove from the hub', run: async () => {
@@ -177,12 +183,85 @@ window.NoorApps = (() => {
     }, pic, el('span', { class: 'app-name', text: item.name }), el('span', { class: 'app-kind', 'aria-hidden': 'true', text: KIND_ICON[item.kind] || '' }));
   }
 
+  const currentGroup = () => (hub.view && hub.view.startsWith('group:') ? hub.view.slice(6) : null);
+  const byRecent = (list) => list.filter((i) => i.lastUsed).sort((a, b) => String(b.lastUsed).localeCompare(String(a.lastUsed)));
+
+  async function setView(view) {
+    hub.view = view;
+    render();
+    try { await req('apps.view', { view }); } catch (err) { hooks.showError(err); }
+  }
+
+  async function moveTo(item, group) {
+    try { hub = await req('apps.update', { id: item.id, group }); render(); notice(`“${item.name}” → ${group}`, 1400); } catch (err) { hooks.showError(err); }
+  }
+
+  /** Asks for a name and makes the category; returns its name (or null). */
+  async function newCategory() {
+    const name = await NoorUI.prompt('New category', 'Name of the category (for example Games, Work or Streaming):', '', { okLabel: 'Create' });
+    if (!name || !name.trim()) return null;
+    try { hub = await req('apps.category.add', { name }); } catch (err) { hooks.showError(err); return null; }
+    const made = hub.groups.find((g) => g.toLowerCase() === name.trim().toLowerCase()) || name.trim();
+    await setView('group:' + made);
+    return made;
+  }
+
+  async function renameCategory(g) {
+    const name = await NoorUI.prompt('Rename category', `New name for “${g}” (an existing name merges the two):`, g, { okLabel: 'Rename' });
+    if (!name || !name.trim() || name.trim() === g) return;
+    try { hub = await req('apps.category.rename', { from: g, name }); render(); } catch (err) { hooks.showError(err); }
+  }
+
+  async function removeCategory(g) {
+    const count = hub.items.filter((i) => i.group === g).length;
+    const others = hub.groups.filter((x) => x !== g);
+    let moveTo = others[0] || 'Apps';
+    if (count) {
+      const choice = await NoorUI.choose(`Remove “${g}”?`, [`Its ${count} shortcut${count === 1 ? '' : 's'} stay in the hub and move to another category.`],
+        [{ label: 'Cancel', value: null }, ...(others.length ? others.slice(0, 3) : ['Apps']).map((x, k) => ({ label: `Move to ${x}`, value: x, primary: k === 0 }))]);
+      if (!choice) return;
+      moveTo = choice;
+    }
+    try { hub = await req('apps.category.remove', { name: g, moveTo }); render(); } catch (err) { hooks.showError(err); }
+  }
+
+  function categoryMenu(g, x, y) {
+    const i = hub.groups.indexOf(g);
+    NoorChrome.openMenu(null, [
+      { label: 'Rename…', run: () => renameCategory(g) },
+      { label: 'Move left', disabled: i <= 0, run: async () => { try { hub = await req('apps.category.move', { name: g, by: -1 }); render(); } catch (err) { hooks.showError(err); } } },
+      { label: 'Move right', disabled: i >= hub.groups.length - 1, run: async () => { try { hub = await req('apps.category.move', { name: g, by: 1 }); render(); } catch (err) { hooks.showError(err); } } },
+      '-',
+      { label: 'Remove category…', run: () => removeCategory(g) },
+    ], { x, y });
+  }
+
+  function renderCats() {
+    const cats = $('#apps-cats');
+    const recentCount = byRecent(hub.items).length;
+    const chip = (view, label, count, extra = {}) => el('button', {
+      class: 'chip' + (hub.view === view ? ' active' : ''), role: 'tab', 'aria-selected': String(hub.view === view), 'data-view': view,
+      onclick: () => setView(view), ...extra,
+    }, label, count != null ? el('small', { text: ' ' + count }) : null);
+    cats.replaceChildren(
+      chip('all', 'All', null),
+      ...(recentCount ? [chip('recent', '🕘 Recent', null)] : []),
+      ...hub.groups.map((g) => chip('group:' + g, g, hub.items.filter((i) => i.group === g).length, {
+        title: 'Right-click to rename, move or remove', 'data-group': g,
+        oncontextmenu: (e) => { e.preventDefault(); categoryMenu(g, e.clientX, e.clientY); },
+      })),
+      el('button', { class: 'chip apps-cat-add', id: 'apps-cat-add', title: 'New category', 'aria-label': 'New category', onclick: () => newCategory() }, '＋'));
+  }
+
   function render() {
     if (!built) return;
     const body = $('#apps-body');
     $('#apps-count').textContent = hub.items.length ? String(hub.items.length) : '';
-    const items = hub.items.filter((i) => !filter || i.name.toLowerCase().includes(filter) || i.group.toLowerCase().includes(filter) || i.target.toLowerCase().includes(filter));
-    if (!hub.items.length) {
+    // A category that is gone (or a view from another build) falls back to All.
+    if (!(hub.view === 'all' || hub.view === 'recent' || (currentGroup() != null && hub.groups.includes(currentGroup())))) hub.view = 'all';
+    if (hub.view === 'recent' && !byRecent(hub.items).length) hub.view = 'all';
+    renderCats();
+    if (!hub.items.length && hub.view === 'all') {
       body.replaceChildren(el('div', { class: 'vb-empty' }, el('h2', { text: 'Your apps, games and sites in one place' }),
         el('p', { text: 'Add programs, games (Steam and Epic shortcuts work too), folders, files and websites. Click a tile to start it.' }),
         el('div', { class: 'modal-buttons' },
@@ -190,13 +269,31 @@ window.NoorApps = (() => {
           el('button', { class: 'action', onclick: () => addWeb() }, '🌐 Website…'))));
       return;
     }
-    const recent = filter ? [] : hub.items.filter((i) => i.lastUsed).sort((a, b) => String(b.lastUsed).localeCompare(String(a.lastUsed))).slice(0, 6);
-    const groups = [...new Set(items.map((i) => i.group))];
-    body.replaceChildren(
-      ...(recent.length >= 2 ? [el('section', { class: 'apps-group' }, el('h4', { text: 'Recently used' }), el('div', { class: 'apps-grid' }, ...recent.map(tile)))] : []),
-      ...groups.map((g) => el('section', { class: 'apps-group', 'data-group': g }, el('h4', { text: g }), el('div', { class: 'apps-grid' }, ...items.filter((i) => i.group === g).map(tile)))),
-      ...(items.length ? [] : [el('p', { class: 'music-none', text: 'Nothing matches.' })]));
+    const matches = (i) => !filter || i.name.toLowerCase().includes(filter) || i.group.toLowerCase().includes(filter) || i.target.toLowerCase().includes(filter);
+    // Searching looks through every category; otherwise the chosen one is shown.
+    if (filter || hub.view === 'all') {
+      const items = hub.items.filter(matches);
+      const recent = filter ? [] : byRecent(hub.items).slice(0, 6);
+      const groups = hub.groups.filter((g) => items.some((i) => i.group === g));
+      body.replaceChildren(
+        ...(recent.length >= 2 ? [el('section', { class: 'apps-group' }, el('h4', { text: 'Recently used' }), el('div', { class: 'apps-grid' }, ...recent.map(tile)))] : []),
+        ...groups.map((g) => el('section', { class: 'apps-group', 'data-group': g }, el('h4', { text: g }), el('div', { class: 'apps-grid' }, ...items.filter((i) => i.group === g).map(tile)))),
+        ...(items.length ? [] : [el('p', { class: 'music-none', text: 'Nothing matches.' })]));
+      return;
+    }
+    if (hub.view === 'recent') {
+      body.replaceChildren(el('section', { class: 'apps-group' }, el('div', { class: 'apps-grid' }, ...byRecent(hub.items).slice(0, 24).map(tile))));
+      return;
+    }
+    const g = currentGroup();
+    const items = hub.items.filter((i) => i.group === g);
+    body.replaceChildren(items.length
+      ? el('section', { class: 'apps-group', 'data-group': g }, el('div', { class: 'apps-grid' }, ...items.map(tile)))
+      : el('div', { class: 'vb-empty' }, el('p', { text: `Nothing in “${g}” yet. Add something with ＋ (it goes into this category), or right-click a shortcut › Move to category.` }),
+        el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => add('app') }, '＋ Program or game…'),
+          el('button', { class: 'action', onclick: () => addWeb() }, '🌐 Website…'))));
   }
 
-  return { init, open, close, toggle, isOpen, refresh, _state: () => ({ open: isOpen(), items: hub.items.map((i) => i.name) }) };
+  return { init, open, close, toggle, isOpen, refresh, _state: () => ({ open: isOpen(), items: hub.items.map((i) => i.name), view: hub.view, groups: [...hub.groups] }) };
 })();

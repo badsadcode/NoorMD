@@ -23,6 +23,18 @@ public class LinkRewriteTests
     }
 
     [Fact]
+    public void Wiki_Links_With_Escaped_Brackets_Are_Found_And_Rewritten_As_Plain_Wiki_Links()
+    {
+        // What a [[link]] typed in Visual mode used to be saved as.
+        var text = "See \\[\\[Day one\\]\\], \\[\\[Trips/Day one|the first day\\]\\] and \\[\\[Nowhere\\]\\].\n";
+        var r = VaultLinkRewriter.Rewrite(text, "Index.md", Map(("Trips/Day one.md", "Trips/Day_1.md")), Files);
+        Assert.Equal("See [[Day_1]], [[Trips/Day_1|the first day]] and \\[\\[Nowhere\\]\\].\n", r.Text);
+        Assert.Equal(2, r.Changed);
+        Assert.Equal(["Day one", "Trips/Day one", "Nowhere"], VaultLinks.Extract(text).Select(l => l.Target));
+        Assert.Equal(["My_Note"], VaultLinks.Extract("\\[\\[My\\_Note\\]\\] \\\\[\\[not\\]\\]").Select(l => l.Target));
+    }
+
+    [Fact]
     public void A_Moved_Note_Keeps_Its_Own_Relative_Links_And_Images_Working()
     {
         var text = "![map](../Images/map.png)\n[lakes](Lakes.md) and [home](../Index.md)\n![p](<../Images/my photo.jpg>) ![p2](../Images/my%20photo.jpg)\n";

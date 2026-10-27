@@ -34,6 +34,43 @@ public class AppsHubTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    public void Categories_Can_Be_Made_Renamed_Ordered_And_Removed_Without_Losing_Shortcuts()
+    {
+        var dir = Temp();
+        try
+        {
+            var old = new HubItem { Name = "Old", Kind = HubKind.Web, Target = "https://a.b", Group = "Web" };
+            File.WriteAllText(Path.Combine(dir, "apps.json"), System.Text.Json.JsonSerializer.Serialize(new[] { old }, new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web)));
+            var hub = new AppsHub(dir); // the first file format (a plain list) still loads
+            Assert.Equal(["Web"], hub.Groups());
+            var g = hub.Add(new HubItem { Name = "Dota 2", Kind = HubKind.Web, Target = "steam://rungameid/570", Group = "Games" });
+            Assert.Equal("Streaming", hub.AddCategory(" Streaming "));
+            Assert.Equal("Games", hub.AddCategory("games")); // existing names are reused, not doubled
+            Assert.Equal(["Web", "Games", "Streaming"], hub.Groups());
+            hub.MoveCategory("Streaming", -1);
+            hub.SetView("group:Games");
+            var again = new AppsHub(dir);
+            Assert.Equal(["Web", "Streaming", "Games"], again.Groups()); // an empty category is kept
+            Assert.Equal("group:Games", again.View);
+            Assert.Equal("Play", again.RenameCategory("Games", "Play"));
+            Assert.Equal("Play", again.Get(g.Id)!.Group);
+            Assert.Equal("group:Play", again.View);
+            again.RenameCategory("Play", "web"); // merging into an existing one
+            Assert.Equal(["Web", "Streaming"], again.Groups());
+            Assert.Equal("Web", again.Get(g.Id)!.Group);
+            again.RemoveCategory("Web", "Streaming");
+            Assert.Equal(2, again.Items.Count); // shortcuts are never removed with their category
+            Assert.All(again.Items, i => Assert.Equal("Streaming", i.Group));
+            Assert.Equal(["Streaming"], new AppsHub(dir).Groups());
+            Assert.ThrowsAny<ArgumentException>(() => again.AddCategory("  "));
+            Assert.ThrowsAny<ArgumentException>(() => again.RemoveCategory("Streaming", "Streaming"));
+            again.SetView("<script>");
+            Assert.Equal("all", again.View);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     [Theory]
     [InlineData("javascript:alert(1)")]
     [InlineData("file:///C:/Windows/System32/cmd.exe")]

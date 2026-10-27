@@ -2665,6 +2665,98 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/voice-notes.png` });
       await page.close();
     }
+
+    // ---- 30. [[Wiki links]] typed in Visual mode stay links; one highlighted item in menus; Apps Hub categories.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# W\n\nhello\n', path: 'C:\\v\\w.md', fileName: 'w.md', title: 'w' }, files: { 'C:\\v\\w.md': '# W\n\nhello\n' } }, { width: 1500, height: 950 });
+      await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type(' See [[My_Note]], [[Żółw|the turtle]] and [[bad]x]].');
+      let md = (await state(page)).markdown;
+      check('a [[wiki link]] typed in Visual mode is saved as a real link', md.includes('[[My_Note]]') && md.includes('[[Żółw|the turtle]]'), md);
+      check('…text that is not one link keeps its escapes', md.includes('\\[\\[bad\\]x\\]\\]'), md);
+      await page.keyboard.press('Control+2');
+      await waitFn(page, () => window.NoorMD.getState().mode === 'markdown');
+      md = (await state(page)).markdown;
+      check('…and stays one when switching to Markdown mode', md.includes('[[My_Note]]') && !md.includes('\\[\\[My'), md);
+
+      // Menus: moving from an item with a submenu to a plain item (or out of the menu) leaves one highlight at most.
+      await page.click('#menubar .menu-title:has-text("View")');
+      const sub = page.locator('.menu-popup[data-depth="0"] .menu-item.has-sub').first();
+      await sub.hover();
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      const highlighted = () => page.$$eval('.menu-popup[data-depth="0"] .menu-item', (n) => n.filter((x) => x.matches('.active, .sub-open, :hover')).length);
+      check('hovering an item with a submenu highlights it and opens the submenu', (await highlighted()) === 1);
+      const plain = page.locator('.menu-popup[data-depth="0"] .menu-item:not(.has-sub):not([disabled])').first();
+      await plain.hover();
+      check('moving to a plain item un-highlights the submenu item and closes its submenu', (await highlighted()) === 1 && !(await page.$('.menu-popup[data-depth="1"]')) && !(await page.$('.menu-popup[data-depth="0"] .sub-open')));
+      await page.mouse.move(1400, 900);
+      check('moving the mouse out of the menu clears the highlight', (await highlighted()) === 0);
+      await sub.hover();
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.locator('.menu-popup[data-depth="1"] .menu-item').first().hover();
+      await page.mouse.move(1400, 900);
+      check('…but an item whose submenu is open stays marked', (await page.$$('.menu-popup[data-depth="0"] .menu-item.sub-open')).length === 1 && (await highlighted()) === 1);
+      await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
+      await page.mouse.click(700, 600);
+
+      // Apps Hub categories: chips filter what is shown; custom categories; moving shortcuts; remembered.
+      const H = () => page.evaluate(() => window.__mock.state.hub);
+      const AS = () => page.evaluate(() => NoorApps._state());
+      await page.keyboard.press('Control+Alt+h');
+      await page.waitForSelector('#appshub:not([hidden])');
+      await page.click('#apps-body button:has-text("Program or game")');
+      await page.waitForSelector('.app-tile');
+      check('category chips: All plus one per category', (await page.$$eval('#apps-cats .chip[data-view]', (n) => n.map((x) => x.dataset.view))).join(',') === 'all,group:Apps,group:Games');
+      await page.click('#apps-cats .chip[data-view="group:Games"]');
+      check('a category chip shows only that category', (await page.$$eval('.app-tile', (n) => n.map((x) => x.dataset.id))).join(',') === 'h2' && (await H()).view === 'group:Games');
+      await page.fill('#apps-search', 'obs');
+      check('searching looks through every category', (await page.$$eval('.app-tile', (n) => n.map((x) => x.dataset.id))).join(',') === 'h1');
+      await page.fill('#apps-search', '');
+      await page.click('#apps-cat-add');
+      await page.fill('.modal input', 'Streaming');
+      await page.click('.modal button:has-text("Create")');
+      await waitFn(page, () => NoorApps._state().view === 'group:Streaming');
+      check('a new (empty) category is made and selected', (await AS()).groups.includes('Streaming') && (await page.textContent('#apps-body')).includes('Nothing in “Streaming” yet'));
+      await page.click('#apps-body button:has-text("Program or game")');
+      await waitFn(page, () => window.__mock.state.hub.items.length === 4);
+      check('adding while a category is chosen puts it there', (await H()).items.slice(2).every((i) => i.group === 'Streaming'));
+      await page.click('#apps-cats .chip[data-view="all"]');
+      await page.click('.app-tile[data-id="h1"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Move to category")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Games")');
+      await waitFn(page, () => window.__mock.state.hub.items[0].group === 'Games');
+      check('a shortcut moves to another category from its menu', (await H()).items[0].group === 'Games');
+      await page.click('#apps-cats .chip[data-view="group:Streaming"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Rename")');
+      await page.fill('.modal input', 'Live');
+      await page.click('.modal button:has-text("Rename")');
+      await waitFn(page, () => NoorApps._state().groups.includes('Live'));
+      check('a category can be renamed (its shortcuts follow)', (await H()).items.slice(2).every((i) => i.group === 'Live') && !(await AS()).groups.includes('Streaming'));
+      await page.click('#apps-cats .chip[data-view="group:Live"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Move left")');
+      await waitFn(page, () => NoorApps._state().groups[1] === 'Live');
+      check('categories can be put in your order', (await AS()).groups.join(',') === 'Apps,Live,Games', (await AS()).groups);
+      await page.click('#apps-cats .chip[data-view="group:Live"]', { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Remove category")');
+      await page.click('.modal button:has-text("Move to Games")');
+      await waitFn(page, () => !NoorApps._state().groups.includes('Live'));
+      check('removing a category keeps its shortcuts (moved to another)', (await H()).items.length === 4 && (await H()).items.slice(2).every((i) => i.group === 'Games'));
+      await page.click('.app-tile[data-id="h2"]');
+      await page.click('.app-tile[data-id="h1"]');
+      await page.click('#apps-cats .chip[data-view="recent"]');
+      check('Recent shows what you started last', (await page.$$eval('.app-tile', (n) => n.map((x) => x.dataset.id))).join(',') === 'h1,h2');
+      // The chosen view comes back after a restart.
+      const page2 = (await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } })).page;
+      await page2.evaluate((hub) => { Object.assign(window.__mock.state.hub, JSON.parse(hub)); }, JSON.stringify(await H()));
+      await page2.keyboard.press('Control+Alt+h');
+      await page2.waitForSelector('#appshub:not([hidden]) .app-tile');
+      check('the chosen category is remembered', (await page2.$eval('#apps-cats .chip.active', (x) => x.dataset.view)) === 'recent');
+      await page2.close();
+      check('no page errors with categories and menus', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/apps-categories.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

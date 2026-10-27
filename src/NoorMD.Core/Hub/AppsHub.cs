@@ -34,8 +34,13 @@ public sealed class AppsHub
     // Address schemes that may never be launched from the hub (they run code or reach into the computer).
     private static readonly string[] Blocked = ["javascript", "vbscript", "data", "file", "about", "ms-msdt", "search-ms", "ms-officecmd", "shell"];
 
+    public const int MaxCategories = 60;
+
     private readonly string _file;
     private readonly List<HubItem> _items = [];
+    private readonly List<string> _categories = [];
+
+    private sealed record HubFile(List<HubItem>? Items, List<string>? Categories, string? View);
 
     public AppsHub(string folder)
     {
@@ -44,7 +49,17 @@ public sealed class AppsHub
         _file = Path.Combine(folder, "apps.json");
         if (File.Exists(_file))
         {
-            try { _items.AddRange(JsonSerializer.Deserialize<List<HubItem>>(File.ReadAllText(_file), Json) ?? []); }
+            try
+            {
+                var text = File.ReadAllText(_file);
+                if (text.TrimStart().StartsWith('[')) _items.AddRange(JsonSerializer.Deserialize<List<HubItem>>(text, Json) ?? []); // the first format: just the items
+                else if (JsonSerializer.Deserialize<HubFile>(text, Json) is { } f)
+                {
+                    _items.AddRange(f.Items ?? []);
+                    _categories.AddRange((f.Categories ?? []).Select(c => CleanGroup(c)).Distinct(StringComparer.CurrentCultureIgnoreCase).Take(MaxCategories));
+                    View = CleanView(f.View);
+                }
+            }
             catch (JsonException) { File.Copy(_file, _file + ".broken", overwrite: true); }
         }
     }
@@ -135,7 +150,84 @@ public sealed class AppsHub
         return _items[i];
     }
 
-    public IReadOnlyList<string> Groups() => _items.Select(i => i.Group).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
+    /// <summary>The categories in your order (also empty ones you made), then any others the shortcuts use.</summary>
+    public IReadOnlyList<string> Groups() => _categories.Concat(_items.Select(i => i.Group)).Distinct(StringComparer.CurrentCultureIgnoreCase).ToList();
+
+    /// <summary>What the hub shows: "all", "recent" or "group:Name". Remembered between runs.</summary>
+    public string View { get; private set; } = "all";
+
+    public void SetView(string? view) { View = CleanView(view); Save(); }
+
+    public string AddCategory(string? name)
+    {
+        var n = CleanGroup(name, required: true);
+        var existing = Groups().FirstOrDefault(g => string.Equals(g, n, StringComparison.CurrentCultureIgnoreCase));
+        if (existing != null) { KeepOrder(); if (!_categories.Contains(existing)) _categories.Add(existing); Save(); return existing; }
+        if (Groups().Count >= MaxCategories) throw new InvalidOperationException($"The hub holds up to {MaxCategories} categories.");
+        KeepOrder();
+        _categories.Add(n);
+        Save();
+        return n;
+    }
+
+    /// <summary>Renames a category and moves its shortcuts along. Renaming to an existing category merges the two.</summary>
+    public string RenameCategory(string from, string? to)
+    {
+        var n = CleanGroup(to, required: true);
+        var groups = Groups();
+        var old = groups.FirstOrDefault(g => string.Equals(g, from, StringComparison.CurrentCultureIgnoreCase)) ?? throw new ArgumentException("That category is no longer in the hub.");
+        var target = groups.FirstOrDefault(g => !string.Equals(g, old, StringComparison.CurrentCultureIgnoreCase) && string.Equals(g, n, StringComparison.CurrentCultureIgnoreCase)) ?? n;
+        KeepOrder();
+        var at = _categories.FindIndex(g => string.Equals(g, old, StringComparison.CurrentCultureIgnoreCase));
+        if (_categories.Any(g => string.Equals(g, target, StringComparison.CurrentCultureIgnoreCase) && !string.Equals(g, old, StringComparison.CurrentCultureIgnoreCase))) _categories.RemoveAt(at);
+        else _categories[at] = target;
+        for (var i = 0; i < _items.Count; i++)
+            if (string.Equals(_items[i].Group, old, StringComparison.CurrentCultureIgnoreCase)) _items[i] = _items[i] with { Group = target };
+        if (View == "group:" + old) View = "group:" + target;
+        Save();
+        return target;
+    }
+
+    /// <summary>Removes a category; its shortcuts move to another one (they are never removed with it).</summary>
+    public void RemoveCategory(string name, string? moveTo)
+    {
+        var dest = CleanGroup(moveTo);
+        if (string.Equals(dest, name, StringComparison.CurrentCultureIgnoreCase)) throw new ArgumentException("Choose another category for its shortcuts.");
+        KeepOrder();
+        _categories.RemoveAll(g => string.Equals(g, name, StringComparison.CurrentCultureIgnoreCase));
+        for (var i = 0; i < _items.Count; i++)
+            if (string.Equals(_items[i].Group, name, StringComparison.CurrentCultureIgnoreCase)) _items[i] = _items[i] with { Group = dest };
+        if (!_categories.Contains(dest, StringComparer.CurrentCultureIgnoreCase) && _items.Any(i => i.Group == dest)) _categories.Add(dest);
+        if (string.Equals(View, "group:" + name, StringComparison.CurrentCultureIgnoreCase)) View = "all";
+        Save();
+    }
+
+    /// <summary>Moves a category one place earlier (-1) or later (+1).</summary>
+    public void MoveCategory(string name, int by)
+    {
+        KeepOrder();
+        var i = _categories.FindIndex(g => string.Equals(g, name, StringComparison.CurrentCultureIgnoreCase));
+        if (i < 0) throw new ArgumentException("That category is no longer in the hub.");
+        var j = Math.Clamp(i + Math.Sign(by), 0, _categories.Count - 1);
+        if (i == j) return;
+        (_categories[i], _categories[j]) = (_categories[j], _categories[i]);
+        Save();
+    }
+
+    /// <summary>Makes the current order explicit, so a change to one category keeps where the others are.</summary>
+    private void KeepOrder()
+    {
+        var all = Groups();
+        _categories.Clear();
+        _categories.AddRange(all);
+    }
+
+    private string CleanView(string? v) => v switch
+    {
+        "recent" => "recent",
+        { } g when g.StartsWith("group:", StringComparison.Ordinal) && g.Length > 6 => "group:" + CleanGroup(g[6..]),
+        _ => "all",
+    };
 
     /// <summary>A sensible kind and name for something chosen or dropped: .exe and .lnk are programs, folders are folders.</summary>
     public static (HubKind Kind, string Name, string Group) Guess(string path)
@@ -151,16 +243,17 @@ public sealed class AppsHub
         };
     }
 
-    private static string CleanGroup(string? g)
+    private static string CleanGroup(string? g, bool required = false)
     {
-        var t = (g ?? "").Trim();
-        return t.Length == 0 ? "Apps" : t.Length > 40 ? t[..40] : t;
+        var t = new string((g ?? "").Where(c => !char.IsControl(c)).ToArray()).Trim();
+        if (t.Length == 0 && required) throw new ArgumentException("Give the category a name.");
+        return t.Length == 0 ? "Apps" : t.Length > 40 ? t[..40].TrimEnd() : t;
     }
 
     private void Save()
     {
         Directory.CreateDirectory(Folder);
-        AtomicFile.WriteAllText(_file, JsonSerializer.Serialize(_items, Json));
+        AtomicFile.WriteAllText(_file, JsonSerializer.Serialize(new HubFile(_items, _categories, View), Json));
     }
 
     private static void TryDelete(string path) { try { File.Delete(path); } catch (IOException) { } catch (UnauthorizedAccessException) { } }

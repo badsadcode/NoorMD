@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-preview.16 — Apps Hub categories, fixes
+
+- **Apps Hub categories.** A row of chips above the tiles chooses what is shown:
+  - *All*, *Recent* (what you started last), or one category.
+  - Your choice is remembered.
+  - Searching still looks through every category.
+  - ＋ makes a new category. Right-click a category to rename it, move it left or right, or remove
+    it. Its shortcuts are never removed: they move to the category you pick.
+  - Right-click a shortcut › *Move to category* to file it elsewhere.
+  - Adding something while a category is chosen puts it in that category.
+- **Fix: renaming a note didn't update `[[wiki links]]` typed in Visual mode.** Visual mode saved
+  them as escaped text (`\[\[Note\]\]`), so they weren't links in the file. Rename, backlinks and
+  other Markdown tools couldn't see them.
+  - They're now saved as real `[[links]]`.
+  - Notes that already have the escaped form are understood too: they count as backlinks, and
+    renaming the note rewrites them as plain `[[links]]`.
+  - Links update when you rename or move in NoorMD's Vault explorer (F2, right-click › Rename,
+    drag), not in Windows Explorer.
+- **Fix: menu highlighting.** After you moved off an item with a submenu, it stayed highlighted
+  along with the item under the mouse. Now one item is highlighted at a time, and the highlight
+  clears when the mouse leaves the menu. An item whose submenu is open stays marked.
+
 ## 2.0.0-preview.15 — Voice notes
 
 - **Voice notes** (Ctrl+Alt+D, or Tools › Voice notes) is a small recorder in a dock panel.

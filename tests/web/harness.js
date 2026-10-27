@@ -419,10 +419,12 @@ function mockHostScript(initial) {
 
 
   // ---- mock Apps Hub (same address rules as AppsHub.cs: http(s) and launcher links; javascript:, file: and the like refused).
-  const HUB = { items: [], launched: [], next: 1 };
+  const HUB = { items: [], launched: [], next: 1, categories: [], view: 'all' };
   state.hub = HUB;
   function appsMock(type, p) {
-    const payload = () => ({ items: HUB.items.map((i) => ({ ...i })), groups: [...new Set(HUB.items.map((i) => i.group))] });
+    const groups = () => [...new Set([...HUB.categories, ...HUB.items.map((i) => i.group)])];
+    const keepOrder = () => { HUB.categories = groups(); };
+    const payload = () => ({ items: HUB.items.map((i) => ({ ...i })), groups: groups(), view: HUB.view });
     const get = (id) => HUB.items.find((i) => i.id === id) || (() => { throw new Error('That shortcut is no longer in the hub.'); })();
     const item = (o) => ({ id: 'h' + HUB.next++, arguments: null, color: null, icon: null, lastUsed: null, uses: 0, exists: true, ...o });
     switch (type) {
@@ -431,6 +433,7 @@ function mockHostScript(initial) {
         const added = p.kind === 'folder' ? [item({ name: 'Projects', kind: 'folder', target: 'C:\\Projects', group: 'Folders' })]
           : [item({ name: 'OBS Studio', kind: 'app', target: 'C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe', group: 'Apps', icon: '/_hubicon/obs.png' }),
             item({ name: 'Dota 2', kind: 'app', target: 'C:\\Users\\me\\Desktop\\Dota 2.url', group: 'Games' })];
+        if (p.group) added.forEach((i) => { i.group = p.group; });
         HUB.items.push(...added);
         return { added, hub: payload() };
       }
@@ -449,6 +452,25 @@ function mockHostScript(initial) {
       case 'apps.icon.pick': get(p.id).icon = '/_hubicon/custom.png'; return payload();
       case 'apps.icon.reset': get(p.id).icon = null; return payload();
       case 'apps.reveal': return null;
+      case 'apps.view': HUB.view = p.view; return { view: HUB.view };
+      case 'apps.category.add': { const n = String(p.name || '').trim(); if (!n) throw new Error('Give the category a name.'); keepOrder(); if (!HUB.categories.includes(n)) HUB.categories.push(n); return payload(); }
+      case 'apps.category.rename': {
+        const n = String(p.name || '').trim(); if (!n) throw new Error('Give the category a name.');
+        keepOrder();
+        HUB.categories = HUB.categories.includes(n) ? HUB.categories.filter((g) => g !== p.from) : HUB.categories.map((g) => (g === p.from ? n : g));
+        HUB.items.forEach((i) => { if (i.group === p.from) i.group = n; });
+        if (HUB.view === 'group:' + p.from) HUB.view = 'group:' + n;
+        return payload();
+      }
+      case 'apps.category.remove': {
+        const to = p.moveTo || 'Apps'; keepOrder();
+        HUB.categories = HUB.categories.filter((g) => g !== p.name);
+        HUB.items.forEach((i) => { if (i.group === p.name) i.group = to; });
+        if (!HUB.categories.includes(to) && HUB.items.some((i) => i.group === to)) HUB.categories.push(to);
+        if (HUB.view === 'group:' + p.name) HUB.view = 'all';
+        return payload();
+      }
+      case 'apps.category.move': { keepOrder(); const i = HUB.categories.indexOf(p.name), j = Math.max(0, Math.min(HUB.categories.length - 1, i + Math.sign(p.by))); [HUB.categories[i], HUB.categories[j]] = [HUB.categories[j], HUB.categories[i]]; return payload(); }
       default: return null;
     }
   }

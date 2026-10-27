@@ -343,6 +343,16 @@ window.NoorChrome = (() => {
   function renderMenu(items, pos, depth, onSide) {
     const menu = el('div', { class: 'menu-popup', role: 'menu', 'data-depth': String(depth) });
     const list = typeof items === 'function' ? items() : items;
+    // One highlighted item per menu: the one under the mouse or with the keyboard focus, or the one whose submenu is open.
+    const closeDeeper = () => {
+      menu.querySelectorAll(':scope > .menu-item.sub-open').forEach((x) => x.classList.remove('sub-open'));
+      document.querySelectorAll('.menu-popup').forEach((m) => { if (Number(m.dataset.depth) > depth) m.remove(); });
+    };
+    menu.addEventListener('focusin', (e) => {
+      menu.querySelectorAll(':scope > .menu-item.active').forEach((x) => { if (x !== e.target) x.classList.remove('active'); });
+      if (e.target.classList.contains('menu-item')) e.target.classList.add('active');
+    });
+    menu.addEventListener('mouseleave', () => menu.querySelectorAll(':scope > .menu-item.active:not(.sub-open)').forEach((x) => x.classList.remove('active')));
     let lastWasSep = true;
     for (const it of list) {
       if (it === '-') { if (!lastWasSep) menu.append(el('div', { class: 'menu-sep', role: 'separator' })); lastWasSep = true; continue; }
@@ -359,9 +369,9 @@ window.NoorChrome = (() => {
       el('span', { class: 'menu-keys', text: it.sub ? '▸' : keys }));
       if (it.sub) {
         const open = () => {
-          menu.querySelectorAll(':scope > .menu-item.sub-open').forEach((x) => x.classList.remove('sub-open'));
-          document.querySelectorAll('.menu-popup').forEach((m) => { if (Number(m.dataset.depth) > depth) m.remove(); });
-          b.classList.add('sub-open');
+          closeDeeper();
+          if (document.activeElement !== b) b.focus({ preventScroll: true });
+          b.classList.add('sub-open', 'active');
           const r = b.getBoundingClientRect();
           return renderMenu(it.sub, { left: r.right - 2, top: r.top - 5, flipLeft: r.left + 2 }, depth + 1);
         };
@@ -370,7 +380,7 @@ window.NoorChrome = (() => {
         b._openSub = open;
       } else {
         b.addEventListener('mouseenter', () => {
-          document.querySelectorAll('.menu-popup').forEach((m) => { if (Number(m.dataset.depth) > depth) m.remove(); });
+          closeDeeper();
           b.focus({ preventScroll: true });
         });
         b.addEventListener('click', () => {

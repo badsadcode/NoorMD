@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.15-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.16-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -42,7 +42,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Vaults.** Open any folder as a Vault and get:
   - an explorer: new, rename, move by drag, duplicate, delete to the Recycle Bin;
   - Find in files (Ctrl+Shift+F): every open document or every note in the Vault;
-  - renaming or moving a note updates the links to it;
+  - renaming or moving a note in the explorer (F2, right-click › Rename, or drag) updates the
+    links to it. Renaming in Windows Explorer or *Save As* doesn't, because NoorMD isn't asked;
   - tags (`#idea`, nested `#project/alpha`, or `tags:` in front matter) under Sidebar › Tags;
   - a new-Vault wizard with starting points (personal notes, writer, worldbuilding, creator, game dev);
   - notes that link here, `[[wiki links]]` and relative pictures.
@@ -108,7 +109,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
 - **Apps Hub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
-  files and websites, with their Windows icons or your own pictures.
+  files and websites, with their Windows icons or your own pictures. Category chips (All, Recent,
+  and your own categories) choose what is shown.
 - **Docks and layouts:** the Music Bench, Video Bench and Stream Desk dock left, right or under the
   document (⊞ on each panel). The sidebar can sit on either side. Use ready-made layouts (Writing,
   Music + video, Streaming…) or save your own (View › Layout).
@@ -152,8 +154,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.15-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.15-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.16-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.16-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -222,10 +224,10 @@ src/NoorMD/wwwroot   editor UI: index.html, css/app.css, js/{bridge,markdown-too
   formatting details: `-` list markers become `*`, setext headings become `#`, and table
   pipes are realigned. The meaning stays the same. Content Visual mode cannot represent
   triggers the guard described above. Markdown mode always saves your text byte for byte.
-- **Not supported by the editor engine:** footnotes, math, Mermaid and wiki links. They are
-  kept as plain text in Markdown mode.
-- **Vaults, version 1.** Renaming or moving a note doesn't rewrite links to it yet; NoorMD says
-  how many notes link there and asks first. There are no tags, properties or graph view yet.
+- **Not supported by the editor engine:** footnotes, math and Mermaid. They are kept as plain
+  text in Markdown mode. `[[Wiki links]]` show as text in Visual mode, but they're saved as real
+  links, and Ctrl+click follows them.
+- **Vaults.** There are no properties or graph view yet.
 - **NoorSketch is raster only.** It has no shapes, text, layers or pen pressure yet.
 - **Tabs, not side-by-side.** Two documents next to each other still need *New window*. Only the
   main window remembers its tabs between runs.

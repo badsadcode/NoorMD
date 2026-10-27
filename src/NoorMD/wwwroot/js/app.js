@@ -74,6 +74,25 @@
     if (sbv && sbv.gen === tab.gen && tab.editor.isWysiwygMode()) return sbv.text;
     return tab.editor.getMarkdown();
   }
+  /** \[\[Note\_1|alias\]\] → [[Note_1|alias]], outside code; anything that would not stay one link is left alone. */
+  function unescapeWikiLinks(text) {
+    if (!text || text.indexOf('\\[\\[') < 0) return text;
+    const fix = (s) => s.replace(/(^|[^\\])(\\?!)?\\\[\\\[((?:[^\]\n\\]|\\[^\n])+?)\\\]\\\]/g, (m, pre, bang, inner) => {
+      const plain = inner.replace(/\\([!-/:-@[-`{-~])/g, '$1');
+      if (/[\[\]]/.test(plain) || !plain.trim()) return m;
+      return pre + (bang ? '!' : '') + '[[' + plain + ']]';
+    });
+    let out = '', fence = null, buf = '';
+    const flushProse = () => { out += buf.split(/(`+[^`]*`+)/).map((part, i) => (i % 2 ? part : fix(part))).join(''); buf = ''; };
+    for (const line of text.split(/(?<=\n)/)) {
+      const tl = line.trimStart();
+      if (fence) { out += line; if (tl.startsWith(fence)) fence = null; continue; }
+      if (tl.startsWith('```') || tl.startsWith('~~~')) { flushProse(); fence = tl.slice(0, 3); out += line; continue; }
+      buf += line;
+    }
+    flushProse();
+    return out;
+  }
   const isDirty = (tab = t) => !!tab && tab.gen !== tab.savedGen;
 
   function createEditor(tab, initialValue, initialMode) {
@@ -100,6 +119,12 @@
       toolbarItems: [], // the app's own toolbar (chrome.js) drives formatting for every tab
       events: { change: () => onEditorChange(tab) },
     });
+    // Visual mode writes a typed [[wiki link]] as \[\[…\]\]; keep it a real link in the saved Markdown.
+    const conv = tab.editor.convertor;
+    if (conv && typeof conv.toMarkdownText === 'function') {
+      const toMd = conv.toMarkdownText.bind(conv);
+      conv.toMarkdownText = (...a) => unescapeWikiLinks(toMd(...a));
+    }
     tab.editor.eventEmitter.listen('changeToolbarState', (p) => { if (tab === t && p && p.toolbarState) NoorChrome.setFormatState(p.toolbarState); });
     setupSplitter(tab);
     setupSourceEditor(tab);

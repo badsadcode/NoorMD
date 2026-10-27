@@ -311,10 +311,25 @@ public static class VaultLinks
     private static readonly System.Text.RegularExpressions.Regex MdLink = new(@"(?<!!)\[[^\]]*\]\(\s*<?([^)\s>]+)>?(?:\s+""[^""]*"")?\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex WikiLink = new(@"(?<!!)\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]", System.Text.RegularExpressions.RegexOptions.Compiled);
 
+    // \[\[Note\]\]: a wiki link typed in an editor that escaped the brackets (older NoorMD Visual mode did this).
+    private static readonly System.Text.RegularExpressions.Regex EscapedWikiLink = new(@"(?<![\\!])\\\[\\\[((?:[^\]\n\\]|\\[^\n])+?)\\\]\\\]", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     public static IEnumerable<VaultLink> Extract(string text)
     {
         foreach (System.Text.RegularExpressions.Match m in MdLink.Matches(text)) yield return new VaultLink(m.Groups[1].Value, false);
         foreach (System.Text.RegularExpressions.Match m in WikiLink.Matches(text)) yield return new VaultLink(m.Groups[1].Value.Trim(), true);
+        foreach (System.Text.RegularExpressions.Match m in EscapedWikiLink.Matches(text))
+            if (SplitWiki(Unescape(m.Groups[1].Value)).Target is { Length: > 0 } t) yield return new VaultLink(t, true);
+    }
+
+    /// <summary>Removes Markdown backslash escapes ("My\_Note" → "My_Note").</summary>
+    public static string Unescape(string s) => System.Text.RegularExpressions.Regex.Replace(s, @"\\([!-/:-@\[-`{-~])", "$1");
+
+    /// <summary>"Note#Heading|Alias" → ("Note", "#Heading|Alias").</summary>
+    public static (string Target, string Tail) SplitWiki(string inner)
+    {
+        var cut = inner.IndexOfAny(['#', '|']);
+        return cut < 0 ? (inner.Trim(), "") : (inner[..cut].Trim(), inner[cut..]);
     }
 
     /// <summary>

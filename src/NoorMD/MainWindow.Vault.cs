@@ -399,7 +399,8 @@ public partial class MainWindow
             string text;
             try { if (new FileInfo(full).Length > 4_000_000) continue; text = DocumentFile.Load(full).Markdown; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.DecoderFallbackException) { continue; }
-            if (!moves.ContainsKey(note) && !names.Any(n => text.Contains(n, StringComparison.OrdinalIgnoreCase) || text.Contains(Uri.EscapeDataString(n), StringComparison.OrdinalIgnoreCase))) continue;
+            var plain = text.Contains('\\') ? text.Replace("\\", "") : text; // "My\_Note" in escaped links
+            if (!moves.ContainsKey(note) && !names.Any(n => plain.Contains(n, StringComparison.OrdinalIgnoreCase) || text.Contains(Uri.EscapeDataString(n), StringComparison.OrdinalIgnoreCase))) continue;
             yield return (note, text);
         }
     }

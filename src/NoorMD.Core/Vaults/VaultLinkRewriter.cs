@@ -17,6 +17,9 @@ public static partial class VaultLinkRewriter
     [GeneratedRegex(@"(!?\[\[)([^\]\|#\n]+)((?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\])")]
     private static partial Regex WikiLinkRx();
 
+    [GeneratedRegex(@"(?<!\\)(\\?!)?\\\[\\\[((?:[^\]\n\\]|\\[^\n])+?)\\\]\\\]")]
+    private static partial Regex EscapedWikiRx();
+
     public sealed record Result(string Text, int Changed);
 
     /// <param name="text">The note's Markdown.</param>
@@ -57,13 +60,10 @@ public static partial class VaultLinkRewriter
                 changed++;
                 return m.Groups[1].Value + m.Groups[2].Value + written + m.Groups[4].Value;
             });
-            s = WikiLinkRx().Replace(s, m =>
+            string? NewWikiTarget(string trimmed)
             {
-                var target = m.Groups[2].Value;
-                var trimmed = target.Trim();
-                var link = new VaultLink(trimmed, true);
                 var resolved = ResolveWiki(noteBefore, trimmed, notesBefore, filesBefore);
-                if (resolved == null) return m.Value;
+                if (resolved == null) return null;
                 var targetAfter = Moved(moves, resolved);
                 var hasExt = System.IO.Path.HasExtension(trimmed) && (VaultPaths.IsNote(trimmed) || !VaultPaths.IsNote(resolved));
                 var byPath = trimmed.Contains('/') || trimmed.Contains('\\');
@@ -72,9 +72,21 @@ public static partial class VaultLinkRewriter
                 var candidate = Form(targetAfter, byPath);
                 if (!string.Equals(ResolveWiki(noteAfter, candidate, notesAfter, filesAfter), targetAfter, StringComparison.OrdinalIgnoreCase))
                     candidate = Form(targetAfter, true);
-                if (string.Equals(candidate, trimmed, StringComparison.Ordinal)) return m.Value;
+                return string.Equals(candidate, trimmed, StringComparison.Ordinal) ? null : candidate;
+            }
+            s = WikiLinkRx().Replace(s, m =>
+            {
+                if (NewWikiTarget(m.Groups[2].Value.Trim()) is not { } candidate) return m.Value;
                 changed++;
                 return m.Groups[1].Value + candidate + m.Groups[3].Value;
+            });
+            // \[\[Note\]\] (brackets escaped by an editor): rewritten as a plain [[wiki link]] when it changes.
+            s = EscapedWikiRx().Replace(s, m =>
+            {
+                var (target, rest) = VaultLinks.SplitWiki(VaultLinks.Unescape(m.Groups[2].Value));
+                if (target.Length == 0 || NewWikiTarget(target) is not { } candidate) return m.Value;
+                changed++;
+                return (m.Groups[1].Success ? "!" : "") + "[[" + candidate + rest + "]]";
             });
             sb.Append(s);
         }

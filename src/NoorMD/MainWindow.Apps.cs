@@ -20,7 +20,7 @@ public partial class MainWindow
     private AppsHub? _hub;
     private AppsHub Hub => _hub ??= new AppsHub(Path.Combine(App.Paths.Local, "Apps"));
 
-    private object HubPayload() => new { items = Hub.Items.Select(HubItemForPage), groups = Hub.Groups() };
+    private object HubPayload() => new { items = Hub.Items.Select(HubItemForPage), groups = Hub.Groups(), view = Hub.View };
 
     private static object HubItemForPage(HubItem i) => new
     {
@@ -80,6 +80,21 @@ public partial class MainWindow
                     return HubPayload();
                 case "apps.reorder":
                     Hub.Reorder(p.TryGetProperty("ids", out var ids) && ids.ValueKind == System.Text.Json.JsonValueKind.Array ? ids.EnumerateArray().Select(x => x.GetString() ?? "").ToList() : []);
+                    return HubPayload();
+                case "apps.view":
+                    Hub.SetView(req.GetString("view", 60));
+                    return new { view = Hub.View };
+                case "apps.category.add":
+                    Hub.AddCategory(req.GetString("name", 60));
+                    return HubPayload();
+                case "apps.category.rename":
+                    Hub.RenameCategory(req.GetString("from", 60) ?? "", req.GetString("name", 60));
+                    return HubPayload();
+                case "apps.category.remove":
+                    Hub.RemoveCategory(req.GetString("name", 60) ?? "", req.GetString("moveTo", 60));
+                    return HubPayload();
+                case "apps.category.move":
+                    Hub.MoveCategory(req.GetString("name", 60) ?? "", (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "by") ?? 0));
                     return HubPayload();
                 case "apps.launch": return LaunchHubItem(req.GetString("id", 40) ?? "");
                 case "apps.reveal":

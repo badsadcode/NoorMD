@@ -306,13 +306,13 @@ public partial class MainWindow
 
         // Renaming a note updates the links to it (CRLF and the rest of the note kept as they were).
         var linker = Path.Combine(root, "Links.md");
-        File.WriteAllText(linker, "# Links\r\n\r\nSee [it](World/Zażółć.md) and [[Zażółć]] — gęś.\r\n", new System.Text.UTF8Encoding(false));
+        File.WriteAllText(linker, "# Links\r\n\r\nSee [it](World/Zażółć.md) and [[Zażółć]] — gęś \\[\\[Zażółć\\]\\].\r\n", new System.Text.UTF8Encoding(false));
         v.Entries = VaultScanner.Scan(root, v.Info.Excluded);
         var linkPlan = await PlanLinkUpdatesAsync(v, [("World/Zażółć.md", "World/Źdźbło.md")]);
         var renamed = v.Ops.Rename("World/Zażółć.md", "Źdźbło.md");
         var result = System.Text.Json.JsonSerializer.Serialize(await ApplyLinkUpdatesAsync(v, [renamed], linkPlan.FilesBefore));
         var after = File.ReadAllText(linker);
-        Check("renaming a note updates the Markdown and wiki links to it", linkPlan.Links == 2 && after == "# Links\r\n\r\nSee [it](World/Źdźbło.md) and [[Źdźbło]] — gęś.\r\n", after + " " + result);
+        Check("renaming a note updates the Markdown and wiki links to it", linkPlan.Links == 3 && after == "# Links\r\n\r\nSee [it](World/Źdźbło.md) and [[Źdźbło]] — gęś [[Źdźbło]].\r\n", after + " " + result);
 
         var zipPath = Path.Combine(SelfTestDir!, "vault-pack.zip");
         var plan = PackagePlanner.Build(root, new PackageOptions { Selection = ["World/Deep"], IncludeDependencies = true, Handoff = true, HandoffNote = "Review please." });
