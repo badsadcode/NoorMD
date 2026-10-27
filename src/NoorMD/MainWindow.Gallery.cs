@@ -44,7 +44,11 @@ public partial class MainWindow
         }
         if (!thumb && ImageFormats.IsWeb(img.Path))
         {
-            var stream = new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            // Read into memory: a stream handed to WebView2 stays open until it is collected, and an open file blocks
+            // renaming or moving its folder. Only very big files (over 80 MB) are streamed.
+            System.IO.Stream stream = new FileInfo(img.Path).Length <= 80L * 1024 * 1024
+                ? new MemoryStream(File.ReadAllBytes(img.Path))
+                : new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             e.Response = env.CreateWebResourceResponse(stream, 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
             return true;
         }
@@ -70,7 +74,7 @@ public partial class MainWindow
                 ? env.CreateWebResourceResponse(new MemoryStream(await File.ReadAllBytesAsync(file)), 200, "OK", $"Content-Type: {(file.EndsWith(".png") ? "image/png" : "image/jpeg")}\r\nCache-Control: max-age=600\r\nX-Content-Type-Options: nosniff")
                 : ImageFormats.IsWeb(img.Path)
                     // A format Windows can't decode here (some AVIF/WebP): the page shows the picture itself instead.
-                    ? env.CreateWebResourceResponse(new FileStream(img.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
+                    ? env.CreateWebResourceResponse(new MemoryStream(await File.ReadAllBytesAsync(img.Path)), 200, "OK", $"Content-Type: {ImageFormats.ContentType(img.Path)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
                     : env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain"); // no preview: the page shows the format's name
         }
         catch (Exception ex)

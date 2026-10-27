@@ -648,8 +648,8 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         if (!caseOnly && (Directory.Exists(to) || File.Exists(to))) throw new ArgumentException($"“{n}” already exists there.");
         try
         {
-            if (caseOnly) { var tmp = from + ".noormd-" + Guid.NewGuid().ToString("N")[..8]; Directory.Move(from, tmp); Directory.Move(tmp, to); }
-            else Directory.Move(from, to);
+            if (caseOnly) { var tmp = from + ".noormd-" + Guid.NewGuid().ToString("N")[..8]; MoveDir(from, tmp); MoveDir(tmp, to); }
+            else MoveDir(from, to);
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { throw new ArgumentException($"Windows could not rename the folder (a file in it may be open in another program): {ex.Message}"); }
         library.RelocateFolder(from, to);
@@ -658,13 +658,26 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         return to;
     }
 
+    /// <summary>
+    /// Renames a folder, trying again for a moment: antivirus, the search indexer or a thumbnail being made can hold a file
+    /// inside for a fraction of a second, and Windows won't rename a folder with an open file in it.
+    /// </summary>
+    private static void MoveDir(string from, string to)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try { Directory.Move(from, to); return; }
+            catch (Exception ex) when (attempt < 8 && (ex is UnauthorizedAccessException || (ex is IOException && !Directory.Exists(to)))) { Thread.Sleep(150 * attempt); }
+        }
+    }
+
     public IReadOnlyList<PictureMove> Undo()
     {
         if (_lastAlbum is { } la && LastChange == null)
         {
             _lastAlbum = null;
             if (!Directory.Exists(la.To) || Directory.Exists(la.From)) throw new ArgumentException("The album was changed since, so it can't be renamed back.");
-            Directory.Move(la.To, la.From);
+            MoveDir(la.To, la.From);
             library.RelocateFolder(la.To, la.From);
             return [];
         }

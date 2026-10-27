@@ -29,7 +29,8 @@
   - The biggest picture of each group is kept and the rest are marked. Click to change, or use *Keep the
     newest / oldest*.
   - Marked pictures go to the Recycle Bin after one more question.
-- **Fixes:** turning off notes on the video now hides a note that is already showing. Marking a favourite
+- **Fixes:** renaming an album could fail with "Access denied" after its pictures were viewed (a file stayed
+  open). Turning off notes on the video now hides a note that is already showing. Marking a favourite
   in the picture viewer no longer resets the zoom.
 
 ## 2.0.0-preview.18 — Panels in the middle; the Gallery as a picture manager
