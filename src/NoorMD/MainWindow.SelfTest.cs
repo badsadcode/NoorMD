@@ -546,6 +546,15 @@ public partial class MainWindow
         await Task.Delay(300);
         Check("…and closes, remembering where it was", _streamWindow == null && StreamCfg["window"] is System.Text.Json.Nodes.JsonObject);
 
+        // Docks: the "Streaming" layout puts music left, the Stream Desk right and the document between them.
+        await Eval("NoorDock.applyPreset('streaming')");
+        await Task.Delay(1200);
+        var docks = JsonSerializer.Deserialize<string>(await Eval("JSON.stringify(['#dock-left', '#editor', '#dock-right'].map(q => { const r = document.querySelector(q).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right)]; }))")) ?? "[]";
+        var d = JsonSerializer.Deserialize<int[][]>(docks) ?? [];
+        Check("the Streaming layout docks music left and the Stream Desk right, the document between", d.Length == 3 && d[0][1] <= d[1][0] + 1 && d[1][1] <= d[2][0] + 1 && d[0][1] - d[0][0] > 250 && d[2][1] - d[2][0] > 250, docks);
+        await Eval("NoorDock.applyPreset('classic'); NoorMusic.togglePanel(false); NoorStream.close()");
+        await Task.Delay(300);
+
         var status = await PageRequest("mic.status", "{}");
         Check("the page reads Mic Guard's state (off until switched on)", status.Contains("\"verdict\":\"notsetup\"") && status.Contains("\"windows\":false") && status.Contains("\"devices\":["), status.Length > 300 ? status[..300] : status);
     }

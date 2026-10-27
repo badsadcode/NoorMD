@@ -445,7 +445,7 @@
       e.preventDefault();
       resizer.setPointerCapture(e.pointerId);
       document.body.classList.add('resizing-sidebar');
-      const move = (ev) => applySidebarWidth(ev.clientX);
+      const move = (ev) => applySidebarWidth(document.body.classList.contains('sidebar-right') ? window.innerWidth - ev.clientX : ev.clientX);
       const up = () => {
         resizer.removeEventListener('pointermove', move);
         resizer.removeEventListener('pointerup', up);
@@ -1249,6 +1249,10 @@
     ['view.split', 'Split view', 'View', 'Ctrl+3', () => setMode('split')],
     ['view.focus', 'Toggle focus mode', 'View', 'F11', () => toggleZen()],
     ['view.sidebar', 'Toggle sidebar', 'View', 'Ctrl+\\', () => toggleSidebar()],
+    ['view.sidebarRight', 'Sidebar on the right', 'View', '', () => NoorDock.setSidebar(document.body.classList.contains('sidebar-right') ? 'left' : 'right')],
+    ['layout.show', 'Layouts…', 'View', '', () => NoorDock.showLayouts()],
+    ['layout.save', 'Save current layout…', 'View', '', () => NoorDock.saveAs()],
+    ['layout.reset', 'Reset layout (classic)', 'View', '', () => NoorDock.applyPreset('classic')],
     ['theme.pick', 'Choose theme…', 'View', '', showThemePicker],
     ['theme.next', 'Next theme', 'View', 'Ctrl+Shift+T', nextTheme],
     ['theme.toggle', 'Switch between Atelier Dark and Atelier Light', 'View', '', toggleTheme],
@@ -1362,7 +1366,7 @@
     const musicOn = prefs.showMusic !== false;
     const hasEditor = !!(t && t.editor);
     const checked = {
-      'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'),
+      'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'), 'view.sidebarRight': document.body.classList.contains('sidebar-right'),
       'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
@@ -2099,6 +2103,16 @@
     setupFind();
     setupTabStrip();
     setupDropAndLinks();
+    NoorDock.init({
+      getPrefs: () => prefs, setPrefs,
+      setSidebarCollapsed: (c) => toggleSidebar(c),
+      isSidebarCollapsed: () => document.body.classList.contains('sidebar-collapsed'),
+      panels: {
+        music: { label: 'Music Bench', el: () => $('#music'), open: () => NoorMusic.togglePanel(true), close: () => NoorMusic.togglePanel(false), isOpen: () => NoorMusic.isOpen() },
+        video: { label: 'Video Bench', el: () => $('#videobench'), open: () => NoorVideo.open(), close: () => NoorVideo.close(), isOpen: () => NoorVideo.isOpen() },
+        stream: { label: 'Stream Desk', el: () => $('#streamdesk'), open: () => NoorStream.open(), close: () => NoorStream.close(), isOpen: () => document.body.classList.contains('stream-open') },
+      },
+    });
     NoorMusic.init({ getPrefs: () => prefs, setPrefs, showError, onNowPlaying: (t) => window.NoorStream && NoorStream.nowPlaying(t) });
     NoorVideo.init({ showError, onPlay: () => NoorMusic.pauseForVideo() });
     NoorStream.init({ showError });

@@ -365,6 +365,27 @@ public class ExportAndProtocolTests
     }
 
     [Fact]
+    public void Layouts_Are_Kept_With_Size_Limits()
+    {
+        var p = new EditorPrefs();
+        p.Apply(JsonDocument.Parse("""{"layout":{"sidebar":"right","place":{"music":"left","stream":"window"},"size":{"left":420}},"layouts":[{"name":"Evening","layout":{"sidebar":"hidden"}}],"layoutName":"Evening"}""").RootElement);
+        Assert.Equal("right", (string?)p.Layout!["sidebar"]);
+        Assert.Equal("window", (string?)p.Layout["place"]!["stream"]);
+        Assert.Single(p.Layouts!);
+        Assert.Equal("Evening", p.LayoutName);
+        // Wrong shapes and oversized values are ignored; the rest of the settings still apply.
+        p.Apply(JsonDocument.Parse("""{"layout":"left","layouts":{"x":1},"layoutName":42,"fontSize":20}""").RootElement);
+        Assert.NotNull(p.Layout);
+        Assert.Single(p.Layouts!);
+        Assert.Equal(20, p.FontSize);
+        p.Apply(JsonDocument.Parse("{\"layout\":{\"x\":\"" + new string('a', 9000) + "\"}}").RootElement);
+        Assert.Equal("right", (string?)p.Layout!["sidebar"]);
+        // Round trip through the settings file format.
+        var back = JsonSerializer.Deserialize<EditorPrefs>(JsonSerializer.Serialize(p, SettingsStore.Json), SettingsStore.Json)!;
+        Assert.Equal("left", (string?)back.Layout!["place"]!["music"]);
+    }
+
+    [Fact]
     public void Prefs_Patch_IsValidatedAndClamped()
     {
         var p = new EditorPrefs();

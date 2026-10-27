@@ -26,6 +26,11 @@ public sealed class EditorPrefs
     public bool ShowMusic { get; set; } = true;
     public bool MiniPlayer { get; set; } = true;
     public int MusicWidth { get; set; } = 400;
+    /// <summary>Where the sidebar and panels go (dock.js). The page validates the contents; here only the shape and size.</summary>
+    public System.Text.Json.Nodes.JsonObject? Layout { get; set; }
+    /// <summary>Layouts saved by name: [{ name, layout }].</summary>
+    public System.Text.Json.Nodes.JsonArray? Layouts { get; set; }
+    public string? LayoutName { get; set; }
     public bool ShowToolbar { get; set; } = true;
     public bool ToolbarLabels { get; set; }
     public bool ToolbarSmall { get; set; }
@@ -71,6 +76,12 @@ public sealed class EditorPrefs
                 case "toolbarSmall" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ToolbarSmall = p.Value.GetBoolean(); break;
                 case "zenToolbar" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: ZenToolbar = p.Value.GetBoolean(); break;
                 case "toolbarGroups" when p.Value.ValueKind == JsonValueKind.String: ToolbarGroups = p.Value.GetString() ?? DefaultToolbarGroups; break;
+                case "layout" when p.Value.ValueKind == JsonValueKind.Object && p.Value.GetRawText().Length <= 8_000:
+                    Layout = System.Text.Json.Nodes.JsonNode.Parse(p.Value.GetRawText()) as System.Text.Json.Nodes.JsonObject; break;
+                case "layouts" when p.Value.ValueKind == JsonValueKind.Array && p.Value.GetArrayLength() <= 40 && p.Value.GetRawText().Length <= 200_000:
+                    Layouts = System.Text.Json.Nodes.JsonNode.Parse(p.Value.GetRawText()) as System.Text.Json.Nodes.JsonArray; break;
+                case "layoutName" when p.Value.ValueKind is JsonValueKind.String or JsonValueKind.Null:
+                    LayoutName = p.Value.ValueKind == JsonValueKind.Null ? null : p.Value.GetString() is { Length: <= 120 } n ? n : LayoutName; break;
                 case "syncScroll" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SyncScroll = p.Value.GetBoolean(); break;
             }
         }

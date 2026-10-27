@@ -29,13 +29,39 @@ code { font-family: var(--font-mono); font-size: .92em; }
 .ambient-orb { position: fixed; pointer-events: none; z-index: 0; width: 460px; height: 460px; background: radial-gradient(circle, var(--glow), transparent 72%); right: -130px; top: 22vh; }
 
 /* ---------- Shell layout: the app always fills the window; panes scroll, the page never does. ---------- */
-.app { --sb-col: var(--sidebar-w); --mu-col: 0px; position: relative; z-index: 1; height: 100vh; display: grid; grid-template-columns: var(--sb-col) 0 minmax(0, 1fr) 0 var(--mu-col); }
+/* Docks (dock.js): sidebar left or right, panels in the left / right docks or under the document (bottom). */
+.app {
+  --sb-col: var(--sidebar-w); --sbl-col: var(--sb-col); --sbr-col: 0px;
+  position: relative; z-index: 1; height: 100vh; display: grid;
+  grid-template-columns: var(--sbl-col) var(--dock-left, 0px) minmax(0, 1fr) var(--dock-right, 0px) var(--sbr-col);
+  grid-template-rows: minmax(0, 1fr) var(--dock-bottom, 0px);
+  grid-template-areas: "sbl dl main dr sbr" "sbl dl bottom dr sbr";
+}
+body.sidebar-right .app { --sbl-col: 0px; --sbr-col: var(--sb-col); }
 body.sidebar-collapsed .app { --sb-col: 0px; }
-body.music-open .app { --mu-col: var(--music-w, 400px); }
 body.sidebar-collapsed .sidebar { visibility: hidden; padding: 0; border: 0; }
-.main { grid-column: 3; grid-row: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-.sidebar { grid-column: 1; grid-row: 1; }
-.sidebar-resizer { grid-column: 2; grid-row: 1; }
+.main { grid-area: main; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.sidebar { grid-area: sbl; }
+.sidebar-resizer { grid-area: sbl; justify-self: end; }
+body.sidebar-right .sidebar { grid-area: sbr; border-right: 0 !important; border-left: 1px solid var(--border); }
+body.sidebar-right .sidebar-resizer { grid-area: sbr; justify-self: start; }
+.dock { position: relative; min-width: 0; min-height: 0; display: none; flex-direction: column; background: var(--panel); }
+.dock.open { display: flex; }
+#dock-left { grid-area: dl; border-right: 1px solid var(--border); }
+#dock-right { grid-area: dr; border-left: 1px solid var(--border); }
+#dock-bottom { grid-area: bottom; border-top: 1px solid var(--border); }
+.dock > :not(.dock-resizer) { flex: 1; min-height: 0; min-width: 0; }
+.dock-resizer { position: absolute; z-index: 8; }
+#dock-left .dock-resizer { top: 0; bottom: 0; right: -4px; width: 8px; cursor: col-resize; }
+#dock-right .dock-resizer { top: 0; bottom: 0; left: -4px; width: 8px; cursor: col-resize; }
+#dock-bottom .dock-resizer { left: 0; right: 0; top: -4px; height: 8px; cursor: row-resize; }
+.dock-resizer:hover, .dock-resizer:focus-visible, body.resizing-dock .dock-resizer { background: color-mix(in srgb, var(--accent) 45%, transparent); outline: 0; }
+body.resizing-dock { user-select: none; }
+body.resizing-dock iframe, body.resizing-dock video { pointer-events: none; }
+/* Panels fill their dock (they used to be fixed columns or overlays). */
+.dock .music { grid-column: auto; grid-row: auto; border: 0; }
+.dock .videobench, .dock .streamdesk { position: relative; inset: auto; width: auto !important; height: auto; z-index: auto; box-shadow: none; border: 0; }
+.music-resizer, #vb-resizer { display: none !important; }
 
 .sidebar {
   min-height: 0; overflow-y: auto; overflow-x: hidden;
@@ -374,7 +400,8 @@ body.compact #editor .toastui-editor-defaultUI-toolbar { padding: 3px 10px !impo
 body.compact .sidebar { padding: 14px 12px; gap: 14px; }
 
 /* ---------- Focus mode: the document uses the whole window. ---------- */
-body.zen .app { --sb-col: 0px; --mu-col: 0px; }
+body.zen .app { --sb-col: 0px; --dock-left: 0px !important; --dock-right: 0px !important; --dock-bottom: 0px !important; }
+body.zen .dock { display: none !important; }
 body.zen .music, body.zen .music-resizer, body.zen .miniplayer { display: none !important; }
 body.zen .sidebar, body.zen .sidebar-resizer, body.zen .top, body.zen .eyebrow, body.zen .subtitle, body.zen .footer { display: none !important; }
 body.zen .workspace { width: calc(100% - 32px) !important; max-width: none !important; margin: 12px auto !important; }
@@ -394,8 +421,8 @@ body.zen .editor-card { margin-top: 10px; }
   .pill button { padding: 7px 9px; }
 }
 @media (max-width: 760px) {
-  .app { --sb-col: 0px !important; --mu-col: 0px !important; }
-  body.music-open .music { position: fixed; right: 0; top: 0; bottom: 0; width: min(100vw, 440px); z-index: 150; box-shadow: var(--shadow); }
+  .app { --sb-col: 0px !important; --dock-left: 0px !important; --dock-right: 0px !important; --dock-bottom: 0px !important; }
+  .dock.open { position: fixed; right: 0; top: 0; bottom: 0; width: min(100vw, 440px); z-index: 150; box-shadow: var(--shadow); }
   .sidebar, .sidebar-resizer { display: none; }
   #sidebar-expand { display: none !important; }
   .card-head { flex-wrap: wrap; }
@@ -743,7 +770,6 @@ button.np-art { padding: 0; border: 0; cursor: zoom-in; }
 /* ---- Video Bench: a side panel built like the Music Bench (Wide makes it larger; the left edge can be dragged) */
 .videobench { position: fixed; top: 0; right: 0; bottom: 0; width: min(100vw, var(--video-w, 520px)); z-index: 155; display: flex; flex-direction: column;
   background: var(--panel); color: var(--text); border-left: 1px solid var(--border); box-shadow: var(--shadow); outline: none; min-width: 0; }
-body.video-wide .videobench { width: min(100vw, max(var(--video-w, 520px), 70vw)); }
 .videobench[hidden] { display: none; }
 .vb-resizer { position: absolute; left: -4px; top: 0; bottom: 0; width: 8px; cursor: col-resize; z-index: 2; }
 .vb-head-buttons { display: flex; gap: 4px; }
@@ -844,17 +870,13 @@ body.video-wide .videobench { width: min(100vw, max(var(--video-w, 520px), 70vw)
 .sd-rec { color: #ff5b6e; font-weight: 700; animation: sd-blink 1.4s ease-in-out infinite; }
 @keyframes sd-blink { 50% { opacity: .45; } }
 .sd-templates { display: flex; flex-direction: column; gap: 10px; max-height: 64vh; overflow: auto; }
-@media (max-width: 1000px) { .sd-grid, .sd-log { grid-template-columns: 1fr; } .sd-preview-col, .sd-history { position: static; } .sd-tr { grid-template-columns: 1fr 1.5fr .7fr; } }
+/* The Stream Desk adapts to the space it has (a side dock, the bottom dock or its own window). */
+.streamdesk { container-type: inline-size; }
+@container (max-width: 1000px) { .sd-grid, .sd-log { grid-template-columns: 1fr; } .sd-preview-col, .sd-history { position: static; } .sd-tr { grid-template-columns: 1fr 1.5fr .7fr; } }
+@container (max-width: 640px) { .sd-tab-label { display: none; } .sd-tabs button { font-size: 16px; } .sd-body { padding: 10px; } .sd-tr { grid-template-columns: 1fr 1fr; } .sd-urls { grid-template-columns: 1fr; } }
+@container (max-width: 460px) { .sd-server { display: none; } }
 .vb-note-new textarea, .vb-note-edit, #vb-series-pick { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 12.5px; }
 .vb-note-new textarea:focus, .vb-note-edit:focus, .vb-extras select:focus { border-color: var(--accent); outline: 0; }
-/* The Video Bench docks like the Music Bench: the app gives it the right-hand column instead of being covered. */
-body.video-open { --video-col: min(100vw, var(--video-w, 520px)); }
-body.video-open.video-wide { --video-col: min(100vw, max(var(--video-w, 520px), 70vw)); }
-body.video-open .app { --mu-col: var(--video-col); }
-body.video-open .music, body.video-open .music-resizer { display: none !important; }
-.videobench { width: var(--video-col, min(100vw, var(--video-w, 520px))); }
-body.video-wide .videobench { width: var(--video-col); }
-@media (max-width: 760px) { body.video-open .app { --mu-col: 0px !important; } }
 
 /* ---- Music Bench: the playing song stands out in the list; narrow panels wrap instead of overflowing */
 .track.playing { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
@@ -917,3 +939,24 @@ body.stream-window .streamdesk { position: fixed; inset: 0; z-index: 1; }
 .fs-file small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fs-line { min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
 .vs-snippet mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }
+/* ---- Panel headers (Music, Video, Stream Desk): title on the left, buttons on the right */
+.panel-head-buttons { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.music-head { gap: 8px; }
+.music-head .music-title { min-width: 0; overflow: hidden; }
+.music-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.streamdesk .sd-head { padding: 12px 14px 8px; border: 0; background: transparent; }
+.streamdesk .sd-tabs { margin: 0 12px 6px; flex-wrap: nowrap; overflow-x: auto; }
+.streamdesk .sd-tabs button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; white-space: nowrap; border: 0; }
+.streamdesk .sd-tabs button.active { border: 0; background: var(--surface2); color: var(--accent); }
+.streamdesk .sd-server { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--muted); }
+body.stream-window .streamdesk .sd-head { padding-top: 10px; }
+/* ---- Layouts dialog */
+.layout-list { display: flex; flex-direction: column; gap: 8px; }
+.layout-list h4 { margin: 10px 0 2px; font-size: 11.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.layout-card { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.layout-card.active { border-color: var(--accent); }
+.layout-apply { flex: 1; display: grid; gap: 2px; text-align: left; padding: 9px 12px; border: 0; background: none; color: var(--text); cursor: pointer; font: inherit; }
+.layout-apply small { color: var(--muted); }
+.layout-card:hover { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
+.dock .streamdesk { background: var(--panel); }
+.streamdesk .sd-row > span:not(.sd-label) { font-size: 12.5px; color: var(--muted); }

@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0-preview.12 — Docks and layouts
+
+- **Docks, one rule for the whole window.** There are three dock areas: left, right, and bottom
+  (under the document). The sidebar can sit on the left or the right.
+  - The Music Bench, Video Bench and Stream Desk each live in the area you choose with their
+    **⊞** button. Each area shows one panel at a time.
+  - Panels in different areas can be open together, for example music on the left and a video on
+    the right. Before, opening one closed the other.
+  - Drag a dock's inner edge to resize it.
+  - Moving a playing video to another dock doesn't stop it.
+  - The classic layout is the default: sidebar on the left, panels on the right.
+- **Layouts** (View › Layout, or Layouts… from any ⊞):
+  - Ready-made: *Classic*, *Writing* (just the document), *Music + video*, *Streaming* (music left,
+    Stream Desk right, videos below), *Stream Desk in its own window*, *Sidebar on the right*.
+  - *Save current layout…* remembers where everything is, which panels are open and their sizes,
+    under a name of your choice.
+- **The Stream Desk matches the other benches.** It docks beside the editor with the same title row
+  and tabs as the Music Bench. In a narrow dock the tabs show icons only and the cards stack.
+  **⧉** pops it out into its own window, and **⇤** in that window docks it back. Ctrl+Alt+B opens
+  it wherever it lives.
+
 ## 2.0.0-preview.11 — Find in files, links that survive renames, smarter players
 
 - **Find in files** (Ctrl+Shift+F) searches **all open documents**, like Notepad++'s "Find in All

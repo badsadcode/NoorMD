@@ -148,6 +148,7 @@ function mockHostScript(initial) {
         case 'export.pdf': return reply(m.id, true, { path: 'C:\\out.pdf' });
         case 'link.open': state.lastLink = p.href; return reply(m.id, true, {});
         case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
+        case 'prefs.set': Object.assign(state.prefs, JSON.parse(JSON.stringify(p))); return reply(m.id, true, null);
         case 'streamwin.ready': return reply(m.id, true, { tab: initial.streamTab || null });
         case 'streamwin.close': state.streamClosed = (state.streamClosed || 0) + 1; return reply(m.id, true, null);
         case 'streamwin.dirty': state.streamDirty = !!p.dirty; return reply(m.id, true, null);

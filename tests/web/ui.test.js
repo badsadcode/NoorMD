@@ -2097,15 +2097,35 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => window.NoorMusic.playRandom());
       await waitFn(page, () => window.__mock.state.stream.updates.some((t) => t && t.playing), null, { timeout: 6000 });
       check('the playing song is reported for overlays and the tracklist', (await M()).updates.find((t) => t && t.playing).title.length > 0);
-      check('the Stream Desk is no longer drawn over the editor', !(await page.$('#streamdesk')));
+      // The Stream Desk docks beside the editor like the other panels (and can pop out into its own window).
       await page.keyboard.press('Control+Alt+b');
-      await waitFn(page, () => window.__mock.state.stream.windows.length === 1);
-      check('Ctrl+Alt+B opens the Stream Desk window', true);
+      await page.waitForSelector('#dock-right #streamdesk:not([hidden])');
+      const dockBox = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, dock: document.querySelector('#dock-right').getBoundingClientRect().left, w: document.querySelector('#dock-right').getBoundingClientRect().width }));
+      check('Ctrl+Alt+B docks the Stream Desk beside the editor', dockBox.editor <= dockBox.dock + 1 && dockBox.w > 300, dockBox);
+      check('it looks like the other benches: title row, then tabs', await page.evaluate(() => !!document.querySelector('#streamdesk .music-head .music-title') && !!document.querySelector('#streamdesk .music-tabs [data-sdtab="mic"]')));
+      check('in a narrow dock the tabs show icons only and the cards stack', await page.evaluate(() => getComputedStyle(document.querySelector('.sd-tab-label')).display === 'none' && getComputedStyle(document.querySelector('.sd-grid')).gridTemplateColumns.split(' ').length === 1));
       await page.keyboard.press('Control+k');
       await page.keyboard.type('Credits roll');
       await page.keyboard.press('Enter');
+      await waitFn(page, () => window.NoorStream._state().tab === 'credits');
+      check('menu and Ctrl+K items open its tabs', true);
+      // Music on the left and the Stream Desk on the right, open together.
+      await page.evaluate(() => window.NoorDock.place('music', 'left'));
+      await page.evaluate(() => window.NoorMusic.togglePanel(true));
+      await page.waitForSelector('#dock-left #music');
+      check('panels in different docks are open together', await page.evaluate(() => window.NoorMusic.isOpen() && document.body.classList.contains('stream-open')));
+      // ⧉ pops it out into its own window; from then on Ctrl+Alt+B brings that window forward.
+      await page.click('#sd-popout');
+      await waitFn(page, () => window.__mock.state.stream.windows.length === 1);
+      check('⧉ moves the Stream Desk into its own window', !(await page.evaluate(() => document.body.classList.contains('stream-open'))) && (await page.evaluate(() => window.NoorDock.placeOf('stream'))) === 'window');
+      await page.keyboard.press('Control+Alt+b');
       await waitFn(page, () => window.__mock.state.stream.windows.length === 2);
-      check('menu and Ctrl+K items open its tabs', (await M()).windows[1].tab === 'credits');
+      check('…and Ctrl+Alt+B then brings that window forward', true);
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'stream.dock', payload: { tab: 'mic' } }));
+      await page.waitForSelector('#dock-right #streamdesk:not([hidden])');
+      await waitFn(page, () => window.NoorStream._state().tab === 'mic');
+      check('“Dock in the main window” brings it back, on the same tab', (await page.evaluate(() => window.NoorDock.placeOf('stream'))) === 'right');
+      check('where panels go is remembered', await page.evaluate(() => { const l = window.__mock.state.prefs.layout; return !!l && l.place.music === 'left' && l.place.stream === 'right'; }));
       const mainErrors = errors.filter((e) => !/Empty src|status of 404/.test(e));
       check('no page errors in the main window', mainErrors.length === 0, mainErrors);
       await page.close();
@@ -2119,8 +2139,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'stream.track', payload: { track: { id: 7, title: 'Żółta łódź', artist: 'Noor', playing: true, position: 3, duration: 120 } } }));
       await waitFn(page, () => /Żółta łódź/.test(document.querySelector('#np-frame').textContent));
       check('the preview shows the song the Music Bench is playing', !(await page.textContent('#np-frame')).includes('Night Drive'));
-      const head = await page.evaluate(() => { const h = document.querySelector('.sd-head').getBoundingClientRect(); const t = document.querySelector('.sd-tabs').getBoundingClientRect(); return { h: h.height, top: t.top - h.top }; });
-      check('the header keeps the title, tabs and status on one tidy row', head.h < 60 && head.top < 20, head);
+      const head = await page.evaluate(() => { const h = document.querySelector('.sd-head').getBoundingClientRect(); const t = document.querySelector('.sd-tabs').getBoundingClientRect(); return { h: h.height, gap: t.top - h.bottom, tabsH: t.height }; });
+      check('the header is one tidy title row with the tabs right below it', head.h < 60 && head.gap >= 0 && head.gap < 12 && head.tabsH < 50, head);
       await page.check('#sd-server-on');
       await waitFn(page, () => window.__mock.state.stream.running === true);
       await waitFn(page, () => /127\.0\.0\.1:47321/.test(document.querySelector('#sd-server').textContent));
@@ -2346,8 +2366,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+k');
       await page.keyboard.type('Mic Guard:');
       await page.keyboard.press('Enter');
-      await waitFn(page, () => window.__mock.state.stream.windows.some((w) => w.tab === 'mic'));
-      check('Ctrl+K › Mic Guard settings opens the Stream Desk window on that tab', true);
+      await page.waitForSelector('#streamdesk:not([hidden]) #mic-verdict');
+      check('Ctrl+K › Mic Guard settings opens the Stream Desk on that tab', (await page.evaluate(() => window.NoorStream._state().tab)) === 'mic');
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors when using Mic Guard from the main window', unexpected.length === 0, unexpected);
       await page.close();
@@ -2397,6 +2417,87 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Escape');
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors in Find in files', unexpected.length === 0, unexpected);
+      await page.close();
+    }
+
+    // ---- 26. Docks and layouts: panels in left / right / bottom docks, ready-made and saved layouts, sidebar side.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Layouts\n\nText.\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 4, videos: true }, { width: 1600, height: 1000 });
+      const D = () => page.evaluate(() => window.NoorDock._state());
+      const rect = (sel) => page.evaluate((q) => { const r = document.querySelector(q).getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; }, sel);
+      check('the classic layout is the default: sidebar left, panels dock right', (await D()).layout.sidebar === 'left' && (await D()).layout.place.music === 'right');
+      // Ready-made "Streaming": music left, Stream Desk right, sidebar hidden.
+      await page.evaluate(() => window.NoorDock.applyPreset('streaming'));
+      await page.waitForSelector('#dock-left #music');
+      await page.waitForSelector('#dock-right #streamdesk:not([hidden])');
+      const ed = await rect('#editor'), left = await rect('#dock-left'), right = await rect('#dock-right');
+      check('“Streaming” puts music on the left and the Stream Desk on the right, the document between', left.r <= ed.l + 1 && ed.r <= right.l + 1 && left.w > 250 && right.w > 250, { left, ed, right });
+      check('…and hides the sidebar', await page.evaluate(() => document.body.classList.contains('sidebar-collapsed')));
+      // The video goes under the document (bottom dock) and keeps playing when it moves.
+      await page.evaluate(() => window.NoorVideo.open());
+      await page.waitForSelector('#dock-bottom #videobench:not([hidden])');
+      const bottom = await rect('#dock-bottom');
+      check('videos open in the bottom dock, under the document', bottom.t >= ed.t && bottom.l >= left.r - 1 && bottom.r <= right.l + 1 && bottom.h >= 160, { bottom, ed });
+      await page.evaluate(() => window.NoorVideo.select(1, { autoplay: true }));
+      await waitFn(page, () => !document.querySelector('#vb-video').paused && document.querySelector('#vb-video').currentTime > 0.2, null, { timeout: 6000 });
+      await page.evaluate(() => window.NoorDock.place('video', 'right'));
+      await page.waitForSelector('#dock-right #videobench:not([hidden])');
+      check('moving a panel to another dock replaces what was there (the Stream Desk closes)', !(await page.evaluate(() => document.body.classList.contains('stream-open'))));
+      await page.evaluate(() => window.NoorVideo.select(1, { autoplay: true }));
+      await waitFn(page, () => !document.querySelector('#vb-video').paused, null, { timeout: 6000 });
+      check('a video plays in its new dock', true);
+      // Resizing a dock by its edge.
+      const before = (await rect('#dock-right')).w;
+      const handle = await rect('#dock-right .dock-resizer');
+      await page.mouse.move(handle.l + 4, handle.t + 300);
+      await page.mouse.down();
+      await page.mouse.move(handle.l - 120, handle.t + 300, { steps: 5 });
+      await page.mouse.up();
+      const after = (await rect('#dock-right')).w;
+      check('a dock is resized by dragging its edge', after > before + 80, { before, after });
+      check('…and its size is remembered', await page.evaluate((w) => Math.abs(window.__mock.state.prefs.layout.size.right - w) < 3, after));
+      // Save the current layout, switch to another, then bring it back.
+      await page.evaluate(() => { window.NoorDock.saveAs(); }); // the dialog waits for a name
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'Evening stream');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => (window.__mock.state.prefs.layouts || []).some((l) => l.name === 'Evening stream'));
+      check('the current layout can be saved by name', true);
+      await page.evaluate(() => window.NoorDock.applyPreset('writing'));
+      await waitFn(page, () => !document.querySelector('.dock.open'));
+      check('“Writing” closes every panel', !(await page.evaluate(() => window.NoorMusic.isOpen() || window.NoorVideo.isOpen())));
+      await page.evaluate(() => window.NoorDock.showLayouts());
+      await page.waitForSelector('#layout-list');
+      check('the Layouts dialog lists the ready-made and saved layouts', (await page.textContent('#layout-list')).includes('Evening stream') && (await page.textContent('#layout-list')).includes('Streaming'));
+      await page.click('#layout-list .layout-card:has-text("Evening stream") .layout-apply');
+      await page.waitForSelector('#dock-left #music');
+      await page.waitForSelector('#dock-right #videobench:not([hidden])');
+      check('applying a saved layout reopens its panels where they were, at their size', Math.abs((await rect('#dock-right')).w - after) < 3);
+      // Sidebar on the right (View › Layout).
+      await page.evaluate(() => window.NoorDock.applyPreset('classic'));
+      await page.evaluate(() => window.NoorMD.runCommand('view.sidebarRight'));
+      await waitFn(page, () => document.body.classList.contains('sidebar-right'));
+      const sb = await rect('#sidebar'), ed2 = await rect('#editor');
+      check('the sidebar can sit on the right', sb.l >= ed2.r - 1 && sb.w > 150, { sb, ed2 });
+      await page.evaluate(() => window.NoorMD.runCommand('view.sidebarRight'));
+      await waitFn(page, () => !document.body.classList.contains('sidebar-right'));
+      check('…and back on the left', (await rect('#sidebar')).r <= (await rect('#editor')).l + 1);
+      // Each panel's ⊞ button moves just that panel.
+      await page.evaluate(() => window.NoorMusic.togglePanel(true));
+      await page.waitForSelector('#music-dock');
+      await page.click('#music-dock');
+      await page.waitForSelector('.menu-popup');
+      check('⊞ offers left, right and bottom', await page.evaluate(() => ['Dock left', 'Dock right', 'Dock bottom', 'Layouts'].every((w) => document.querySelector('.menu-popup').textContent.includes(w))));
+      await page.click('.menu-popup .menu-item:has-text("Dock bottom")');
+      await page.waitForSelector('#dock-bottom #music');
+      check('…and the panel moves there at once', await page.evaluate(() => window.NoorMusic.isOpen()));
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('zen'));
+      check('Focus mode hides the docks', await page.evaluate(() => getComputedStyle(document.querySelector('#dock-bottom')).display === 'none'));
+      await page.keyboard.press('F11');
+      const unexpected = errors.filter((e) => !/Empty src|status of 404|MEDIA_ELEMENT_ERROR/.test(e));
+      check('no page errors with docks and layouts', unexpected.length === 0, unexpected);
+      if (shots) { await page.evaluate(() => window.NoorDock.applyPreset('streaming')); await page.waitForTimeout(500); await page.screenshot({ path: `${shots}/layout-streaming.png` }); }
       await page.close();
     }
   } finally {

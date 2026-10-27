@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.11-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.12-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -103,7 +103,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   - resume where you stopped, subtitles (SRT/ASS/VTT), a choice of **audio track** (language),
     speed, timestamped notes you can insert into a document, and a pop-out player that stays on
     top.
-- **Stream Desk** (Ctrl+Alt+B), in its own window so it can sit next to OBS. OBS overlays are served on 127.0.0.1 only:
+- **Docks and layouts:** the Music Bench, Video Bench and Stream Desk dock left, right or under the
+  document (⊞ on each panel). The sidebar can sit on either side. Use ready-made layouts (Writing,
+  Music + video, Streaming…) or save your own (View › Layout).
+- **Stream Desk** (Ctrl+Alt+B), docked like the other panels or in its own window (⧉) next to OBS.
+  OBS overlays are served on 127.0.0.1 only:
   - a **Now Playing** overlay with six customisable designs, and a now-playing.txt;
   - a **credits roll** of your supporters, with effects you can build;
   - the **supporters list** and a **stream log** with templates and a recorded tracklist,
@@ -142,8 +146,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.11-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.11-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.12-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.12-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

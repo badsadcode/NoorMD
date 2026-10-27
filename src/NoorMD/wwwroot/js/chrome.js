@@ -254,6 +254,10 @@ window.NoorChrome = (() => {
       { id: 'view.toolbar' }, { id: 'view.sidebar' }, { id: 'music.toggle' }, { id: 'music.mini' }, '-',
       { id: 'view.visual' }, { id: 'view.markdown' }, { id: 'view.split' }, '-',
       { id: 'view.focus' }, { id: 'layout.compact' },
+      { label: 'Layout', sub: () => [
+        ...NoorDock.PRESETS.map((p) => ({ label: p.name, title: p.description, run: () => NoorDock.applyPreset(p.id) })), '-',
+        { id: 'layout.show' }, { id: 'layout.save' }, '-', { id: 'view.sidebarRight' },
+      ] },
       { label: 'Line width', sub: () => [{ id: 'width.comfortable' }, { id: 'width.wide' }, { id: 'width.full' }] },
       { label: 'Zoom', sub: () => [{ id: 'font.bigger' }, { id: 'font.smaller' }, { id: 'font.reset' }] },
       { label: 'Markdown source', sub: () => [{ id: 'source.lineNumbers' }, { id: 'source.wrap' }, { id: 'source.sync' }] }, '-',

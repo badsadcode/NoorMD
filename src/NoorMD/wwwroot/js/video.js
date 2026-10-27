@@ -9,7 +9,6 @@ window.NoorVideo = (() => {
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];
   const SORTS = [['series', 'Series & episode'], ['title', 'Title'], ['recent', 'Recently watched'], ['added', 'Recently added'], ['duration', 'Duration']];
   const FILTERS = [['all', 'All'], ['unwatched', 'Unwatched'], ['inprogress', 'In progress'], ['watched', 'Watched']];
-  const WIDTH_KEY = 'noormd.video.width';
 
   let hooks = { showError: (e) => console.error(e), onPlay: () => {} };
   let built = false;
@@ -61,7 +60,7 @@ window.NoorVideo = (() => {
 
   async function open() {
     if (!built) build();
-    if (window.NoorMusic && NoorMusic.isOpen()) NoorMusic.togglePanel(false); // both live on the right; the music keeps playing
+    if (window.NoorDock) NoorDock.opened('video'); // its dock area (another panel there makes room; music keeps playing)
     document.body.classList.add('video-open');
     $('#videobench').hidden = false;
     await refresh(true);
@@ -76,6 +75,8 @@ window.NoorVideo = (() => {
     hideCountdown();
     document.body.classList.remove('video-open');
     $('#videobench').hidden = true;
+    if (window.NoorDock) NoorDock.closed('video');
+    setWide(false);
     saveSession();
   }
 
@@ -97,11 +98,11 @@ window.NoorVideo = (() => {
     const tr = (cls, label, title, fn) => el('button', { class: 'tp ' + cls, title, 'aria-label': title, onclick: fn }, label);
     const tabBtn = (id, label) => el('button', { role: 'tab', 'data-vbtab': id, onclick: () => setTab(id) }, label);
     const root = el('section', { id: 'videobench', class: 'videobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Video Bench' },
-      el('div', { class: 'vb-resizer', id: 'vb-resizer', title: 'Drag to resize', 'aria-hidden': 'true' }),
       el('div', { class: 'music-head' },
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎬' }), el('strong', { text: 'Video Bench' }), el('small', { id: 'vb-count' }), el('small', { id: 'vb-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
         el('span', { class: 'vb-head-buttons' },
-          el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!document.body.classList.contains('video-wide')) }, '⤢'),
+          el('button', { class: 'icon-btn', id: 'vb-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Video Bench', onclick: (e) => NoorDock.showMenu('video', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!(window.NoorDock ? NoorDock.isWide('video') : document.body.classList.contains('video-wide'))) }, '⤢'),
           el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕'))),
       el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
         el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); } },
@@ -165,18 +166,7 @@ window.NoorVideo = (() => {
     list.addEventListener('keydown', onListKey);
     ['wheel', 'pointerdown', 'keydown', 'touchstart'].forEach((t) => list.addEventListener(t, () => { userBrowsedAt = Date.now(); }, { passive: true }));
     list.addEventListener('scroll', () => { if (list.scrollTop + list.clientHeight > list.scrollHeight - 300 && shown < rows.length) { shown += 300; renderList(); } }, { passive: true });
-    try { const w = Number(localStorage.getItem(WIDTH_KEY)); if (w >= 360) document.documentElement.style.setProperty('--video-w', w + 'px'); } catch { /* per-viewer convenience */ }
-    const rz = $('#vb-resizer');
-    rz.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      rz.setPointerCapture(e.pointerId);
-      const move = (ev) => document.documentElement.style.setProperty('--video-w', Math.min(window.innerWidth - 300, Math.max(360, window.innerWidth - ev.clientX)) + 'px');
-      const up = () => {
-        rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up);
-        try { localStorage.setItem(WIDTH_KEY, String(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--video-w'), 10))); } catch { /* ignore */ }
-      };
-      rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up);
-    });
+    // Its size is the dock's (dock.js); ⤢ makes the dock wide for a while.
     setTab('library');
     renderTransport();
     renderExtras();
@@ -193,8 +183,9 @@ window.NoorVideo = (() => {
   }
 
   function setWide(on) {
+    if (window.NoorDock && on !== NoorDock.isWide('video')) on = NoorDock.toggleWide('video');
     document.body.classList.toggle('video-wide', on);
-    $('#vb-wide').setAttribute('aria-pressed', String(on));
+    $('#vb-wide')?.setAttribute('aria-pressed', String(on));
   }
 
   function renderEmpty() {

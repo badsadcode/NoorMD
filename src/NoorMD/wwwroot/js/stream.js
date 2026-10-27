@@ -34,6 +34,9 @@ window.NoorStream = (() => {
     hooks = { ...hooks, ...h };
     NoorBridge.on('mic.state', (m) => { micState = m; renderMicState(); });
     NoorBridge.on('stream.tab', (p) => open(p && p.tab));
+    NoorBridge.on('stream.window', (p) => { windowOpen = !!(p && p.open); });
+    // "Dock in the main window" from the Stream Desk window.
+    NoorBridge.on('stream.dock', (p) => { if (window.NoorDock) { NoorDock.place('stream', 'right'); open(p && p.tab); } });
     NoorBridge.on('stream.track', (p) => showTrack(p ? p.track : null));
   }
 
@@ -57,8 +60,13 @@ window.NoorStream = (() => {
 
   // ------------------------------------------------------------------ open / close
 
+  const inOwnWindow = () => !inWindow() && window.NoorDock && NoorDock.placeOf('stream') === 'window';
+  let windowOpen = false; // main page: the Stream Desk window is open
+
   async function open(which) {
+    if (inOwnWindow()) { await req('stream.window', { tab: which || null }).then((r) => { windowOpen = !!(r && r.open); }).catch(hooks.showError); return; }
     if (!built) build();
+    if (!inWindow() && window.NoorDock) NoorDock.opened('stream'); // its dock area (another panel there makes room)
     document.body.classList.add('stream-open');
     $('#streamdesk').hidden = false;
     await refresh();
@@ -77,9 +85,13 @@ window.NoorStream = (() => {
     $('#streamdesk').hidden = true;
     clearInterval(statusTimer);
     if (crPreview) crPreview.stop();
+    if (window.NoorDock) NoorDock.closed('stream');
   }
 
-  function toggle(which) { if (isOpen() && (!which || which === tab)) close(); else open(which); }
+  function toggle(which) {
+    if (inOwnWindow()) { open(which); return; } // brings the window forward
+    if (isOpen() && (!which || which === tab)) close(); else open(which);
+  }
 
   async function refresh() {
     try { status = await req('stream.status'); } catch (err) { hooks.showError(err); return; }
@@ -99,15 +111,21 @@ window.NoorStream = (() => {
 
   function build() {
     built = true;
-    const tabs = [['np', '🎵 Now Playing'], ['credits', '🎬 Credits roll'], ['supporters', '💜 Supporters'], ['log', '📼 Stream log'], ['mic', '🎙 Mic Guard']];
-    document.body.append(el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
-      el('header', { class: 'sd-head' },
-        el('strong', { class: 'sd-title' }, '📡 Stream Desk'),
-        el('div', { class: 'sd-tabs', role: 'tablist' }, ...tabs.map(([id, label]) => el('button', { role: 'tab', 'data-sdtab': id, onclick: () => setTab(id) }, label))),
-        el('button', { class: 'sd-mic-pill', id: 'sd-mic-pill', hidden: true, title: 'Mic Guard: click to mute / unmute', onclick: () => toggleMic() }),
-        el('span', { class: 'sd-server', id: 'sd-server' }),
-        el('button', { class: 'icon-btn sd-close', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕')),
-      el('div', { class: 'sd-body', id: 'sd-body' })));
+    const tabs = [['np', '🎵', 'Now Playing'], ['credits', '🎬', 'Credits'], ['supporters', '💜', 'Supporters'], ['log', '📼', 'Stream log'], ['mic', '🎙', 'Mic Guard']];
+    // Same parts as the Music and Video Benches: a title row with its buttons, then the tabs.
+    const section = el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
+      el('header', { class: 'music-head sd-head' },
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📡' }), el('strong', { class: 'sd-title', text: 'Stream Desk' }), el('small', { class: 'sd-server', id: 'sd-server' })),
+        el('span', { class: 'panel-head-buttons' },
+          el('button', { class: 'sd-mic-pill', id: 'sd-mic-pill', hidden: true, title: 'Mic Guard: click to mute / unmute', onclick: () => toggleMic() }),
+          inWindow()
+            ? el('button', { class: 'icon-btn', id: 'sd-dock-back', title: 'Dock in the main window', 'aria-label': 'Dock in the main window', onclick: () => req('stream.dock', { tab }).catch(hooks.showError) }, '⇤')
+            : el('button', { class: 'icon-btn', id: 'sd-dock', title: 'Where this panel goes (left, right, bottom, own window) and layouts', 'aria-label': 'Move the Stream Desk', onclick: (e) => NoorDock.showMenu('stream', e.currentTarget) }, '⊞'),
+          inWindow() ? null : el('button', { class: 'icon-btn', id: 'sd-popout', title: 'Own window (for a second monitor next to OBS)', 'aria-label': 'Open in its own window', onclick: () => NoorDock.place('stream', 'window') }, '⧉'),
+          el('button', { class: 'icon-btn sd-close', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕'))),
+      el('div', { class: 'music-tabs sd-tabs', role: 'tablist' }, ...tabs.map(([id, icon, label]) => el('button', { role: 'tab', 'data-sdtab': id, title: label, onclick: () => setTab(id) }, el('span', { class: 'sd-tab-icon', 'aria-hidden': 'true', text: icon }), el('span', { class: 'sd-tab-label', text: label })))),
+      el('div', { class: 'sd-body', id: 'sd-body' }));
+    (inWindow() ? document.body : ($('#app') || document.body)).append(section);
     $('#streamdesk').addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && !inWindow() && !e.target.closest('input, textarea, select')) { e.preventDefault(); e.stopPropagation(); close(); }
     });
@@ -569,7 +587,7 @@ window.NoorStream = (() => {
   const MIC_WORD = { live: 'live', muted: 'muted', unknown: 'unknown', off: 'not used' };
 
   async function toggleMic() {
-    try { mic = await req('mic.toggle'); micState = null; renderMicState(); } catch (err) { hooks.showError(err); }
+    try { mic = await req('mic.toggle'); micState = null; renderMicState(); if (!isOpen() && mic.verdict !== 'notsetup') notice(`🎙 ${mic.label}`, 1400); } catch (err) { hooks.showError(err); }
   }
 
   const KEY_NAMES = {
@@ -719,7 +737,7 @@ window.NoorStream = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen, nowPlaying, toggleMic, _gesture: gestureFrom,
-    _state: () => ({ open: isOpen(), tab, micSettled, mic: mic && mic.config, micVerdict: (micState || mic || {}).verdict, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
+    init, open, close, toggle, isOpen: () => isOpen() || windowOpen, nowPlaying, toggleMic, _gesture: gestureFrom,
+    _state: () => ({ open: isOpen(), windowOpen, tab, micSettled, mic: mic && mic.config, micVerdict: (micState || mic || {}).verdict, np, cr, effects: effects.map((e) => e.id), supporters: supporters.length, dirty: supportersDirty, current: current && { title: current.title, path: current.path, tracks: (current.tracklist || []).length } }),
   };
 })();

@@ -203,6 +203,13 @@ public partial class MainWindow
         {
             case "stream.window":
                 return OpenStreamWindow(req.GetString("tab", 20), NoorMD.Core.Bridge.Json.IsTrue(p, "toggle"), NoorMD.Core.Bridge.Json.IsTrue(p, "close"));
+            case "stream.dock":
+            {
+                // "Dock in the main window" from the Stream Desk window: close it (after this reply) and show the panel.
+                var tab = req.GetString("tab", 20);
+                _ = Dispatcher.BeginInvoke(() => { _streamWindow?.Close(); Activate(); PushEvent("stream.dock", new { tab }); });
+                return null;
+            }
             case "stream.track":
                 SendTrackToStreamWindow();
                 return null;

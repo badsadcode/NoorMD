@@ -107,8 +107,10 @@ window.NoorMusic = (() => {
   function togglePanel(force) {
     if (!enabled()) { notice('The Music Bench is turned off in Preferences.'); return; }
     const open = force ?? !document.body.classList.contains('music-open');
-    if (open && window.NoorVideo && NoorVideo.isOpen()) NoorVideo.close(); // one panel on the right at a time
+    if (open === document.body.classList.contains('music-open')) { if (open) focusList(); return; }
+    if (open && window.NoorDock) NoorDock.opened('music'); // its dock area (another panel there makes room)
     document.body.classList.toggle('music-open', open);
+    if (!open && window.NoorDock) NoorDock.closed('music');
     if (open) { start().then(() => { focusList(); followPlaying(true); }); }
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
@@ -117,7 +119,7 @@ window.NoorMusic = (() => {
     const prefs = hooks.getPrefs();
     document.body.classList.toggle('music-disabled', !enabled());
     document.documentElement.style.setProperty('--music-w', Math.min(640, Math.max(300, Number(prefs.musicWidth) || 400)) + 'px');
-    if (!enabled()) { audio.pause(); document.body.classList.remove('music-open'); }
+    if (!enabled()) { audio.pause(); document.body.classList.remove('music-open'); if (window.NoorDock) NoorDock.closed('music'); }
     $('#miniplayer').classList.toggle('hide', !enabled() || prefs.miniPlayer === false || currentId() == null);
   }
 
@@ -127,7 +129,9 @@ window.NoorMusic = (() => {
     panel.append(
       el('div', { class: 'music-head' },
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '♫' }), el('strong', { text: 'Music Bench' }), el('small', { id: 'music-count' }), el('small', { id: 'music-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
-        el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close Music Bench', onclick: () => togglePanel(false) }, '✕')),
+        el('span', { class: 'panel-head-buttons' },
+          el('button', { class: 'icon-btn', id: 'music-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Music Bench', onclick: (e) => NoorDock.showMenu('music', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close Music Bench', onclick: () => togglePanel(false) }, '✕'))),
       buildNowPlaying(),
       el('div', { class: 'music-tabs', role: 'tablist' },
         ...[['library', 'Library'], ['queue', 'Up next'], ['playlists', 'Playlists'], ['sound', 'Sound']].map(([id, label]) =>
@@ -183,19 +187,7 @@ window.NoorMusic = (() => {
     new ResizeObserver(() => requestAnimationFrame(renderList)).observe(list);
     renderChips();
 
-    const resizer = $('#music-resizer');
-    resizer.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      resizer.setPointerCapture(e.pointerId);
-      document.body.classList.add('resizing-sidebar');
-      const move = (ev) => document.documentElement.style.setProperty('--music-w', Math.min(640, Math.max(300, window.innerWidth - ev.clientX)) + 'px');
-      const up = () => {
-        resizer.removeEventListener('pointermove', move); resizer.removeEventListener('pointerup', up);
-        document.body.classList.remove('resizing-sidebar');
-        hooks.setPrefs({ musicWidth: parseInt(getComputedStyle(document.documentElement).getPropertyValue('--music-w'), 10) });
-      };
-      resizer.addEventListener('pointermove', move); resizer.addEventListener('pointerup', up);
-    });
+    // Its size is the dock's (dock.js), resized from the dock's inner edge.
   }
 
   function setTab(id) {
