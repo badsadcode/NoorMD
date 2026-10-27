@@ -103,6 +103,7 @@ public partial class MainWindow
                 case "video.addFolder":
                 {
                     var dlg = new OpenFolderDialog { Title = "Add a video folder (subfolders included)", Multiselect = false };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var id = Videos.AddFolder(dlg.FolderName);
                     await ScanVideosAsync([id]);

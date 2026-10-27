@@ -79,6 +79,7 @@ public partial class MainWindow
             Multiselect = true,
             InitialDirectory = ActiveSession?.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
         object? last = null;
         foreach (var file in dlg.FileNames) last = await OpenPathAsync(file);
@@ -342,6 +343,7 @@ public partial class MainWindow
             InitialDirectory = Path.GetDirectoryName(suggested) is { Length: > 0 } dir && Directory.Exists(dir)
                 ? dir : (s ?? ActiveSession)?.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
         };
+        Ui.NativeCursor.Restore();
         return dlg.ShowDialog(this) == true ? dlg.FileName : null;
     }
 

@@ -1685,6 +1685,7 @@
     });
     node.addEventListener('contextmenu', (e) => { e.preventDefault(); showTabMenu(tab, e.clientX, e.clientY); });
     node.addEventListener('pointerdown', (e) => startTabDrag(tab, e));
+    node.addEventListener('click', () => { if (window.NoorDock && NoorDock.centerActive()) { NoorDock.showDocuments(); if (tab === t) editor?.focus(); } });
     return node;
   }
 
@@ -1713,6 +1714,8 @@
   let switching = Promise.resolve();
   let wanted = null; // the tab most recently asked to be shown
   function showTab(tab, opts = {}) {
+    // Choosing a document brings the documents back to the middle (panels open there wait behind their tabs).
+    if (opts.focus !== false && !opts.keepCenter && window.NoorDock) NoorDock.showDocuments();
     wanted = tab;
     switching = switching.then(() => doShowTab(tab, opts)).catch((err) => console.error(err));
     return switching;
@@ -1794,7 +1797,7 @@
     if (t === tab) {
       t = null; editor = null; fallback = null;
       const next = tabs[Math.min(i, tabs.length - 1)];
-      if (next) showTab(next);
+      if (next) showTab(next, { keepCenter: true });
     } else reportTabs();
     renderTabs();
   }
@@ -2043,7 +2046,7 @@
       if (document.body.classList.contains('zen')) { e.preventDefault(); toggleZen(false); }
       return;
     }
-    if (key === 'F2' && e.target.closest && e.target.closest('#vault-tree')) return; // F2 renames in the explorer
+    if (key === 'F2' && e.target.closest && e.target.closest('#vault-tree, #gallery')) return; // F2 renames in the explorer and the Gallery
     if (key === 'F2') cmd = 'music.edit';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && (e.code === 'Space' || e.code === 'ArrowRight' || e.code === 'ArrowLeft'))
       cmd = { Space: 'music.play', ArrowRight: 'music.next', ArrowLeft: 'music.prev' }[e.code];

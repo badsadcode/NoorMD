@@ -1106,6 +1106,48 @@ public class GalleryTests
     }
 
     [Fact]
+    public void Organizer_Renames_Numbers_Moves_And_Undoes_Without_Overwriting()
+    {
+        var (t, lib, folder) = Library();
+        using var _ = t;
+        lib.Scan(folder);
+        var org = new GalleryOrganizer(lib);
+        var byName = () => lib.Query(new GalleryQuery(Sort: "name", Descending: false)).ToDictionary(i => i.Name);
+        var beach = byName()["Plaża"];
+        lib.SetFavorite([beach.Id], true);
+        var show = lib.CreateSlideshow("Lato", [beach.Id], "{}");
+
+        org.Rename(beach.Id, "Zachód słońca");
+        Assert.True(File.Exists(t.P("Pics", "Wakacje 2023", "Zachód słońca.jpg")));
+        var moved = lib.Get(beach.Id)!;
+        Assert.Equal("Zachód słońca", moved.Name);
+        Assert.True(moved.Favorite); // favourite and slideshow place kept
+        Assert.Equal([beach.Id], lib.Query(new GalleryQuery(SlideshowId: show)).Select(i => i.Id));
+        File.WriteAllText(t.P("Pics", "Wakacje 2023", "Zajęte.jpg"), "taken");
+        Assert.ThrowsAny<ArgumentException>(() => org.Rename(beach.Id, "Zajęte")); // never overwrites
+        Assert.Equal("taken", File.ReadAllText(t.P("Pics", "Wakacje 2023", "Zajęte.jpg")));
+        org.Undo();
+        Assert.True(File.Exists(t.P("Pics", "Wakacje 2023", "Plaża.jpg")));
+
+        // A series in the given order; swapping names between pictures works (two phases).
+        var ids = new[] { byName()["Okładka"].Id };
+        var album = org.CreateAlbum(t.P("Pics"), "Nowy album");
+        org.Move(ids, album);
+        Assert.True(File.Exists(t.P("Pics", "Nowy album", "Okładka.png")));
+        Assert.Equal("Nowy album", lib.Get(ids[0])!.Album);
+        File.WriteAllText(t.P("Pics", "Nowy album", "Mapa.png"), "taken");
+        var mapa = byName()["Mapa"].Id;
+        Assert.ThrowsAny<ArgumentException>(() => org.Move([mapa], album)); // never overwrites
+        Assert.Equal("taken", File.ReadAllText(t.P("Pics", "Nowy album", "Mapa.png")));
+        Assert.ThrowsAny<ArgumentException>(() => org.Move([mapa], t.Path)); // outside the Gallery folders
+
+        var series = org.RenameSeries([mapa], "Wakacje");
+        Assert.EndsWith("Wakacje 01.png", series[0].To);
+        Assert.ThrowsAny<ArgumentException>(() => org.CreateAlbum(t.P("Pics"), "Nowy album"));
+        Assert.ThrowsAny<ArgumentException>(() => org.CreateAlbum(t.P("Pics"), "../uciekam"));
+    }
+
+    [Fact]
     public void Overlapping_Folders_Share_Pictures_Instead_Of_Failing()
     {
         var (t, lib, child) = Library();

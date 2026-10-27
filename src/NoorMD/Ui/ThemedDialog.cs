@@ -71,6 +71,9 @@ internal sealed class ThemedDialog : Window
             dlg.WindowStartupLocation = WindowStartupLocation.CenterOwner;
         }
         else dlg.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        NativeCursor.Restore();
+        dlg.Cursor = System.Windows.Input.Cursors.Arrow;
+        dlg.ForceCursor = true; // the arrow, whatever the editor underneath last set (it hides it while you type)
         dlg.ShowDialog();
         return dlg._result;
     }
@@ -80,4 +83,26 @@ internal sealed class ThemedDialog : Window
 
     public static void ShowError(Window? owner, string heading, string message, string? detail = null) =>
         Show(owner, heading, message, [new DialogButton("OK", "ok", Primary: true, Cancel: true)], detail);
+}
+
+/// <summary>
+/// A dialog opened while the editor page has the mouse (just after a click there, or while it hides the pointer as
+/// you type) could come up without a visible pointer. This hands the mouse back to Windows and shows the pointer.
+/// </summary>
+internal static class NativeCursor
+{
+    public static void Restore()
+    {
+        try
+        {
+            System.Windows.Input.Mouse.Capture(null);
+            ReleaseCapture();
+            for (var i = 0; i < 10 && ShowCursor(true) < 0; i++) { } // the pointer shows when the count is 0 or more
+            System.Windows.Input.Mouse.OverrideCursor = null;
+        }
+        catch (Exception) { /* cosmetic only */ }
+    }
+
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ReleaseCapture();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern int ShowCursor(bool show);
 }

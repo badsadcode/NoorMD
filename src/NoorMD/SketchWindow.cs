@@ -158,6 +158,7 @@ public sealed class SketchWindow : Window
                     if (path == null || Json.IsTrue(req.Payload, "saveAs"))
                     {
                         var dlg = new SaveFileDialog { Title = "Save sketch", Filter = SketchFilter, DefaultExt = ".noorsketch", AddExtension = true, OverwritePrompt = true, FileName = DocumentFile.SafeFileName(_name, ".noorsketch"), InitialDirectory = DefaultFolder() };
+                        Ui.NativeCursor.Restore();
                         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                         path = dlg.FileName;
                     }
@@ -170,6 +171,7 @@ public sealed class SketchWindow : Window
             case "sketch.open":
                 {
                     var dlg = new OpenFileDialog { Title = "Open sketch", Filter = SketchFilter, CheckFileExists = true, InitialDirectory = DefaultFolder() };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     return LoadPayload(dlg.FileName);
                 }
@@ -177,6 +179,7 @@ public sealed class SketchWindow : Window
                 {
                     var png = PngFrom(req);
                     var dlg = new SaveFileDialog { Title = "Export PNG", Filter = "PNG image (*.png)|*.png", DefaultExt = ".png", AddExtension = true, OverwritePrompt = true, FileName = DocumentFile.SafeFileName(req.GetString("name", 200) ?? _name, ".png"), InitialDirectory = DefaultFolder() };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     await Task.Run(() => AtomicFile.WriteAllBytes(dlg.FileName, png));
                     return new { path = dlg.FileName };

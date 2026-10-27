@@ -45,6 +45,7 @@ public partial class MainWindow
                     if (kind == "folder")
                     {
                         var dlg = new OpenFolderDialog { Title = "Add a folder to the Apps Hub" };
+                        Ui.NativeCursor.Restore();
                         path = dlg.ShowDialog(this) == true ? dlg.FolderName : null;
                     }
                     else
@@ -57,6 +58,7 @@ public partial class MainWindow
                             Filter = "Programs and shortcuts (*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd|All files (*.*)|*.*",
                             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
                         };
+                        Ui.NativeCursor.Restore();
                         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                         var added = new List<object>();
                         foreach (var f in dlg.FileNames) added.Add(HubItemForPage(await AddHubPathAsync(f, req.GetString("group", 40))));
@@ -114,6 +116,7 @@ public partial class MainWindow
                 {
                     var id = (Hub.Get(req.GetString("id", 40) ?? "") ?? throw new BridgeError("That shortcut is no longer in the hub.")).Id; // a real id, never a path
                     var dlg = new OpenFileDialog { Title = "Choose a picture", Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp" };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var info = new FileInfo(dlg.FileName);
                     if (info.Length > 8 * 1024 * 1024) throw new BridgeError("Choose a picture under 8 MB.");

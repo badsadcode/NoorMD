@@ -36,6 +36,7 @@ public partial class MainWindow
             case "sketch.open":
                 {
                     var dlg = new OpenFileDialog { Title = "Open sketch", Filter = "NoorSketch (*.noorsketch)|*.noorsketch", CheckFileExists = true, InitialDirectory = _vault?.Root ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures) };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     try { SketchFile.Load(dlg.FileName); } // refuse a damaged file here, before a window opens
                     catch (Exception ex) when (ex is InvalidDataException or IOException) { throw new BridgeError(ex.Message); }

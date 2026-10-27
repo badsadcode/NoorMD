@@ -483,7 +483,7 @@ function mockHostScript(initial) {
   const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
   state.voice = VOICE;
   // ---- mock Gallery: initial.gallery = number of pictures (in albums "Lato" and "Zima"); slideshows and favourites like GalleryLibrary.
-  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0 };
+  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null };
   state.gallery = GAL;
   function galAdd(n) {
     for (let i = 0; i < n; i++) {
@@ -520,6 +520,13 @@ function mockHostScript(initial) {
       case 'gallery.slideshow.update': { const s = show(p.id); if (p.name) s.name = p.name.trim(); if (p.settings) s.settings = p.settings; if (p.ids) s.ids = [...p.ids]; return status(); }
       case 'gallery.slideshow.add': { const s = show(p.id); p.ids.forEach((x) => { if (!s.ids.includes(x)) s.ids.push(x); }); return status(); }
       case 'gallery.slideshow.delete': GAL.slideshows = GAL.slideshows.filter((s) => s.id !== p.id); return status();
+      case 'gallery.places': return [{ path: 'C:\\Pics', label: 'Pics', key: 'c:\\pics' }, { path: 'C:\\Pics\\Lato', label: 'Pics/Lato', key: 'c:\\pics\\lato' }, { path: 'C:\\Pics\\Zima', label: 'Pics/Zima', key: 'c:\\pics\\zima' }, ...GAL.extraAlbums.map((a) => ({ path: 'C:\\Pics\\' + a, label: 'Pics/' + a, key: 'c:\\pics\\' + a.toLowerCase() }))];
+      case 'gallery.album.create': { const n = String(p.name || '').trim(); if (!n || GAL.extraAlbums.includes(n)) throw new Error('That is not a valid folder name.'); GAL.extraAlbums.push(n); return { path: 'C:\\Pics\\' + n, key: 'c:\\pics\\' + n.toLowerCase() }; }
+      case 'gallery.rename': { const i = get(p.id); const n = String(p.name).trim(); if (GAL.images.some((x) => x !== i && x.name === n && x.album === i.album)) throw new Error(`A file named "${n}.jpg" already exists in this folder. Nothing was renamed.`); GAL.last = [{ id: i.id, name: i.name, album: i.album, albumKey: i.albumKey }]; i.name = n; return { status: status(), undo: true }; }
+      case 'gallery.renameSeries': { GAL.last = p.ids.map((id) => { const i = get(id); return { id, name: i.name, album: i.album, albumKey: i.albumKey }; }); p.ids.forEach((id, k) => { get(id).name = `${p.name.trim()} ${String(k + 1).padStart(2, '0')}`; }); return { status: status(), undo: true }; }
+      case 'gallery.move': { const album = p.folder.split('\\').pop(); GAL.last = p.ids.map((id) => { const i = get(id); return { id, name: i.name, album: i.album, albumKey: i.albumKey }; }); p.ids.forEach((id) => { const i = get(id); i.album = album; i.albumKey = 'c:\\pics\\' + album.toLowerCase(); }); GAL.moves.push({ ids: [...p.ids], folder: p.folder }); return { moved: p.ids.length, status: status(), undo: true }; }
+      case 'gallery.undo': { if (!GAL.last) throw new Error('There is nothing to undo.'); GAL.last.forEach((b) => Object.assign(get(b.id), { name: b.name, album: b.album, albumKey: b.albumKey })); const n = GAL.last.length; GAL.last = null; return { restored: n, status: status() }; }
+      case 'gallery.delete': { GAL.images = GAL.images.filter((i) => !p.ids.includes(i.id)); GAL.deleted.push(...p.ids); return { deleted: p.ids.length, status: status() }; }
       case 'gallery.session.get': return GAL.session;
       case 'gallery.session.save': GAL.session = p.state; return null;
       default: return null;

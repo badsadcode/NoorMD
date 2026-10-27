@@ -71,8 +71,20 @@ window.NoorGallery = (() => {
         el('div', { class: 'gallery-row' },
           el('select', { id: 'gallery-source', 'aria-label': 'What to show' }),
           el('select', { id: 'gallery-sort', 'aria-label': 'Order' }, ...Object.entries(SORTS).map(([k, v]) => el('option', { value: k, text: v[2] }))))),
-      el('div', { class: 'gallery-body', id: 'gallery-body' }));
+      el('div', { class: 'gallery-main' },
+        el('nav', { class: 'gallery-nav', id: 'gallery-nav', 'aria-label': 'Albums and slideshows' }),
+        el('div', { class: 'gallery-body', id: 'gallery-body' }),
+        el('aside', { class: 'gallery-info', id: 'gallery-info', 'aria-label': 'Picture details' })));
     ($('#app') || document.body).append(root);
+    // With room (in the middle, or a wide dock) the Gallery becomes a picture manager: albums on the left, details on the right.
+    new ResizeObserver(() => {
+      const w = root.clientWidth >= 880;
+      if (w !== root.classList.contains('wide')) { root.classList.toggle('wide', w); renderNav(); renderInfo(); }
+    }).observe(root);
+    const size = el('input', { type: 'range', id: 'gallery-size', min: '80', max: '280', step: '10', value: String(tileSize()), 'aria-label': 'Picture size', title: 'Picture size' });
+    size.addEventListener('input', () => { root.style.setProperty('--gtile', size.value + 'px'); try { localStorage.setItem('noormd.gallery.size', size.value); } catch { /* fine */ } });
+    root.style.setProperty('--gtile', tileSize() + 'px');
+    $('#gallery-sort').after(size);
     let t = null;
     $('#gallery-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { view.search = e.target.value.trim(); load(); }, 180); });
     $('#gallery-source').addEventListener('change', (e) => { view.source = e.target.value; saveSession(); load(); });
@@ -80,11 +92,14 @@ window.NoorGallery = (() => {
     root.addEventListener('keydown', onPanelKeys);
   }
 
+  function tileSize() { try { return Number(localStorage.getItem('noormd.gallery.size')) || 104; } catch { return 104; } }
+
   function mainMenu(anchorEl) {
     const showing = view.source.startsWith('show:') ? status.slideshows.find((s) => 'show:' + s.id === view.source) : null;
     NoorChrome.openMenu(anchorEl, [
       { label: 'Add a picture folder…', run: addFolder },
       { label: 'Look for new pictures', disabled: !status.folders.length, run: async () => { notice('Looking for new pictures…', 1200); try { status = await req('gallery.rescan'); renderSources(); load(); } catch (err) { hooks.showError(err); } } },
+      { label: 'Undo the last rename or move', disabled: !canUndo, run: undo },
       { label: 'Folders', disabled: !status.folders.length, sub: () => status.folders.map((f) => ({ label: `${f.path} (${f.count})`, sub: [{ label: 'Remove from the Gallery…', run: () => removeFolder(f) }] })) },
       '-',
       { label: 'Save these pictures as a slideshow…', disabled: !items.length, run: () => saveSlideshow(sel.size ? [...sel] : items.map((i) => i.id)) },
@@ -147,6 +162,8 @@ window.NoorGallery = (() => {
   }
 
   function render() {
+    renderNav();
+    renderInfo();
     const body = $('#gallery-body');
     if (!status.folders.length) {
       body.replaceChildren(el('div', { class: 'vb-empty' }, el('h2', { text: 'Your pictures in one place' }),
@@ -170,12 +187,21 @@ window.NoorGallery = (() => {
   function tile(it, i) {
     const b = el('button', {
       class: 'gallery-tile' + (sel.has(it.id) ? ' selected' : '') + (it.favorite ? ' fav' : ''), role: 'option', 'aria-selected': String(sel.has(it.id)),
-      'data-id': String(it.id), 'data-index': String(i), title: `${it.name}\n${it.album} · ${dateText(it.taken)}`, draggable: view.source.startsWith('show:') ? 'true' : 'false',
+      'data-id': String(it.id), 'data-index': String(i), title: `${it.name}\n${it.album} · ${dateText(it.taken)}`, draggable: 'true',
       onclick: (e) => onTileClick(e, i),
       ondblclick: () => openViewer(i),
       oncontextmenu: (e) => { e.preventDefault(); if (!sel.has(it.id)) { sel.clear(); sel.add(it.id); anchor = i; markSelection(); } tileMenu(it, i, e.clientX, e.clientY); },
     }, el('img', { src: '/_thumb/' + it.id, alt: it.name, loading: 'lazy', decoding: 'async', draggable: 'false' }),
     el('span', { class: 'gallery-star', 'aria-hidden': 'true', text: '★' }));
+    b.addEventListener('dragstart', (e) => {
+      // Dragging carries the selected pictures (or this one) to an album on the left, or to a new place in a slideshow.
+      const ids = sel.has(it.id) ? items.filter((x) => sel.has(x.id)).map((x) => x.id) : [it.id];
+      e.dataTransfer.setData('text/x-noormd-gallery', String(it.id));
+      e.dataTransfer.setData('text/x-noormd-gallery-ids', JSON.stringify(ids));
+      e.dataTransfer.effectAllowed = 'move';
+      b.classList.add('dragging');
+    });
+    b.addEventListener('dragend', () => b.classList.remove('dragging'));
     if (view.source.startsWith('show:')) wireReorder(b, it);
     return b;
   }
@@ -184,19 +210,24 @@ window.NoorGallery = (() => {
     const id = items[i].id;
     if (e.ctrlKey || e.metaKey) { if (sel.has(id)) sel.delete(id); else sel.add(id); anchor = i; markSelection(); return; }
     if (e.shiftKey && anchor >= 0) { sel.clear(); const [a, b] = [Math.min(anchor, i), Math.max(anchor, i)]; for (let k = a; k <= b; k++) sel.add(items[k].id); markSelection(); return; }
-    sel.clear(); anchor = i; markSelection();
-    openViewer(i);
+    sel.clear(); anchor = i; sel.add(id); markSelection();
+    // As a picture manager a click selects (details on the right); double-click or Enter opens it. In a narrow panel a click opens it.
+    if (!isWide()) { sel.clear(); markSelection(); openViewer(i); }
   }
+
+  const isWide = () => !!$('#gallery')?.classList.contains('wide');
 
   function markSelection() {
     document.querySelectorAll('#gallery-body .gallery-tile').forEach((t) => { const on = sel.has(Number(t.dataset.id)); t.classList.toggle('selected', on); t.setAttribute('aria-selected', String(on)); });
     const f = $('#gallery-foot'); if (f) f.textContent = footText();
+    renderInfo();
   }
 
   function onPanelKeys(e) {
     if (e.target.closest('input, select')) { if (e.key === 'Escape' && e.target.id === 'gallery-search' && e.target.value) { e.preventDefault(); e.stopPropagation(); e.target.value = ''; view.search = ''; load(); } return; }
     const tileEl = e.target.closest('.gallery-tile');
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (e.key.toLowerCase() === 'z' && e.ctrlKey && !e.shiftKey) { e.preventDefault(); undo(); return; }
     if (!tileEl) return;
     const i = Number(tileEl.dataset.index);
     const cols = Math.max(1, Math.round($('#gallery-body .gallery-grid').clientWidth / tileEl.offsetWidth));
@@ -205,9 +236,13 @@ window.NoorGallery = (() => {
     if (e.key === 'Enter') { e.preventDefault(); openViewer(i); return; }
     if (e.key.toLowerCase() === 'f' && !e.ctrlKey && !e.altKey) { e.preventDefault(); setFavorite(sel.size ? [...sel] : [items[i].id], !items[i].favorite); }
     if (e.key === 'a' && e.ctrlKey) { e.preventDefault(); items.slice(0, shown).forEach((x) => sel.add(x.id)); markSelection(); }
+    const ids = sel.size ? [...sel] : [items[i].id];
+    if (e.key === 'F2') { e.preventDefault(); if (ids.length > 1) renameSeries(ids); else renamePicture(items.find((x) => x.id === ids[0])); }
+    if (e.key === 'Delete') { e.preventDefault(); deletePictures(ids); }
   }
 
-  function tileMenu(it, i, x, y) {
+  async function tileMenu(it, i, x, y) {
+    if (!places) await loadPlaces();
     const ids = sel.size ? [...sel] : [it.id];
     const many = ids.length > 1;
     const showing = view.source.startsWith('show:') ? Number(view.source.slice(5)) : null;
@@ -224,8 +259,182 @@ window.NoorGallery = (() => {
       ] },
       ...(showing ? [{ label: 'Remove from this slideshow', run: () => removeFromSlideshow(showing, ids) }] : []),
       '-',
+      many ? { label: `Rename as a numbered series…`, run: () => renameSeries(ids) } : { label: 'Rename…  (F2)', run: () => renamePicture(it) },
+      { label: 'Move to album', sub: () => moveMenu(ids) },
       { label: 'Show in Explorer', disabled: many, run: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) },
+      '-',
+      { label: many ? `Delete ${ids.length} pictures…` : 'Delete…  (Del)', run: () => deletePictures(ids) },
     ], { x, y });
+  }
+
+  // ---------------------------------------------------------------- organizing (rename, move, albums, delete, undo)
+
+  let canUndo = false;
+  let places = null;
+
+  async function loadPlaces() {
+    try { places = await req('gallery.places'); } catch (err) { hooks.showError(err); places = []; }
+    return places;
+  }
+
+  async function afterChange(r, message) {
+    if (r && r.status) status = r.status;
+    canUndo = !!(r && r.undo);
+    places = null;
+    renderSources();
+    await load();
+    if (message) notice(message + (canUndo ? ' · Ctrl+Z puts it back' : ''), 2400);
+  }
+
+  async function renamePicture(it) {
+    if (!it) return;
+    const name = await NoorUI.prompt('Rename picture', 'New name (the file is renamed, the extension stays):', it.name, { okLabel: 'Rename' });
+    if (!name || !name.trim() || name.trim() === it.name) return;
+    try { await afterChange(await req('gallery.rename', { id: it.id, name }), 'Renamed'); } catch (err) { hooks.showError(err); }
+  }
+
+  async function renameSeries(ids) {
+    const ordered = items.filter((x) => ids.includes(x.id)).map((x) => x.id); // in the order shown
+    const first = items.find((x) => x.id === ordered[0]);
+    const name = await NoorUI.prompt('Rename as a series', `${ordered.length} pictures get this name and a number, in the order shown (for example “${(first && first.album) || 'Wakacje'} 01”):`, (first && first.album.split('/').pop()) || '', { okLabel: 'Rename' });
+    if (!name || !name.trim()) return;
+    try { await afterChange(await req('gallery.renameSeries', { ids: ordered, name }), `Renamed ${ordered.length} pictures`); } catch (err) { hooks.showError(err); }
+  }
+
+  /** The "Move to album" items (load the album list first with loadPlaces). */
+  function moveMenu(ids) {
+    const list = places || [];
+    const here = new Set(items.filter((x) => ids.includes(x.id)).map((x) => x.albumKey));
+    return [
+      ...list.slice(0, 60).map((pl) => ({ label: pl.label, disabled: here.size === 1 && here.has(pl.key), run: () => movePictures(ids, pl.path, pl.label) })),
+      ...(list.length > 60 ? [{ label: `More albums… (${list.length})`, run: () => pickPlace(ids) }] : []),
+      '-',
+      { label: 'New album…', run: () => newAlbum(ids) },
+    ];
+  }
+
+  async function pickPlace(ids) {
+    const list = places || await loadPlaces();
+    const choice = await NoorUI.choose('Move to album', ['Choose where the pictures go.'], [{ label: 'Cancel', value: null }, ...list.slice(0, 200).map((pl) => ({ label: pl.label, value: pl.path }))]);
+    if (choice) movePictures(ids, choice, list.find((x) => x.path === choice)?.label);
+  }
+
+  async function movePictures(ids, folder, label) {
+    try { const r = await req('gallery.move', { ids, folder }); sel.clear(); await afterChange(r, `Moved ${r.moved} picture${r.moved === 1 ? '' : 's'} to ${label || 'the album'}`); } catch (err) { hooks.showError(err); }
+  }
+
+  /** A new album inside the Gallery folder of the current album (or the first Gallery folder); the pictures move there if given. */
+  async function newAlbum(ids) {
+    const list = places || await loadPlaces();
+    const album = view.source.startsWith('album:') ? status.albums.find((a) => 'album:' + a.key === view.source) : null;
+    const parent = (album && list.find((pl) => pl.key === album.key)?.path) || (status.folders[0] && status.folders[0].path);
+    if (!parent) { notice('Add a picture folder first.', 2000); return; }
+    const name = await NoorUI.prompt('New album', `A new folder in “${list.find((pl) => pl.path === parent)?.label || parent}”:`, '', { okLabel: 'Create' });
+    if (!name || !name.trim()) return;
+    try {
+      const made = await req('gallery.album.create', { parent, name });
+      places = null;
+      if (ids && ids.length) await movePictures(ids, made.path, name.trim());
+      else notice(`Album “${name.trim()}” made. Drag pictures onto it to move them there.`, 2600);
+      renderNav();
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function deletePictures(ids) {
+    try {
+      const r = await req('gallery.delete', { ids });
+      if (!r || r.cancelled || !r.deleted) return;
+      sel.clear();
+      await afterChange(r, `Deleted ${r.deleted} picture${r.deleted === 1 ? '' : 's'} (in the Recycle Bin)`);
+      canUndo = false;
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function undo() {
+    if (!canUndo) { notice('Nothing to undo here.', 1400); return; }
+    try { const r = await req('gallery.undo'); canUndo = false; await afterChange(r, `Put ${r.restored} picture${r.restored === 1 ? '' : 's'} back`); canUndo = false; } catch (err) { hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- the manager's albums list and details
+
+  function renderNav() {
+    const nav = $('#gallery-nav');
+    if (!nav || !isWide()) { if (nav) nav.replaceChildren(); return; }
+    const item = (source, label, count, extra = {}) => {
+      const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + extra.depth * 14}px` : null,
+        onclick: () => { view.source = source; sel.clear(); saveSession(); load(); } },
+      el('span', { class: 'gnav-label', text: label }), count != null ? el('small', { text: String(count) }) : null);
+      if (extra.folder) {
+        // Drop pictures here to move them into this album.
+        b.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('text/x-noormd-gallery-ids')) { e.preventDefault(); b.classList.add('drop-target'); } });
+        b.addEventListener('dragleave', () => b.classList.remove('drop-target'));
+        b.addEventListener('drop', (e) => { e.preventDefault(); b.classList.remove('drop-target'); const ids = JSON.parse(e.dataTransfer.getData('text/x-noormd-gallery-ids') || '[]'); if (ids.length) movePictures(ids, extra.folder, label); });
+      }
+      return b;
+    };
+    const albums = [...status.albums].sort((a, b) => a.name.localeCompare(b.name));
+    nav.replaceChildren(
+      item('all', 'All pictures', status.count),
+      item('fav', '★ Favourites', null),
+      el('div', { class: 'gnav-head' }, el('span', { text: 'Albums' }), el('button', { class: 'icon-btn', id: 'gallery-new-album', title: 'New album (a folder)', 'aria-label': 'New album', onclick: () => newAlbum(null) }, '＋')),
+      ...albums.map((a) => item('album:' + a.key, a.name.split('/').pop(), a.count, { depth: a.name.split('/').length - 1, folder: a.folder, title: a.name })),
+      ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []));
+  }
+
+  function renderInfo() {
+    const box = $('#gallery-info');
+    if (!box || !isWide()) { if (box) box.replaceChildren(); return; }
+    const chosen = items.filter((x) => sel.has(x.id));
+    if (!chosen.length) {
+      box.replaceChildren(el('div', { class: 'ginfo-empty' },
+        el('strong', { text: `${items.length} picture${items.length === 1 ? '' : 's'}` }),
+        el('p', { text: 'Click a picture to see its details; Ctrl or Shift + click to choose several. Double-click opens it. Drag pictures onto an album to move them there.' })));
+      return;
+    }
+    if (chosen.length === 1) {
+      const it = chosen[0];
+      const name = el('input', { type: 'text', id: 'ginfo-name', value: it.name, 'aria-label': 'Name', spellcheck: 'false' });
+      let busy = false;
+      const commit = async () => {
+        // Enter and then leaving the field must rename once: compare with the picture's current name.
+        const cur = items.find((x) => x.id === it.id);
+        const v = name.value.trim();
+        if (busy || !cur || !v || v === cur.name) { if (cur && !v) name.value = cur.name; return; }
+        busy = true;
+        try { await afterChange(await req('gallery.rename', { id: it.id, name: v }), 'Renamed'); } catch (err) { name.value = cur.name; hooks.showError(err); } finally { busy = false; }
+      };
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); commit(); } if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); name.value = it.name; } });
+      name.addEventListener('blur', commit);
+      const i = items.indexOf(it);
+      box.replaceChildren(
+        el('button', { class: 'ginfo-preview', title: 'Open (Enter)', onclick: () => openViewer(i) }, el('img', { src: '/_thumb/' + it.id, alt: it.name })),
+        el('label', { class: 'ginfo-field' }, el('span', { text: 'Name' }), name),
+        el('dl', { class: 'ginfo-facts' },
+          el('dt', { text: 'Album' }), el('dd', { text: it.album }),
+          el('dt', { text: 'Taken' }), el('dd', { text: dateText(it.taken) }),
+          ...(it.width ? [el('dt', { text: 'Size' }), el('dd', { text: `${it.width} × ${it.height}` })] : []),
+          el('dt', { text: 'File' }), el('dd', { text: `${it.fileName} · ${sizeText(it.size)}`, title: it.folder })),
+        el('div', { class: 'ginfo-actions' },
+          el('button', { class: 'utility-btn', onclick: () => openViewer(i) }, '⤢ Open'),
+          el('button', { class: 'utility-btn' + (it.favorite ? ' on' : ''), id: 'ginfo-fav', onclick: () => setFavorite([it.id], !it.favorite) }, it.favorite ? '★ Favourite' : '☆ Favourite'),
+          el('button', { class: 'utility-btn', onclick: () => insert(it) }, '⤓ Into note'),
+          el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu([it.id])); } }, '→ Move…'),
+          el('button', { class: 'utility-btn', onclick: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) }, '📁 Explorer'),
+          el('button', { class: 'utility-btn danger', onclick: () => deletePictures([it.id]) }, '🗑 Delete…')));
+      return;
+    }
+    const ids = chosen.map((x) => x.id);
+    box.replaceChildren(
+      el('div', { class: 'ginfo-stack' }, ...chosen.slice(0, 4).map((x) => el('img', { src: '/_thumb/' + x.id, alt: '' }))),
+      el('strong', { class: 'ginfo-count', text: `${chosen.length} pictures selected` }),
+      el('small', { class: 'ginfo-sub', text: sizeText(chosen.reduce((t, x) => t + (x.size || 0), 0)) }),
+      el('div', { class: 'ginfo-actions' },
+        el('button', { class: 'utility-btn', onclick: () => slideshowSetup(null, ids, 0) }, '▶ Slideshow'),
+        el('button', { class: 'utility-btn', onclick: () => setFavorite(ids, true) }, '★ Favourites'),
+        el('button', { class: 'utility-btn', id: 'ginfo-series', onclick: () => renameSeries(ids) }, '✎ Rename as series…'),
+        el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu(ids)); } }, '→ Move…'),
+        el('button', { class: 'utility-btn', onclick: () => saveSlideshow(ids) }, '＋ New slideshow…'),
+        el('button', { class: 'utility-btn danger', onclick: () => deletePictures(ids) }, '🗑 Delete…')));
   }
 
   async function setFavorite(ids, on) {

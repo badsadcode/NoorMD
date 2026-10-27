@@ -385,6 +385,7 @@ public partial class MainWindow
             CheckFileExists = true,
             InitialDirectory = s.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return null;
         var file = dlg.FileName;
         string link;

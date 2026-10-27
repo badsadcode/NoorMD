@@ -79,6 +79,7 @@ public partial class MainWindow
             case "music.addFolder":
             {
                 var dlg = new OpenFolderDialog { Title = "Add a music folder (subfolders included)", Multiselect = false };
+                Ui.NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var id = Music.AddFolder(dlg.FolderName, recursive: true);
                 StartScan([id]);
@@ -194,6 +195,7 @@ public partial class MainWindow
                     Title = "Save the artwork as a picture", Filter = $"Picture (*{ext})|*{ext}", DefaultExt = ext, AddExtension = true, OverwritePrompt = true,
                     InitialDirectory = tr.Folder, FileName = SafeRename.SuggestName(tr.Album ?? tr.DisplayTitle, tr.Artist) + " cover" + ext,
                 };
+                Ui.NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 await Task.Run(() => NoorMD.Core.Documents.AtomicFile.WriteAllBytes(dlg.FileName, art.Data));
                 return new { path = dlg.FileName };
@@ -295,6 +297,7 @@ public partial class MainWindow
     private async Task<object?> ImportPlaylistAsync()
     {
         var dlg = new OpenFileDialog { Title = "Import playlist", Filter = "Playlists (*.m3u;*.m3u8)|*.m3u;*.m3u8|All files (*.*)|*.*", CheckFileExists = true };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
         var file = dlg.FileName;
         var lib = Music;
@@ -319,6 +322,7 @@ public partial class MainWindow
     {
         var name = Music.PlaylistName(id) ?? throw new BridgeError("Unknown playlist.");
         var dlg = new SaveFileDialog { Title = "Export playlist", Filter = "M3U8 playlist (*.m3u8)|*.m3u8", DefaultExt = ".m3u8", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".m3u8"), OverwritePrompt = true };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return null;
         var tracks = Music.GetMany(Music.PlaylistTrackIds(id));
         M3u.Write(dlg.FileName, tracks.Select(t => new M3u.Entry(t.Path, t.Duration, t.Artist == null ? t.DisplayTitle : $"{t.Artist} - {t.DisplayTitle}")));

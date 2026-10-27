@@ -3,12 +3,15 @@
 // an area of your choice; an area shows one panel at a time, so e.g. music on the left and a video on the right can
 // be open together. The Stream Desk can also have its own window. Layouts (where things are, which panels are open,
 // sizes) can be saved; a few ready-made ones are included, and the classic layout is the default.
+// The middle of the window (where documents are) is a dock area too: panels placed there open as tabs next to the
+// documents, several at a time, and fill the whole editing space (a big Gallery, the Stream Desk while you stream…).
 window.NoorDock = (() => {
   'use strict';
   const { $, el, notice } = NoorUI;
 
   const AREAS = ['left', 'right', 'bottom'];
-  const AREA_LABEL = { left: 'Left', right: 'Right', bottom: 'Bottom', window: 'Own window' };
+  const AREA_LABEL = { left: 'Left', right: 'Right', bottom: 'Bottom', center: 'Middle', window: 'Own window' };
+  const ICON = { music: '♫', video: '▶', stream: '◉', apps: '◫', voice: '🎙', gallery: '▦' };
   const DEFAULT = Object.freeze({
     v: 1, sidebar: 'left',
     place: { music: 'right', video: 'right', stream: 'right', apps: 'right', voice: 'right', gallery: 'right' },
@@ -20,6 +23,7 @@ window.NoorDock = (() => {
     { id: 'writing', name: 'Writing', description: 'Only the document: sidebar and panels hidden', layout: { sidebar: 'hidden', place: {} }, open: [], closeAll: true },
     { id: 'media', name: 'Music + video', description: 'Music on the left, videos on the right', layout: { sidebar: 'hidden', place: { music: 'left', video: 'right' } }, open: ['music', 'video'] },
     { id: 'streaming', name: 'Streaming', description: 'Music on the left, Stream Desk on the right, videos below', layout: { sidebar: 'hidden', place: { music: 'left', stream: 'right', video: 'bottom' } }, open: ['music', 'stream'] },
+    { id: 'stream-center', name: 'Streaming, desk in the middle', description: 'Stream Desk as a big tab next to your documents, music on the right', layout: { sidebar: 'hidden', place: { stream: 'center', music: 'right' } }, open: ['stream', 'music'] },
     { id: 'stream-window', name: 'Stream Desk in its own window', description: 'For a second monitor next to OBS', layout: { sidebar: 'left', place: { stream: 'window', music: 'right' } }, open: ['stream'] },
     { id: 'sidebar-right', name: 'Sidebar on the right', description: 'Files and outline on the right, panels on the left', layout: { sidebar: 'right', place: { music: 'left', video: 'left', stream: 'left' } }, open: [] },
   ];
@@ -28,6 +32,7 @@ window.NoorDock = (() => {
   let layout = clone(DEFAULT);
   const shown = { left: null, right: null, bottom: null };
   const wide = { left: false, right: false, bottom: false };
+  const center = { open: [], active: null }; // panels in the middle (tabs) and the one showing, if any
 
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
@@ -37,7 +42,7 @@ window.NoorDock = (() => {
       if (['left', 'right'].includes(l.sidebar)) out.sidebar = l.sidebar;
       for (const p of Object.keys(out.place)) {
         const a = l.place && l.place[p];
-        if (AREAS.includes(a) || (a === 'window' && p === 'stream')) out.place[p] = a;
+        if (AREAS.includes(a) || a === 'center' || (a === 'window' && p === 'stream')) out.place[p] = a;
       }
       for (const a of AREAS) if (l.size && Number.isFinite(l.size[a])) out.size[a] = l.size[a];
     }
@@ -56,8 +61,56 @@ window.NoorDock = (() => {
       if (a === 'bottom') $('.main').after(dock); else app.append(dock);
       setupResizer(dock.querySelector('.dock-resizer'), a);
     }
+    const stage = el('div', { class: 'dock center-dock', id: 'dock-center', 'data-area': 'center', role: 'region', 'aria-label': 'Panels in the middle' });
+    $('#tabstrip').after(stage);
+    $('#tabs').after(el('div', { class: 'module-tabs', id: 'module-tabs', role: 'tablist', 'aria-label': 'Panels in the middle' }));
     applyGrid();
     window.addEventListener('resize', () => applyGrid());
+  }
+
+  // ------------------------------------------------------------------ the middle
+
+  function openInCenter(panel) {
+    const node = hooks.panels[panel].el();
+    if (node && node.parentElement !== $('#dock-center')) $('#dock-center').append(node);
+    for (const x of AREAS) if (shown[x] === panel) { shown[x] = null; wide[x] = false; }
+    if (!center.open.includes(panel)) center.open.push(panel);
+    activate(panel);
+    applyGrid();
+  }
+
+  /** Shows a panel that is open in the middle (its tab is selected; the document is hidden, not closed). */
+  function activate(panel) {
+    if (!center.open.includes(panel)) return;
+    center.active = panel;
+    for (const p of center.open) hooks.panels[p].el()?.classList.toggle('center-hidden', p !== panel);
+    document.body.classList.add('center-active');
+    renderModuleTabs();
+    requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); hooks.panels[panel].el()?.focus({ preventScroll: true }); });
+  }
+
+  /** Back to the documents (panels in the middle stay open behind their tabs). */
+  function showDocuments() {
+    if (!center.active) return;
+    center.active = null;
+    document.body.classList.remove('center-active');
+    renderModuleTabs();
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+  }
+
+  function renderModuleTabs() {
+    const box = $('#module-tabs');
+    if (!box) return;
+    box.replaceChildren(...center.open.map((p) => {
+      const close = el('button', { class: 'tab-close', tabindex: '-1', 'aria-label': 'Close ' + hooks.panels[p].label, title: 'Close' }, '✕');
+      close.addEventListener('click', (e) => { e.stopPropagation(); hooks.panels[p].close(); });
+      const node = el('div', { class: 'tab module-tab' + (center.active === p ? ' active' : ''), role: 'tab', 'aria-selected': String(center.active === p), 'data-module': p, tabindex: '-1', title: hooks.panels[p].label + ' (in the middle)' },
+        el('span', { class: 'module-icon', 'aria-hidden': 'true', text: ICON[p] || '▣' }), el('span', { class: 'tab-name', text: hooks.panels[p].label }), close);
+      node.addEventListener('click', () => activate(p));
+      node.addEventListener('auxclick', (e) => { if (e.button === 1) { e.preventDefault(); hooks.panels[p].close(); } });
+      node.addEventListener('contextmenu', (e) => { e.preventDefault(); NoorChrome.openMenu(null, menuItems(p), { x: e.clientX, y: e.clientY }); });
+      return node;
+    }));
   }
 
   const area = (panel) => layout.place[panel];
@@ -66,6 +119,7 @@ window.NoorDock = (() => {
   /** A panel is opening: put it in its area (closing whatever was there). Returns false when it lives in a window. */
   function opened(panel) {
     const a = area(panel);
+    if (a === 'center') { openInCenter(panel); return true; }
     if (!AREAS.includes(a)) return false;
     const other = shown[a];
     if (other && other !== panel) { shown[a] = null; hooks.panels[other]?.close(); }
@@ -80,6 +134,13 @@ window.NoorDock = (() => {
   /** A panel closed: free its area. */
   function closed(panel) {
     for (const a of AREAS) if (shown[a] === panel) { shown[a] = null; wide[a] = false; }
+    const i = center.open.indexOf(panel);
+    if (i >= 0) {
+      center.open.splice(i, 1);
+      hooks.panels[panel].el()?.classList.remove('center-hidden');
+      if (center.active === panel) { if (center.open.length) activate(center.open[Math.min(i, center.open.length - 1)]); else showDocuments(); }
+      else renderModuleTabs();
+    }
     applyGrid();
   }
 
@@ -137,7 +198,7 @@ window.NoorDock = (() => {
 
   /** Moves a panel to another area (or the Stream Desk to its own window), keeping it open if it was. */
   function place(panel, to) {
-    if (!(AREAS.includes(to) || (to === 'window' && panel === 'stream')) || layout.place[panel] === to) return;
+    if (!(AREAS.includes(to) || to === 'center' || (to === 'window' && panel === 'stream')) || layout.place[panel] === to) return;
     const p = hooks.panels[panel];
     const wasOpen = p.isOpen();
     if (wasOpen) { p.close(); closed(panel); }
@@ -145,7 +206,7 @@ window.NoorDock = (() => {
     save();
     applyGrid();
     if (wasOpen || to === 'window') p.open();
-    notice(`${p.label}: ${to === 'window' ? 'in its own window' : AREA_LABEL[to].toLowerCase() + (to === 'bottom' ? ' (under the document)' : ' side')}`, 1600);
+    notice(`${p.label}: ${to === 'window' ? 'in its own window' : to === 'center' ? 'in the middle, as a tab next to your documents' : AREA_LABEL[to].toLowerCase() + (to === 'bottom' ? ' (under the document)' : ' side')}`, 1800);
   }
 
   function setSidebar(side) {
@@ -166,9 +227,9 @@ window.NoorDock = (() => {
 
   /** Menu items for a panel's ⊞ button: where it can live. */
   function menuItems(panel) {
-    const options = panel === 'stream' ? [...AREAS, 'window'] : AREAS;
+    const options = panel === 'stream' ? [...AREAS, 'center', 'window'] : [...AREAS, 'center'];
     return [
-      ...options.map((a) => ({ label: (layout.place[panel] === a ? '● ' : '○ ') + (a === 'window' ? 'Own window (second monitor)' : `Dock ${AREA_LABEL[a].toLowerCase()}`), run: () => place(panel, a) })),
+      ...options.map((a) => ({ label: (layout.place[panel] === a ? '● ' : '○ ') + (a === 'window' ? 'Own window (second monitor)' : a === 'center' ? 'In the middle (a tab next to documents)' : `Dock ${AREA_LABEL[a].toLowerCase()}`), run: () => place(panel, a) })),
       '-',
       { label: 'Layouts…', run: showLayouts },
     ];
@@ -242,7 +303,7 @@ window.NoorDock = (() => {
 
   return {
     init, opened, closed, place, setSidebar, toggleWide, isWide, showMenu, menuItems, showLayouts, applyPreset, saveAs, applySaved,
-    placeOf: area, PRESETS,
-    _state: () => ({ layout: clone(layout), shown: { ...shown }, wide: { ...wide } }),
+    placeOf: area, PRESETS, activate, showDocuments, centerActive: () => center.active,
+    _state: () => ({ layout: clone(layout), shown: { ...shown }, wide: { ...wide }, center: { open: [...center.open], active: center.active } }),
   };
 })();

@@ -600,6 +600,16 @@ public partial class MainWindow
             var gt = "null";
             for (var i = 0; i < 40 && gt == "null"; i++) { await Task.Delay(100); gt = await Eval("window.__gt"); }
             Check("…and the page shows the preview and the picture", gt.Trim('"') == "80x80" || gt.Trim('"').StartsWith("80x"), gt);
+            // Organizing: rename (Polish name), a new album, move there, undo; nothing is overwritten.
+            if (img != null)
+            {
+                Organizer.Rename(img.Id, "Morze o zachodzie");
+                var album = Organizer.CreateAlbum(Path.Combine(SelfTestDir!, "Pictures"), "Góry");
+                Organizer.Move([img.Id], album);
+                var movedOk = File.Exists(Path.Combine(album, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Góry";
+                Organizer.Undo();
+                Check("Gallery: rename, new album, move and undo work on Windows", movedOk && File.Exists(Path.Combine(picDir, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Lato");
+            }
             Gallery.RemoveFolder(gid);
         }
 

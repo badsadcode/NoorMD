@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.0.0-preview.18 — Panels in the middle; the Gallery as a picture manager
+
+- **The middle of the window is a dock area too.** Choose *In the middle* from a panel's ⊞ button (Gallery,
+  Stream Desk, Music Bench, Video Bench, Apps Hub, Voice notes).
+  - The panel opens as a tab next to your documents and fills the editing space.
+  - Several panels can be there at once, one tab each.
+  - Click a document tab to get back to writing: the panels stay open behind their tabs. ✕ on a panel tab
+    closes it.
+  - New ready-made layout: *Streaming, desk in the middle*.
+- **The Gallery as a picture manager.** With room (in the middle, or a wide dock):
+  - Albums, favourites and slideshows are listed on the left. Details of the selected picture are on the
+    right: preview, name, album, date, size.
+  - A click selects, Ctrl/Shift+click selects several, double-click or Enter opens the picture. A slider sets
+    the picture size.
+  - **Rename** in the details or with F2. Several pictures can be renamed as a **numbered series**
+    ("Wakacje 01, 02…" in the order shown).
+  - **Move** pictures by dragging them onto an album, or with *Move… › album*. *New album* makes a folder
+    inside your picture folder.
+  - **Delete** (Del) sends pictures to the Recycle Bin, after asking. On drives without one, NoorMD says the
+    delete is permanent.
+  - **Ctrl+Z** puts the last rename or move back.
+  - Nothing is ever overwritten. Favourites and places in slideshows follow renamed and moved pictures.
+- **Fix: the mouse pointer could disappear** in NoorMD's dialogs (such as *Update links?* after Rename)
+  when they opened right after typing or clicking in the editor. Dialogs and file pickers now always show
+  the pointer.
+
 ## 2.0.0-preview.17 — Gallery and slideshows; a full review of the app
 
 - **Gallery** (Ctrl+Alt+G, or Tools › Gallery) is a dock panel for your pictures.

@@ -125,6 +125,7 @@ public partial class MainWindow
             FileName = UniqueFileName(folder, name),
             InitialDirectory = folder,
         };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
         o.OutputPath = dlg.FileName;
 

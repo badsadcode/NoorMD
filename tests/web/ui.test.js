@@ -2910,6 +2910,74 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the audit checks', unexpected.length === 0, unexpected);
       await page.close();
     }
+
+    // ---- 33. Panels in the middle (tabs next to documents); the Gallery as a picture manager there.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const G = () => page.evaluate(() => NoorGallery._state());
+      const GM = () => page.evaluate(() => window.__mock.state.gallery);
+      const D = () => page.evaluate(() => NoorDock._state().center);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('#gallery-dock');
+      await page.click('.menu-popup .menu-item:has-text("In the middle")');
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      check('a panel can go in the middle, as a tab next to the documents', await page.isVisible('#module-tabs .module-tab[data-module="gallery"].active') && await page.isHidden('#editor-card') && await page.isVisible('#dock-center #gallery'));
+      check('…where the Gallery becomes a picture manager (albums, details)', await page.evaluate(() => document.querySelector('#gallery').classList.contains('wide')) && await page.isVisible('#gallery-nav .gnav-item[data-source="all"]'));
+      await page.click('#tabs .tab');
+      check('clicking a document tab brings the document back', await page.isVisible('#editor-card') && (await D()).active === null && (await D()).open.includes('gallery'));
+      await page.click('#module-tabs .module-tab[data-module="gallery"]');
+      check('…and the panel tab shows the panel again', (await D()).active === 'gallery' && await page.isHidden('#editor-card'));
+      await page.keyboard.press('Control+Alt+b');
+      await page.waitForSelector('#streamdesk:not([hidden])');
+      await page.evaluate(() => NoorDock.place('stream', 'center'));
+      await waitFn(page, () => NoorDock._state().center.active === 'stream');
+      check('several panels can be in the middle (one tab each)', (await D()).open.join(',') === 'gallery,stream' && await page.isHidden('#gallery'));
+      await page.click('#module-tabs .module-tab[data-module="stream"] .tab-close');
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      check('closing a panel tab shows the next one', (await D()).open.join(',') === 'gallery' && await page.isVisible('#gallery'));
+
+      // Picture manager: a click selects and shows details; rename there; series; move by dragging onto an album; undo; delete.
+      await page.click('.gallery-tile[data-index="0"]');
+      check('a click selects a picture and shows its details (not the viewer)', await page.isHidden('#gallery-viewer') && (await page.inputValue('#ginfo-name')) === 'Zdjęcie 012');
+      await page.fill('#ginfo-name', 'Zachód słońca');
+      await page.press('#ginfo-name', 'Enter');
+      await waitFn(page, () => window.__mock.state.gallery.images.some((i) => i.name === 'Zachód słońca'));
+      await waitFn(page, () => NoorGallery._state().items.includes('Zachód słońca'));
+      check('renaming in the details renames the picture', true);
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => !window.__mock.state.gallery.images.some((i) => i.name === 'Zachód słońca'));
+      await waitFn(page, () => NoorGallery._state().items.includes('Zdjęcie 012'));
+      check('Ctrl+Z undoes the rename', true);
+      await page.click('.gallery-tile[data-index="1"]');
+      await page.click('.gallery-tile[data-index="2"]', { modifiers: ['Shift'] });
+      await page.click('#ginfo-series');
+      await page.fill('.modal input', 'Wakacje');
+      await page.click('.modal button:has-text("Rename")');
+      await waitFn(page, () => window.__mock.state.gallery.images.filter((i) => i.name.startsWith('Wakacje ')).length === 2);
+      check('several pictures can be renamed as a numbered series', (await GM()).images.filter((i) => i.name.startsWith('Wakacje ')).map((i) => i.name).sort().join(',') === 'Wakacje 01,Wakacje 02');
+      await page.click('#gallery-new-album');
+      await page.fill('.modal input', 'Góry');
+      await page.click('.modal button:has-text("Create")');
+      await waitFn(page, () => window.__mock.state.gallery.extraAlbums.includes('Góry'));
+      await page.click('.gallery-tile[data-index="3"]');
+      check('＋ makes an album without moving anything', (await GM()).moves.length === 0);
+      await page.dragAndDrop('.gallery-tile[data-index="3"]', '#gallery-nav .gnav-item[data-source^="album:"] >> nth=0');
+      await waitFn(page, () => window.__mock.state.gallery.moves.length === 1);
+      check('dragging a picture onto an album moves it there', (await GM()).moves[0].folder.endsWith('Lato') || (await GM()).moves[0].folder.endsWith('Zima'));
+      const before = (await GM()).images.length;
+      await page.click('.gallery-tile[data-index="5"]');
+      await page.keyboard.press('Delete');
+      await waitFn(page, (n) => window.__mock.state.gallery.images.length === n, before - 1);
+      check('Delete sends the picture to the Recycle Bin (the host asks first)', (await GM()).deleted.length === 1);
+      await page.dblclick('.gallery-tile[data-index="0"]');
+      check('double-click opens the viewer', await page.isVisible('#gallery-viewer'));
+      await page.keyboard.press('Escape');
+      check('no page errors in the middle and the manager', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/gallery-manager.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

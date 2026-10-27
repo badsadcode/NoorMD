@@ -7,7 +7,9 @@ using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using NoorMD.Core;
 using NoorMD.Core.Bridge;
+using NoorMD.Host;
 using NoorMD.Media;
+using NoorMD.Ui;
 
 namespace NoorMD;
 
@@ -24,6 +26,8 @@ public partial class MainWindow
     public const int ThumbSize = 360;
 
     private GalleryLibrary Gallery => _galleryLib ??= new GalleryLibrary(Path.Combine(App.Paths.Local, "Gallery", "library.db"));
+    private GalleryOrganizer? _galleryOrganizer;
+    private GalleryOrganizer Organizer => _galleryOrganizer ??= new GalleryOrganizer(Gallery);
     private static string ThumbFolder => Path.Combine(App.Paths.Local, "Gallery", "thumbs");
 
     /// <summary>Serves /_img/{id} (the picture) and /_thumb/{id} (a small preview, made on first use).</summary>
@@ -141,6 +145,7 @@ public partial class MainWindow
                 case "gallery.addFolder":
                 {
                     var dlg = new OpenFolderDialog { Title = "Add a picture folder (subfolders become albums)", Multiselect = false };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var id = Gallery.AddFolder(dlg.FolderName);
                     await ScanGalleryAsync([id]);
@@ -184,6 +189,54 @@ public partial class MainWindow
                 case "gallery.slideshow.delete":
                     Gallery.DeleteSlideshow(Long(p, "id"));
                     return GalleryStatus();
+                case "gallery.rename":
+                    Organizer.Rename(Long(p, "id"), req.GetString("name", 240) ?? "");
+                    return new { status = GalleryStatus(), undo = true };
+                case "gallery.renameSeries":
+                    Organizer.RenameSeries(Ids(p, "ids"), req.GetString("name", 200) ?? "", (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "start") ?? 1));
+                    return new { status = GalleryStatus(), undo = true };
+                case "gallery.move":
+                {
+                    var done = Organizer.Move(Ids(p, "ids"), req.GetString("folder", 4000) ?? "");
+                    return new { moved = done.Count, status = GalleryStatus(), undo = true };
+                }
+                case "gallery.undo":
+                {
+                    var back = Organizer.Undo();
+                    return new { restored = back.Count, status = GalleryStatus() };
+                }
+                case "gallery.places":
+                {
+                    // Albums you can move pictures to: every Gallery folder and the folders inside it.
+                    var roots = Gallery.Folders();
+                    return Gallery.PlaceFolders().Select(f =>
+                    {
+                        var root = roots.Where(r => f.StartsWith(r.Path, StringComparison.OrdinalIgnoreCase)).OrderByDescending(r => r.Path.Length).FirstOrDefault();
+                        var label = root == null ? f : Path.Combine(Path.GetFileName(Path.TrimEndingDirectorySeparator(root.Path)), Path.GetRelativePath(root.Path, f) is "." ? "" : Path.GetRelativePath(root.Path, f)).TrimEnd('\\', '/').Replace('\\', '/');
+                        return new { path = f, label, key = NoorMD.Media.MusicLibrary.PathKey(f) };
+                    });
+                }
+                case "gallery.album.create":
+                {
+                    var made = Organizer.CreateAlbum(req.GetString("parent", 4000) ?? "", req.GetString("name", 200) ?? "");
+                    return new { path = made, key = NoorMD.Media.MusicLibrary.PathKey(made) };
+                }
+                case "gallery.delete":
+                {
+                    var imgs = Ids(p, "ids").Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
+                    if (imgs.Count == 0) return new { deleted = 0, status = GalleryStatus() };
+                    var files = imgs.Select(i => i.Path).ToList();
+                    var recycle = RecycleBin.CanRecycle(files);
+                    var what = imgs.Count == 1 ? $"“{Path.GetFileName(files[0])}”" : $"{imgs.Count} pictures";
+                    Ui.NativeCursor.Restore();
+                    if (recycle
+                        ? !ThemedDialog.Confirm(this, $"Delete {what}?", "The files are moved to the Windows Recycle Bin, where you can restore them.", "Move to Recycle Bin", imgs.Count == 1 ? files[0] : null)
+                        : !ThemedDialog.Confirm(this, $"Delete {what} for good?", "This drive has no Recycle Bin, so they can't be restored afterwards.", "Delete permanently", imgs.Count == 1 ? files[0] : null))
+                        return new { cancelled = true };
+                    await Task.Run(() => RecycleBin.Send(files, permanently: !recycle));
+                    Gallery.Forget(imgs.Select(i => i.Id));
+                    return new { deleted = imgs.Count, status = GalleryStatus() };
+                }
                 case "gallery.session.get": return Gallery.GetState("session");
                 case "gallery.session.save":
                 {

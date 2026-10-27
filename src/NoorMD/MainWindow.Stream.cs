@@ -270,6 +270,7 @@ public partial class MainWindow
                 if (NoorMD.Core.Bridge.Json.IsTrue(p, "choose"))
                 {
                     var dlg = new SaveFileDialog { Title = "Where should NoorMD write the current song (for an OBS Text source)?", Filter = "Text file (*.txt)|*.txt", FileName = "now-playing.txt", OverwritePrompt = false };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     StreamCfg["txtPath"] = dlg.FileName;
                 }
@@ -338,6 +339,7 @@ public partial class MainWindow
             {
                 var v = V();
                 var dlg = new OpenFileDialog { Title = "Choose the stream thumbnail", Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp", CheckFileExists = true };
+                Ui.NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 if (new FileInfo(dlg.FileName).Length > 20_000_000) throw new BridgeError("That picture is larger than 20 MB.");
                 var attachments = VaultPaths.Resolve(v.Root, v.Info.Attachments) ?? v.Root;

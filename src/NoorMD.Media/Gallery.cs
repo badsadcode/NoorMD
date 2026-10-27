@@ -265,6 +265,65 @@ public sealed class GalleryLibrary
         tx.Commit();
     }
 
+    // ------------------------------------------------------------------ after NoorMD renamed, moved or deleted pictures
+
+    /// <summary>The picture now lives at <paramref name="newPath"/> (renamed or moved by NoorMD): its row follows, keeping favourite and slideshows.</summary>
+    public void Relocate(long id, string newPath)
+    {
+        var full = System.IO.Path.GetFullPath(newPath);
+        var folder = Folders().Where(f => full.StartsWith(System.IO.Path.TrimEndingDirectorySeparator(f.Path) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.Path.Length).FirstOrDefault() ?? throw new ArgumentException("That place is not in a Gallery folder.");
+        var dir = System.IO.Path.GetDirectoryName(full)!;
+        var info = new FileInfo(full);
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        using (var stale = Cmd(c, "DELETE FROM images WHERE path_key = $k AND id <> $id", tx, ("$k", MusicLibrary.PathKey(full)), ("$id", id))) stale.ExecuteNonQuery();
+        using (var u = Cmd(c, "UPDATE images SET folder_id=$f, path=$p, path_key=$k, name=$n, album=$al, album_key=$ak, mtime=$m, missing=0 WHERE id=$id", tx,
+            ("$f", folder.Id), ("$p", full), ("$k", MusicLibrary.PathKey(full)), ("$n", System.IO.Path.GetFileNameWithoutExtension(full)),
+            ("$al", AlbumName(System.IO.Path.TrimEndingDirectorySeparator(folder.Path), dir)), ("$ak", MusicLibrary.PathKey(dir)), ("$m", info.Exists ? info.LastWriteTimeUtc.Ticks : 0), ("$id", id)))
+            u.ExecuteNonQuery();
+        tx.Commit();
+    }
+
+    /// <summary>Pictures that were deleted (to the Recycle Bin) by NoorMD leave the library and their slideshows.</summary>
+    public void Forget(IEnumerable<long> ids)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids.Distinct())
+        {
+            using (var s = Cmd(c, "DELETE FROM slideshow_items WHERE image_id = $id", tx, ("$id", id))) s.ExecuteNonQuery();
+            using (var d = Cmd(c, "DELETE FROM images WHERE id = $id", tx, ("$id", id))) d.ExecuteNonQuery();
+        }
+        tx.Commit();
+        Renumber(c);
+    }
+
+    /// <summary>Every folder pictures can be moved to: the Gallery folders and the folders inside them.</summary>
+    public IReadOnlyList<string> PlaceFolders(int limit = 3000)
+    {
+        var list = new List<string>();
+        var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System | FileAttributes.Hidden };
+        foreach (var f in Folders())
+        {
+            if (!Directory.Exists(f.Path)) continue;
+            list.Add(f.Path);
+            foreach (var d in Directory.EnumerateDirectories(f.Path, "*", opts)) { list.Add(d); if (list.Count >= limit) return list; }
+        }
+        return list;
+    }
+
+    /// <summary>Whether a folder is one of the Gallery folders or inside one (moves and new albums stay there).</summary>
+    public bool IsInside(string folder)
+    {
+        var full = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(folder));
+        return Folders().Any(f =>
+        {
+            var root = System.IO.Path.TrimEndingDirectorySeparator(f.Path);
+            return string.Equals(full, root, StringComparison.OrdinalIgnoreCase) || full.StartsWith(root + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
     // ------------------------------------------------------------------ slideshows
 
     public IReadOnlyList<Slideshow> Slideshows()
@@ -370,5 +429,129 @@ public sealed class GalleryLibrary
         using var c = Open();
         using var cmd = Cmd(c, "INSERT INTO state(key, value) VALUES ($k, $v) ON CONFLICT(key) DO UPDATE SET value = excluded.value", null, ("$k", key), ("$v", value));
         cmd.ExecuteNonQuery();
+    }
+}
+
+
+/// <summary>A picture that moved: from → to. Undo moves it back.</summary>
+public sealed record PictureMove(long Id, string From, string To);
+
+/// <summary>
+/// Organizing pictures on disk: rename, a numbered series ("Wakacje 001…"), move to another album, make a new album.
+/// Everything is checked before anything moves, nothing is ever overwritten, and the last change can be undone.
+/// Deleting goes to the Recycle Bin (done by the host).
+/// </summary>
+public sealed class GalleryOrganizer(GalleryLibrary library)
+{
+    private static readonly char[] Invalid = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
+    public IReadOnlyList<PictureMove>? LastChange { get; private set; }
+
+    public IReadOnlyList<PictureMove> Rename(long id, string newName) => RenameMany([(id, newName)]);
+
+    /// <summary>"Wakacje 001", "Wakacje 002"… in the given order (the pictures stay in their folders).</summary>
+    public IReadOnlyList<PictureMove> RenameSeries(IReadOnlyList<long> ids, string baseName, int start = 1)
+    {
+        var b = (baseName ?? "").Trim();
+        if (b.Length == 0) throw new ArgumentException("Give the pictures a name.");
+        var digits = Math.Max(2, (start + ids.Count - 1).ToString(CultureInfo.InvariantCulture).Length);
+        return RenameMany(ids.Select((id, i) => (id, $"{b} {(start + i).ToString(CultureInfo.InvariantCulture).PadLeft(digits, '0')}")).ToList());
+    }
+
+    private IReadOnlyList<PictureMove> RenameMany(IReadOnlyList<(long Id, string Name)> items)
+    {
+        var plan = new List<PictureMove>();
+        foreach (var (id, name) in items)
+        {
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            var p = SafeRename.Plan(img.Path, name);
+            var target = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(img.Path)!, StripExt(name.Trim(), img.Path) + System.IO.Path.GetExtension(img.Path));
+            // The only acceptable problem: the name is taken by another picture of this same rename (it moves away first).
+            var freedByThis = items.Any(o => o.Id != id && library.Get(o.Id)?.Path is { } op && string.Equals(op, target, StringComparison.OrdinalIgnoreCase));
+            var problems = p.Problems.Where(x => !(freedByThis && x.StartsWith("A file named", StringComparison.Ordinal))).ToList();
+            if (problems.Count > 0) throw new ArgumentException(problems[0]);
+            if (!string.Equals(target, img.Path, StringComparison.Ordinal)) plan.Add(new PictureMove(id, img.Path, target));
+        }
+        if (plan.Select(m => m.To).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Count) throw new ArgumentException("Two pictures would get the same name.");
+        return Execute(plan);
+    }
+
+    private static string StripExt(string name, string path) =>
+        name.EndsWith(System.IO.Path.GetExtension(path), StringComparison.OrdinalIgnoreCase) ? name[..^System.IO.Path.GetExtension(path).Length].TrimEnd() : name;
+
+    /// <summary>Moves pictures into another folder of the Gallery (an album). Nothing moves if any name is taken there.</summary>
+    public IReadOnlyList<PictureMove> Move(IReadOnlyList<long> ids, string folder)
+    {
+        var target = System.IO.Path.GetFullPath(folder);
+        if (!Directory.Exists(target) || !library.IsInside(target)) throw new ArgumentException("Choose an album (a folder) of the Gallery.");
+        var plan = new List<PictureMove>();
+        foreach (var id in ids.Distinct())
+        {
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            if (!File.Exists(img.Path)) throw new ArgumentException($"“{System.IO.Path.GetFileName(img.Path)}” is not there any more.");
+            var dest = System.IO.Path.Combine(target, System.IO.Path.GetFileName(img.Path));
+            if (string.Equals(dest, img.Path, StringComparison.OrdinalIgnoreCase)) continue; // already there
+            if (File.Exists(dest) || Directory.Exists(dest)) throw new ArgumentException($"“{System.IO.Path.GetFileName(dest)}” already exists in that album. Nothing was moved.");
+            plan.Add(new PictureMove(id, img.Path, dest));
+        }
+        if (plan.Select(m => m.To).Distinct(StringComparer.OrdinalIgnoreCase).Count() != plan.Count) throw new ArgumentException("Two of these pictures have the same name, so they can't go into one album.");
+        return Execute(plan);
+    }
+
+    /// <summary>Makes a new album (a folder) inside a Gallery folder. Returns its path.</summary>
+    public string CreateAlbum(string parent, string name)
+    {
+        var n = (name ?? "").Trim();
+        if (n.Length == 0 || n.IndexOfAny(Invalid) >= 0 || n.Any(char.IsControl) || n.EndsWith('.') || n == "..") throw new ArgumentException("That is not a valid folder name.");
+        var p = System.IO.Path.GetFullPath(parent);
+        if (!Directory.Exists(p) || !library.IsInside(p)) throw new ArgumentException("New albums go inside a Gallery folder.");
+        var full = System.IO.Path.Combine(p, n);
+        if (Directory.Exists(full) || File.Exists(full)) throw new ArgumentException($"“{n}” already exists there.");
+        Directory.CreateDirectory(full);
+        return full;
+    }
+
+    /// <summary>Puts the last rename or move back (only pictures still where it left them).</summary>
+    public IReadOnlyList<PictureMove> Undo()
+    {
+        var last = LastChange ?? throw new ArgumentException("There is nothing to undo.");
+        var back = last.Where(m => File.Exists(m.To) && !File.Exists(m.From)).Select(m => new PictureMove(m.Id, m.To, m.From)).ToList();
+        if (back.Count == 0) throw new ArgumentException("The pictures were changed since, so there is nothing to put back.");
+        var done = Execute(back);
+        LastChange = null;
+        return done;
+    }
+
+    /// <summary>Two phases (each file to a temporary name, then to its new name) so names can be swapped; nothing is overwritten.</summary>
+    private IReadOnlyList<PictureMove> Execute(IReadOnlyList<PictureMove> plan)
+    {
+        var temps = new List<(PictureMove Move, string Temp)>();
+        try
+        {
+            foreach (var m in plan)
+            {
+                var tmp = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(m.From)!, $".noormd-move-{Guid.NewGuid():N}{System.IO.Path.GetExtension(m.From)}");
+                File.Move(m.From, tmp, overwrite: false);
+                temps.Add((m, tmp));
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            foreach (var (m, tmp) in temps) try { File.Move(tmp, m.From, overwrite: false); } catch (Exception) { }
+            throw new ArgumentException("Windows could not move the pictures (one may be open in another program). Nothing was changed.");
+        }
+        var done = new List<PictureMove>();
+        var failed = new List<string>();
+        foreach (var (m, tmp) in temps)
+        {
+            try { File.Move(tmp, m.To, overwrite: false); library.Relocate(m.Id, m.To); done.Add(m); }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                try { File.Move(tmp, m.From, overwrite: false); } catch (Exception) { failed.Add(System.IO.Path.GetFileName(tmp)); }
+            }
+        }
+        LastChange = done;
+        if (failed.Count > 0) throw new ArgumentException($"Some pictures were left with a temporary name ({string.Join(", ", failed)}); rename them by hand.");
+        if (done.Count < plan.Count) throw new ArgumentException($"{plan.Count - done.Count} picture(s) could not be moved; the others were.");
+        return done;
     }
 }

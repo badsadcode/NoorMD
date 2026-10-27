@@ -47,6 +47,7 @@ public partial class MainWindow
             case "vault.open":
                 {
                     var dlg = new OpenFolderDialog { Title = "Open a folder as a Vault", Multiselect = false };
+                    Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     return OpenVault(dlg.FolderName);
                 }
@@ -247,6 +248,7 @@ public partial class MainWindow
     {
         if (VaultPaths.NameProblem(name) is { } problem) throw new BridgeError(problem);
         var dlg = new OpenFolderDialog { Title = $"Where should the Vault “{name}” be created?", Multiselect = false };
+        Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
         var root = Path.Combine(dlg.FolderName, name!.Trim());
         if (File.Exists(root) || (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any()))
