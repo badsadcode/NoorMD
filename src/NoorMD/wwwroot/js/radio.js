@@ -29,7 +29,10 @@ window.NoorRadio = (() => {
     NoorBridge.on('radio.failed', (p) => { if (on && p.token === on.token) fail(p.message); });
     audio.addEventListener('playing', () => { if (on) { on.state = 'playing'; on.message = null; renderNow(); renderList(); emit(); } });
     audio.addEventListener('pause', () => { renderNow(); emit(); });
-    audio.addEventListener('error', () => { if (on && audio.getAttribute('src')) fail(on.message || 'The station stopped or can’t be played.'); });
+    // A stream that was playing and broke. (While connecting, play() itself and the relay say what went wrong.)
+    audio.addEventListener('error', () => {
+      if (on && on.state === 'playing' && audio.getAttribute('src')) fail(`The station stopped or can’t be played${audio.error ? ` (media error ${audio.error.code})` : ''}.`);
+    });
   }
 
   async function open() {
@@ -71,12 +74,14 @@ window.NoorRadio = (() => {
       await audio.play();
       if (station.id != null) { const s = stations.find((x) => x.id === station.id); if (s) { s.plays++; s.lastPlayed = new Date().toISOString(); } }
     } catch (err) {
-      if (on && on.url === station.url) fail(err && err.message ? err.message : String(err));
+      // An interrupted play() (another station, Stop) is not a failure of its own.
+      if (err && err.name === 'AbortError') return;
+      if (on && on.url === station.url) fail(err && err.name === 'NotSupportedError' ? 'This station’s sound can’t be played here (format or address).' : err && err.message ? err.message : String(err));
     }
   }
 
   function fail(message) {
-    if (!on) return;
+    if (!on || on.state === 'error') return; // the first reason is the one worth showing
     on.state = 'error';
     on.message = message;
     audio.pause();

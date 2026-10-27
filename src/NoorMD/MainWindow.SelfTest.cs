@@ -709,15 +709,11 @@ public partial class MainWindow
 
         // Radio: a station plays through the loopback relay (the page's content rules allow it), and its song title arrives.
         {
-            // A tiny ICY station: a 3-second WAV tone, with metadata every 4096 bytes.
-            const int rate = 22050, metaInt = 4096;
-            var pcm = new byte[rate * 3 * 2];
-            for (var i = 0; i < rate * 3; i++) { var v = (short)(Math.Sin(i * 2 * Math.PI * 440 / rate) * 8000); pcm[i * 2] = (byte)v; pcm[i * 2 + 1] = (byte)(v >> 8); }
-            var wav = new MemoryStream();
-            void W32(int x) => wav.Write(BitConverter.GetBytes(x));
-            void W16(short x) => wav.Write(BitConverter.GetBytes(x));
-            wav.Write("RIFF"u8); W32(36 + pcm.Length); wav.Write("WAVEfmt "u8); W32(16); W16(1); W16(1); W32(rate); W32(rate * 2); W16(2); W16(16); wav.Write("data"u8); W32(pcm.Length); wav.Write(pcm);
-            var sound = wav.ToArray();
+            // A tiny ICY station: an MP3 from the self-test's music (sent a few times over, like a live stream), with metadata every 2048 bytes.
+            const int metaInt = 2048;
+            var mp3File = Directory.GetFiles(Path.Combine(SelfTestDir!, "music"), "*.mp3").OrderBy(f => f).First();
+            var one = File.ReadAllBytes(mp3File);
+            var sound = Enumerable.Repeat(one, 4).SelectMany(b => b).ToArray();
             var icy = new MemoryStream();
             var meta = Encoding.UTF8.GetBytes("StreamTitle='NoorMD – Self-test tune';");
             var metaLen = (meta.Length + 15) / 16;
@@ -737,7 +733,7 @@ public partial class MainWindow
                     using var c = await upstream.AcceptTcpClientAsync();
                     var st = c.GetStream();
                     await st.ReadAsync(new byte[4096]);
-                    await st.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: audio/wav\r\nicy-metaint: {metaInt}\r\nConnection: close\r\n\r\n"));
+                    await st.WriteAsync(Encoding.ASCII.GetBytes($"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nicy-metaint: {metaInt}\r\nConnection: close\r\n\r\n"));
                     await st.WriteAsync(icy.ToArray());
                     await Task.Delay(6000); // a live station keeps sending; ending at once would read as "stopped"
                 }
