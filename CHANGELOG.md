@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0-preview.28 — Sound Bench: effects racks and exact values
+
+The first stage of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): effects that work for
+every kind of sound, and precise control.
+
+- **Effects racks:** every layer, and the master, has its own chain of effects. Add them from *＋ Add an effect…*,
+  switch each on or off (⏻) without losing its settings, change their order (↑ ↓), and set each one's
+  **mix** (dry ↔ wet) and **output** level. Up to eight per chain.
+  - **EQ band:** peak, low/high shelf, low-pass, high-pass, band-pass or notch, with frequency, width (Q) and
+    boost/cut. Stack several for a parametric EQ.
+  - **Compressor** (threshold, ratio, attack, release) and **gate** (closes on quiet parts).
+  - **Saturation** (soft, hard or wavefold) and a **bit-crusher** (bits and downsampling).
+  - **Delay** (time, feedback, darker echoes, ping-pong), **chorus**, **flanger**, **phaser**, and
+    **tremolo / auto-pan**.
+  - **Reverb** (size, damping, pre-delay) and **stereo width**.
+- **Exact values:** every slider has a number box beside it. Type 333 ms, −4.5 dB, 1,250 Hz or 35 % and press
+  Enter. Hz and time sliders move on a natural (logarithmic) scale.
+- **Nothing changes for your existing sounds:** recipes and presets from preview.26–27 load and render exactly
+  as before (this is tested). The Quick controls still never overwrite your settings: they are worked in only
+  when the sound is rendered.
+
 ## 2.0.0-preview.27 — The Sound Bench for every kind of sound
 
 - **🎲 Generate:** pick a kind of sound and press 🎲. Each press makes a new one, which you can then shape like any

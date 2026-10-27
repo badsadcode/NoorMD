@@ -295,25 +295,103 @@ window.NoorSound = (() => {
   }
 
   /** A slider bound to obj[key]; kinds make Hz and times logarithmic and show units. */
+  /** The unit a number box is typed in, and the factor from the stored value (percentages are typed 0–100). */
+  const UNIT = { db: ['dB', 1], pct: ['%', 100], hz: ['Hz', 1], hz0: ['Hz', 1], ms: ['ms', 1], s: ['s', 1], pan: ['', 1], count: ['', 1], rate: ['Hz', 1], q: ['', 1], num: ['', 1] };
+
+  /**
+   * A slider bound to obj[key], with a number box beside it for exact values (Hz, dB, ms, semitones…).
+   * Kinds make Hz, times and Q logarithmic on the slider; the number box is always linear and exact.
+   */
   function slider(obj, [key, label, min, max, step, kind], rebuild) {
     const log = (kind === 'hz' || kind === 'ms' || kind === 'rate' || kind === 'q') && min > 0;
     const toPos = (v) => (log ? (Math.log(v / min) / Math.log(max / min)) * 1000 : v);
     const fromPos = (p) => (log ? min * Math.pow(max / min, p / 1000) : p);
-    const show = (v) => kind === 'db' ? `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` : kind === 'pct' ? `${Math.round(v * 100)}%` : kind === 'hz' || kind === 'hz0' ? (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)} kHz` : `${Math.round(v)} Hz`)
-      : kind === 'ms' ? `${v.toFixed(v < 10 ? 1 : 0)} ms` : kind === 's' ? `${v.toFixed(v < 1 ? 3 : 2)} s` : kind === 'pan' ? (Math.abs(v) < 0.03 ? 'centre' : `${Math.round(Math.abs(v) * 100)}% ${v < 0 ? 'L' : 'R'}`)
-        : kind === 'count' ? String(Math.round(v)) : String(Math.round(v * 100) / 100);
+    const [unit, factor] = UNIT[kind] || ['', 1];
+    const clamp = (v) => Math.max(min, Math.min(max, v));
     const value = Number(obj[key]) || 0;
-    const out = el('output', { text: show(value) });
-    const input = el('input', { type: 'range', min: String(log ? 0 : min), max: String(log ? 1000 : max), step: String(log ? 1 : step), value: String(toPos(Math.max(min, Math.min(max, value)) || min)), 'aria-label': label, 'data-key': key });
+    const shown = (v) => String(Number((v * factor).toFixed(kind === 'count' ? 0 : log || kind === 'hz0' ? 1 : 3)));
+    const box = el('input', { type: 'number', class: 'sb-num', value: shown(value), step: 'any', 'aria-label': `${label} (${unit || 'value'})`, 'data-num': key });
+    const input = el('input', { type: 'range', min: String(log ? 0 : min), max: String(log ? 1000 : max), step: String(log ? 1 : step), value: String(toPos(clamp(value) || min)), 'aria-label': label, 'data-key': key });
     input.addEventListener('input', () => {
       let v = fromPos(Number(input.value));
       if (!log) v = Math.round(v / step) * step;
       obj[key] = Number(v.toFixed(4));
-      out.textContent = show(obj[key]);
+      box.value = shown(obj[key]);
       changed(rebuild);
     });
-    input.addEventListener('dblclick', () => { notice(`${label}: ${show(obj[key])}`, 900); });
-    return el('label', { class: 'sb-slider' }, el('span', { text: label }), input, out);
+    box.addEventListener('change', () => {
+      const typed = Number(box.value);
+      if (!Number.isFinite(typed)) { box.value = shown(obj[key]); return; }
+      obj[key] = Number(clamp(typed / factor).toFixed(6));
+      box.value = shown(obj[key]);
+      input.value = String(toPos(obj[key]) || 0);
+      changed(rebuild);
+    });
+    box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); box.dispatchEvent(new Event('change')); } });
+    return el('label', { class: 'sb-slider' }, el('span', { text: label }), input, el('span', { class: 'sb-numwrap' }, box, unit ? el('small', { text: unit }) : null));
+  }
+
+  // ---------------------------------------------------------------- effects racks (per layer and master)
+
+  const FX_LABEL = { eq: 'EQ band', compressor: 'Compressor', gate: 'Gate', saturate: 'Saturation', crush: 'Bit-crusher', delay: 'Delay', chorus: 'Chorus', flanger: 'Flanger', phaser: 'Phaser', tremolo: 'Tremolo / auto-pan', reverb: 'Reverb', width: 'Stereo width' };
+  const FX_FIELDS = {
+    eq: [['freq', 'Frequency', 20, 20000, 1, 'hz'], ['q', 'Width (Q)', 0.1, 30, 0.1, 'q'], ['gain', 'Boost / cut', -36, 36, 0.5, 'db']],
+    compressor: [['threshold', 'Threshold', -80, 0, 0.5, 'db'], ['ratio', 'Ratio', 1, 40, 0.1, 'num'], ['attack', 'Attack', 0.05, 500, 0.05, 'ms'], ['release', 'Release', 1, 5000, 1, 'ms']],
+    gate: [['threshold', 'Threshold', -80, 0, 0.5, 'db'], ['range', 'Closes by', 0, 90, 1, 'db'], ['attack', 'Attack', 0.05, 500, 0.05, 'ms'], ['release', 'Release', 1, 5000, 1, 'ms']],
+    saturate: [['drive', 'Drive', 0, 1, 0.01, 'pct']],
+    crush: [['bits', 'Bits', 1, 16, 1, 'count'], ['downsample', 'Downsample ×', 1, 64, 1, 'count']],
+    delay: [['time', 'Time', 1, 2000, 1, 'ms'], ['feedback', 'Feedback', 0, 0.95, 0.01, 'pct'], ['tone', 'Echo brightness', 200, 20000, 1, 'hz']],
+    chorus: [['rate', 'Speed', 0.01, 20, 0.01, 'rate'], ['depth', 'Depth', 0, 1, 0.01, 'pct']],
+    flanger: [['rate', 'Speed', 0.01, 20, 0.01, 'rate'], ['depth', 'Depth', 0, 1, 0.01, 'pct'], ['feedback', 'Feedback', 0, 0.95, 0.01, 'pct']],
+    phaser: [['rate', 'Speed', 0.01, 20, 0.01, 'rate'], ['depth', 'Depth', 0, 1, 0.01, 'pct'], ['feedback', 'Feedback', 0, 0.95, 0.01, 'pct']],
+    tremolo: [['rate', 'Speed', 0.01, 20, 0.01, 'rate'], ['depth', 'Depth', 0, 1, 0.01, 'pct']],
+    reverb: [['size', 'Size', 0, 1, 0.01, 'pct'], ['damping', 'Damping (darker)', 0, 1, 0.01, 'pct'], ['preDelay', 'Pre-delay', 0, 250, 1, 'ms']],
+    width: [['width', 'Width (100% = as is)', 0, 2, 0.01, 'pct']],
+  };
+  const FX_CHOICES = { eq: [['kind', 'Type', ['peak', 'lowshelf', 'highshelf', 'lowpass', 'highpass', 'bandpass', 'notch']]], saturate: [['shape', 'Shape', ['soft', 'hard', 'fold']]] };
+  const FX_CHECKS = { delay: [['pingPong', 'Ping-pong (left, right)']], tremolo: [['pan', 'Auto-pan (side to side)']] };
+  const NEW_FX = {
+    eq: { kind: 'peak', freq: 1000, q: 0.7, gain: 3 }, compressor: { threshold: -18, ratio: 4, attack: 10, release: 120 }, gate: { threshold: -40, range: 40, attack: 1, release: 80 },
+    saturate: { drive: 0.4, shape: 'soft' }, crush: { bits: 8, downsample: 4 }, delay: { time: 250, feedback: 0.35, tone: 6000, mix: 0.35 }, chorus: { rate: 0.8, depth: 0.5, mix: 0.7 },
+    flanger: { rate: 0.3, depth: 0.7, feedback: 0.5 }, phaser: { rate: 0.5, depth: 0.7, feedback: 0.4 }, tremolo: { rate: 5, depth: 0.5 }, reverb: { size: 0.5, damping: 0.5, preDelay: 10, mix: 0.3 }, width: { width: 1.5 },
+  };
+
+  /** An effects chain: each effect with on/off, ↑ ↓, remove, its settings, wet/dry mix and output level. */
+  function effectsRack(chain, where) {
+    const cards = chain.map((fx, i) => {
+      const choices = (FX_CHOICES[fx.type] || []).map(([key, label, opts]) => {
+        const sel = el('select', { 'aria-label': label, 'data-fx': key }, ...opts.map((o) => el('option', { value: o, text: o })));
+        sel.value = fx[key] || opts[0];
+        sel.addEventListener('change', () => { fx[key] = sel.value; changed(false); });
+        return el('label', { class: 'sb-inline' }, el('span', { text: label }), sel);
+      });
+      const checks = (FX_CHECKS[fx.type] || []).map(([key, label]) => {
+        const c = el('input', { type: 'checkbox', checked: fx[key] || undefined, 'data-fx': key });
+        c.addEventListener('change', () => { fx[key] = c.checked; changed(false); });
+        return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
+      });
+      const move = (d) => { const j = i + d; if (j < 0 || j >= chain.length) return; [chain[i], chain[j]] = [chain[j], chain[i]]; changed(true); };
+      return el('div', { class: 'sb-fx' + (fx.bypass ? ' off' : ''), 'data-fx-index': String(i), 'data-fx-type': fx.type },
+        el('div', { class: 'sb-fx-head' },
+          el('button', { class: 'icon-btn sb-ms' + (fx.bypass ? '' : ' on'), title: fx.bypass ? 'Off (click to switch it on)' : 'On (click to bypass)', 'aria-pressed': String(!fx.bypass), 'aria-label': 'On', onclick: () => { fx.bypass = !fx.bypass; changed(true); } }, '⏻'),
+          el('strong', { text: FX_LABEL[fx.type] || fx.type }),
+          el('span', { class: 'sb-fx-space' }),
+          el('button', { class: 'icon-btn', title: 'Earlier in the chain', 'aria-label': 'Move up', disabled: i === 0 || undefined, onclick: () => move(-1) }, '↑'),
+          el('button', { class: 'icon-btn', title: 'Later in the chain', 'aria-label': 'Move down', disabled: i === chain.length - 1 || undefined, onclick: () => move(1) }, '↓'),
+          el('button', { class: 'icon-btn', title: 'Remove this effect', 'aria-label': 'Remove this effect', onclick: () => { chain.splice(i, 1); changed(true); } }, '✕')),
+        ...(choices.length || checks.length ? [el('div', { class: 'sb-choices' }, ...choices, ...checks)] : []),
+        el('div', { class: 'sb-fields' }, ...(FX_FIELDS[fx.type] || []).map((f) => slider(fx, f, false)),
+          slider(fx, ['mix', 'Mix (dry ↔ wet)', 0, 1, 0.01, 'pct'], false), slider(fx, ['out', 'Output', -40, 24, 0.5, 'db'], false)));
+    });
+    const add = el('select', { class: 'sb-addfx', 'aria-label': 'Add an effect', 'data-addfx': where },
+      el('option', { value: '', text: chain.length >= 8 ? 'Eight effects is the most' : '＋ Add an effect…' }), ...(chain.length >= 8 ? [] : Object.keys(FX_LABEL).map((t) => el('option', { value: t, text: FX_LABEL[t] }))));
+    add.addEventListener('change', () => {
+      const t = add.value;
+      if (!t) return;
+      chain.push({ type: t, bypass: false, mix: 1, out: 0, ...clone(NEW_FX[t]) });
+      changed(true);
+    });
+    return el('div', { class: 'sb-rack' }, ...cards, add);
   }
 
   function quickPane() {
@@ -366,7 +444,8 @@ window.NoorSound = (() => {
             : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
               el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
               check('reverse', 'Backwards'), check('loopSample', 'Loop it'), check('useFilter', 'Filter'), choice('filter')] : [])),
-        el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))));
+        el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))),
+        el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i)));
     });
     return [
       el('details', { class: 'sb-group', open: true }, el('summary', { text: 'Gusts (the slow movement layers can follow)' }), el('div', { class: 'sb-fields' }, ...GUST.map((f) => slider(g, f, false)))),
@@ -396,6 +475,8 @@ window.NoorSound = (() => {
     return [
       el('div', { class: 'sb-fields' }, ...MASTER.map((f) => slider(m, f, false))),
       el('label', { class: 'sb-inline' }, norm, el('span', { text: 'Bring the loudest peak to the ceiling (good for one-shots)' })),
+      el('h4', { class: 'music-subhead', text: 'Master effects (on the whole sound)' }),
+      effectsRack(m.effects ||= [], 'master'),
       el('h4', { class: 'music-subhead', text: 'Export' }),
       el('div', { class: 'sb-row' },
         sel('sb-variations', 'Files', [1, 2, 3, 4, 5, 8, 10].map((n) => [n, n === 1 ? 'Just this one' : `${n} variations`]), prefs.variations, 'variations'),

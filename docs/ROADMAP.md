@@ -11,6 +11,10 @@ first, and anything that conflicts with it waits.
 - Sound Bench MVP (presets, Quick controls, layers, live preview, A/B, variations, WAV export with recipes):
   preview.26. Next for it, from the concept: imported samples and granular texture, surface-specific
   weather (leaves, roof, window), a reference clip for A/B, stems, and OGG/FLAC export.
+- Sound Bench effects racks and exact numeric entry (stage 1 of docs/concepts/SOUND_BENCH_EVOLUTION.md):
+  preview.28. Next stages from that proposal, one at a time and only after listening tests: a modulation matrix
+  with automation (macros mapped to many targets), stronger sample work (crossfades, pitch apart from time,
+  granular), a spectrogram and loudness-matched A/B, then optional buses, resonators and a node view.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

@@ -132,7 +132,10 @@ public sealed class SoundLayer
     public bool Reverse { get; set; }
     public bool LoopSample { get; set; }
 
-    public SoundLayer Clone() => (SoundLayer)MemberwiseClone();
+    /// <summary>This layer's effects, in order (EQ, compressor, delay…).</summary>
+    public List<SoundEffect> Effects { get; set; } = [];
+
+    public SoundLayer Clone() { var c = (SoundLayer)MemberwiseClone(); c.Effects = Effects.Select(e => e.Clone()).ToList(); return c; }
 }
 
 public sealed class MasterSettings
@@ -147,6 +150,8 @@ public sealed class MasterSettings
     /// <summary>Bring the loudest peak to the ceiling (one-shots); otherwise only peaks above it are softened.</summary>
     public bool Normalize { get; set; }
     public double Ceiling { get; set; } = -1;
+    /// <summary>Effects on the whole sound, in order, after the master filters and room.</summary>
+    public List<SoundEffect> Effects { get; set; } = [];
 }
 
 public sealed class SoundRecipe
@@ -209,9 +214,11 @@ public sealed class SoundRecipe
             l.Semitones = C(l.Semitones, -36, 36); l.TrimStart = C(l.TrimStart, 0, 3600); l.TrimEnd = C(l.TrimEnd, 0, 3600);
             if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
             if (l.SampleName != null) l.SampleName = l.SampleName.Length > 120 ? l.SampleName[..120] : l.SampleName;
+            l.Effects = (l.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         }
         Master.Gain = C(Master.Gain, -40, 24); Master.HighPass = C(Master.HighPass, 10, 5000); Master.LowPass = C(Master.LowPass, 200, 20000);
         Master.Width = C(Master.Width, 0, 2); Master.Reverb = C(Master.Reverb, 0, 1); Master.Room = C(Master.Room, 0, 1); Master.Ceiling = C(Master.Ceiling, -24, 0);
+        Master.Effects = (Master.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         return this;
     }
 
@@ -329,7 +336,7 @@ public static class SoundEngine
             // Each layer has its own random stream: muting one doesn't change the others.
             var rng = new SoundRng((ulong)(uint)r.Seed * 0x100000001B3UL + (ulong)k * 0x9E37UL + 17);
             // Drive, crush and a filter on a synth or a sample work on the layer alone, before it joins the others.
-            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none");
+            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass);
             var tl = post ? new double[total] : L;
             var tr = post ? new double[total] : R;
             switch (layer.Type)
@@ -348,10 +355,12 @@ public static class SoundEngine
             if (post)
             {
                 PostLayer(layer, tl, tr, sampleRate, total);
+                SoundEffects.Apply(layer.Effects, tl, tr, sampleRate);
                 for (var i = 0; i < total; i++) { L[i] += tl[i]; R[i] += tr[i]; }
             }
         }
         MasterChain(r.Master, L, R, sampleRate);
+        SoundEffects.Apply(r.Master.Effects, L, R, sampleRate);
         float[] outL = new float[length], outR = new float[length];
         for (var i = 0; i < length; i++)
         {
