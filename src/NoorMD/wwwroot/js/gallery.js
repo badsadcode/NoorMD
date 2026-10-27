@@ -6,14 +6,21 @@ window.NoorGallery = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
   const PAGE = 240; // tiles drawn at a time; "Show more" adds the next ones
-  const SORTS = { 'taken-desc': ['taken', true, 'Newest first'], 'taken-asc': ['taken', false, 'Oldest first'], name: ['name', false, 'By name'], type: ['type', false, 'By type (format)'], 'size-desc': ['size', true, 'Largest files first'], 'added-desc': ['added', true, 'Recently added'] };
+  const SORTS = { 'taken-desc': ['taken', true, 'Newest first'], 'taken-asc': ['taken', false, 'Oldest first'], name: ['name', false, 'By name'], type: ['type', false, 'By type (format)'], 'size-desc': ['size', true, 'Largest files first'], 'rating-desc': ['rating', true, 'Most stars first'], 'added-desc': ['added', true, 'Recently added'] };
   const TRANSITIONS = { fade: 'Fade', kenburns: 'Slow zoom (Ken Burns)', slide: 'Slide', none: 'None' };
   const DEFAULT_SHOW = { interval: 5, transition: 'fade', shuffle: false, loop: true, music: 'keep', playlistId: null, captions: true, stopMusic: true };
 
   let hooks = { showError: (e) => console.error(e), insertedInto: () => {} };
   let built = false;
   let status = { folders: [], count: 0, albums: [], slideshows: [], scanning: false };
-  let view = { source: 'all', sort: 'taken-desc', search: '', format: '' };
+  let view = { source: 'all', sort: 'taken-desc', search: '', format: '', mark: '' };
+  // Colour labels, with the keys that set them (6–9, as in Lightroom); the others are in the menus.
+  const LABELS = { red: ['Red', '6'], orange: ['Orange', ''], yellow: ['Yellow', '7'], green: ['Green', '8'], blue: ['Blue', '9'], purple: ['Purple', ''] };
+  const LABEL_KEYS = { 6: 'red', 7: 'yellow', 8: 'green', 9: 'blue' };
+  // A picture that was turned gets a new address for its preview, so the old one isn't shown from the cache.
+  const turned = new Map();
+  const thumbUrl = (id) => '/_thumb/' + id + (turned.has(id) ? '?r=' + turned.get(id) : '');
+  const imgUrl = (id) => '/_img/' + id + (turned.has(id) ? '?r=' + turned.get(id) : '');
   let items = [];
   let shown = PAGE;
   const sel = new Set();
@@ -81,6 +88,10 @@ window.NoorGallery = (() => {
         el('div', { class: 'gallery-row' },
           el('select', { id: 'gallery-source', 'aria-label': 'What to show' }),
           el('select', { id: 'gallery-format', 'aria-label': 'Format', title: 'Only one format (JPG, PNG, PSD, Affinity…)' }),
+          el('select', { id: 'gallery-mark', 'aria-label': 'Stars or colour label', title: 'Only pictures with stars or a colour label' },
+            el('option', { value: '', text: 'Any stars or label' }),
+            el('optgroup', { label: 'Stars' }, ...[1, 2, 3, 4, 5].map((n) => el('option', { value: 'r' + n, text: '★'.repeat(n) + (n < 5 ? ' or more' : '') }))),
+            el('optgroup', { label: 'Colour label' }, ...Object.entries(LABELS).map(([k, v]) => el('option', { value: 'l:' + k, text: '● ' + v[0] })))),
           el('select', { id: 'gallery-sort', 'aria-label': 'Order' }, ...Object.entries(SORTS).map(([k, v]) => el('option', { value: k, text: v[2] }))))),
       el('div', { class: 'gallery-main' },
         el('nav', { class: 'gallery-nav', id: 'gallery-nav', 'aria-label': 'Albums and slideshows' }),
@@ -101,6 +112,7 @@ window.NoorGallery = (() => {
     $('#gallery-source').addEventListener('change', (e) => { view.source = e.target.value; saveSession(); load(); });
     $('#gallery-sort').addEventListener('change', (e) => { view.sort = e.target.value; saveSession(); load(); });
     $('#gallery-format').addEventListener('change', (e) => { view.format = e.target.value; load(); });
+    $('#gallery-mark').addEventListener('change', (e) => { view.mark = e.target.value; load(); });
     root.addEventListener('keydown', onPanelKeys);
   }
 
@@ -157,14 +169,22 @@ window.NoorGallery = (() => {
     if (!built) return;
     $('#gallery-count').textContent = status.count ? String(status.count) : '';
     const s = $('#gallery-source');
-    const known = new Set(['all', 'fav', ...status.albums.map((a) => 'album:' + a.key), ...status.slideshows.map((x) => 'show:' + x.id)]);
+    const tags = status.tags || [];
+    const years = yearsOf(status.months || []);
+    const known = new Set(['all', 'fav', ...status.albums.map((a) => 'album:' + a.key), ...status.slideshows.map((x) => 'show:' + x.id), ...tags.map((t) => 'tag:' + t.tag),
+      ...years.flatMap((y) => ['month:' + y.year, ...y.months.map((m) => 'month:' + m.month)])]);
     if (!known.has(view.source)) view.source = 'all';
     s.replaceChildren(
       el('option', { value: 'all', text: `All pictures (${status.count})` }),
       el('option', { value: 'fav', text: '★ Favourites' }),
       ...(status.albums.length ? [el('optgroup', { label: 'Albums' }, ...status.albums.map((a) => el('option', { value: 'album:' + a.key, text: `${a.name} (${a.count})` })))] : []),
-      ...(status.slideshows.length ? [el('optgroup', { label: 'Slideshows' }, ...status.slideshows.map((x) => el('option', { value: 'show:' + x.id, text: `▶ ${x.name} (${x.count})` })))] : []));
+      ...(status.slideshows.length ? [el('optgroup', { label: 'Slideshows' }, ...status.slideshows.map((x) => el('option', { value: 'show:' + x.id, text: `▶ ${x.name} (${x.count})` })))] : []),
+      ...(tags.length ? [el('optgroup', { label: 'Tags' }, ...tags.map((t) => el('option', { value: 'tag:' + t.tag, text: `# ${t.tag} (${t.count})` })))] : []),
+      ...(years.length ? [el('optgroup', { label: 'By date' }, ...years.flatMap((y) => [el('option', { value: 'month:' + y.year, text: `${y.year} (${y.count})` }),
+        ...y.months.map((m) => el('option', { value: 'month:' + m.month, text: `\u2003${monthName(m.month)} (${m.count})` }))]))] : []));
     s.value = view.source;
+    const mk = $('#gallery-mark');
+    if (mk) mk.value = view.mark;
     $('#gallery-sort').value = view.sort;
     $('#gallery-sort').disabled = view.source.startsWith('show:'); // a slideshow keeps its own order
   }
@@ -174,6 +194,10 @@ window.NoorGallery = (() => {
     const gen = ++loadGen;
     const [sort, descending] = SORTS[view.sort] || SORTS['taken-desc'];
     const q = { search: view.search || null, sort, descending, filter: view.source === 'fav' ? 'favorites' : 'all', format: view.format || null };
+    if (view.mark.startsWith('r')) q.minRating = Number(view.mark.slice(1));
+    if (view.mark.startsWith('l:')) q.label = view.mark.slice(2);
+    if (view.source.startsWith('tag:')) q.tag = view.source.slice(4);
+    if (view.source.startsWith('month:')) q.month = view.source.slice(6);
     if (view.source.startsWith('album:')) q.album = view.source.slice(6);
     if (view.source.startsWith('show:')) q.slideshow = Number(view.source.slice(5));
     let rows;
@@ -197,11 +221,14 @@ window.NoorGallery = (() => {
       return;
     }
     if (!items.length) {
-      body.replaceChildren(el('p', { class: 'music-none', text: view.search ? 'Nothing matches.' : view.source === 'fav' ? 'No favourites yet. Press F on a picture (or right-click › Favourite).' : 'No pictures here.' }));
+      body.replaceChildren(el('p', { class: 'music-none', text: view.search ? 'Nothing matches.' : view.source === 'fav' ? 'No favourites yet. Press F on a picture (or right-click › Favourite).' : view.mark ? 'No pictures with those stars or that label here.' : 'No pictures here.' }));
       return;
     }
     const grid = el('div', { class: 'gallery-grid', role: 'listbox', 'aria-label': 'Pictures', 'aria-multiselectable': 'true' });
     items.slice(0, shown).forEach((it, i) => grid.append(tile(it, i)));
+    // Keys keep working after a change (stars, label, favourite): the same picture keeps the focus.
+    const focused = document.activeElement?.closest?.('#gallery-body .gallery-tile')?.dataset.id;
+    if (focused) queueMicrotask(() => grid.querySelector(`.gallery-tile[data-id="${focused}"]`)?.focus({ preventScroll: true }));
     body.replaceChildren(grid,
       ...(items.length > shown ? [el('button', { class: 'action gallery-show-more', onclick: () => { shown += PAGE; render(); } }, `Show more (${items.length - shown} left)`)] : []),
       el('p', { class: 'gallery-foot', id: 'gallery-foot', text: footText() }));
@@ -212,15 +239,17 @@ window.NoorGallery = (() => {
   function tile(it, i) {
     const b = el('button', {
       class: 'gallery-tile' + (sel.has(it.id) ? ' selected' : '') + (it.favorite ? ' fav' : ''), role: 'option', 'aria-selected': String(sel.has(it.id)),
-      'data-id': String(it.id), 'data-index': String(i), title: `${it.name}\n${it.album} · ${dateText(it.taken)}`, draggable: 'true',
+      'data-id': String(it.id), 'data-index': String(i), title: `${it.name}\n${it.album} · ${dateText(it.taken)}${it.rating ? '\n' + '★'.repeat(it.rating) : ''}${it.tags && it.tags.length ? '\n# ' + it.tags.join(', ') : ''}`, draggable: 'true',
       onclick: (e) => onTileClick(e, i),
       ondblclick: () => openViewer(i),
       oncontextmenu: (e) => { e.preventDefault(); if (!sel.has(it.id)) { sel.clear(); sel.add(it.id); anchor = i; markSelection(); } tileMenu(it, i, e.clientX, e.clientY); },
-    }, el('img', { src: '/_thumb/' + it.id, alt: it.name, loading: 'lazy', decoding: 'async', draggable: 'false',
+    }, el('img', { src: thumbUrl(it.id), alt: it.name, loading: 'lazy', decoding: 'async', draggable: 'false',
       // No preview (a work file whose program isn't installed): its format and name instead.
       onerror: (e) => { e.target.replaceWith(el('span', { class: 'gallery-nothumb' }, el('b', { text: it.format || '?' }), el('small', { text: it.name }))); } }),
     ...(it.web === false ? [el('span', { class: 'gallery-fmt', 'aria-hidden': 'true', text: it.format })] : []),
-    el('span', { class: 'gallery-star', 'aria-hidden': 'true', text: '★' }));
+    el('span', { class: 'gallery-star', 'aria-hidden': 'true', text: '★' }),
+    ...(it.rating ? [el('span', { class: 'gallery-rating', 'aria-hidden': 'true', text: '★'.repeat(it.rating) })] : []),
+    ...(it.label ? [el('span', { class: 'gallery-label', 'data-label': it.label, 'aria-hidden': 'true' })] : []));
     b.addEventListener('dragstart', (e) => {
       // Dragging carries the selected pictures (or this one) to an album on the left, or to a new place in a slideshow.
       const ids = sel.has(it.id) ? items.filter((x) => sel.has(x.id)).map((x) => x.id) : [it.id];
@@ -267,6 +296,115 @@ window.NoorGallery = (() => {
     const ids = sel.size ? [...sel] : [items[i].id];
     if (e.key === 'F2') { e.preventDefault(); if (ids.length > 1) renameSeries(ids); else renamePicture(items.find((x) => x.id === ids[0])); }
     if (e.key === 'Delete') { e.preventDefault(); deletePictures(ids); }
+    if (!e.ctrlKey && !e.altKey && !e.metaKey && /^[0-9]$/.test(e.key)) { e.preventDefault(); markKey(ids, Number(e.key)); }
+    if (e.key.toLowerCase() === 'r' && e.ctrlKey && !e.altKey) { e.preventDefault(); rotate(ids, !e.shiftKey); }
+    if (e.key.toLowerCase() === 't' && !e.ctrlKey && !e.altKey) { e.preventDefault(); addTags(ids); }
+  }
+
+  // ---------------------------------------------------------------- stars, colour labels, tags, turning
+
+  /** 0–5 sets the stars; 6–9 a colour label (the same label again takes it off). */
+  function markKey(ids, n) {
+    if (n <= 5) { setRating(ids, n); return; }
+    const label = LABEL_KEYS[n];
+    const same = ids.every((id) => items.find((x) => x.id === id)?.label === label);
+    setLabel(ids, same ? null : label);
+  }
+
+  const update = (ids, fn) => { for (const list of [items, viewer.list]) for (const it of list) if (ids.includes(it.id)) fn(it); };
+
+  async function setRating(ids, stars) {
+    try {
+      await req('gallery.rating', { ids, stars });
+      update(ids, (it) => { it.rating = stars; });
+      if (view.mark.startsWith('r') && stars < Number(view.mark.slice(1))) await load(); else render();
+      if (viewer.open) renderViewerMarks();
+      notice(stars ? '★'.repeat(stars) : 'No stars', 900);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function setLabel(ids, label) {
+    try {
+      await req('gallery.label', { ids, label });
+      update(ids, (it) => { it.label = label; });
+      if (view.mark.startsWith('l:') && label !== view.mark.slice(2)) await load(); else render();
+      if (viewer.open) renderViewerMarks();
+      notice(label ? `● ${LABELS[label][0]}` : 'No colour label', 900);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  function afterTags(r) {
+    if (r.status) status = r.status;
+    const byId = new Map((r.images || []).map((x) => [x.id, x]));
+    update([...byId.keys()], (it) => { it.tags = byId.get(it.id).tags; });
+    renderSources();
+    if (view.source.startsWith('tag:') && !status.tags.some((t) => 'tag:' + t.tag === view.source)) { view.source = 'all'; load(); return; }
+    if (view.source.startsWith('tag:')) load(); else render();
+  }
+
+  async function addTags(ids, text) {
+    const known = (status.tags || []).map((t) => t.tag);
+    const v = text ?? await NoorUI.prompt('Add tags', `Tags for ${ids.length === 1 ? 'this picture' : `the ${ids.length} pictures`} (separate several with commas):${known.length ? `\nIn use: ${known.slice(0, 12).join(', ')}${known.length > 12 ? '…' : ''}` : ''}`, '', { okLabel: 'Add' });
+    const tags = (v || '').split(',').map((x) => x.trim().replace(/^#/, '').trim()).filter(Boolean);
+    if (!tags.length) return;
+    try { afterTags(await req('gallery.tags.add', { ids, tags })); notice(`Tagged: ${tags.join(', ')}`, 1400); } catch (err) { hooks.showError(err); }
+  }
+
+  async function removeTag(ids, tag) {
+    try { afterTags(await req('gallery.tags.remove', { ids, tag })); } catch (err) { hooks.showError(err); }
+  }
+
+  async function rotate(ids, clockwise) {
+    try {
+      const r = await req('gallery.rotate', { ids, clockwise });
+      const byId = new Map((r.images || []).map((x) => [x.id, x]));
+      const stamp = Date.now();
+      for (const id of byId.keys()) turned.set(id, stamp);
+      update([...byId.keys()], (it) => { const n = byId.get(it.id); it.width = n.width; it.height = n.height; it.size = n.size; });
+      render();
+      if (viewer.open && byId.has(viewer.list[viewer.index]?.id)) renderViewer();
+      if (r.refused && r.refused.length) notice(`Turned ${byId.size}; not turned: ${r.refused.join('; ')}`, 4000);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  function markMenu(ids, it) {
+    return [
+      { label: 'Stars', sub: () => [0, 1, 2, 3, 4, 5].map((n) => ({ label: n ? `${'★'.repeat(n)}  (${n})` : 'No stars  (0)', checked: !!it && ids.length === 1 && (it.rating || 0) === n, run: () => setRating(ids, n) })) },
+      { label: 'Colour label', sub: () => [
+        ...Object.entries(LABELS).map(([k, v]) => ({ label: `● ${v[0]}${v[1] ? `  (${v[1]})` : ''}`, checked: !!it && ids.length === 1 && it.label === k, run: () => setLabel(ids, k) })),
+        '-', { label: 'No label', run: () => setLabel(ids, null) }] },
+      { label: 'Add tags…  (T)', run: () => addTags(ids) },
+      ...(it && ids.length === 1 && it.tags && it.tags.length ? [{ label: 'Remove a tag', sub: () => it.tags.map((t) => ({ label: '# ' + t, run: () => removeTag(ids, t) })) }] : []),
+      { label: 'Turn right  (Ctrl+R)', run: () => rotate(ids, true) },
+      { label: 'Turn left  (Ctrl+Shift+R)', run: () => rotate(ids, false) },
+    ];
+  }
+
+  function marksEditor(chosen) {
+    const ids = chosen.map((x) => x.id);
+    const one = chosen.length === 1 ? chosen[0] : null;
+    const stars = one ? one.rating || 0 : (chosen.every((x) => x.rating === chosen[0].rating) ? chosen[0].rating || 0 : -1);
+    const label = chosen.every((x) => x.label === chosen[0].label) ? chosen[0].label : undefined;
+    const tagSet = [...new Set(chosen.flatMap((x) => x.tags || []))].sort((a, b) => a.localeCompare(b));
+    const input = el('input', { type: 'text', id: 'ginfo-tag', placeholder: '＋ tag', 'aria-label': 'Add a tag', list: 'ginfo-tags-known', spellcheck: 'false' });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && input.value.trim()) { e.preventDefault(); const v = input.value; input.value = ''; addTags(ids, v).then(() => $('#ginfo-tag')?.focus()); }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); input.value = ''; }
+    });
+    return el('div', { class: 'ginfo-marks' },
+      el('div', { class: 'ginfo-stars', role: 'radiogroup', 'aria-label': 'Stars' }, ...[1, 2, 3, 4, 5].map((n) => el('button', {
+        class: 'ginfo-starbtn' + (stars >= n ? ' on' : ''), role: 'radio', 'aria-checked': String(stars === n), 'aria-label': `${n} star${n > 1 ? 's' : ''}`, title: `${n} (key ${n}); click again for none`,
+        onclick: () => setRating(ids, stars === n ? 0 : n) }, '★'))),
+      el('div', { class: 'ginfo-labels', role: 'radiogroup', 'aria-label': 'Colour label' }, ...Object.entries(LABELS).map(([k, v]) => el('button', {
+        class: 'ginfo-labelbtn' + (label === k ? ' on' : ''), 'data-label': k, role: 'radio', 'aria-checked': String(label === k), 'aria-label': v[0], title: v[0] + (v[1] ? ` (key ${v[1]})` : '') + '; click again for none',
+        onclick: () => setLabel(ids, label === k ? null : k) }))),
+      el('div', { class: 'ginfo-tags' },
+        ...tagSet.map((t) => el('span', { class: 'ginfo-tagchip' }, el('button', { class: 'ginfo-tagname', title: 'Show pictures with this tag', onclick: () => { view.source = 'tag:' + t; sel.clear(); load(); } }, '# ' + t),
+          el('button', { class: 'ginfo-tagx', 'aria-label': `Remove the tag ${t}`, title: 'Remove', onclick: () => removeTag(ids, t) }, '×'))),
+        input, el('datalist', { id: 'ginfo-tags-known' }, ...(status.tags || []).map((t) => el('option', { value: t.tag })))),
+      el('div', { class: 'ginfo-turn' },
+        el('button', { class: 'utility-btn', id: 'ginfo-rotl', title: 'Turn left (Ctrl+Shift+R)', onclick: () => rotate(ids, false) }, '⟲ Turn left'),
+        el('button', { class: 'utility-btn', id: 'ginfo-rotr', title: 'Turn right (Ctrl+R): JPEG photos only change their orientation, PNG keeps every pixel', onclick: () => rotate(ids, true) }, '⟳ Turn right')));
   }
 
   async function tileMenu(it, i, x, y) {
@@ -280,6 +418,7 @@ window.NoorGallery = (() => {
       '-',
       { label: 'Put into the note', disabled: many, run: () => insert(it) },
       { label: it.favorite && !many ? 'Not a favourite' : 'Favourite', run: () => setFavorite(ids, !(it.favorite && !many)) },
+      ...markMenu(ids, many ? null : it),
       { label: 'Add to slideshow', sub: () => [
         ...status.slideshows.filter((s) => s.id !== showing).map((s) => ({ label: s.name, run: () => addToSlideshow(s, ids) })),
         ...(status.slideshows.length ? ['-'] : []),
@@ -406,7 +545,7 @@ window.NoorGallery = (() => {
           el('div', { class: 'dup-row' }, ...g.items.map((i) => el('button', {
             class: 'dup-item' + (marked.has(i.id) ? ' marked' : ''), 'data-id': String(i.id), title: `${i.folder}\\${i.fileName}`,
             onclick: () => { if (marked.has(i.id)) marked.delete(i.id); else if (g.items.filter((x) => !marked.has(x.id)).length > 1) marked.add(i.id); else notice('Keep at least one of each group.', 1600); draw(); },
-          }, el('img', { src: '/_thumb/' + i.id, alt: '', loading: 'lazy' }),
+          }, el('img', { src: thumbUrl(i.id), alt: '', loading: 'lazy' }),
           el('span', { class: 'dup-mark', text: marked.has(i.id) ? 'Delete' : 'Keep' }),
           el('small', { text: `${i.album} · ${i.width ? i.width + '×' + i.height + ' · ' : ''}${sizeText(i.size)}` }),
           el('small', { class: 'dup-name', text: i.fileName })))))));
@@ -552,7 +691,34 @@ window.NoorGallery = (() => {
       item('fav', '★ Favourites', null),
       el('div', { class: 'gnav-head' }, el('span', { text: 'Albums' }), el('button', { class: 'icon-btn', id: 'gallery-new-album', title: 'New album (a folder)', 'aria-label': 'New album', onclick: () => newAlbum(null) }, '＋')),
       ...albums.map((a) => item('album:' + a.key, a.name.split('/').pop(), a.count, { depth: a.name.split('/').length - 1, folder: a.folder, title: a.name + ' (right-click to rename)', album: a })),
-      ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []));
+      ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []),
+      ...((status.tags || []).length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Tags' })), ...status.tags.map((t) => item('tag:' + t.tag, '# ' + t.tag, t.count))] : []),
+      ...dateNav(item));
+  }
+
+  /** Years, and the months of the open year (or of the year a month is chosen in). */
+  function dateNav(item) {
+    const years = yearsOf(status.months || []);
+    if (!years.length) return [];
+    const openYear = view.source.startsWith('month:') ? view.source.slice(6, 10) : null;
+    return [el('div', { class: 'gnav-head' }, el('span', { text: 'By date' })),
+      ...years.flatMap((y) => [item('month:' + y.year, y.year, y.count),
+        ...(y.year === openYear ? y.months.map((m) => item('month:' + m.month, monthName(m.month, true), m.count, { depth: 1 })) : [])])];
+  }
+
+  function yearsOf(months) {
+    const by = new Map();
+    for (const m of months) {
+      const y = m.month.slice(0, 4);
+      if (!by.has(y)) by.set(y, { year: y, count: 0, months: [] });
+      const e = by.get(y); e.count += m.count; e.months.push(m);
+    }
+    return [...by.values()];
+  }
+
+  function monthName(ym, short) {
+    const [y, m] = ym.split('-').map(Number);
+    try { return new Date(y, m - 1, 1).toLocaleDateString(undefined, short ? { month: 'long' } : { month: 'long', year: 'numeric' }); } catch { return ym; }
   }
 
   function renderInfo() {
@@ -581,8 +747,9 @@ window.NoorGallery = (() => {
       name.addEventListener('blur', commit);
       const i = items.indexOf(it);
       box.replaceChildren(
-        el('button', { class: 'ginfo-preview', title: 'Open (Enter)', onclick: () => openViewer(i) }, el('img', { src: '/_thumb/' + it.id, alt: it.name })),
+        el('button', { class: 'ginfo-preview', title: 'Open (Enter)', onclick: () => openViewer(i) }, el('img', { src: thumbUrl(it.id), alt: it.name })),
         el('label', { class: 'ginfo-field' }, el('span', { text: 'Name' }), name),
+        marksEditor([it]),
         el('dl', { class: 'ginfo-facts' },
           el('dt', { text: 'Album' }), el('dd', { text: it.album }),
           el('dt', { text: 'Taken' }), el('dd', { text: dateText(it.taken) }),
@@ -600,9 +767,10 @@ window.NoorGallery = (() => {
     }
     const ids = chosen.map((x) => x.id);
     box.replaceChildren(
-      el('div', { class: 'ginfo-stack' }, ...chosen.slice(0, 4).map((x) => el('img', { src: '/_thumb/' + x.id, alt: '' }))),
+      el('div', { class: 'ginfo-stack' }, ...chosen.slice(0, 4).map((x) => el('img', { src: thumbUrl(x.id), alt: '' }))),
       el('strong', { class: 'ginfo-count', text: `${chosen.length} pictures selected` }),
       el('small', { class: 'ginfo-sub', text: sizeText(chosen.reduce((t, x) => t + (x.size || 0), 0)) }),
+      marksEditor(chosen),
       el('div', { class: 'ginfo-actions' },
         el('button', { class: 'utility-btn', onclick: () => slideshowSetup(null, ids, 0) }, '▶ Slideshow'),
         el('button', { class: 'utility-btn', onclick: () => setFavorite(ids, true) }, '★ Favourites'),
@@ -723,8 +891,10 @@ window.NoorGallery = (() => {
       el('button', { class: 'gv-nav gv-prev', 'aria-label': 'Previous picture (←)', title: 'Previous (←)', onclick: () => step(-1) }, '‹'),
       el('button', { class: 'gv-nav gv-next', 'aria-label': 'Next picture (→)', title: 'Next (→)', onclick: () => step(1) }, '›'),
       el('div', { class: 'gv-bar' },
-        el('div', { class: 'gv-info' }, el('strong', { id: 'gv-name' }), el('span', { id: 'gv-meta' })),
+        el('div', { class: 'gv-info' }, el('strong', { id: 'gv-name' }), el('span', { id: 'gv-meta' }), el('span', { id: 'gv-marks', class: 'gv-marks' })),
         el('div', { class: 'gv-actions' },
+          el('button', { class: 'gv-btn', id: 'gv-rotl', title: 'Turn left (Ctrl+Shift+R)', 'aria-label': 'Turn left', onclick: () => rotate([viewer.list[viewer.index].id], false) }, '⟲'),
+          el('button', { class: 'gv-btn', id: 'gv-rotr', title: 'Turn right (Ctrl+R)', 'aria-label': 'Turn right', onclick: () => rotate([viewer.list[viewer.index].id], true) }, '⟳'),
           el('button', { class: 'gv-btn', id: 'gv-fav', title: 'Favourite (F)', onclick: () => { const it = viewer.list[viewer.index]; setFavorite([it.id], !it.favorite); } }, '★'),
           el('button', { class: 'gv-btn', id: 'gv-insert', title: 'Put into the note (I)', onclick: () => insert(viewer.list[viewer.index]) }, '⤓ Into note'),
           el('button', { class: 'gv-btn', title: 'Show in Explorer', onclick: () => req('gallery.reveal', { id: viewer.list[viewer.index].id }).catch(hooks.showError) }, '📁'),
@@ -741,7 +911,10 @@ window.NoorGallery = (() => {
       else if (k.toLowerCase() === 'f' && !e.ctrlKey) { e.preventDefault(); $('#gv-fav').click(); }
       else if (k.toLowerCase() === 'i' && !e.ctrlKey) { e.preventDefault(); $('#gv-insert').click(); }
       else if (k.toLowerCase() === 's' && !e.ctrlKey) { e.preventDefault(); $('#gv-show').click(); }
-      else if (k === '0' || k === '1') { e.preventDefault(); setZoom(k === '1' ? naturalZoom() : 1); }
+      else if (k.toLowerCase() === 'z' && !e.ctrlKey) { e.preventDefault(); setZoom(viewer.zoom > 1.01 ? 1 : naturalZoom()); }
+      else if (/^[0-9]$/.test(k) && !e.ctrlKey && !e.altKey) { e.preventDefault(); markKey([viewer.list[viewer.index].id], Number(k)); }
+      else if (k.toLowerCase() === 'r' && e.ctrlKey) { e.preventDefault(); rotate([viewer.list[viewer.index].id], !e.shiftKey); }
+      else if (k.toLowerCase() === 't' && !e.ctrlKey) { e.preventDefault(); addTags([viewer.list[viewer.index].id]); }
       else if (k === '+' || k === '=') { e.preventDefault(); setZoom(viewer.zoom * 1.25); }
       else if (k === '-') { e.preventDefault(); setZoom(viewer.zoom / 1.25); }
     });
@@ -795,15 +968,27 @@ window.NoorGallery = (() => {
       $('#gv-stage').append(el('div', { class: 'gv-nopreview', id: 'gv-nopreview' }, el('b', { text: it.format }), el('p', { text: 'Windows has no preview for this file here. Open it in its program:' }),
         el('button', { class: 'gv-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…')));
     };
-    img.src = '/_img/' + it.id;
+    img.src = imgUrl(it.id);
     img.alt = it.name;
     $('#gv-name').textContent = it.name + (it.web === false ? ` (${it.format})` : '');
     $('#gv-meta').textContent = [`${viewer.index + 1} / ${viewer.list.length}`, it.album, dateText(it.taken), it.width ? `${it.width} × ${it.height}` : '', sizeText(it.size)].filter(Boolean).join(' · ');
     $('#gv-fav').classList.toggle('on', !!it.favorite);
     $('#gv-fav').setAttribute('aria-pressed', String(!!it.favorite));
+    renderViewerMarks();
     // The next picture loads while you look at this one.
     const next = viewer.list[(viewer.index + 1) % viewer.list.length];
-    if (next && next !== it) { const pre = new Image(); pre.src = '/_img/' + next.id; }
+    if (next && next !== it) { const pre = new Image(); pre.src = imgUrl(next.id); }
+  }
+
+  /** Stars, colour label and tags of the picture in the viewer (keys 0–9 and T change them). */
+  function renderViewerMarks() {
+    const it = viewer.list[viewer.index];
+    const box = $('#gv-marks');
+    if (!it || !box) return;
+    box.replaceChildren(
+      ...(it.rating ? [el('span', { class: 'gv-stars', title: `${it.rating} star${it.rating > 1 ? 's' : ''}`, text: '★'.repeat(it.rating) })] : []),
+      ...(it.label ? [el('span', { class: 'gallery-label inline', 'data-label': it.label, title: LABELS[it.label]?.[0] || it.label })] : []),
+      ...(it.tags || []).map((t) => el('span', { class: 'gv-tag', text: '# ' + t })));
   }
 
   // ---------------------------------------------------------------- slideshow player
@@ -962,11 +1147,11 @@ window.NoorGallery = (() => {
       schedule();
       // The next one loads in the background, so the change is smooth.
       const n = show.list[show.order[(show.pos + 1) % show.order.length]];
-      if (n) { const pre = new Image(); pre.src = '/_img/' + n.id; }
+      if (n) { const pre = new Image(); pre.src = imgUrl(n.id); }
     };
     img.onload = reveal;
     img.onerror = reveal; // a picture that can't be shown is skipped by time, not stuck on
-    img.src = '/_img/' + it.id;
+    img.src = imgUrl(it.id);
     img.alt = it.name;
   }
 

@@ -197,6 +197,7 @@ public partial class MainWindow
         folders = Gallery.Folders(), count = Gallery.Count(), albums = Gallery.Albums().Select(AlbumForPage),
         slideshows = Gallery.Slideshows().Select(SlideshowForPage), scanning = _galleryScan is { IsCompleted: false },
         formats = Gallery.Formats().Select(f => new { format = f.Format, count = f.Count }), editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }),
+        tags = Gallery.Tags().Select(t => new { tag = t.Tag, count = t.Count }), months = Gallery.Months().Select(m => new { month = m.Month, count = m.Count }), labels = GalleryLibrary.Labels,
     };
 
     // ------------------------------------------------------------------ editing programs ("Open in Affinity Photo")
@@ -260,7 +261,8 @@ public partial class MainWindow
                 case "gallery.query":
                 {
                     var q = new GalleryQuery(req.GetString("search", 200), req.GetString("filter", 20) ?? "all", req.GetString("album", 2000),
-                        NoorMD.Core.Bridge.Json.OptLong(p, "slideshow"), req.GetString("sort", 20) ?? "taken", !p.TryGetProperty("descending", out var d) || d.ValueKind != JsonValueKind.False, Format: req.GetString("format", 20));
+                        NoorMD.Core.Bridge.Json.OptLong(p, "slideshow"), req.GetString("sort", 20) ?? "taken", !p.TryGetProperty("descending", out var d) || d.ValueKind != JsonValueKind.False, Format: req.GetString("format", 20),
+                        MinRating: (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "minRating") ?? 0), Label: req.GetString("label", 20), Tag: req.GetString("tag", 80), Month: req.GetString("month", 7));
                     return Gallery.Query(q).Select(ImageForPage);
                 }
                 case "gallery.addFolder":
@@ -459,6 +461,39 @@ public partial class MainWindow
                     });
                     return groups.Select(g => new { kind = g.Kind, items = g.Items.OrderByDescending(i => i.Width * (long)i.Height).ThenByDescending(i => i.Size).Select(ImageForPage) });
                 }
+                case "gallery.rating":
+                    Gallery.SetRating(Ids(p, "ids"), (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "stars") ?? 0));
+                    return null;
+                case "gallery.label":
+                    Gallery.SetLabel(Ids(p, "ids"), req.GetString("label", 20));
+                    return null;
+                case "gallery.tags.add":
+                {
+                    var tags = p.TryGetProperty("tags", out var ta) && ta.ValueKind == JsonValueKind.Array
+                        ? ta.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).Take(20).ToList() : [];
+                    Gallery.AddTags(Ids(p, "ids"), tags);
+                    return new { status = GalleryStatus(), images = Ids(p, "ids").Select(Gallery.Get).OfType<GalleryImage>().Select(ImageForPage) };
+                }
+                case "gallery.tags.remove":
+                    Gallery.RemoveTag(Ids(p, "ids"), req.GetString("tag", 80) ?? "");
+                    return new { status = GalleryStatus(), images = Ids(p, "ids").Select(Gallery.Get).OfType<GalleryImage>().Select(ImageForPage) };
+                case "gallery.rotate":
+                {
+                    var clockwise = !p.TryGetProperty("clockwise", out var cw) || cw.ValueKind != JsonValueKind.False;
+                    var turned = new List<object>();
+                    var refused = new List<string>();
+                    foreach (var id in Ids(p, "ids").Take(500))
+                    {
+                        var img = Gallery.Get(id);
+                        if (img == null || !File.Exists(img.Path)) continue;
+                        try { await Task.Run(() => TurnPicture(img.Path, clockwise)); }
+                        catch (Exception ex) when (ex is ArgumentException or IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException)
+                        { refused.Add($"{Path.GetFileName(img.Path)}: {ex.Message}"); continue; }
+                        if (Gallery.Refresh(id) is { } now) turned.Add(ImageForPage(now));
+                    }
+                    if (turned.Count == 0 && refused.Count > 0) throw new BridgeError(refused[0]);
+                    return new { images = turned, refused };
+                }
                 case "gallery.session.get": return Gallery.GetState("session");
                 case "gallery.session.save":
                 {
@@ -499,10 +534,37 @@ public partial class MainWindow
         finally { _galleryScanGate.Release(); }
     }
 
+    /// <summary>
+    /// Turns a picture a quarter turn without losing anything: a JPEG through its EXIF orientation (the picture data is not
+    /// touched); PNG, BMP and TIFF are saved again, which keeps every pixel. Other formats are refused.
+    /// </summary>
+    private static void TurnPicture(string path, bool clockwise)
+    {
+        if (PictureRotate.CanRotateLosslessly(path)) { PictureRotate.Jpeg(path, clockwise); return; }
+        BitmapEncoder enc = Path.GetExtension(path).ToLowerInvariant() switch
+        {
+            ".png" => new PngBitmapEncoder(),
+            ".bmp" => new BmpBitmapEncoder(),
+            ".tif" or ".tiff" => new TiffBitmapEncoder(),
+            _ => throw new ArgumentException("This format can't be turned here; turn it in your picture editor."),
+        };
+        BitmapFrame frame;
+        using (var ms = new MemoryStream(File.ReadAllBytes(path)))
+        {
+            var dec = BitmapDecoder.Create(ms, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);
+            if (dec.Frames.Count != 1) throw new ArgumentException("Pictures with several pages can't be turned here.");
+            frame = dec.Frames[0];
+        }
+        var rotated = new TransformedBitmap(frame, new System.Windows.Media.RotateTransform(clockwise ? 90 : 270));
+        rotated.Freeze();
+        Write(path, enc, rotated);
+    }
+
     private static object ImageForPage(GalleryImage i) => new
     {
         id = i.Id, name = i.Name, album = i.Album, albumKey = i.AlbumKey, size = i.Size, width = i.Width, height = i.Height,
         taken = i.TakenUtc, favorite = i.Favorite, fileName = Path.GetFileName(i.Path), folder = Path.GetDirectoryName(i.Path), format = i.Format, web = ImageFormats.IsWeb(i.Path),
+        rating = i.Rating, label = i.Label, tags = i.Tags ?? [],
     };
 
     private static object AlbumForPage(GalleryAlbum a) => new { key = a.Key, name = a.Name, folder = a.Folder, count = a.Count, coverId = a.CoverId, latest = a.LatestUtc };

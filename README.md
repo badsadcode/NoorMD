@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.21-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.22-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -113,6 +113,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   albums by dragging, new albums, delete to the Recycle Bin, and Ctrl+Z to undo a rename or move.
   It shows work files too (PSD, Affinity, TIFF, HEIC) with their previews, opens pictures in your editor
   (right-click › Open in), copies or moves them to any folder, packs them into a ZIP, and finds duplicates.
+  Give pictures stars (keys 1–5), colour labels (6–9) and tags, browse them by tag or by year and month,
+  and turn them (Ctrl+R; JPEG photos without any loss).
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
 - **Apps Hub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
@@ -164,8 +166,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.21-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.21-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.22-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.22-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

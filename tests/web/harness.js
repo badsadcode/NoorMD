@@ -483,14 +483,14 @@ function mockHostScript(initial) {
   const VOICE = { armed: 0, saved: [], uploads: {}, recordings: [] };
   state.voice = VOICE;
   // ---- mock Gallery: initial.gallery = number of pictures (in albums "Lato" and "Zima"); slideshows and favourites like GalleryLibrary.
-  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null, renamedAlbums: [], copies: [], movedOut: [], zips: [], editors: [{ name: 'Krita', detected: true }], opened: [] };
+  const GAL = { folders: [], images: [], slideshows: [], next: 1, inserted: [], revealed: [], session: null, scans: 0, extraAlbums: [], moves: [], deleted: [], last: null, renamedAlbums: [], copies: [], movedOut: [], zips: [], editors: [{ name: 'Krita', detected: true }], opened: [], rotations: [] };
   state.gallery = GAL;
   function galAdd(n) {
     for (let i = 0; i < n; i++) {
       const id = GAL.next++;
       const album = i % 3 === 2 ? 'Zima' : 'Lato';
       const psd = id % 5 === 0;
-      GAL.images.push({ id, name: `Zdjęcie ${String(id).padStart(3, '0')}`, album, albumKey: 'c:\\pics\\' + album.toLowerCase(), size: 120000 + id, width: 64, height: 48, taken: new Date(Date.UTC(2023, 0, 1) + id * 86400000).toISOString(), favorite: false, fileName: `IMG_${id}.${psd ? 'psd' : 'jpg'}`, folder: 'C:\\Pics\\' + album, format: psd ? 'PSD' : 'JPG', web: !psd });
+      GAL.images.push({ id, name: `Zdjęcie ${String(id).padStart(3, '0')}`, album, albumKey: 'c:\\pics\\' + album.toLowerCase(), size: 120000 + id, width: 64, height: 48, taken: new Date(Date.UTC(2023, 0, 1) + id * 86400000).toISOString(), favorite: false, fileName: `IMG_${id}.${psd ? 'psd' : 'jpg'}`, folder: 'C:\\Pics\\' + album, format: psd ? 'PSD' : 'JPG', web: !psd, rating: 0, label: null, tags: [] });
     }
   }
   if (initial.gallery) { GAL.folders.push({ id: 1, path: 'C:\\Pics', count: initial.gallery }); galAdd(initial.gallery); }
@@ -498,7 +498,10 @@ function mockHostScript(initial) {
     const status = () => {
       const albums = [...new Set(GAL.images.map((i) => i.albumKey))].map((k) => { const list = GAL.images.filter((i) => i.albumKey === k); return { key: k, name: list[0].album, folder: list[0].folder, count: list.length, coverId: list[0].id }; });
       const formats = [...new Set(GAL.images.map((i) => i.format))].map((f) => ({ format: f, count: GAL.images.filter((i) => i.format === f).length }));
-      return { folders: GAL.folders.map((f) => ({ ...f, count: GAL.images.length })), count: GAL.images.length, albums, slideshows: GAL.slideshows.map((s) => ({ id: s.id, name: s.name, count: s.ids.length, settings: s.settings })), scanning: false, formats, editors: GAL.editors.map((e) => ({ ...e })) };
+      return { folders: GAL.folders.map((f) => ({ ...f, count: GAL.images.length })), count: GAL.images.length, albums, slideshows: GAL.slideshows.map((s) => ({ id: s.id, name: s.name, count: s.ids.length, settings: s.settings })), scanning: false, formats, editors: GAL.editors.map((e) => ({ ...e })),
+        tags: [...new Set(GAL.images.flatMap((i) => i.tags))].sort((a, b) => a.localeCompare(b)).map((t) => ({ tag: t, count: GAL.images.filter((i) => i.tags.includes(t)).length })),
+        months: [...new Set(GAL.images.map((i) => i.taken.slice(0, 7)))].sort().reverse().map((m) => ({ month: m, count: GAL.images.filter((i) => i.taken.startsWith(m)).length })),
+        labels: ['red', 'orange', 'yellow', 'green', 'blue', 'purple'] };
     };
     const get = (id) => GAL.images.find((i) => i.id === id) || (() => { throw new Error('That picture is no longer in the Gallery.'); })();
     const show = (id) => GAL.slideshows.find((s) => s.id === id) || (() => { throw new Error('That slideshow is gone.'); })();
@@ -506,9 +509,10 @@ function mockHostScript(initial) {
       case 'gallery.status': return status();
       case 'gallery.query': {
         if (p.slideshow) return show(p.slideshow).ids.map(get).map((i) => ({ ...i }));
-        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album) && (!p.format || i.format === p.format));
+        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album) && (!p.format || i.format === p.format)
+          && (i.rating || 0) >= (p.minRating || 0) && (!p.label || i.label === p.label) && (!p.tag || i.tags.some((t) => t.toLowerCase() === p.tag.toLowerCase())) && (!p.month || i.taken.startsWith(p.month)));
         if (p.search) { const t = p.search.toLowerCase(); list = list.filter((i) => (i.name + ' ' + i.album).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').includes(t)); }
-        const key = p.sort === 'name' ? (i) => i.name : p.sort === 'type' ? (i) => i.format + i.name : p.sort === 'size' ? (i) => String(i.size).padStart(12, '0') : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : (i) => i.taken;
+        const key = p.sort === 'name' ? (i) => i.name : p.sort === 'type' ? (i) => i.format + i.name : p.sort === 'size' ? (i) => String(i.size).padStart(12, '0') : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : p.sort === 'rating' ? (i) => String(i.rating || 0) + i.taken : (i) => i.taken;
         list.sort((a, b) => key(a).localeCompare(key(b)) * (p.descending ? -1 : 1));
         return list.map((i) => ({ ...i }));
       }
@@ -539,6 +543,17 @@ function mockHostScript(initial) {
       case 'gallery.editor.remove': GAL.editors.splice(p.index, 1); return { editors: GAL.editors };
       case 'gallery.openWith': GAL.opened.push({ ids: [...p.ids], how: p.how, editor: p.editor }); return null;
       case 'gallery.duplicates': { const by = new Map(); GAL.images.forEach((i) => { const k = i.id % 4; by.set(k, [...(by.get(k) || []), i]); }); return [...by.values()].filter((g) => g.length > 1).slice(0, 2).map((g) => ({ kind: 'same', items: g.slice(0, 3).map((i) => ({ ...i })) })); }
+      case 'gallery.rating': p.ids.forEach((id) => { get(id).rating = Math.max(0, Math.min(5, p.stars)); }); return null;
+      case 'gallery.label': if (p.label && !['red', 'orange', 'yellow', 'green', 'blue', 'purple'].includes(p.label)) throw new Error('Unknown colour label.'); p.ids.forEach((id) => { get(id).label = p.label || null; }); return null;
+      case 'gallery.tags.add': p.ids.forEach((id) => { const i = get(id); p.tags.forEach((t) => { const known = GAL.images.flatMap((x) => x.tags).find((x) => x.toLowerCase() === t.toLowerCase()) || t; if (!i.tags.some((x) => x.toLowerCase() === t.toLowerCase())) i.tags.push(known); }); }); return { status: status(), images: p.ids.map(get).map((i) => ({ ...i, tags: [...i.tags] })) };
+      case 'gallery.tags.remove': p.ids.forEach((id) => { const i = get(id); i.tags = i.tags.filter((x) => x.toLowerCase() !== p.tag.toLowerCase()); }); return { status: status(), images: p.ids.map(get).map((i) => ({ ...i, tags: [...i.tags] })) };
+      case 'gallery.rotate': {
+        const ok = p.ids.map(get).filter((i) => i.format !== 'PSD');
+        const refused = p.ids.map(get).filter((i) => i.format === 'PSD').map((i) => `${i.fileName}: This format can't be turned here; turn it in your picture editor.`);
+        if (!ok.length && refused.length) throw new Error(refused[0]);
+        ok.forEach((i) => { [i.width, i.height] = [i.height, i.width]; GAL.rotations.push({ id: i.id, clockwise: p.clockwise !== false }); });
+        return { images: ok.map((i) => ({ ...i, tags: [...i.tags] })), refused };
+      }
       case 'gallery.session.get': return GAL.session;
       case 'gallery.session.save': GAL.session = p.state; return null;
       default: return null;

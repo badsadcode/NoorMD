@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-preview.22 — Picture tools: stars, colour labels, tags, dates, turning
+
+- **Stars and colour labels.** Give pictures 1–5 stars with the keys 1–5 (0 takes them away), or with the
+  stars in the details panel. Keys 6–9 give a colour label: red, yellow, green, blue (the same key again
+  takes it off). Orange and purple are in the panel and the right-click menu. Stars and labels show on the
+  pictures, and *Any stars or label* next to the formats shows only, say, ★★★ or more, or the green ones.
+  There is also a new order: *Most stars first*.
+- **Tags on pictures.** Type tags in the details panel (several at once, separated by commas), or press T.
+  Tags work across albums ("Thornwake", "reference", "textures"). They are listed on the left. Click one to
+  see its pictures. A tag keeps the way you first wrote it, and the search finds tags too.
+- **By date.** The left side lists the years you have pictures from. Click a year to see it and its
+  months, then a month.
+- **Turning pictures.** ⟳ / ⟲ in the details panel and the viewer, Ctrl+R / Ctrl+Shift+R, or the right-click
+  menu. JPEG photos are turned the lossless way, like cameras and Windows do: only their orientation
+  changes, never the picture. PNG, BMP and TIFF are saved again with every pixel kept. Other formats (PSD,
+  Affinity…) are left to their own program.
+- **Sizes of turned photos.** Photos a camera stored sideways now show their size as you see them
+  (portrait 3000 × 4000, not 4000 × 3000).
+- **The viewer** shows a picture's stars, label and tags, and takes the same keys. *Fit / actual size*
+  moved from 0 and 1 to Z, because the number keys now give stars.
+- **Fix: thumbnails from Windows** (Affinity, Photoshop with its plug-in) are read the way Windows stores
+  them, so they are always the right way up.
+
 ## 2.0.0-preview.21 — Affinity previews the right way up
 
 - **Fix: Affinity Photo files showed upside down and mirrored** in the Gallery (previews and the viewer).

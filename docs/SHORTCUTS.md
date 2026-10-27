@@ -90,6 +90,24 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Mic Guard indicator: mute / unmute · move · menu | click · drag · right-click |
 | Close | Esc |
 
+### Gallery
+
+| Action | Shortcut |
+|---|---|
+| Open the Gallery | Ctrl+Alt+G |
+| Open the chosen picture | Enter or double-click |
+| Choose several | Ctrl+click · Shift+click · Ctrl+A |
+| Stars: none / 1–5 | 0 / 1–5 |
+| Colour label: red / yellow / green / blue (again: off) | 6 / 7 / 8 / 9 |
+| Add tags | T |
+| Turn right / left | Ctrl+R / Ctrl+Shift+R |
+| Favourite | F |
+| Rename (several: a numbered series) | F2 |
+| Delete (to the Recycle Bin) | Delete |
+| Undo the last rename or move | Ctrl+Z |
+| In the viewer: previous / next · fit or actual size · zoom | ← / → · Z · + / − or the wheel |
+| In the viewer: put into the note · slideshow from here · close | I · S · Esc |
+
 Mouse and keyboard extras:
 
 - **Split divider:** drag it, double-click to reset it to 50/50, or focus it with Tab and

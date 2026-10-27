@@ -1293,3 +1293,64 @@ public class GalleryManagerTests
         Assert.False(File.Exists(zip + ".noormd-tmp"));
     }
 }
+
+public class GalleryOrganizingTests
+{
+    [Fact]
+    public void Stars_Labels_Tags_And_Months_Filter_The_Gallery()
+    {
+        using var t = new TempDir();
+        t.Copy("photo-exif.jpg", "P", "plaza.jpg");
+        t.Copy("plain.png", "P", "mapa.png");
+        t.Copy("plain.png", "P", "szkic.png");
+        var lib = new GalleryLibrary(t.P("g.db"));
+        lib.Scan(lib.AddFolder(t.P("P")));
+        var all = lib.Query(new GalleryQuery(Sort: "name", Descending: false));
+        var (mapa, plaza, szkic) = (all[0], all[1], all[2]);
+        lib.SetRating([plaza.Id], 5);
+        lib.SetRating([mapa.Id, szkic.Id], 3);
+        lib.SetRating([szkic.Id], 9); // clamped to 5
+        lib.SetLabel([mapa.Id], "Green");
+        Assert.ThrowsAny<ArgumentException>(() => lib.SetLabel([mapa.Id], "pink"));
+        lib.AddTags([plaza.Id, mapa.Id], ["#Thornwake", "referencja"]);
+        lib.AddTags([szkic.Id], ["thornwake"]); // same tag, written the first way
+        Assert.Equal([("referencja", 2), ("Thornwake", 3)], lib.Tags());
+        Assert.Equal(["plaza", "szkic"], lib.Query(new GalleryQuery(MinRating: 5, Sort: "name", Descending: false)).Select(i => i.Name));
+        Assert.Equal(["mapa"], lib.Query(new GalleryQuery(Label: "green")).Select(i => i.Name));
+        Assert.Equal(["mapa", "plaza"], lib.Query(new GalleryQuery(Tag: "REFERENCJA", Sort: "name", Descending: false)).Select(i => i.Name));
+        Assert.Equal(2, lib.Query(new GalleryQuery(Search: "referencja")).Count); // tags are searchable
+        Assert.Equal("mapa", lib.Query(new GalleryQuery(Sort: "rating")).Last().Name); // 3 stars after two with 5
+        var got = lib.Get(mapa.Id)!;
+        Assert.Equal((3, "green"), (got.Rating, got.Label));
+        Assert.Equal(["referencja", "Thornwake"], got.Tags);
+        lib.RemoveTag([mapa.Id], "thornwake");
+        Assert.Equal(["referencja"], lib.Get(mapa.Id)!.Tags);
+        Assert.Contains(lib.Months(), m => m.Month == "2023-07" && m.Count == 1); // the EXIF date
+        Assert.Equal(["plaza"], lib.Query(new GalleryQuery(Month: "2023")).Select(i => i.Name));
+        // An older library (before stars and tags) opens and gets the new columns.
+        Assert.Equal(5, new GalleryLibrary(t.P("g.db")).Get(plaza.Id)!.Rating);
+    }
+
+    [Fact]
+    public void Jpeg_Photos_Turn_By_Their_Orientation_Without_Touching_The_Picture()
+    {
+        using var t = new TempDir();
+        var f = t.Copy("photo-exif.jpg", "a.jpg");
+        Assert.Equal(1, PictureRotate.Orientation(f));
+        Assert.Equal(6, PictureRotate.Jpeg(f, clockwise: true));
+        Assert.Equal(6, PictureRotate.Orientation(f));
+        Assert.Equal(3, PictureRotate.Jpeg(f, clockwise: true));
+        Assert.Equal(6, PictureRotate.Jpeg(f, clockwise: false));
+        Assert.Equal(1, PictureRotate.Jpeg(f, clockwise: false));
+        Assert.Equal(new DateTime(2023, 7, 14, 18, 30, 5), GalleryLibrary.ReadInfo(f, DateTime.UtcNow).TakenUtc.ToLocalTime()); // other EXIF kept
+        Assert.False(PictureRotate.CanRotateLosslessly("x.png"));
+        // The Gallery reads the size again after a turn: width and height swap.
+        var lib = new GalleryLibrary(t.P("g.db"));
+        lib.Scan(lib.AddFolder(Path.GetDirectoryName(f)!));
+        var img = lib.Query(new GalleryQuery()).Single();
+        PictureRotate.Jpeg(f, clockwise: true);
+        var turned = lib.Refresh(img.Id)!;
+        Assert.Equal((img.Height, img.Width), (turned.Width, turned.Height));
+    }
+}
+

@@ -83,8 +83,10 @@ public static class PsdPreview
 }
 
 public sealed record GalleryImage(long Id, string Path, string Name, string Album, string AlbumKey, long Size, int Width, int Height,
-    DateTime TakenUtc, bool Favorite, bool Missing)
+    DateTime TakenUtc, bool Favorite, bool Missing, int Rating = 0, string? Label = null, IReadOnlyList<string>? Tags = null)
 {
+    /// <summary>The month it was taken, in local time ("2023-07"), for the date view.</summary>
+    public string Month => TakenUtc.ToLocalTime().ToString("yyyy-MM", CultureInfo.InvariantCulture);
     public string Format => ImageFormats.Format(Path);
 }
 
@@ -95,7 +97,12 @@ public sealed record Slideshow(long Id, string Name, int Count, string Settings,
 /// <param name="Filter">"all" or "favorites".</param>
 /// <param name="Sort">"taken" (date taken), "name", "added", "type" (format, then name) or "size".</param>
 /// <param name="Format">Only one format ("JPG", "PSD"…), or null for all.</param>
-public sealed record GalleryQuery(string? Search = null, string Filter = "all", string? AlbumKey = null, long? SlideshowId = null, string Sort = "taken", bool Descending = true, int Limit = 5000, string? Format = null);
+/// <param name="MinRating">Only pictures with at least this many stars (0 = all).</param>
+/// <param name="Label">Only one colour label ("red", "green"…).</param>
+/// <param name="Tag">Only pictures with this tag.</param>
+/// <param name="Month">Only pictures taken in this month ("2023-07") or year ("2023").</param>
+public sealed record GalleryQuery(string? Search = null, string Filter = "all", string? AlbumKey = null, long? SlideshowId = null, string Sort = "taken", bool Descending = true, int Limit = 5000, string? Format = null,
+    int MinRating = 0, string? Label = null, string? Tag = null, string? Month = null);
 
 /// <summary>
 /// The Gallery: pictures in the folders you add (subfolders are albums), indexed in a local database with the size and
@@ -124,8 +131,20 @@ public sealed class GalleryLibrary
             CREATE TABLE IF NOT EXISTS slideshows (id INTEGER PRIMARY KEY, name TEXT NOT NULL, settings TEXT NOT NULL DEFAULT '{}', created TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS slideshow_items (slideshow_id INTEGER NOT NULL, position INTEGER NOT NULL, image_id INTEGER NOT NULL, PRIMARY KEY (slideshow_id, position));
             CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS image_tags (image_id INTEGER NOT NULL, tag TEXT NOT NULL, tag_key TEXT NOT NULL, PRIMARY KEY (image_id, tag_key));
+            CREATE INDEX IF NOT EXISTS ix_image_tags_key ON image_tags(tag_key);
             """);
+        // Added in preview.22: stars and colour labels (older libraries get the columns now).
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using (var info = Cmd(c, "PRAGMA table_info(images)"))
+        using (var r = info.ExecuteReader())
+            while (r.Read()) columns.Add(r.GetString(1));
+        if (!columns.Contains("rating")) Exec(c, "ALTER TABLE images ADD COLUMN rating INTEGER NOT NULL DEFAULT 0");
+        if (!columns.Contains("label")) Exec(c, "ALTER TABLE images ADD COLUMN label TEXT");
     }
+
+    /// <summary>Colour labels, as in photo tools.</summary>
+    public static readonly string[] Labels = ["red", "orange", "yellow", "green", "blue", "purple"];
 
     private SqliteConnection Open() { var c = new SqliteConnection(_cs); c.Open(); return c; }
     private static void Exec(SqliteConnection c, string sql, SqliteTransaction? tx = null) { using var cmd = c.CreateCommand(); cmd.Transaction = tx; cmd.CommandText = sql; cmd.ExecuteNonQuery(); }
@@ -261,6 +280,8 @@ public sealed class GalleryLibrary
             using var tf = TagLib.File.Create(path, TagLib.ReadStyle.Average);
             var w = tf.Properties?.PhotoWidth ?? 0;
             var h = tf.Properties?.PhotoHeight ?? 0;
+            // Turned by its EXIF orientation (5–8: a quarter turn): the size as it is shown.
+            if ((int)((tf as TagLib.Image.File)?.ImageTag?.Orientation ?? 0) is >= 5 and <= 8) (w, h) = (h, w);
             DateTime? taken = (tf.Tag as TagLib.Image.CombinedImageTag)?.DateTime;
             // EXIF dates have no time zone: they are the camera's local time.
             var utc = taken is { } t && t.Year > 1900 ? DateTime.SpecifyKind(t, DateTimeKind.Local).ToUniversalTime() : fileDateUtc;
@@ -271,10 +292,11 @@ public sealed class GalleryLibrary
 
     // ------------------------------------------------------------------ browsing
 
-    private const string Cols = "i.id, i.path, i.name, i.album, i.album_key, i.size, i.width, i.height, i.taken, i.favorite, i.missing";
+    private const string Cols = "i.id, i.path, i.name, i.album, i.album_key, i.size, i.width, i.height, i.taken, i.favorite, i.missing, i.rating, i.label, (SELECT group_concat(t.tag, char(31)) FROM image_tags t WHERE t.image_id = i.id)";
 
     private static GalleryImage Read(SqliteDataReader r) => new(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4),
-        r.GetInt64(5), r.GetInt32(6), r.GetInt32(7), ParseIso(r.GetString(8)), r.GetInt64(9) == 1, r.GetInt64(10) == 1);
+        r.GetInt64(5), r.GetInt32(6), r.GetInt32(7), ParseIso(r.GetString(8)), r.GetInt64(9) == 1, r.GetInt64(10) == 1,
+        r.GetInt32(11), r.IsDBNull(12) ? null : r.GetString(12), r.IsDBNull(13) ? [] : r.GetString(13).Split('\u001f').OrderBy(x => x, StringComparer.CurrentCultureIgnoreCase).ToList());
 
     private List<GalleryImage> Rows(string sql, params (string, object?)[] args)
     {
@@ -322,17 +344,107 @@ public sealed class GalleryLibrary
         var args = new List<(string, object?)>();
         if (q.Filter == "favorites") where.Add("i.favorite = 1");
         if (!string.IsNullOrEmpty(q.AlbumKey)) { where.Add("i.album_key = $ak"); args.Add(("$ak", q.AlbumKey)); }
-        var order = q.Sort switch { "name" or "type" => "lower(i.name)", "added" => "i.added", "size" => "i.size", _ => "i.taken" } + (q.Descending ? " DESC" : "") + ", i.id";
+        if (q.MinRating > 0) { where.Add("i.rating >= $mr"); args.Add(("$mr", q.MinRating)); }
+        if (!string.IsNullOrEmpty(q.Label)) { where.Add("i.label = $lb"); args.Add(("$lb", q.Label)); }
+        if (!string.IsNullOrWhiteSpace(q.Tag)) { where.Add("EXISTS (SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.tag_key = $tg)"); args.Add(("$tg", TagKey(q.Tag))); }
+        var order = q.Sort switch { "name" or "type" => "lower(i.name)", "added" => "i.added", "size" => "i.size", "rating" => "i.rating", _ => "i.taken" } + (q.Descending ? " DESC" : "") + (q.Sort == "rating" ? ", i.taken DESC" : "") + ", i.id";
         var rows = Rows($"SELECT {Cols} FROM images i WHERE {string.Join(" AND ", where)} ORDER BY {order}", [.. args]);
+        if (!string.IsNullOrWhiteSpace(q.Month)) rows = rows.Where(i => i.Month.StartsWith(q.Month, StringComparison.Ordinal)).ToList();
         if (!string.IsNullOrWhiteSpace(q.Format)) rows = rows.Where(i => string.Equals(i.Format, q.Format, StringComparison.OrdinalIgnoreCase)).ToList();
         if (q.Sort == "type") rows = (q.Descending ? rows.OrderByDescending(i => i.Format) : rows.OrderBy(i => i.Format)).ThenBy(i => i.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
         if (!string.IsNullOrWhiteSpace(q.Search))
         {
             var terms = TextFold.Fold(q.Search).Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6).ToList();
-            rows = rows.Where(i => terms.All(t => TextFold.Fold(i.Name + " " + i.Album + " " + i.Format).Contains(t, StringComparison.Ordinal))).ToList();
+            rows = rows.Where(i => terms.All(t => TextFold.Fold(i.Name + " " + i.Album + " " + i.Format + " " + string.Join(' ', i.Tags ?? [])).Contains(t, StringComparison.Ordinal))).ToList();
         }
         return rows.Take(Math.Clamp(q.Limit, 1, 20000)).ToList();
     }
+
+    /// <summary>Reads one picture's size, dimensions and date again (after it was turned).</summary>
+    public GalleryImage? Refresh(long id)
+    {
+        var img = Get(id);
+        if (img == null || !File.Exists(img.Path)) return img;
+        var info = new FileInfo(img.Path);
+        var (w, h, taken) = ReadInfo(img.Path, info.LastWriteTimeUtc);
+        using (var c = Open())
+        using (var u = Cmd(c, "UPDATE images SET size=$s, mtime=$m, width=$w, height=$h, taken=$t WHERE id = $id", null,
+            ("$s", info.Length), ("$m", info.LastWriteTimeUtc.Ticks), ("$w", w), ("$h", h), ("$t", Iso(taken)), ("$id", id)))
+            u.ExecuteNonQuery();
+        return Get(id);
+    }
+
+    // ------------------------------------------------------------------ stars, colour labels, tags, months
+
+    public void SetRating(IEnumerable<long> ids, int stars)
+    {
+        var n = Math.Clamp(stars, 0, 5);
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids.Distinct()) { using var cmd = Cmd(c, "UPDATE images SET rating = $r WHERE id = $id", tx, ("$r", n), ("$id", id)); cmd.ExecuteNonQuery(); }
+        tx.Commit();
+    }
+
+    /// <param name="label">One of <see cref="Labels"/>, or null to clear it.</param>
+    public void SetLabel(IEnumerable<long> ids, string? label)
+    {
+        var l = string.IsNullOrWhiteSpace(label) ? null : label.Trim().ToLowerInvariant();
+        if (l != null && !Labels.Contains(l)) throw new ArgumentException("Unknown colour label.");
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids.Distinct()) { using var cmd = Cmd(c, "UPDATE images SET label = $l WHERE id = $id", tx, ("$l", l), ("$id", id)); cmd.ExecuteNonQuery(); }
+        tx.Commit();
+    }
+
+    /// <summary>A tag as written ("Reference", "Thornwake/props"): no '#', no spaces at the ends, at most 60 characters.</summary>
+    public static string CleanTag(string tag)
+    {
+        var t = new string((tag ?? "").Where(ch => !char.IsControl(ch)).ToArray()).Trim().TrimStart('#').Trim();
+        if (t.Length == 0) throw new ArgumentException("A tag needs a name.");
+        return t.Length > 60 ? t[..60].TrimEnd() : t;
+    }
+
+    private static string TagKey(string tag) => TextFold.Fold(CleanTag(tag));
+
+    public void AddTags(IEnumerable<long> ids, IEnumerable<string> tags)
+    {
+        var list = tags.Select(CleanTag).DistinctBy(TagKey).ToList();
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids.Distinct())
+            foreach (var t in list)
+            {
+                // A tag already used elsewhere keeps the way it was first written.
+                using var known = Cmd(c, "SELECT tag FROM image_tags WHERE tag_key = $k LIMIT 1", tx, ("$k", TagKey(t)));
+                var written = known.ExecuteScalar() as string ?? t;
+                using var ins = Cmd(c, "INSERT OR IGNORE INTO image_tags(image_id, tag, tag_key) SELECT id, $t, $k FROM images WHERE id = $id", tx, ("$t", written), ("$k", TagKey(t)), ("$id", id));
+                ins.ExecuteNonQuery();
+            }
+        tx.Commit();
+    }
+
+    public void RemoveTag(IEnumerable<long> ids, string tag)
+    {
+        using var c = Open();
+        using var tx = c.BeginTransaction();
+        foreach (var id in ids.Distinct()) { using var cmd = Cmd(c, "DELETE FROM image_tags WHERE image_id = $id AND tag_key = $k", tx, ("$id", id), ("$k", TagKey(tag))); cmd.ExecuteNonQuery(); }
+        tx.Commit();
+    }
+
+    /// <summary>Every tag in use, with how many pictures have it.</summary>
+    public IReadOnlyList<(string Tag, int Count)> Tags()
+    {
+        using var c = Open();
+        using var cmd = Cmd(c, "SELECT min(t.tag), COUNT(*) FROM image_tags t JOIN images i ON i.id = t.image_id WHERE i.missing = 0 GROUP BY t.tag_key ORDER BY lower(min(t.tag))");
+        using var r = cmd.ExecuteReader();
+        var list = new List<(string, int)>();
+        while (r.Read()) list.Add((r.GetString(0), r.GetInt32(1)));
+        return list;
+    }
+
+    /// <summary>Months with pictures (newest first): "2024-03" and how many.</summary>
+    public IReadOnlyList<(string Month, int Count)> Months() =>
+        Rows($"SELECT {Cols} FROM images i WHERE i.missing = 0").GroupBy(i => i.Month).OrderByDescending(g => g.Key, StringComparer.Ordinal).Select(g => (g.Key, g.Count())).ToList();
 
     public void SetFavorite(IEnumerable<long> ids, bool on)
     {
@@ -389,6 +501,7 @@ public sealed class GalleryLibrary
         foreach (var id in ids.Distinct())
         {
             using (var s = Cmd(c, "DELETE FROM slideshow_items WHERE image_id = $id", tx, ("$id", id))) s.ExecuteNonQuery();
+            using (var g = Cmd(c, "DELETE FROM image_tags WHERE image_id = $id", tx, ("$id", id))) g.ExecuteNonQuery();
             using (var d = Cmd(c, "DELETE FROM images WHERE id = $id", tx, ("$id", id))) d.ExecuteNonQuery();
         }
         tx.Commit();
@@ -817,5 +930,47 @@ public static class GalleryZip
             return count;
         }
         finally { if (File.Exists(tmp)) try { File.Delete(tmp); } catch (IOException) { } }
+    }
+}
+
+
+/// <summary>
+/// Turning photos without losing quality: a JPEG only gets its EXIF orientation changed (the picture data stays as it
+/// is, as cameras and Windows do). Mirrored orientations are left alone.
+/// </summary>
+public static class PictureRotate
+{
+    // EXIF orientation after turning 90° clockwise: 1 → 6 → 3 → 8 → 1.
+    private static readonly Dictionary<int, int> Clockwise = new() { [1] = 6, [6] = 3, [3] = 8, [8] = 1 };
+
+    public static bool CanRotateLosslessly(string path) => System.IO.Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg";
+
+    /// <summary>Turns a JPEG by 90° (clockwise or not). Returns the new EXIF orientation.</summary>
+    public static int Jpeg(string path, bool clockwise)
+    {
+        if (!CanRotateLosslessly(path)) throw new ArgumentException("Only JPEG photos are turned by their orientation flag.");
+        try
+        {
+            using var f = TagLib.File.Create(path) as TagLib.Image.File ?? throw new ArgumentException("This photo can't be read.");
+            var tag = f.ImageTag ?? throw new ArgumentException("This photo has no room for an orientation.");
+            var now = (int)tag.Orientation;
+            if (now == 0) now = 1;
+            if (!Clockwise.ContainsKey(now)) throw new ArgumentException("This photo is mirrored; turn it in your picture editor.");
+            var next = clockwise ? Clockwise[now] : Clockwise.First(kv => kv.Value == now).Key;
+            if (f.GetTag(TagLib.TagTypes.TiffIFD, true) is TagLib.IFD.IFDTag ifd) ifd.Orientation = (TagLib.Image.ImageOrientation)next;
+            else tag.Orientation = (TagLib.Image.ImageOrientation)next;
+            f.Save();
+            return next;
+        }
+        catch (Exception ex) when (ex is TagLib.CorruptFileException or TagLib.UnsupportedFormatException or IOException or UnauthorizedAccessException)
+        {
+            throw new ArgumentException("The photo could not be turned: " + ex.Message);
+        }
+    }
+
+    public static int Orientation(string path)
+    {
+        try { using var f = TagLib.File.Create(path) as TagLib.Image.File; var o = (int)(f?.ImageTag?.Orientation ?? 0); return o == 0 ? 1 : o; }
+        catch (Exception) { return 1; }
     }
 }

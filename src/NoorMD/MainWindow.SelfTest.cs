@@ -654,6 +654,31 @@ public partial class MainWindow
                 }
                 Check("Gallery: Windows thumbnails (Affinity, Photoshop) are the right way up", orientation is "upright" or "no thumbnail", orientation);
             }
+            // Picture tools: stars, a colour label and tags are kept; a JPEG turns by its orientation, a PNG keeps every pixel.
+            if (img != null)
+            {
+                Gallery.SetRating([img.Id], 4);
+                Gallery.SetLabel([img.Id], "green");
+                Gallery.AddTags([img.Id], ["Wakacje", "morze"]);
+                var marked = Gallery.Get(img.Id)!;
+                var before = (marked.Width, marked.Height);
+                TurnPicture(marked.Path, clockwise: true);
+                var turnedJpg = Gallery.Refresh(img.Id)!;
+                var jpgOk = (turnedJpg.Width, turnedJpg.Height) == (before.Height, before.Width) && NoorMD.Media.PictureRotate.Orientation(marked.Path) == 3;
+                TurnPicture(marked.Path, clockwise: false);
+                Gallery.Refresh(img.Id);
+                var upFile = Path.Combine(SelfTestDir!, "Pictures", "orientation.png");
+                TurnPicture(upFile, clockwise: true);
+                var pf = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(upFile)));
+                var pc = new System.Windows.Media.Imaging.FormatConvertedBitmap(pf, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+                var left = new byte[4]; var right = new byte[4];
+                pc.CopyPixels(new System.Windows.Int32Rect(2, pc.PixelHeight / 2, 1, 1), left, 4, 0);
+                pc.CopyPixels(new System.Windows.Int32Rect(pc.PixelWidth - 3, pc.PixelHeight / 2, 1, 1), right, 4, 0);
+                var pngOk = pc.PixelWidth == 40 && pc.PixelHeight == 60 && left[0] > 200 && right[2] > 200; // turned right: blue on the left, red on the right
+                Check("Gallery: stars, label and tags are kept; a JPEG turns by its orientation and a PNG without loss",
+                    marked is { Rating: 4, Label: "green" } && marked.Tags is ["morze", "Wakacje"] && jpgOk && pngOk && Gallery.Get(img.Id)!.Width == before.Width,
+                    $"{marked.Rating} {marked.Label} [{string.Join(",", marked.Tags ?? [])}] jpg {before} → {turnedJpg.Width}x{turnedJpg.Height} png {pc.PixelWidth}x{pc.PixelHeight} L{left[2]},{left[0]} R{right[2]},{right[0]}");
+            }
             Gallery.RemoveFolder(gid);
         }
 

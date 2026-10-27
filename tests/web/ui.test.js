@@ -3083,6 +3083,102 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) await page.screenshot({ path: `${shots}/video-middle.png` });
       await page.close();
     }
+
+    // ---- 35. Gallery picture tools: stars, colour labels, tags, the date view, turning pictures.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 10 }, { width: 1500, height: 950 });
+      const GM = () => page.evaluate(() => window.__mock.state.gallery);
+      const pic = (id) => page.evaluate((i) => window.__mock.state.gallery.images.find((x) => x.id === i), id);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.evaluate(() => NoorDock.place('gallery', 'center'));
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide'));
+      await page.click('.gallery-tile[data-id="9"]');
+      await page.keyboard.press('4');
+      await waitFn(page, () => window.__mock.state.gallery.images.find((x) => x.id === 9).rating === 4);
+      await waitFn(page, () => document.querySelector('.gallery-tile[data-id="9"] .gallery-rating')?.textContent === '★★★★');
+      check('keys 1–5 give stars, shown on the picture', true);
+      await waitFn(page, () => document.activeElement?.dataset?.id === '9');
+      check('…and the picture keeps the keyboard focus', true);
+      await page.keyboard.press('8');
+      await waitFn(page, () => !!document.querySelector('.gallery-tile[data-id="9"] .gallery-label[data-label="green"]'));
+      check('keys 6–9 give a colour label (8 = green)', (await pic(9)).label === 'green');
+      await page.focus('.gallery-tile[data-id="9"]');
+      await page.keyboard.press('8');
+      await waitFn(page, () => window.__mock.state.gallery.images.find((x) => x.id === 9).label === null && !document.querySelector('.gallery-tile[data-id="9"] .gallery-label'));
+      check('…and the same key again takes it off', true);
+      await page.click('#gallery-info .ginfo-starbtn >> nth=1');
+      await waitFn(page, () => window.__mock.state.gallery.images.find((x) => x.id === 9).rating === 2);
+      await page.click('#gallery-info .ginfo-labelbtn[data-label="purple"]');
+      await waitFn(page, () => window.__mock.state.gallery.images.find((x) => x.id === 9).label === 'purple');
+      check('the details panel sets stars and labels with a click', (await page.getAttribute('#gallery-info .ginfo-labelbtn[data-label="purple"]', 'aria-checked')) === 'true');
+      await page.fill('#ginfo-tag', 'Thornwake, #referencja');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => document.querySelectorAll('#gallery-info .ginfo-tagchip').length === 2);
+      check('tags are added in the details panel (several at once, without #)', JSON.stringify((await pic(9)).tags) === '["Thornwake","referencja"]', (await pic(9)).tags);
+      check('…and the tag input keeps the focus for the next one', await page.evaluate(() => document.activeElement?.id === 'ginfo-tag'));
+      check('tags appear in the albums list', !!(await page.$('#gallery-nav .gnav-item[data-source="tag:Thornwake"]')));
+      await page.click('.gallery-tile[data-id="8"]');
+      await page.click('.gallery-tile[data-id="7"]', { modifiers: ['Control'] });
+      await page.keyboard.press('t');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'thornwake');
+      await page.click('.modal button:has-text("Add")');
+      await waitFn(page, () => window.__mock.state.gallery.images.filter((x) => x.tags.includes('Thornwake')).length === 3);
+      check('T tags the chosen pictures; a tag keeps the way it was first written', true);
+      await page.click('#gallery-nav .gnav-item[data-source="tag:Thornwake"]');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 3);
+      check('a tag in the list shows its pictures', true);
+      await page.click('.gallery-tile[data-id="8"]');
+      await page.click('#gallery-info .ginfo-tagx');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 2);
+      check('removing a tag takes the picture out of that tag', !(await pic(8)).tags.length);
+      await page.click('#gallery-nav .gnav-item[data-source="all"]');
+      await page.selectOption('#gallery-mark', 'r2');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 1);
+      check('pictures can be filtered by stars', (await page.getAttribute('.gallery-tile', 'data-id')) === '9');
+      await page.selectOption('#gallery-mark', 'l:purple');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 1);
+      await page.selectOption('#gallery-mark', '');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 10);
+      check('…and by colour label', true);
+      // The date view: years, then the months of the chosen year.
+      await page.click('#gallery-nav .gnav-item[data-source="month:2023"]');
+      await waitFn(page, () => !!document.querySelector('#gallery-nav .gnav-item[data-source="month:2023-01"]'));
+      await page.click('#gallery-nav .gnav-item[data-source="month:2023-01"]');
+      await waitFn(page, () => document.querySelectorAll('.gallery-tile').length === 10 && document.querySelector('#gallery-nav .gnav-item.active')?.dataset.source === 'month:2023-01');
+      check('the date view lists years, then the months of a year', true);
+      await page.click('#gallery-nav .gnav-item[data-source="all"]');
+      // Turning pictures: JPEG by Ctrl+R; a PSD is refused.
+      await page.click('.gallery-tile[data-id="9"]');
+      await page.keyboard.press('Control+r');
+      await waitFn(page, () => window.__mock.state.gallery.rotations.length === 1);
+      await waitFn(page, () => (document.querySelector('.gallery-tile[data-id="9"] img')?.getAttribute('src') || '').includes('?r='));
+      check('Ctrl+R turns a picture and its preview is loaded again', (await pic(9)).width === 48 && (await GM()).rotations[0].clockwise === true);
+      await page.click('#ginfo-rotl');
+      await waitFn(page, () => window.__mock.state.gallery.rotations.length === 2);
+      check('the ⟲ button turns it back', (await GM()).rotations[1].clockwise === false && (await pic(9)).width === 64);
+      await page.click('.gallery-tile[data-id="10"]');
+      await page.click('#ginfo-rotr');
+      await page.waitForTimeout(150);
+      check('a PSD is not turned (its program does that)', (await GM()).rotations.length === 2);
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.evaluate(() => document.querySelectorAll('.modal .action, .modal button').forEach((b) => /OK|Close/.test(b.textContent) && b.click()));
+      // Right-click menu and the viewer.
+      await page.click('.gallery-tile[data-id="6"]', { button: 'right' });
+      check('the right-click menu has stars, labels, tags and turning', await page.evaluate(() => ['Stars', 'Colour label', 'Add tags', 'Turn right', 'Turn left'].every((t) => [...document.querySelectorAll('.menu-popup .menu-item')].some((m) => m.textContent.includes(t)))));
+      await page.keyboard.press('Escape');
+      await page.dblclick('.gallery-tile[data-id="6"]');
+      await page.waitForSelector('#gallery-viewer:not([hidden])');
+      await page.keyboard.press('5');
+      await waitFn(page, () => document.querySelector('#gv-marks .gv-stars')?.textContent === '★★★★★');
+      check('in the viewer, keys give stars too and they are shown', (await pic(6)).rating === 5);
+      await page.keyboard.press('Escape');
+      const unexpected = errors.filter((e) => !/status of 404|can't be turned here/.test(e));
+      check('no page errors in the picture tools', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/gallery-tools.png` });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
