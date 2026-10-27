@@ -11,3 +11,10 @@ body.video-window:hover .pv-bar, .pv-bar:focus-within, body.video-window.paused 
 .pv-noteform[hidden] { display: none; }
 .pv-noteform input { flex: 1; }
 .pv-stamp { color: var(--accent); font-variant-numeric: tabular-nums; font-size: 12px; }
+#pv-stage { position: fixed; inset: 0; background: #000; }
+#pv-stage #pv { position: absolute; }
+#pv-stage:fullscreen #pv { position: absolute; }
+@media (max-width: 460px) { .pc-vol, .pc-sep, .pc-time:last-of-type { display: none; } }
+.pv-note-pop { position: absolute; left: 50%; top: 44px; transform: translateX(-50%); max-width: 86%; padding: 6px 12px; border-radius: 10px; background: rgba(12, 12, 16, .85); color: #fff; font-size: 13.5px; z-index: 2; pointer-events: none; }
+.pv-note-pop[hidden] { display: none; }
+.pv-note-pop b { color: var(--accent); font-weight: 600; margin-right: 8px; font-variant-numeric: tabular-nums; }

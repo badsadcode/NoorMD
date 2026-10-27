@@ -13,7 +13,7 @@
 <link rel="stylesheet" href="/_noormd/css/video-window.css">
 </head>
 <body class="video-window">
-<video id="pv" controls playsinline preload="metadata"></video>
+<div id="pv-stage"><video id="pv" playsinline preload="metadata"></video><div class="pv-note-pop" id="pv-note-pop" hidden></div></div>
 <header class="pv-bar" role="toolbar" aria-label="Player">
   <span class="pv-title" id="pv-title">Video</span>
   <button class="icon-btn on" id="pv-top" aria-pressed="true" title="Always on top (T)">📌</button>
@@ -28,6 +28,7 @@
 <div id="notice" role="status" aria-live="polite"></div>
 <script src="/_noormd/js/bridge.js"></script>
 <script src="/_noormd/js/ui.js"></script>
+<script src="/_noormd/js/player-controls.js"></script>
 <script src="/_noormd/js/video-window.js"></script>
 </body>
 </html>

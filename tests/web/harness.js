@@ -801,7 +801,7 @@ function videoWindowHostScript() {
       const p = m.payload || {};
       switch (m.type) {
         case 'video.ready': reply(m.id, true, null); emit({ v: 2, event: 'video.load', payload: { id: 7, time: 2, paused: true } }); return;
-        case 'video.get': return reply(m.id, true, { video: video(p.id), subtitles: [], notes: [], next: p.id === 7 ? video(8) : null, exists: true });
+        case 'video.get': return reply(m.id, true, { video: video(p.id), subtitles: [], notes: p.id === 7 ? [{ id: 5, time: 1.8, text: 'Ujęcie z drona' }] : [], next: p.id === 7 ? video(8) : null, exists: true });
         case 'video.position': state.positions.push(p); return reply(m.id, true, video(p.id));
         case 'video.topmost': state.topmost = !!p.value; return reply(m.id, true, { topmost: state.topmost });
         case 'video.title': state.titles.push(p.title); return reply(m.id, true, null);

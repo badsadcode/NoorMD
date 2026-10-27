@@ -43,6 +43,7 @@ window.NoorVideo = (() => {
     NoorBridge.on('video.popin', (p) => onPopIn(p));
     NoorBridge.on('video.notes', (p) => { if (current && current.video.id === p.id) reloadCurrent(); });
     video.addEventListener('timeupdate', onTime);
+    video.addEventListener('seeked', () => renderNotePop());
     video.addEventListener('pause', () => { savePosition(true); renderTransport(); });
     video.addEventListener('play', () => { hideCountdown(); hooks.onPlay(); renderTransport(); });
     video.addEventListener('ended', onEnded);
@@ -102,6 +103,7 @@ window.NoorVideo = (() => {
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎬' }), el('strong', { text: 'Video Bench' }), el('small', { id: 'vb-count' }), el('small', { id: 'vb-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
         el('span', { class: 'vb-head-buttons' },
           el('button', { class: 'icon-btn', id: 'vb-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Video Bench', onclick: (e) => NoorDock.showMenu('video', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn vb-list-toggle', id: 'vb-list-toggle', title: 'Hide or show the list (Library, Up next, Playlists, Notes)', 'aria-label': 'Hide or show the list', 'aria-pressed': 'true', onclick: () => setListsHidden(!root.classList.contains('lists-hidden')) }, '☰'),
           el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!(window.NoorDock ? NoorDock.isWide('video') : document.body.classList.contains('video-wide'))) }, '⤢'),
           el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕'))),
       el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
@@ -139,6 +141,12 @@ window.NoorVideo = (() => {
       el('div', { class: 'music-pane vb-pane', 'data-vbpane': 'notes' }, el('div', { class: 'vb-notes', id: 'vb-notes', 'aria-label': 'Notes' })),
       el('div', { class: 'music-foot' }, el('span', { class: 'music-scan', id: 'vb-scan' }), el('button', { class: 'utility-btn', onclick: showFolders }, '📁 Folders')));
     document.body.append(root);
+    // In full screen: NoorMD's control bar over the video (timeline, previous / play / next, volume, ⚙), shown on mouse move.
+    NoorPlayerControls.attach($('#vb-stage'), video, {
+      fullscreenOnly: true, onPrev: prev, onNext: () => next(false), hasNext: () => q.pos + 1 < q.order.length || q.repeat === 'all' || (q.shuffle && q.ids.length > 1),
+      onFullscreen: toggleFullscreen, onSpeed: () => { renderExtras(); scheduleSave(); }, onSubtitle: (i) => setSubtitle(i), onAudio: (i) => setAudio(i),
+    });
+    try { if (localStorage.getItem('noormd.video.listsHidden') === '1') root.classList.add('lists-hidden'); } catch { /* fine */ }
     root.addEventListener('keydown', onKey);
     let t;
     $('#vb-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => setView({ search: e.target.value.trim() }), 180); });
@@ -475,6 +483,15 @@ window.NoorVideo = (() => {
   function playPause() {
     if (!video.getAttribute('src')) { if (q.order.length) loadCurrent(true); else if (rows.length) playView(selected >= 0 ? selected : 0); return; }
     if (video.paused) video.play().catch(() => {}); else video.pause();
+  }
+
+  /** In the middle: the list beside the player can be hidden, so the video gets the whole width. */
+  function setListsHidden(on) {
+    const root = $('#videobench');
+    root.classList.toggle('lists-hidden', on);
+    $('#vb-list-toggle')?.setAttribute('aria-pressed', String(!on));
+    try { localStorage.setItem('noormd.video.listsHidden', on ? '1' : '0'); } catch { /* fine */ }
+    requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 
   function toggleFullscreen() {

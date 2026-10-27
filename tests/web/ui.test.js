@@ -2067,6 +2067,18 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const pv = () => page.evaluate(() => window.__pv.state);
       await waitFn(page, () => Math.abs(document.querySelector('#pv').currentTime - 2) < 0.3, null, { timeout: 6000 });
       check('pop-out: the video loads at the handed-over moment', (await pv()).titles[0] === 'Episode 7' && (await page.evaluate(() => document.querySelector('#pv').paused)));
+      // NoorMD's own controls: timeline, play, next, volume, ⚙ (speed, subtitles); they show on mouse move.
+      await page.mouse.move(360, 300);
+      check('pop-out: a control bar with a timeline shows on mouse move', await page.isVisible('#pv-stage .pc-bar .pc-seek') && await page.evaluate(() => document.querySelector('#pv-stage').classList.contains('pc-visible')));
+      check('pop-out: a note shows on the video at its moment', (await page.textContent('#pv-note-pop')).includes('Ujęcie z drona'));
+      await page.click('#pv-stage .pc-gear');
+      await page.click('#pv-stage .pc-menu .pc-mi:has-text("1.5×")');
+      check('pop-out: ⚙ changes the speed', (await page.evaluate(() => document.querySelector('#pv').playbackRate)) === 1.5);
+      await page.mouse.click(10, 200);
+      await page.evaluate(() => { const r = document.querySelector('#pv-stage .pc-seek'); r.value = '500'; r.dispatchEvent(new Event('input')); r.dispatchEvent(new Event('change')); });
+      check('pop-out: the timeline seeks', Math.abs((await page.evaluate(() => document.querySelector('#pv').currentTime)) - 3) < 0.4);
+      check('pop-out: next is there when there is a next episode', !(await page.evaluate(() => document.querySelector('#pv-stage .pc-next').disabled)));
+      await page.evaluate(() => { const v = document.querySelector('#pv'); v.currentTime = 2; });
       await page.click('#pv-top');
       await waitFn(page, () => document.querySelector('#pv-top').getAttribute('aria-pressed') === 'false', null, { timeout: 2000 }).catch(() => {});
       check('pop-out: the 📌 button turns “always on top” off and on', (await pv()).topmost === false && (await page.getAttribute('#pv-top', 'aria-pressed')) === 'false');
@@ -2996,6 +3008,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#vb-notes-on-video');
       check('…and the 💬 button turns that off', await page.isHidden('#vb-note-pop') && (await page.getAttribute('#vb-notes-on-video', 'aria-pressed')) === 'false');
       await page.click('#vb-notes-on-video');
+      await page.click('#vb-list-toggle');
+      const solo = await page.evaluate(() => ({ hidden: !document.querySelector('#videobench .music-tabs').getBoundingClientRect().height, stage: document.querySelector('#vb-stage').getBoundingClientRect().width, dock: document.querySelector('#dock-center').getBoundingClientRect().width }));
+      check('in the middle, ☰ hides the list so the video gets the whole width', solo.hidden && solo.stage > solo.dock * 0.9, solo);
+      await page.click('#vb-list-toggle');
+      check('…and brings it back', await page.isVisible('#videobench .music-tabs'));
+      check('the Video Bench has a control bar for full screen', !!(await page.$('#vb-stage .pc-bar.pc-fs-only .pc-seek')));
       await page.evaluate(() => NoorVideo.close());
 
       // Gallery

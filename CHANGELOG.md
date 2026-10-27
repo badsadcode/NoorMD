@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0-preview.20 — Video controls in full screen and in the pop-out
+
+- **Full screen in the Video Bench** now has controls on the video: the timeline, previous / play / next,
+  volume, ⚙ (speed, subtitles, sound) and leaving full screen. They show when you move the mouse and
+  fade, with the pointer, after a few seconds while the video plays. They stay while it's paused.
+- **The pop-out player has the same control bar**, instead of the browser's own controls (whose ⚙ didn't
+  work and whose timeline disappeared in a small window).
+  - It adds a timeline, play, next, volume, a working ⚙, full screen, and notes on the video.
+  - New keys: ← → jump 5 seconds, M mutes.
+- **Video Bench in the middle:** ☰ in its header hides the list (Library, Up next, Playlists, Notes), so the
+  video gets the whole width. Press it again to bring the list back. The choice is remembered.
+- **The Gallery looks for new pictures by itself** the first time you open it in a session. Folders added
+  before preview.19 now also show their PSD and Affinity files, without *Look for new pictures*.
+
 ## 2.0.0-preview.19 — Picture manager for work files; video notes on the video
 
 - **Video Bench in the middle:** the player is on the left, and Library, Up next, Playlists and Notes are on

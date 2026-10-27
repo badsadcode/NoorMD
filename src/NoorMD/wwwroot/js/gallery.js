@@ -21,11 +21,18 @@ window.NoorGallery = (() => {
   let loadGen = 0;
 
   const isOpen = () => document.body.classList.contains('gallery-open');
+  let manualScan = false;
+  let checkedThisSession = false;
 
   function init(h) {
     hooks = { ...hooks, ...h };
     NoorBridge.on('gallery.dupProgress', (p) => { if (onDupProgress) onDupProgress(p); });
-    NoorBridge.on('gallery.scanned', (p) => { if (built) { notice(p.added ? `Gallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'Gallery is up to date', 1800); refresh(); } });
+    NoorBridge.on('gallery.scanned', (p) => {
+      if (!built) return;
+      if (p.added || manualScan) notice(p.added ? `Gallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'Gallery is up to date', 1800);
+      manualScan = false;
+      refresh();
+    });
   }
 
   async function open() {
@@ -38,6 +45,8 @@ window.NoorGallery = (() => {
       try { const s = await req('gallery.session.get'); if (s) { const st = typeof s === 'string' ? JSON.parse(s) : s; if (st.source) view.source = st.source; if (SORTS[st.sort]) view.sort = st.sort; } } catch { /* first run */ }
     }
     await refresh();
+    // Once per session: look for pictures added since (and formats NoorMD learned to show), quietly, in the background.
+    if (!checkedThisSession && status.folders.length) { checkedThisSession = true; req('gallery.rescan').catch(() => {}); }
   }
 
   function close() {
@@ -101,7 +110,7 @@ window.NoorGallery = (() => {
     const showing = view.source.startsWith('show:') ? status.slideshows.find((s) => 'show:' + s.id === view.source) : null;
     NoorChrome.openMenu(anchorEl, [
       { label: 'Add a picture folder…', run: addFolder },
-      { label: 'Look for new pictures', disabled: !status.folders.length, run: async () => { notice('Looking for new pictures…', 1200); try { status = await req('gallery.rescan'); renderSources(); load(); } catch (err) { hooks.showError(err); } } },
+      { label: 'Look for new pictures', disabled: !status.folders.length, run: async () => { manualScan = true; notice('Looking for new pictures…', 1200); try { status = await req('gallery.rescan'); renderSources(); load(); } catch (err) { hooks.showError(err); } } },
       { label: 'Undo the last rename or move', disabled: !canUndo, run: undo },
       { label: 'Find duplicates…', disabled: !status.count, run: findDuplicates },
       { label: 'Picture editors (Open in)', sub: () => openInMenu([]).filter((x) => x === '-' || (x.label && (x.label.startsWith('Add') || x.label.startsWith('Remove')))) },
