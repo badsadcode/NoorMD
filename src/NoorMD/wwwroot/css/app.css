@@ -906,3 +906,14 @@ body.stream-window .streamdesk { position: fixed; inset: 0; z-index: 1; }
 .streamdesk .sd-row select { flex: 1 1 200px; }
 .streamdesk input[type=checkbox] { accent-color: var(--accent); }
 #mic-hotkey { flex: 1 1 200px; width: auto; }
+.vb-note-option { font-size: 12px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+/* ---- Find in files */
+.fs-scopes { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.fs-searchrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.fs-searchrow input[type=text], .fs-searchrow #vault-search-input { flex: 1 1 260px; }
+.fs-options { display: inline-flex; gap: 12px; font-size: 12.5px; }
+.fs-options[hidden] { display: none; }
+.fs-file { display: flex; align-items: baseline; gap: 8px; padding: 8px 6px 3px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); z-index: 1; }
+.fs-file small { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fs-line { min-width: 36px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.vs-snippet mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; }

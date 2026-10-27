@@ -900,6 +900,52 @@
     runFind(false);
   }
 
+  /**
+   * Find in all open documents (the Markdown of every tab, including unsaved edits and tabs not shown yet).
+   * Matching works like the find bar (ignores case unless asked), so a result can be jumped to with it:
+   * `n` is the occurrence's position among the document's matches.
+   */
+  function searchOpenTabs(query, { matchCase = false, wholeWord = false } = {}) {
+    if (!query) return [];
+    const needle = matchCase ? query : query.toLocaleLowerCase();
+    const isWord = (c) => !!c && /[\p{L}\p{N}_]/u.test(c);
+    const out = [];
+    for (const tab of tabs) {
+      const lines = md(tab).split('\n');
+      const hits = [];
+      let n = 0;
+      lines.forEach((line, li) => {
+        const hay = matchCase ? line : line.toLocaleLowerCase();
+        let i = hay.indexOf(needle);
+        while (i !== -1) {
+          const whole = !wholeWord || (!isWord(line[i - 1]) && !isWord(line[i + needle.length]));
+          if (whole && hits.length < 500) hits.push({ line: li + 1, text: line.length > 300 ? line.slice(Math.max(0, i - 80), i + 220) : line, start: line.length > 300 ? Math.min(80, i) : i, length: needle.length, n });
+          n++;
+          i = hay.indexOf(needle, i + Math.max(1, needle.length));
+        }
+      });
+      if (hits.length) out.push({ tabId: tab.id, name: tab.doc.fileName || titleOf(tab), file: tab.doc.fileName || titleOf(tab), path: tab.doc.path, dirty: isDirty(tab), active: tab === t, hits });
+    }
+    return out;
+  }
+
+  /** Shows a tab and selects the n-th occurrence of the query in it (as counted by searchOpenTabs). */
+  async function revealMatch(tabId, query, n, matchCase) {
+    const tab = tabById(tabId);
+    if (!tab) return;
+    if (tab !== t) showTab(tab);
+    await switching;
+    if (!editor) return;
+    showFind(false);
+    $('#find-input').value = query;
+    $('#find-case').checked = !!matchCase;
+    matches = collectMatches(query, !!matchCase);
+    if (!matches.length) { current = -1; $('#find-count').textContent = 'No results'; return; }
+    current = Math.min(Math.max(0, n), matches.length - 1); // Visual mode can show fewer matches than the source has
+    highlightMatches();
+    $('#find-count').textContent = `${current + 1} of ${matches.length}`;
+  }
+
   function closeFind() {
     if ($('#findbar').classList.contains('hide')) return false;
     $('#findbar').classList.add('hide');
@@ -1273,7 +1319,7 @@
     ['vault.close', 'Close Vault', 'Vault', '', () => bridge.request('vault.close').catch(showError)],
     ['vault.reveal', 'Show Vault in Explorer', 'Vault', '', () => bridge.request('vault.reveal').catch(showError)],
     ['vault.explorer', 'Vault explorer', 'Vault', 'Ctrl+Shift+E', () => NoorVault.focusExplorer()],
-    ['vault.search', 'Find in Vault…', 'Vault', 'Ctrl+Shift+F', () => NoorVault.showSearch()],
+    ['vault.search', 'Find in files (open documents or Vault)…', 'Edit', 'Ctrl+Shift+F', () => NoorVault.showSearch()],
     ['vault.backlinks', 'Show notes linking here', 'Vault', '', () => { NoorVault.setView('doc'); document.body.classList.remove('sidebar-collapsed'); $('#backlinks-section')?.scrollIntoView({ block: 'nearest' }); NoorVault.refreshBacklinks(); }],
     ['vault.refresh', 'Refresh Vault', 'Vault', '', () => bridge.request('vault.refresh').catch(showError)],
     ['vault.settings', 'Vault settings…', 'Vault', '', () => NoorVault.showSettings()],
@@ -1331,7 +1377,7 @@
     else if (id === 'tab.closeOthers' || id === 'tab.closeRight' || id === 'tab.next' || id === 'tab.prev') enabled = tabs.length > 1;
     else if (id === 'doc.saveAll') enabled = tabs.some((x) => isDirty(x));
     else if (id.startsWith('music.') && id !== 'music.toggle') enabled = musicOn;
-    else if (id.startsWith('vault.') && !['vault.open', 'vault.create', 'vault.followLink'].includes(id)) enabled = NoorVault.isOpen() && (id !== 'vault.insertLink' || !!t?.doc.path);
+    else if (id.startsWith('vault.') && !['vault.open', 'vault.create', 'vault.followLink', 'vault.search'].includes(id)) enabled = NoorVault.isOpen() && (id !== 'vault.insertLink' || !!t?.doc.path);
     return { checked, enabled };
   }
 
@@ -2077,6 +2123,7 @@
       activeVaultPath: () => (t ? vaultRel(t.doc.path) : null),
       insertText: (text) => { if (editor) { editor.focus(); editor.insertText(text); } },
       findInDocument: async (q) => { await switching; showFind(false); $('#find-input').value = q; runFind(false); },
+      searchOpenTabs, revealMatch, openTabCount: () => tabs.length,
     });
     window.addEventListener('noor-music', refreshChrome);
     document.addEventListener('selectionchange', refreshChrome);

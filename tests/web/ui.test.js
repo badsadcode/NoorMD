@@ -1259,7 +1259,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !document.body.classList.contains('has-vault'));
       check('closing the Vault keeps every tab open', (await page.evaluate(() => window.NoorMD.tabs().length)) === before);
       check('music plays on through Vault search, refresh and close', !(await page.evaluate(() => window.NoorMusic._state().paused)));
-      check('Vault-only commands are disabled without a Vault', await page.evaluate(() => { document.querySelector('#menubar .menu-title[data-menu="5"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); const b = [...document.querySelectorAll('.menu-popup .menu-item')].find((x) => x.textContent.includes('Find in Vault')); return !!b && b.disabled; }));
+      check('Vault-only commands are disabled without a Vault (Find in files still works)', await page.evaluate(() => { document.querySelector('#menubar .menu-title[data-menu="5"]').dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); const items = [...document.querySelectorAll('.menu-popup .menu-item')]; const r = items.find((x) => x.textContent.includes('Refresh Vault')); const f = items.find((x) => x.textContent.includes('Find in files')); return !!r && r.disabled && !!f && !f.disabled; }));
       await page.keyboard.press('Escape');
       await page.evaluate(() => window.NoorMusic.toggle());
       if (shots) await page.screenshot({ path: `${shots}/vault.png` });
@@ -1561,6 +1561,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       });
       check('a narrow Music Bench keeps its controls inside and the buttons round', narrow.out === 0 && narrow.round < 1, narrow);
       await page.evaluate(() => document.documentElement.style.setProperty('--music-w', '400px'));
+      // The list follows the playing song when it changes (unless you are browsing it).
+      await page.evaluate(() => { document.querySelector('#music-list').scrollTop = 0; window.NoorMusic._forgetBrowsing(); });
+      await page.evaluate(() => window.NoorMusic.next());
+      await page.evaluate(() => window.NoorMusic.next());
+      await waitFn(page, () => { const n = document.querySelector('#music-list .track.playing'); const l = document.querySelector('#music-list').getBoundingClientRect(); if (!n) return false; const r = n.getBoundingClientRect(); return r.top >= l.top - 1 && r.bottom <= l.bottom + 1; }, null, { timeout: 3000 });
+      check('when the next song starts, the list scrolls so it is visible', (await page.evaluate(() => document.querySelector('#music-list .track.playing').dataset.index)) === '11');
+      await page.evaluate(() => { document.querySelector('#music-list').scrollTop = 0; document.querySelector('#music-list').dispatchEvent(new WheelEvent('wheel', { deltaY: -10 })); });
+      await page.evaluate(() => window.NoorMusic.next());
+      await page.waitForTimeout(400);
+      check('…but not while you are scrolling the list yourself', (await page.evaluate(() => document.querySelector('#music-list').scrollTop)) === 0);
       await page.click(row(1));
       check('a click selects one track', JSON.stringify((await ms()).sel) === '[1]');
       await page.click(row(4), { modifiers: ['Shift'] });
@@ -1888,8 +1898,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.focus('#videobench');
       await page.keyboard.press('n');
       await page.keyboard.type('Boss fight starts');
+      check('writing a note pauses the video', await page.evaluate(() => document.querySelector('#vb-video').paused));
       await page.keyboard.press('Enter');
       await waitFn(page, () => window.__mock.state.video.notes.length === 1);
+      await waitFn(page, () => !document.querySelector('#vb-video').paused, null, { timeout: 3000 });
+      check('…and it continues when the note is added', true);
+      check('the pause can be switched off', await page.isChecked('#vb-note-pause'));
       check('a note is saved with the video time', (await V()).notes[0].text === 'Boss fight starts' && (await V()).notes[0].time >= 0);
       await page.fill('#vb-note-input', 'Second idea');
       await page.keyboard.press('Enter');
@@ -2336,6 +2350,53 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Ctrl+K › Mic Guard settings opens the Stream Desk window on that tab', true);
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors when using Mic Guard from the main window', unexpected.length === 0, unexpected);
+      await page.close();
+    }
+
+    // ---- 25. Find in files: every open document (with unsaved edits) or the Vault; results grouped, Enter jumps there.
+    {
+      const tabsInit = [
+        { markdown: '# Rivers\n\nThe Vistula river is long.\nAnother River here.\n', path: 'C:\\notes\\rivers.md', fileName: 'rivers.md', title: 'rivers' },
+        { markdown: '# Lakes\n\nNo flowing water.\n', path: 'C:\\notes\\lakes.md', fileName: 'lakes.md', title: 'lakes' },
+        { markdown: '# Trip\n\nWe crossed a riverbed and a river.\n', path: 'C:\\notes\\trip.md', fileName: 'trip.md', title: 'trip' },
+      ];
+      const { page, errors } = await open(browser, url, { tabs: tabsInit }, { width: 1400, height: 900 });
+      await waitFn(page, () => window.NoorMD.tabs().length === 3);
+      await page.keyboard.press('Control+Shift+F');
+      await page.waitForSelector('#vault-search-input');
+      check('Find in files works without a Vault and starts on the open documents', await page.evaluate(() => document.querySelector('#fs-scope-open').classList.contains('active') && document.querySelector('#fs-scope-vault').disabled));
+      await page.fill('#vault-search-input', 'river');
+      await page.waitForSelector('.fs-file');
+      const files = await page.$$eval('.fs-file strong', (n) => n.map((x) => x.textContent));
+      check('results are grouped by open document (only those with matches)', files.join('|') === 'rivers.md|trip.md', files);
+      check('every match is listed with its line number', (await page.$$('.vs-hit')).length === 5 && (await page.textContent('.vs-status')).includes('5 matches in 2 of 3'));
+      await page.check('#fs-word');
+      await waitFn(page, () => document.querySelectorAll('.vs-hit').length === 3);
+      check('Whole word leaves out “Rivers” and “riverbed”', await page.$$eval('.vs-hit', (hits) => hits.every((h) => { const m = h.querySelector('mark'); const after = m.nextSibling ? m.nextSibling.textContent[0] || '' : ''; return !/[\p{L}]/u.test(after); })));
+      await page.check('#fs-case');
+      await waitFn(page, () => document.querySelectorAll('.vs-hit').length === 2);
+      check('Match case leaves out “River”', true);
+      await page.uncheck('#fs-case'); await page.uncheck('#fs-word');
+      await waitFn(page, () => document.querySelectorAll('.vs-hit').length === 5);
+      // Jump to the last match (in trip.md): the tab opens and the find bar selects that occurrence.
+      for (let i = 0; i < 4; i++) await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => window.NoorMD.tabs().find((x) => x.active)?.title === 'trip');
+      await waitFn(page, () => /2 of 2/.test(document.querySelector('#find-count').textContent));
+      check('Enter jumps to that match in its document', (await page.inputValue('#find-input')) === 'river');
+      // Unsaved edits are searched too.
+      await page.evaluate(() => window.NoorMD.runCommand('tab.next'));
+      await page.click('.toastui-editor-ww-container .ProseMirror');
+      await page.keyboard.press('Control+End');
+      await page.keyboard.type(' Kayak on the river.');
+      await page.keyboard.press('Control+Shift+F');
+      await page.waitForSelector('#vault-search-input');
+      await page.fill('#vault-search-input', 'kayak');
+      await page.waitForSelector('.vs-hit');
+      check('unsaved edits in open documents are found', (await page.$$('.vs-hit')).length === 1);
+      await page.keyboard.press('Escape');
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in Find in files', unexpected.length === 0, unexpected);
       await page.close();
     }
   } finally {

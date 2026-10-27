@@ -10,7 +10,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Next / previous tab | Ctrl+Tab / Ctrl+Shift+Tab (also Ctrl+PageDown / Ctrl+PageUp) |
 | Go to an open document (or, in a Vault, any note) | Ctrl+E |
 | Open a menu | Alt + underlined letter (File = Alt+F …) · F10 then arrows |
-| Find in Vault | Ctrl+Shift+F |
+| Find in files: all open documents or the Vault | Ctrl+Shift+F |
 | Vault explorer | Ctrl+Shift+E (then arrows, Enter, F2 rename, Delete, Space to select) |
 | Follow a [[wiki link]] | Ctrl+click it |
 | Tab menu (Close Others, Copy Path, Pin…) | right-click a tab |
@@ -65,6 +65,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Action | Shortcut |
 |---|---|
 | Show / hide Video Bench | Ctrl+Alt+V |
+| Note at this moment (pauses the video while you write; Enter adds and continues) | N |
 | Play / pause | Space or K |
 | Back / forward 10 s · 5 s | J / L · ← / → |
 | Slower / faster | [ / ] |
@@ -74,7 +75,6 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | In the list: play · menu | Double-click or Enter · right-click or Shift+F10 |
 | In an open playlist: move up / down · remove | Alt+↑ / Alt+↓ · Delete |
 | Full screen | F |
-| New note at this moment (Enter saves, Shift+Enter new line) | N |
 | Close | Esc |
 | Pop-out player: always on top / note / close | T / N / Esc |
 

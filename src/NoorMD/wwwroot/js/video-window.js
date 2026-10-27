@@ -6,12 +6,14 @@
   const req = (type, payload) => NoorBridge.request(type, payload);
   const v = $('#pv');
   let id = null, next = null, lastSaved = 0, noteAt = 0, topmost = true;
+  let pauseOnNote = true, resumeAfterNote = false; // the Video Bench's setting: pause while writing, continue after
   const fmt = (s) => { s = Math.floor(Math.max(0, s || 0)); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
 
   async function load(p) {
     let d;
     try { d = await req('video.get', { id: p.id }); } catch (err) { notice(err.message, 5000); return; }
     id = p.id; next = d.next;
+    pauseOnNote = p.pauseOnNote !== false;
     $('#pv-title').textContent = d.video.title;
     req('video.title', { title: d.video.title }).catch(() => {});
     $('#pv-next').disabled = !next;
@@ -32,15 +34,21 @@
 
   function openNote() {
     noteAt = v.currentTime;
+    if (pauseOnNote && !v.paused) { v.pause(); resumeAfterNote = true; }
     $('#pv-stamp').textContent = fmt(noteAt);
     $('#pv-noteform').hidden = false;
     $('#pv-notetext').focus();
+  }
+
+  function continueAfterNote() {
+    if (resumeAfterNote) { resumeAfterNote = false; v.play().catch(() => {}); }
   }
 
   async function saveNote() {
     const text = $('#pv-notetext').value.trim();
     $('#pv-noteform').hidden = true;
     $('#pv-notetext').value = '';
+    continueAfterNote();
     if (!text || id == null) return;
     try { await req('video.note.add', { id, time: noteAt, text }); notice(`Note added at ${fmt(noteAt)}`, 1500); } catch (err) { notice(err.message, 4000); }
   }
@@ -66,7 +74,7 @@
   $('#pv-close').addEventListener('click', () => { save(true); req('video.close').catch(() => {}); });
   $('#pv-noteform').addEventListener('submit', (e) => { e.preventDefault(); saveNote(); });
   document.addEventListener('keydown', (e) => {
-    if (e.target.closest('input')) { if (e.key === 'Escape') { $('#pv-noteform').hidden = true; v.focus(); } return; }
+    if (e.target.closest('input')) { if (e.key === 'Escape') { $('#pv-noteform').hidden = true; continueAfterNote(); v.focus(); } return; }
     const k = e.key.toLowerCase();
     if (k === 'escape' && !document.fullscreenElement) { save(true); req('video.close').catch(() => {}); }
     else if (k === 'n') { e.preventDefault(); openNote(); }

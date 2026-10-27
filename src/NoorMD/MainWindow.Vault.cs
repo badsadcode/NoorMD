@@ -133,21 +133,29 @@ public partial class MainWindow
                     var rel = req.GetString("path", 1000) ?? "";
                     var name = req.GetString("name", 200) ?? "";
                     if (VaultPaths.IsNote(rel) && !VaultPaths.IsNote(name) && !name.Contains('.')) name += Path.GetExtension(rel);
-                    if (!ConfirmInboundLinks(v, [rel], "Rename")) return new { cancelled = true };
+                    var parent = rel.Contains('/') ? rel[..rel.LastIndexOf('/')] + "/" : "";
+                    var plan = await PlanLinkUpdatesAsync(v, [(rel, parent + name)]);
+                    var update = ConfirmLinkUpdates(plan, "Rename");
+                    if (update == null) return new { cancelled = true };
                     var move = VaultOp(() => v.Ops.Rename(rel, name));
                     FollowMoves([move]);
+                    var links = update.Value ? await ApplyLinkUpdatesAsync(v, [move], plan.FilesBefore) : null;
                     ScheduleRescan(0);
-                    return new { path = v.Ops.Rel(move.NewFull) };
+                    return new { path = v.Ops.Rel(move.NewFull), links };
                 }
             case "vault.move":
                 {
                     var v = V();
                     var paths = StringList(req, "paths");
-                    if (!ConfirmInboundLinks(v, paths, "Move")) return new { cancelled = true };
-                    var moves = VaultOp(() => v.Ops.Move(paths, req.GetString("folder", 1000) ?? ""));
+                    var folder = (req.GetString("folder", 1000) ?? "").Trim('/');
+                    var plan = await PlanLinkUpdatesAsync(v, paths.Select(p => (p, (folder.Length > 0 ? folder + "/" : "") + p[(p.LastIndexOf('/') + 1)..])).ToList());
+                    var update = ConfirmLinkUpdates(plan, "Move");
+                    if (update == null) return new { cancelled = true };
+                    var moves = VaultOp(() => v.Ops.Move(paths, folder));
                     FollowMoves(moves);
+                    var links = update.Value && moves.Count > 0 ? await ApplyLinkUpdatesAsync(v, moves, plan.FilesBefore) : null;
                     ScheduleRescan(0);
-                    return new { moved = moves.Count };
+                    return new { moved = moves.Count, links };
                 }
             case "vault.duplicate":
                 {
@@ -336,18 +344,99 @@ public partial class MainWindow
         UpdateWindowTitle();
     }
 
-    /// <summary>Links are not rewritten automatically (yet): say how many notes point at what is about to move.</summary>
-    private bool ConfirmInboundLinks(VaultState v, IReadOnlyList<string> rels, string verb)
+    private sealed record LinkPlan(List<string> FilesBefore, int Links, List<string> Notes);
+
+    /// <summary>How many links (in how many notes) a rename or move would change. Reads the notes off the UI thread.</summary>
+    private async Task<LinkPlan> PlanLinkUpdatesAsync(VaultState v, IReadOnlyList<(string OldRel, string NewRel)> planned)
     {
-        if (!v.Indexed) return true;
-        var notes = v.Index.NotePaths();
-        var targets = notes.Where(n => rels.Any(r => string.Equals(n, r, StringComparison.OrdinalIgnoreCase) || n.StartsWith(r + "/", StringComparison.OrdinalIgnoreCase))).ToList();
-        if (targets.Count == 0 || targets.Count > 200) return true;
-        var sources = targets.SelectMany(t => v.Index.Backlinks(t)).Select(r => r.Source).Where(src => !targets.Contains(src, StringComparer.OrdinalIgnoreCase)).Distinct().ToList();
-        if (sources.Count == 0) return true;
-        return ThemedDialog.Confirm(this, $"{verb} and break links?",
-            $"{sources.Count} other note{(sources.Count == 1 ? "" : "s")} link{(sources.Count == 1 ? "s" : "")} here: {string.Join(", ", sources.Take(5))}{(sources.Count > 5 ? "…" : "")}.\n\nNoorMD does not rewrite links automatically yet, so those links will stop working until you update them.",
-            verb + " anyway");
+        var filesBefore = v.Entries.Where(e => !e.IsFolder).Select(e => e.Path).ToList();
+        var folders = new HashSet<string>(v.Entries.Where(e => e.IsFolder).Select(e => e.Path), StringComparer.OrdinalIgnoreCase);
+        var moves = VaultLinkRewriter.ExpandMoves(planned.Where(p => !string.Equals(p.OldRel, p.NewRel, StringComparison.Ordinal)).Select(p => (p.OldRel, p.NewRel, folders.Contains(p.OldRel))), filesBefore);
+        if (moves.Count == 0 || filesBefore.Count == 0) return new LinkPlan(filesBefore, 0, []);
+        return await Task.Run(() =>
+        {
+            int links = 0;
+            var notes = new List<string>();
+            foreach (var (note, text) in CandidateNotes(v, moves, filesBefore))
+            {
+                var r = VaultLinkRewriter.Rewrite(text, note, moves, filesBefore);
+                if (r.Changed == 0) continue;
+                links += r.Changed;
+                notes.Add(note);
+            }
+            return new LinkPlan(filesBefore, links, notes);
+        });
+    }
+
+    /// <summary>Notes that might link to a moved file (they mention its name) or that move themselves.</summary>
+    private static IEnumerable<(string Note, string Text)> CandidateNotes(VaultState v, IReadOnlyDictionary<string, string> moves, IReadOnlyList<string> filesBefore)
+    {
+        var names = moves.Keys.Select(k => Path.GetFileNameWithoutExtension(k)).Where(n => n.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        foreach (var note in filesBefore.Where(VaultPaths.IsNote))
+        {
+            var full = VaultPaths.Resolve(v.Root, note);
+            if (full == null || !File.Exists(full)) continue;
+            string text;
+            try { if (new FileInfo(full).Length > 4_000_000) continue; text = DocumentFile.Load(full).Markdown; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.DecoderFallbackException) { continue; }
+            if (!moves.ContainsKey(note) && !names.Any(n => text.Contains(n, StringComparison.OrdinalIgnoreCase) || text.Contains(Uri.EscapeDataString(n), StringComparison.OrdinalIgnoreCase))) continue;
+            yield return (note, text);
+        }
+    }
+
+    /// <summary>Asks whether to update the links. null = cancel, true = update, false = only rename/move.</summary>
+    private bool? ConfirmLinkUpdates(LinkPlan plan, string verb)
+    {
+        if (plan.Links == 0) return true;
+        var who = plan.Notes.Count == 1 ? "1 note" : $"{plan.Notes.Count} notes";
+        var choice = ThemedDialog.Show(this, $"Update {plan.Links} link{(plan.Links == 1 ? "" : "s")}?",
+            $"{who} link{(plan.Notes.Count == 1 ? "s" : "")} to what you are about to {verb.ToLowerInvariant()}: {string.Join(", ", plan.Notes.Take(5))}{(plan.Notes.Count > 5 ? "…" : "")}.\n\nNoorMD can update those links so they keep working. Notes open with unsaved changes are not touched; you'll be told which.",
+            [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton($"{verb} only", "only"), new DialogButton($"{verb} and update links", "update", Primary: true)]);
+        return choice switch { "update" => true, "only" => false, _ => null };
+    }
+
+    /// <summary>Rewrites the links after the move. Open notes without edits reload; ones with edits are left and reported.</summary>
+    private async Task<object> ApplyLinkUpdatesAsync(VaultState v, IReadOnlyList<VaultMove> done, List<string> filesBefore)
+    {
+        var moves = VaultLinkRewriter.ExpandMoves(done.Select(m => (v.Ops.Rel(m.OldFull), v.Ops.Rel(m.NewFull), m.IsFolder)), filesBefore);
+        var openByPath = OrderedTabs().Where(s => s.Path != null).ToDictionary(s => Path.GetFullPath(s.Path!), s => s, StringComparer.OrdinalIgnoreCase);
+        var dirtyOpen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (full, s) in openByPath)
+        {
+            var st = await GetEditorStateAsync(s.TabId);
+            if (st?.Dirty ?? s.Dirty) dirtyOpen.Add(full);
+        }
+        int links = 0, notes = 0;
+        var skipped = new List<string>();
+        var reload = new List<DocumentSession>();
+        await Task.Run(() =>
+        {
+            foreach (var note in filesBefore.Where(VaultPaths.IsNote))
+            {
+                var now = moves.TryGetValue(note, out var to) ? to : note;
+                var full = VaultPaths.Resolve(v.Root, now);
+                if (full == null || !File.Exists(full)) continue;
+                LoadedDocument doc;
+                try { if (new FileInfo(full).Length > 4_000_000) continue; doc = DocumentFile.Load(full); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.DecoderFallbackException) { continue; }
+                var r = VaultLinkRewriter.Rewrite(doc.Markdown, note, moves, filesBefore);
+                if (r.Changed == 0) continue;
+                if (dirtyOpen.Contains(Path.GetFullPath(full))) { skipped.Add(now); continue; }
+                try { DocumentFile.Save(full, r.Text, doc.Format, App.Paths.BackupFor(full)); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Updating links in " + now + " failed", ex); skipped.Add(now); continue; }
+                links += r.Changed; notes++;
+                if (openByPath.TryGetValue(Path.GetFullPath(full), out var tab)) lock (reload) reload.Add(tab);
+            }
+        });
+        foreach (var s in reload)
+        {
+            try { PushEvent("doc.load", ApplyLoaded(s, DocumentFile.Load(s.Path!))); _recovery.DeleteOwn(s.TabId); }
+            catch (Exception ex) { Log.Error("Reloading " + s.Path + " after a link update failed", ex); }
+        }
+        if (skipped.Count > 0)
+            PushNotice($"Not updated (open with unsaved changes): {string.Join(", ", skipped.Take(3))}{(skipped.Count > 3 ? "…" : "")}. Their links still use the old name.");
+        Log.Info($"Vault links updated: {links} in {notes} notes");
+        return new { links, notes, skipped };
     }
 
     private async Task<object?> DeleteVaultItemsAsync(List<string> rels)

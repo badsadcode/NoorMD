@@ -109,7 +109,7 @@ window.NoorMusic = (() => {
     const open = force ?? !document.body.classList.contains('music-open');
     if (open && window.NoorVideo && NoorVideo.isOpen()) NoorVideo.close(); // one panel on the right at a time
     document.body.classList.toggle('music-open', open);
-    if (open) { start().then(() => focusList()); }
+    if (open) { start().then(() => { focusList(); followPlaying(true); }); }
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 
@@ -156,6 +156,8 @@ window.NoorMusic = (() => {
     $('#music-desc').addEventListener('click', () => setView({ desc: !view.desc }));
     const list = $('#music-list');
     list.addEventListener('scroll', () => requestAnimationFrame(renderList), { passive: true });
+    // Browsing the list by hand: don't jump to the playing song for a while (see followPlaying).
+    ['wheel', 'pointerdown', 'keydown', 'touchstart'].forEach((t) => list.addEventListener(t, () => { userBrowsedAt = Date.now(); }, { passive: true }));
     list.addEventListener('keydown', onListKey);
     // One delegated handler for all rows. Selecting must not rebuild the rows: a double-click needs both
     // clicks to land on the same element, and re-rendering between them would swallow it.
@@ -198,12 +200,13 @@ window.NoorMusic = (() => {
 
   function setTab(id) {
     tab = id;
-    document.querySelectorAll('.music-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === id); b.setAttribute('aria-selected', String(b.dataset.tab === id)); });
-    document.querySelectorAll('.music-pane').forEach((p) => p.classList.toggle('hide', p.dataset.pane !== id));
+    // Only the Music Bench's own tabs and panes (the Video Bench reuses these class names).
+    document.querySelectorAll('.music .music-tabs button[data-tab]').forEach((b) => { b.classList.toggle('active', b.dataset.tab === id); b.setAttribute('aria-selected', String(b.dataset.tab === id)); });
+    document.querySelectorAll('.music .music-pane[data-pane]').forEach((p) => p.classList.toggle('hide', p.dataset.pane !== id));
     if (id === 'queue') renderQueue();
     if (id === 'playlists') renderPlaylists();
     if (id === 'sound') renderSound();
-    if (id === 'library') requestAnimationFrame(renderList);
+    if (id === 'library') { requestAnimationFrame(renderList); followPlaying(true); }
   }
 
   function renderHeader() {
@@ -503,6 +506,31 @@ window.NoorMusic = (() => {
   }
 
   /** Scrolls the list to the song that is playing and selects it (if it is in the current view). */
+  let userBrowsedAt = 0, followGen = 0;
+  const isOpen = () => document.body.classList.contains('music-open');
+
+  /**
+   * Keeps the playing song visible in the list when it changes (it is highlighted there). Not while the user is
+   * browsing the list or has picked several tracks, and the selection is never changed.
+   */
+  async function followPlaying(force = false) {
+    const id = currentId();
+    if (id == null || !isOpen() || tab !== 'library') return;
+    if (!force && (Date.now() - userBrowsedAt < 10000 || sel.size > 1)) return;
+    const gen = ++followGen;
+    let ids;
+    try { ids = await req('music.ids', queryPayload(0, 2000)); } catch { return; }
+    if (gen !== followGen || currentId() !== id) return;
+    const i = ids.indexOf(id);
+    if (i < 0) return;
+    const list = $('#music-list');
+    if (!list) return;
+    const top = i * ROW, bottom = top + ROW;
+    if (top >= list.scrollTop && bottom <= list.scrollTop + list.clientHeight) return; // already visible
+    list.scrollTop = Math.max(0, top - list.clientHeight / 2 + ROW / 2);
+    requestAnimationFrame(renderList);
+  }
+
   async function revealPlaying() {
     const id = currentId();
     if (id == null) { notice('Nothing is playing.'); return; }
@@ -553,6 +581,7 @@ window.NoorMusic = (() => {
     renderAll();
     updateMediaSession();
     loadTracks(upcomingIds(50));
+    followPlaying();
   }
 
   function onLoaded() {
@@ -1654,7 +1683,8 @@ window.NoorMusic = (() => {
   return {
     init, resumeSession, togglePanel, applyVisibility, toggle, next: () => next(false), prev, editCurrent, triageCurrent,
     openSound: () => { togglePanel(true); setTab('sound'); }, undoLastEdit, batchSelected, batchOrganizer, editSmart, measure, showArtwork, addFolder, importPlaylist, showFolders, setShuffle: () => setShuffle(!q.shuffle), cycleRepeat, playRandom,
-    isOpen: () => document.body.classList.contains('music-open'),
+    isOpen,
+    _forgetBrowsing: () => { userBrowsedAt = 0; },
     /** A video started: music pauses so the two don't play over each other (it doesn't resume by itself). */
     revealPlaying,
     nowPlaying: () => { lastEmit.key = ''; emitNowPlaying(true); },

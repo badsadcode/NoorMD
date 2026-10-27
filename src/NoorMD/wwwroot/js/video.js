@@ -23,6 +23,7 @@ window.NoorVideo = (() => {
   let current = null;            // { video, subtitles, notes, next, exists }
   let poppedOut = null;          // id playing in the pop-out window
   let lastSaved = 0, countdown = null, audioLang = null;
+  let pauseOnNote = true, resumeAfterNote = false; // writing a note pauses the video and resumes it when the note is added
   let shown = 300;               // rows rendered (more on scroll)
   const cache = new Map();       // id -> row
 
@@ -162,6 +163,7 @@ window.NoorVideo = (() => {
       showMenu(e.clientX, e.clientY);
     });
     list.addEventListener('keydown', onListKey);
+    ['wheel', 'pointerdown', 'keydown', 'touchstart'].forEach((t) => list.addEventListener(t, () => { userBrowsedAt = Date.now(); }, { passive: true }));
     list.addEventListener('scroll', () => { if (list.scrollTop + list.clientHeight > list.scrollHeight - 300 && shown < rows.length) { shown += 300; renderList(); } }, { passive: true });
     try { const w = Number(localStorage.getItem(WIDTH_KEY)); if (w >= 360) document.documentElement.style.setProperty('--video-w', w + 'px'); } catch { /* per-viewer convenience */ }
     const rz = $('#vb-resizer');
@@ -187,6 +189,7 @@ window.NoorVideo = (() => {
     if (id === 'queue') renderQueue();
     if (id === 'playlists') renderPlaylists();
     if (id === 'notes') renderNotes();
+    if (id === 'library') requestAnimationFrame(() => followPlaying(true));
   }
 
   function setWide(on) {
@@ -328,6 +331,24 @@ window.NoorVideo = (() => {
     }
     if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); const ids = selectedIds(); if (ids.length > 1) setQueue(ids, 0, true); else if (selected >= 0) playView(selected); return; }
     if (e.key === 'Delete' && view.playlistId) { e.preventDefault(); e.stopPropagation(); removeFromPlaylist(selectedIds()); }
+  }
+
+  let userBrowsedAt = 0;
+
+  /** Keeps the playing video visible (and highlighted) when it changes, unless the user is browsing the list. */
+  function followPlaying(force = false) {
+    const id = currentId();
+    if (id == null || !isOpen() || tab !== 'library') return;
+    if (!force && (Date.now() - userBrowsedAt < 10000 || sel.size > 1)) return;
+    const i = rows.findIndex((r) => r.id === id);
+    if (i < 0) return;
+    if (i >= shown) { shown = i + 100; renderList(); }
+    const node = document.querySelector(`#vb-list .vtrack[data-index="${i}"]`);
+    const list = $('#vb-list');
+    if (!node || !list) return;
+    const r = node.getBoundingClientRect(), l = list.getBoundingClientRect();
+    if (r.top >= l.top && r.bottom <= l.bottom) return; // already visible
+    list.scrollTop += r.top - l.top - list.clientHeight / 2 + r.height / 2;
   }
 
   async function revealPlaying() {
@@ -486,6 +507,7 @@ window.NoorVideo = (() => {
     video.dataset.resume = String(at != null ? at : !d.video.watched && d.video.position > resumeAfter(d.video.duration) ? d.video.position : 0);
     video.dataset.autoplay = autoplay ? '1' : '';
     renderAll();
+    followPlaying();
     if (!d.exists) showPlayerMessage('This file is missing on disk. Rescan the folder or reconnect the drive.');
   }
 
@@ -798,19 +820,33 @@ window.NoorVideo = (() => {
     if (!current) { box.replaceChildren(el('p', { class: 'music-none', text: 'Notes are tied to a moment in the video. Play something, then press N.' })); return; }
     const input = el('textarea', { id: 'vb-note-input', rows: '2', placeholder: 'Note at this moment… (Enter adds, Shift+Enter new line)', 'aria-label': 'New note' });
     let at = null;
-    input.addEventListener('input', () => { if (at == null && input.value) { at = video.currentTime; $('#vb-note-time').textContent = fmt(at); } if (!input.value) at = null; });
+    input.addEventListener('input', () => { if (at == null && input.value) { at = video.currentTime; $('#vb-note-time').textContent = fmt(at); noteStarted(); } if (!input.value) at = null; });
     input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); addNote(input.value, at ?? video.currentTime); at = null; }
-      if (e.key === 'Escape') { e.stopPropagation(); input.value = ''; at = null; $('#videobench').focus(); }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const text = input.value; addNote(text, at ?? video.currentTime); at = null; if (text.trim()) noteFinished(); }
+      if (e.key === 'Escape') { e.stopPropagation(); input.value = ''; at = null; noteFinished(); $('#videobench').focus(); }
     });
+    const pauseBox = el('input', { type: 'checkbox', id: 'vb-note-pause' });
+    pauseBox.checked = pauseOnNote;
+    pauseBox.addEventListener('change', () => { pauseOnNote = pauseBox.checked; if (!pauseOnNote) resumeAfterNote = false; scheduleSave(); });
     box.replaceChildren(
       el('div', { class: 'vb-notes-head' }, el('strong', { text: current.video.title }),
         el('button', { class: 'utility-btn', disabled: !current.notes.length || undefined, onclick: insertNotes, title: 'Insert the notes into the open document as a list with timestamps' }, '⇩ Into document')),
       el('div', { class: 'vb-note-new' }, el('span', { class: 'vb-stamp', id: 'vb-note-time', text: fmt(video.currentTime) }), input),
+      el('label', { class: 'inline vb-note-option', title: 'The video waits while you write and continues when the note is added (Esc cancels and continues too)' }, pauseBox, 'Pause while I write a note'),
       el('ol', { class: 'vb-note-list', id: 'vb-note-list' }, ...current.notes.map((n) => el('li', { class: 'vb-note', 'data-note': String(n.id) },
         el('button', { class: 'vb-stamp linkish', title: 'Jump to this moment', onclick: () => { video.currentTime = n.time; video.play().catch(() => {}); } }, n.stamp),
         el('span', { class: 'vb-note-text', text: n.text, title: 'Double-click to edit', ondblclick: (e) => editNote(n, e.currentTarget) }),
         el('button', { class: 'icon-btn', title: 'Delete note', 'aria-label': 'Delete note', onclick: () => deleteNote(n) }, '✕')))));
+  }
+
+  /** Writing a note started: pause (if that option is on) and remember to continue afterwards. */
+  function noteStarted() {
+    if (pauseOnNote && !video.paused) { video.pause(); resumeAfterNote = true; }
+  }
+
+  /** The note was added or cancelled: continue if we paused for it. */
+  function noteFinished() {
+    if (resumeAfterNote) { resumeAfterNote = false; video.play().catch(() => {}); }
   }
 
   async function addNote(text, time) {
@@ -855,7 +891,7 @@ window.NoorVideo = (() => {
     if (!current) return;
     const id = current.video.id, time = video.currentTime || current.video.position || 0, paused = video.paused;
     savePosition(true);
-    try { await req('video.popout', { id, time, paused }); } catch (err) { hooks.showError(err); return; }
+    try { await req('video.popout', { id, time, paused, pauseOnNote }); } catch (err) { hooks.showError(err); return; }
     poppedOut = id;
     video.pause();
     video.removeAttribute('src');
@@ -907,7 +943,7 @@ window.NoorVideo = (() => {
     else if (k === 'l' || k === 'L') { e.preventDefault(); seek(10); }
     else if (k === 'ArrowLeft' || k === 'ArrowRight') { e.preventDefault(); seek(k === 'ArrowLeft' ? -5 : 5); }
     else if (k === 'f' || k === 'F') { e.preventDefault(); toggleFullscreen(); }
-    else if (k === 'n' || k === 'N') { e.preventDefault(); setTab('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); } }
+    else if (k === 'n' || k === 'N') { e.preventDefault(); setTab('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); noteStarted(); } }
     else if (k === '[' || k === ']') {
       e.preventDefault();
       const i = SPEEDS.indexOf(video.playbackRate);
@@ -936,7 +972,7 @@ window.NoorVideo = (() => {
   function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 800); }
 
   function saveSession() {
-    const json = JSON.stringify({ v: 2, ids: q.ids, order: q.order, pos: q.pos, shuffle: q.shuffle, repeat: q.repeat, volume: q.volume, speed: video.playbackRate, audioLang, view: { filter: view.filter, series: view.series, playlistId: view.playlistId, sort: view.sort, desc: view.desc } });
+    const json = JSON.stringify({ v: 2, ids: q.ids, order: q.order, pos: q.pos, shuffle: q.shuffle, repeat: q.repeat, volume: q.volume, speed: video.playbackRate, audioLang, pauseOnNote, view: { filter: view.filter, series: view.series, playlistId: view.playlistId, sort: view.sort, desc: view.desc } });
     req('video.session.save', { json }).catch(() => {});
   }
 
@@ -947,6 +983,7 @@ window.NoorVideo = (() => {
       q.shuffle = !!s.shuffle; q.repeat = ['off', 'all', 'one'].includes(s.repeat) ? s.repeat : 'off';
       q.volume = Number.isFinite(s.volume) ? s.volume : 1;
       audioLang = s.audioLang || null;
+      pauseOnNote = s.pauseOnNote !== false;
       if (s.view) { view = { ...view, ...s.view, search: '' }; $('#vb-sort').value = view.sort; renderChips(); renderViewbar(); await loadView(); }
       if (Array.isArray(s.ids) && s.ids.length && Array.isArray(s.order) && s.order.length === s.ids.length) {
         q.ids = s.ids; q.order = s.order; q.pos = Math.min(Math.max(0, s.pos | 0), s.order.length - 1);

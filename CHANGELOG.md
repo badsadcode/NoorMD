@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.0-preview.11 — Find in files, links that survive renames, smarter players
+
+- **Find in files** (Ctrl+Shift+F) searches **all open documents**, like Notepad++'s "Find in All
+  Opened Documents". It includes unsaved changes and doesn't need a Vault. It can also search
+  **every note in the Vault**.
+  - Results are grouped by document, with line numbers.
+  - Match case and Whole word are available for open documents.
+  - Enter or a click jumps to that exact match.
+- **Renaming or moving a note keeps links working.** NoorMD asks *Rename and update links*,
+  *Rename only* or *Cancel*, and says which notes would change. It then updates:
+  - Markdown links and images;
+  - [[wiki links]], including `![[embeds]]`;
+  - the moved note's own relative links.
+
+  The rest of the note isn't touched: links in code, external links, encoding and line endings
+  stay as they were. Open notes reload. Notes open with unsaved changes are left alone and named.
+- **Writing a video note pauses the video** and continues when the note is added (Esc also
+  continues). It works in the Video Bench and the pop-out player, and you can switch it off under
+  the note box.
+- **The Music and Video lists follow what's playing.** When the song or video changes, the list
+  scrolls to show it (it's highlighted). It doesn't jump while you're scrolling or clicking the list
+  yourself, or with several items selected.
+- Fix: switching tabs in the Music Bench could hide the Video Bench's lists.
+
 ## 2.0.0-preview.10 — Stream Desk window, mouse buttons for Mic Guard
 
 - **The Stream Desk has its own window.** You can put it on a second monitor next to OBS, and the

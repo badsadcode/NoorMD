@@ -156,7 +156,7 @@ public partial class MainWindow
                     var v = Videos.Get(Long(p, "id")) ?? throw new BridgeError("Unknown video.");
                     var time = NoorMD.Core.Bridge.Json.OptDouble(p, "time") ?? v.Position;
                     if (_videoWindow == null) { _videoWindow = new VideoWindow(this); _videoWindow.Show(); }
-                    _videoWindow.Play(v.Id, time, NoorMD.Core.Bridge.Json.IsTrue(p, "paused"));
+                    _videoWindow.Play(v.Id, time, NoorMD.Core.Bridge.Json.IsTrue(p, "paused"), !p.TryGetProperty("pauseOnNote", out var pn) || pn.ValueKind != JsonValueKind.False);
                     _videoWindow.Activate();
                     return null;
                 }

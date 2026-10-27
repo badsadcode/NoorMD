@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.10-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.11-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -41,7 +41,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   reorder. Everything also runs from Ctrl+K and from shortcuts: it's one set of commands.
 - **Vaults.** Open any folder as a Vault and get:
   - an explorer: new, rename, move by drag, duplicate, delete to the Recycle Bin;
-  - Find in Vault (Ctrl+Shift+F);
+  - Find in files (Ctrl+Shift+F): every open document or every note in the Vault;
+  - renaming or moving a note updates the links to it;
   - notes that link here, `[[wiki links]]` and relative pictures.
 
   It stays an ordinary folder: nothing is written into it except your notes, and other tools'
@@ -141,8 +142,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.10-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.10-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.11-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.11-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

@@ -23,7 +23,7 @@ public sealed class VideoWindow : Window
     private readonly WebView2 _web = new(); // visible from the start: a WebView2 created hidden keeps a zero-size view until the window is resized
     private readonly string _webRoot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
     private bool _ready;
-    private (long Id, double Time, bool Paused)? _pending;
+    private (long Id, double Time, bool Paused, bool PauseOnNote)? _pending;
     private long? _id;
     private double _time;
 
@@ -42,11 +42,11 @@ public sealed class VideoWindow : Window
         Closed += (_, _) => { _main.VideoWindowClosed(_id, _time); try { _web.Dispose(); } catch { } };
     }
 
-    internal void Play(long id, double time, bool paused)
+    internal void Play(long id, double time, bool paused, bool pauseOnNote = true)
     {
         _id = id; _time = time;
-        if (_ready) Post(BridgeProtocol.Event("video.load", new { id, time, paused }));
-        else _pending = (id, time, paused);
+        if (_ready) Post(BridgeProtocol.Event("video.load", new { id, time, paused, pauseOnNote }));
+        else _pending = (id, time, paused, pauseOnNote);
     }
 
     private async Task InitAsync()
@@ -127,7 +127,7 @@ public sealed class VideoWindow : Window
             {
                 case "video.ready":
                     _ready = true;
-                    if (_pending is { } p) { _pending = null; Post(BridgeProtocol.Event("video.load", new { id = p.Id, time = p.Time, paused = p.Paused })); }
+                    if (_pending is { } p) { _pending = null; Post(BridgeProtocol.Event("video.load", new { id = p.Id, time = p.Time, paused = p.Paused, pauseOnNote = p.PauseOnNote })); }
                     break;
                 case "video.topmost":
                     Topmost = Json.IsTrue(req.Payload, "value");

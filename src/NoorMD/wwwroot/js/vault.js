@@ -248,6 +248,7 @@ window.NoorVault = (() => {
         if (r && r.path) {
           if (expanded.has(p)) { expanded.delete(p); expanded.add(r.path); saveExpanded(); }
           focusPath = r.path; selected = new Set([r.path]);
+          linksNotice(r.links);
         }
       } catch (err) { fail(err); }
       renderTree();
@@ -259,6 +260,10 @@ window.NoorVault = (() => {
     });
     input.addEventListener('blur', () => finish(true));
     input.addEventListener('click', (e) => e.stopPropagation());
+  }
+
+  function linksNotice(l) {
+    if (l && l.links) notice(`Updated ${l.links} link${l.links === 1 ? '' : 's'} in ${l.notes} note${l.notes === 1 ? '' : 's'}`, 2600);
   }
 
   async function deleteItems(paths) {
@@ -274,7 +279,7 @@ window.NoorVault = (() => {
     if (!list.length) return;
     try {
       const r = await req('vault.move', { paths: list, folder });
-      if (r && r.moved) { if (folder) { expanded.add(folder); saveExpanded(); } notice(`Moved ${r.moved} item${r.moved === 1 ? '' : 's'}${folder ? ' to “' + folder + '”' : ''}`, 2000); }
+      if (r && r.moved) { if (folder) { expanded.add(folder); saveExpanded(); } notice(`Moved ${r.moved} item${r.moved === 1 ? '' : 's'}${folder ? ' to “' + folder + '”' : ''}${r.links && r.links.links ? ` · ${r.links.links} link${r.links.links === 1 ? '' : 's'} updated` : ''}`, 2600); }
     } catch (err) { fail(err); }
   }
 
@@ -342,52 +347,105 @@ window.NoorVault = (() => {
     });
   }
 
-  // ---------------------------------------------------------------- Find in Vault
+  // ---------------------------------------------------------------- Find in files: open documents or the Vault
 
-  function showSearch(initial) {
-    if (!vault) { notice('Open a Vault first (Workspace → Open Folder as Vault).'); return; }
+  let lastScope = null;
+
+  /**
+   * One search for "all open documents" (like Notepad++'s Find in All Opened Documents, including unsaved edits)
+   * and "every note in the Vault". Ctrl+Shift+F. Results are grouped by file; Enter or a click jumps there.
+   */
+  function showSearch(initial, scope) {
     NoorUI.closeAll();
-    NoorUI.modal({ label: 'Find in Vault', width: 760 }, (s, close) => {
-      const input = el('input', { id: 'vault-search-input', placeholder: 'Search every note in ' + vault.name + '…', autocomplete: 'off', 'aria-label': 'Search the Vault', autofocus: true, spellcheck: 'false' });
+    let where = scope || lastScope || (vault ? 'vault' : 'open');
+    if (where === 'vault' && !vault) where = 'open';
+    NoorUI.modal({ label: 'Find in files', width: 800 }, (s, close) => {
+      const input = el('input', { id: 'vault-search-input', autocomplete: 'off', 'aria-label': 'Search', autofocus: true, spellcheck: 'false' });
       const status = el('div', { class: 'vs-status', 'aria-live': 'polite' });
       const results = el('div', { class: 'palette-results vs-results', role: 'listbox' });
-      let hits = [], sel = 0, seq = 0, timer = null;
-      const render = (q) => {
+      const matchCase = el('input', { type: 'checkbox', id: 'fs-case' });
+      const wholeWord = el('input', { type: 'checkbox', id: 'fs-word' });
+      const options = el('span', { class: 'fs-options' }, el('label', { class: 'inline' }, matchCase, 'Match case'), el('label', { class: 'inline' }, wholeWord, 'Whole word'));
+      const scopeBtn = (id, label, title, enabled) => el('button', { class: 'chip', id: 'fs-scope-' + id, 'data-scope': id, title, disabled: !enabled || undefined, onclick: () => { where = id; lastScope = id; draw(); run(); input.focus(); } }, label);
+      const scopes = el('div', { class: 'fs-scopes', role: 'radiogroup', 'aria-label': 'Where to search' },
+        scopeBtn('open', `📑 Open documents (${app.openTabCount()})`, 'Every open tab, including changes not saved yet', true),
+        scopeBtn('vault', vault ? `🗂 Vault: ${vault.name}` : '🗂 Vault (none open)', vault ? 'Every note in the Vault (saved files)' : 'Open a Vault first (Workspace › Open Folder as Vault)', !!vault));
+      const foot = el('span');
+      let items = [], sel = 0, seq = 0, timer = null;
+
+      function draw() {
+        scopes.querySelectorAll('[data-scope]').forEach((b) => { b.classList.toggle('active', b.dataset.scope === where); b.setAttribute('aria-checked', String(b.dataset.scope === where)); });
+        options.hidden = where !== 'open';
+        input.placeholder = where === 'open' ? 'Search all open documents…' : 'Search every note in ' + vault.name + '…';
+        foot.textContent = where === 'open' ? 'Searches the text as written (Markdown) · ↑ ↓ Enter jumps to the match' : 'Case and accents are ignored · ↑ ↓ Enter opens the note in a tab';
+      }
+      const mark = () => results.querySelectorAll('.vs-hit').forEach((b, i) => { b.classList.toggle('selected', i === sel); b.setAttribute('aria-selected', String(i === sel)); if (i === sel) b.scrollIntoView({ block: 'nearest' }); });
+      const hitButton = (i, label, snippet, open) => el('button', {
+        class: 'cmd-item vs-hit' + (i === sel ? ' selected' : ''), role: 'option', tabindex: '-1', 'aria-selected': String(i === sel),
+        onclick: () => { close(); open(); }, onmousemove: () => { if (sel !== i) { sel = i; mark(); } },
+      }, label, snippet);
+
+      function renderOpen(q, groups) {
         results.replaceChildren();
+        items = [];
+        for (const g of groups) {
+          results.append(el('div', { class: 'fs-file', 'data-tab': g.tabId }, el('strong', { text: (g.dirty ? '● ' : '') + g.name }), el('small', { text: `${g.hits.length >= 500 ? '500+' : g.hits.length} match${g.hits.length === 1 ? '' : 'es'}${g.path ? ' · ' + g.path : ''}` })));
+          for (const h of g.hits) {
+            const i = items.length;
+            const snippet = el('span', { class: 'vs-snippet' }, h.text.slice(0, h.start), el('mark', { text: h.text.slice(h.start, h.start + h.length) }), h.text.slice(h.start + h.length));
+            const open = () => app.revealMatch(g.tabId, q, h.n, matchCase.checked);
+            items.push(open);
+            results.append(hitButton(i, el('span', { class: 'vs-file fs-line', text: String(h.line) }), snippet, open));
+          }
+        }
+        mark();
+      }
+
+      function renderVault(q, hits) {
+        results.replaceChildren();
+        items = [];
         const terms = fold(q).split(/\s+/).filter(Boolean);
         hits.forEach((h, i) => {
           const snippet = el('span', { class: 'vs-snippet' });
           highlight(snippet, h.nameMatch ? h.path : h.snippet, terms);
-          results.append(el('button', {
-            class: 'cmd-item vs-hit' + (i === sel ? ' selected' : ''), role: 'option', tabindex: '-1', 'aria-selected': String(i === sel),
-            onclick: () => { close(); openHit(h, q); }, onmousemove: () => { if (sel !== i) { sel = i; mark(); } },
-          }, el('span', { class: 'vs-file', text: (h.nameMatch ? '📝 ' : '') + h.name + (h.line ? ' · ' + h.line : '') }), snippet));
+          const open = () => openHit(h, q);
+          items.push(open);
+          results.append(hitButton(i, el('span', { class: 'vs-file', text: (h.nameMatch ? '📝 ' : '') + h.name + (h.line ? ' · ' + h.line : '') }), snippet, open));
         });
         mark();
-      };
-      const mark = () => results.querySelectorAll('.vs-hit').forEach((b, i) => { b.classList.toggle('selected', i === sel); b.setAttribute('aria-selected', String(i === sel)); if (i === sel) b.scrollIntoView({ block: 'nearest' }); });
-      const run = () => {
-        const q = input.value.trim();
+      }
+
+      function run() {
+        const q = where === 'open' ? input.value : input.value.trim();
         const mine = ++seq;
-        if (!q) { hits = []; status.textContent = ''; render(''); return; }
+        sel = 0;
+        if (!q.trim()) { items = []; status.textContent = ''; results.replaceChildren(); return; }
+        if (where === 'open') {
+          const groups = app.searchOpenTabs(q, { matchCase: matchCase.checked, wholeWord: wholeWord.checked });
+          const n = groups.reduce((a, g) => a + g.hits.length, 0);
+          status.textContent = n ? `${n} match${n === 1 ? '' : 'es'} in ${groups.length} of ${app.openTabCount()} open document${app.openTabCount() === 1 ? '' : 's'}` : `No results in ${app.openTabCount()} open document${app.openTabCount() === 1 ? '' : 's'}`;
+          renderOpen(q, groups);
+          return;
+        }
         status.textContent = indexed ? 'Searching…' : 'Indexing the Vault…';
         req('vault.search', { query: q }).then((r) => {
           if (mine !== seq) return;
-          hits = (r && r.hits) || [];
-          sel = 0;
+          const hits = (r && r.hits) || [];
           const files = new Set(hits.map((h) => h.path)).size;
           status.textContent = hits.length ? `${hits.length >= 300 ? '300+' : hits.length} result${hits.length === 1 ? '' : 's'} in ${files} file${files === 1 ? '' : 's'} · ${r.indexed} notes searched` : `No results · ${r.indexed} notes searched`;
-          render(q);
+          renderVault(q, hits);
         }).catch(fail);
-      };
+      }
       input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(run, 160); });
+      [matchCase, wholeWord].forEach((c) => c.addEventListener('change', () => { run(); input.focus(); }));
       input.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(hits.length - 1, sel + 1); mark(); }
+        if (e.key === 'ArrowDown') { e.preventDefault(); sel = Math.min(items.length - 1, sel + 1); mark(); }
         else if (e.key === 'ArrowUp') { e.preventDefault(); sel = Math.max(0, sel - 1); mark(); }
-        else if (e.key === 'Enter') { e.preventDefault(); const h = hits[sel]; if (h) { close(); openHit(h, input.value.trim()); } }
+        else if (e.key === 'Enter') { e.preventDefault(); const open = items[sel]; if (open) { close(); open(); } }
       });
-      s.append(NoorUI.head('Find in Vault — ' + vault.name, close), el('div', { class: 'modal-body vs-body' }, input, status, results),
-        el('div', { class: 'modal-foot' }, el('span', { text: 'Case and accents are ignored · ↑ ↓ Enter opens the note in a tab' }), el('span', { text: 'Esc to close' })));
+      s.append(NoorUI.head('Find in files', close), el('div', { class: 'modal-body vs-body' }, scopes, el('div', { class: 'fs-searchrow' }, input, options), status, results),
+        el('div', { class: 'modal-foot' }, foot, el('span', { text: 'Esc to close' })));
+      draw();
       if (initial) { input.value = initial; run(); }
     });
   }
