@@ -147,7 +147,9 @@ public partial class MainWindow
             {
                 var decoder = BitmapDecoder.Create(fs, BitmapCreateOptions.IgnoreColorProfile | BitmapCreateOptions.DelayCreation, BitmapCacheOption.None);
                 var first = decoder.Frames[0];
-                try { if (first.Metadata is BitmapMetadata md && md.GetQuery("/app1/ifd/{ushort=274}") is ushort o) orientation = o; } catch (Exception) { /* no EXIF */ }
+                // The orientation may be stored as a short or a long (TagLib writes it either way when a photo is turned).
+                try { if (first.Metadata is BitmapMetadata md && md.GetQuery("/app1/ifd/{ushort=274}") is { } o and (ushort or short or uint or int)) orientation = (ushort)Convert.ToInt32(o); } catch (Exception) { /* no EXIF */ }
+                if (orientation == 1 && PictureRotate.CanRotateLosslessly(path)) orientation = (ushort)PictureRotate.Orientation(path);
                 var w = first.PixelWidth; var h = first.PixelHeight;
                 var scale = Math.Min(1.0, (double)size / Math.Max(w, h));
                 fs.Position = 0;

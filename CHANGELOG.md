@@ -15,6 +15,8 @@
   or the location. Pictures Windows can't read (PSD, Affinity) are listed with the reason; export those
   from their program.
 - The dialog shows its progress, says what was made, and opens the folder. It remembers your last choices.
+- **Fix: photos turned in NoorMD** could get a sideways preview the next time it was made, because the
+  orientation was then stored in a way the preview maker didn't read. It reads both ways now.
 - **Fix:** rows in some dialogs that should be hidden (for example the JPEG quality when PNG is chosen)
   stayed visible.
 
