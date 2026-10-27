@@ -34,23 +34,20 @@ public static class ShellIcons
         try
         {
             if (item.GetImage(new NativeSize { Cx = size, Cy = size }, flags, out hbmp) != 0 || hbmp == IntPtr.Zero) return null;
-            if (GetObject(hbmp, Marshal.SizeOf<Bitmap>(), out Bitmap bm) == 0 || bm.BitsPixel != 32 || bm.Bits == IntPtr.Zero) return null;
-            var stride = bm.WidthBytes;
-            var pixels = new byte[stride * bm.Height];
-            Marshal.Copy(bm.Bits, pixels, 0, pixels.Length);
-            // A DIB is stored bottom-up unless its header says top-down (negative height): icons come bottom-up, but some
-            // thumbnail handlers (Affinity's) hand over top-down pictures, which flipping would turn upside down.
-            var topDown = GetObject(hbmp, Marshal.SizeOf<DibSection>(), out DibSection ds) != 0 && ds.Header.Height < 0;
-            var flipped = pixels;
-            if (!topDown)
-            {
-                flipped = new byte[pixels.Length];
-                for (var y = 0; y < bm.Height; y++) Buffer.BlockCopy(pixels, y * stride, flipped, (bm.Height - 1 - y) * stride, stride);
-            }
+            if (GetObject(hbmp, Marshal.SizeOf<Bitmap>(), out Bitmap bm) == 0 || bm.Width <= 0 || bm.Height == 0) return null;
+            var height = Math.Abs(bm.Height);
+            var stride = bm.Width * 4;
+            // Let GDI hand the pixels over top-down (negative height) as 32-bit BGRA: it knows whether the bitmap is stored
+            // bottom-up (icons, most thumbnails) or top-down (some handlers, such as Affinity's), so nothing is guessed here.
+            var info = new BitmapInfoHeader { Size = (uint)Marshal.SizeOf<BitmapInfoHeader>(), Width = bm.Width, Height = -height, Planes = 1, BitCount = 32 };
+            var pixels = new byte[stride * height];
+            var dc = CreateCompatibleDC(IntPtr.Zero);
+            try { if (GetDIBits(dc, hbmp, 0, (uint)height, pixels, ref info, 0) != height) return null; }
+            finally { DeleteDC(dc); }
             var hasAlpha = false;
-            for (var i = 3; i < flipped.Length && !hasAlpha; i += 4) hasAlpha = flipped[i] != 0;
-            if (!hasAlpha) for (var i = 3; i < flipped.Length; i += 4) flipped[i] = 255; // old icons without alpha: opaque
-            var source = BitmapSource.Create(bm.Width, bm.Height, 96, 96, PixelFormats.Pbgra32, null, flipped, stride);
+            for (var i = 3; i < pixels.Length && !hasAlpha; i += 4) hasAlpha = pixels[i] != 0;
+            if (!hasAlpha) for (var i = 3; i < pixels.Length; i += 4) pixels[i] = 255; // old icons without alpha: opaque
+            var source = BitmapSource.Create(bm.Width, height, 96, 96, PixelFormats.Pbgra32, null, pixels, stride);
             var enc = new PngBitmapEncoder();
             enc.Frames.Add(BitmapFrame.Create(source));
             using var ms = new MemoryStream();
@@ -80,12 +77,12 @@ public static class ShellIcons
     private static extern int SHCreateItemFromParsingName(string path, IntPtr bindCtx, [MarshalAs(UnmanagedType.LPStruct)] Guid riid, [MarshalAs(UnmanagedType.Interface)] out IShellItemImageFactory? item);
 
     [DllImport("gdi32.dll")] private static extern int GetObject(IntPtr h, int size, out Bitmap bm);
-    [DllImport("gdi32.dll")] private static extern int GetObject(IntPtr h, int size, out DibSection ds);
+    [DllImport("gdi32.dll")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32.dll")] private static extern int GetDIBits(IntPtr hdc, IntPtr hbmp, uint start, uint lines, [Out] byte[] bits, ref BitmapInfoHeader info, uint usage);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct BitmapInfoHeader { public uint Size; public int Width; public int Height; public ushort Planes; public ushort BitCount; public uint Compression; public uint SizeImage; public int XPelsPerMeter; public int YPelsPerMeter; public uint ClrUsed; public uint ClrImportant; }
 
-    [StructLayout(LayoutKind.Sequential)]
-    private struct DibSection { public Bitmap Bitmap; public BitmapInfoHeader Header; public uint Bitfield0, Bitfield1, Bitfield2; public IntPtr Section; public uint Offset; }
     [DllImport("gdi32.dll")] private static extern bool DeleteObject(IntPtr h);
 }
