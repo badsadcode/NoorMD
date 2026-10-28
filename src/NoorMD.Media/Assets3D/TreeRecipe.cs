@@ -102,6 +102,9 @@ public sealed class TreeRecipe
     /// <summary>Levels of detail (1 = only LOD0); each next one has about half the triangles.</summary>
     public int Lods { get; set; } = 3;
     public bool FlatShading { get; set; }
+    /// <summary>A last level of detail made of crossed cards showing the tree drawn from 2–4 sides (for far away).</summary>
+    public bool Billboard { get; set; } = true;
+    public int BillboardViews { get; set; } = 2;
 
     // Foliage.
     public string Foliage { get; set; } = "cards";
@@ -217,6 +220,7 @@ public sealed class TreeRecipe
         Quality = Qualities.Contains(Quality) ? Quality : "medium";
         Budget = Math.Clamp(Budget, 200, 500_000);
         Lods = Math.Clamp(Lods, 1, 6);
+        BillboardViews = Math.Clamp(BillboardViews, 2, 4);
         Foliage = Pick(Foliage, FoliageKinds);
         Arrangement = Pick(Arrangement, Arrangements);
         HangLength = C(HangLength, 0.2, 30, 3);

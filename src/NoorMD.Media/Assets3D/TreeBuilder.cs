@@ -140,6 +140,7 @@ public static class TreeBuilder
                 var maps = TextureEngine.Render(barkRecipe, options.TextureSize);
                 bark.BaseColor = Vector4.One;
                 bark.BaseColorPng = maps.Png("albedo");
+                bark.BaseColorPixels = RawImage.FromRgb(maps.Size, maps.Size, maps.Albedo);
                 bark.NormalPng = maps.Png("normal");
                 bark.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
                 bark.Roughness = 1;
@@ -152,7 +153,7 @@ public static class TreeBuilder
         var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
         if (cards)
         {
-            if (options.TextureSize > 0) leafMat.BaseColorPng = LeafAtlas.Rgba(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed);
+            if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed));
             else leafMat.BaseColor = Color(recipe.LeafColor);
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
@@ -162,7 +163,7 @@ public static class TreeBuilder
         {
             var light = LeafAtlas.Hex(recipe.MossColor) * 1.35f;
             var lightHex = $"#{(int)Math.Clamp(light.X * 255, 0, 255):x2}{(int)Math.Clamp(light.Y * 255, 0, 255):x2}{(int)Math.Clamp(light.Z * 255, 0, 255):x2}";
-            if (options.TextureSize > 0) mossMat.BaseColorPng = LeafAtlas.Rgba("moss", recipe.MossColor, lightHex, stylized, Math.Min(512, options.TextureSize), recipe.Seed + 7);
+            if (options.TextureSize > 0) Use(mossMat, LeafAtlas.Pixels("moss", recipe.MossColor, lightHex, stylized, Math.Min(512, options.TextureSize), recipe.Seed + 7));
             else mossMat.BaseColor = Color(recipe.MossColor);
         }
         // Mushroom caps and crystals (fantasy trees), and the glow.
@@ -172,7 +173,7 @@ public static class TreeBuilder
         var capMat = new Material3D { Name = "Cap", Roughness = 0.6f, Emissive = Lin(recipe.CapColor) * glow * 0.6f };
         if (capped)
         {
-            if (options.TextureSize > 0) capMat.BaseColorPng = FantasyParts.CapTexture(recipe.CapColor, recipe.SpotColor, recipe.Spots, recipe.Seed, Math.Min(512, options.TextureSize));
+            if (options.TextureSize > 0) Use(capMat, FantasyParts.CapPixels(recipe.CapColor, recipe.SpotColor, recipe.Spots, recipe.Seed, Math.Min(512, options.TextureSize)));
             else capMat.BaseColor = Color(recipe.CapColor);
         }
         var crystals = recipe.Foliage == "crystals";
@@ -181,7 +182,7 @@ public static class TreeBuilder
         var clumpMat = new Material3D { Name = "Leaf clumps", Roughness = 0.85f };
         if (clumps)
         {
-            if (options.TextureSize > 0) clumpMat.BaseColorPng = LeafAtlas.Gradient(recipe.LeafColor, recipe.LeafColor2);
+            if (options.TextureSize > 0) Use(clumpMat, LeafAtlas.GradientPixels(recipe.LeafColor, recipe.LeafColor2));
             else clumpMat.BaseColor = Color(recipe.LeafColor);
         }
 
@@ -273,6 +274,22 @@ public static class TreeBuilder
                 if (g.Index == 0) { trunkNode = node; asset.Root.Children.Add(node); }
                 else (trunkNode ?? asset.Root).Children.Add(node);
             }
+            build.Lods.Add(asset);
+        }
+        // The farthest level: the tree drawn from its sides onto crossed cards (from the finest level, so it looks its best).
+        if (recipe.Billboard && build.Lods.Count > 0 && (options.MaxLods == null || options.MaxLods > lodCount))
+        {
+            ct.ThrowIfCancellationRequested();
+            var views = Math.Clamp(recipe.BillboardViews, 2, 4);
+            var (atlas, halfWidth, height) = Billboard.Render(build.Lods[0], views, options.TextureSize > 0 ? Math.Clamp(options.TextureSize, 128, 1024) : 256);
+            var mat = new Material3D { Name = "Billboard", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.9f };
+            Use(mat, atlas);
+            var crossed = Billboard.Cards(views, halfWidth, height, 0, recipe.Wind);
+            WindChannel(crossed, recipe);
+            var name = $"{recipe.Name}_LOD{build.Lods.Count}";
+            var asset = new Asset3D { Name = name, Root = new Node3D { Name = name } };
+            asset.Materials.Add(mat);
+            asset.Root.Children.Add(new Node3D { Name = "Billboard", Mesh = crossed });
             build.Lods.Add(asset);
         }
         build.Seconds = watch.Elapsed.TotalSeconds;
@@ -808,6 +825,12 @@ public static class TreeBuilder
     }
 
     // ---- Helpers ----
+
+    private static void Use(Material3D m, RawImage pixels)
+    {
+        m.BaseColorPixels = pixels;
+        m.BaseColorPng = pixels.Png();
+    }
 
     /// <summary>
     /// Painted shading in the vertex colours (what engines and viewers multiply the textures by): leaves darker deep in

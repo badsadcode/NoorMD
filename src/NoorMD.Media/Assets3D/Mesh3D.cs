@@ -22,6 +22,21 @@ public sealed class Material3D
     public byte[]? BaseColorPng { get; set; }
     public byte[]? NormalPng { get; set; }
     public byte[]? OcclusionRoughnessMetallicPng { get; set; }
+    /// <summary>The colour texture's pixels (not exported): what the billboard renderer samples.</summary>
+    public RawImage? BaseColorPixels { get; set; }
+}
+
+/// <summary>An RGBA picture in memory (8 bits a channel, rows from the top).</summary>
+public sealed record RawImage(int Width, int Height, byte[] Rgba)
+{
+    public byte[] Png() => PngWriter.Rgba(Width, Height, Rgba);
+
+    public static RawImage FromRgb(int w, int h, byte[] rgb)
+    {
+        var px = new byte[w * h * 4];
+        for (var i = 0; i < w * h; i++) { px[i * 4] = rgb[i * 3]; px[i * 4 + 1] = rgb[i * 3 + 1]; px[i * 4 + 2] = rgb[i * 3 + 2]; px[i * 4 + 3] = 255; }
+        return new RawImage(w, h, px);
+    }
 }
 
 /// <summary>Triangles of one material inside a mesh.</summary>

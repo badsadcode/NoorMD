@@ -13,7 +13,9 @@ public static class LeafAtlas
     /// <summary>Atlas cell i (0–3) as a UV rectangle (u0, v0, u1, v1), v growing downwards as in glTF.</summary>
     public static Vector4 Cell(int i) => new((i & 1) * 0.5f, (i >> 1) * 0.5f, (i & 1) * 0.5f + 0.5f, (i >> 1) * 0.5f + 0.5f);
 
-    public static byte[] Rgba(string shape, string color, string color2, bool stylized, int size, int seed)
+    public static byte[] Rgba(string shape, string color, string color2, bool stylized, int size, int seed) => Pixels(shape, color, color2, stylized, size, seed).Png();
+
+    public static RawImage Pixels(string shape, string color, string color2, bool stylized, int size, int seed)
     {
         var px = new float[size * size * 4];
         var c1 = Hex(color);
@@ -111,11 +113,13 @@ public static class LeafAtlas
             var rgb = a > 0.02f ? new Vector3(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) : c1;
             bytes[i * 4] = ToByte(rgb.X); bytes[i * 4 + 1] = ToByte(rgb.Y); bytes[i * 4 + 2] = ToByte(rgb.Z); bytes[i * 4 + 3] = ToByte(a);
         }
-        return PngWriter.Rgba(size, size, bytes);
+        return new RawImage(size, size, bytes);
     }
 
     /// <summary>A soft vertical gradient (dark at the bottom of the crown, light at the top) for stylized leaf clumps.</summary>
-    public static byte[] Gradient(string color, string color2, int height = 64)
+    public static byte[] Gradient(string color, string color2, int height = 64) => GradientPixels(color, color2, height).Png();
+
+    public static RawImage GradientPixels(string color, string color2, int height = 64)
     {
         var c1 = Hex(color) * 0.7f;
         var c2 = Hex(color2);
@@ -130,7 +134,7 @@ public static class LeafAtlas
                 px[i] = ToByte(c.X); px[i + 1] = ToByte(c.Y); px[i + 2] = ToByte(c.Z); px[i + 3] = 255;
             }
         }
-        return PngWriter.Rgba(4, height, px);
+        return new RawImage(4, height, px);
     }
 
     /// <summary>Signed distance to one leaf blade, and where the point is along (0–1) and across (−1…1) it.</summary>

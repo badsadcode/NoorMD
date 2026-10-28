@@ -65,7 +65,9 @@ public static class FantasyParts
     }
 
     /// <summary>The cap's texture: its colour, lighter towards the top, with round spots; pale gills underneath.</summary>
-    public static byte[] CapTexture(string capHex, string spotHex, double spots, int seed, int size)
+    public static byte[] CapTexture(string capHex, string spotHex, double spots, int seed, int size) => CapPixels(capHex, spotHex, spots, seed, size).Png();
+
+    public static RawImage CapPixels(string capHex, string spotHex, double spots, int seed, int size)
     {
         var cap = LeafAtlas.Hex(capHex);
         var spot = LeafAtlas.Hex(spotHex);
@@ -99,7 +101,7 @@ public static class FantasyParts
                 var i = (y * size + x) * 3;
                 px[i] = B(c.X); px[i + 1] = B(c.Y); px[i + 2] = B(c.Z);
             }
-        return PngWriter.Rgb(size, size, px);
+        return RawImage.FromRgb(size, size, px);
         static byte B(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255), 0, 255);
     }
 

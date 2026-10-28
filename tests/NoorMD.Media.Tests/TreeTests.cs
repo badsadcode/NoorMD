@@ -13,6 +13,7 @@ public class TreeTests
         r.Quality = "low";
         r.Budget = 2000;
         r.Lods = 2;
+        r.Billboard = false;
         return r;
     }
 
@@ -475,5 +476,39 @@ public class TreeTests
         // Balanced braces (a typo here would only show up in the engine).
         foreach (var code in new[] { WindShaders.Godot, WindShaders.Hlsl })
             Assert.Equal(code.Count(c => c == '{'), code.Count(c => c == '}'));
+    }
+
+    [Fact]
+    public void A_billboard_is_the_last_level_a_whole_tree_on_crossed_cards()
+    {
+        var r = Small("oak");
+        r.Billboard = true;
+        r.BillboardViews = 3;
+        var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+        Assert.Equal(3, b.Lods.Count);
+        var bb = b.Lods[^1];
+        Assert.Equal("Oak_LOD2", bb.Name);
+        Assert.Equal(3 * 2 * 2, bb.TriangleCount);      // three cards, front and back
+        var mat = Assert.Single(bb.Materials);
+        Assert.Equal("mask", mat.Alpha);
+        var img = mat.BaseColorPixels!;
+        Assert.Equal(128, img.Height);
+        // The tree is drawn (opaque pixels) with see-through air around it, in each view.
+        var cell = img.Width / 3;
+        for (var v = 0; v < 3; v++)
+        {
+            var opaque = 0;
+            for (var y = 0; y < img.Height; y++) for (var x = v * cell; x < (v + 1) * cell; x++) if (img.Rgba[(y * img.Width + x) * 4 + 3] > 0) opaque++;
+            Assert.InRange(opaque, cell * img.Height / 20, cell * img.Height * 9 / 10);
+        }
+        // The trunk stands at the bottom middle of the cards.
+        var mid = img.Width / 6;
+        Assert.True(img.Rgba[((img.Height - 2) * img.Width + mid) * 4 + 3] > 0);
+        // As tall as the tree's finest level (its leaves may stand a little above the skeleton's top).
+        var top = b.Lods[0].Root.All().Where(n => n.Mesh != null).Max(n => n.Mesh!.Bounds().Max.Y + n.Translation.Y);
+        var (lo, hi) = bb.Root.Children[0].Mesh!.Bounds();
+        Assert.InRange(hi.Y - lo.Y, top * 0.97, top * 1.03);
+        Assert.Empty(bb.Root.Children[0].Mesh!.Problems());
+        GlbWriterTests.Parse(GlbWriter.Write(bb));
     }
 }

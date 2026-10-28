@@ -188,9 +188,10 @@ public partial class MainWindow
                     var folder = ExportLayouts.Under(root, ExportLayouts.Folders(ExportLayouts.Expand(place.FolderPattern, tokens)));
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), recipe.Name);
                     var stem = ExportLayouts.FileName(tokens["name"], recipe.Name);
-                    var separate = !oneFile && recipe.Lods > 1;
+                    var levels = recipe.Lods + (recipe.Billboard ? 1 : 0);
+                    var separate = !oneFile && levels > 1;
                     string Suffix(int v) => variants.Count > 1 ? $"_{v + 1:00}" : "";
-                    List<string> GlbNames(int v) => separate ? Enumerable.Range(0, recipe.Lods).Select(i => $"{file}{Suffix(v)}_LOD{i}.glb").ToList() : [$"{file}{Suffix(v)}.glb"];
+                    List<string> GlbNames(int v) => separate ? Enumerable.Range(0, levels).Select(i => $"{file}{Suffix(v)}_LOD{i}.glb").ToList() : [$"{file}{Suffix(v)}.glb"];
                     var planned = Enumerable.Range(0, variants.Count).SelectMany(v => GlbNames(v).Append($"{stem}{Suffix(v)}.noortree.json")).Append(stem + ".manifest.json").Select(n => Path.Combine(folder, n)).ToList();
                     var how = AskReplace(planned, $"“{recipe.Name}”");
                     if (how == null) return new { cancelled = true };

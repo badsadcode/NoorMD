@@ -153,7 +153,10 @@ Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh wo
 - **Wind shaders** written with an export: NoorTreeWind.gdshader (Godot 4) and NoorTreeWind.hlsl (Unity Shader
   Graph Custom Function, Unreal Custom node).
 
-Still open: bring-your-own bark and leaf textures, billboards (crossed-card impostors), the biome catalogue.
+- **Billboards:** the last level of detail is the tree drawn from 2–4 sides by a small CPU renderer (orthographic,
+  depth-tested, textured, alpha-cut, with the painted shading) onto crossed cards: a whole tree in 8–16 triangles.
+
+Still open: bring-your-own bark and leaf textures, the biome catalogue.
 
 ## Stage 2 — rocks
 

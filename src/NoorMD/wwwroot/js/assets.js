@@ -428,7 +428,9 @@ window.NoorAssets = (() => {
         choice(recipe, 'quality', 'Quality', QUALITY, 'How finely the surface is sampled before it is simplified to the budget'),
         slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),
         slider(recipe, ['lods', 'Levels of detail', 1, 6, 1, 'int', 'Each next level has about half the triangles']),
-        check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)')),
+        check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)'),
+        check(recipe, 'billboard', 'Billboard as the last level (the tree drawn on crossed cards, for far away)', 'Eight triangles for a whole tree: it is drawn from its sides into a texture and shown on crossed cards', true),
+        recipe.billboard ? slider(recipe, ['billboardViews', 'Billboard sides', 2, 4, 1, 'int', 'How many crossed cards (each drawn from its own side)']) : null),
       section('Shading',
         slider(recipe, ['shading', 'Painted shading', 0, 1, 0.01, 'pct', 'In the vertex colours: crowns darker inside and below, lighter on top; trunks darker near the ground. Engines multiply it with the textures. Off when the wind data uses the vertex colours'])),
       section('Wind',
@@ -438,7 +440,7 @@ window.NoorAssets = (() => {
   }
 
   function exportPane() {
-    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants }), hooks.showError);
+    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods + (recipe.billboard ? 1 : 0), lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants }), hooks.showError);
     const size = el('select', { id: 'ab-tex-size', 'aria-label': 'Texture size' }, ...[[0, 'No textures (plain colours)'], [256, '256 px'], [512, '512 px'], [1024, '1024 px'], [2048, '2048 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
     size.value = String(exportPrefs.textureSize);
     size.addEventListener('change', () => { exportPrefs.textureSize = Number(size.value); saveExportPrefs(); exportWhere.refresh(); });
