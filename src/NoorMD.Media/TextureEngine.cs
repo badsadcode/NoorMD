@@ -787,7 +787,7 @@ public static class TextureEngine
     private static void Rain(float[] map, float[] where, int w, double amount, uint seed)
     {
         const double inertia = 0.05, capacityFactor = 4, minCapacity = 0.01, erodeSpeed = 0.3, depositSpeed = 0.3, evaporate = 0.01, gravity = 4;
-        const int lifetime = 48, radius = 2;
+        const int lifetime = 36, radius = 2;
         var scale = w * 0.3; // heights in pixel units: steep enough for the water to bite
         for (var i = 0; i < map.Length; i++) map[i] *= (float)scale;
         // The brush: the cells around a point that erosion takes from, weighted towards the middle.
@@ -809,7 +809,7 @@ public static class TextureEngine
             return (a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v, (b - a) * (1 - v) + (d - c) * v, (c - a) * (1 - u) + (d - b) * u);
         }
         var rng = new SoundRng(seed ^ 0xE7037ED1u);
-        var drops = (int)(amount * w * w * 0.8);
+        var drops = (int)(amount * w * w * 0.5);
         for (var k = 0; k < drops; k++)
         {
             double px = rng.NextDouble() * w, py = rng.NextDouble() * w, dirX = 0, dirY = 0, speed = 1, water = 1, sediment = 0;
@@ -861,31 +861,50 @@ public static class TextureEngine
         // The steepest slope that stands, from the material's own slopes: the steepest part (more with more
         // Amount) crumbles, whether the relief is gentle or sharp.
         var slopes = new float[w * w];
-        for (var y = 0; y < w; y++)
+        Parallel.For(0, w, y =>
+        {
             for (var x = 0; x < w; x++)
             {
                 var i = y * w + x; var m = 0f;
                 for (var k = 0; k < 8; k++) m = Math.Max(m, (map[i] - map[Wrap(y + oy[k], w) * w + Wrap(x + ox[k], w)]) / reach[k]);
                 slopes[i] = m;
             }
+        });
         Array.Sort(slopes);
         var talus = Math.Max(1e-4f, slopes[(int)((slopes.Length - 1) * (1 - 0.7 * amount))]);
-        for (var pass = 0; pass < passes; pass++)
-            for (var y = 0; y < w; y++)
+        // Each pass: every cell's slide to its lowest neighbour is found from the same heights (in parallel), then
+        // all slides happen together, so the result doesn't depend on the order cells are visited in.
+        var to = new int[w * w];
+        var amountOut = new float[w * w];
+        for (var pass = 0; pass < passes * 2; pass++)
+        {
+            Parallel.For(0, w, y =>
+            {
+                int up = (y + w - 1) % w * w, row = y * w, down = (y + 1) % w * w;
+                Span<int> n = stackalloc int[8];
                 for (var x = 0; x < w; x++)
                 {
-                    var i = y * w + x;
+                    int l = x == 0 ? w - 1 : x - 1, r = x == w - 1 ? 0 : x + 1;
+                    n[0] = row + r; n[1] = row + l; n[2] = down + x; n[3] = up + x; n[4] = down + r; n[5] = up + r; n[6] = down + l; n[7] = up + l;
+                    var i = row + x;
+                    var h = map[i];
                     int low = -1; var drop = 0f;
                     for (var k = 0; k < 8; k++)
                     {
-                        var j = Wrap(y + oy[k], w) * w + Wrap(x + ox[k], w);
-                        var d = (map[i] - map[j]) / reach[k];
-                        if (d > drop) { drop = d; low = j; }
+                        var d = (h - map[n[k]]) * (k < 4 ? 1f : 0.70710678f);
+                        if (d > drop) { drop = d; low = n[k]; }
                     }
-                    if (low < 0 || drop <= talus) continue;
-                    var move = (drop - talus) * 0.5f;
-                    map[i] -= move; map[low] += move; where[low] += move;
+                    to[i] = low;
+                    amountOut[i] = low < 0 || drop <= talus ? 0 : (drop - talus) * 0.25f; // a quarter: neighbours may pour into the same cell
                 }
+            });
+            for (var i = 0; i < map.Length; i++)
+            {
+                var m = amountOut[i];
+                if (m <= 0) continue;
+                map[i] -= m; map[to[i]] += m; where[to[i]] += m;
+            }
+        }
         for (var i = 0; i < map.Length; i++) map[i] = Math.Clamp(map[i] / scale, 0, 1);
     }
 
