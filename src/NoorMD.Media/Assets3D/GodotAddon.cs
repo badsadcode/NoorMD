@@ -13,14 +13,15 @@ public static class GodotAddon
     /// <summary>The first line of every file, so a later export can tell our files (and how old they are) from yours.</summary>
     public static string Header => $"NoorMD Asset Bench, Godot tree import v{Version}";
 
-    public static IReadOnlyList<(string Name, string Text)> Files =>
-    [
+    /// <summary>The plugin's files, with LF line endings whatever the checkout used (Godot writes its files that way).</summary>
+    public static IReadOnlyList<(string Name, string Text)> Files => new[]
+    {
         ("plugin.cfg", PluginCfg),
         ("plugin.gd", PluginGd),
         ("noor_tree_import.gd", ImportGd),
         ("noor_tree_wind.gdshader", WindShaders.Godot.Replace("// NoorMD Asset Bench: tree wind for Godot 4.", "// " + Header + ": tree wind.")),
         ("README.txt", Readme),
-    ];
+    }.Select(f => (f.Item1, f.Item2.ReplaceLineEndings("\n"))).ToList();
 
     /// <summary>
     /// Writes the plugin into <paramref name="addonsFolder"/>/noor_trees. A file of ours from an older version is
@@ -35,7 +36,7 @@ public static class GodotAddon
         {
             var path = Path.Combine(dir, name);
             if (File.Exists(path) && !Older(File.ReadLines(path).FirstOrDefault() ?? "")) continue;
-            File.WriteAllText(path, text.ReplaceLineEndings("\n"), new System.Text.UTF8Encoding(false));
+            File.WriteAllText(path, text, new System.Text.UTF8Encoding(false));
             written.Add(path);
         }
         return written;
