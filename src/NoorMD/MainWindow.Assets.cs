@@ -134,15 +134,6 @@ public partial class MainWindow
         return Path.Combine(UserTreeFolder, file);
     }
 
-    /// <summary>All levels of detail as one asset: a root holding Name_LOD0, Name_LOD1… (engines that group LODs by name).</summary>
-    private static Asset3D OneFileLods(TreeBuild build)
-    {
-        var all = new Asset3D { Name = build.Recipe.Name, Root = new Node3D { Name = build.Recipe.Name } };
-        all.Materials.AddRange(build.Lods[0].Materials);
-        foreach (var lod in build.Lods) all.Root.Children.Add(lod.Root);
-        return all;
-    }
-
     /// <summary>What an engine needs to know about the files: units, axes, pivot, levels, materials and the wind data's layout.</summary>
     private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize) => new
     {
@@ -155,7 +146,7 @@ public partial class MainWindow
         height = build.Recipe.Height,
         branches = build.Recipe.Branches,
         files,
-        lods = build.Lods.Select((l, i) => new { level = i, triangles = l.TriangleCount, nodes = l.Root.All().Where(n => n.Mesh != null).Select(n => n.Name) }),
+        lods = build.Lods.Select((l, i) => new { level = i, triangles = l.TriangleCount, nodes = l.Root.All().Where(n => n.Mesh != null).Select(n => n.Name), visibleFrom = i == 0 ? 0 : TreeExport.SwitchDistances(build)[i - 1], visibleTo = i < build.Lods.Count - 1 ? TreeExport.SwitchDistances(build)[i] : 0 }),
         materials = build.Lods[0].Materials.Select(m => new { name = m.Name, alpha = m.Alpha, textures = textureSize > 0 && (m.BaseColorPng != null) ? $"{textureSize}px, embedded" : "none" }),
         wind = !build.Recipe.Wind ? null : (object)(build.Recipe.WindData == "color"
             ? new { channel = "COLOR_0", r = "trunk sway (0 at the base, 1 at the top)", g = "branch bend (0 on the trunk, rising along limbs)", b = "leaf flutter (0 at a card's anchor, 1 at its tip)", a = "phase (shared by a limb and what grows on it)" }
@@ -272,13 +263,13 @@ public partial class MainWindow
                             for (var i = 0; i < build.Lods.Count; i++)
                             {
                                 var path = ExportTarget(folder, names[i], keep, taken);
-                                await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods[i])));
+                                await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(TreeExport.Level(build, i))));
                                 mine.Add(path);
                             }
                         else
                         {
                             var path = ExportTarget(folder, names[0], keep, taken);
-                            await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods.Count > 1 ? OneFileLods(build) : build.Lods[0])));
+                            await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(TreeExport.OneFile(build))));
                             mine.Add(path);
                         }
                         var recipePath = ExportTarget(folder, $"{stem}{Suffix(v)}.noortree.json", keep, taken);

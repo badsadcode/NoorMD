@@ -469,8 +469,11 @@ public class TreeTests
     public void Wind_shaders_read_the_wind_data_where_the_export_puts_it()
     {
         Assert.Contains("shader_type spatial;", WindShaders.Godot);
-        Assert.Contains("UV2.x", WindShaders.Godot);
-        Assert.Contains("UV2.y", WindShaders.Godot);
+        // UV2 (glTF TEXCOORD_1) gives bend and flutter; with wind_in_color they come from COLOR's green and blue.
+        Assert.Contains("vec2 bend_flutter = UV2;", WindShaders.Godot);
+        Assert.Contains("bend_flutter = COLOR.gb;", WindShaders.Godot);
+        Assert.Contains("bend_flutter.x * bend_amount", WindShaders.Godot);
+        Assert.Contains("bend_flutter.y * flutter_amount", WindShaders.Godot);
         Assert.Contains("void NoorTreeWind_float(", WindShaders.Hlsl);
         Assert.Contains("void NoorTreeWind_half(", WindShaders.Hlsl);
         // Balanced braces (a typo here would only show up in the engine).
@@ -489,7 +492,10 @@ public class TreeTests
         var bb = b.Lods[^1];
         Assert.Equal("Oak_LOD2", bb.Name);
         Assert.Equal(3 * 2 * 2, bb.TriangleCount);      // three cards, front and back
-        var mat = Assert.Single(bb.Materials);
+        // Its material comes after the tree's own ones (the levels share the indices); its file holds only that one.
+        var mat = bb.Materials[Assert.Single(bb.Root.Children[0].Mesh!.Submeshes).Material];
+        Assert.Equal("Billboard", mat.Name);
+        Assert.Same(b.Lods[0].Materials[0], bb.Materials[0]);
         Assert.Equal("mask", mat.Alpha);
         var img = mat.BaseColorPixels!;
         Assert.Equal(128, img.Height);
@@ -509,7 +515,8 @@ public class TreeTests
         var (lo, hi) = bb.Root.Children[0].Mesh!.Bounds();
         Assert.InRange(hi.Y - lo.Y, top * 0.97, top * 1.03);
         Assert.Empty(bb.Root.Children[0].Mesh!.Problems());
-        GlbWriterTests.Parse(GlbWriter.Write(bb));
+        var (json, _) = GlbWriterTests.Parse(GlbWriter.Write(bb));
+        Assert.Equal("Billboard", Assert.Single(json.GetProperty("materials").EnumerateArray()).GetProperty("name").GetString());
     }
 
     [Fact]

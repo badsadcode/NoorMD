@@ -172,6 +172,8 @@ public sealed class Node3D
     public Quaternion Rotation { get; set; } = Quaternion.Identity;
     public Mesh3D? Mesh { get; set; }
     public List<Node3D> Children { get; } = [];
+    /// <summary>Written as the glTF node's "extras" (Godot keeps them as the node's "extras" metadata).</summary>
+    public Dictionary<string, object>? Extras { get; set; }
 
     public IEnumerable<Node3D> All() => new[] { this }.Concat(Children.SelectMany(c => c.All()));
 }

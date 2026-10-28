@@ -11,18 +11,30 @@ public static class WindShaders
     public const string HlslFile = "NoorTreeWind.hlsl";
 
     public const string Godot = """
-        // NoorMD Asset Bench: tree wind for Godot 4. Put it on the tree's materials (bark and leaves); set the leaves'
-        // material to use the alpha cutoff. Godot reads TEXCOORD_1 as UV2: x = branch bend, y = leaf flutter.
-        // The trunk sway comes from the height (set tree_height); the phase from where the tree stands, so neighbours
-        // don't move in step. COLOR is the painted shading from the export.
+        // NoorMD Asset Bench: tree wind for Godot 4. The NoorMD trees import plugin puts it on a tree's materials with
+        // their textures; by hand: set albedo_texture (and the alpha cutoff for leaves), tree_height, and the wind.
+        // Wind data: UV2 (glTF TEXCOORD_1) x = branch bend, y = leaf flutter; the trunk sway comes from the height. With
+        // wind_in_color the data is in COLOR instead (r sway, g bend, b flutter, a phase). Otherwise COLOR is the painted
+        // shading from the export. The phase comes from where each tree stands (MultiMesh instances too).
         shader_type spatial;
         render_mode cull_back, depth_draw_opaque;
 
-        uniform sampler2D albedo_texture : source_color, filter_linear_mipmap, repeat_enable;
+        uniform bool use_albedo_texture = true;
+        uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform bool use_alpha_cutoff = false;
         uniform float alpha_cutoff : hint_range(0.0, 1.0) = 0.5;
+        uniform bool use_normal_texture = false;
+        uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
+        uniform float normal_strength : hint_range(0.0, 4.0) = 1.0;
+        uniform bool use_orm_texture = false;
+        uniform sampler2D orm_texture : hint_default_white, filter_linear_mipmap, repeat_enable;
         uniform float roughness : hint_range(0.0, 1.0) = 0.85;
+        uniform float metallic : hint_range(0.0, 1.0) = 0.0;
+        uniform vec3 emission : source_color = vec3(0.0);
+        uniform bool vertex_shading = true;
+        uniform bool wind_enabled = true;
+        uniform bool wind_in_color = false;
         uniform vec3 wind_direction = vec3(1.0, 0.0, 0.3);
         uniform float wind_strength : hint_range(0.0, 3.0) = 1.0;
         uniform float wind_speed : hint_range(0.0, 5.0) = 1.0;
@@ -32,25 +44,45 @@ public static class WindShaders
         uniform float flutter_amount = 0.05;
 
         void vertex() {
-        	float t = TIME * wind_speed;
-        	vec3 origin = NODE_POSITION_WORLD;
-        	float phase = fract(sin(dot(origin.xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
-        	float sway = pow(clamp(VERTEX.y / max(tree_height, 0.01), 0.0, 1.0), 2.0);
-        	float gust = 0.65 + 0.35 * sin(t * 0.37 + phase) * sin(t * 0.23 + 1.3);
-        	vec3 dir = normalize(wind_direction);
-        	vec3 offset = dir * sway * tree_height * sway_amount * (1.0 + 0.35 * sin(t * 0.9 + phase));
-        	offset += (dir * 0.8 + vec3(0.0, -0.25, 0.0)) * UV2.x * bend_amount * sin(t * 1.9 + phase + UV2.x * 2.0);
-        	offset += NORMAL * UV2.y * flutter_amount * sin(t * 9.0 + phase * 7.0 + dot(VERTEX, vec3(3.1, 1.7, 2.3)));
-        	VERTEX += (inverse(MODEL_MATRIX) * vec4(offset * wind_strength * gust, 0.0)).xyz;
+        	if (wind_enabled) {
+        		float t = TIME * wind_speed;
+        		vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        		float phase = fract(sin(dot(origin.xz, vec2(12.9898, 78.233))) * 43758.5453) * 6.2832;
+        		float sway = pow(clamp(VERTEX.y / max(tree_height, 0.01), 0.0, 1.0), 2.0);
+        		vec2 bend_flutter = UV2;
+        		if (wind_in_color) {
+        			sway = COLOR.r;
+        			bend_flutter = COLOR.gb;
+        			phase += COLOR.a * 6.2832;
+        		}
+        		float gust = 0.65 + 0.35 * sin(t * 0.37 + phase) * sin(t * 0.23 + 1.3);
+        		vec3 dir = normalize(wind_direction);
+        		vec3 offset = dir * sway * tree_height * sway_amount * (1.0 + 0.35 * sin(t * 0.9 + phase));
+        		offset += (dir * 0.8 + vec3(0.0, -0.25, 0.0)) * bend_flutter.x * bend_amount * sin(t * 1.9 + phase + bend_flutter.x * 2.0);
+        		offset += NORMAL * bend_flutter.y * flutter_amount * sin(t * 9.0 + phase * 7.0 + dot(VERTEX, vec3(3.1, 1.7, 2.3)));
+        		VERTEX += (inverse(MODEL_MATRIX) * vec4(offset * wind_strength * gust, 0.0)).xyz;
+        	}
         }
 
         void fragment() {
-        	vec4 tex = texture(albedo_texture, UV) * albedo_tint;
+        	vec4 tex = (use_albedo_texture ? texture(albedo_texture, UV) : vec4(1.0)) * albedo_tint;
         	if (use_alpha_cutoff && tex.a < alpha_cutoff) {
         		discard;
         	}
-        	ALBEDO = tex.rgb * COLOR.rgb;
+        	ALBEDO = tex.rgb * (vertex_shading ? COLOR.rgb : vec3(1.0));
         	ROUGHNESS = roughness;
+        	METALLIC = metallic;
+        	if (use_orm_texture) {
+        		vec3 orm = texture(orm_texture, UV).rgb;
+        		AO = orm.r;
+        		ROUGHNESS = roughness * orm.g;
+        		METALLIC = metallic * orm.b;
+        	}
+        	if (use_normal_texture) {
+        		NORMAL_MAP = texture(normal_texture, UV).rgb;
+        		NORMAL_MAP_DEPTH = normal_strength;
+        	}
+        	EMISSION = emission;
         }
 
         """;

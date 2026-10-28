@@ -31,6 +31,36 @@ jobs:
           name: ui-screenshots
           path: ui-screenshots
 
+  godot:
+    name: Godot import of exported trees (Godot 4.4, headless)
+    runs-on: ubuntu-latest
+    env:
+      GODOT_VERSION: 4.4.1-stable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Export trees and the plugin into a Godot project
+        env:
+          NOORMD_GODOT_OUT: ${{ github.workspace }}/godot-check
+        run: dotnet test tests/NoorMD.Media.Tests -c Release --filter "FullyQualifiedName~Writes_a_godot_project_for_the_import_check"
+      - name: Get Godot
+        run: |
+          curl -sSL -o godot.zip "https://github.com/godotengine/godot/releases/download/${GODOT_VERSION}/Godot_v${GODOT_VERSION}_linux.x86_64.zip"
+          unzip -q godot.zip
+          mv "Godot_v${GODOT_VERSION}_linux.x86_64" godot-bin
+      - name: Import (the plugin first, then the trees) and check
+        working-directory: godot-check
+        run: |
+          test -f trees/oak.glb
+          cp ../tests/godot/check.gd .
+          mv trees ../trees-later
+          timeout 300 ../godot-bin --headless --path . --import
+          mv ../trees-later trees
+          timeout 300 ../godot-bin --headless --path . --import
+          timeout 120 ../godot-bin --headless --path . --script res://check.gd
+
   windows:
     name: Build, test, package and self-test (Windows)
     runs-on: windows-latest

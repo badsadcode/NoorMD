@@ -295,11 +295,14 @@ public static class TreeBuilder
             var (atlas, halfWidth, height) = Billboard.Render(build.Lods[0], views, options.TextureSize > 0 ? Math.Clamp(options.TextureSize, 128, 1024) : 256);
             var mat = new Material3D { Name = "Billboard", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.9f };
             Use(mat, atlas);
-            var crossed = Billboard.Cards(views, halfWidth, height, 0, recipe.Wind);
-            WindChannel(crossed, recipe);
+            // The same material list as the other levels, the billboard's added at the end: every level's material
+            // indices mean the same thing, so the levels can share one file (the GLB writer drops what a file doesn't use).
             var name = $"{recipe.Name}_LOD{build.Lods.Count}";
             var asset = new Asset3D { Name = name, Root = new Node3D { Name = name } };
+            asset.Materials.AddRange(build.Lods[0].Materials);
             asset.Materials.Add(mat);
+            var crossed = Billboard.Cards(views, halfWidth, height, asset.Materials.Count - 1, recipe.Wind);
+            WindChannel(crossed, recipe);
             asset.Root.Children.Add(new Node3D { Name = "Billboard", Mesh = crossed });
             build.Lods.Add(asset);
         }

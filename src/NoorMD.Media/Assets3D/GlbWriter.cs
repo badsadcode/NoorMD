@@ -60,8 +60,12 @@ public static class GlbWriter
             return textures.Count - 1;
         }
 
-        // Materials.
-        var materials = asset.Materials.Select(m =>
+        // Materials: only those a mesh uses (levels of detail share one list; a level may not need all of it).
+        var used = asset.Root.All().Where(n => n.Mesh is { VertexCount: > 0 }).SelectMany(n => n.Mesh!.Submeshes)
+            .Where(s => s.Indices.Count >= 3 && s.Material >= 0 && s.Material < asset.Materials.Count).Select(s => s.Material).ToHashSet();
+        var materialIndex = new Dictionary<int, int>();
+        foreach (var i in Enumerable.Range(0, asset.Materials.Count).Where(used.Contains)) materialIndex[i] = materialIndex.Count;
+        var materials = asset.Materials.Where((_, i) => used.Contains(i)).Select(m =>
         {
             var pbr = new Dictionary<string, object>
             {
@@ -90,6 +94,7 @@ public static class GlbWriter
             var node = new Dictionary<string, object> { ["name"] = n.Name };
             if (n.Translation != Vector3.Zero) node["translation"] = new[] { n.Translation.X, n.Translation.Y, n.Translation.Z };
             if (n.Rotation != Quaternion.Identity) node["rotation"] = new[] { n.Rotation.X, n.Rotation.Y, n.Rotation.Z, n.Rotation.W };
+            if (n.Extras is { Count: > 0 } extras) node["extras"] = extras;
             nodes.Add(node);
             var index = nodes.Count - 1;
             if (n.Mesh is { VertexCount: > 0 } m && m.TriangleCount > 0)
@@ -113,7 +118,7 @@ public static class GlbWriter
                     if (small) { data = new byte[s.Indices.Count * 2]; for (var i = 0; i < s.Indices.Count; i++) BitConverter.TryWriteBytes(data.AsSpan(i * 2), (ushort)s.Indices[i]); }
                     else { data = new byte[s.Indices.Count * 4]; for (var i = 0; i < s.Indices.Count; i++) BitConverter.TryWriteBytes(data.AsSpan(i * 4), (uint)s.Indices[i]); }
                     var prim = new Dictionary<string, object> { ["attributes"] = attrs, ["indices"] = Accessor(View(data, ElementArrayBuffer), small ? UnsignedShort : UnsignedInt, s.Indices.Count, "SCALAR"), ["mode"] = 4 };
-                    if (s.Material >= 0 && s.Material < materials.Count) prim["material"] = s.Material;
+                    if (materialIndex.TryGetValue(s.Material, out var mi)) prim["material"] = mi;
                     prims.Add(prim);
                 }
                 meshes.Add(new Dictionary<string, object> { ["name"] = m.Name, ["primitives"] = prims });
