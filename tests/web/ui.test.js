@@ -3635,6 +3635,72 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="layers"]'); await page.evaluate(() => document.querySelector('.sb-layer:last-of-type').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-samples.png` }); }
       await page.close();
     }
+
+    // ---- 41. Sound Bench feedback: meters, the spectrogram, a loudness target, matched A/B and a reference clip.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const SS = () => page.evaluate(() => NoorSound._state());
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.view'); localStorage.removeItem('noormd.sound.match'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.waitForSelector('#sb-meters [data-meter="lufs"]');
+      check('meters show loudness, true peak, stereo and brightness', (await page.textContent('#sb-meters [data-meter="lufs"]')) === '−15.0 LUFS' && /dBTP/.test(await page.textContent('#sb-meters [data-meter="truepeak"]'))
+        && (await page.textContent('#sb-meters [data-meter="stereo"]')) === 'stereo: wide' && (await page.textContent('#sb-meters [data-meter="bright"]')) === 'bright 2.4 kHz');
+      check('…with the details in their tooltips', /Loudest 3 s: −13\.0 LUFS/.test(await page.getAttribute('#sb-meters [data-meter="lufs"]', 'title')));
+      await page.click('#sb-view');
+      check('▦ Spectrogram shows the sound by pitch over time', (await SS()).view === 'spectrum' && await page.evaluate(() => document.querySelector('#sb-wave').classList.contains('spectrum'))
+        && (await page.textContent('#sb-view')) === '〰 Waveform');
+      const lit = await page.evaluate(() => { const c = document.querySelector('#sb-wave'); const g = c.getContext('2d'); const d = g.getImageData(c.width / 2, c.height / 2 - 2, 1, 1).data; return d[0] + d[1] + d[2]; });
+      check('…drawn from the analysis (the bright band is where the energy is)', lit > 300, lit);
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.selectOption('#sb-target', '-23');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.targetLufs === -23);
+      await waitFn(page, () => document.querySelector('#sb-meters [data-meter="lufs"]')?.textContent === '−23.0 LUFS');
+      check('a loudness target brings the sound to it', true);
+      await page.selectOption('#sb-target', '0');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.targetLufs === 0);
+      await page.click('#soundbench .sb-tabs button[data-tab="quick"]');
+      await page.click('#sb-pin');
+      check('Match loudness appears once there is something to compare', await page.isVisible('#sb-matchwrap') && await page.isChecked('#sb-match'));
+      await slide('[data-macro="intensity"]', 1);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).macros.intensity === 1);
+      await waitFn(page, () => NoorSound._state().volume < 0.99);
+      // B is now −10 LUFS, A was −15: B plays 5 dB quieter.
+      check('the louder version plays quieter, so A and B sound equally loud', Math.abs((await SS()).volume - Math.pow(10, -5 / 20)) < 0.01 && /▼ −5\.0 dB to match/.test(await page.textContent('#sb-meters')));
+      await page.click('#sb-ab');
+      await waitFn(page, () => NoorSound._state().listening === 'A' && window.__mock.state.sound.renders.at(-1).macros.intensity === 0.5);
+      await waitFn(page, () => NoorSound._state().volume > 0.99);
+      check('…and the quieter one at full volume', true);
+      await page.uncheck('#sb-match');
+      await page.click('#sb-ab');
+      await waitFn(page, () => NoorSound._state().listening === 'B');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).macros.intensity === 1);
+      await page.waitForTimeout(150);
+      check('Match loudness can be switched off', (await SS()).volume === 1 && (await SS()).match === false);
+      await page.check('#sb-match');
+      await page.click('#sb-ref');
+      await waitFn(page, () => NoorSound._state().listening === 'R');
+      check('🎧 Reference… adds a sound to compare with, and plays it', (await SS()).reference === 'boss door.wav' && (await page.textContent('#sb-ab')) === 'A/B/R: R' && /R \(reference\) · boss door\.wav/.test(await page.textContent('#sb-status'))
+        && (await page.textContent('#sb-meters [data-meter="lufs"]')) === '−12.0 LUFS' && await page.isHidden('#sb-ref'));
+      check('…matched to the others too (it is the loudest here)', Math.abs((await SS()).volume - Math.pow(10, -3 / 20)) < 0.01);
+      await page.focus('#sb-play');
+      await page.keyboard.press('b');
+      await waitFn(page, () => NoorSound._state().listening === 'B');
+      check('B goes round: R → B', true);
+      await slide('[data-macro="intensity"]', 0.2);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).macros.intensity === 0.2);
+      check('changing the sound goes back to B', (await SS()).listening === 'B' && (await page.textContent('#sb-ab')) === 'A/B/R: B');
+      await page.click('#sb-refchip button');
+      await waitFn(page, () => NoorSound._state().reference === null);
+      check('✕ removes the reference', (await page.evaluate(() => window.__mock.state.sound.refCleared)) === 1 && (await page.textContent('#sb-ab')) === 'A/B: B' && await page.isVisible('#sb-ref'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with the meters and reference', unexpected.length === 0, unexpected);
+      if (shots) await page.screenshot({ path: `${shots}/sound-feedback.png` });
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.view'); } catch { /* */ } });
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

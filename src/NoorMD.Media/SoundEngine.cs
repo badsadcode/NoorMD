@@ -171,6 +171,11 @@ public sealed class MasterSettings
     /// <summary>Bring the loudest peak to the ceiling (one-shots); otherwise only peaks above it are softened.</summary>
     public bool Normalize { get; set; }
     public double Ceiling { get; set; } = -1;
+    /// <summary>
+    /// Loudness the finished sound is brought to (LUFS, as streaming services and game audio guides measure it; 0 = off).
+    /// Applied after Normalize, before the ceiling's limiter, so a set of sounds made with the same target sit together.
+    /// </summary>
+    public double TargetLufs { get; set; }
     /// <summary>Effects on the whole sound, in order, after the master filters and room.</summary>
     public List<SoundEffect> Effects { get; set; } = [];
 }
@@ -270,6 +275,7 @@ public sealed class SoundRecipe
         }
         Master.Gain = C(Master.Gain, -40, 24); Master.HighPass = C(Master.HighPass, 10, 5000); Master.LowPass = C(Master.LowPass, 200, 20000);
         Master.Width = C(Master.Width, 0, 2); Master.Reverb = C(Master.Reverb, 0, 1); Master.Room = C(Master.Room, 0, 1); Master.Ceiling = C(Master.Ceiling, -24, 0);
+        Master.TargetLufs = double.IsFinite(Master.TargetLufs) && Master.TargetLufs < 0 ? Math.Clamp(Master.TargetLufs, -40, -6) : 0;
         Master.Effects = (Master.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         // Stable ids: an item keeps a valid id (the first of repeats keeps it); the others get the lowest free number.
         // Two passes, so a copy placed before the original never takes an id a later item already has.
@@ -334,6 +340,9 @@ public sealed class SoundRender
     /// <summary>What couldn't be used (a sample file that is missing or not allowed).</summary>
     public IReadOnlyList<string> Warnings { get; init; } = [];
     public double Seconds => (double)Left.Length / SampleRate;
+
+    /// <summary>Loudness, true peak, stereo, brightness, DC and loop seam (see <see cref="SoundAnalysis"/>).</summary>
+    public SoundMeasure Measure() => SoundAnalysis.Measure(Left, Right, SampleRate);
 
     /// <summary>Min/max of each of <paramref name="buckets"/> slices of the mono mix (for drawing the waveform).</summary>
     public float[] Peaks(int buckets)
@@ -465,7 +474,14 @@ public static class SoundEngine
         for (var i = 0; i < length; i++) peak = Math.Max(peak, Math.Max(Math.Abs(outL[i]), Math.Abs(outR[i])));
         var ceiling = Math.Pow(10, r.Master.Ceiling / 20);
         if (r.Master.Normalize && peak > 1e-6) Scale(outL, outR, ceiling / peak);
+        if (r.Master.TargetLufs < 0) ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs);
         Limit(outL, outR, ceiling);
+        if (r.Master.TargetLufs < 0)
+        {
+            // The limiter can take a little off a loud target: measure again and make that up (once).
+            var (after, _, _) = SoundAnalysis.Loudness(outL, outR, sampleRate);
+            if (after > -100 && r.Master.TargetLufs - after > 0.1) { ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs); Limit(outL, outR, ceiling); }
+        }
         double sumSq = 0; peak = 0;
         for (var i = 0; i < length; i++)
         {
@@ -1160,6 +1176,12 @@ public static class SoundEngine
     private static void Scale(float[] l, float[] r, double k) { for (var i = 0; i < l.Length; i++) { l[i] = (float)(l[i] * k); r[i] = (float)(r[i] * k); } }
 
     /// <summary>A soft limiter: below the knee nothing changes; above it, peaks are rounded off toward the ceiling.</summary>
+    private static void ToLoudness(float[] l, float[] r, int sr, double target)
+    {
+        var (lufs, _, _) = SoundAnalysis.Loudness(l, r, sr);
+        if (lufs > -100) Scale(l, r, Math.Pow(10, (target - lufs) / 20));
+    }
+
     private static void Limit(float[] l, float[] r, double ceiling)
     {
         var knee = ceiling * 0.8;

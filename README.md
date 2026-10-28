@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.30-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.31-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -124,8 +124,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   waveform, stretched without changing pitch, or scattered into grain clouds). Shape them with plain controls
   (gentle ↔ violent, near ↔ distant, outdoors ↔ indoors…) or layer by layer, with effects racks, your own named
   controls (*Motor RPM*) and modulators (LFOs, envelopes, random drift, steps, drawn curves) that move any setting
-  over time. Listen as you change things, compare A/B, make variations, and export WAV files (seamless loops or
-  one-shots) with the recipe beside them.
+  over time. Listen as you change things, see the spectrogram and loudness meters (LUFS, true peak, stereo),
+  compare A/B and a reference clip at matched loudness, make variations, and export WAV files (seamless loops or
+  one-shots, optionally at a loudness target) with the recipe beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
@@ -181,8 +182,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.30-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.30-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.31-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.31-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

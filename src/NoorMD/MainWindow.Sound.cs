@@ -22,6 +22,9 @@ public partial class MainWindow
     private const int SoundRate = 48000;
     private const double PreviewSeconds = 30;
     private readonly Dictionary<string, byte[]> _soundPreviews = new(StringComparer.Ordinal);
+    /// <summary>The reference clip to compare with (a WAV the user picked), served as /_sound/{key}.wav while it is set.</summary>
+    private (string Key, byte[] Wav)? _soundReference;
+    private const int SpectrogramColumns = 600, SpectrogramRows = 96;
     private readonly Queue<string> _soundPreviewOrder = new();
     private readonly HashSet<string> _soundFolders = new(StringComparer.OrdinalIgnoreCase);
     private static readonly SemaphoreSlim SoundGate = new(1);
@@ -64,11 +67,28 @@ public partial class MainWindow
         if (!path.StartsWith("/_sound/", StringComparison.Ordinal)) return false;
         var key = Path.GetFileNameWithoutExtension(path[8..]);
         byte[]? wav;
-        lock (_soundPreviews) _soundPreviews.TryGetValue(key, out wav);
+        lock (_soundPreviews) { _soundPreviews.TryGetValue(key, out wav); if (wav == null && _soundReference is { } re && re.Key == key) wav = re.Wav; }
         e.Response = wav != null
             ? env.CreateWebResourceResponse(new MemoryStream(wav), 200, "OK", "Content-Type: audio/wav\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
             : env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
         return true;
+    }
+
+    /// <summary>What the page shows about a sound: its meters, plain warnings and a spectrogram.</summary>
+    private static object Feedback(SoundRender r, bool loop, double ceiling)
+    {
+        var m = r.Measure();
+        return new
+        {
+            lufs = m.Lufs, shortTermMax = m.ShortTermMax, momentaryMax = m.MomentaryMax, truePeakDb = m.TruePeakDb, samplePeakDb = m.SamplePeakDb,
+            correlation = m.Correlation, width = m.Width, dcPercent = m.DcPercent, clipped = m.Clipped, centroidHz = m.CentroidHz, seamJump = m.SeamJump,
+            checks = m.Warnings(loop, ceiling),
+            spectrogram = new
+            {
+                columns = SpectrogramColumns, rows = SpectrogramRows, lowHz = SoundAnalysis.SpectrogramLowHz, highHz = SoundAnalysis.SpectrogramHighHz(r.SampleRate),
+                data = Convert.ToBase64String(SoundAnalysis.Spectrogram(r.Left, r.Right, r.SampleRate, SpectrogramColumns, SpectrogramRows)),
+            },
+        };
     }
 
     private static SoundRecipe RecipeFrom(JsonElement p)
@@ -155,8 +175,15 @@ public partial class MainWindow
                     var json = recipe.ToJson() + "|" + fullLength.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..20].ToLowerInvariant();
                     SoundRender render;
+                    object feedback;
                     await SoundGate.WaitAsync();
-                    try { render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample, fullLength)); } finally { SoundGate.Release(); }
+                    try
+                    {
+                        render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample, fullLength));
+                        var clamped = recipe.Clone().Clamped();
+                        feedback = await Task.Run(() => Feedback(render, clamped.Loop, clamped.Master.Ceiling));
+                    }
+                    finally { SoundGate.Release(); }
                     var wav = render.ToWav(16);
                     lock (_soundPreviews)
                     {
@@ -166,9 +193,32 @@ public partial class MainWindow
                     return new
                     {
                         url = $"/_sound/{key}.wav", seconds = render.Seconds, peakDb = render.PeakDb, rmsDb = render.RmsDb, cut, warnings = render.Warnings,
-                        peaks = render.Peaks(600).Select(v => MathF.Round(v, 3)),
+                        peaks = render.Peaks(600).Select(v => MathF.Round(v, 3)), feedback,
                     };
                 }
+                case "sound.reference.pick":
+                {
+                    // A finished sound to compare with (from a game, a library, a sound you like): played and measured here only.
+                    var dlg = new OpenFileDialog { Title = "Choose a reference sound (WAV) to compare with", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var full = Path.GetFullPath(dlg.FileName);
+                    if (new FileInfo(full).Length > 100 * 1024 * 1024) throw new BridgeError("That file is too big (over 100 MB) to compare with.");
+                    _soundSampleFiles.Add(full);
+                    var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
+                    var asRender = new SoundRender { SampleRate = audio.Rate, Left = audio.Left, Right = audio.Right };
+                    var (wav, feedback) = await Task.Run(() => (asRender.ToWav(16), Feedback(asRender, false, -1)));
+                    var key = "ref" + Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(full + File.GetLastWriteTimeUtc(full).Ticks)))[..17].ToLowerInvariant();
+                    lock (_soundPreviews) _soundReference = (key, wav);
+                    return new
+                    {
+                        url = $"/_sound/{key}.wav", name = Path.GetFileName(full), seconds = asRender.Seconds,
+                        peaks = asRender.Peaks(600).Select(v => MathF.Round(v, 3)), feedback,
+                    };
+                }
+                case "sound.reference.clear":
+                    lock (_soundPreviews) _soundReference = null;
+                    return null;
                 case "sound.export":
                 {
                     var recipe = RecipeFrom(p);

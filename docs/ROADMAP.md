@@ -14,8 +14,9 @@ first, and anything that conflicts with it waits.
 - Sound Bench effects racks and exact numeric entry (stage 1 of docs/concepts/SOUND_BENCH_EVOLUTION.md):
   preview.28. Stage 2, controls and modulators routed to any setting with drawn automation: preview.29. Stage 3,
   samples (a region editor on the waveform, stretch with pitch apart from speed, grain clouds, crossfaded loops):
-  preview.30. Next stages from that proposal, one at a time and only after listening tests: a spectrogram and
-  loudness-matched A/B, then optional buses, resonators and a node view.
+  preview.30. Stage 4, feedback (meters with LUFS and true peak, a spectrogram, a loudness target, matched A/B
+  and a reference clip): preview.31. Last stage from that proposal, only after listening tests: optional buses,
+  resonators, convolution, stems and a node view.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

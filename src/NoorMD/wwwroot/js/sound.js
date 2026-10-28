@@ -48,8 +48,12 @@ window.NoorSound = (() => {
   let tab = 'quick';
   let render = null; // the last preview: { url, seconds, peaks, peakDb, rmsDb, cut }
   let renderGen = 0, renderTimer = null;
-  let pinned = null; // A/B: { recipe }
+  let pinned = null; // A/B: { recipe, lufs }
+  let reference = null; // R: a WAV to compare with { url, name, seconds, peaks, feedback }
   let listening = 'B';
+  let lastB = null; // loudness (LUFS) of the latest B render, for matching
+  let view = (() => { try { return localStorage.getItem('noormd.sound.view') === 'spectrum' ? 'spectrum' : 'wave'; } catch { return 'wave'; } })();
+  let matchLoudness = (() => { try { return localStorage.getItem('noormd.sound.match') !== 'off'; } catch { return true; } })();
   const history = []; let future = [];
   let lastSnapshot = null, snapTimer = null;
   const audio = new Audio();
@@ -113,10 +117,10 @@ window.NoorSound = (() => {
   /** Something changed: keep the step for undo (once the change settles) and render again shortly. */
   function changed(rebuild) {
     ensureIds(recipe);
+    listening = 'B';
     if (rebuild) renderEditor(); else renderHeader();
     clearTimeout(snapTimer);
     snapTimer = setTimeout(pushHistory, 600);
-    listening = 'B';
     schedule(220);
   }
 
@@ -147,8 +151,10 @@ window.NoorSound = (() => {
     setStatus('Rendering…');
     try {
       const out = await req('sound.render', { recipe: r });
-      if (gen !== renderGen) return;
+      if (gen !== renderGen || listening === 'R') return;
       render = out;
+      const lufs = out.feedback ? out.feedback.lufs : null;
+      if (listening === 'A' && pinned) pinned.lufs = lufs; else lastB = lufs;
       const wasPlaying = !audio.paused;
       const at = audio.currentTime || 0;
       audio.loop = !!r.loop;
@@ -158,12 +164,128 @@ window.NoorSound = (() => {
         if (at > 0 && Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = r.loop ? at % audio.duration : Math.min(at, audio.duration);
         if (wasPlaying) audio.play().catch(() => {});
       }, { once: true });
+      applyVolume();
       drawWave();
+      renderMeters();
       setStatus(`${listening === 'A' ? 'A (pinned) · ' : ''}${out.seconds.toFixed(out.seconds < 2 ? 2 : 1)} s · peak ${out.peakDb} dB · RMS ${out.rmsDb} dB${out.cut ? ' · preview: first 30 s' : ''}${out.warnings && out.warnings.length ? ' · ⚠ ' + out.warnings.join('; ') : ''}`);
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); }
   }
 
   function setStatus(t) { const s = $('#sb-status'); if (s) s.textContent = t; }
+
+  // ---------------------------------------------------------------- feedback: meters, matched loudness, reference
+
+  /** The loudness of what A, B and R sound like now (those that are known). */
+  function loudnessOf() {
+    const out = {};
+    if (lastB != null && lastB > -100) out.B = lastB;
+    if (pinned && pinned.lufs != null && pinned.lufs > -100) out.A = pinned.lufs;
+    if (reference && reference.feedback && reference.feedback.lufs > -100) out.R = reference.feedback.lufs;
+    return out;
+  }
+
+  /**
+   * Matched loudness: when comparing, the louder versions play quieter so all sound equally loud (a louder version
+   * otherwise always seems "better"). Only ever turned down, never up.
+   */
+  function applyVolume() {
+    const all = loudnessOf();
+    const now = all[listening];
+    const comparing = Object.keys(all).length > 1 && (pinned || reference);
+    if (!matchLoudness || !comparing || now == null) { audio.volume = 1; return; }
+    const quietest = Math.min(...Object.values(all));
+    audio.volume = Math.max(0, Math.min(1, Math.pow(10, (quietest - now) / 20)));
+  }
+
+  const fmt = (v, d = 1) => (v <= -120 ? '−∞' : (v < 0 ? '−' : '') + Math.abs(v).toFixed(d));
+
+  /** The meter chips under the waveform, and any plain warnings. */
+  function renderMeters() {
+    const box = $('#sb-meters');
+    if (!box) return;
+    const f = render && render.feedback;
+    if (!f) { box.replaceChildren(); return; }
+    const stereo = f.correlation < -0.2 ? 'out of phase' : f.width < 0.05 ? 'mono' : f.width < 0.4 ? 'narrow' : f.width < 0.9 ? 'wide' : 'very wide';
+    const bright = f.centroidHz >= 1000 ? `${(f.centroidHz / 1000).toFixed(1)} kHz` : `${Math.round(f.centroidHz)} Hz`;
+    const chip = (key, text, title, warn) => el('span', { class: 'sb-meter' + (warn ? ' warn' : ''), 'data-meter': key, title }, text);
+    const vol = audio.volume < 0.999 ? chip('matched', `▼ ${fmt(20 * Math.log10(Math.max(1e-6, audio.volume)))} dB to match`, 'Played quieter so A, B and the reference sound equally loud (Match loudness)') : null;
+    box.replaceChildren(
+      chip('lufs', `${fmt(f.lufs)} LUFS`, `Loudness, integrated (ITU-R BS.1770). Loudest 3 s: ${fmt(f.shortTermMax)} LUFS; loudest 0.4 s: ${fmt(f.momentaryMax)} LUFS.`),
+      chip('truepeak', `peak ${fmt(f.truePeakDb)} dBTP`, `True peak (between samples, 4× oversampled). Sample peak: ${fmt(f.samplePeakDb)} dB.`, f.clipped > 0),
+      chip('stereo', `stereo: ${stereo}`, `Correlation ${f.correlation.toFixed(2)} (1 = mono, 0 = unrelated, −1 = cancels in mono); side/mid ${f.width.toFixed(2)}.`, f.correlation < -0.2),
+      chip('bright', `bright ${bright}`, 'Brightness: the spectral centroid, where the energy sits on average.'),
+      ...(vol ? [vol] : []),
+      ...(f.checks || []).map((t) => chip('check', '⚠ ' + t, t, true)));
+  }
+
+  function setView(v) {
+    view = v;
+    try { localStorage.setItem('noormd.sound.view', v); } catch { /* private storage off */ }
+    const b = $('#sb-view');
+    if (b) { b.textContent = v === 'spectrum' ? '〰 Waveform' : '▦ Spectrogram'; b.setAttribute('aria-pressed', String(v === 'spectrum')); }
+    $('#sb-wave')?.setAttribute('aria-label', v === 'spectrum' ? 'Spectrogram: time across, pitch up (click to jump)' : 'Waveform (click to jump)');
+    drawWave();
+  }
+
+  /** The spectrogram as an image (decoded once per render), in a dark-to-bright scale that reads in both themes. */
+  function spectrumImage(f) {
+    const s = f.spectrogram;
+    if (s._img) return s._img;
+    const bytes = Uint8Array.from(atob(s.data), (ch) => ch.charCodeAt(0));
+    const img = new ImageData(s.columns, s.rows);
+    const stops = [[0, 7, 5, 30], [64, 52, 18, 110], [128, 160, 40, 140], [192, 245, 120, 70], [255, 252, 245, 180]];
+    const color = (v) => { let k = 1; while (k < stops.length - 1 && v > stops[k][0]) k++; const [a, ar, ag, ab] = stops[k - 1], [b, br, bg, bb] = stops[k], t = (v - a) / (b - a || 1); return [ar + (br - ar) * t, ag + (bg - ag) * t, ab + (bb - ab) * t]; };
+    for (let r = 0; r < s.rows; r++) {
+      for (let c = 0; c < s.columns; c++) {
+        const [R, G, B] = color(bytes[r * s.columns + c]);
+        const o = ((s.rows - 1 - r) * s.columns + c) * 4; // low frequencies at the bottom
+        img.data[o] = R; img.data[o + 1] = G; img.data[o + 2] = B; img.data[o + 3] = 255;
+      }
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = s.columns; canvas.height = s.rows;
+    canvas.getContext('2d').putImageData(img, 0, 0);
+    s._img = canvas;
+    return canvas;
+  }
+
+  async function pickReference() {
+    try {
+      const r = await req('sound.reference.pick');
+      if (!r || r.cancelled) return;
+      reference = r;
+      listening = 'R';
+      showReference();
+      notice(`Reference: ${r.name}. Press B (or the A/B button) to switch between it and your sound.`, 2600);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  function clearReference() {
+    if (!reference) return;
+    reference = null;
+    req('sound.reference.clear').catch(() => {});
+    if (listening === 'R') { listening = 'B'; schedule(0); }
+    renderHeader();
+  }
+
+  /** Listen to the reference: its waveform, spectrogram and meters, from the same spot. */
+  function showReference() {
+    ++renderGen; // a render still on its way is not shown over it
+    render = reference;
+    const wasPlaying = !audio.paused;
+    const at = audio.currentTime || 0;
+    audio.loop = !!(recipe && recipe.loop);
+    audio.src = reference.url;
+    audio.addEventListener('loadedmetadata', () => {
+      if (at > 0 && Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = audio.loop ? at % audio.duration : Math.min(at, audio.duration);
+      if (wasPlaying) audio.play().catch(() => {});
+    }, { once: true });
+    applyVolume();
+    renderHeader();
+    drawWave();
+    renderMeters();
+    setStatus(`R (reference) · ${reference.name} · ${reference.seconds.toFixed(reference.seconds < 2 ? 2 : 1)} s`);
+  }
 
   function playStop() {
     if (!render) return;
@@ -192,12 +314,28 @@ window.NoorSound = (() => {
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
     g.clearRect(0, 0, w, h);
     const cs = getComputedStyle(c);
-    const n = render.peaks.length / 2;
-    g.fillStyle = cs.getPropertyValue('--sb-wave') || '#9b87f5';
-    for (let i = 0; i < n; i++) {
-      const lo = render.peaks[i * 2], hi = render.peaks[i * 2 + 1];
-      const x = (i / n) * w;
-      g.fillRect(x, h / 2 - hi * h / 2, Math.max(1, w / n), Math.max(1, (hi - lo) * h / 2));
+    const f = render.feedback;
+    c.classList.toggle('spectrum', view === 'spectrum' && !!(f && f.spectrogram));
+    if (view === 'spectrum' && f && f.spectrogram) {
+      g.imageSmoothingEnabled = true;
+      g.drawImage(spectrumImage(f), 0, 0, w, h);
+      // Frequency marks: 100 Hz, 1 kHz, 10 kHz.
+      const s = f.spectrogram;
+      g.font = '10px system-ui, sans-serif';
+      for (const [hz, label] of [[100, '100 Hz'], [1000, '1 kHz'], [10000, '10 kHz']]) {
+        if (hz <= s.lowHz || hz >= s.highHz) continue;
+        const y = h - (Math.log(hz / s.lowHz) / Math.log(s.highHz / s.lowHz)) * h;
+        g.fillStyle = 'rgba(255,255,255,.35)'; g.fillRect(0, y, w, 1);
+        g.fillStyle = 'rgba(255,255,255,.8)'; g.fillText(label, 4, Math.max(11, y - 2));
+      }
+    } else {
+      const n = render.peaks.length / 2;
+      g.fillStyle = cs.getPropertyValue('--sb-wave') || '#9b87f5';
+      for (let i = 0; i < n; i++) {
+        const lo = render.peaks[i * 2], hi = render.peaks[i * 2 + 1];
+        const x = (i / n) * w;
+        g.fillRect(x, h / 2 - hi * h / 2, Math.max(1, w / n), Math.max(1, (hi - lo) * h / 2));
+      }
     }
     if (audio.duration > 0) {
       g.fillStyle = cs.getPropertyValue('--sb-head') || '#fff';
@@ -225,14 +363,29 @@ window.NoorSound = (() => {
             el('label', { class: 'sb-seed', title: 'The random seed: the same seed gives the same sound' }, el('span', { text: 'Seed' }), el('input', { type: 'number', id: 'sb-seed', min: '0', max: '2147483647', step: '1' })),
             el('button', { class: 'utility-btn', id: 'sb-vary', title: 'A new variation: same recipe, another seed (V)', onclick: newVariation }, '🎲 Variation'),
             el('button', { class: 'utility-btn', id: 'sb-pin', title: 'Keep this version as A, to compare while you change things', onclick: pin }, '📌 Pin as A'),
-            el('button', { class: 'utility-btn', id: 'sb-ab', title: 'Listen to A (pinned) or B (now) (B)', hidden: true, onclick: flipAB }, 'A/B: B')),
+            el('button', { class: 'utility-btn', id: 'sb-ab', title: 'Listen to A (pinned), B (now) or R (the reference) (B)', hidden: true, onclick: flipAB }, 'A/B: B'),
+            el('button', { class: 'utility-btn', id: 'sb-ref', title: 'A finished sound (WAV) to compare with yours: from a game, a library, a sound you like', onclick: pickReference }, '🎧 Reference…'),
+            el('span', { class: 'sb-refchip', id: 'sb-refchip', hidden: true },
+              el('span', { id: 'sb-refname' }), el('button', { class: 'icon-btn', title: 'Stop comparing with the reference', 'aria-label': 'Remove the reference', onclick: clearReference }, '✕'))),
           el('canvas', { class: 'sb-wave', id: 'sb-wave', 'aria-label': 'Waveform (click to jump)', role: 'img' }),
-          el('p', { class: 'pref-hint sb-status', id: 'sb-status', 'aria-live': 'polite' }),
+          el('div', { class: 'sb-feedback' },
+            el('p', { class: 'pref-hint sb-status', id: 'sb-status', 'aria-live': 'polite' }),
+            el('label', { class: 'sb-inline', id: 'sb-matchwrap', title: 'When comparing A, B and the reference, play them equally loud (a louder version always seems better)', hidden: true },
+              el('input', { type: 'checkbox', id: 'sb-match' }), el('span', { text: 'Match loudness' })),
+            el('button', { class: 'utility-btn', id: 'sb-view', 'aria-pressed': 'false', onclick: () => setView(view === 'spectrum' ? 'wave' : 'spectrum') }, '▦ Spectrogram')),
+          el('div', { class: 'sb-meters', id: 'sb-meters', 'aria-label': 'Meters' }),
           el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['quick', 'Quick'], ['layers', 'Layers'], ['mod', 'Modulation'], ['output', 'Output & export']].map(([id, label]) =>
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
     $('#sb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
+    $('#sb-match').checked = matchLoudness;
+    $('#sb-match').addEventListener('change', (e) => {
+      matchLoudness = e.target.checked;
+      try { localStorage.setItem('noormd.sound.match', matchLoudness ? 'on' : 'off'); } catch { /* private storage off */ }
+      applyVolume(); renderMeters();
+    });
+    setView(view);
     $('#sb-seed').addEventListener('change', (e) => { recipe.seed = Math.max(0, Math.min(2147483647, Math.round(Number(e.target.value) || 0))); changed(false); });
     $('#sb-wave').addEventListener('click', (e) => { if (audio.duration > 0) { const r = e.currentTarget.getBoundingClientRect(); audio.currentTime = ((e.clientX - r.left) / r.width) * audio.duration; drawWave(); } });
     new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); drawWave(); }).observe(root);
@@ -244,7 +397,7 @@ window.NoorSound = (() => {
       else if (e.key.toLowerCase() === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (e.key.toLowerCase() === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
-      else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
+      else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && (pinned || reference)) { e.preventDefault(); flipAB(); }
     });
   }
 
@@ -282,9 +435,13 @@ window.NoorSound = (() => {
     if (document.activeElement !== $('#sb-name')) $('#sb-name').value = recipe.name;
     $('#sb-seed').value = String(recipe.seed);
     const ab = $('#sb-ab');
-    ab.hidden = !pinned;
-    ab.textContent = `A/B: ${listening}`;
-    ab.classList.toggle('on', listening === 'A');
+    ab.hidden = !pinned && !reference;
+    ab.textContent = `${reference ? (pinned ? 'A/B/R' : 'B/R') : 'A/B'}: ${listening}`;
+    ab.classList.toggle('on', listening !== 'B');
+    $('#sb-matchwrap').hidden = !pinned && !reference;
+    $('#sb-refchip').hidden = !reference;
+    $('#sb-ref').hidden = !!reference;
+    if (reference) $('#sb-refname').textContent = '🎧 ' + reference.name;
   }
 
   function renderEditor() {
@@ -789,6 +946,7 @@ window.NoorSound = (() => {
     return [
       el('div', { class: 'sb-fields' }, ...MASTER.map((f) => slider(m, f, false))),
       el('label', { class: 'sb-inline' }, norm, el('span', { text: 'Bring the loudest peak to the ceiling (good for one-shots)' })),
+      targetChoice(m),
       el('h4', { class: 'music-subhead', text: 'Master effects (on the whole sound)' }),
       effectsRack(m.effects ||= [], 'master', 'master'),
       el('h4', { class: 'music-subhead', text: 'Export' }),
@@ -801,6 +959,18 @@ window.NoorSound = (() => {
         el('button', { class: 'action', id: 'sb-save', onclick: savePreset }, '★ Save as my preset…')),
       el('p', { class: 'pref-hint', id: 'sb-export-status', text: 'Variations use the next seeds, so each file is a different take of the same sound. The recipe (.noorsound.json) is saved with them: open it later to make more or change it.' }),
     ];
+  }
+
+  const TARGETS = [[0, 'Off'], [-14, '−14 LUFS (loud: streaming, punchy SFX)'], [-16, '−16 LUFS (balanced)'], [-18, '−18 LUFS'], [-20, '−20 LUFS'], [-23, '−23 LUFS (quiet: broadcast, ambiences)']];
+
+  /** Loudness target: every sound made with the same one sits at the same loudness in a game or a video. */
+  function targetChoice(m) {
+    const s = el('select', { id: 'sb-target', 'aria-label': 'Loudness target' }, ...TARGETS.map(([v, t]) => el('option', { value: String(v), text: t })));
+    const now = Number(m.targetLufs) || 0;
+    if (!TARGETS.some(([v]) => v === now)) s.append(el('option', { value: String(now), text: `${now} LUFS` }));
+    s.value = String(now);
+    s.addEventListener('change', () => { m.targetLufs = Number(s.value); changed(false); });
+    return el('label', { class: 'sb-inline', title: 'Brings the finished sound to this loudness (BS.1770), after Normalize and before the ceiling' }, el('span', { text: 'Loudness target' }), s);
   }
 
   function exportPrefs() { try { return { variations: 1, sampleRate: 48000, bits: 16, ...JSON.parse(localStorage.getItem('noormd.sound.export') || '{}') }; } catch { return { variations: 1, sampleRate: 48000, bits: 16 }; } }
@@ -830,17 +1000,19 @@ window.NoorSound = (() => {
 
   function pin() {
     if (!recipe) return;
-    pinned = { recipe: clone(recipe) };
+    pinned = { recipe: clone(recipe), lufs: render && render.feedback && listening === 'B' ? render.feedback.lufs : null };
     listening = 'B';
     renderHeader();
     notice('Pinned as A. Change things, then press B (or A/B) to compare.', 2200);
   }
 
+  /** B → A (if pinned) → R (if a reference is set) → B. */
   function flipAB() {
-    if (!pinned) return;
-    listening = listening === 'A' ? 'B' : 'A';
+    const order = ['B', ...(pinned ? ['A'] : []), ...(reference ? ['R'] : [])];
+    if (order.length < 2) return;
+    listening = order[(order.indexOf(listening) + 1) % order.length];
     renderHeader();
-    schedule(0);
+    if (listening === 'R') showReference(); else schedule(0);
   }
 
   async function exportSound() {
@@ -889,6 +1061,6 @@ window.NoorSound = (() => {
     init, open, close, toggle, isOpen,
     /** Another player started: the preview stops. */
     stopForOther: () => { if (!audio.paused) audio.pause(); },
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: audio.volume, reference: reference ? reference.name : null, match: matchLoudness }),
   };
 })();

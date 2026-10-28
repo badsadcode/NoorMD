@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0-preview.31 — Sound Bench: meters, spectrogram and fair comparisons
+
+Stage 4 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): see and measure what you hear,
+and compare fairly.
+
+- **Meters** under the waveform, for every preview:
+  - **loudness** in LUFS (ITU-R BS.1770, as the Music Bench measures it), with the loudest 3 s and 0.4 s in
+    its tooltip;
+  - **true peak** (between samples, as a converter rebuilds the wave) and the sample peak;
+  - **stereo** (mono, narrow, wide, or out of phase) and **brightness** (where the energy sits on average).
+- **Plain warnings** when something needs a look: clipping, a true peak above the ceiling, a sound below
+  −40 LUFS, left and right cancelling in mono, a DC offset, or a loop that jumps where it wraps.
+- **▦ Spectrogram:** see the sound by pitch over time instead of the waveform (marked at 100 Hz, 1 kHz and
+  10 kHz). The choice is remembered.
+- **Loudness target** (Output tab): bring the finished sound to −14, −16, −18, −20 or −23 LUFS, so a set of
+  sounds made with the same target sit together in a game or a video. Off by default.
+- **Match loudness** when comparing: the louder of A and B (and the reference) plays quieter, so you hear the
+  difference itself and not just "louder". It is on by default and can be switched off.
+- **🎧 Reference…:** pick a finished sound (a WAV from a game, a library, or one you like) and compare it with
+  yours: its waveform, spectrogram and meters are shown, and B (or the A/B/R button) goes round A, B and R.
+  Only the file you picked is read.
+- **Nothing changes for your existing sounds:** without a loudness target, renders are exactly as before.
+
 ## 2.0.0-preview.30 — Sound Bench: samples, stretched and as grains
 
 Stage 3 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): your own recordings become
