@@ -5166,6 +5166,10 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.$eval('#ab-pane input[data-key="leafBudget"]', (r) => { r.value = '8000'; r.dispatchEvent(new Event('input', { bubbles: true })); });
       await waitFn(page, () => { const b = window.__mock.state.assets.builds.at(-1); return b.leafCluster === 'spray' && b.cardScale === 1.6 && b.leafBudget === 8000; });
       check('…and the tree is built with them', true);
+      check('cards cut to their leaves: on, and can be turned off', await page.$eval('#ab-pane input[data-key="trimCards"]', (x) => x.checked));
+      await page.click('#ab-pane input[data-key="trimCards"]');
+      await waitFn(page, () => window.__mock.state.assets.builds.at(-1).trimCards === false);
+      check('…off: the tree is built with rectangles', true);
       check('the card size reads as a share (160 %)', await page.$eval('#ab-pane input[data-num="cardScale"]', (x) => x.value) === '160');
       await page.click('#ab-pane [data-own="leaves"]');
       await waitFn(page, () => NoorAssets._state().recipe.leafImage === 'D:\\Art\\my leaves.png');
@@ -5253,6 +5257,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Godot export: one file, the plugin asked for', exGodot.engine === 'godot' && exGodot.lodFiles === 'one' && exGodot.shaders === true);
       await waitFn(page, () => !!document.querySelector('#ab-godot-note'));
       check('…and it says where the plugin went and how to turn it on', /res:\/\/addons\/noor_trees[\s\S]*Project Settings → Plugins/.test(await page.textContent('#ab-godot-note')));
+      await page.click('#ab-godot-in-project');
+      await page.click('#ab-export');
+      await waitFn(page, () => window.__mock.state.assets.exports.length === 3);
+      check('the plugin can be kept out of the project (written beside the trees instead)', (await AM()).exports[2].godotInProject === false);
+      await waitFn(page, () => /copy that folder/.test((document.querySelector('#ab-godot-note') || {}).textContent || ''));
+      check('…and the note says to copy it in', true);
       if (shots) {
         await page.click('#assetbench [data-tab="tree"]');
         await page.selectOption('#ab-view', 'shaded');

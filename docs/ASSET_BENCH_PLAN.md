@@ -220,6 +220,23 @@ several sides, a note when the budget can't reach it); cards cut to their leaves
 for your own leaf pictures; one total triangle target split between wood and leaves; levels of detail checked to
 keep the crown's outline, and camera-facing impostors.
 
+### Cards cut to their leaves, a fuller manifest (preview.60)
+
+- **Cards cut to their leaves** (on by default): each sprite's outline (the convex hull of its opaque pixels, cut down
+  to six corners while still holding every leaf, never leaving its cell) from a 128 px copy of the picture, so the
+  shape doesn't depend on the texture size. Same 8 triangles a card (a seventh corner now and then); the oak's
+  see-through card area drops from 84 % to 48 % with the crown as full.
+- **The manifest** with every export, for any engine: kind, name, recipe file and seed, units and axes, bounds in
+  metres, the pivot, each level with its file (or node in one file), triangles and distances, and each material's
+  maps with glTF slot, colour space, channels and the normal-map convention (glTF's OpenGL, green up).
+- **Godot plugin kept out of a project** if you like: written beside the trees instead.
+
+Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
+with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
+consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of
+the ground contact, levels as files or nodes, and simple convex collision pieces in the GLB named by Godot's glTF
+convention (-convcolonly), several for arches and the like.
+
 Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks

@@ -134,25 +134,48 @@ public partial class MainWindow
         return Path.Combine(UserTreeFolder, file);
     }
 
-    /// <summary>What an engine needs to know about the files: units, axes, pivot, levels, materials and the wind data's layout.</summary>
-    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize) => new
+    /// <summary>
+    /// What an engine needs to know about the files, whatever the engine: what the asset is, the recipe and seed it comes
+    /// from, units, axes, bounds and pivot, each level with its file (or node) and triangles, each material's maps with
+    /// their colour space and normal-map convention, and the wind data's layout.
+    /// </summary>
+    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize, string recipeFile, bool oneFile)
     {
-        generator = "NoorMD Asset Bench",
-        kind = "tree",
-        name = build.Recipe.Name,
-        units = "metres",
-        up = "+Y",
-        pivot = "base of the trunk, at the origin",
-        height = build.Recipe.Height,
-        branches = build.Recipe.Branches,
-        files,
-        lods = build.Lods.Select((l, i) => new { level = i, triangles = l.TriangleCount, nodes = l.Root.All().Where(n => n.Mesh != null).Select(n => n.Name), visibleFrom = i == 0 ? 0 : TreeExport.SwitchDistances(build)[i - 1], visibleTo = i < build.Lods.Count - 1 ? TreeExport.SwitchDistances(build)[i] : 0 }),
-        materials = build.Lods[0].Materials.Select(m => new { name = m.Name, alpha = m.Alpha, textures = textureSize > 0 && (m.BaseColorPng != null) ? $"{textureSize}px, embedded" : "none" }),
-        wind = !build.Recipe.Wind ? null : (object)(build.Recipe.WindData == "color"
-            ? new { channel = "COLOR_0", r = "trunk sway (0 at the base, 1 at the top)", g = "branch bend (0 on the trunk, rising along limbs)", b = "leaf flutter (0 at a card's anchor, 1 at its tip)", a = "phase (shared by a limb and what grows on it)" }
-            : new { channel = "TEXCOORD_1 and TEXCOORD_2", uv1x = "branch bend (0 on the trunk, rising along limbs)", uv1y = "leaf flutter (0 at a card's anchor, 1 at its tip)", uv2x = "phase (shared by a limb and what grows on it)", uv2y = "trunk sway (0 at the base, 1 at the top)" }),
-        recipe = build.Recipe.Name + ".noortree.json",
-    };
+        var (lo, hi) = TreeExport.Bounds(build.Lods[0]);
+        float R(float v) => MathF.Round(v, 3);
+        var at = TreeExport.SwitchDistances(build);
+        return new
+        {
+            generator = "NoorMD Asset Bench",
+            kind = "tree",
+            name = build.Recipe.Name,
+            recipe = recipeFile,
+            seed = build.Recipe.Seed,
+            units = "metres",
+            up = "+Y",
+            forward = "+Z",
+            pivot = new { position = new[] { 0f, 0f, 0f }, at = "the base of the trunk, on the ground" },
+            bounds = new { min = new[] { R(lo.X), R(lo.Y), R(lo.Z) }, max = new[] { R(hi.X), R(hi.Y), R(hi.Z) }, size = new[] { R(hi.X - lo.X), R(hi.Y - lo.Y), R(hi.Z - lo.Z) } },
+            height = build.Recipe.Height,
+            branches = build.Recipe.Branches,
+            files,
+            lods = build.Lods.Select((l, i) => new
+            {
+                level = i,
+                file = oneFile || build.Lods.Count == 1 ? files.FirstOrDefault() : files.ElementAtOrDefault(i),
+                node = oneFile && build.Lods.Count > 1 ? l.Root.Name : null,
+                triangles = l.TriangleCount,
+                billboard = build.Recipe.Billboard && i == build.Lods.Count - 1 && build.Lods.Count > 1,
+                nodes = l.Root.All().Where(n => n.Mesh != null).Select(n => n.Name),
+                visibleFrom = i == 0 ? 0 : at[i - 1],
+                visibleTo = i < build.Lods.Count - 1 ? at[i] : 0,
+            }),
+            materials = build.Lods.SelectMany(l => l.Materials).Distinct().Select(m => new { name = m.Name, alpha = m.Alpha, doubleSided = m.DoubleSided, embedded = textureSize > 0, maps = TreeExport.Maps(m, textureSize) }),
+            wind = !build.Recipe.Wind ? null : (object)(build.Recipe.WindData == "color"
+                ? new { channel = "COLOR_0", r = "trunk sway (0 at the base, 1 at the top)", g = "branch bend (0 on the trunk, rising along limbs)", b = "leaf flutter (0 at a card's anchor, 1 at its tip)", a = "phase (shared by a limb and what grows on it)" }
+                : new { channel = "TEXCOORD_1 and TEXCOORD_2", uv1x = "branch bend (0 on the trunk, rising along limbs)", uv1y = "leaf flutter (0 at a card's anchor, 1 at its tip)", uv2x = "phase (shared by a limb and what grows on it)", uv2y = "trunk sway (0 at the base, 1 at the top)" }),
+        };
+    }
 
     private async Task<object?> DispatchAssetAsync(BridgeRequest req)
     {
@@ -284,7 +307,7 @@ public partial class MainWindow
                         await File.WriteAllTextAsync(recipePath, variant.ToJson(), new UTF8Encoding(false));
                         written.AddRange(mine);
                         recipes.Add(Path.GetFileName(recipePath));
-                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size));
+                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size, Path.GetFileName(recipePath), !separate));
                         triangles.Add(build.Lods[0].TriangleCount);
                     }
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
@@ -300,7 +323,9 @@ public partial class MainWindow
                     object? godot = null;
                     if (helpers && engine == "godot")
                     {
-                        var project = GodotAddon.ProjectOf(folder);
+                        // Into the Godot project the trees went into, unless you keep your project's addons to yourself.
+                        var keepOut = p.TryGetProperty("godotInProject", out var gp) && gp.ValueKind == JsonValueKind.False;
+                        var project = keepOut ? null : GodotAddon.ProjectOf(folder);
                         var addons = Path.Combine(project ?? folder, "addons");
                         var addonFiles = await Task.Run(() => GodotAddon.WriteTo(addons));
                         var addonFolder = Path.Combine(addons, GodotAddon.Folder);

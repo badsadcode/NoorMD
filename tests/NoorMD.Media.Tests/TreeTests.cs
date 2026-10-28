@@ -160,6 +160,7 @@ public class TreeTests
     public void Leaf_cards_anchor_at_the_branch_and_flutter_at_the_tip()
     {
         var r = Small("birch");
+        r.TrimCards = false;     // the rectangle's layout (cards cut to their leaves have their own test)
         var build = TreeBuilder.Build(r, NoTextures);
         var leaves = build.Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
         // Twelve corners per card (six in front, six behind): the bottom row (anchor) doesn't flutter, the top row does.
@@ -232,6 +233,7 @@ public class TreeTests
     {
         var r = Small("birch");
         r.Lods = 1;
+        r.TrimCards = false;
         r.WindData = "color";
         var leaves = TreeBuilder.Build(r, NoTextures).Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
         Assert.Equal(leaves.VertexCount, leaves.Colors.Count);
@@ -601,6 +603,7 @@ public class TreeTests
     public void Card_size_makes_the_planes_bigger_not_more()
     {
         var r = Small();
+        r.TrimCards = false;     // rectangles: their area is the plane's
         r.LeafCluster = "twig";
         var normal = Leaves(TreeBuilder.Build(r, NoTextures))!;
         r.CardScale = 2;
@@ -651,6 +654,7 @@ public class TreeTests
         var r = Small();
         r.Quality = "medium";
         r.LeafCluster = "twig";
+        r.TrimCards = false;     // rectangles: twig and cluster cards cost the same
         var twig = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
         var t = TreeStatsMeter.Measure(twig.Lods[0]);
         Assert.Equal(twig.Lods[0].TriangleCount, t.Triangles);
@@ -681,5 +685,74 @@ public class TreeTests
         Assert.Contains(TreeBuilder.Build(r, NoTextures).Notes, n => n.Contains("leaf budget"));
         r.LeafBudget = 200_000;
         Assert.DoesNotContain(TreeBuilder.Build(r, NoTextures).Notes, n => n.Contains("leaf budget"));
+    }
+
+    [Fact]
+    public void Cards_cut_to_their_leaves_draw_less_empty_space_for_the_same_triangles()
+    {
+        foreach (var cluster in new[] { "twig", "cluster" })
+        {
+            var r = Small();
+            r.Quality = "medium";
+            r.LeafCluster = cluster;
+            r.TrimCards = false;
+            var square = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+            r.TrimCards = true;
+            var cut = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+            var a = TreeStatsMeter.Measure(square.Lods[0]);
+            var b = TreeStatsMeter.Measure(cut.Lods[0]);
+            // Six corners where the outline allows it inside its cell, a seventh now and then.
+            Assert.InRange(b.LeafTriangles, a.LeafTriangles, a.LeafTriangles * 1.15);
+            Assert.True(b.EmptyCardArea < a.EmptyCardArea - 0.1, $"{cluster}: see-through {a.EmptyCardArea:0.00} → {b.EmptyCardArea:0.00}");
+            Assert.InRange(b.Fullness!.Value, a.Fullness!.Value - 0.04, a.Fullness.Value + 0.04);
+            // Each triangle samples one sprite only, and none is empty.
+            var m = Leaves(cut)!;
+            Assert.Empty(m.Problems());
+            foreach (var sub in m.Submeshes)
+                for (var i = 0; i + 2 < sub.Indices.Count; i += 3)
+                {
+                    var uv = new[] { m.UV0[sub.Indices[i]], m.UV0[sub.Indices[i + 1]], m.UV0[sub.Indices[i + 2]] };
+                    float lu = uv.Min(u => u.X), hu = uv.Max(u => u.X), lv = uv.Min(u => u.Y), hv = uv.Max(u => u.Y);
+                    Assert.Equal(MathF.Floor((lu + 1e-4f) * 2), MathF.Floor((hu - 1e-4f) * 2));
+                    Assert.Equal(MathF.Floor((lv + 1e-4f) * 2), MathF.Floor((hv - 1e-4f) * 2));
+                }
+        }
+    }
+
+    [Fact]
+    public void A_sprite_outline_holds_every_leaf_with_few_corners()
+    {
+        var img = LeafAtlas.Pixels("broad", "#3f6b26", "#7a9a33", false, 256, 5, "spray");
+        for (var cell = 0; cell < 4; cell++)
+        {
+            var rect = LeafAtlas.Cell(cell);
+            var outline = CardShape.Outline(img, rect)!;
+            Assert.InRange(outline.Length, 3, 6);
+            // Every opaque pixel of the cell is inside (or on) the outline.
+            int x0 = (int)(rect.X * 256), y0 = (int)(rect.Y * 256);
+            for (var y = 0; y < 128; y++)
+                for (var x = 0; x < 128; x++)
+                {
+                    if (img.Rgba[((y0 + y) * 256 + x0 + x) * 4 + 3] < 64) continue;
+                    var p = new Vector2((x + 0.5f) / 128, (y + 0.5f) / 128);
+                    Assert.True(Inside(outline, p), $"cell {cell}: pixel {x},{y} outside " + string.Join(" ", outline.Select(o => $"({o.X:0.000},{o.Y:0.000})")));
+                }
+        }
+        // An empty picture has no outline.
+        Assert.Null(CardShape.Outline(new RawImage(8, 8, new byte[8 * 8 * 4]), new Vector4(0, 0, 1, 1)));
+    }
+
+    private static bool Inside(Vector2[] poly, Vector2 p)
+    {
+        var sign = 0;
+        for (var i = 0; i < poly.Length; i++)
+        {
+            Vector2 a = poly[i], b = poly[(i + 1) % poly.Length];
+            var c = (b.X - a.X) * (p.Y - a.Y) - (b.Y - a.Y) * (p.X - a.X);
+            if (MathF.Abs(c) < 1e-4f) continue;
+            var s = MathF.Sign(c);
+            if (sign == 0) sign = s; else if (s != sign) return false;
+        }
+        return true;
     }
 }

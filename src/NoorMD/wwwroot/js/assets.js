@@ -23,7 +23,7 @@ window.NoorAssets = (() => {
   let history = [], future = [], lastSnapshot = '';
   let exportWhere = null;
   // Godot first (one file: the NoorMD plugin switches its levels), then Unity (one file: a LOD Group from the names), Unreal.
-  const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true };
+  const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true, godotInProject: true };
   let exportPrefs = (() => { try { return { ...exportDefaults, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { ...exportDefaults }; } })();
   const ENGINES = {
     godot: { name: 'Godot 4', lodFiles: 'one', helper: 'Godot import plugin: levels switched by distance, wind', title: 'addons/noor_trees: written into your Godot project’s addons folder when you export into a Godot project (otherwise beside the trees, to copy there). Turn it on once in Project Settings → Plugins; every NoorMD tree you import then gets its levels of detail switched by distance and the wind shader with its own textures. Other scenes are left alone.' },
@@ -451,6 +451,7 @@ window.NoorAssets = (() => {
         slider(recipe, ['leafDensity', 'Density', 0, 1, 0.01, 'pct', 'How full the crown is']),
         slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'How far apart the cards are spread, and their size (or the size of a clump)']),
         slider(recipe, ['cardScale', 'Card size', 0.3, 4, 0.05, 'pct', 'Each card’s plane bigger or smaller without changing how many there are: bigger makes a fuller crown for the same triangles']),
+        check(recipe, 'trimCards', 'Cards cut to their leaves', 'Each card is the outline of its leaves (six corners) instead of a rectangle: the same triangles, about half the see-through pixels for the GPU to draw'),
         slider(recipe, ['outerLeaves', 'Outer leaves', 0, 1, 0.01, 'pct', 'Leaves moved from the hidden inside of the crown to its outside, where they are seen']),
         slider(recipe, ['leafBudget', 'Leaf budget', 500, 60000, 500, 'int', 'Most triangles the leaves may use in LOD0. When the density asks for more, the cards get bigger and fewer instead, so the crown stays as full']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
@@ -509,6 +510,10 @@ window.NoorAssets = (() => {
     helperBox.addEventListener('change', () => { exportPrefs.shaders = helperBox.checked; saveExportPrefs(); });
     const helperText = el('span', { id: 'ab-helper-text', text: ENGINES[exportPrefs.engine].helper });
     const helper = el('label', { class: 'sb-inline', title: ENGINES[exportPrefs.engine].title }, helperBox, helperText);
+    // Godot: the plugin goes into the project the trees go into, unless its addons are left alone (then beside the trees).
+    const inProjectBox = el('input', { type: 'checkbox', id: 'ab-godot-in-project', checked: exportPrefs.godotInProject !== false || undefined });
+    inProjectBox.addEventListener('change', () => { exportPrefs.godotInProject = inProjectBox.checked; saveExportPrefs(); });
+    const inProject = el('label', { class: 'sb-inline', id: 'ab-godot-in-project-row', hidden: exportPrefs.engine !== 'godot', title: 'Off: the plugin is written beside the trees (addons/noor_trees), and your project’s own addons folder is not touched' }, inProjectBox, el('span', { text: '…into the Godot project’s addons folder when the trees go into one' }));
     // Picking an engine sets how the levels are filed for it (still yours to change) and which helper comes along.
     engine.addEventListener('change', () => {
       const e = ENGINES[engine.value];
@@ -517,6 +522,7 @@ window.NoorAssets = (() => {
       files.value = e.lodFiles;
       helperText.textContent = e.helper;
       helper.title = e.title;
+      inProject.hidden = engine.value !== 'godot';
       saveExportPrefs();
       exportWhere.refresh();
     });
@@ -536,6 +542,7 @@ window.NoorAssets = (() => {
       section('Files',
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'For' }), engine), el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
         helper,
+        inProject,
         el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
       section('Where', exportWhere.node),
       el('div', { class: 'sb-row' },
@@ -554,7 +561,7 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, ...exportWhere.payload() });
+      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, godotInProject: exportPrefs.godotInProject !== false, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
       setStatus(r.variants > 1 ? `Exported ${r.variants} × “${recipe.name}”: ${r.files.length} files` : `Exported “${recipe.name}”: ${r.files.join(', ')}`);

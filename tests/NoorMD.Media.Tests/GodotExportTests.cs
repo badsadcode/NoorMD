@@ -125,6 +125,23 @@ public class GodotExportTests
         finally { Directory.Delete(dir, true); }
     }
 
+    [Fact]
+    public void The_manifest_knows_the_bounds_and_each_maps_colour_space()
+    {
+        var build = Build();
+        var (lo, hi) = TreeExport.Bounds(build.Lods[0]);
+        Assert.InRange(hi.Y, TreeExport.Size(build) - 0.01f, TreeExport.Size(build) + 0.01f);
+        Assert.True(lo.Y <= 0.05f && hi.X > 0 && lo.X < 0 && hi.Z > 0 && lo.Z < 0);
+        var bark = build.Lods[0].Materials.First(m => m.Name == "Bark");
+        var maps = JsonSerializer.Serialize(TreeExport.Maps(bark, 64));
+        Assert.Contains("\"map\":\"baseColor\"", maps);
+        Assert.Contains("\"colorSpace\":\"sRGB\"", maps);
+        Assert.Contains("\"convention\":\"OpenGL (green \\u002BY), as glTF\"", maps);
+        Assert.Contains("R occlusion, G roughness, B metallic", maps);
+        var leaves = JsonSerializer.Serialize(TreeExport.Maps(build.Lods[0].Materials.First(m => m.Name == "Leaves"), 64));
+        Assert.Contains("A coverage (alpha cut-out at 0.5)", leaves);
+    }
+
     /// <summary>
     /// For the Godot check (CI and by hand): NOORMD_GODOT_OUT gets a Godot project with the plugin turned on and trees to
     /// import; tests/godot/check.gd then imports them in a headless Godot and checks what the plugin did.

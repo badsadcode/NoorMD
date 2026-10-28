@@ -154,6 +154,8 @@ public sealed class TreeRecipe
     public int LeafBudget { get; set; } = 16000;
     /// <summary>Leaves moved from the hidden inside of the crown to its outside, where they are seen (0 none … 1 most).</summary>
     public double OuterLeaves { get; set; } = 0.5;
+    /// <summary>Cards cut to the outline of their leaves (six corners) instead of rectangles: the same triangles, far fewer see-through pixels to draw.</summary>
+    public bool TrimCards { get; set; } = true;
 
     // Bark.
     public string BarkColor { get; set; } = "#5a4636";

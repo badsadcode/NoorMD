@@ -74,5 +74,31 @@ public static class TreeExport
         build.Lods.Count == 0 ? (float)build.Recipe.Height
         : build.Lods[0].Root.All().Where(n => n.Mesh is { VertexCount: > 0 }).Select(n => n.Mesh!.Bounds().Max.Y + n.Translation.Y).DefaultIfEmpty((float)build.Recipe.Height).Max();
 
+    /// <summary>The axis-aligned box round every mesh of a level, in metres (nodes moved and turned into place).</summary>
+    public static (System.Numerics.Vector3 Min, System.Numerics.Vector3 Max) Bounds(Asset3D level)
+    {
+        var tris = Billboard.Triangles(level);
+        if (tris.Count == 0) return default;
+        var lo = new System.Numerics.Vector3(float.MaxValue);
+        var hi = new System.Numerics.Vector3(float.MinValue);
+        foreach (var t in tris)
+            foreach (var p in new[] { t.A, t.B, t.C }) { lo = System.Numerics.Vector3.Min(lo, p); hi = System.Numerics.Vector3.Max(hi, p); }
+        return (lo, hi);
+    }
+
+    /// <summary>
+    /// A material's maps as an engine needs to read them: which glTF slot, colour space, what the channels hold, and
+    /// the normal map's convention (glTF's: OpenGL, green up).
+    /// </summary>
+    public static IEnumerable<object> Maps(Material3D m, int textureSize)
+    {
+        if (m.BaseColorPng != null)
+            yield return new { map = "baseColor", gltf = "baseColorTexture", colorSpace = "sRGB", channels = m.Alpha == "mask" ? "RGB colour, A coverage (alpha cut-out at " + m.AlphaCutoff.ToString("0.##", CultureInfo.InvariantCulture) + ")" : "RGB colour", size = m.BaseColorPixels?.Width ?? textureSize };
+        if (m.NormalPng != null)
+            yield return new { map = "normal", gltf = "normalTexture", colorSpace = "linear", channels = "tangent-space normal", convention = "OpenGL (green +Y), as glTF", size = textureSize };
+        if (m.OcclusionRoughnessMetallicPng != null)
+            yield return new { map = "occlusionRoughnessMetallic", gltf = "occlusionTexture and metallicRoughnessTexture", colorSpace = "linear", channels = "R occlusion, G roughness, B metallic", size = textureSize };
+    }
+
     private static float Round(float v) => float.Parse(v.ToString("0.##", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
 }

@@ -53,6 +53,7 @@ public static class TreeBuilder
         recipe = recipe.Clone();
         var sk = TreeSkeleton.Grow(recipe);
         var build = new TreeBuild { Recipe = recipe, Skeleton = sk };
+        cardShapes = null;
         var stylized = recipe.Style == "stylized";
         var q = recipe.Quality switch { "low" => 5f, "high" => 12f, _ => 8f };
         var cell = MathF.Max((float)recipe.TrunkRadius / q, (float)recipe.Height / (q * 60));
@@ -166,6 +167,12 @@ public static class TreeBuilder
             if (ownLeaves != null) Use(leafMat, ownLeaves);
             else if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed, recipe.LeafCluster));
             else leafMat.BaseColor = Color(recipe.LeafColor);
+            // Each sprite's outline, from a small copy of the picture (so the cards' shape doesn't depend on the texture size).
+            if (recipe.TrimCards)
+            {
+                var src = ownLeaves ?? LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, 128, recipe.Seed, recipe.LeafCluster);
+                cardShapes = Enumerable.Range(0, 5).Select(i => i < 4 ? CardShape.Outline(src, LeafAtlas.Cell(i)) : CardShape.Outline(src, new Vector4(0, 0, 1, 1))).ToArray();
+            }
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
         var mossy = recipe.Moss > 0;
@@ -312,6 +319,7 @@ public static class TreeBuilder
             asset.Root.Children.Add(new Node3D { Name = "Billboard", Mesh = crossed });
             build.Lods.Add(asset);
         }
+        cardShapes = null;
         build.Seconds = watch.Elapsed.TotalSeconds;
         return build;
     }
@@ -861,39 +869,74 @@ public static class TreeBuilder
         f = Vector3.Normalize(f);
         f = Vector3.Normalize(Vector3.Transform(f, Quaternion.CreateFromAxisAngle(grow, ((float)rng.NextDouble() - 0.5f) * (face == null ? 0.9f : 0.3f))));
         var across = Vector3.Normalize(Vector3.Cross(grow, f));
-        var cellUv = LeafCell(recipe, rng);
+        var cell = LeafCellIndex(recipe, rng);
+        var cellUv = cell < 4 ? LeafAtlas.Cell(cell) : new Vector4(0, 0, 1, 1);
         var half = size / 2;
         var fold = f * size * 0.12f;
         var sub = m.Sub(material);
         var first = m.VertexCount;
         var baseWind = windOverride ?? Wind(b, t, anchor, sk, recipe);
-        // Columns: left, middle (raised), right; rows: bottom, top.
-        for (var row = 0; row < 2; row++)
-            for (var col = 0; col < 3; col++)
-            {
-                var x = col - 1;
-                var p = anchor + grow * size * row + across * half * x + (col == 1 ? fold : Vector3.Zero);
-                var u = cellUv.X + (cellUv.Z - cellUv.X) * (col / 2f);
-                var v = cellUv.W + (cellUv.Y - cellUv.W) * row;   // bottom of the cell is the anchor
-                var own = Vector3.Normalize(f - across * x * 0.35f);
-                var wind = recipe.Wind ? baseWind with { Z = row } : Vector4.Zero;
-                m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(own, CrownOut(p, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
-                m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(-own, CrownOut(p, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
-            }
-        // Front (even vertices) and back (odd, wound the other way).
+        // The card's corners in its own space (x −1…1 across, y 0 at the anchor … 1 at the tip): the leaves' outline,
+        // or a rectangle with its middle raised.
+        var shape = cardShapes?[cell];
+        List<Vector2> corners;
+        if (shape != null)
+        {
+            corners = shape.Select(c => new Vector2(c.X * 2 - 1, 1 - c.Y)).ToList();
+            if (Area(corners) < 0) corners.Reverse();     // counter-clockwise seen from the front
+        }
+        else corners = [new(-1, 0), new(0, 0), new(1, 0), new(1, 1), new(0, 1), new(-1, 1)];
+        foreach (var c in corners)
+        {
+            // Folded along the middle: raised most there, nothing at the edges.
+            var p = anchor + grow * size * c.Y + across * half * c.X + fold * (1 - MathF.Min(1, MathF.Abs(c.X)));
+            var uv = new Vector2(cellUv.X + (cellUv.Z - cellUv.X) * (c.X * 0.5f + 0.5f), cellUv.W + (cellUv.Y - cellUv.W) * c.Y);   // bottom of the cell is the anchor
+            var own = Vector3.Normalize(f - across * c.X * 0.35f);
+            var wind = recipe.Wind ? baseWind with { Z = c.Y } : Vector4.Zero;
+            m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(own, CrownOut(p, sk), (float)recipe.CrownNormals)), uv, wind);
+            m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(-own, CrownOut(p, sk), (float)recipe.CrownNormals)), uv, wind);
+        }
+        // Front (even vertices, a fan) and back (odd, wound the other way).
         int F(int k) => first + k * 2;
         int Bk(int k) => first + k * 2 + 1;
-        sub.Indices.AddRange([F(0), F(1), F(4), F(0), F(4), F(3), F(1), F(2), F(5), F(1), F(5), F(4)]);
-        sub.Indices.AddRange([Bk(0), Bk(4), Bk(1), Bk(0), Bk(3), Bk(4), Bk(1), Bk(5), Bk(2), Bk(1), Bk(4), Bk(5)]);
+        if (shape == null)
+        {
+            // The rectangle: two quads either side of the raised middle.
+            sub.Indices.AddRange([F(0), F(1), F(4), F(0), F(4), F(5), F(1), F(2), F(3), F(1), F(3), F(4)]);
+            sub.Indices.AddRange([Bk(0), Bk(4), Bk(1), Bk(0), Bk(5), Bk(4), Bk(1), Bk(3), Bk(2), Bk(1), Bk(4), Bk(3)]);
+            return;
+        }
+        for (var k = 1; k + 1 < corners.Count; k++)
+        {
+            sub.Indices.AddRange([F(0), F(k), F(k + 1)]);
+            sub.Indices.AddRange([Bk(0), Bk(k + 1), Bk(k)]);
+        }
     }
+
+    private static float Area(List<Vector2> poly)
+    {
+        var a = 0f;
+        for (var i = 0; i < poly.Count; i++) { var p = poly[i]; var q = poly[(i + 1) % poly.Count]; a += p.X * q.Y - q.X * p.Y; }
+        return a / 2;
+    }
+
+    /// <summary>The outline of each leaf sprite (atlas cells 0–3, a whole picture 4) while a tree is built; null: rectangles.</summary>
+    [ThreadStatic] private static Vector2[]?[]? cardShapes;
 
     // ---- Helpers ----
 
     /// <summary>Which part of the leaf picture a card shows: a cell of the 2 × 2 atlas, or all of a picture of your own that isn't one.</summary>
     private static Vector4 LeafCell(TreeRecipe recipe, Random rng)
     {
-        var cell = LeafAtlas.Cell(rng.Next(4));
-        return recipe.LeafImage != "" && !recipe.LeafImageAtlas ? new Vector4(0, 0, 1, 1) : cell;
+        var cell = LeafCellIndex(recipe, rng);
+        return cell < 4 ? LeafAtlas.Cell(cell) : new Vector4(0, 0, 1, 1);
+    }
+
+    /// <summary>The same as an index: 0–3 a cell of the atlas, 4 the whole picture.</summary>
+    private static int LeafCellIndex(TreeRecipe recipe, Random rng)
+    {
+        var cell = rng.Next(4);
+        return recipe.LeafImage != "" && !recipe.LeafImageAtlas ? 4 : cell;
     }
 
     private static void Use(Material3D m, RawImage pixels)
