@@ -261,6 +261,17 @@ Fix (preview.63): tubes were wound inwards (faces against their normals), so eng
 the inside of a low-poly trunk; thin twig tubes had it from the start. Tubes and their tips now face outwards, and a
 test checks every wood triangle against its normals.
 
+### The trunk follows the level; slim conifers (preview.64)
+
+- **The trunk's share follows the level:** low-poly trunks are round up close (10 sides or more, as thick trunks
+  need, or at least the recipe's Trunk sides; 12 rings), a simple 6-sided trunk with 5 rings on the next level and
+  5 sides with 3 rings beyond, where the leaves hide it; roots and limbs lose sides level by level too. A welded
+  hero tree switches to these simple tubes on any farther level whose wood share is small. A 4,000 tree's second
+  level costs what a whole 2,000 tree did, with a decent trunk close up.
+- **Slim conifers:** pine, spruce and sequoia are 3–4 times taller than wide (taiga proportions; the pine was about
+  1.9, measured across its needle cards about 1.3): shorter branches, more of them to a whorl for clear tiers, and
+  needle cards the budget may grow at most 1.4 times (bigger ones stuck out past the short branches).
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

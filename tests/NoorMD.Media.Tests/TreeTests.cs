@@ -865,4 +865,47 @@ public class TreeTests
         thin.Billboard = false; thin.Lods = 1; thin.Quality = "low";
         Assert.True(InsideOut(Wood(TreeBuilder.Build(thin, NoTextures))) < 0.01);
     }
+
+    [Fact]
+    public void The_trunk_is_round_up_close_and_simple_far_away()
+    {
+        var r = TreePresets.Make("oak");
+        r.Billboard = false; r.Lods = 3; r.TriangleTarget = 4000;
+        var b = TreeBuilder.Build(r, NoTextures);
+        // The trunk's rings: count the vertices around its lowest ring on each level.
+        int Sides(int level)
+        {
+            // The trunk is the first tube; a ring's vertices share the bark's v (distance up the trunk), the seam doubled.
+            var wood = b.Lods[level].Root.All().First(n => n.Name == "Trunk").Mesh!;
+            return wood.UV0.TakeWhile(uv => MathF.Abs(uv.Y - wood.UV0[0].Y) < 1e-5f).Count() - 1;
+        }
+        Assert.InRange(Sides(0), 10, 16);
+        Assert.Equal(6, Sides(1));
+        Assert.Equal(5, Sides(2));
+        r.TrunkSides = 14;
+        b = TreeBuilder.Build(r, NoTextures);
+        Assert.Equal(14, Sides(0));
+        // Each farther level costs about half.
+        Assert.True(b.Lods[1].TriangleCount < b.Lods[0].TriangleCount * 0.6 && b.Lods[2].TriangleCount < b.Lods[1].TriangleCount * 0.6, string.Join(", ", b.Lods.Select(l => l.TriangleCount)));
+        // A hero tree keeps its welded trunk up close and gets the simple one far away.
+        var hero = TreePresets.Make("oak");
+        hero.Billboard = false; hero.Lods = 4; hero.TriangleTarget = 20000;
+        var hb = TreeBuilder.Build(hero, NoTextures);
+        Assert.DoesNotContain(hb.Notes, n => n.StartsWith("Low-poly wood"));
+        Assert.Empty(Wood(hb).Problems());
+        Assert.True(hb.Lods[3].Root.All().First(n => n.Name == "Trunk").Mesh!.TriangleCount < 800);
+    }
+
+    [Fact]
+    public void Conifers_are_slim_cones_three_times_taller_than_wide()
+    {
+        foreach (var preset in new[] { "pine", "spruce", "sequoia" })
+        {
+            var r = TreePresets.Make(preset);
+            r.Billboard = false; r.Lods = 1; r.TriangleTarget = 8000;
+            var (lo, hi) = TreeExport.Bounds(TreeBuilder.Build(r, NoTextures).Lods[0]);
+            var ratio = hi.Y / MathF.Max(hi.X - lo.X, hi.Z - lo.Z);
+            Assert.InRange(ratio, 2.6, 5);
+        }
+    }
 }

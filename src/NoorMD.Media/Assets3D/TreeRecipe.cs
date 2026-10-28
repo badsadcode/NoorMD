@@ -168,6 +168,12 @@ public sealed class TreeRecipe
     /// </summary>
     public int TriangleTarget { get; set; }
 
+    /// <summary>
+    /// The least sides the trunk has on the closest level when it is low-poly tubes (0: as round as its thickness asks,
+    /// 10 or more). Farther levels, where the leaves hide it, have a simple 6- then 5-sided trunk.
+    /// </summary>
+    public int TrunkSides { get; set; }
+
     /// <summary>The wood and leaf budgets this recipe builds with (from the triangle target when there is one).</summary>
     public (int Wood, int Leaves) Budgets()
     {
@@ -291,6 +297,7 @@ public sealed class TreeRecipe
         OuterLeaves = C(OuterLeaves, 0, 1, 0.5);
         CanopyFullness = C(CanopyFullness, 0, 0.98, 0.85);
         TriangleTarget = TriangleTarget <= 0 ? 0 : Math.Clamp(TriangleTarget, 1000, 200_000);
+        TrunkSides = TrunkSides <= 0 ? 0 : Math.Clamp(TrunkSides, 3, 32);
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
         BarkTile = C(BarkTile, 0.05, 20, 1);
@@ -319,9 +326,9 @@ public static class TreePresets
         }),
         new("pine", "Pine (realistic)", "A tall conifer with whorls of near-level branches and needle cards.", () => new TreeRecipe
         {
-            Name = "Pine", Archetype = "conifer", Height = 14, TrunkRadius = 0.25, Taper = 0.95, CrownStart = 1, Flare = 0.35, Roots = 4, Shape = "conical", Lean = 1, Wobble = 2,
-            Levels = [new() { Count = 40, Start = 0.25, Angle = 85, AngleSpread = 8, Length = 0.35, Radius = 0.35, Bend = -10, Wobble = 5, Whorl = 5, Spiral = 36 },
-                      new() { Count = 10, Start = 0.1, Angle = 55, Length = 0.4, Radius = 0.5, Bend = 5, Wobble = 6 }],
+            Name = "Pine", Archetype = "conifer", Height = 16, TrunkRadius = 0.25, Taper = 0.95, CrownStart = 1, Flare = 0.35, Roots = 4, Shape = "conical", Lean = 1, Wobble = 2,
+            Levels = [new() { Count = 42, Start = 0.25, Angle = 85, AngleSpread = 8, Length = 0.1, Radius = 0.35, Bend = -10, Wobble = 5, Whorl = 6, Spiral = 36 },
+                      new() { Count = 10, Start = 0.1, Angle = 55, Length = 0.45, Radius = 0.5, Bend = 5, Wobble = 6 }],
             LeafCluster = "spray", LeafShape = "needle", LeafSize = 0.7, LeafDensity = 0.85, LeafColor = "#2c4a26", LeafColor2 = "#4d6b30", BarkColor = "#5b4130",
         }),
         new("birch", "Birch (realistic)", "A slender white trunk and fine, drooping branches.", () => new TreeRecipe
@@ -348,7 +355,7 @@ public static class TreePresets
         new("stylized-pine", "Stylized pine", "Stacked, chunky tiers of foliage on a curving trunk.", () => new TreeRecipe
         {
             Name = "Stylized pine", Archetype = "conifer", Style = "stylized", Height = 9, TrunkRadius = 0.32, Taper = 0.95, CrownStart = 1, Flare = 0.6, Roots = 4, Shape = "conical", Lean = 5, Wobble = 5, Twist = 0.2, Collar = 0.9,
-            Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.3, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
+            Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.15, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
             Foliage = "tufts", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "painted", Budget = 2500, Quality = "low",
         }),
         new("stylized-dead", "Stylized dead tree", "A gnarled, spiralling spooky tree.", () => new TreeRecipe
@@ -362,8 +369,8 @@ public static class TreePresets
         // ---- Forest, more kinds.
         new("spruce", "Spruce (realistic)", "A dense, narrow cone of drooping branches in tiers of fanned needle cards.", () => new TreeRecipe
         {
-            Name = "Spruce", Archetype = "conifer", Height = 16, TrunkRadius = 0.28, Taper = 0.95, CrownStart = 1, Flare = 0.4, Roots = 5, Shape = "conical", Lean = 1, Wobble = 2,
-            Levels = [L(48, 0.15, 95, 0.3, 0.32, -20, 4, 8, 4, 45), L(8, 0.15, 55, 0.45, 0.5, 0, 5)],
+            Name = "Spruce", Archetype = "conifer", Height = 18, TrunkRadius = 0.28, Taper = 0.95, CrownStart = 1, Flare = 0.4, Roots = 5, Shape = "conical", Lean = 1, Wobble = 2,
+            Levels = [L(50, 0.15, 95, 0.09, 0.32, -20, 4, 8, 5, 45), L(8, 0.15, 55, 0.45, 0.5, 0, 5)],
             LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.75, LeafDensity = 0.7, LeafColor = "#1f3d24", LeafColor2 = "#3e5f2c", BarkColor = "#4d3a2e",
         }),
         new("maple", "Autumn maple (realistic)", "A round crown of maple leaves in autumn reds and oranges.", () => new TreeRecipe
@@ -432,7 +439,7 @@ public static class TreePresets
         {
             Name = "Giant sequoia", Archetype = "conifer", Height = 75, TrunkRadius = 3.2, Taper = 0.9, CrownStart = 1, Flare = 0.8, Roots = 8, Lean = 1, Wobble = 1.5,
             Flute = 0.7, FluteLobes = 11, FluteHeight = 0.3, Shape = "conical",
-            Levels = [L(55, 0.45, 80, 0.2, 0.22, -20, 8), L(7, 0.15, 50, 0.55, 0.5, 10, 8)],
+            Levels = [L(55, 0.45, 80, 0.11, 0.22, -20, 8), L(7, 0.15, 50, 0.55, 0.5, 10, 8)],
             LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 2.6, LeafDensity = 0.8, LeafColor = "#2c4a26", LeafColor2 = "#55702f", BarkColor = "#8a4a2c", BarkTile = 3, Budget = 20000,
         }, "Giants"),
         new("stylized-sequoia", "Stylized sequoia", "A towering chunky red trunk, ribbed, under tiered tufts.", () => new TreeRecipe

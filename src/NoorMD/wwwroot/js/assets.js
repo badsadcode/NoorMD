@@ -503,6 +503,7 @@ window.NoorAssets = (() => {
       section('Detail',
         choice(recipe, 'quality', 'Quality', QUALITY, 'How finely the surface is sampled before it is simplified to the budget'),
         targetChoice(),
+        slider(recipe, ['trunkSides', 'Trunk sides (closest level)', 0, 24, 1, 'int', 'With low-poly wood (a small budget): the least sides the trunk has on the closest level, so it stays round up close (0: as its thickness asks, 10 or more). Farther levels have a simple 6- then 5-sided trunk, hidden by the leaves']),
         recipe.triangleTarget > 0
           ? el('small', { class: 'pref-hint', id: 'ab-target-split', text: targetSplit() })
           : slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),

@@ -2951,6 +2951,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.menu-popup .menu-item:has-text("In the middle")');
       await waitFn(page, () => NoorDock._state().center.active === 'gallery');
       check('a panel can go in the middle, as a tab next to the documents', await page.isVisible('#module-tabs .module-tab[data-module="gallery"].active') && await page.isHidden('#editor-card') && await page.isVisible('#dock-center #gallery'));
+      // The wide layout comes from a resize observer, a moment after the move.
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide')).catch(() => {});
       check('…where the Gallery becomes a picture manager (albums, details)', await page.evaluate(() => document.querySelector('#gallery').classList.contains('wide')) && await page.isVisible('#gallery-nav .gnav-item[data-source="all"]'));
       await page.click('#tabs .tab');
       check('clicking a document tab brings the document back', await page.isVisible('#editor-card') && (await D()).active === null && (await D()).open.includes('gallery'));
@@ -5199,6 +5201,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('budgets by hand while there is no triangle target', !!(await page.$('#ab-pane input[data-key="budget"]')));
       await page.selectOption('#ab-pane select[data-key="triangleTarget"]', '4000');
       await waitFn(page, () => window.__mock.state.assets.builds.at(-1).triangleTarget === 4000);
+      check('the trunk can keep a least number of sides up close', !!(await page.$('#ab-pane input[data-key="trunkSides"]')));
       check('a triangle target: the tree is built with it, and the page says how it is shared', /About 1,000 for the wood and 3,000 for the leaves/.test(await page.textContent('#ab-target-split')) && !(await page.$('#ab-pane input[data-key="budget"]')));
       await page.selectOption('#ab-pane select[data-key="triangleTarget"]', '0');
       await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="budget"]'));

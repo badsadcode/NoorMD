@@ -231,9 +231,11 @@ public static class TreeBuilder
             // Tubes first: what they cost comes off the budget of the implicit surfaces.
             var tubes = new Dictionary<int, Mesh3D>();
             var tubeTris = 0;
-            if (lowPoly)
+            // Low-poly wood when the whole tree is (a small budget), and on any farther level whose share is small: a
+            // welded trunk up close, a simple one where the leaves hide it.
+            if (lowPoly || budget < LowPolyWood)
             {
-                var (kept, left) = LowPolyWoodMeshes(groups, sk, recipe, budget, cell * 1.6f * detail, tile, tubes);
+                var (kept, left) = LowPolyWoodMeshes(groups, sk, recipe, budget, cell * 1.6f * detail, tile, tubes, lod);
                 tubeTris = tubes.Values.Sum(m => m.TriangleCount);
                 if (lod == 0) build.Notes.Add($"Low-poly wood (a small wood budget): {kept} branches as clean tubes{(left > 0 ? $", the {left} finest left out (they are inside the leaves)" : "")}.");
             }
@@ -258,7 +260,7 @@ public static class TreeBuilder
             foreach (var g in groups)
             {
                 Mesh3D wood;
-                if (g.Dense != null && g.Field != null)
+                if (g.Dense != null && g.Field != null && !(lowPoly || budget < LowPolyWood))
                 {
                     wood = Copy(g.Dense);
                     var target = Math.Max(60, (int)((long)implicitBudget * g.Dense.TriangleCount / Math.Max(1, denseTotal)));
@@ -365,18 +367,20 @@ public static class TreeBuilder
     /// 3) and rings by length, added most important first (the trunk, roots, main limbs, then each finer level, thick
     /// before thin) for as long as the budget lasts. Returns how many branches made it and how many were left out.
     /// </summary>
-    private static (int Kept, int Left) LowPolyWoodMeshes(List<Group> groups, TreeSkeleton sk, TreeRecipe recipe, int budget, float edge, float tile, Dictionary<int, Mesh3D> into)
+    private static (int Kept, int Left) LowPolyWoodMeshes(List<Group> groups, TreeSkeleton sk, TreeRecipe recipe, int budget, float edge, float tile, Dictionary<int, Mesh3D> into, int lod)
     {
         var groupOf = new Dictionary<int, Group>();
         foreach (var g in groups) foreach (var id in g.Branches) groupOf[id] = g;
         static int Rank(TreeBranch b) => b.Id == 0 ? 0 : b.Root ? 1 : b.Bare ? 99 : b.Level + 1;
-        // A thick trunk (baobab, sequoia) needs more sides to stay round; there is only one.
-        int Sides(TreeBranch b) => b.Id == 0 ? Math.Clamp((int)MathF.Round((budget < 700 ? 5 : 7) * MathF.Sqrt(b.BaseRadius / 0.35f)), budget < 700 ? 5 : 7, 12)
-            : b.Root ? 4 : b.Level == 1 ? (budget < 900 ? 4 : 5) : 3;
+        // The trunk follows the level: round and detailed up close (at least the recipe's trunk sides; a thick trunk,
+        // baobab or sequoia, more), a simple 6- then 5-sided one farther away, where the leaves hide it.
+        int Sides(TreeBranch b) => b.Id == 0
+            ? lod == 0 ? Math.Max(recipe.TrunkSides, Math.Clamp((int)MathF.Round(10 * MathF.Sqrt(b.BaseRadius / 0.35f)), 10, 16)) : lod == 1 ? 6 : 5
+            : b.Root ? Math.Max(3, 5 - lod) : b.Level == 1 ? Math.Max(3, 5 - lod) : 3;
         int Step(TreeBranch b)
         {
-            // Rings: the trunk enough to follow its curve, limbs a few, twigs two.
-            var rings = b.Id == 0 ? 8 : b.Root ? 3 : b.Level == 1 ? 5 : 3;
+            // Rings: the trunk enough to follow its curve up close and a few far away, limbs a few, twigs two.
+            var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? (lod == 0 ? 5 : lod == 1 ? 3 : 2) : 2;
             return Math.Max(1, (int)MathF.Ceiling((b.Points.Count - 1) / (float)rings));
         }
         var order = sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Points.Count >= 2).OrderBy(Rank).ThenByDescending(b => b.BaseRadius).ToList();
@@ -662,7 +666,7 @@ public static class TreeBuilder
             if (n == 0) continue;
             // Bigger cards cover what fewer ones must, but not past twice the leaf size (giant cards lose the tree's
             // shape: a spruce would become a bush); beyond that the crown is thinner.
-            var size = size0 * MathF.Min(MathF.Sqrt(MathF.Max(1, cover) / n), MathF.Sqrt(detail) * 2);
+            var size = size0 * MathF.Min(MathF.Sqrt(MathF.Max(1, cover) / n), MathF.Sqrt(detail) * GrowCap(recipe));
             for (var k = 0; k < n && m.TriangleCount - start < ceiling; k++)
             {
                 // Along the leafy part, leaning to the branch's end when leaves are pushed outwards.
@@ -693,6 +697,9 @@ public static class TreeBuilder
     /// </summary>
     internal static float PlaneScale(TreeRecipe recipe) =>
         (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, _ => 1 });
+
+    /// <summary>How much bigger the budget may make a card: conifers less (big cards would stick out past their short branches and widen the slim cone).</summary>
+    private static float GrowCap(TreeRecipe recipe) => recipe.Archetype == "conifer" || recipe.LeafShape == "needle" ? 1.4f : 2f;
 
     /// <summary>The share of the leaf budget the first placement may use: with a canopy fullness, a part is kept for filling the gaps.</summary>
     private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement != "fronds" ? 0.7f : 1f);
@@ -1027,7 +1034,7 @@ public static class TreeBuilder
     {
         var target = recipe.CanopyFullness;
         // As big as the other cards (which the leaf budget may have made bigger).
-        var size = (float)recipe.LeafSize * PlaneScale(recipe) * MathF.Sqrt(detail * MathF.Min(grew, 4));
+        var size = (float)recipe.LeafSize * PlaneScale(recipe) * MathF.Sqrt(detail) * MathF.Min(MathF.Sqrt(grew), GrowCap(recipe));
         var leafTris = made.Sum(x => x.Leaves.TriangleCount);
         var room = recipe.LeafBudget / detail - leafTris;
         // Where the crown is: everything drawn, and room for a card past the outermost leaves.
