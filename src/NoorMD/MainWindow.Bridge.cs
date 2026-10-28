@@ -146,6 +146,8 @@ public partial class MainWindow
                 return await DispatchMicAsync(req);
             case var sound when sound.StartsWith("sound.", StringComparison.Ordinal):
                 return await DispatchSoundAsync(req);
+            case var texture when texture.StartsWith("texture.", StringComparison.Ordinal):
+                return await DispatchTextureAsync(req);
             case var radio when radio.StartsWith("radio.", StringComparison.Ordinal):
                 return await DispatchRadioAsync(req);
             case var gallery when gallery.StartsWith("gallery.", StringComparison.Ordinal):
