@@ -3828,6 +3828,59 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.evaluate(() => document.querySelector('[data-fx-type="convolution"]').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-convolution.png` }); }
       await page.close();
     }
+
+    // ---- 45. Sound Bench map: the sound as connected blocks, what controls move, and blocks that open their editors.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.mapmod'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#sb-presets [data-preset="machine-engine"]');
+      await waitFn(page, () => NoorSound._state().recipe.name === 'Engine idle');
+      // A reverb bus with a send from the rumble, and an EQ on the master.
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('[data-addbus="reverb"]');
+      await page.waitForSelector('.sb-layer[data-index="1"] [data-send="B1"] input[data-num="level"]');
+      await page.fill('.sb-layer[data-index="1"] [data-send="B1"] input[data-num="level"]', '-8');
+      await page.press('.sb-layer[data-index="1"] [data-send="B1"] input[data-num="level"]', 'Enter');
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.selectOption('[data-addfx="master"]', 'eq');
+      await page.click('#soundbench .sb-tabs button[data-tab="map"]');
+      await page.waitForSelector('#sb-map');
+      const nodes = await page.$$eval('#sb-map [data-node]', (n) => n.map((x) => x.dataset.node));
+      check('the map shows layers, the bus, the master with its effect, Out and the control', ['L1', 'L2', 'B1', 'B1/F1', 'master', 'master/F1', 'out', 'K1'].every((k) => nodes.includes(k)));
+      check('…wires from layers to the master, the send to the bus with its level, and the bus to the master', await page.evaluate(() => ['L1>master', 'L2>master', 'L2>B1', 'B1/F1>master', 'master/F1>out'].every((w) => document.querySelector(`#sb-map [data-wire="${w}"]`)))
+        && /−8\.0 dB/.test(await page.textContent('#sb-map')));
+      check('…and dashed wires from the control to what it moves (one per block, naming the settings)', (await page.$$('#sb-map .sb-modwire')).length === 2
+        && /pitch, freq, gain/.test(await page.textContent('#sb-map')) && /Motor › Pitch: \+14 st/.test(await page.textContent('#sb-map [data-wire="K1>L1"] title')));
+      check('blocks say what they are set to', /EQ band/.test(await page.textContent('#sb-map [data-node="master/F1"]')) && /Synth voice/.test(await page.textContent('#sb-map [data-node="L1"]')));
+      await page.click('#sb-map [data-node="L2"]');
+      await waitFn(page, () => NoorSound._state().tab === 'layers');
+      check('clicking a layer opens it in the Layers tab, lit up', await page.evaluate(() => document.querySelector('.sb-layer[data-index="1"]').classList.contains('sb-flash')));
+      await page.click('#soundbench .sb-tabs button[data-tab="map"]');
+      await page.focus('#sb-map [data-node="K1"]');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSound._state().tab === 'mod');
+      check('…and a control (from the keyboard) in the Modulation tab', await page.evaluate(() => document.querySelector('[data-knob-card="K1"]').classList.contains('sb-flash')));
+      await page.click('#soundbench .sb-tabs button[data-tab="map"]');
+      await page.click('#sb-map [data-node="master/F1"]');
+      await waitFn(page, () => NoorSound._state().tab === 'output');
+      check('…and an effect, wherever it is', await page.evaluate(() => document.querySelector('[data-rack="master"] > [data-fx-index="0"]').classList.contains('sb-flash')));
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('.sb-layer[data-index="0"] button[title="Mute this layer"]');
+      await page.click('#soundbench .sb-tabs button[data-tab="map"]');
+      await page.waitForSelector('#sb-map');
+      check('a muted layer is dimmed, with its wire', await page.evaluate(() => document.querySelector('#sb-map [data-node="L1"]').classList.contains('off') && document.querySelector('#sb-map [data-wire="L1>master"]').classList.contains('off')));
+      await page.uncheck('#sb-map-mod');
+      await page.waitForSelector('#sb-map');
+      check('controls and modulators can be hidden, and that is remembered', (await page.$$('#sb-map .sb-modwire')).length === 0 && !(await page.$('#sb-map [data-node="K1"]'))
+        && await page.evaluate(() => localStorage.getItem('noormd.sound.mapmod') === 'off'));
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.mapmod'); } catch { /* */ } });
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors on the map', unexpected.length === 0, unexpected);
+      if (shots) { await page.check('#sb-map-mod'); await page.waitForSelector('#sb-map [data-node="K1"]'); await page.screenshot({ path: `${shots}/sound-map.png` }); }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.34-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.35-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -125,7 +125,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   (gentle ↔ violent, near ↔ distant, outdoors ↔ indoors…) or layer by layer, with effects racks (including
   resonators and convolution reverb in real or recorded spaces), shared buses,
   your own named controls (*Motor RPM*) and modulators (LFOs, envelopes, random drift, steps, drawn curves) that
-  move any setting over time. Listen as you change things, see the spectrogram and loudness meters (LUFS, true
+  move any setting over time, all shown on a map of connected blocks. Listen as you change things, see the
+  spectrogram and loudness meters (LUFS, true
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
@@ -183,8 +184,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.34-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.34-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.35-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.35-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0-preview.35 — Sound Bench: the Map
+
+The last part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md), as a view of the
+sound (an editable patching graph stays a later decision; see the roadmap).
+
+- **Map tab:** the whole sound as connected blocks. Each layer is a row with its effects in order; layers flow into
+  the master and its effects, then Out. Buses stand between them, and each send's wire shows its level.
+- **What moves what:** controls and modulators stand on the left, with a dashed wire to each block they move. The
+  wire names the settings ("pitch, freq, gain") and its tooltip gives the amounts. A checkbox hides them when the
+  map gets busy (remembered).
+- **At a glance:** blocks say what they are set to (an EQ's type and frequency, a resonator's body and pitch, a
+  convolution's space, a bus's level). Muted layers, switched-off effects and connections, and layers not heard
+  while another is soloed are dimmed.
+- **Click to edit:** clicking a block (or Tab to it and Enter) opens it where it is edited (the layer, the effect
+  in its rack, the bus, the control or modulator, the master) and lights it up for a moment.
+- Nothing about the sound changes: the map only shows the recipe.
+
 ## 2.0.0-preview.34 — Sound Bench: convolution reverb
 
 The third part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md).

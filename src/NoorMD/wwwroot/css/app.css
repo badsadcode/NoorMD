@@ -1395,6 +1395,29 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sb-route-head select { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
 .sb-route-head .icon-btn { width: 24px; height: 24px; font-size: 12px; }
 .sb-curvewrap { margin: 6px 0; }
+.sb-mapwrap { overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--bg); padding: 4px; margin: 6px 0; }
+.sb-map { display: block; font-family: inherit; stroke: none; stroke-width: 1; }
+.sb-map text { stroke: none; }
+.sb-map-head { fill: var(--muted); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; opacity: .75; }
+.sb-node { cursor: pointer; }
+.sb-node rect { fill: var(--surface); stroke: var(--border); stroke-width: 1.2; }
+.sb-node.layer rect { stroke: var(--accent); stroke-width: 1.6; }
+.sb-node.bus rect { stroke: var(--accent); stroke-dasharray: 4 3; stroke-width: 1.6; }
+.sb-node.master rect, .sb-node.out rect { fill: var(--accent); stroke: var(--accent); }
+.sb-node.master text, .sb-node.out text { fill: var(--on-accent); }
+.sb-node.source rect { stroke: var(--accent); stroke-width: 1.2; rx: 18; }
+.sb-node.off { opacity: .38; }
+.sb-node:hover rect, .sb-node:focus-visible rect { stroke-width: 2.6; }
+.sb-node:focus { outline: none; }
+.sb-node-title { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+.sb-node-sub { fill: var(--text); opacity: .7; font-size: 11px; }
+.sb-wire { fill: none; stroke: var(--text); stroke-opacity: .45; stroke-width: 1.6; }
+.sb-wire.send, .sb-wire.bus { stroke: var(--accent); stroke-opacity: .8; }
+.sb-wire.off, .sb-modwire.off { stroke-opacity: .15; }
+.sb-modwire { fill: none; stroke: var(--accent); stroke-opacity: .65; stroke-width: 1.3; }
+.sb-wire-label { fill: var(--text); opacity: .75; font-size: 10.5px; }
+.sb-flash { animation: sb-flash 1.4s ease-out; }
+@keyframes sb-flash { 0%, 30% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
 .sb-bus { border-left: 3px solid var(--accent); }
 .sb-sends { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
 .sb-feedback { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

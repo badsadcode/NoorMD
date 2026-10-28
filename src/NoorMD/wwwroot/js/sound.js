@@ -374,7 +374,7 @@ window.NoorSound = (() => {
               el('input', { type: 'checkbox', id: 'sb-match' }), el('span', { text: 'Match loudness' })),
             el('button', { class: 'utility-btn', id: 'sb-view', 'aria-pressed': 'false', onclick: () => setView(view === 'spectrum' ? 'wave' : 'spectrum') }, '▦ Spectrogram')),
           el('div', { class: 'sb-meters', id: 'sb-meters', 'aria-label': 'Meters' }),
-          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['quick', 'Quick'], ['layers', 'Layers'], ['mod', 'Modulation'], ['output', 'Output & export']].map(([id, label]) =>
+          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['quick', 'Quick'], ['layers', 'Layers'], ['mod', 'Modulation'], ['map', 'Map'], ['output', 'Output & export']].map(([id, label]) =>
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
@@ -450,7 +450,7 @@ window.NoorSound = (() => {
     document.querySelectorAll('#soundbench .sb-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#sb-pane');
     const keep = pane.scrollTop;
-    pane.replaceChildren(...(tab === 'quick' ? quickPane() : tab === 'layers' ? layersPane() : tab === 'mod' ? modPane() : outputPane()));
+    pane.replaceChildren(...(tab === 'quick' ? quickPane() : tab === 'layers' ? layersPane() : tab === 'mod' ? modPane() : tab === 'map' ? mapPane() : outputPane()));
     pane.scrollTop = keep;
   }
 
@@ -566,7 +566,7 @@ window.NoorSound = (() => {
       chain.push({ type: t, bypass: false, mix: 1, out: 0, ...clone(NEW_FX[t]) });
       changed(true);
     });
-    return el('div', { class: 'sb-rack' }, ...cards, add);
+    return el('div', { class: 'sb-rack', 'data-rack': where }, ...cards, add);
   }
 
   function quickPane() {
@@ -1011,6 +1011,159 @@ window.NoorSound = (() => {
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(MOD_LABEL).map((t) => el('button', { class: 'utility-btn', 'data-addmod': t, disabled: recipe.modulators.length >= 8 || undefined, onclick: () => {
         recipe.modulators.push({ name: MOD_LABEL[t].replace(/ \(.*/, ''), type: t, ...clone(NEW_MOD[t]) }); changed(true);
       } }, '＋ ' + MOD_LABEL[t].replace(/ \(.*/, '')))),
+    ];
+  }
+
+  // ---------------------------------------------------------------- map: the whole sound as connected blocks
+
+  let mapShowsMod = (() => { try { return localStorage.getItem('noormd.sound.mapmod') !== 'off'; } catch { return true; } })();
+
+  /** Opens the editor of a block on the map: switches tab, opens and scrolls to it, and lights it up for a moment. */
+  function focusIn(tabId, selector) {
+    tab = tabId;
+    renderEditor();
+    const pane = $('#sb-pane');
+    const target = pane && pane.querySelector(selector);
+    if (!target) return;
+    for (let d = target.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) d.open = true;
+    target.scrollIntoView({ block: 'center' });
+    target.classList.add('sb-flash');
+    setTimeout(() => target.classList.remove('sb-flash'), 1400);
+    const first = target.querySelector('input, select, button');
+    if (first) first.focus({ preventScroll: true });
+  }
+
+  /** A short second line for an effect block (what it is set to). */
+  function fxDetail(fx) {
+    const hz = (v) => (v >= 1000 ? `${Number((v / 1000).toFixed(1))} kHz` : `${Math.round(v)} Hz`);
+    switch (fx.type) {
+      case 'eq': return `${fx.kind || 'peak'} ${hz(fx.freq || 1000)}`;
+      case 'resonator': return `${fx.body || 'string'} ${hz(fx.freq || 220)}`;
+      case 'convolution': return fx.space === 'file' ? (fx.irName || 'recording') : (fx.space || 'hall');
+      case 'delay': return `${Math.round(fx.time || 250)} ms`;
+      case 'reverb': return `size ${Math.round((fx.size ?? 0.5) * 100)}%`;
+      case 'compressor': return `${fx.threshold ?? -18} dB, ${fx.ratio ?? 4}:1`;
+      default: return `mix ${Math.round((fx.mix ?? 1) * 100)}%`;
+    }
+  }
+
+  function mapPane() {
+    const NS = 'http://www.w3.org/2000/svg';
+    const svgEl = (name, attrs = {}, ...kids) => { const n = document.createElementNS(NS, name); for (const [k, v] of Object.entries(attrs)) if (v != null) n.setAttribute(k, String(v)); n.append(...kids); return n; };
+    const W = 124, FW = 104, H = 40, GX = 14, GY = 14;
+    const layers = recipe.layers || [], buses = recipe.buses || [], master = recipe.master || {};
+    const sources = [...(recipe.knobs || []).map((k) => ({ id: k.id, name: k.name, kind: '🎚 Control', open: `[data-knob-card="${k.id}"]` })),
+      ...(recipe.modulators || []).map((m) => ({ id: m.id, name: m.name, kind: `〰 ${m.type}`, open: `[data-mod-card="${m.id}"]` }))];
+    const showMod = mapShowsMod && sources.length > 0;
+    const soloing = layers.some((l) => l.solo && !l.mute);
+    const heard = (l) => !l.mute && (!soloing || l.solo);
+    const chainW = (n) => W + n * (FW + GX);
+    const x0 = showMod ? 10 + W + 96 : 10;
+    const layerEnd = x0 + Math.max(0, ...layers.map((l) => chainW((l.effects || []).length)));
+    const busX = layerEnd + 56;
+    const busEnd = buses.length ? busX + Math.max(0, ...buses.map((b) => chainW((b.effects || []).length))) : layerEnd;
+    const masterX = busEnd + 56;
+    const rows = Math.max(layers.length, buses.length, showMod ? sources.length : 0, 1);
+    const height = 34 + rows * (H + GY) + 10;
+    const masterY = 34 + Math.max(0, (Math.max(layers.length, 1) * (H + GY) - GY) / 2 - H / 2);
+    const outX = masterX + chainW((master.effects || []).length) + 36;
+    const width = outX + 64 + 10;
+    const boxes = new Map(); // id → { x, y, w } (for lines)
+    const g = { lines: svgEl('g', { class: 'sb-map-lines' }), mod: svgEl('g', { class: 'sb-map-mod' }), blocks: svgEl('g') };
+
+    const block = (key, x, y, w, title, sub, cls, open, label) => {
+      boxes.set(key, { x, y, w });
+      const node = svgEl('g', { class: 'sb-node ' + cls, tabindex: '0', role: 'button', 'aria-label': label || `${title}${sub ? ', ' + sub : ''}`, 'data-node': key, transform: `translate(${x},${y})` },
+        svgEl('rect', { width: w, height: H, rx: 8 }),
+        svgEl('text', { x: 10, y: sub ? 16 : 25, class: 'sb-node-title' }, title.length > 18 ? title.slice(0, 17) + '…' : title),
+        ...(sub ? [svgEl('text', { x: 10, y: 31, class: 'sb-node-sub' }, sub.length > 20 ? sub.slice(0, 19) + '…' : sub)] : []));
+      const go = () => open && open();
+      node.addEventListener('click', go);
+      node.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      g.blocks.append(node);
+    };
+    const wire = (from, to, cls, label, dashed, tip) => {
+      const a = boxes.get(from), b = boxes.get(to);
+      if (!a || !b) return;
+      const x1 = a.x + a.w, y1 = a.y + H / 2, x2 = b.x, y2 = b.y + H / 2;
+      const mx = (x1 + x2) / 2;
+      const path = svgEl('path', { d: `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`, class: cls, 'stroke-dasharray': dashed ? '5 4' : null, 'data-wire': `${from}>${to}` },
+        ...(tip ? [svgEl('title', {}, tip)] : []));
+      (dashed ? g.mod : g.lines).append(path);
+      // A modulation wire's label sits just before the block it moves; a send's where it leaves its layer.
+      if (label) (dashed ? g.mod : g.lines).append(svgEl('text', { x: dashed ? x2 - 6 : x1 + 5, y: (dashed ? y2 : y1) - 5, class: 'sb-wire-label', 'text-anchor': dashed ? 'end' : 'start' }, label));
+    };
+    const chain = (ownerKey, effects, x, y, openFx, prefix, dim) => {
+      let last = ownerKey;
+      effects.forEach((fx, j) => {
+        const key = `${prefix}/${fx.id || 'F' + (j + 1)}`;
+        block(key, x + W + GX + j * (FW + GX), y, FW, (FX_LABEL[fx.type] || fx.type).replace(/ \(.*/, ''), fxDetail(fx), 'fx' + (fx.bypass || dim ? ' off' : ''), () => openFx(j));
+        wire(last, key, 'sb-wire' + (fx.bypass || dim ? ' off' : ''));
+        last = key;
+      });
+      return last;
+    };
+
+    // Layers, each with its effects, into the master (and into buses by their sends).
+    const ends = {};
+    layers.forEach((l, i) => {
+      const y = 34 + i * (H + GY);
+      const dim = !heard(l);
+      block(l.id, x0, y, W, l.name || l.id, (TYPE_LABEL[l.type] || l.type).replace(/ \(.*/, '') + (l.mute ? ' · muted' : ''), 'layer' + (dim ? ' off' : ''), () => focusIn('layers', `.sb-layer[data-index="${i}"]`));
+      ends[l.id] = chain(l.id, l.effects || [], x0, y, (j) => focusIn('layers', `[data-rack="layer-${i}"] > [data-fx-index="${j}"]`), l.id, dim);
+    });
+    buses.forEach((b, i) => {
+      const y = 34 + i * (H + GY);
+      block(b.id, busX, y, W, b.name || b.id, `bus${b.mute ? ' · muted' : ''} · ${fmt(b.gain || 0)} dB`, 'bus' + (b.mute ? ' off' : ''), () => focusIn('layers', `.sb-bus[data-bus="${b.id}"]`));
+      ends[b.id] = chain(b.id, b.effects || [], busX, y, (j) => focusIn('layers', `[data-rack="bus-${i}"] > [data-fx-index="${j}"]`), b.id, b.mute);
+    });
+    block('master', masterX, masterY, W, 'Master', `${fmt(master.gain || 0)} dB${master.targetLufs < 0 ? ` · ${master.targetLufs} LUFS` : ''}`, 'master', () => focusIn('output', '.sb-fields'));
+    const masterEnd = chain('master', master.effects || [], masterX, masterY, (j) => focusIn('output', `[data-rack="master"] > [data-fx-index="${j}"]`), 'master', false);
+    block('out', outX, masterY, 64, 'Out', '', 'out', () => focusIn('output', '#sb-export'), 'Out: the exported sound');
+    wire(masterEnd, 'out', 'sb-wire');
+    layers.forEach((l) => {
+      wire(ends[l.id], 'master', 'sb-wire' + (heard(l) ? '' : ' off'));
+      for (const send of l.sends || []) {
+        if (send.level <= -60 || !boxes.has(send.bus)) continue;
+        wire(ends[l.id], send.bus, 'sb-wire send' + (heard(l) ? '' : ' off'), `${fmt(send.level)} dB`);
+      }
+    });
+    buses.forEach((b) => wire(ends[b.id], 'master', 'sb-wire bus' + (b.mute ? ' off' : '')));
+
+    // Controls and modulators, with what they move.
+    if (showMod) {
+      sources.forEach((src, i) => block(src.id, 10, 34 + i * (H + GY), W, src.name || src.id, src.kind, 'source', () => focusIn('mod', src.open)));
+      // One wire per source and block, naming what it moves there (the amounts in its tooltip).
+      const pairs = new Map();
+      for (const r of recipe.routes || []) {
+        const target = r.target || '';
+        const owner = target.slice(0, target.lastIndexOf(':'));
+        if (!boxes.has(owner) || !boxes.has(r.source)) continue;
+        const k = `${r.source}>${owner}`;
+        if (!pairs.has(k)) pairs.set(k, { source: r.source, owner, routes: [] });
+        pairs.get(k).routes.push(r);
+      }
+      for (const { source, owner, routes } of pairs.values()) {
+        const amount = (r) => { const [, unit] = targetSpec(r.target); const u = UNIT[unit] || ['', 1]; return `${r.amount > 0 ? '+' : ''}${Number((r.amount * u[1]).toFixed(1))}${u[0] ? ' ' + u[0] : ''}`; };
+        const param = (r) => r.target.slice(r.target.lastIndexOf(':') + 1);
+        const label = routes.length === 1 ? `${param(routes[0])} ${amount(routes[0])}` : routes.map(param).join(', ');
+        const tip = routes.map((r) => `${targetLabel(r.target)}: ${amount(r)}${r.off ? ' (off)' : ''}`).join('\n');
+        wire(source, owner, 'sb-modwire' + (routes.every((r) => r.off) ? ' off' : ''), label, true, tip);
+      }
+    }
+
+    const heads = [[x0, 'Layers and their effects'], ...(buses.length ? [[busX, 'Buses']] : []), [masterX, 'Master'], ...(showMod ? [[10, 'Controls and modulators']] : [])]
+      .map(([x, t]) => svgEl('text', { x, y: 18, class: 'sb-map-head' }, t));
+    // Its size is set as a style too: icon rules elsewhere size every svg like a glyph.
+    const svg = svgEl('svg', { class: 'sb-map', id: 'sb-map', width, height, style: `width:${width}px;height:${height}px;max-width:none`, viewBox: `0 0 ${width} ${height}`, role: 'group', 'aria-label': 'Map of the sound: layers, effects, buses and the master, and what controls and modulators move' },
+      ...heads, g.lines, g.mod, g.blocks);
+    const toggle = el('input', { type: 'checkbox', id: 'sb-map-mod', checked: mapShowsMod || undefined, disabled: sources.length ? undefined : true });
+    toggle.addEventListener('change', () => { mapShowsMod = toggle.checked; try { localStorage.setItem('noormd.sound.mapmod', mapShowsMod ? 'on' : 'off'); } catch { /* private storage off */ } renderEditor(); });
+    return [
+      el('div', { class: 'sb-row' },
+        el('label', { class: 'sb-inline' }, toggle, el('span', { text: sources.length ? 'Show controls and modulators (dashed: what they move)' : 'No controls or modulators yet (Modulation tab)' }))),
+      el('div', { class: 'sb-mapwrap' }, svg),
+      el('p', { class: 'pref-hint', text: 'Click a block (or Tab to it and press Enter) to open it. Dimmed: muted, switched off, or not heard while another layer is soloed. Sends to buses show their level.' }),
     ];
   }
 
