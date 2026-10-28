@@ -9,7 +9,7 @@ namespace NoorMD.Media.Assets3D;
 /// </summary>
 public static class BarkTextures
 {
-    public static readonly string[] Ids = ["bark", "painted", "birch"];
+    public static readonly string[] Ids = ["bark", "painted", "birch", "cactus"];
 
     public static TextureRecipe? For(string id, string barkHex) => id switch
     {
@@ -55,6 +55,21 @@ public static class BarkTextures
                 new TextureLayer { Name = "Skin", Type = "noise", ScaleX = 4, ScaleY = 4, Octaves = 3, Low = 0.1, High = 0.9 },
                 // Dark lenticels: short marks across the trunk.
                 new TextureLayer { Name = "Marks", Type = "noise", ScaleX = 2, ScaleY = 24, Octaves = 2, Low = 0.6, High = 0.68, Blend = "subtract", Opacity = 0.9 },
+            ],
+        }.Clamped(),
+        "cactus" => new TextureRecipe
+        {
+            Name = "Cactus skin", Family = "Nature",
+            Surface = new TextureSurface
+            {
+                Ramp = Ramp((0, Scale(barkHex, 0.55)), (0.5, barkHex), (0.85, Scale(barkHex, 1.25)), (1, "#efe6c8")),
+                ColorVariation = 0.08, Dirt = 0.15, RoughnessLow = 0.7, RoughnessHigh = 0.6, NormalStrength = 3, AoStrength = 0.4, AoRadius = 0.02,
+            },
+            Layers =
+            [
+                // Streaks along the ribs, and pale spine tufts in rows.
+                new TextureLayer { Name = "Streaks", Type = "noise", ScaleX = 16, ScaleY = 1, Octaves = 2, Low = 0.15, High = 0.85 },
+                new TextureLayer { Name = "Spines", Type = "noise", ScaleX = 24, ScaleY = 24, Octaves = 1, Low = 0.72, High = 0.78, Blend = "screen", Opacity = 0.9 },
             ],
         }.Clamped(),
         _ => null,

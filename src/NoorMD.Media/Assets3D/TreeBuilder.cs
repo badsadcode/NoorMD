@@ -82,7 +82,8 @@ public static class TreeBuilder
 
         // Wood fields: thick parts implicit, thin parts tubes. A small wood budget instead makes all of it clean
         // low-poly tubes (a welded surface simplified to a few hundred triangles would be crushed out of shape).
-        var lowPoly = recipe.Budget < LowPolyWood;
+        // A cactus is always clean tubes: its ribs are the tubes' lobes (a welded surface would melt them).
+        var lowPoly = recipe.Budget < LowPolyWood || recipe.Archetype == "cactus";
         var tubeCount = 0;
         foreach (var g in groups)
         {
@@ -127,7 +128,7 @@ public static class TreeBuilder
 
         // Clump shapes (stylized foliage): blobs at the branch tips, melted together. Drawn as a solid mesh ("clumps",
         // "both"), or only used to place leaf cards over them, with no solid mesh at all ("tufts").
-        var clumpShapes = recipe.Foliage is "clumps" or "both" or "tufts" && recipe.Archetype != "dead";
+        var clumpShapes = recipe.Foliage is "clumps" or "both" or "tufts" && recipe.Archetype is not ("dead" or "cactus");
         var clumps = clumpShapes && recipe.Foliage != "tufts";
         if (clumpShapes)
             foreach (var g in groups)
@@ -162,7 +163,7 @@ public static class TreeBuilder
             if (options.Images?.Invoke(recipe.BarkImage) is { } own) { bark.BaseColor = Vector4.One; bark.NormalPng = null; bark.OcclusionRoughnessMetallicPng = null; bark.Roughness = 0.9f; Use(bark, own); }
             else build.Notes.Add("Your bark picture can't be read (moved, deleted, or not chosen here); the bark is generated.");
         }
-        var cards = recipe.Foliage is "cards" or "both" or "tufts" && recipe.Archetype != "dead";
+        var cards = recipe.Foliage is "cards" or "both" or "tufts" && recipe.Archetype is not ("dead" or "cactus");
         // Single-sided: every card has a real back face with its own normals (a double-sided material would flip the
         // normals on the back and darken half the crown in every engine).
         var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
@@ -330,7 +331,7 @@ public static class TreeBuilder
 
             // The crown looked at from its sides: where the sky shows through, more cards on the nearest branches,
             // until it is as full as asked or the leaf budget is spent.
-            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs"))
+            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging"))
             {
                 var fill = FillCrown(made, sk, recipe, asset.Materials, leafIndex, detail, lodGrow, new Random(recipe.Seed * 6007 + lod), ct);
                 if (lod == 0) canopy = fill;
@@ -402,13 +403,15 @@ public static class TreeBuilder
         static int Rank(TreeBranch b) => b.Id == 0 ? 0 : b.Root ? 1 : b.Bare ? 99 : b.Level + 1;
         // The trunk follows the level: round and detailed up close (at least the recipe's trunk sides; a thick trunk,
         // baobab or sequoia, more), a simple 6- then 5-sided one farther away, where the leaves hide it.
-        int Sides(TreeBranch b) => b.Id == 0
+        var cactus = recipe.Archetype == "cactus";
+        int Sides(TreeBranch b) => cactus && !b.Root ? (lod == 0 ? Math.Min(24, recipe.FluteLobes * 2) : lod == 1 ? Math.Max(6, recipe.FluteLobes) : 5)
+            : b.Id == 0
             ? lod == 0 ? Math.Max(recipe.TrunkSides, Math.Clamp((int)MathF.Round(10 * MathF.Sqrt(b.BaseRadius / 0.35f)), 10, 16)) : lod == 1 ? 6 : 5
             : b.Root ? Math.Max(3, 5 - lod) : b.Level == 1 ? Math.Max(3, 5 - lod) : 3;
         int Step(TreeBranch b)
         {
             // Rings: the trunk enough to follow its curve up close and a few far away, limbs a few, twigs two.
-            var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? (lod == 0 ? 5 : lod == 1 ? 3 : 2) : 2;
+            var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? (lod == 0 ? (cactus ? 8 : 5) : lod == 1 ? (cactus ? 4 : 3) : 2) : 2;
             return Math.Max(1, (int)MathF.Ceiling((b.Points.Count - 1) / (float)rings));
         }
         // Flute ridges are not tubes of their own here (they would cross the trunk where it twists): the trunk's rings
@@ -418,7 +421,8 @@ public static class TreeBuilder
         Func<float, float, float>? Flutes(int sides) => flute <= 0 ? null : (s, a) =>
         {
             if (s >= recipe.FluteHeight) return 1;
-            var fade = MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f);
+            // A trunk's flutes fade going up; a cactus's ribs run its whole length, rounding off at the tip.
+            var fade = cactus ? 1 - MathF.Pow(s, 6) : MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f);
             var girth = 1 / (1 - 0.3f * flute * fade);
             if (sides < lobes * 2) return girth;
             var lobe = MathF.Cos(lobes * (a - (float)recipe.Twist * s * MathF.Tau));
@@ -431,12 +435,12 @@ public static class TreeBuilder
         foreach (var b in order)
         {
             var sides = Sides(b);
-            if (b.Id == 0 && flute > 0 && lod == 0) sides = Math.Max(sides, Math.Min(24, lobes * 2));     // enough sides to show the flutes up close
+            if (b.Id == 0 && flute > 0 && lod == 0 && !cactus) sides = Math.Max(sides, Math.Min(24, lobes * 2));     // enough sides to show the flutes up close
             var rings = (b.Points.Count - 1) / Step(b) + 2;
             var cost = sides * 2 * (rings - 1) + sides;
             if (b.Id != 0 && used + cost > budget) { missingWood?.Add(b.Id); continue; }
             var g = groupOf[b.Id];
-            AddTube(into[g.Index], sk, b, 0, b.Parent >= 0, edge, tile, recipe, sides, Step(b), b.Id == 0 ? Flutes(sides) : null);
+            AddTube(into[g.Index], sk, b, 0, b.Parent >= 0, edge, tile, recipe, sides, Step(b), b.Id == 0 || cactus && !b.Root ? Flutes(sides) : null);
             used += cost;
             kept++;
         }
@@ -577,9 +581,33 @@ public static class TreeBuilder
                 int a = first + i * (sides + 1) + j, c = a + sides + 1;
                 sub.Indices.AddRange([a, a + 1, c, a + 1, c + 1, c]);
             }
-        // A tip closing the end.
+        // A tip closing the end (a cactus's rounded: one more ring part-way in).
         var last = pts[^1];
         var dirEnd = Vector3.Normalize(last.P - pts[^2].P);
+        if (recipe.Archetype == "cactus")
+        {
+            var (lp, lr) = (last.P, last.R);
+            var lt = dirEnd;
+            var ln = Vector3.Normalize(last.N - lt * Vector3.Dot(last.N, lt));
+            var lb = Vector3.Cross(lt, ln);
+            var cap = m.VertexCount;
+            for (var j = 0; j <= sides; j++)
+            {
+                var a = j / (float)sides * MathF.Tau;
+                var radial = ln * MathF.Cos(a) + lb * MathF.Sin(a);
+                var rr = (shape == null ? lr : lr * shape(1, a)) * 0.72f;
+                m.AddVertex(lp + lt * lr * 0.45f + radial * rr, Vector3.Normalize(radial + lt), new Vector2(j / (float)sides * period, (last.D + lr * 0.45f) / tile), Wind(b, 1, lp, sk, recipe));
+            }
+            var prev = first + (pts.Count - 1) * (sides + 1);
+            for (var j = 0; j < sides; j++)
+            {
+                int a = prev + j, c = cap + j;
+                sub.Indices.AddRange([a, a + 1, c, a + 1, c + 1, c]);
+            }
+            pts.Add((lp + lt * lr * 0.45f, lr * 0.72f, ln, last.D + lr * 0.45f));
+            first = cap - (pts.Count - 1) * (sides + 1);
+            last = pts[^1];
+        }
         var tip = m.AddVertex(last.P + dirEnd * last.R * 0.6f, dirEnd, new Vector2(period / 2, (last.D + last.R) / tile), Wind(b, 1, last.P, sk, recipe));
         var ring = first + (pts.Count - 1) * (sides + 1);
         for (var j = 0; j < sides; j++) sub.Indices.AddRange([ring + j, ring + j + 1, tip]);
@@ -757,10 +785,10 @@ public static class TreeBuilder
     private static float GrowCap(TreeRecipe recipe) => recipe.Archetype == "conifer" || recipe.LeafShape == "needle" ? 1.4f : 2f;
 
     /// <summary>The share of the leaf budget the first placement may use: with a canopy fullness, a part is kept for filling the gaps.</summary>
-    private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs") ? 0.7f : 1f);
+    private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging") ? 0.7f : 1f);
 
     /// <summary>Triangles one placement of an arrangement costs (a card is a folded quad, front and back: 8).</summary>
-    internal static int CardTriangles(string arrangement, TreeRecipe? recipe = null) => arrangement switch { "cross" => 16, "star" or "fan" => 24, "dome" => 40, "hanging" => 16 * (recipe == null ? 6 : HangSegments(recipe)), _ => 8 };
+    internal static int CardTriangles(string arrangement, TreeRecipe? recipe = null) => arrangement switch { "cross" => 16, "star" or "fan" => 24, "dome" => 40, "hanging" => 4 * (recipe == null ? 6 : HangSegments(recipe)), _ => 8 };
 
     /// <summary>Segments down a willow curtain: fewer when the leaf budget is small.</summary>
     private static int HangSegments(TreeRecipe recipe) => recipe.LeafBudget < 6000 ? 3 : 6;
@@ -840,29 +868,48 @@ public static class TreeBuilder
         }
     }
 
-    /// <summary>Willow: two crossed ribbons hanging from the branch, swaying more towards their tips, stopping above the ground.</summary>
+    /// <summary>
+    /// Willow: a curtain hanging from the branch, facing out of the crown, made of a chain of leaf sprays (each segment
+    /// its own sprite, stem at the top), arching out a little and then down, narrowing towards its tip and stopping
+    /// above the ground. Many of them at different depths make the curtain; one stretched leaf would read as a plank.
+    /// </summary>
     private static void Hanging(Mesh3D m, Vector3 p, Vector3 side, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng)
     {
-        var length = MathF.Min((float)recipe.HangLength * (0.35f + 0.65f * (float)rng.NextDouble()), p.Y - 0.25f);
-        if (length < size * 0.4f) { Tuft(m, p, side, size, sk, recipe, b, t, material, rng); return; }
-        var outward = side with { Y = 0 };
+        var length = MathF.Min((float)recipe.HangLength * (0.5f + 0.5f * (float)rng.NextDouble()), p.Y - 0.4f);
+        // Too near the ground for a curtain: none (a twig that low is inside the curtains of the others).
+        if (length < size * 0.6f) return;
+        // Out of the crown (so the curtain faces whoever looks at the tree), a little turned at random.
+        var outward = (p - sk.CrownCentre) with { Y = 0 };
+        var own = side with { Y = 0 };
+        outward = (outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX) * 0.7f + (own.LengthSquared() > 1e-6f ? Vector3.Normalize(own) : Vector3.Zero) * 0.3f;
         outward = outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX;
-        var cell = LeafCell(recipe, rng);
-        for (var k = 0; k < 2; k++)
+        var across = Vector3.Transform(Vector3.Normalize(Vector3.Cross(Vector3.UnitY, outward)), Quaternion.CreateFromAxisAngle(Vector3.UnitY, ((float)rng.NextDouble() - 0.5f) * 0.9f));
+        var segs = HangSegments(recipe);
+        var width = size * (recipe.LeafBudget < 6000 ? 0.7f : 0.5f);
+        var arch = size * (0.4f + 0.5f * (float)rng.NextDouble());
+        Vector3 Centre(float s) => p + outward * arch * MathF.Sin(s * MathF.PI * 0.5f) - Vector3.UnitY * length * s;
+        var sub = m.Sub(material);
+        var baseWind = Wind(b, t, p, sk, recipe);
+        for (var j = 0; j < segs; j++)
         {
-            var across = Vector3.Transform(outward, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2 * k + MathF.PI / 4));
-            var segs = HangSegments(recipe);
-            var centres = new List<Vector3>();
-            for (var j = 0; j <= segs; j++)
+            float s0 = j / (float)segs, s1 = (j + 1) / (float)segs;
+            Vector3 c0 = Centre(s0), c1 = Centre(s1);
+            // Each sprite a little longer than its segment, so neighbours overlap and no seam shows.
+            var c1Long = j + 1 < segs ? c0 + (c1 - c0) * 1.15f : c1;
+            float w0 = width * (1 - 0.35f * s0), w1 = width * (1 - 0.35f * s1);
+            var along = Vector3.Normalize(c1 - c0);
+            var face = Vector3.Normalize(Vector3.Cross(across, along));
+            var cell = LeafCell(recipe, rng);
+            var first = m.VertexCount;
+            foreach (var (pos, u, v, s) in new[] { (c0 - across * w0, cell.X, cell.W, s0), (c0 + across * w0, cell.Z, cell.W, s0), (c1Long - across * w1, cell.X, cell.Y, s1), (c1Long + across * w1, cell.Z, cell.Y, s1) })
             {
-                var s = j / (float)segs;
-                // Out a little, then down, curving away from the branch.
-                centres.Add(p + outward * size * 0.4f * MathF.Sin(s * MathF.PI * 0.5f) - Vector3.UnitY * length * s);
+                var wind = recipe.Wind ? baseWind with { Z = s } : Vector4.Zero;
+                m.AddVertex(pos, Vector3.Normalize(Vector3.Lerp(face, CrownOut(pos, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
+                m.AddVertex(pos, Vector3.Normalize(Vector3.Lerp(-face, CrownOut(pos, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
             }
-            // Wider curtains when the budget is small: fewer of them still read as a full willow.
-            var width = recipe.LeafBudget < 6000 ? 0.42f : 0.3f;
-            Strip(m, centres, Enumerable.Repeat(across, segs + 1).ToList(), Enumerable.Range(0, segs + 1).Select(j => size * width * (1 - 0.3f * j / segs)).ToList(),
-                cell, hanging: true, sk, recipe, b, t, material);
+            int a0 = first, a1 = first + 2, b0 = first + 4, b1 = first + 6;
+            sub.Indices.AddRange([a0, a1, b1, a0, b1, b0]);
+            sub.Indices.AddRange([a0 + 1, b1 + 1, a1 + 1, a0 + 1, b0 + 1, b1 + 1]);
         }
     }
 

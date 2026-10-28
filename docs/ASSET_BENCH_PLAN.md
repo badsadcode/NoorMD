@@ -311,6 +311,24 @@ from the bottom up (so each whorl keeps boughs on different sides). Both presets
 a thicker trunk; it is in the Leaves tab for any conifer. A test checks leaves in every third of the crown and a
 reach that narrows upwards.
 
+More kinds and better looks (preview.69):
+* **Cactuses**, a new tree kind (`archetype: cactus`): ribbed columns (the flute lobes on every branch, all the way
+  up, rounding off at the tips), arms that stay thick and turn up, kept below the crown so the top stands clear,
+  rounded tips, always clean low-poly tubes (a welded surface would melt the ribs), no leaves, no wind, and a
+  "cactus" skin (green streaks along the ribs, pale spine tufts). Presets in a new **Desert** group: saguaro,
+  organ pipe, barrel cactus and the Joshua tree (forking branches tipped with spiky tufts).
+* **Willows** rebuilt: a curtain is now a chain of leaf sprays (each segment its own sprite, stem at the top)
+  facing out of the crown, arching out a little and falling nearly to the ground; one stretched leaf per ribbon
+  read as a plank. The willow's limbs now arch up and out with drooping twigs, so the crown is a broad dome (about
+  as wide as tall). The crown filler is off for curtains (gaps between them are natural).
+* **Leaf masses**: the Thornwake oak, autumn maple, cherry and bald cypress use cards over puffy clumps ("tufts"),
+  closer to the pack's oaks; the dry shrub is solid low-poly clumps (a bush in ~300 triangles).
+* New general presets: Italian cypress, cherry blossom, jungle giant (buttress roots, a high flat crown), dry
+  shrub. Thornwake now has 24 species: its pack's nine, larch, cherry, Italian cypress, palm, acacia, jungle tree,
+  baobab, dead tree, dry shrub, bald cypress, mangrove, saguaro, organ pipe, barrel cactus and Joshua tree.
+* Tests: a cactus is ribbed (a ring round its trunk is lobed), leafless and still, with arms that rise and start
+  below its top; willow curtains come from a crown about as wide as tall and fall low without touching the ground.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

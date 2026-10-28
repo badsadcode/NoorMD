@@ -55,7 +55,8 @@ public class TreeTests
                     // Wind data within 0–1, in the extra UV sets; the vertex colours carry the painted shading (grey, 0–1).
                     Assert.Equal(node.Mesh.VertexCount, node.Mesh.Colors.Count);
                     Assert.All(node.Mesh.Colors, c => Assert.True(c.X is > 0.2f and <= 1 && c.W == 1));
-                    Assert.Equal(node.Mesh.VertexCount, node.Mesh.UV1.Count);
+                    // (A cactus doesn't move in the wind: no wind data at all.)
+                    Assert.Equal(build.Recipe.Wind ? node.Mesh.VertexCount : 0, node.Mesh.UV1.Count);
                     Assert.All(node.Mesh.UV1.Concat(node.Mesh.UV2), c => Assert.True(c.X is >= 0 and <= 1 && c.Y is >= 0 and <= 1));
                 }
             // Later levels of detail are lighter.

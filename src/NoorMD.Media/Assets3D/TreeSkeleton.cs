@@ -101,6 +101,7 @@ public sealed class TreeSkeleton
         var rng = new Random(recipe.Seed);
         var stylized = recipe.Style == "stylized";
         var dead = recipe.Archetype == "dead";
+        var cactus = recipe.Archetype == "cactus";
         var leader = recipe.CrownStart >= 0.999 || recipe.Archetype is "conifer" or "birch";
 
         // Trunk. A tree with a crown that splits stops its trunk a little above where the limbs begin.
@@ -163,7 +164,9 @@ public sealed class TreeSkeleton
                 var made = 0;
                 for (var ring = 0; ring < rings && made < count; ring++)
                 {
-                    var tRing = (float)(L.Start + (1 - L.Start) * (ring + 0.5 + (rng.NextDouble() - 0.5) * 0.6) / rings);
+                    // A cactus's arms keep below its crown, so its top stands clear.
+                    var armsTop = cactus && level == 1 ? MathF.Max((float)L.Start + 0.05f, 0.75f) : 1f;
+                    var tRing = (float)(L.Start + (armsTop - L.Start) * (ring + 0.5 + (rng.NextDouble() - 0.5) * 0.6) / rings);
                     // Leave the very tip of the trunk alone on a single-leader tree.
                     tRing = Math.Clamp(tRing, (float)L.Start, MathF.Max((float)L.Start, level == 1 && leader ? 0.95f : 0.97f));
                     for (var w = 0; w < whorl && made < count; w++, made++)
@@ -192,9 +195,10 @@ public sealed class TreeSkeleton
                         if (length < 0.02f) continue;
                         var baseR = Math.Min(pr * (float)L.Radius, pr * 0.85f);
                         // Thin branches are proportionally thinner the shorter they are.
-                        baseR = Math.Min(baseR, length * 0.12f + 0.004f);
+                        baseR = Math.Min(baseR, length * (cactus ? 0.35f : 0.12f) + 0.004f);
                         if (baseR < 0.002f) continue;
-                        var tip = dead ? 0.45f : level == recipe.Levels.Count ? 0.18f : 0.3f;
+                        // Cactus arms stay nearly as thick as they start.
+                        var tip = cactus ? 0.85f : dead ? 0.45f : level == recipe.Levels.Count ? 0.18f : 0.3f;
                         var segs = Math.Clamp((int)MathF.Round(length / Math.Max(0.12f, (float)recipe.Height / 40)), 3, 12);
                         var b = new TreeBranch { Id = sk.Branches.Count, Parent = pid, ParentT = t, Level = level };
                         GrowCurve(b, p, dir, length, baseR, tip, segs, (float)L.Bend, (float)L.Wobble, rng,
@@ -316,9 +320,11 @@ public sealed class TreeSkeleton
             var s = i / (float)(n - 1);
             if (recipe.Bulge > 0) trunk.Radii[i] *= 1 + (float)recipe.Bulge * 1.3f * MathF.Exp(-MathF.Pow((s - (float)recipe.BulgeAt) / 0.28f, 2));
             if (recipe.SCurve > 0) trunk.Points[i] += (a * MathF.Sin(MathF.PI * s) + b * 0.6f * MathF.Sin(MathF.Tau * s)) * (float)recipe.SCurve * h;
-            if (recipe.RootStyle == "compact" && s < 0.08f) trunk.Radii[i] *= 1 + 0.25f * (1 - s / 0.08f);
-            // Fluting: the core thins where the ridges stand proud of it.
-            if (recipe.Flute > 0 && s < recipe.FluteHeight) trunk.Radii[i] *= 1 - 0.3f * (float)recipe.Flute * MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f);
+            var cactus = recipe.Archetype == "cactus";
+            if (recipe.RootStyle == "compact" && s < 0.08f && !cactus) trunk.Radii[i] *= 1 + 0.25f * (1 - s / 0.08f);
+            // Fluting: the core thins where the ridges stand proud of it (a cactus's ribs: all the way up).
+            if (recipe.Flute > 0 && s < recipe.FluteHeight)
+                trunk.Radii[i] *= 1 - 0.3f * (float)recipe.Flute * (cactus ? 1 - MathF.Pow(s, 6) : MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f));
         }
         trunk.Finish();
     }

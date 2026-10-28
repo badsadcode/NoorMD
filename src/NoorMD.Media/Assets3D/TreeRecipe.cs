@@ -34,7 +34,7 @@ public sealed class TreeLevel
 /// </summary>
 public sealed class TreeRecipe
 {
-    public static readonly string[] Archetypes = ["broadleaf", "conifer", "birch", "dead"];
+    public static readonly string[] Archetypes = ["broadleaf", "conifer", "birch", "dead", "cactus"];
     public static readonly string[] Styles = ["realistic", "stylized"];
     public static readonly string[] Shapes = ["spherical", "hemispherical", "conical", "cylindrical", "flame", "inverse", "tapered", "umbrella"];
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
@@ -197,7 +197,7 @@ public sealed class TreeRecipe
     {
         var target = LodTriangles.Count > 0 ? LodTriangles[0] : TriangleTarget;
         if (target <= 0) return (Budget, LeafBudget);
-        var leafy = Foliage != "none" && Archetype != "dead";
+        var leafy = Foliage != "none" && Archetype is not ("dead" or "cactus");
         var wood = Math.Max(200, (int)(target * (leafy ? 0.25 : 1)));
         return (wood, Math.Max(500, target - wood));
     }
@@ -211,7 +211,7 @@ public sealed class TreeRecipe
         var (wood, leaves) = Budgets();
         if (LodTriangles.Count == 0 || lod == 0) return (wood >> lod, leaves >> lod);
         var total = lod < LodTriangles.Count ? LodTriangles[lod] : LodTriangles[^1] >> (lod - LodTriangles.Count + 1);
-        var leafy = Foliage != "none" && Archetype != "dead";
+        var leafy = Foliage != "none" && Archetype is not ("dead" or "cactus");
         var w = leafy ? Math.Max(30, total / 4) : total;
         return (w, Math.Max(leafy ? 40 : 0, total - w));
     }
@@ -344,7 +344,7 @@ public sealed class TreeRecipe
 /// <summary>Ready-made starting points: the four archetypes in both looks.</summary>
 public static class TreePresets
 {
-    /// <param name="Group">Where it grows, for the list: Forest, Swamp &amp; marsh, Giants, Tropical, Dry &amp; windswept, Fantasy.</param>
+    /// <param name="Group">Where it grows, for the list: Forest, Swamp &amp; marsh, Giants, Tropical, Dry &amp; windswept, Desert, Fantasy.</param>
     public sealed record Preset(string Id, string Name, string Description, Func<TreeRecipe> Make, string Group = "Forest");
 
     private static TreeLevel L(int count, double start, double angle, double length, double radius, double bend, double wobble = 6, double spread = 12, int whorl = 1, double spiral = 137.5) =>
@@ -416,6 +416,19 @@ public static class TreePresets
             LeafCluster = "cluster", LeafShape = "maple", Arrangement = "dome", LeafSize = 0.7, LeafDensity = 0.6, LeafColor = "#a3301a", LeafColor2 = "#f0a028", BarkColor = "#5a4a40",
         }),
 
+        new("italian-cypress", "Italian cypress (realistic)", "A tall, dark, narrow flame of a tree.", () => new TreeRecipe
+        {
+            Name = "Italian cypress", Archetype = "conifer", Height = 13, TrunkRadius = 0.25, Taper = 0.95, CrownStart = 1, Flare = 0.3, Roots = 4, Shape = "flame", Lean = 1, Wobble = 2,
+            Levels = [L(70, 0.05, 18, 0.07, 0.4, 8, 6, 8)],
+            LeafCluster = "cluster", LeafShape = "needle", LeafSize = 0.8, LeafDensity = 0.9, LeafColor = "#2b4426", LeafColor2 = "#4c6a32", BarkColor = "#5a4636",
+        }),
+        new("cherry", "Cherry blossom (realistic)", "A round crown in spring pink.", () => new TreeRecipe
+        {
+            Name = "Cherry", Archetype = "broadleaf", Height = 7, TrunkRadius = 0.24, Taper = 0.7, CrownStart = 0.35, Flare = 0.45, Shape = "spherical", Lean = 4,
+            Levels = [L(7, 0.35, 50, 0.65, 0.6, 12, 12), L(8, 0.15, 45, 0.5, 0.5, 5, 10), L(5, 0.2, 50, 0.4, 0.5, 0, 12)],
+            Foliage = "tufts", LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.6, LeafDensity = 0.6, LeafColor = "#e7a2bd", LeafColor2 = "#f8d6e4", BarkColor = "#4a3a3a",
+        }),
+
         // ---- Swamp and marsh.
         new("cypress", "Bald cypress (realistic)", "A swamp giant: fluted, flared base, knees rising from the water, a flat crown hung with moss.", () => new TreeRecipe
         {
@@ -448,7 +461,8 @@ public static class TreePresets
         new("willow", "Weeping willow (realistic)", "Long curtains of slender leaves hanging nearly to the ground.", () => new TreeRecipe
         {
             Name = "Weeping willow", Archetype = "broadleaf", Height = 11, TrunkRadius = 0.5, Taper = 0.7, CrownStart = 0.35, RootStyle = "surface", Roots = 6, RootLength = 0.8, Shape = "hemispherical", Lean = 4,
-            Levels = [L(8, 0.35, 45, 0.6, 0.6, 20, 10), L(10, 0.2, 35, 0.45, 0.5, -50, 8)],
+            // Limbs arching up and out, twigs drooping from them: the broad dome the curtains fall from.
+            Levels = [L(8, 0.4, 50, 0.75, 0.6, -25, 10), L(10, 0.25, 55, 0.45, 0.5, -60, 8, 15)],
             LeafShape = "slender", Arrangement = "hanging", HangLength = 7, LeafSize = 0.7, LeafDensity = 0.5, LeafColor = "#6d8a2c", LeafColor2 = "#b2c24a", BarkColor = "#5a4c3e",
         }, "Swamp & marsh"),
         new("stylized-willow", "Stylized willow", "A chunky twisted willow under swaying curtains.", () => new TreeRecipe
@@ -518,6 +532,14 @@ public static class TreePresets
             Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.55, LeafColor = "#4a7a2a", LeafColor2 = "#b8d050", BarkColor = "#a08870", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Tropical"),
 
+        new("jungle-tree", "Jungle giant (realistic)", "A tall, straight trunk on buttress roots under a wide, flat-topped crown.", () => new TreeRecipe
+        {
+            Name = "Jungle tree", Archetype = "broadleaf", Height = 20, TrunkRadius = 0.55, Taper = 0.6, CrownStart = 0.7, Shape = "umbrella", Lean = 1, Flare = 1, Roots = 7,
+            Flute = 0.6, FluteLobes = 6, FluteHeight = 0.15,
+            Levels = [L(8, 0.72, 75, 0.4, 0.55, -5, 6, 8), L(6, 0.3, 60, 0.45, 0.5, 15, 10, 15)],
+            Foliage = "tufts", LeafCluster = "cluster", LeafShape = "broad", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#2f5a22", LeafColor2 = "#5f8a2e", BarkColor = "#7a6e5c",
+        }, "Tropical"),
+
         // ---- Dry and windswept.
         new("juniper", "Windswept juniper (realistic)", "A low, gnarled tree bent by a constant wind off the cliffs.", () => new TreeRecipe
         {
@@ -543,6 +565,43 @@ public static class TreePresets
             Levels = [L(5, 0.45, 68, 0.95, 0.6, -5, 8, 12), L(4, 0.35, 60, 0.55, 0.55, -10, 8)],
             Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#6a7a2a", LeafColor2 = "#d0cc5a", BarkColor = "#7a5a40", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Dry & windswept"),
+
+        new("dry-shrub", "Dry shrub (realistic)", "A low, twiggy bush of small grey-olive leaves, for dry ground.", () => new TreeRecipe
+        {
+            Name = "Dry shrub", Archetype = "broadleaf", Height = 1.6, TrunkRadius = 0.06, Taper = 0.8, CrownStart = 0.05, Shape = "hemispherical", Flare = 0, Roots = 0, Lean = 4,
+            Levels = [L(9, 0.02, 38, 0.85, 0.6, 12, 20, 15), L(5, 0.2, 40, 0.5, 0.5, 5, 20, 15)],
+            LeafShape = "round", LeafSize = 0.25, LeafDensity = 0.4, LeafColor = "#7a7a52", LeafColor2 = "#a8a070", BarkColor = "#6a5e50", CanopyFullness = 0.5,
+        }, "Dry & windswept"),
+
+        // ---- Desert: cactuses (ribbed, no leaves, no wind) and the Joshua tree.
+        new("saguaro", "Saguaro cactus", "A tall ribbed column whose arms turn up like a candelabra.", () => new TreeRecipe
+        {
+            Name = "Saguaro", Archetype = "cactus", Height = 8, TrunkRadius = 0.34, Taper = 0.1, CrownStart = 1, RootStyle = "compact", Roots = 0, Flare = 0, Lean = 1, Wobble = 2, Shape = "cylindrical",
+            Flute = 0.8, FluteLobes = 12, FluteHeight = 1,
+            Levels = [L(3, 0.3, 90, 0.36, 0.8, 100, 3, 5)],
+            Foliage = "none", BarkColor = "#5f7f3a", BarkMaterial = "cactus", BarkTile = 0.6, Wind = false, Shading = 0.3,
+        }, "Desert"),
+        new("organ-pipe", "Organ pipe cactus", "A clump of ribbed columns rising from a short base.", () => new TreeRecipe
+        {
+            Name = "Organ pipe", Archetype = "cactus", Height = 5, TrunkRadius = 0.2, Taper = 0.1, CrownStart = 0.05, RootStyle = "compact", Roots = 0, Flare = 0, Lean = 0, Wobble = 3, Shape = "cylindrical",
+            Flute = 0.8, FluteLobes = 9, FluteHeight = 1,
+            Levels = [L(9, 0.02, 25, 0.9, 0.9, 15, 4, 10)],
+            Foliage = "none", BarkColor = "#6a8a40", BarkMaterial = "cactus", BarkTile = 0.6, Wind = false, Shading = 0.3,
+        }, "Desert"),
+        new("barrel-cactus", "Barrel cactus", "A squat, deeply ribbed barrel.", () => new TreeRecipe
+        {
+            Name = "Barrel cactus", Archetype = "cactus", Height = 1.1, TrunkRadius = 0.36, Taper = 0.15, Bulge = 0.15, BulgeAt = 0.5, CrownStart = 1, RootStyle = "compact", Roots = 0, Flare = 0, Lean = 4, Wobble = 2,
+            Flute = 0.6, FluteLobes = 12, FluteHeight = 1,
+            Levels = [],
+            Foliage = "none", BarkColor = "#6a8a3a", BarkMaterial = "cactus", BarkTile = 0.4, Wind = false, Shading = 0.3,
+        }, "Desert"),
+        new("joshua-tree", "Joshua tree", "Forking, shaggy branches tipped with spiky leaf tufts.", () => new TreeRecipe
+        {
+            Name = "Joshua tree", Archetype = "broadleaf", Height = 6, TrunkRadius = 0.28, Taper = 0.5, CrownStart = 0.4, Flare = 0.4, Shape = "spherical", Lean = 4,
+            Levels = [L(5, 0.3, 45, 0.5, 0.65, 15, 18, 15), L(3, 0.4, 40, 0.5, 0.7, 20, 15, 15)],
+            Foliage = "tufts", LeafShape = "slender", LeafCluster = "spray", LeafSize = 0.7, LeafDensity = 0.8, OuterLeaves = 1, CanopyFullness = 0,
+            LeafColor = "#5e6e3a", LeafColor2 = "#9aa05a", BarkColor = "#6b5e4e",
+        }, "Desert"),
 
         // ---- Fantasy.
         new("moonlit-elder", "Moonlit elder", "A twisted violet tree with silver bark: the enchanted grove.", () => new TreeRecipe
@@ -643,12 +702,13 @@ public static class TreePresets
     /// </summary>
     public static readonly IReadOnlyList<Preset> Thornwake =
     [
+        // The pack's nine species.
         ForGame("thornwake", "pine", "pine", "Pine", "Irregular tiers on an exposed lower trunk, an open top.", 12.5, [2800, 1100, 220], r => { Boughs(r); r.Levels[0].Count = 36; r.Levels[0].Start = 0.3; r.Levels[0].Length = 0.24; }),
         ForGame("thornwake", "spruce", "spruce", "Spruce", "A dense, dark, low-reaching cone of needles.", 12.5, [4000, 1600, 280], r => { Boughs(r); r.Levels[0].Count = 48; r.Levels[0].Start = 0.12; r.Levels[0].Length = 0.26; r.LeafColor = "#28492a"; r.LeafColor2 = "#4b6e34"; }),
         ForGame("thornwake", "birch-green", "birch", "Birch_Green", "A slender pale trunk with small rising branches and loose leaf sprays.", 11.5, [2600, 1300, 500]),
         ForGame("thornwake", "birch-autumn", "birch", "Birch_Autumn", "The birch in yellow and ochre.", 11, [2600, 1300, 500], r => { r.LeafColor = "#c08a1e"; r.LeafColor2 = "#ecc848"; }),
-        ForGame("thornwake", "oak", "oak", "Oak", "A broad crown on a heavy trunk with big limbs.", 10.5, [3600, 1800, 600]),
-        ForGame("thornwake", "maple-autumn", "maple", "Maple_Autumn", "A broad, branching crown in copper and orange.", 10.8, [3600, 1800, 600], r => { r.Levels[0].Length = 0.75; r.Levels[0].Angle = 58; r.Shape = "hemispherical"; }),
+        ForGame("thornwake", "oak", "oak", "Oak", "A broad crown of leaf masses on a heavy trunk with big limbs.", 10.5, [3600, 1800, 600], Puffy),
+        ForGame("thornwake", "maple-autumn", "maple", "Maple_Autumn", "A broad, branching crown in copper and orange.", 10.8, [3600, 1800, 600], r => { Puffy(r); r.Levels[0].Length = 0.75; r.Levels[0].Angle = 58; r.Shape = "hemispherical"; }),
         ForGame("thornwake", "sparse", "oak", "Sparse", "A crooked trunk, open branches and grey-green leaf groups.", 8.7, [1500, 800, 300], r =>
         {
             r.Lean = 10; r.Wobble = 12; r.Shape = "spherical"; r.LeafDensity = 0.35; r.CanopyFullness = 0;
@@ -660,12 +720,39 @@ public static class TreePresets
             r.Levels[0].Angle = 22; r.Levels[0].Bend = 10; r.Levels[0].Length = 0.22; r.Levels[1].Angle = 25; r.Levels[1].Bend = 5;
             r.LeafColor = "#4e7a2a"; r.LeafColor2 = "#90ac3c";
         }),
-        ForGame("thornwake", "willow", "willow", "Willow", "A broad frame under irregular hanging curtains.", 9, [4500, 2300, 600]),
-        ForGame("thornwake", "palm", "palm", "Palm", "A slim curving trunk under drooping fronds (the game's placeholder today).", 9, [1600, 800, 250]),
-        ForGame("thornwake", "acacia", "acacia", "Acacia", "A flat umbrella crown for the savanna (the game's placeholder today).", 7, [2400, 1200, 400]),
-        ForGame("thornwake", "dead", "dead", "Dead_Tree", "Bare and broken (the game's placeholder today).", 7, [900, 450, 150]),
-        ForGame("thornwake", "bald-cypress", "cypress", "Bald_Cypress", "The swamp tree: fluted base, knees and moss (the game's placeholder today).", 14, [4000, 1800, 500], r => { r.Knees = 8; r.Budget = 8000; }),
+        ForGame("thornwake", "willow", "willow", "Willow", "A broad arching frame under hanging curtains.", 9, [4500, 2300, 600]),
+
+        // More of the woodland.
+        ForGame("thornwake", "larch", "spruce", "Larch", "A conifer gone gold in autumn.", 12, [3600, 1500, 260], r => { Boughs(r); r.Levels[0].Count = 40; r.Levels[0].Start = 0.2; r.Levels[0].Length = 0.26; r.LeafColor = "#b8892a"; r.LeafColor2 = "#e6c24e"; }),
+        ForGame("thornwake", "cherry", "cherry", "Cherry", "A round crown in spring pink.", 7, [3200, 1600, 500], r => r.Height *= 0.8),
+        ForGame("thornwake", "italian-cypress", "italian-cypress", "Italian_Cypress", "A tall, dark, narrow flame (the game's \"cypress\" placeholder).", 13, [2400, 1100, 300]),
+
+        // The species the game draws as placeholders today, and the desert.
+        ForGame("thornwake", "palm", "palm", "Palm", "A slim curving trunk under drooping fronds.", 9, [1600, 800, 250]),
+        ForGame("thornwake", "acacia", "acacia", "Acacia", "A flat umbrella crown for the savanna.", 7, [2400, 1200, 400]),
+        ForGame("thornwake", "jungle-tree", "jungle-tree", "Jungle_Tree", "A tall trunk on buttress roots under a wide, flat crown.", 20, [4000, 1800, 600]),
+        ForGame("thornwake", "baobab", "baobab", "Baobab", "A swollen bottle trunk with a small, flat crown.", 9, [2400, 1200, 400]),
+        ForGame("thornwake", "dead", "dead", "Dead_Tree", "Bare and broken.", 7, [900, 450, 150]),
+        ForGame("thornwake", "dry-shrub", "dry-shrub", "Dry_Shrub", "A low, faceted bush of grey-olive leaf clumps.", 1.4, [900, 450, 150], r =>
+        {
+            // Solid leaf clumps: a whole bush in a few hundred triangles.
+            r.Foliage = "clumps"; r.LeafSize = 0.35; r.CrownStart = 0.02;
+            r.Levels = [L(12, 0, 45, 0.9, 0.7, 15, 20, 15), L(4, 0.3, 40, 0.45, 0.5, 5, 20, 15)];
+        }),
+        ForGame("thornwake", "bald-cypress", "cypress", "Bald_Cypress", "The swamp tree: fluted base, knees and moss.", 14, [4000, 1800, 500], r => { Puffy(r); r.Knees = 8; r.Budget = 8000; r.LeafSize = 1; r.LeafDensity = 0.7; }),
+        ForGame("thornwake", "mangrove", "mangrove", "Mangrove", "Stilt roots arching out of the water under a low dome.", 6, [3000, 1500, 500]),
+        ForGame("thornwake", "saguaro", "saguaro", "Saguaro", "A tall ribbed cactus whose arms turn up.", 8, [1500, 700, 250], r => r.FluteLobes = 8),
+        ForGame("thornwake", "organ-pipe", "organ-pipe", "Organ_Pipe", "A clump of ribbed cactus columns.", 5, [2200, 900, 300], r => r.FluteLobes = 7),
+        ForGame("thornwake", "barrel-cactus", "barrel-cactus", "Barrel_Cactus", "A squat, deeply ribbed barrel.", 1.1, [500, 250, 100], r => r.FluteLobes = 10),
+        ForGame("thornwake", "joshua-tree", "joshua-tree", "Joshua_Tree", "Forking branches tipped with spiky leaf tufts.", 6, [2400, 1200, 400]),
     ];
+
+    /// <summary>Broadleaf crowns as leaf masses (cards over puffy clumps), like the pack's oaks.</summary>
+    private static void Puffy(TreeRecipe r)
+    {
+        r.Foliage = "tufts";
+        r.Height *= 0.8;        // the leaf masses stand out past the branch tips
+    }
 
     /// <summary>Every preset: the general ones, then each game's.</summary>
     public static IEnumerable<Preset> Everything => All.Concat(Thornwake);

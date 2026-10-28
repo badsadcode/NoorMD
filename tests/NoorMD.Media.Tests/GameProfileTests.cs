@@ -41,6 +41,38 @@ public class GameProfileTests
     }
 
     [Fact]
+    public void A_cactus_is_ribbed_wood_with_no_leaves_and_arms_that_turn_up()
+    {
+        var b = TreeBuilder.Build(TreePresets.Make("saguaro"), new TreeBuilder.Options { TextureSize = 64 });
+        var lod0 = b.Lods[0];
+        Assert.DoesNotContain(lod0.Materials, m => m.Name == "Leaves");
+        Assert.Equal("none", TreeExport.About(b)["noor_wind"]);
+        var trunk = lod0.Root.All().First(n => n.Name == "Trunk").Mesh!;
+        // Ribs: round a ring halfway up, the distance from the axis rises and falls (lobes), not a plain circle.
+        var mid = b.Skeleton.Trunk.At(0.5f).P;
+        var ring = trunk.Positions.Where(p => MathF.Abs(p.Y - mid.Y) < 0.05f).Select(p => new System.Numerics.Vector2(p.X - mid.X, p.Z - mid.Z).Length()).ToList();
+        Assert.True(ring.Count >= 8);
+        Assert.True(ring.Max() / ring.Min() > 1.08f, $"ring {ring.Min():0.000}–{ring.Max():0.000}");
+        // Arms: each ends higher than it starts, and below the top of the trunk.
+        foreach (var arm in b.Skeleton.Branches.Where(x => x.Level == 1))
+        {
+            Assert.True(arm.Points[^1].Y > arm.Points[0].Y + 0.5f);
+            Assert.True(arm.Points[0].Y < b.Skeleton.Height * 0.8f);
+        }
+    }
+
+    [Fact]
+    public void Willow_curtains_hang_from_a_broad_crown_nearly_to_the_ground()
+    {
+        var b = TreeBuilder.Build(TreePresets.Make("thornwake-willow"), new TreeBuilder.Options { TextureSize = 0 });
+        var (lo, hi) = TreeExport.Bounds(b.Lods[0]);
+        Assert.True(hi.X - lo.X > hi.Y * 0.9f, "a weeping willow is about as wide as it is tall");
+        var leaves = b.Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
+        Assert.Contains(leaves.Positions, p => p.Y < hi.Y * 0.25f);
+        Assert.All(leaves.Positions, p => Assert.True(p.Y > 0.2f));
+    }
+
+    [Fact]
     public void Levels_past_the_list_are_half_the_one_before_and_without_a_list_it_halves()
     {
         var r = new TreeRecipe { LodTriangles = [3000, 1000], Lods = 3 };
@@ -102,7 +134,7 @@ public class GameProfileTests
     [Fact]
     public void Every_thornwake_tree_grows_for_the_game()
     {
-        Assert.True(TreePresets.Thornwake.Count >= 9);
+        Assert.True(TreePresets.Thornwake.Count >= 24);
         foreach (var p in TreePresets.Thornwake)
         {
             var r = p.Make().Clamped();

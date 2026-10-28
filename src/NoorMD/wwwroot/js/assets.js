@@ -37,7 +37,7 @@ window.NoorAssets = (() => {
 
   const isOpen = () => document.body.classList.contains('assets-open');
 
-  const ARCHETYPES = [['broadleaf', 'Broadleaf (oak, maple…)'], ['conifer', 'Conifer (pine, spruce…)'], ['birch', 'Birch-like (slender, drooping)'], ['dead', 'Dead or twisted (bare)']];
+  const ARCHETYPES = [['broadleaf', 'Broadleaf (oak, maple…)'], ['conifer', 'Conifer (pine, spruce…)'], ['birch', 'Birch-like (slender, drooping)'], ['dead', 'Dead or twisted (bare)'], ['cactus', 'Cactus (ribbed, no leaves)']];
   const STYLES = [['realistic', 'Realistic'], ['stylized', 'Stylized (painted fantasy)']];
   const SHAPES = [['spherical', 'Round'], ['hemispherical', 'Dome'], ['conical', 'Cone'], ['cylindrical', 'Column'], ['flame', 'Flame'], ['inverse', 'Upside-down cone (vase)'], ['tapered', 'Tapered column'], ['umbrella', 'Umbrella (flat top)']];
   const ROOTS = [['flare', 'Flared base (buttresses)'], ['surface', 'Surface roots (long, forking, sinking in)'], ['prop', 'Stilt roots (mangrove)'], ['compact', 'Compact (a collar only)']];
@@ -512,7 +512,7 @@ window.NoorAssets = (() => {
   }
   function targetSplit() {
     const t = recipe.triangleTarget;
-    const leafy = recipe.foliage !== 'none' && recipe.archetype !== 'dead';
+    const leafy = recipe.foliage !== 'none' && recipe.archetype !== 'dead' && recipe.archetype !== 'cactus';
     const wood = Math.max(200, Math.floor(t * (leafy ? 0.25 : 1)));
     return leafy ? `About ${wood.toLocaleString()} for the wood and ${Math.max(500, t - wood).toLocaleString()} for the leaves.` : `All ${wood.toLocaleString()} for the wood.`;
   }
