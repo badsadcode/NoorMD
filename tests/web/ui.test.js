@@ -4526,6 +4526,46 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with the Blender-style layers', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 58. Batch PBR: many albedo textures (picked or from the Gallery) into full PBR sets, with the export settings.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 6, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const TB = () => page.evaluate(() => NoorTexture._state().batch);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.export'); } catch { /* */ } });
+      // From the Gallery: select pictures › Open in › Texture Bench › Make PBR maps for each.
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('#gallery:not([hidden]) .gallery-tile');
+      await page.evaluate(() => NoorDock.place('gallery', 'center'));
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.click('.gallery-tile[data-index="1"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="2"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="2"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Open in")');
+      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("Texture Bench")');
+      await page.click('.menu-popup[data-depth="2"] .menu-item:has-text("Make PBR maps for each of the 3")');
+      await waitFn(page, () => NoorTexture._state().batch.pictures.length === 3);
+      check('Gallery › Open in › Texture Bench › Make PBR maps for each: the pictures wait in the batch (no limit of 12, not measured)', (await page.evaluate(() => window.__mock.state.gallery.toTextureMany)) === true
+        && await page.isVisible('#tb-batch') && /Make PBR maps for 3 pictures/.test(await page.textContent('#tb-batch-run')));
+      await page.click('#tb-batch-pick');
+      await waitFn(page, () => NoorTexture._state().batch.pictures.length === 6);
+      check('…more can be picked, and each left out again', (await page.$$('.tb-batch-item')).length === 6);
+      await page.click('.tb-batch-item:nth-of-type(1) button');
+      await waitFn(page, () => NoorTexture._state().batch.pictures.length === 5);
+      check('plain conversion for albedo textures by default: they already tile, no light evening, size as each picture', (await page.inputValue('#tb-batch-template')) === 'plain' && await page.isChecked('#tb-batch-tiles') && !(await page.isChecked('#tb-batch-delight')) && (await page.inputValue('#tb-batch-size')) === '0');
+      await page.selectOption('#tb-target', 'unreal');
+      await page.selectOption('#ex-texture-layout', 'unreal');
+      await page.click('#tb-batch-run');
+      await waitFn(page, () => (window.__mock.state.texture.batches || []).length === 1);
+      const sent = await page.evaluate(() => window.__mock.state.texture.batches[0]);
+      const pic = sent.template.layers[0];
+      check('Make PBR maps: every picture with the plain template (its colours as they are, no dirt) and the export settings (Unreal, its layout)', sent.pictures.length === 5 && sent.target === 'unreal' && sent.layout === 'unreal' && sent.size === 0
+        && pic.type === 'image' && pic.seamBlend === 0 && pic.delight === 0 && pic.scaleX === 1 && pic.colorAmount === 1 && sent.template.surface.dirt === 0, sent);
+      await waitFn(page, () => /Made 5 of 5 PBR sets/.test(document.querySelector('#tb-batch-status').textContent));
+      check('…and says how many were made; the list is emptied', (await TB()).pictures.length === 0);
+      check('no page errors in the batch', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

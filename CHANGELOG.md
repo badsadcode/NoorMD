@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.0.0-preview.46 — Texture Bench: PBR maps for many pictures at once
+
+- **Batch: PBR maps for many pictures** (Export tab, or Gallery › right-click pictures › Open in › Texture Bench ›
+  **Make PBR maps for each**): albedo textures or photos in, a full set of maps out for each (normal, roughness,
+  AO, height, metallic, packed maps), written with the export settings: the target engine, which maps, the normal
+  convention, packed maps, and the folder layout or game project. Each set is named after its picture.
+  - **Plain conversion** (for albedo textures): the picture is the albedo exactly as it is; relief, shine and shade
+    come from its detail. Or **this material's settings**: tune one picture the way you like (Maps tab, layers on
+    top), then use it for all of them; its photo layer takes each picture.
+  - **The pictures already tile** (on by default: no edge blending) and **Even out the light** (for photos).
+  - Size: **as each picture** (up to 2048) or a fixed size. Up to 500 pictures; one replace question for the whole
+    batch; progress, and **Stop after this one**. Pictures that can't be read are skipped and listed.
+- The app's self-test checks that an albedo PNG comes out of the conversion unchanged.
+
 ## 2.0.0-preview.45 — Texture Bench: ideas from Blender
 
 Inspired by Blender's texture nodes; every new kind tiles seamlessly like the rest.

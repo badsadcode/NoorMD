@@ -152,6 +152,7 @@ window.NoorTexture = (() => {
   function init(h) {
     hooks = { ...hooks, ...h };
     NoorBridge.on('texture.paintingChanged', paintingChanged);
+    NoorBridge.on('texture.batchProgress', (p) => { if (!batch.running) return; batch.progress = p.name ? `Making ${p.done + 1} of ${p.total}: ${p.name}…` : `Done ${p.done} of ${p.total}.`; const st = $('#tb-batch-status'); if (st) st.textContent = batch.progress; });
     NoorBridge.on('texture.openRecipe', async (p) => { await open(); setRecipe(p.recipe, true); notice(`Opened “${p.recipe.name}” from the Vault`, 1600); });
     NoorBridge.on('texture.exportProgress', (p) => { const s = $('#tb-export-status'); if (s) s.textContent = `Writing map ${p.done} of ${p.total}…`; });
   }
@@ -859,6 +860,7 @@ el('span', { class: 'tb-zoom' },
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'tb-export', onclick: exportMaps }, '⤓ Export PNG maps…'),
         el('button', { class: 'action', id: 'tb-save', onclick: savePreset }, '★ Save as my preset…')),
+      batchSection(),
       el('p', { class: 'pref-hint', id: 'tb-export-status', text: 'Every map tiles seamlessly at any size. The recipe (.noortex.json) is saved with the maps: open it later to make another size or change it. Unreal gets DirectX normals and an ORM map (occlusion, roughness, metallic) unless you choose otherwise above.' }),
     ];
   }
@@ -902,6 +904,79 @@ el('span', { class: 'tb-zoom' },
     };
     draw();
     return box;
+  }
+
+  // ---------------------------------------------------------------- batch: PBR maps for many pictures
+
+  let batch = { pictures: [], running: false, progress: null };
+
+  /** A plain conversion for albedo textures: the picture is the albedo as it is; relief, shine and shade come from its detail. */
+  function albedoTemplate(opts) {
+    return { version: 1, name: 'From albedo', family: 'Custom', seed: 1,
+      layers: [layerOf('image', 0, { name: 'Picture', seamBlend: opts.tiles ? 0 : 0.15, delight: opts.delight ? 0.6 : 0, delightRadius: 0.3, detailFine: 0.5, detailMedium: 0.7, detailLarge: 0.4, colorAmount: 1 })],
+      surface: { ...clone(PHOTO_SURFACE), dirt: 0, colorVariation: 0, normalStrength: 5 } };
+  }
+
+  function batchPrefs() { return { template: 'plain', tiles: true, delight: false, size: 0, ...(exportPrefs().batch || {}) }; }
+
+  /** Pictures from the Gallery (or picked here) waiting to be made into PBR sets. */
+  function addBatchPictures(list) {
+    const known = new Set(batch.pictures.map((x) => x.path));
+    for (const f of list) if (!known.has(f.path)) batch.pictures.push({ path: f.path, name: f.name });
+    tab = 'export'; renderEditor();
+  }
+
+  function batchSection() {
+    const b = batchPrefs();
+    const save = (change) => { saveExportPrefs({ ...exportPrefs(), batch: { ...batchPrefs(), ...change } }); };
+    const pick = (id, label, options, value, key, num) => {
+      const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
+      s.value = String(value); s.addEventListener('change', () => save({ [key]: num ? Number(s.value) : s.value }));
+      return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
+    };
+    const check = (id, label, key, title) => {
+      const c = el('input', { type: 'checkbox', id, checked: b[key] ? true : undefined });
+      c.addEventListener('change', () => save({ [key]: c.checked }));
+      return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
+    };
+    const n = batch.pictures.length;
+    const list = el('div', { class: 'tb-batch-list', id: 'tb-batch-list' }, ...batch.pictures.slice(0, 60).map((f, i) => el('span', { class: 'tb-batch-item', title: f.path },
+      f.name, el('button', { class: 'icon-btn', 'aria-label': `Leave out ${f.name}`, onclick: () => { batch.pictures.splice(i, 1); renderEditor(); } }, '✕'))),
+      ...(n > 60 ? [el('span', { class: 'pref-hint', text: `… and ${n - 60} more` })] : []));
+    return el('details', { class: 'sb-fxgroup tb-batch', id: 'tb-batch', open: n ? true : undefined },
+      el('summary', { text: `Batch: PBR maps for many pictures${n ? ` (${n})` : ''}` }),
+      el('p', { class: 'pref-hint', text: 'Albedo textures or photos in, a full set of maps out for each: normal, roughness, AO, height and the rest, written with the settings above (target, maps, packing, folder layout or game project). From the Gallery: right-click pictures › Open in › Texture Bench › Make PBR maps for each.' }),
+      el('div', { class: 'sb-row' },
+        el('button', { class: 'utility-btn', id: 'tb-batch-pick', onclick: async () => { try { const r = await req('texture.batch.pick'); if (r && r.pictures) addBatchPictures(r.pictures); } catch (err) { hooks.showError(err); } } }, '＋ Pictures…'),
+        n ? el('button', { class: 'utility-btn', id: 'tb-batch-clear', onclick: () => { batch.pictures = []; renderEditor(); } }, 'Clear the list') : null),
+      list,
+      el('div', { class: 'sb-row' },
+        pick('tb-batch-template', 'Convert with', [['plain', 'Plain conversion (albedo textures)'], ['this', 'This material’s settings (its photo layer takes each picture)']], b.template, 'template'),
+        pick('tb-batch-size', 'Size', [[0, 'As each picture'], [512, '512'], [1024, '1024'], [2048, '2048'], [4096, '4096']], b.size, 'size', true)),
+      el('div', { class: 'sb-row' },
+        check('tb-batch-tiles', 'The pictures already tile', 'tiles', 'Generated textures usually tile already: no edge blending (photos that don\'t tile: untick)'),
+        check('tb-batch-delight', 'Even out the light', 'delight', 'For photos lit unevenly; albedo textures are already flat')),
+      el('div', { class: 'sb-row' },
+        el('button', { class: 'action primary', id: 'tb-batch-run', disabled: !n || batch.running || undefined, onclick: runBatch }, n ? `⤓ Make PBR maps for ${n} picture${n === 1 ? '' : 's'}…` : '⤓ Make PBR maps…'),
+        batch.running ? el('button', { class: 'action', id: 'tb-batch-cancel', onclick: () => req('texture.batch.cancel').catch(hooks.showError) }, 'Stop after this one') : null),
+      el('p', { class: 'pref-hint', id: 'tb-batch-status', 'aria-live': 'polite', text: batch.progress || '' }));
+  }
+
+  async function runBatch() {
+    const p = exportPrefs(), b = batchPrefs();
+    const template = b.template === 'this' && recipe.layers.some((l) => l.type === 'image') ? clone(recipe) : albedoTemplate(b);
+    // Pictures that already tile cover the tile once, with no edge blending.
+    if (b.template === 'this' && template.layers.find((l) => l.type === 'image')) Object.assign(template.layers.find((l) => l.type === 'image'), b.tiles ? { seamBlend: 0, scaleX: 1, scaleY: 1 } : {});
+    batch.running = true; batch.progress = 'Starting…'; renderEditor();
+    try {
+      const r = await req('texture.batch', { template, pictures: batch.pictures.map((x) => x.path), size: b.size, target: p.target, ...writeOptions(), ...(where ? where.payload() : {}) });
+      batch.running = false;
+      if (!r || (r.cancelled && !r.done)) { batch.progress = r && r.cancelled ? 'Stopped.' : ''; renderEditor(); return; }
+      batch.progress = `Made ${r.done} of ${r.total} PBR sets${r.project ? ` in ${r.project}` : ''}${r.cancelled ? ' (stopped)' : ''}.${r.skipped && r.skipped.length ? ` Couldn't read: ${r.skipped.join(', ')}.` : ''}`;
+      if (!r.cancelled) batch.pictures = [];
+      renderEditor();
+      notice(batch.progress, 3000);
+    } catch (err) { batch.running = false; batch.progress = ''; renderEditor(); hooks.showError(err); }
   }
 
   /** What the export writes, for the app: maps left out, normal convention, height bits, packed maps. */
@@ -1270,7 +1345,9 @@ el('span', { class: 'tb-zoom' },
 
   return {
     init, open, close, toggle, isOpen, fromPictures, newMaterial, randomMaterial,
+    /** Pictures from the Gallery for the batch (Export tab). */
+    batchPictures: async (pics) => { await open(); addBatchPictures(pics || []); },
     hasMaterial: () => !!recipe,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: { ...layoutPrefs }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: { ...layoutPrefs }, batch: { pictures: batch.pictures.map((x) => x.path), running: batch.running, progress: batch.progress }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

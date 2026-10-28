@@ -1496,3 +1496,6 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-pack { gap: 6px; }
 .tb-pack-name { width: 120px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 3px 7px; font: inherit; font-size: 12px; }
 .utility-btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
+.tb-batch-list { display: flex; flex-wrap: wrap; gap: 4px; max-height: 120px; overflow-y: auto; margin: 4px 0; }
+.tb-batch-item { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 2px 1px 7px; }
+.tb-batch-item .icon-btn { width: 20px; height: 20px; font-size: 11px; }

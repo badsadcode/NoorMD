@@ -503,6 +503,9 @@ function mockHostScript(initial) {
           gallery: p.gallery ? names.length : null, vault: p.vault ? `Materials/${stem}.noortex.json` : null, notes: [] };
       }
       case 'texture.reveal': TEX.opened = p.folder; return null;
+      case 'texture.batch.pick': return { pictures: ['moss', 'rust', 'sand'].map((n) => ({ path: `D:\\Textures\\${n}_albedo.png`, name: `${n}_albedo.png` })) };
+      case 'texture.batch.cancel': TEX.batchCancelled = true; return null;
+      case 'texture.batch': TEX.batches = (TEX.batches || []).concat([JSON.parse(JSON.stringify(p))]); return { done: p.pictures.length, total: p.pictures.length, cancelled: false, skipped: [], folder: 'D:\\Game\\Materials', folders: p.pictures.length, project: null };
       case 'texture.paint.new': {
         TEX.paintNew = (TEX.paintNew || 0) + 1;
         const name = `${p.recipe.name} painting.noorsketch`;
@@ -736,7 +739,7 @@ function mockHostScript(initial) {
       case 'gallery.editor.add': GAL.editors.push({ name: 'Affinity Photo 2', detected: false }); return { editors: GAL.editors };
       case 'gallery.editor.remove': GAL.editors.splice(p.index, 1); return { editors: GAL.editors };
       case 'gallery.openWith': GAL.opened.push({ ids: [...p.ids], how: p.how, editor: p.editor }); return null;
-      case 'gallery.toTexture': GAL.toTexture = (GAL.toTexture || []).concat([[...p.ids]]); return { pictures: p.ids.map(get).map((i) => ({ path: `C:\\Pics\\${i.name}.jpg`, name: i.name + '.jpg', width: 1600, height: 1200 })), skipped: [] };
+      case 'gallery.toTexture': GAL.toTexture = (GAL.toTexture || []).concat([[...p.ids]]); GAL.toTextureMany = !!p.many; return { pictures: p.ids.map(get).map((i) => ({ path: `C:\\Pics\\${i.name}.jpg`, name: i.name + '.jpg', width: 1600, height: 1200 })), skipped: [] };
       case 'gallery.duplicates': { const by = new Map(); GAL.images.forEach((i) => { const k = i.id % 4; by.set(k, [...(by.get(k) || []), i]); }); return [...by.values()].filter((g) => g.length > 1).slice(0, 2).map((g) => ({ kind: 'same', items: g.slice(0, 3).map((i) => ({ ...i })) })); }
       case 'gallery.rating': p.ids.forEach((id) => { get(id).rating = Math.max(0, Math.min(5, p.stars)); }); return null;
       case 'gallery.label': if (p.label && !['red', 'orange', 'yellow', 'green', 'blue', 'purple'].includes(p.label)) throw new Error('Unknown colour label.'); p.ids.forEach((id) => { get(id).label = p.label || null; }); return null;

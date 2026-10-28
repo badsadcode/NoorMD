@@ -134,3 +134,31 @@ public class TextureImageTests
         Assert.Equal(((string?)null, 1.0, -1.0, "#abcdef", 0.5), (c.Layers[0].Tint, c.Layers[0].TintAmount, c.Layers[0].RoughnessShift, c.Layers[0].HeightColor, c.Layers[0].SeamBlend));
     }
 }
+
+/// <summary>Batch PBR from albedo textures: the picture comes out as the albedo unchanged, the rest from its detail.</summary>
+public class TextureFromAlbedoTests
+{
+    [Fact]
+    public void An_albedo_texture_stays_itself_and_gets_the_other_maps()
+    {
+        const int n = 256;
+        // A tileable "albedo texture": warm stones on darker grout (made with the engine, so it tiles).
+        var src = TextureEngine.Render(TexturePresets.Make("stone-cobbles"), n);
+        var rgb = new float[n * n * 3];
+        for (var i = 0; i < rgb.Length; i++) rgb[i] = src.Albedo[i] / 255f;
+        var picture = new TextureImage { Width = n, Height = n, Rgb = rgb, Id = "albedo" };
+        // The page's plain conversion: one photo layer, no seam blending or delighting, its colours as they are, no dirt.
+        var recipe = new TextureRecipe
+        {
+            Layers = [new TextureLayer { Type = "image", Path = "albedo.png", ScaleX = 1, ScaleY = 1, SeamBlend = 0, Delight = 0, DetailFine = 0.5, DetailMedium = 0.7, DetailLarge = 0.4, ColorAmount = 1 }],
+            Surface = new TextureSurface { Dirt = 0, ColorVariation = 0, NormalStrength = 5, AoStrength = 0.6 },
+        }.Clamped();
+        var m = TextureEngine.Render(recipe, n, _ => picture);
+        Assert.Empty(m.Warnings);
+        var off = Enumerable.Range(0, src.Albedo.Length).Max(i => Math.Abs(m.Albedo[i] - src.Albedo[i]));
+        Assert.True(off <= 1, $"the albedo is the picture (largest difference {off})");
+        Assert.True(m.Height.Max() - m.Height.Min() > 0.3, "height from its detail");
+        Assert.True(m.Normal.Where((_, i) => i % 3 == 0).Distinct().Count() > 20, "a normal map with relief");
+        Assert.True(m.Roughness.Distinct().Count() > 10 && m.Ao.Distinct().Count() > 10, "roughness and AO that vary");
+    }
+}

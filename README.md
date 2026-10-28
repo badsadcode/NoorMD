@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.45-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.46-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -132,7 +132,7 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
   ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, Musgrave fractals, Voronoi cells, waves, gradients, checkers, Magic, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
   rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their
-  detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Paint on a material by hand in
+  detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Make full PBR sets for many albedo textures or photos at once (batch, also from the Gallery). Paint on a material by hand in
   NoorSketch (the material underneath, strokes carrying on across the edges so it still tiles) and apply it
   straight back as a layer of the recipe. Any layer can paint tint, roughness
   and metal, masked by the material's own height and edges; a colour ramp, dirt and roughness make the surface.

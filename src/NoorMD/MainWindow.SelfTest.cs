@@ -871,6 +871,19 @@ public partial class MainWindow
                 Surface = new TextureSurface { Ramp = [new() { Pos = 0, Color = "#808080" }, new() { Pos = 1, Color = "#808080" }], ColorVariation = 0, Dirt = 0 },
             }.Clamped(), 128, LoadTextureImage);
             int Red(int x, int y) => painted.Albedo[(y * 128 + x) * 3];
+            // Batch PBR from albedo textures: a PNG albedo read the real way comes out as the albedo unchanged.
+            var albedoSrc = TextureEngine.Render(TexturePresets.Make("stone-cobbles"), 128);
+            var albedoPath = Path.Combine(SelfTestDir!, "Texture albedo.png");
+            File.WriteAllBytes(albedoPath, albedoSrc.Png("albedo"));
+            _textureImageFiles.Add(albedoPath);
+            var fromAlbedo = TextureEngine.Render(new TextureRecipe
+            {
+                Layers = [new TextureLayer { Type = "image", Path = albedoPath, ScaleX = 1, ScaleY = 1, SeamBlend = 0, Delight = 0, ColorAmount = 1 }],
+                Surface = new TextureSurface { Dirt = 0, ColorVariation = 0 },
+            }.Clamped(), 128, LoadTextureImage);
+            var albedoOff = Enumerable.Range(0, albedoSrc.Albedo.Length).Max(i => Math.Abs(fromAlbedo.Albedo[i] - albedoSrc.Albedo[i]));
+            Check("Texture Bench: batch PBR keeps an albedo texture's colours exactly and adds relief", fromAlbedo.Warnings.Count == 0 && albedoOff <= 2 && fromAlbedo.Height.Max() - fromAlbedo.Height.Min() > 0.2,
+                $"largest difference {albedoOff}; {string.Join("; ", fromAlbedo.Warnings)}");
             Check("Texture Bench: a NoorSketch painting goes on the material where it is painted (transparent elsewhere)", painted.Warnings.Count == 0 && Red(20, 20) > 200 && Red(100, 100) is > 110 and < 145,
                 $"{string.Join("; ", painted.Warnings)} painted {Red(20, 20)}, elsewhere {Red(100, 100)}");
         }

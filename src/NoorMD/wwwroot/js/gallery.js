@@ -445,9 +445,9 @@ window.NoorGallery = (() => {
   /** Pictures into the Texture Bench: a new material from them, or added over the one being made. */
   async function toTexture(ids, mode) {
     try {
-      const r = await req('gallery.toTexture', { ids });
+      const r = await req('gallery.toTexture', { ids, many: mode === 'batch' });
       if (r.skipped && r.skipped.length) notice(`Can't be read as a texture: ${r.skipped.join(', ')}`, 3000);
-      if (r.pictures.length) await NoorTexture.fromPictures(r.pictures, mode);
+      if (r.pictures.length) { if (mode === 'batch') await NoorTexture.batchPictures(r.pictures); else await NoorTexture.fromPictures(r.pictures, mode); }
     } catch (err) { hooks.showError(err); }
   }
 
@@ -457,6 +457,8 @@ window.NoorGallery = (() => {
     return [
       { label: many ? `New material from these ${ids.length} (as photo layers)` : 'New material from this picture', run: () => toTexture(ids, 'new') },
       { label: many ? 'Add them over the current material' : 'Add it over the current material', disabled: !has, run: () => toTexture(ids, 'add') },
+      '-',
+      { label: many ? `Make PBR maps for each of the ${ids.length} (batch)…` : 'Make PBR maps from it (batch)…', run: () => toTexture(ids, 'batch') },
     ];
   }
 

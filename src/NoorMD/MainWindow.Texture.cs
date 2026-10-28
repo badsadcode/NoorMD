@@ -148,6 +148,111 @@ public partial class MainWindow
         return copy;
     }
 
+    /// <summary>Where one material's files go: its folder, its file names (in the order of the files), and every path it will write.</summary>
+    private sealed record TextureSetPlan(string Folder, string Stem, List<string> Names, List<string> Targets);
+
+    private TextureSetPlan PlanTextureSet(TextureRecipe recipe, int size, string root, ExportPlace place, List<(string Suffix, string What)> files)
+    {
+        var tokens = ExportTokens(recipe.Name, recipe.Family, size, place.Project?.Name);
+        var folder = NoorMD.Core.Export.ExportLayouts.Under(root, NoorMD.Core.Export.ExportLayouts.Folders(NoorMD.Core.Export.ExportLayouts.Expand(place.FolderPattern, tokens)));
+        var stem = NoorMD.Core.Export.ExportLayouts.FileName(tokens["name"], recipe.Name);
+        var names = files.Select(f =>
+        {
+            var t = new Dictionary<string, string>(tokens); foreach (var kv in NoorMD.Core.Export.ExportLayouts.MapTokens(f.Suffix)) t[kv.Key] = kv.Value;
+            return NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, t), recipe.Name) + ".png";
+        }).ToList();
+        return new TextureSetPlan(folder, stem, names, [.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortex.json")]);
+    }
+
+    /// <summary>Writes one material's maps, its paintings and its recipe where the plan says.</summary>
+    private async Task<(string Folder, List<string> Written, string RecipePath, TextureRecipe Travelling)> WriteTextureSetAsync(
+        TextureRecipe recipe, TextureMaps maps, TextureSetPlan plan, List<(string Suffix, string What)> files, bool keep, Action<int, int>? progress = null)
+    {
+        Directory.CreateDirectory(plan.Folder);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var written = new List<string>();
+        for (var k = 0; k < files.Count; k++)
+        {
+            var path = ExportTarget(plan.Folder, plan.Names[k], keep, taken);
+            var png = await Task.Run(() => TextureFile(maps, files[k].What));
+            await File.WriteAllBytesAsync(path, png);
+            written.Add(path);
+            progress?.Invoke(written.Count, files.Count);
+        }
+        // Paintings go along, so the recipe beside the maps opens complete anywhere.
+        var travelling = await CopyPaintingsBesideAsync(recipe, plan.Folder, taken, replace: !keep);
+        var recipePath = ExportTarget(plan.Folder, plan.Stem + ".noortex.json", keep, taken);
+        await File.WriteAllTextAsync(recipePath, travelling.ToJson(), new UTF8Encoding(false));
+        _textureFolders.Add(plan.Folder);
+        return (plan.Folder, written, recipePath, travelling);
+    }
+
+    private volatile bool _textureBatchCancel;
+
+    /// <summary>
+    /// Many pictures (albedo textures, photos) into PBR sets, each with the template recipe: its first photo layer
+    /// takes the picture (or one is put in first), named after the file, and written by the export settings. The
+    /// replace question is asked once for the whole batch.
+    /// </summary>
+    private async Task<object> TextureBatchAsync(JsonElement p)
+    {
+        var template = TextureRecipeFrom(p);
+        var pictures = p.TryGetProperty("pictures", out var pics) && pics.ValueKind == JsonValueKind.Array
+            ? pics.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => Path.GetFullPath(e.GetString()!)).Distinct(StringComparer.OrdinalIgnoreCase).Take(500).ToList() : [];
+        if (pictures.Count == 0) throw new BridgeError("Choose the pictures to make PBR maps from.");
+        if (pictures.Any(f => !_textureImageFiles.Contains(f))) throw new BridgeError("Only pictures chosen here or in the Gallery can be used.");
+        var auto = (NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 0) <= 0; // 0: the size of each picture
+        var fixedSize = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 0);
+        if (!auto && fixedSize is not (512 or 1024 or 2048 or 4096)) throw new BridgeError("Choose 512, 1024, 2048 or 4096 pixels, or the size of each picture.");
+        var target = (p.TryGetProperty("target", out var tg) && tg.ValueKind == JsonValueKind.String ? tg.GetString() : null) ?? "generic";
+        var files = TextureOutputs(p, target);
+        var place = ExportPlaceFrom(p, "texture");
+        var root = ExportBase(place, $"Save the PBR maps of {pictures.Count} picture{(pictures.Count == 1 ? "" : "s")} in… (you can make a new folder here)");
+        if (root == null) return new { cancelled = true };
+
+        // Plan every set first (so names and the replace question cover the whole batch).
+        var jobs = new List<(TextureRecipe Recipe, int Size, TextureSetPlan Plan)>();
+        var skipped = new List<string>();
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var picture in pictures)
+        {
+            var image = await Task.Run(() => LoadTextureImage(picture));
+            if (image == null) { skipped.Add(Path.GetFileName(picture)); continue; }
+            var recipe = template.Clone();
+            var name = Path.GetFileNameWithoutExtension(picture);
+            for (var n = 2; !usedNames.Add(name); n++) name = $"{Path.GetFileNameWithoutExtension(picture)} {n}";
+            recipe.Name = name;
+            var layer = recipe.Layers.FirstOrDefault(l => l.Type == "image");
+            if (layer == null) { layer = new TextureLayer { Type = "image", Name = "Picture", ScaleX = 1, ScaleY = 1, SeamBlend = 0, Delight = 0 }; recipe.Layers.Insert(0, layer); }
+            layer.Path = picture; layer.ImageName = Path.GetFileName(picture);
+            recipe = recipe.Clamped();
+            var size = auto ? (Math.Max(image.Width, image.Height) >= 1536 ? 2048 : Math.Max(image.Width, image.Height) >= 768 ? 1024 : 512) : fixedSize;
+            jobs.Add((recipe, size, PlanTextureSet(recipe, size, root, place, files)));
+        }
+        if (jobs.Count == 0) throw new BridgeError("None of those pictures can be read.");
+        var how = AskReplace(jobs.SelectMany(j => j.Plan.Targets).ToList(), $"{jobs.Count} materials");
+        if (how == null) return new { cancelled = true };
+        _textureBatchCancel = false;
+        var done = 0;
+        var folders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (recipe, size, plan) in jobs)
+        {
+            if (_textureBatchCancel) break;
+            PushEvent("texture.batchProgress", new { done, total = jobs.Count, name = recipe.Name });
+            TextureMaps maps;
+            await TextureGate.WaitAsync();
+            try { maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage)); }
+            finally { TextureGate.Release(); }
+            var result = await WriteTextureSetAsync(recipe, maps, plan, files, how == "keep");
+            folders.Add(result.Folder);
+            done++;
+        }
+        PushEvent("texture.batchProgress", new { done, total = jobs.Count, name = "" });
+        Log.Info($"Texture Bench: batch made {done} PBR set(s) of {jobs.Count}");
+        var first = folders.FirstOrDefault();
+        return new { done, total = jobs.Count, cancelled = _textureBatchCancel && done < jobs.Count, skipped, folder = folders.Count == 1 ? first : root, folders = folders.Count, project = place.Project?.Name };
+    }
+
     /// <summary>A file's place in an export: as named (replacing, after asking), or numbered beside what is there.</summary>
     private static string ExportTarget(string folder, string fileName, bool keep, HashSet<string> taken)
     {
@@ -315,35 +420,13 @@ public partial class MainWindow
                     var place = ExportPlaceFrom(p, "texture");
                     var root = ExportBase(place, $"Save the maps of “{recipe.Name}” ({size} × {size}) in… (you can make a new folder here)");
                     if (root == null) return new { cancelled = true };
-                    var tokens = ExportTokens(recipe.Name, recipe.Family, size, place.Project?.Name);
-                    var folder = NoorMD.Core.Export.ExportLayouts.Under(root, NoorMD.Core.Export.ExportLayouts.Folders(NoorMD.Core.Export.ExportLayouts.Expand(place.FolderPattern, tokens)));
-                    var stem = NoorMD.Core.Export.ExportLayouts.FileName(tokens["name"], recipe.Name);
-                    var names = files.Select(f =>
-                    {
-                        var t = new Dictionary<string, string>(tokens); foreach (var kv in NoorMD.Core.Export.ExportLayouts.MapTokens(f.Suffix)) t[kv.Key] = kv.Value;
-                        return NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, t), recipe.Name) + ".png";
-                    }).ToList();
-                    var how = AskReplace([.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortex.json")], $"“{recipe.Name}”");
+                    var plan = PlanTextureSet(recipe, size, root, place, files);
+                    var how = AskReplace(plan.Targets, $"“{recipe.Name}”");
                     if (how == null) return new { cancelled = true };
                     var keep = how == "keep";
-                    Directory.CreateDirectory(folder);
-                    var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage));
-                    var written = new List<string>();
-                    for (var k = 0; k < files.Count; k++)
-                    {
-                        var (_, what) = files[k];
-                        var path = ExportTarget(folder, names[k], keep, taken);
-                        var png = await Task.Run(() => TextureFile(maps, what));
-                        await File.WriteAllBytesAsync(path, png);
-                        written.Add(path);
-                        PushEvent("texture.exportProgress", new { done = written.Count, total = files.Count });
-                    }
-                    // Paintings go along, so the recipe beside the maps opens complete anywhere.
-                    var travelling = await CopyPaintingsBesideAsync(recipe, folder, taken, replace: !keep);
-                    var recipePath = ExportTarget(folder, stem + ".noortex.json", keep, taken);
-                    await File.WriteAllTextAsync(recipePath, travelling.ToJson(), new UTF8Encoding(false));
-                    _textureFolders.Add(folder);
+                    var (folder, written, recipePath, travelling) = await WriteTextureSetAsync(recipe, maps, plan, files, keep, (done, total) => PushEvent("texture.exportProgress", new { done, total }));
+                    var stem = plan.Stem;
                     Log.Info($"Texture Bench: exported {written.Count} maps of “{recipe.Name}” at {size}");
                     int? gallery = null; string? vault = null; var notes = new List<string>();
                     if (NoorMD.Core.Bridge.Json.IsTrue(p, "gallery"))
@@ -357,6 +440,22 @@ public partial class MainWindow
                             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("Not kept in the Vault: " + ex.Message); }
                     }
                     return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), paintings = travelling.Layers.Count(l => l.Type == "painted" && l.Path != null), gallery, vault, notes };
+                }
+                case "texture.batch": return await TextureBatchAsync(p);
+                case "texture.batch.cancel": _textureBatchCancel = true; return null;
+                case "texture.batch.pick":
+                {
+                    var dlg = new OpenFileDialog { Title = "Choose the pictures (albedo textures, photos) to make PBR maps from", Multiselect = true, Filter = "Pictures (*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp)|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp|All files|*.*", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var list = new List<object>();
+                    foreach (var f in dlg.FileNames.Take(500))
+                    {
+                        var full = Path.GetFullPath(f);
+                        _textureImageFiles.Add(full);
+                        list.Add(new { path = full, name = Path.GetFileName(full) });
+                    }
+                    return new { pictures = list };
                 }
                 case "texture.reveal":
                 {
