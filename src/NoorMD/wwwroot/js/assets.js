@@ -30,7 +30,7 @@ window.NoorAssets = (() => {
   const STYLES = [['realistic', 'Realistic'], ['stylized', 'Stylized (painted fantasy)']];
   const SHAPES = [['spherical', 'Round'], ['hemispherical', 'Dome'], ['conical', 'Cone'], ['cylindrical', 'Column'], ['flame', 'Flame'], ['inverse', 'Upside-down cone (vase)'], ['tapered', 'Tapered column']];
   const BRANCH_MODES = [['merged', 'Merged: one welded mesh'], ['separate', 'Separate: each limb its own mesh'], ['mixed', 'Mixed: thick limbs welded, thin ones separate']];
-  const FOLIAGE = [['cards', 'Leaf cards (alpha)'], ['clumps', 'Clumps (puffy, painted)'], ['both', 'Clumps with a leafy edge'], ['none', 'None (bare)']];
+  const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['none', 'None (bare)']];
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['needle', 'Needles']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
@@ -375,7 +375,7 @@ window.NoorAssets = (() => {
     const barkOptions = [['', 'Plain colour'], ...presets.barks.map((b) => [b.id, b.name])];
     return [
       section('Leaves',
-        el('div', { class: 'sb-row' }, choice(recipe, 'foliage', 'Foliage', FOLIAGE, 'Cards: textured leaf sprites with alpha (realistic). Clumps: puffy painted blobs (stylized). Clumps with a leafy edge: both', true), choice(recipe, 'leafShape', 'Leaf', LEAVES)),
+        el('div', { class: 'sb-row' }, choice(recipe, 'foliage', 'Foliage', FOLIAGE, 'Cards: leaf sprites with alpha along the branches (realistic). Tufts: the same cards gathered into chunky clumps (stylized), with no solid mesh. Solid clumps: puffy painted blobs', true), choice(recipe, 'leafShape', 'Leaf', LEAVES)),
         slider(recipe, ['leafDensity', 'Density', 0, 1, 0.01, 'pct', 'How full the crown is']),
         slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'One leaf card (or the size of a clump)']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),

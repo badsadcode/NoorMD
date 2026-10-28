@@ -167,8 +167,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   wood is one organic surface: limbs grow out of the trunk with smooth collars, the base flares into roots, forks
   blend; it is not made of scaled cylinders. Keep the branches merged in one welded mesh, separate (each limb its
   own mesh, its pivot where it leaves the trunk, to animate or break off), or mixed (thick limbs welded, thin ones
-  separate). Leaves are alpha cards from a generated leaf atlas (broad, round, maple-like or needles), puffy painted
-  clumps, or clumps with a leafy edge; bark from a Texture Bench material or a plain colour. Every tree is
+  separate). Leaves are alpha cards from a generated leaf atlas (broad, round, maple-like or needles), either along the
+  branches or gathered into chunky tufts (the stylized look, with no solid mesh in the canopy); solid painted clumps
+  are an option too; bark from a Texture Bench material or a plain colour. Every tree is
   simplified to a triangle budget with levels of detail, carries wind data (trunk sway, branch bend, leaf flutter,
   phase) in its UVs or vertex colours, and is previewed in 3D exactly as exported, with the wireframe, each part
   in its own colour, the wind data, and the wind playing. Export GLB files (Y up, metres, the pivot at the base,

@@ -69,7 +69,8 @@ What shipped, and how it works:
 - **Leaves** (`LeafAtlas`): a generated 2 × 2 atlas of twig sprites (broad, round, maple-like, needles; painted for
   the stylized look) with the anchor at the bottom middle of each cell; cards anchored on the outer branches,
   growing away from them, facing up and out, with a real back face (so lighting is right in every engine) and
-  normals bent out of the crown. Clumps: blobs at the branch tips joined with a little blending (distinct lobes),
+  normals bent out of the crown. Tufts (the stylized default): the same cards gathered over clump shapes, also
+  deeper inside so the canopy looks full, with no solid mesh. Solid clumps (an option): blobs at the branch tips joined with a little blending (distinct lobes),
   coloured by a gradient texture (dark under, light on top); conifers get tiers and a tip.
 - **Wind data:** trunk sway, branch bend, leaf flutter, phase; in TEXCOORD_1/2 by default (vertex colours would tint
   the model in viewers and Godot), or COLOR_0 as an option. The manifest says which.

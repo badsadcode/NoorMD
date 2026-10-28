@@ -109,9 +109,11 @@ public static class TreeBuilder
         }
         if (tubeCount > 0) build.Notes.Add($"{tubeCount} thin branch ends are tubes (thinner than the {recipe.Quality} quality grid).");
 
-        // Clumps (stylized foliage): blobs at the branch tips, melted together.
-        var clumps = recipe.Foliage is "clumps" or "both" && recipe.Archetype != "dead";
-        if (clumps)
+        // Clump shapes (stylized foliage): blobs at the branch tips, melted together. Drawn as a solid mesh ("clumps",
+        // "both"), or only used to place leaf cards over them, with no solid mesh at all ("tufts").
+        var clumpShapes = recipe.Foliage is "clumps" or "both" or "tufts" && recipe.Archetype != "dead";
+        var clumps = clumpShapes && recipe.Foliage != "tufts";
+        if (clumpShapes)
             foreach (var g in groups)
             {
                 ct.ThrowIfCancellationRequested();
@@ -136,7 +138,7 @@ public static class TreeBuilder
             }
             catch (ArgumentException) { build.Notes.Add($"The bark material \"{recipe.BarkMaterial}\" was not found; a plain colour is used."); }
         }
-        var cards = recipe.Foliage is "cards" or "both" && recipe.Archetype != "dead";
+        var cards = recipe.Foliage is "cards" or "both" or "tufts" && recipe.Archetype != "dead";
         // Single-sided: every card has a real back face with its own normals (a double-sided material would flip the
         // normals on the back and darken half the crown in every engine).
         var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
@@ -204,19 +206,19 @@ public static class TreeBuilder
                 // Leaves of this group.
                 var leaves = new Mesh3D { Name = g.Name == "Trunk" ? "Leaves" : g.Name + "_Leaves" };
                 Mesh3D? clumpMesh = null;
-                if (clumps && g.ClumpDense != null && g.ClumpField != null)
+                if (clumpShapes && g.ClumpDense != null && g.ClumpField != null)
                 {
                     clumpMesh = Copy(g.ClumpDense);
                     var clumpBudget = Math.Max(80, (int)((long)Math.Max(300, recipe.Budget / 2 >> lod) * g.ClumpDense.TriangleCount / Math.Max(1, groups.Sum(x => x.ClumpDense?.TriangleCount ?? 0))));
                     Simplifier.Simplify(clumpMesh, clumpBudget);
                     clumpMesh = FinishClumps(clumpMesh, g.ClumpField, sk, recipe, clumpIndex);
-                    if (recipe.FlatShading) clumpMesh = Flatten(clumpMesh);
-                    Append(leaves, clumpMesh);
+                    if (recipe.FlatShading && clumps) clumpMesh = Flatten(clumpMesh);
+                    if (clumps) Append(leaves, clumpMesh);
                 }
                 if (cards)
                 {
                     var cardRng = new Random(recipe.Seed * 7919 + g.Index * 131 + lod);
-                    if (recipe.Foliage == "both" && clumpMesh != null) AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng);
+                    if (recipe.Foliage is "both" or "tufts" && clumpMesh != null) AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng, recipe.Foliage == "tufts");
                     else AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
                 }
 
@@ -487,21 +489,24 @@ public static class TreeBuilder
         }
     }
 
-    /// <summary>Cards over the surface of the clumps, growing outwards (the painted fantasy look with a leafy edge).</summary>
-    private static void AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, int detail, Random rng)
+    /// <summary>
+    /// Cards over the clump shapes, growing outwards: a leafy edge round solid clumps, or (tufts) the whole canopy, with
+    /// cards also deeper inside so it looks full through the gaps and there is no solid mesh behind them.
+    /// </summary>
+    private static void AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, int detail, Random rng, bool tufts = false)
     {
         if (clumps.VertexCount == 0) return;
-        var size = (float)recipe.LeafSize * 0.8f * MathF.Sqrt(detail);
+        var size = (float)recipe.LeafSize * (tufts ? 0.6f : 0.8f) * MathF.Sqrt(detail);
         double area = 0;
         foreach (var s in clumps.Submeshes)
             for (var i = 0; i + 2 < s.Indices.Count; i += 3)
                 area += Vector3.Cross(clumps.Positions[s.Indices[i + 1]] - clumps.Positions[s.Indices[i]], clumps.Positions[s.Indices[i + 2]] - clumps.Positions[s.Indices[i]]).Length() / 2;
-        var count = Math.Min(4000 / detail, (int)(area * recipe.LeafDensity * 1.2 / (size * size)));
+        var count = Math.Min((tufts ? 6000 : 4000) / detail, (int)(area * recipe.LeafDensity * (tufts ? 5.0 : 1.2) / (size * size)));
         for (var k = 0; k < count; k++)
         {
             var v = rng.Next(clumps.VertexCount);
             var n = clumps.Normals[v];
-            var p = clumps.Positions[v] - n * size * 0.3f;
+            var p = clumps.Positions[v] - n * size * (tufts ? 0.2f + 0.9f * (float)rng.NextDouble() : 0.3f);
             var jitter = new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f) * 0.6f;
             var grow = Vector3.Normalize(n + Vector3.UnitY * 0.3f + jitter);
             Card(m, p, grow, size * (0.8f + 0.4f * (float)rng.NextDouble()), sk, recipe, sk.Trunk, 1, material, rng, clumps.Colors.Count > v ? clumps.Colors[v] : null);

@@ -28,7 +28,8 @@ public static class LeafAtlas
             var leaves = new List<(Vector2 Base, Vector2 Dir, float Len, float Width, Vector3 Col)>();
             var stemBend = (float)(rng.NextDouble() - 0.5) * 0.3f;
             Vector2 StemAt(float t) => new(stemBend * t * t, t * 0.92f);
-            var count = shape switch { "needle" => 70, "maple" => 3, "round" => 9, _ => 7 };
+            // Stylized sprites are fuller: a tuft of leaves, not a twig.
+            var count = shape switch { "needle" => 70, "maple" => 3, "round" => 9, _ => 7 } + (stylized && shape != "needle" ? 5 : 0);
             for (var k = 0; k < count; k++)
             {
                 var t = shape == "needle" ? 0.04f + 0.92f * k / count : 0.18f + 0.8f * (k + 0.5f) / count;

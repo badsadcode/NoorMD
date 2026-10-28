@@ -38,7 +38,7 @@ public sealed class TreeRecipe
     public static readonly string[] Styles = ["realistic", "stylized"];
     public static readonly string[] Shapes = ["spherical", "hemispherical", "conical", "cylindrical", "flame", "inverse", "tapered"];
     public static readonly string[] BranchModes = ["merged", "separate", "mixed"];
-    public static readonly string[] FoliageKinds = ["cards", "clumps", "both", "none"];
+    public static readonly string[] FoliageKinds = ["cards", "tufts", "clumps", "both", "none"];
     public static readonly string[] LeafShapes = ["broad", "round", "needle", "maple"];
     public static readonly string[] Qualities = ["low", "medium", "high"];
 
@@ -205,13 +205,13 @@ public static class TreePresets
             Name = "Stylized oak", Archetype = "broadleaf", Style = "stylized", Height = 7, TrunkRadius = 0.45, Taper = 0.6, CrownStart = 0.4, Flare = 0.9, Roots = 5, Shape = "spherical", Twist = 0.6, Wobble = 6, Collar = 0.9,
             Levels = [new() { Count = 5, Start = 0.45, Angle = 50, AngleSpread = 12, Length = 0.6, Radius = 0.65, Bend = 25, Wobble = 10 },
                       new() { Count = 4, Start = 0.3, Angle = 40, Length = 0.5, Radius = 0.55, Bend = 20, Wobble = 10 }],
-            Foliage = "both", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#3e7d2a", LeafColor2 = "#b7d14a", BarkColor = "#6e4a2f", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "tufts", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#3e7d2a", LeafColor2 = "#b7d14a", BarkColor = "#6e4a2f", BarkMaterial = "", Budget = 3000, Quality = "low",
         }),
         new("stylized-pine", "Stylized pine", "Stacked, chunky tiers of foliage on a curving trunk.", () => new TreeRecipe
         {
             Name = "Stylized pine", Archetype = "conifer", Style = "stylized", Height = 9, TrunkRadius = 0.32, Taper = 0.95, CrownStart = 1, Flare = 0.6, Roots = 4, Shape = "conical", Lean = 5, Wobble = 5, Twist = 0.2, Collar = 0.9,
             Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.3, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
-            Foliage = "clumps", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "", Budget = 2500, Quality = "low",
+            Foliage = "tufts", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "", Budget = 2500, Quality = "low",
         }),
         new("stylized-dead", "Stylized dead tree", "A gnarled, spiralling spooky tree.", () => new TreeRecipe
         {

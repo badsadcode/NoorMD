@@ -142,6 +142,11 @@ public class TreeTests
         var clumps = TreeBuilder.Build(r, NoTextures);
         Assert.True(Tris(clumps, "Leaf clumps") > 100);
         Assert.Equal(0, Tris(clumps, "Leaves"));
+        r.Foliage = "tufts";
+        var tufts = TreeBuilder.Build(r, NoTextures);
+        Assert.True(Tris(tufts, "Leaves") > 300);
+        Assert.Equal(-1, Material(tufts, "Leaf clumps"));     // no solid mesh in the canopy
+        Assert.True(TreePresets.Make("stylized-oak").Foliage == "tufts" && TreePresets.Make("stylized-pine").Foliage == "tufts");
         r.Foliage = "both";
         var both = TreeBuilder.Build(r, NoTextures);
         Assert.True(Tris(both, "Leaf clumps") > 100 && Tris(both, "Leaves") > 100);
