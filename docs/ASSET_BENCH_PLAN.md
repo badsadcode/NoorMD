@@ -101,6 +101,30 @@ The original stage 1 plan:
   crossed-card billboard.
 - **Export:** GLB plus the recipe and a manifest; variety packs (N seeds with a size and age spread).
 
+## Stage 1b — ideas taken from CanopyForge (the Blender add-on used before)
+
+CanopyForge 1.2 (a Blender add-on: voxel-remeshed wood, foliage cards, biome recipes) was "somewhat good, not
+perfect". NoorMD already does several of its parts more completely (no Blender; its own manifold extraction and
+quadric simplifier instead of voxel remesh plus decimate; bark UVs per branch instead of one cylindrical projection
+around the trunk, which stretches on side branches; wind data exported in the file instead of Blender-only vertex
+groups; the Khronos validator in CI). Worth taking from it:
+
+1. **Card arrangements per foliage tuft:** single, X-cross, three-plane star, tilted cross, canopy fan, dome (four
+   inclined cards plus a cap), hanging ribbons (willow), radial fronds (palms, tree ferns); with card segments,
+   camber and tilt. Readable from every side, cheap, and the classic game-art way.
+2. **Roots:** a choice of branching surface roots (curved, forked, flattened oval section, tips buried below the
+   ground), the classic flared base, or a compact collar (birch, palm, bamboo).
+3. **Trunk shape:** fluting (lobes round the trunk), S-curve, and growth profiles (baobab bottle, palm, bamboo with
+   nodes).
+4. **Growth architectures:** umbrella crown, windswept, palm, tree fern, mangrove prop roots, bamboo, baobab, thorns,
+   hanging vines, fungal (mushroom cap), crystalline. The fantasy ones suit the game.
+5. **A painted bark texture** for the stylized look (grain and cracks), and a bring-your-own bark image and leaf
+   atlas (2 × 2 or a single picture).
+6. **LODs by whole cards** (never broken cards), batch variants (consecutive seeds), and a validation report
+   (connected wood, non-manifold edges, degenerate faces, UVs, materials, card count).
+7. **Biome recipes:** its catalogue of 79 biomes with two recipes each, as starting points once the architectures
+   exist.
+
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to
