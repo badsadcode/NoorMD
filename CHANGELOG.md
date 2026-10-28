@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.0-preview.44 — Texture Bench: every map under control
+
+- **Maps tab:** a card for each map with its picture (click it to look at that map) and its own controls:
+  - **Albedo:** brightness, contrast, saturation, hue.
+  - **Normal:** relief strength.
+  - **Roughness:** low and high parts, variation, contrast, a range it stays within (at least / at most), and
+    "write smoothness instead".
+  - **Ambient occlusion:** strength, width, depth of the shade.
+  - **Metallic:** amount, and a sharpening cut (metal or not).
+  - **Height (the map written out):** levels, middle and contrast, without changing the relief.
+  - **↺ Reset** undoes a card's adjustments; the material's own settings stay. The Surface tab keeps the colours.
+- **Export:** choose which of the target's maps to write (remembered per target), **OpenGL or DirectX normals**
+  for any target, **16- or 8-bit height**, and **＋ Packed maps** of your own: any of roughness, smoothness, AO,
+  metallic, height, black or white in R, G, B and A (a mask map, ORM in another order…). The path preview follows.
+- Disabled buttons now look disabled everywhere in the app.
+
 ## 2.0.0-preview.43 — Texture Bench: room to work
 
 - **Drag the bar** between the preview and the controls to give either more room (or use the arrow keys on it;

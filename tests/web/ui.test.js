@@ -3978,6 +3978,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const stops = (await TS()).recipe.surface.ramp.length;
       await page.click('#tb-addstop');
       await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.surface.ramp.length === n + 1, stops);
+      await page.click('#texturebench .sb-tabs button[data-tab="maps"]'); // metallic is set in the Maps tab
       await page.fill('#tb-pane input[data-num="metallic"]', '100');
       await page.press('#tb-pane input[data-num="metallic"]', 'Enter');
       await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.surface.metallic === 1);
@@ -4425,6 +4426,56 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the layout is remembered next time', kept.side === true && kept.list === false && kept.width > 0 && await page.isHidden('#tb-presets'));
       await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.layout'); } catch { /* */ } });
       check('no page errors changing the layout', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 56. Texture Bench Maps tab: each map on its own; export: which maps, normal convention, height bits, packed maps.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.export'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      check('tabs: Layers, Surface, Maps, Export', (await page.$$eval('#texturebench .sb-tabs button', (b) => b.map((x) => x.dataset.tab))).join() === 'layers,surface,maps,export');
+      await page.click('#texturebench .sb-tabs button[data-tab="maps"]');
+      check('Maps: a card for each map with its picture', (await page.$$eval('[data-mapcard]', (c) => c.map((x) => x.dataset.mapcard))).join() === 'albedo,normal,roughness,ao,metallic,height'
+        && /url\("data:image\/png/.test(await page.$eval('[data-showmap="roughness"]', (b) => b.style.backgroundImage)));
+      await slide('[data-mapcard="albedo"] input[data-key="albedoSaturation"]', 0.4);
+      await slide('[data-mapcard="roughness"] input[data-key="roughnessMax"]', 0.7);
+      await page.check('[data-mapcard="roughness"] input[data-key="roughnessInvert"]');
+      await slide('[data-mapcard="height"] input[data-key="heightContrast"]', 0.3);
+      await waitFn(page, () => { const s = window.__mock.state.texture.renders.at(-1).recipe.surface; return s.albedoSaturation === 0.4 && s.roughnessMax === 0.7 && s.roughnessInvert === true && s.heightContrast === 0.3; });
+      check('…each map shaped on its own: saturation, roughness range and smoothness, height contrast', true);
+      check('…Reset undoes a card\'s adjustments (only when there are some)', !(await page.isDisabled('[data-reset="albedo"]')) && await page.isDisabled('[data-reset="ao"]') && (await page.$$('[data-reset="normal"]')).length === 0);
+      await page.click('[data-reset="albedo"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.surface.albedoSaturation === 1);
+      await page.click('[data-showmap="roughness"]');
+      check('…clicking a map\'s picture shows that map', (await page.evaluate(() => NoorTexture._state().view)) === 'roughness');
+      await page.click('#tb-views [data-view="3d"]');
+      await page.click('#texturebench .sb-tabs button[data-tab="surface"]');
+      check('Surface keeps the colours (the rest moved to Maps)', await page.isVisible('#tb-ramp') && (await page.$$('#tb-pane input[data-key="normalStrength"]')).length === 0);
+      await page.click('#texturebench .sb-tabs button[data-tab="export"]');
+      await page.selectOption('#tb-target', 'unreal');
+      await waitFn(page, () => [...document.querySelectorAll('[data-write]')].map((c) => c.dataset.write).join() === 'basecolor,normal,orm,height');
+      check('Export lists the target\'s maps to write (Unreal: base colour, normal, ORM, height)', true);
+      await page.uncheck('[data-write="height"]');
+      await page.selectOption('#tb-normal-mode', 'gl');
+      await page.selectOption('#tb-height-bits', '8');
+      await page.click('#tb-addpack');
+      await page.waitForSelector('.tb-pack');
+      await page.selectOption('.tb-pack select[data-ch="b"]', 'height');
+      await page.fill('.tb-pack-name', 'mask'); await page.press('.tb-pack-name', 'Tab');
+      await page.click('#tb-export');
+      await page.waitForSelector('#tb-reveal');
+      const ex = await page.evaluate(() => window.__mock.state.texture.exports.at(-1));
+      check('…leave maps out, OpenGL normals for Unreal, 8-bit height, and a packed map of your own', ex.target === 'unreal' && ex.skip.join() === 'height' && ex.normal === 'gl' && ex.heightBits === 8
+        && ex.packs.length === 1 && ex.packs[0].r === 'metallic' && ex.packs[0].b === 'height' && ex.packs[0].a === 'smoothness' && ex.packs[0].name === 'mask', ex);
+      await page.selectOption('#tb-target', 'generic');
+      await waitFn(page, () => document.querySelectorAll('[data-write]').length === 6);
+      check('…what is left out is kept per target', await page.isChecked('[data-write="height"]'));
+      check('no page errors in the Maps tab and export choices', errors.length === 0, errors);
       await page.close();
     }
   } finally {

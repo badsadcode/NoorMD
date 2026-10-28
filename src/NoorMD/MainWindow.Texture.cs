@@ -218,8 +218,39 @@ public partial class MainWindow
         return Path.Combine(UserTextureFolder, file);
     }
 
+    private static readonly string[] PackSources = ["roughness", "smoothness", "ao", "metallic", "height", "zero", "one"];
+
+    /// <summary>
+    /// The files an export writes: the target's maps, without the ones left out, with the normal convention and the
+    /// height's bit depth chosen, and any packed maps of your own (grey maps in R, G, B and A).
+    /// </summary>
+    private static List<(string Suffix, string What)> TextureOutputs(JsonElement p, string target)
+    {
+        if (!TextureTargets.TryGetValue(target, out var files)) throw new BridgeError("Unknown export target.");
+        var skip = p.TryGetProperty("skip", out var sk) && sk.ValueKind == JsonValueKind.Array ? sk.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).ToHashSet() : [];
+        var normal = p.TryGetProperty("normal", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() : null;
+        var height8 = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "heightBits") ?? 16) == 8;
+        var list = files.Where(f => !skip.Contains(f.Suffix)).Select(f => (f.Suffix, What:
+            f.What is "normal" or "normal-dx" && normal is "gl" or "dx" ? (normal == "dx" ? "normal-dx" : "normal")
+            : f.What == "height" && height8 ? "height8" : f.What)).ToList();
+        if (p.TryGetProperty("packs", out var packs) && packs.ValueKind == JsonValueKind.Array)
+            foreach (var pk in packs.EnumerateArray().Take(8))
+            {
+                string Src(string ch, string fallback) => pk.TryGetProperty(ch, out var v) && v.ValueKind == JsonValueKind.String && PackSources.Contains(v.GetString()) ? v.GetString()! : fallback;
+                var name = NoorMD.Core.Export.ExportLayouts.Segment(pk.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "");
+                if (name.Length == 0) name = "packed";
+                if (name.Length > 40) name = name[..40];
+                var a = pk.TryGetProperty("a", out var av) && av.ValueKind == JsonValueKind.String && PackSources.Contains(av.GetString()) ? av.GetString() : "none";
+                list.Add((name, $"pack:{Src("r", "zero")},{Src("g", "zero")},{Src("b", "zero")},{a}"));
+            }
+        if (list.Count == 0) throw new BridgeError("Choose at least one map to export.");
+        return list;
+    }
+
     private static byte[] TextureFile(TextureMaps maps, string what) => what switch
     {
+        "height8" => PngWriter.Gray(maps.Size, maps.Size, maps.Height8()),
+        _ when what.StartsWith("pack:", StringComparison.Ordinal) && what[5..].Split(',') is [var r, var g, var b, var a] => maps.Packed(r, g, b, a == "none" ? null : a),
         "normal-dx" => maps.Png("normal", directX: true),
         "orm" => maps.Packed("ao", "roughness", "metallic"),
         "unity-ms" => maps.Packed("metallic", "metallic", "metallic", "smoothness"),
@@ -279,7 +310,7 @@ public partial class MainWindow
                     var size = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 1024);
                     if (size is not (512 or 1024 or 2048 or 4096)) throw new BridgeError("Choose 512, 1024, 2048 or 4096 pixels.");
                     var target = req.GetString("target", 20) ?? "generic";
-                    if (!TextureTargets.TryGetValue(target, out var files)) throw new BridgeError("Unknown export target.");
+                    var files = TextureOutputs(p, target);
                     // Where: a folder chosen now or a game project's, arranged by the chosen layout.
                     var place = ExportPlaceFrom(p, "texture");
                     var root = ExportBase(place, $"Save the maps of “{recipe.Name}” ({size} × {size}) in… (you can make a new folder here)");
@@ -299,14 +330,14 @@ public partial class MainWindow
                     var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage));
                     var written = new List<string>();
-                    for (var k = 0; k < files.Length; k++)
+                    for (var k = 0; k < files.Count; k++)
                     {
                         var (_, what) = files[k];
                         var path = ExportTarget(folder, names[k], keep, taken);
                         var png = await Task.Run(() => TextureFile(maps, what));
                         await File.WriteAllBytesAsync(path, png);
                         written.Add(path);
-                        PushEvent("texture.exportProgress", new { done = written.Count, total = files.Length });
+                        PushEvent("texture.exportProgress", new { done = written.Count, total = files.Count });
                     }
                     // Paintings go along, so the recipe beside the maps opens complete anywhere.
                     var travelling = await CopyPaintingsBesideAsync(recipe, folder, taken, replace: !keep);

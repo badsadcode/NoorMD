@@ -115,7 +115,9 @@ public partial class MainWindow
                 if (bench == "texture")
                 {
                     var target = req.GetString("target", 20) ?? "generic";
-                    if (!TextureTargets.TryGetValue(target, out var maps)) maps = TextureTargets["generic"];
+                    if (!TextureTargets.ContainsKey(target)) target = "generic";
+                    List<(string Suffix, string What)> maps;
+                    try { maps = TextureOutputs(p, target); } catch (BridgeError) { maps = []; }
                     foreach (var (suffix, _) in maps)
                     {
                         var t = new Dictionary<string, string>(tokens); foreach (var kv in ExportLayouts.MapTokens(suffix)) t[kv.Key] = kv.Value;

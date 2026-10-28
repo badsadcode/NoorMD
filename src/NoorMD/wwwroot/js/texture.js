@@ -61,9 +61,35 @@ window.NoorTexture = (() => {
   // A painting raises the relief where it is light and lowers it where it is dark (mid-grey: no change).
   const PAINTED_SHAPE = [['opacity', 'Relief from its brightness (white up, black down)', 0, 1, 0.01, 'pct']];
   const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['max', 'Higher of the two'], ['min', 'Lower of the two']];
-  const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct'],
-    ['roughnessLow', 'Roughness, low parts', 0, 1, 0.01, 'pct'], ['roughnessHigh', 'Roughness, high parts', 0, 1, 0.01, 'pct'], ['roughnessVariation', 'Roughness variation', 0, 1, 0.01, 'pct'],
-    ['metallic', 'Metallic', 0, 1, 0.01, 'pct'], ['normalStrength', 'Relief (normal strength)', 0, 20, 0.1, 'num'], ['aoStrength', 'Ambient occlusion', 0, 1, 0.01, 'pct'], ['aoRadius', 'Occlusion width', 0.002, 0.1, 0.001, 'pct']];
+  const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct']];
+  /**
+   * Each map on its own (the Maps tab): [map, title, hint, sliders, switches, neutral values]. The neutral values are
+   * the adjustments' "no change": what Reset puts back (the material's own relief, roughness and metal stay as they
+   * are), and what recipes made before these existed get.
+   */
+  const MAP_CARDS = [
+    ['albedo', 'Albedo (colour)', 'The colours after the ramp, dirt and paint.', [['albedoBrightness', 'Brightness', -1, 1, 0.01, 'spct'], ['albedoContrast', 'Contrast', -1, 1, 0.01, 'spct'],
+      ['albedoSaturation', 'Saturation', 0, 2, 0.01, 'pct'], ['albedoHue', 'Hue (degrees)', -180, 180, 1, 'int']], [], { albedoBrightness: 0, albedoContrast: 0, albedoSaturation: 1, albedoHue: 0 }],
+    ['normal', 'Normal (relief)', 'How steep the relief looks. OpenGL or DirectX is chosen when exporting.', [['normalStrength', 'Relief strength', 0, 20, 0.1, 'num']], [], {}],
+    ['roughness', 'Roughness (shine)', '0 % is a mirror, 100 % fully matte. Low and high follow the height; contrast and the range shape the result.',
+      [['roughnessLow', 'Low parts', 0, 1, 0.01, 'pct'], ['roughnessHigh', 'High parts', 0, 1, 0.01, 'pct'], ['roughnessVariation', 'Variation', 0, 1, 0.01, 'pct'],
+        ['roughnessContrast', 'Contrast', -1, 1, 0.01, 'spct'], ['roughnessMin', 'At least', 0, 1, 0.01, 'pct'], ['roughnessMax', 'At most', 0, 1, 0.01, 'pct']],
+      [['roughnessInvert', 'Write smoothness instead (inverted)']], { roughnessContrast: 0, roughnessMin: 0, roughnessMax: 1, roughnessInvert: false }],
+    ['ao', 'Ambient occlusion', 'Shade in the cavities, from the height.', [['aoStrength', 'Strength', 0, 1, 0.01, 'pct'], ['aoRadius', 'Width', 0.002, 0.1, 0.001, 'pct'], ['aoGamma', 'Depth of the shade (gamma)', 0.2, 5, 0.01, 'num']], [], { aoGamma: 1 }],
+    ['metallic', 'Metallic', 'Set, never guessed: metal is 100 %, stone, wood and paint 0 %. Layers can change it where they paint.',
+      [['metallic', 'Metallic', 0, 1, 0.01, 'pct'], ['metallicThreshold', 'Sharpen: metal or not, cut at (0 = soft)', 0, 1, 0.01, 'pct']], [], { metallicThreshold: 0 }],
+    ['height', 'Height (map written out)', 'Only the exported height map (for displacement or parallax); the relief above uses the height as built.',
+      [['heightLow', 'Levels: low', 0, 1, 0.01, 'pct'], ['heightHigh', 'Levels: high', 0, 1, 0.01, 'pct'], ['heightGamma', 'Middle (gamma)', 0.1, 10, 0.01, 'num'], ['heightContrast', 'Contrast', -1, 1, 0.01, 'spct']],
+      [], { heightLow: 0, heightHigh: 1, heightGamma: 1, heightContrast: 0 }],
+  ];
+  /** The files each export target writes (as in the app), and what can go in a packed map's channels. */
+  const TARGET_FILES = {
+    generic: [['albedo', 'Albedo'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['ao', 'AO'], ['metallic', 'Metallic'], ['height', 'Height']],
+    godot: [['albedo', 'Albedo'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['metallic', 'Metallic'], ['ao', 'AO'], ['height', 'Height']],
+    unity: [['albedo', 'Albedo'], ['normal', 'Normal'], ['metallic_smoothness', 'Metallic + smoothness'], ['ao', 'AO'], ['height', 'Height']],
+    unreal: [['basecolor', 'Base colour'], ['normal', 'Normal (DirectX)'], ['orm', 'ORM'], ['height', 'Height']],
+  };
+  const PACK_SOURCES = [['roughness', 'Roughness'], ['smoothness', 'Smoothness'], ['ao', 'AO'], ['metallic', 'Metallic'], ['height', 'Height'], ['zero', 'Black (0)'], ['one', 'White (1)']];
   const VIEWS = [['3d', '3D'], ['albedo', 'Albedo'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['ao', 'AO'], ['height', 'Height'], ['metallic', 'Metallic']];
   /**
    * Lights for the preview, relative to the camera (x right, y up, z towards you). The key light can be moved
@@ -150,7 +176,7 @@ window.NoorTexture = (() => {
   /** Something changed: a quick small preview at once, the full one when it settles, and an undo step. */
   function changed(rebuild) {
     listening = 'B';
-    if (rebuild) renderEditor(); else renderHeader();
+    if (rebuild) renderEditor(); else { renderHeader(); updateMapResets(); }
     clearTimeout(snapTimer);
     snapTimer = setTimeout(pushHistory, 600);
     clearTimeout(fastTimer); clearTimeout(fullTimer);
@@ -196,6 +222,7 @@ window.NoorTexture = (() => {
   function showMaps() {
     if (!render) return;
     document.querySelectorAll('#tb-thumbs [data-map]').forEach((b) => { b.style.backgroundImage = `url("${render.maps[b.dataset.map]}")`; });
+    document.querySelectorAll('#tb-pane [data-showmap]').forEach((b) => { b.style.backgroundImage = `url("${render.maps[b.dataset.showmap]}")`; });
     const flat = $('#tb-flat');
     if (view !== '3d' && render.maps[view]) {
       flat.style.backgroundImage = `url("${render.maps[view]}")`;
@@ -310,7 +337,7 @@ el('span', { class: 'tb-zoom' },
           el('p', { class: 'pref-hint sb-status', id: 'tb-status', 'aria-live': 'polite' })),
           el('div', { class: 'tb-splitter', id: 'tb-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to change how much room the preview and the controls get (double-click: back to normal)' }),
           el('div', { class: 'tb-edit-col', id: 'tb-edit-col' },
-          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['layers', 'Layers'], ['surface', 'Surface'], ['export', 'Export']].map(([id, label]) =>
+          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['layers', 'Layers'], ['surface', 'Surface'], ['maps', 'Maps'], ['export', 'Export']].map(([id, label]) =>
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'tb-pane' }))))));
     ($('#app') || document.body).append(root);
@@ -484,7 +511,7 @@ el('span', { class: 'tb-zoom' },
     document.querySelectorAll('#texturebench .sb-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#tb-pane');
     const keep = pane.scrollTop;
-    pane.replaceChildren(...(tab === 'layers' ? layersPane() : tab === 'surface' ? surfacePane() : exportPane()));
+    pane.replaceChildren(...(tab === 'layers' ? layersPane() : tab === 'surface' ? surfacePane() : tab === 'maps' ? mapsPane() : exportPane()));
     pane.scrollTop = keep;
     document.querySelectorAll('#tb-presets .gnav-item').forEach((b) => b.classList.toggle('active', b.textContent.startsWith(recipe.name)));
   }
@@ -678,7 +705,42 @@ el('span', { class: 'tb-zoom' },
         el('button', { class: 'utility-btn', onclick: () => { s.ramp.sort((a, b) => a.pos - b.pos); changed(true); } }, 'Sort by height')),
       el('h4', { class: 'music-subhead', text: 'Surface' }),
       el('div', { class: 'sb-fields' }, ...SURFACE.map((f) => slider(s, f))),
-      el('p', { class: 'pref-hint', text: 'Metallic is set here, never guessed: a metal is 100 %, stone, wood and paint 0 %. Roughness 0 % is a mirror, 100 % fully matte.' }),
+      el('p', { class: 'pref-hint', text: 'Relief, shine, metal, occlusion and the height map are each set on their own in the Maps tab.' }),
+    ];
+  }
+
+  // ---------------------------------------------------------------- maps
+
+  /** A map card's Reset is there only when something on it differs from neutral. */
+  function updateMapResets() {
+    if (tab !== 'maps' || !recipe) return;
+    for (const [map, , , , , neutral] of MAP_CARDS) {
+      const b = document.querySelector(`#tb-pane [data-reset="${map}"]`);
+      if (b) b.disabled = !Object.entries(neutral).some(([k, v]) => recipe.surface[k] !== v);
+    }
+  }
+
+  /** Each map on its own: a card with its picture (click to look at it), its sliders and a reset. */
+  function mapsPane() {
+    const s = recipe.surface;
+    for (const [, , , , , neutral] of MAP_CARDS) for (const [k, v] of Object.entries(neutral)) if (s[k] === undefined || s[k] === null) s[k] = v;
+    return [
+      el('p', { class: 'pref-hint', text: 'Every map can be shaped on its own. Click a picture to look at that map; the 3D preview shows them all together.' }),
+      ...MAP_CARDS.map(([map, title, hint, fields, switches, neutral]) => {
+        const thumb = el('button', { class: 'tb-mapthumb', 'data-showmap': map, title: `Look at the ${title.toLowerCase()} map`, 'aria-label': `Show the ${map} map`, onclick: () => setView(map) });
+        if (render && render.maps[map]) thumb.style.backgroundImage = `url("${render.maps[map]}")`;
+        const changedFromNeutral = Object.entries(neutral).some(([k, v]) => s[k] !== v);
+        return el('section', { class: 'sb-layer tb-mapcard', 'data-mapcard': map },
+          el('div', { class: 'sb-layer-head' }, thumb, el('strong', { text: title }), el('span', { class: 'sb-fx-space' }),
+            ...(Object.keys(neutral).length ? [el('button', { class: 'utility-btn', 'data-reset': map, title: 'Undo this map\'s adjustments (its own settings stay)', disabled: !changedFromNeutral || undefined, onclick: () => { Object.assign(s, clone(neutral)); changed(true); } }, '↺ Reset')] : [])),
+          el('p', { class: 'pref-hint', text: hint }),
+          el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(s, f))),
+          ...switches.map(([key, label]) => {
+            const c = el('input', { type: 'checkbox', 'data-key': key, checked: s[key] ? true : undefined });
+            c.addEventListener('change', () => { s[key] = c.checked; changed(false); });
+            return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
+          }));
+      }),
     ];
   }
 
@@ -710,10 +772,10 @@ el('span', { class: 'tb-zoom' },
     const sel = (id, label, options, value, key, num) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
       s.value = String(value);
-      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }); where.refresh(); });
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }); if (key === 'target') { const w = $('#tb-write'); if (w) w.replaceWith(mapsToWrite(exportPrefs())); } where.refresh(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
-    where = NoorExportWhere.panel('texture', () => ({ name: recipe.name, family: recipe.family || '', size: exportPrefs().size, target: exportPrefs().target }), hooks.showError);
+    where = NoorExportWhere.panel('texture', () => ({ name: recipe.name, family: recipe.family || '', size: exportPrefs().size, target: exportPrefs().target, ...writeOptions() }), hooks.showError);
     const check = (id, label, title, key) => {
       const c = el('input', { type: 'checkbox', id, checked: prefs[key] ? true : undefined });
       c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: c.checked }));
@@ -723,6 +785,7 @@ el('span', { class: 'tb-zoom' },
       el('div', { class: 'sb-row' },
         sel('tb-size', 'Size', [512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), prefs.size, 'size', true),
         sel('tb-target', 'For', TARGETS, prefs.target, 'target', false)),
+      mapsToWrite(prefs),
       where.node,
       el('div', { class: 'sb-row' },
         check('tb-to-gallery', 'Show them in the Gallery', 'Adds the folder to the Gallery (if no Gallery folder holds it yet) and tags the maps “material” and with its name', 'gallery'),
@@ -730,8 +793,55 @@ el('span', { class: 'tb-zoom' },
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'tb-export', onclick: exportMaps }, '⤓ Export PNG maps…'),
         el('button', { class: 'action', id: 'tb-save', onclick: savePreset }, '★ Save as my preset…')),
-      el('p', { class: 'pref-hint', id: 'tb-export-status', text: 'Every map tiles seamlessly at any size. The recipe (.noortex.json) is saved with the maps: open it later to make another size or change it. Height is 16-bit; Unreal gets DirectX normals and an ORM map (occlusion, roughness, metallic).' }),
+      el('p', { class: 'pref-hint', id: 'tb-export-status', text: 'Every map tiles seamlessly at any size. The recipe (.noortex.json) is saved with the maps: open it later to make another size or change it. Unreal gets DirectX normals and an ORM map (occlusion, roughness, metallic) unless you choose otherwise above.' }),
     ];
+  }
+
+  /** Which of the target's maps to write, the normal convention, the height's bits, and packed maps of your own. */
+  function mapsToWrite(prefs) {
+    const box = el('div', { class: 'tb-write', id: 'tb-write' });
+    const draw = () => {
+      const p = exportPrefs();
+      const skip = (p.skip && p.skip[p.target]) || [];
+      const files = TARGET_FILES[p.target] || TARGET_FILES.generic;
+      const save = (change) => { saveExportPrefs({ ...exportPrefs(), ...change }); draw(); if (where) where.refresh(); };
+      const toggle = (suffix, on) => { const all = { ...(exportPrefs().skip || {}) }; const list = new Set(all[p.target] || []); if (on) list.delete(suffix); else list.add(suffix); all[p.target] = [...list]; save({ skip: all }); };
+      const pick = (id, label, options, value, onChange) => {
+        const sel = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: v, text: t })));
+        sel.value = value; sel.addEventListener('change', () => onChange(sel.value));
+        return el('label', { class: 'sb-inline' }, el('span', { text: label }), sel);
+      };
+      const packs = p.packs || [];
+      const setPack = (i, change) => { const list = clone(exportPrefs().packs || []); list[i] = { ...list[i], ...change }; save({ packs: list }); };
+      box.replaceChildren(
+        el('div', { class: 'sb-row tb-mapchecks' }, el('span', { text: 'Maps:' }), ...files.map(([suffix, label]) => {
+          const c = el('input', { type: 'checkbox', 'data-write': suffix, checked: skip.includes(suffix) ? undefined : true });
+          c.addEventListener('change', () => toggle(suffix, c.checked));
+          return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
+        })),
+        el('div', { class: 'sb-row' },
+          pick('tb-normal-mode', 'Normal map', [['', 'As the target expects'], ['gl', 'OpenGL (green up: Godot, Blender, Unity)'], ['dx', 'DirectX (green down: Unreal, 3ds Max)']], p.normal || '', (v) => save({ normal: v })),
+          pick('tb-height-bits', 'Height', [['16', '16-bit (smooth slopes)'], ['8', '8-bit (smaller)']], String(p.heightBits || 16), (v) => save({ heightBits: Number(v) }))),
+        ...packs.map((pk, i) => el('div', { class: 'sb-row tb-pack', 'data-pack': String(i) },
+          el('input', { type: 'text', class: 'tb-pack-name', value: pk.name || '', maxlength: '40', 'aria-label': 'Name of the packed map', placeholder: 'e.g. mask', onchange: (e) => setPack(i, { name: e.target.value }) }),
+          ...['r', 'g', 'b', 'a'].map((ch) => {
+            const sel = el('select', { 'aria-label': `Channel ${ch.toUpperCase()}`, 'data-ch': ch }, ...(ch === 'a' ? [['none', 'none']] : []).concat(PACK_SOURCES).map(([v, t]) => el('option', { value: v, text: t })));
+            sel.value = pk[ch] || (ch === 'a' ? 'none' : 'zero');
+            sel.addEventListener('change', () => setPack(i, { [ch]: sel.value }));
+            return el('label', { class: 'sb-inline' }, el('span', { text: ch.toUpperCase() }), sel);
+          }),
+          el('button', { class: 'icon-btn', title: 'Remove this packed map', 'aria-label': 'Remove this packed map', onclick: () => { const list = clone(exportPrefs().packs || []); list.splice(i, 1); save({ packs: list }); } }, '✕'))),
+        el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'tb-addpack', disabled: packs.length >= 8 || undefined, title: 'A map of your own: any grey maps in its red, green, blue and alpha channels (a mask map, ORM in another order…)',
+          onclick: () => save({ packs: [...packs, { name: 'mask', r: 'metallic', g: 'ao', b: 'zero', a: 'smoothness' }] }) }, '＋ Packed map…')));
+    };
+    draw();
+    return box;
+  }
+
+  /** What the export writes, for the app: maps left out, normal convention, height bits, packed maps. */
+  function writeOptions() {
+    const p = exportPrefs();
+    return { skip: (p.skip && p.skip[p.target]) || [], normal: p.normal || '', heightBits: p.heightBits || 16, packs: p.packs || [] };
   }
 
   // ---------------------------------------------------------------- actions
@@ -759,7 +869,7 @@ el('span', { class: 'tb-zoom' },
     const p = exportPrefs();
     const status = $('#tb-export-status');
     try {
-      const r = await req('texture.export', { recipe, size: p.size, target: p.target, gallery: !!p.gallery, vault: !!p.vault, ...(where ? where.payload() : {}) });
+      const r = await req('texture.export', { recipe, size: p.size, target: p.target, gallery: !!p.gallery, vault: !!p.vault, ...writeOptions(), ...(where ? where.payload() : {}) });
       if (!r || r.cancelled) return;
       if (status) {
         const more = [r.paintings ? `${r.paintings === 1 ? 'Its painting went' : `Its ${r.paintings} paintings went`} along.` : '',

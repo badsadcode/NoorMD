@@ -494,7 +494,8 @@ function mockHostScript(initial) {
         return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42, warnings };
       }
       case 'texture.export': {
-        TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target, project: p.project || null, layout: p.layout, folderPattern: p.folderPattern, filePattern: p.filePattern });
+        TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target, project: p.project || null, layout: p.layout, folderPattern: p.folderPattern, filePattern: p.filePattern,
+          skip: p.skip, normal: p.normal, heightBits: p.heightBits, packs: p.packs });
         const stem = p.recipe.name.replace(/ /g, '_');
         const names = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], godot: ['albedo', 'normal', 'roughness', 'metallic', 'ao', 'height'], unity: ['albedo', 'normal', 'metallic_smoothness', 'ao', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target];
         const paintings = (p.recipe.layers || []).filter((l) => l.type === 'painted' && l.path).length;

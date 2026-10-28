@@ -25,8 +25,10 @@ first, and anything that conflicts with it waits.
   preview.37. A better 3D preview (lights, clay and map views, parallax, zoom): preview.39. Stage 3, shapes and
   erosion (tiles, hexagons, planks, spots; rain, crumbling, wear): preview.40. Painting in NoorSketch as a layer of
   the recipe, the Gallery and the Vault: preview.41 (stage 3 complete). Export structures and game projects (also
-  for the Sound Bench), pictures from the Gallery, new and random materials: preview.42. Next: full control of
-  each map (a Maps tab: levels, contrast, colour, normal convention, which maps and custom channel packing). Later only if real use asks: a node view,
+  for the Sound Bench), pictures from the Gallery, new and random materials: preview.42. Full control of each
+  map (the Maps tab) and of what is exported (which maps, normal convention, height bits, packed maps): preview.44.
+  Next: Blender-inspired additions (more noises, ramp modes, colour ramps per layer, more blend modes, per-layer
+  relief, layer offset). Later only if real use asks: a node view,
   animated noise, imported meshes for the preview.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.

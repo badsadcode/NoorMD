@@ -127,6 +127,27 @@ public sealed class TextureSurface
     public double AoStrength { get; set; } = 0.6;
     /// <summary>How wide around a point the AO looks (fraction of the tile, 0.002–0.1).</summary>
     public double AoRadius { get; set; } = 0.02;
+
+    // Each map on its own (the Maps tab). Neutral by default, so older recipes look the same.
+    /// <summary>Albedo: brightness (−1…1), contrast (−1…1), saturation (0…2, 1 = as it is) and hue turned (−180…180°).</summary>
+    public double AlbedoBrightness { get; set; }
+    public double AlbedoContrast { get; set; }
+    public double AlbedoSaturation { get; set; } = 1;
+    public double AlbedoHue { get; set; }
+    /// <summary>Roughness: contrast (−1…1) around the middle, then the result kept within Min…Max; Invert writes smoothness.</summary>
+    public double RoughnessContrast { get; set; }
+    public double RoughnessMin { get; set; }
+    public double RoughnessMax { get; set; } = 1;
+    public bool RoughnessInvert { get; set; }
+    /// <summary>AO: how deep the shading goes in the cavities (gamma, 0.2…5; above 1 darker).</summary>
+    public double AoGamma { get; set; } = 1;
+    /// <summary>Metallic: 0 keeps soft edges; above it, metal or not (cut at this value).</summary>
+    public double MetallicThreshold { get; set; }
+    /// <summary>The height map written out (not the relief): levels (low/high), middle (gamma) and contrast.</summary>
+    public double HeightLow { get; set; }
+    public double HeightHigh { get; set; } = 1;
+    public double HeightGamma { get; set; } = 1;
+    public double HeightContrast { get; set; }
 }
 
 public sealed class TextureRecipe
@@ -196,6 +217,11 @@ public sealed class TextureRecipe
         s.ColorVariation = C(s.ColorVariation, 0, 1); s.Dirt = C(s.Dirt, 0, 1);
         s.RoughnessLow = C(s.RoughnessLow, 0, 1); s.RoughnessHigh = C(s.RoughnessHigh, 0, 1); s.RoughnessVariation = C(s.RoughnessVariation, 0, 1);
         s.Metallic = C(s.Metallic, 0, 1); s.NormalStrength = C(s.NormalStrength, 0, 20); s.AoStrength = C(s.AoStrength, 0, 1); s.AoRadius = C(s.AoRadius, 0.002, 0.1);
+        s.AlbedoBrightness = C(s.AlbedoBrightness, -1, 1); s.AlbedoContrast = C(s.AlbedoContrast, -1, 1); s.AlbedoSaturation = C(s.AlbedoSaturation, 0, 2); s.AlbedoHue = C(s.AlbedoHue, -180, 180);
+        s.RoughnessContrast = C(s.RoughnessContrast, -1, 1); s.RoughnessMin = C(s.RoughnessMin, 0, 1); s.RoughnessMax = C(s.RoughnessMax, 0, 1);
+        if (s.RoughnessMax < s.RoughnessMin) (s.RoughnessMin, s.RoughnessMax) = (s.RoughnessMax, s.RoughnessMin);
+        s.AoGamma = C(s.AoGamma, 0.2, 5); s.MetallicThreshold = C(s.MetallicThreshold, 0, 1);
+        s.HeightLow = C(s.HeightLow, 0, 1); s.HeightHigh = C(s.HeightHigh, 0, 1); s.HeightGamma = C(s.HeightGamma, 0.1, 10); s.HeightContrast = C(s.HeightContrast, -1, 1);
         return this;
     }
 
@@ -232,6 +258,8 @@ public sealed class TextureMaps
 {
     public required int Size { get; init; }
     public required float[] Height { get; init; }
+    /// <summary>The height map as written out (after the Maps tab's levels); the relief itself uses Height.</summary>
+    public float[]? HeightOut { get; init; }
     /// <summary>RGB, 3 bytes a pixel.</summary>
     public required byte[] Albedo { get; init; }
     /// <summary>RGB, 3 bytes a pixel, OpenGL convention (green up); flip green for DirectX.</summary>
@@ -252,16 +280,23 @@ public sealed class TextureMaps
         "roughness" => PngWriter.Gray(Size, Size, Roughness, fast),
         "ao" => PngWriter.Gray(Size, Size, Ao, fast),
         "metallic" => PngWriter.Gray(Size, Size, Metallic, fast),
-        "height" => PngWriter.Gray16(Size, Size, Height, fast),
+        "height" => PngWriter.Gray16(Size, Size, HeightOut ?? Height, fast),
         _ => throw new ArgumentException("Unknown map."),
     };
+
+    /// <summary>The height map in 8 bits (smaller; 16 keeps smooth slopes).</summary>
+    public byte[] Height8() { var h = HeightOut ?? Height; var px = new byte[h.Length]; for (var i = 0; i < h.Length; i++) px[i] = (byte)Math.Round(Math.Clamp(h[i], 0, 1) * 255); return px; }
 
     private static byte[] FlipGreen(byte[] n) { var c = (byte[])n.Clone(); for (var i = 1; i < c.Length; i += 3) c[i] = (byte)(255 - c[i]); return c; }
 
     /// <summary>Several grey maps in the channels of one RGBA picture (ORM for Unreal; metallic + smoothness for Unity).</summary>
     public byte[] Packed(string r, string g, string b, string? a = null)
     {
-        byte[] Get(string m) => m switch { "roughness" => Roughness, "ao" => Ao, "metallic" => Metallic, "smoothness" => Roughness.Select(v => (byte)(255 - v)).ToArray(), "zero" => new byte[Size * Size], _ => throw new ArgumentException("Unknown map.") };
+        byte[] Get(string m) => m switch
+        {
+            "roughness" => Roughness, "ao" => Ao, "metallic" => Metallic, "smoothness" => Roughness.Select(v => (byte)(255 - v)).ToArray(), "height" => Height8(),
+            "zero" => new byte[Size * Size], "one" => Enumerable.Repeat((byte)255, Size * Size).ToArray(), _ => throw new ArgumentException("Unknown map."),
+        };
         byte[] cr = Get(r), cg = Get(g), cb = Get(b);
         var ca = a == null ? null : Get(a);
         var px = new byte[Size * Size * 4];
@@ -982,7 +1017,9 @@ public static class TextureEngine
         var strength = s.NormalStrength * size / 256.0; // slope per pixel for a height step of 1
         var cavity = Occlusion(h, size, Math.Max(2, s.AoRadius * size), Math.Max(0.5, strength));
         var ao = new byte[n];
-        for (var i = 0; i < n; i++) ao[i] = Byte(1 - s.AoStrength * cavity[i]);
+        for (var i = 0; i < n; i++) ao[i] = Byte(Math.Pow(Math.Max(0, 1 - s.AoStrength * cavity[i]), s.AoGamma));
+        var adjustAlbedo = s.AlbedoBrightness != 0 || s.AlbedoContrast != 0 || s.AlbedoSaturation != 1 || s.AlbedoHue != 0;
+        double hueCos = Math.Cos(s.AlbedoHue * Math.PI / 180), hueSin = Math.Sin(s.AlbedoHue * Math.PI / 180);
         var ramp = s.Ramp.Select(st => (st.Pos, R: Convert.ToInt32(st.Color[1..3], 16) / 255.0, G: Convert.ToInt32(st.Color[3..5], 16) / 255.0, B: Convert.ToInt32(st.Color[5..7], 16) / 255.0)).ToArray();
         var tints = paints.Select(p => p.Layer.Tint is { } t ? (R: Convert.ToInt32(t[1..3], 16) / 255.0, G: Convert.ToInt32(t[3..5], 16) / 255.0, B: Convert.ToInt32(t[5..7], 16) / 255.0) : (R: 0.0, G: 0.0, B: 0.0)).ToArray();
         var albedo = new byte[n * 3];
@@ -1019,8 +1056,14 @@ public static class TextureEngine
                     me += l.MetallicShift * m;
                 }
                 var dirt = 1 - s.Dirt * cavity[i] * 0.85;
-                albedo[i * 3] = Byte(cr * dirt); albedo[i * 3 + 1] = Byte(cg * dirt); albedo[i * 3 + 2] = Byte(cb * dirt);
-                rough[i] = Byte(ro);
+                cr *= dirt; cg *= dirt; cb *= dirt;
+                if (adjustAlbedo) (cr, cg, cb) = AdjustColour(cr, cg, cb, s, hueCos, hueSin);
+                albedo[i * 3] = Byte(cr); albedo[i * 3 + 1] = Byte(cg); albedo[i * 3 + 2] = Byte(cb);
+                ro = Math.Clamp(ro, 0, 1);
+                if (s.RoughnessContrast != 0) ro = Math.Clamp((ro - 0.5) * (1 + s.RoughnessContrast) + 0.5, 0, 1);
+                ro = s.RoughnessMin + (s.RoughnessMax - s.RoughnessMin) * ro;
+                rough[i] = Byte(s.RoughnessInvert ? 1 - ro : ro);
+                if (s.MetallicThreshold > 0) me = SmoothStep(s.MetallicThreshold - 0.02, s.MetallicThreshold + 0.02, me);
                 metal[i] = Byte(me);
                 // Normal from the height's slope: a Sobel filter (smoother than two neighbours), wrapping at the edges;
                 // OpenGL convention, +Y up.
@@ -1033,7 +1076,47 @@ public static class TextureEngine
                 normal[i * 3] = Byte(nx / len * 0.5 + 0.5); normal[i * 3 + 1] = Byte(ny / len * 0.5 + 0.5); normal[i * 3 + 2] = Byte(nz / len * 0.5 + 0.5);
             }
         });
-        return new TextureMaps { Size = size, Height = h, Albedo = albedo, Normal = normal, Roughness = rough, Ao = ao, Metallic = metal, Warnings = warnings };
+        // The height map written out: its own levels, middle and contrast (the relief above used the height as built).
+        float[]? heightOut = null;
+        if (s.HeightLow != 0 || s.HeightHigh != 1 || s.HeightGamma != 1 || s.HeightContrast != 0)
+        {
+            heightOut = new float[n];
+            var span = s.HeightHigh - s.HeightLow;
+            for (var i = 0; i < n; i++)
+            {
+                var v = Math.Abs(span) < 1e-6 ? (h[i] >= s.HeightLow ? 1 : 0) : Math.Clamp((h[i] - s.HeightLow) / span, 0, 1);
+                if (s.HeightGamma != 1) v = Math.Pow(v, s.HeightGamma);
+                if (s.HeightContrast != 0) v = Math.Clamp((v - 0.5) * (1 + s.HeightContrast) + 0.5, 0, 1);
+                heightOut[i] = (float)v;
+            }
+        }
+        return new TextureMaps { Size = size, Height = h, HeightOut = heightOut, Albedo = albedo, Normal = normal, Roughness = rough, Ao = ao, Metallic = metal, Warnings = warnings };
+    }
+
+    /// <summary>
+    /// The albedo's own adjustments: hue turned round the grey axis (keeping brightness), saturation from its
+    /// brightness, contrast around the middle, then brightness.
+    /// </summary>
+    private static (double, double, double) AdjustColour(double r, double g, double b, TextureSurface s, double hc, double hs)
+    {
+        if (s.AlbedoHue != 0)
+        {
+            // Rotation about the (1,1,1) axis (Rodrigues), the usual "hue rotate" matrix.
+            const double k = 0.57735026919;
+            double c1 = (1 - hc) / 3;
+            var nr = r * (hc + c1) + g * (c1 - k * hs) + b * (c1 + k * hs);
+            var ng = r * (c1 + k * hs) + g * (hc + c1) + b * (c1 - k * hs);
+            var nb = r * (c1 - k * hs) + g * (c1 + k * hs) + b * (hc + c1);
+            (r, g, b) = (nr, ng, nb);
+        }
+        if (s.AlbedoSaturation != 1)
+        {
+            var y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+            r = y + (r - y) * s.AlbedoSaturation; g = y + (g - y) * s.AlbedoSaturation; b = y + (b - y) * s.AlbedoSaturation;
+        }
+        if (s.AlbedoContrast != 0) { var f = 1 + s.AlbedoContrast; r = (r - 0.5) * f + 0.5; g = (g - 0.5) * f + 0.5; b = (b - 0.5) * f + 0.5; }
+        if (s.AlbedoBrightness != 0) { var add = s.AlbedoBrightness * 0.5; r += add; g += add; b += add; }
+        return (Math.Clamp(r, 0, 1), Math.Clamp(g, 0, 1), Math.Clamp(b, 0, 1));
     }
 
     /// <summary>

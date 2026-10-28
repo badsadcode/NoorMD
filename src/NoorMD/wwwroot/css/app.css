@@ -1490,3 +1490,9 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-start { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px 8px; }
 .tb-start .utility-btn { flex: 1; font-size: 12px; padding: 4px 6px; }
 .tb-zoom { display: inline-flex; gap: 2px; white-space: nowrap; margin-left: auto; }
+.tb-mapcard .sb-layer-head { gap: 10px; }
+.tb-mapthumb { width: 44px; height: 44px; flex: 0 0 auto; border-radius: 8px; border: 1px solid var(--border); background-color: var(--surface); background-size: 44px 44px; background-repeat: repeat; cursor: pointer; padding: 0; }
+.tb-write { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.tb-pack { gap: 6px; }
+.tb-pack-name { width: 120px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 3px 7px; font: inherit; font-size: 12px; }
+.utility-btn:disabled { opacity: .45; cursor: default; pointer-events: none; }
