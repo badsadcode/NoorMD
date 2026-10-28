@@ -156,7 +156,15 @@ public class TextureTests
         Assert.Equal(20, r.Surface.NormalStrength);
         Assert.Equal(r.ToJson(), TextureRecipe.FromJson(r.ToJson()).ToJson());
     }
+}
 
+/// <summary>Timing runs on its own, after the other tests, so it measures the engine rather than a busy test machine.</summary>
+[CollectionDefinition("Timing", DisableParallelization = true)]
+public class TimingCollection;
+
+[Collection("Timing")]
+public class TexturePreviewSpeedTests
+{
     [Fact]
     public void Previews_Render_Quickly()
     {
