@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0-preview.47 — NoorSequencer, stage 1: a friendly composer
+
+- **NoorSequencer** (Tools menu, **Ctrl+Alt+Q**; opens in the middle like the other benches): loops, jingles and
+  simple soundtracks for games, for people with little music theory. The app renders the song, so what you hear is
+  what you export, sample for sample; the same song always renders the same.
+  - **Templates:** cozy exploration, tense dungeon, cheerful arcade, lonely ambient, or an empty song.
+  - **The song grid:** tracks × bars, each cell the number of the pattern (one bar of notes) the track plays there,
+    as in BeepBox. Change a pattern and every bar playing it changes; **Copy as new** to change one bar only;
+    **Fill rests**. Click a cell and type a number, + / − or the wheel, Delete for a rest, N for a new pattern.
+    Mute and solo per track. Tempo, beats per bar (2–7), swing, key and scale, length (up to 128 bars), the loop.
+  - **Piano roll** for synth and sample tracks: the notes of the key and scale highlighted (the tonic stronger),
+    and with the **scale lock** (on by default) only they are offered. Click to add, drag to lengthen, drag to
+    move or resize, click to remove; new notes' length and velocity. Each note sounds as it is placed.
+  - **Drum grid** for the kit: kick, snare, clap, closed and open hat, low and high tom, rim; Shift+click for a
+    soft hit.
+  - **Instruments:** a synth (sine, triangle, square, pulse, saw, noise; a second detuned voice; envelope; a filter
+    that can follow the envelope; vibrato; octave), the synthesised kit (tune, decay, tone), or a **WAV of your own**
+    played at any pitch (the note it was recorded as, looped while held). Level, pan and the **Sound Bench's effects**
+    per track, and master effects.
+  - **Playback:** ▶ from any bar (click its number), or 🔁 the loop over and over (Shift+click a bar number ends the
+    loop there, Alt+click starts it); edits while playing are heard a moment later from the same place.
+  - **Export:** the song (WAV, its last notes ringing out), a **seamless loop** (what rings over the loop's end is
+    folded into its start, so it repeats without a gap or a click), **stems** (each track at its level in the mix)
+    and **MIDI** (a track per track, drums on channel 10 with General MIDI notes), with the song (.noorsong.json)
+    beside them, through the shared layouts and game projects (music folders for Godot, Unity and Unreal).
+  - **My songs:** save, open again, delete; 📂 opens a .noorsong.json (samples beside it are found).
+- Export layouts have music folders too (e.g. Godot `assets/audio/music/…`, Unreal `Content/Audio/Music/…` with
+  `A_` names).
+- Fixed: Sound Bench sliders whose range goes below zero (pan, for example) were drawn at the far left when the
+  value was 0.
+- The app's self-test renders a template's loop (checking its exact length) and writes MIDI.
+
 ## 2.0.0-preview.46 — Texture Bench: PBR maps for many pictures at once
 
 - **Batch: PBR maps for many pictures** (Export tab, or Gallery › right-click pictures › Open in › Texture Bench ›

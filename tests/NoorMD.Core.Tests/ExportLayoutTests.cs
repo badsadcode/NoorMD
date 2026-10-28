@@ -33,6 +33,23 @@ public class ExportLayoutTests
     }
 
     [Fact]
+    public void Music_goes_to_each_engines_music_folder()
+    {
+        string Music(string layout, string name)
+        {
+            var l = ExportLayouts.Get(layout)!;
+            var t = T(name, family: "Exploration");
+            return string.Join('/', [.. ExportLayouts.Folders(ExportLayouts.Expand(l.MusicFolder, t)), ExportLayouts.FileName(ExportLayouts.Expand(l.MusicFile, t), name) + ".wav"]);
+        }
+        Assert.Equal("Cozy_village.wav", Music("flat", "Cozy village"));
+        Assert.Equal("Cozy_village/Cozy_village.wav", Music("per-item", "Cozy village"));
+        Assert.Equal("assets/audio/music/cozy_village/cozy_village.wav", Music("godot", "Cozy village"));
+        Assert.Equal("Assets/Audio/Music/CozyVillage/CozyVillage.wav", Music("unity", "Cozy village"));
+        Assert.Equal("Content/Audio/Music/CozyVillage/A_CozyVillage.wav", Music("unreal", "Cozy village"));
+        Assert.Equal("Audio/Music/Exploration/Cozy_village/Cozy_village.wav", Music("by-size", "Cozy village"));
+    }
+
+    [Fact]
     public void Names_split_into_words_however_they_are_written()
     {
         Assert.Equal("WornPaintedPanels", ExportLayouts.NameTokens("worn painted-panels")["Name"]);

@@ -498,7 +498,7 @@ window.NoorSound = (() => {
     const value = Number(obj[key]) || 0;
     const shown = (v) => String(Number((v * factor).toFixed(kind === 'count' ? 0 : kind === 'sl' || kind === 'x' ? 2 : log || kind === 'hz0' ? 1 : 3)));
     const box = el('input', { type: 'number', class: 'sb-num', value: shown(value), step: 'any', 'aria-label': `${label} (${unit || 'value'})`, 'data-num': key });
-    const input = el('input', { type: 'range', min: String(log ? 0 : min), max: String(log ? 1000 : max), step: String(log ? 1 : step), value: String(toPos(clamp(value) || min)), 'aria-label': label, 'data-key': key });
+    const input = el('input', { type: 'range', min: String(log ? 0 : min), max: String(log ? 1000 : max), step: String(log ? 1 : step), value: String(toPos(log ? clamp(value) || min : clamp(value))), 'aria-label': label, 'data-key': key });
     input.addEventListener('input', () => {
       let v = fromPos(Number(input.value));
       if (!log) v = Math.round(v / step) * step;
@@ -1344,6 +1344,8 @@ window.NoorSound = (() => {
 
   return {
     init, open, close, toggle, isOpen,
+    /** The effects and their settings, shared with NoorSequencer's tracks. */
+    fx: { FX_LABEL, FX_FIELDS, FX_CHOICES, FX_CHECKS, NEW_FX, UNIT },
     /** Another player started: the preview stops. */
     stopForOther: () => { if (!audio.paused) audio.pause(); },
     _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: matchGain, listenVolume, outVolume: audio.volume, repeat, loop: audio.loop, reference: reference ? reference.name : null, match: matchLoudness }),

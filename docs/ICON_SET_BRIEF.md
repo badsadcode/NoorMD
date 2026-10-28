@@ -66,7 +66,7 @@ music — Music Bench (music library) · video — Video Bench · gallery — Ga
 Radio Bench (internet radio) · sound — Sound Bench (procedural sound effects: a waveform, not a speaker) ·
 texture — Texture Bench (materials: a tiled square with a bevelled tile, or a sphere with a tile pattern) ·
 sketch — NoorSketch (pen) · stream — Stream Desk (live) · apps — Apps Hub (grid of tiles) · voice — voice notes
-(microphone) · sequencer — NoorSequencer, a composer coming later (piano-roll blocks on a grid).
+(microphone) · sequencer — NoorSequencer, a composer (piano-roll blocks on a grid).
 
 **4. Media and transport.**
 play · pause · stop · previous · next · shuffle · repeat · repeat-one · random — random track (a die) ·

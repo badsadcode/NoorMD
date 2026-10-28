@@ -164,6 +164,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sound.')) { try { return reply(m.id, true, soundMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('texture.')) { try { return reply(m.id, true, textureMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -445,12 +446,64 @@ function mockHostScript(initial) {
   const EXP = { projects: [], plans: [], added: 0 };
   state.export = EXP;
   const LAYOUTS = [
-    { id: 'flat', name: 'Flat: everything in the folder', description: '', texture: { folder: '', file: '{name}_{map}' }, sound: { folder: '', file: '{name}_{n}' } },
-    { id: 'per-item', name: 'A folder for each', description: '', texture: { folder: '{name}', file: '{name}_{map}' }, sound: { folder: '{name}', file: '{name}_{n}' } },
-    { id: 'godot', name: 'Godot', description: '', texture: { folder: 'assets/materials/{name_snake}', file: '{name_snake}_{map}' }, sound: { folder: 'assets/audio/sfx/{name_snake}', file: '{name_snake}_{n}' } },
-    { id: 'unity', name: 'Unity', description: '', texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' } },
-    { id: 'unreal', name: 'Unreal Engine', description: '', texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' } },
+    { id: 'flat', name: 'Flat: everything in the folder', description: '', texture: { folder: '', file: '{name}_{map}' }, sound: { folder: '', file: '{name}_{n}' }, music: { folder: '', file: '{name}' } },
+    { id: 'per-item', name: 'A folder for each', description: '', texture: { folder: '{name}', file: '{name}_{map}' }, sound: { folder: '{name}', file: '{name}_{n}' }, music: { folder: '{name}', file: '{name}' } },
+    { id: 'godot', name: 'Godot', description: '', texture: { folder: 'assets/materials/{name_snake}', file: '{name_snake}_{map}' }, sound: { folder: 'assets/audio/sfx/{name_snake}', file: '{name_snake}_{n}' }, music: { folder: 'assets/audio/music/{name_snake}', file: '{name_snake}' } },
+    { id: 'unity', name: 'Unity', description: '', texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' }, music: { folder: 'Assets/Audio/Music/{Name}', file: '{Name}' } },
+    { id: 'unreal', name: 'Unreal Engine', description: '', texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' }, music: { folder: 'Content/Audio/Music/{Name}', file: 'A_{Name}' } },
   ];
+  // NoorSequencer: templates are small songs; renders, notes and exports are recorded.
+  const seqTrack = (name, kind, instrument, patterns, sequence, extra) => ({ id: '', name, kind, instrument: { wave: 'triangle', pulseWidth: 0.25, detune: 6, octave: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.2, cutoff: 8000, resonance: 0.7, filterEnvelope: 0, vibrato: 0, vibratoRate: 5, drumTune: 0, drumDecay: 1, drumTone: 0.5, path: null, sampleName: null, rootNote: 60, loop: false, ...instrument },
+    gain: -8, pan: 0, mute: false, solo: false, effects: [], patterns, sequence, ...extra });
+  const seqSong = (name, tracks) => ({ version: 1, name, family: 'Exploration', tempo: 96, beatsPerBar: 4, swing: 0, key: 0, scale: 'major', bars: 8, loopStart: 0, loopEnd: 8, masterGain: 0, masterEffects: [], seed: 1, tracks });
+  const SEQ = {
+    renders: [], notes: [], exports: [], saves: [], picks: 0, opened: 0, mine: [],
+    songs: {
+      cozy: () => seqSong('Cozy exploration', [
+        seqTrack('Melody', 'synth', {}, [{ notes: [{ step: 0, length: 2, pitch: 72, velocity: 0.8 }, { step: 4, length: 4, pitch: 76, velocity: 0.8 }] }, { notes: [{ step: 0, length: 8, pitch: 67, velocity: 0.8 }] }], [1, 2, 1, 2, 1, 2, 1, 2]),
+        seqTrack('Drums', 'drums', {}, [{ notes: [{ step: 0, length: 1, pitch: 0, velocity: 0.9 }, { step: 4, length: 1, pitch: 1, velocity: 0.9 }] }], [0, 0, 1, 1, 1, 1, 1, 1]),
+      ]),
+      empty: () => seqSong('Untitled song', [seqTrack('Drums', 'drums', {}, [{ notes: [] }], [1, 1, 1, 1, 1, 1, 1, 1]), seqTrack('Lead', 'synth', {}, [{ notes: [] }], [1, 1, 1, 1, 1, 1, 1, 1])]),
+    },
+  };
+  state.seq = SEQ;
+  function seqMock(type, p) {
+    const mine = () => SEQ.mine.map((x) => ({ id: x.id, name: x.song.name, family: x.song.family, description: `${x.song.bars} bars · ${x.song.tempo} BPM` }));
+    switch (type) {
+      case 'seq.templates': return { templates: [{ id: 'empty', name: 'Empty song', description: '' }, { id: 'cozy', name: 'Cozy exploration', description: '' }], mine: mine(), scales: ['major', 'minor'], kit: ['Kick', 'Snare', 'Clap', 'Closed hat', 'Open hat', 'Low tom', 'High tom', 'Rim'] };
+      case 'seq.template': {
+        const own = SEQ.mine.find((x) => x.id === p.id);
+        if (own) return JSON.parse(JSON.stringify(own.song));
+        if (!SEQ.songs[p.id]) throw new Error('Unknown template.');
+        const s = SEQ.songs[p.id](); s.tracks.forEach((t, i) => { t.id = 'K' + (i + 1); }); return s;
+      }
+      case 'seq.render': {
+        SEQ.renders.push(JSON.parse(JSON.stringify(p)));
+        const barSeconds = 60 / p.song.tempo * p.song.beatsPerBar;
+        const from = p.loop ? p.song.loopStart : p.fromBar || 0, to = p.loop ? p.song.loopEnd : p.song.bars;
+        return { url: '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
+      }
+      case 'seq.note': SEQ.notes.push({ track: p.track, pitch: p.pitch, velocity: p.velocity }); return { url: '/_media/4' };
+      case 'seq.sample.pick': SEQ.picks++; return { path: 'C:\\Samples\\kalimba C4.wav', name: 'kalimba C4.wav', seconds: 1.2 };
+      case 'seq.export': {
+        SEQ.exports.push(JSON.parse(JSON.stringify(p)));
+        const f = p.song.name.replace(/[^A-Za-z0-9]+/g, '_');
+        return { folder: 'D:\\Game\\Music', files: [...(p.parts.mix ? [f + '.wav'] : []), ...(p.parts.loop ? [f + '_loop.wav'] : []), ...(p.parts.midi ? [f + '.mid'] : [])], recipe: f + '.noorsong.json', stems: p.parts.stems ? f + ' stems' : null, warnings: [], project: null, relative: '.' };
+      }
+      case 'seq.reveal': SEQ.revealed = p.folder; return null;
+      case 'seq.save': {
+        SEQ.saves.push(JSON.parse(JSON.stringify(p.song)));
+        const id = 'user:' + p.song.name + '.json';
+        const replaced = SEQ.mine.some((x) => x.id === id);
+        SEQ.mine = SEQ.mine.filter((x) => x.id !== id).concat([{ id, song: JSON.parse(JSON.stringify(p.song)) }]);
+        return { id, replaced, mine: mine() };
+      }
+      case 'seq.delete': SEQ.mine = SEQ.mine.filter((x) => x.id !== p.id); return { mine: mine() };
+      case 'seq.open': SEQ.opened++; return { song: { ...SEQ.songs.cozy(), name: 'Opened song', tempo: 120 } };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+
   function exportMock(type, p) {
     const all = () => ({ projects: EXP.projects, layouts: LAYOUTS });
     switch (type) {
@@ -466,7 +519,9 @@ function mockHostScript(initial) {
         const fill = (s, more) => s.replace(/\{([^}]+)\}/g, (_, k) => ({ ...t, ...more })[k] ?? '');
         const maps = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target] || ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'];
         const codes = { albedo: 'BC', basecolor: 'BC', normal: 'N', orm: 'ORM', height: 'H', roughness: 'R', ao: 'AO', metallic: 'M' };
-        const files = p.bench === 'sound'
+        const files = p.bench === 'music'
+          ? [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + '.wav']), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop.wav'] : []), ...(p.parts && p.parts.midi ? [fill(pat.file) + '.mid'] : [])]
+          : p.bench === 'sound'
           ? Array.from({ length: Math.min(p.variations || 1, 3) }, (_, i) => fill(p.variations > 1 ? pat.file : pat.file.replace(/_\{n\}/, ''), { n: String(i + 1).padStart(2, '0') }) + '.wav')
           : maps.map((m) => fill(pat.file, { map: m, Map: m[0].toUpperCase() + m.slice(1), MAP: codes[m] }) + '.png');
         const project = EXP.projects.find((x) => x.id === p.project);

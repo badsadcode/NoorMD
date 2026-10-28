@@ -1499,3 +1499,51 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-batch-list { display: flex; flex-wrap: wrap; gap: 4px; max-height: 120px; overflow-y: auto; margin: 4px 0; }
 .tb-batch-item { display: inline-flex; align-items: center; gap: 2px; font-size: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1px 2px 1px 7px; }
 .tb-batch-item .icon-btn { width: 20px; height: 20px; font-size: 11px; }
+
+/* NoorSequencer: the song grid (tracks × bars), the piano roll and the drum grid. */
+.seqbench { padding: 0 12px; }
+.seqbench .music-head { margin: 0 -12px; }
+.seq-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.seq-top .sb-volume { width: 90px; accent-color: var(--accent); }
+.seq-top .sb-repeat.active { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+.seq-top #seq-name { flex: 1; min-width: 140px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 14px; font-weight: 650; }
+.seq-top select, .seq-settings select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
+.seq-settings { gap: 6px 12px; }
+.seq-settings #seq-swing { width: 80px; accent-color: var(--accent); }
+.sb-inline input.seq-num, input.seq-num { width: 58px; }
+.seq-gridwrap { overflow: auto; max-height: 38%; min-height: 96px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); flex-shrink: 0; }
+.seq-grid { display: flex; flex-direction: column; min-width: max-content; font-size: 12px; }
+.seq-row { display: flex; align-items: stretch; border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent); }
+.seq-row.selected .seq-trackhead { background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.seq-row.muted .seq-cell.has { opacity: .4; }
+.seq-trackhead { position: sticky; left: 0; z-index: 1; display: flex; align-items: center; gap: 3px; width: 190px; flex-shrink: 0; padding: 2px 6px; background: var(--panel); border-right: 1px solid var(--border); }
+.seq-trackhead small { color: var(--muted); font-size: 10.5px; }
+.seq-trackname { flex: 1; min-width: 0; text-align: left; background: none; border: 0; color: var(--text); font: inherit; font-weight: 600; padding: 3px 2px; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seq-ms { width: 22px; height: 22px; font-size: 10.5px; font-weight: 700; }
+.seq-ms.on { background: var(--accent); color: var(--on-accent); }
+.seq-barnum, .seq-cell { width: 32px; flex-shrink: 0; border: 0; border-left: 1px solid color-mix(in srgb, var(--border) 45%, transparent); background: none; color: var(--muted); font: inherit; font-variant-numeric: tabular-nums; padding: 0; cursor: pointer; }
+.seq-barnum { height: 22px; font-size: 10.5px; }
+.seq-barnum.in-loop { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text); }
+.seq-barnum.from { box-shadow: inset 0 -2px 0 var(--accent); color: var(--text); font-weight: 700; }
+.seq-cell { height: 28px; font-weight: 700; color: var(--text); }
+.seq-cell.in-loop { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.seq-cell.has { background: hsl(var(--hue) 55% 50% / .35); }
+.seq-cell.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.seq-cell.seq-playing, .seq-barnum.seq-playing { box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--text) 12%, transparent); }
+.seq-addrow .seq-trackhead select { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 3px 6px; font: inherit; font-size: 12px; }
+.seq-addrow { border-bottom: 0; }
+.seq-patternbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0 4px; font-size: 12.5px; }
+.seq-patternbar select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
+.seq-pane { padding-bottom: 14px; }
+.seq-empty { padding: 14px 4px; }
+.seq-rollwrap { overflow: auto; max-height: 420px; min-height: 160px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.seq-roll { display: block; }
+.seq-drums { display: grid; grid-template-columns: 110px repeat(var(--steps), minmax(18px, 1fr)); gap: 3px; margin-top: 6px; }
+.seq-drumrow { display: contents; }
+.seq-drumname { text-align: left; background: none; border: 0; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0 4px; }
+.seq-step { height: 26px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); cursor: pointer; padding: 0; }
+.seq-step.beat { border-color: color-mix(in srgb, var(--text) 30%, var(--border)); }
+.seq-step.on { background: color-mix(in srgb, var(--accent) calc(var(--v, 1) * 100%), var(--surface)); border-color: var(--accent); }
+.seq-step.seq-now { box-shadow: 0 0 0 2px var(--text); }
+.seq-mine { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; color: var(--muted); }
+#seq-trackname, #seq-familyname { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 13px; font-weight: 600; }

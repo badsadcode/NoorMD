@@ -31,6 +31,10 @@ first, and anything that conflicts with it waits.
   ramp modes, colour ramps per layer, bump, offset): preview.45. Batch PBR from many albedo textures or photos
   (from the Gallery or picked), written with the export settings: preview.46. Later only if real use asks: a node view,
   animated noise, imported meshes for the preview.
+- NoorSequencer, stage 1 (song grid of numbered patterns, piano roll with scale lock, drum grid, synth, drum kit
+  and sample instruments, the Sound Bench's effects, mood templates, seamless loops, stems and MIDI): preview.47.
+  Next: stage 2 (help for non-musicians: chords, arpeggiator, humanize, presets, automation), then stage 3 (adaptive
+  game music). See [SEQUENCER_PLAN.md](SEQUENCER_PLAN.md).
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 
@@ -51,9 +55,7 @@ Technical notes for when this is picked up:
   - It can derive normal, roughness and AO maps from height, and preview a lit plane, cube or sphere.
   - Recipes are small JSON files next to the exported PNGs, with the seed included.
   - Hand-painting goes through NoorSketch.
-- **NoorSequencer:**
-  - The pattern and piano-roll editor plus WebAudio synth and sample voices are the core.
-  - MIDI export is simple.
-  - Exact timing needs a look-ahead scheduler, the standard WebAudio "two clocks" approach.
+- **NoorSequencer:** built (stage 1, preview.47) with the song rendered by the app instead of WebAudio voices, so
+  listening and export are the same sound and timing is exact without a scheduler.
 - All three save recipes in the Vault and register their exports in the Gallery and Music Bench, so
   "make it in one bench, use it in another" works through the parts that already exist.

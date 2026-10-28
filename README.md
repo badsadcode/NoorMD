@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.46-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.47-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -141,6 +141,14 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   (and its paintings) beside them; optionally shown in the Gallery and the recipe kept in your Vault. Exports (and
   the Sound Bench's) can go straight into a game project, arranged for Godot, Unity or Unreal or by your own
   folder and file-name pattern, with a preview of every path.
+- **NoorSequencer** (Ctrl+Alt+Q): a friendly composer for loops, jingles and simple game soundtracks. Start from a
+  mood (cozy exploration, tense dungeon, cheerful arcade, lonely ambient) or an empty song. Tracks × bars of
+  numbered patterns, as in BeepBox: change a pattern once and every bar playing it changes. Write melodies in a
+  piano roll that shows (or only offers) the notes of your key and scale, beats in a drum grid, and choose each
+  track's sound: a synth (sine to saw, two detuned voices, envelope, filter, vibrato), a synthesised drum kit, or a
+  WAV of your own played at any pitch, with the Sound Bench's effects. Play from any bar or the loop over and over,
+  and export the song, a seamless loop (its tails wrapped into the start), stems and MIDI, arranged for Godot, Unity
+  or Unreal or into a game project, with the song beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

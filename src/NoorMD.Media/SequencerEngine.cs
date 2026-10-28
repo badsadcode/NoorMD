@@ -1,0 +1,589 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace NoorMD.Media;
+
+// NoorSequencer: a friendly composer. A song is tracks × bars: each track has numbered patterns (one bar of notes
+// each) and the song says which pattern each track plays in each bar (0 = rest), as in BeepBox. The app renders the
+// song (the same code for listening and exporting); noise is seeded, so a song always renders the same.
+
+/// <summary>A note in a pattern: when (in steps of a sixteenth), how long, which pitch (MIDI; drums: the kit row), how hard.</summary>
+public sealed class SongNote
+{
+    public int Step { get; set; }
+    public int Length { get; set; } = 1;
+    public int Pitch { get; set; } = 60;
+    public double Velocity { get; set; } = 0.8;
+}
+
+/// <summary>One bar of notes.</summary>
+public sealed class SongPattern
+{
+    public List<SongNote> Notes { get; set; } = [];
+}
+
+/// <summary>How a track sounds. Only the fields of its kind are used.</summary>
+public sealed class SongInstrument
+{
+    public static readonly string[] Waves = ["sine", "triangle", "square", "pulse", "saw", "noise"];
+
+    // synth
+    public string Wave { get; set; } = "triangle";
+    /// <summary>Pulse: how wide (0.05–0.5; 0.5 is a square).</summary>
+    public double PulseWidth { get; set; } = 0.25;
+    /// <summary>A second voice detuned by this many cents (0 = one voice).</summary>
+    public double Detune { get; set; } = 6;
+    public int Octave { get; set; }
+    // envelope (seconds; sustain 0–1); synth and sample
+    public double Attack { get; set; } = 0.005;
+    public double Decay { get; set; } = 0.2;
+    public double Sustain { get; set; } = 0.6;
+    public double Release { get; set; } = 0.2;
+    /// <summary>Low-pass filter: cutoff (Hz), resonance (0.5–10) and how many octaves the envelope opens it.</summary>
+    public double Cutoff { get; set; } = 8000;
+    public double Resonance { get; set; } = 0.7;
+    public double FilterEnvelope { get; set; }
+    /// <summary>Vibrato depth (cents) and speed (Hz).</summary>
+    public double Vibrato { get; set; }
+    public double VibratoRate { get; set; } = 5;
+    // drums: the whole kit tuned (semitones), its decays stretched, and how bright it is (0–1)
+    public double DrumTune { get; set; }
+    public double DrumDecay { get; set; } = 1;
+    public double DrumTone { get; set; } = 0.5;
+    // sample: a WAV you picked, which pitch it is (MIDI), and whether it loops while the note is held
+    public string? Path { get; set; }
+    public string? SampleName { get; set; }
+    public int RootNote { get; set; } = 60;
+    public bool Loop { get; set; }
+}
+
+public sealed class SongTrack
+{
+    public static readonly string[] Kinds = ["synth", "drums", "sample"];
+    public const int MaxPatterns = 32;
+
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Track";
+    public string Kind { get; set; } = "synth";
+    public SongInstrument Instrument { get; set; } = new();
+    public double Gain { get; set; } = -6;
+    /// <summary>−1 (left) … 1 (right).</summary>
+    public double Pan { get; set; }
+    public bool Mute { get; set; }
+    public bool Solo { get; set; }
+    public List<SoundEffect> Effects { get; set; } = [];
+    /// <summary>Pattern 1 is Patterns[0].</summary>
+    public List<SongPattern> Patterns { get; set; } = [];
+    /// <summary>For each bar, the pattern played (0 = nothing).</summary>
+    public List<int> Sequence { get; set; } = [];
+}
+
+public sealed class SongRecipe
+{
+    public const int MaxTracks = 12, MaxBars = 128;
+    public static readonly string[] KitRows = ["Kick", "Snare", "Clap", "Closed hat", "Open hat", "Low tom", "High tom", "Rim"];
+
+    public int Version { get; set; } = 1;
+    public string Name { get; set; } = "Untitled song";
+    public string Family { get; set; } = "Custom";
+    public double Tempo { get; set; } = 110;
+    public int BeatsPerBar { get; set; } = 4;
+    /// <summary>The second sixteenth of each eighth comes later by this much of a step (0 = straight, 0.33 ≈ triplet feel).</summary>
+    public double Swing { get; set; }
+    /// <summary>The key's tonic (0 = C … 11 = B) and scale.</summary>
+    public int Key { get; set; }
+    public string Scale { get; set; } = "minor";
+    public int Bars { get; set; } = 8;
+    /// <summary>The loop: bars LoopStart (included) to LoopEnd (excluded).</summary>
+    public int LoopStart { get; set; }
+    public int LoopEnd { get; set; } = 8;
+    public double MasterGain { get; set; }
+    /// <summary>Effects on the whole mix (the Sound Bench's).</summary>
+    public List<SoundEffect> MasterEffects { get; set; } = [];
+    public int Seed { get; set; } = 1;
+    public List<SongTrack> Tracks { get; set; } = [];
+
+    public int StepsPerBar => BeatsPerBar * 4;
+    public double StepSeconds => 60.0 / Tempo / 4;
+    public double BarSeconds => StepSeconds * StepsPerBar;
+
+    private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
+    public string ToJson() => JsonSerializer.Serialize(this, Options);
+    public static SongRecipe FromJson(string json) => (JsonSerializer.Deserialize<SongRecipe>(json, Options) ?? new SongRecipe()).Clamped();
+    public SongRecipe Clone() => FromJson(ToJson());
+
+    private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
+
+    public SongRecipe Clamped()
+    {
+        Name = string.IsNullOrWhiteSpace(Name) ? "Untitled song" : Name.Trim()[..Math.Min(Name.Trim().Length, 80)];
+        Family = string.IsNullOrWhiteSpace(Family) ? "Custom" : Family.Trim()[..Math.Min(Family.Trim().Length, 40)];
+        Tempo = C(Tempo, 30, 300); BeatsPerBar = Math.Clamp(BeatsPerBar, 2, 7); Swing = C(Swing, 0, 0.5);
+        Key = ((Key % 12) + 12) % 12; Scale = SongScales.All.ContainsKey(Scale ?? "") ? Scale! : "minor";
+        Bars = Math.Clamp(Bars, 1, MaxBars);
+        LoopStart = Math.Clamp(LoopStart, 0, Bars - 1); LoopEnd = Math.Clamp(LoopEnd, LoopStart + 1, Bars);
+        MasterGain = C(MasterGain, -24, 12);
+        MasterEffects = (MasterEffects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
+        Seed = Math.Clamp(Seed, 0, int.MaxValue);
+        Tracks = (Tracks ?? []).Where(t => t != null).Take(MaxTracks).ToList();
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var t in Tracks)
+        {
+            t.Kind = SongTrack.Kinds.Contains(t.Kind) ? t.Kind : "synth";
+            t.Name = string.IsNullOrWhiteSpace(t.Name) ? "Track" : t.Name.Trim()[..Math.Min(t.Name.Trim().Length, 40)];
+            t.Gain = C(t.Gain, -60, 12); t.Pan = C(t.Pan, -1, 1);
+            var i = t.Instrument ??= new();
+            i.Wave = SongInstrument.Waves.Contains(i.Wave) ? i.Wave : "triangle";
+            i.PulseWidth = C(i.PulseWidth, 0.05, 0.5); i.Detune = C(i.Detune, 0, 50); i.Octave = Math.Clamp(i.Octave, -3, 3);
+            i.Attack = C(i.Attack, 0.001, 5); i.Decay = C(i.Decay, 0.001, 5); i.Sustain = C(i.Sustain, 0, 1); i.Release = C(i.Release, 0.001, 8);
+            i.Cutoff = C(i.Cutoff, 40, 20000); i.Resonance = C(i.Resonance, 0.5, 10); i.FilterEnvelope = C(i.FilterEnvelope, -4, 6);
+            i.Vibrato = C(i.Vibrato, 0, 100); i.VibratoRate = C(i.VibratoRate, 0.1, 15);
+            i.DrumTune = C(i.DrumTune, -24, 24); i.DrumDecay = C(i.DrumDecay, 0.2, 4); i.DrumTone = C(i.DrumTone, 0, 1);
+            i.RootNote = Math.Clamp(i.RootNote, 0, 127);
+            if (i.Path != null && (i.Path.Length > 1000 || i.Path.Any(char.IsControl))) i.Path = null;
+            if (i.SampleName != null && i.SampleName.Length > 120) i.SampleName = i.SampleName[..120];
+            t.Effects = (t.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
+            t.Patterns = (t.Patterns ?? []).Take(SongTrack.MaxPatterns).Select(p => p ?? new SongPattern()).ToList();
+            var steps = StepsPerBar;
+            foreach (var p in t.Patterns)
+                p.Notes = (p.Notes ?? []).Where(n => n != null).Take(512).Select(n =>
+                {
+                    n.Step = Math.Clamp(n.Step, 0, steps - 1); n.Length = Math.Clamp(n.Length, 1, steps * 8);
+                    n.Pitch = t.Kind == "drums" ? Math.Clamp(n.Pitch, 0, KitRows.Length - 1) : Math.Clamp(n.Pitch, 0, 127);
+                    n.Velocity = C(n.Velocity, 0.05, 1);
+                    return n;
+                }).OrderBy(n => n.Step).ThenBy(n => n.Pitch).ToList();
+            t.Sequence = (t.Sequence ?? []).Take(Bars).Select(s => Math.Clamp(s, 0, t.Patterns.Count)).ToList();
+            while (t.Sequence.Count < Bars) t.Sequence.Add(0);
+            if (t.Id is not { Length: > 1 and <= 8 } || t.Id[0] != 'K' || !t.Id[1..].All(char.IsAsciiDigit) || !used.Add(t.Id)) t.Id = "";
+        }
+        foreach (var t in Tracks.Where(t => t.Id == "")) { var n = 1; while (!used.Add("K" + n)) n++; t.Id = "K" + n; }
+        return this;
+    }
+
+    /// <summary>Samples given by name only, or moved: found in the folder beside the recipe (where an export puts them).</summary>
+    public SongRecipe FindSamplesBeside(string folder)
+    {
+        string? Find(string? path)
+        {
+            if (string.IsNullOrEmpty(path)) return path;
+            try
+            {
+                if (!System.IO.Path.IsPathFullyQualified(path)) return System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, path));
+                if (File.Exists(path)) return path;
+                var name = System.IO.Path.GetFileName(path.Replace('\\', System.IO.Path.DirectorySeparatorChar));
+                var beside = System.IO.Path.Combine(folder, name);
+                return name.Length > 0 && File.Exists(beside) ? beside : path;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return path; /* reported missing when rendered */ }
+        }
+        foreach (var t in Tracks) if (t.Kind == "sample") t.Instrument.Path = Find(t.Instrument.Path);
+        foreach (var fx in Tracks.SelectMany(t => t.Effects).Concat(MasterEffects)) if (fx.Type == "convolution") fx.IrPath = Find(fx.IrPath);
+        return this;
+    }
+
+    /// <summary>The samples the song's tracks read (for allowing and finding them beside a recipe).</summary>
+    public IEnumerable<string> Files() =>
+        Tracks.Where(t => t.Kind == "sample" && !string.IsNullOrEmpty(t.Instrument.Path)).Select(t => t.Instrument.Path!)
+            .Concat(Tracks.SelectMany(t => t.Effects).Concat(MasterEffects).Where(fx => fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath)).Select(fx => fx.IrPath!));
+}
+
+/// <summary>Scales by name: the semitones above the key's tonic that belong to it.</summary>
+public static class SongScales
+{
+    public static readonly Dictionary<string, int[]> All = new()
+    {
+        ["major"] = [0, 2, 4, 5, 7, 9, 11],
+        ["minor"] = [0, 2, 3, 5, 7, 8, 10],
+        ["dorian"] = [0, 2, 3, 5, 7, 9, 10],
+        ["mixolydian"] = [0, 2, 4, 5, 7, 9, 10],
+        ["harmonic-minor"] = [0, 2, 3, 5, 7, 8, 11],
+        ["phrygian"] = [0, 1, 3, 5, 7, 8, 10],
+        ["major-pentatonic"] = [0, 2, 4, 7, 9],
+        ["minor-pentatonic"] = [0, 3, 5, 7, 10],
+        ["blues"] = [0, 3, 5, 6, 7, 10],
+        ["chromatic"] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    };
+
+    public static bool Contains(string scale, int key, int pitch) => All.TryGetValue(scale, out var s) && s.Contains((((pitch - key) % 12) + 12) % 12);
+}
+
+public static class SequencerEngine
+{
+    /// <summary>How long notes and effects may ring on after the last bar (seconds).</summary>
+    private const double TailSeconds = 3;
+
+    /// <param name="loop">Render only the loop region, its tail folded into its start: it repeats without a gap or a click.</param>
+    /// <param name="samples">Reads a sample track's WAV (null when it can't or may not be used).</param>
+    public static SoundRender Render(SongRecipe song, int sampleRate = 48000, bool loop = false, Func<string, SampleAudio?>? samples = null) =>
+        RenderAll(song, sampleRate, loop, samples, stems: false).Mix;
+
+    /// <summary>For listening: bars from (included) to (excluded), with the tail of the last one.</summary>
+    public static SoundRender RenderBars(SongRecipe song, int fromBar, int toBar, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null) =>
+        RenderAll(song, sampleRate, false, samples, stems: false, fromBar, toBar).Mix;
+
+    /// <summary>One note of a track, as it sounds in the song (its instrument, effects, level and pan), for hearing a note as it is placed.</summary>
+    public static SoundRender RenderNote(SongRecipe recipe, int track, int pitch, double velocity = 0.8, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
+    {
+        var song = recipe.Clone();
+        if (track < 0 || track >= song.Tracks.Count) throw new ArgumentException("There is no such track.");
+        var t = song.Tracks[track];
+        t.Mute = false; t.Solo = false;
+        t.Patterns = [new SongPattern { Notes = [new SongNote { Step = 0, Length = t.Kind == "drums" ? 1 : 2, Pitch = pitch, Velocity = velocity }] }];
+        t.Sequence = [1];
+        song.Tracks = [t];
+        song.Bars = 1; song.LoopStart = 0; song.LoopEnd = 1;
+        song.MasterEffects = [];
+        song.Clamped();
+        var full = RenderAll(song, sampleRate, false, samples, stems: false).Mix;
+        // Only up to where it falls silent (a short sound, not a whole bar).
+        var end = full.Left.Length;
+        while (end > 1 && Math.Abs(full.Left[end - 1]) < 1e-4 && Math.Abs(full.Right[end - 1]) < 1e-4) end--;
+        end = Math.Min(full.Left.Length, end + 64);
+        return new SoundRender { SampleRate = full.SampleRate, Left = full.Left[..end], Right = full.Right[..end], PeakDb = full.PeakDb, RmsDb = full.RmsDb, Warnings = full.Warnings };
+    }
+
+    /// <summary>The mix and each track on its own (same length and gain as in the mix), for stems.</summary>
+    public static (SoundRender Mix, List<(string Name, SoundRender Render)> Stems) RenderStems(SongRecipe song, int sampleRate = 48000, bool loop = false, Func<string, SampleAudio?>? samples = null) =>
+        RenderAll(song, sampleRate, loop, samples, stems: true);
+
+    private static (SoundRender Mix, List<(string Name, SoundRender Render)> Stems) RenderAll(SongRecipe recipe, int sr, bool loop, Func<string, SampleAudio?>? samples, bool stems,
+        int? from = null, int? to = null)
+    {
+        var song = recipe.Clone();
+        int fromBar = loop ? song.LoopStart : 0, toBar = loop ? song.LoopEnd : song.Bars;
+        if (from != null) fromBar = Math.Clamp(from.Value, 0, song.Bars - 1);
+        if (to != null) toBar = Math.Clamp(to.Value, fromBar + 1, song.Bars);
+        var length = (int)Math.Round((toBar - fromBar) * song.BarSeconds * sr);
+        var total = length + (int)(TailSeconds * sr);
+        var warnings = new List<string>();
+        var anySolo = song.Tracks.Any(t => t.Solo);
+        double[] mixL = new double[total], mixR = new double[total];
+        var trackRenders = new List<(string Name, double[] L, double[] R)>();
+        foreach (var track in song.Tracks)
+        {
+            if (track.Mute || (anySolo && !track.Solo)) { if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
+            SampleAudio? sample = null;
+            if (track.Kind == "sample")
+            {
+                sample = string.IsNullOrEmpty(track.Instrument.Path) ? null : samples?.Invoke(track.Instrument.Path);
+                if (sample == null) { warnings.Add($"“{track.Name}”: its sample is missing or can't be read"); if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
+            }
+            double[] L = new double[total], R = new double[total];
+            var trackIndex = song.Tracks.IndexOf(track);
+            for (var bar = fromBar; bar < toBar; bar++)
+            {
+                var number = track.Sequence[bar];
+                if (number <= 0 || number > track.Patterns.Count) continue;
+                var pattern = track.Patterns[number - 1];
+                for (var k = 0; k < pattern.Notes.Count; k++)
+                {
+                    var note = pattern.Notes[k];
+                    var startStep = (bar - fromBar) * song.StepsPerBar + note.Step;
+                    var start = (startStep + (note.Step % 2 == 1 ? song.Swing : 0)) * song.StepSeconds;
+                    var seconds = note.Length * song.StepSeconds;
+                    var seed = (ulong)(uint)song.Seed * 0x9E3779B97F4A7C15UL ^ (ulong)(trackIndex * 7919 + bar * 104729 + k * 31 + note.Pitch);
+                    var at = (int)Math.Round(start * sr);
+                    switch (track.Kind)
+                    {
+                        case "drums": Drum(L, at, note, track.Instrument, sr, new SoundRng(seed)); break;
+                        case "sample": SampleVoice(L, at, note, seconds, track.Instrument, sample!, sr); break;
+                        default: Synth(L, at, note, seconds, track.Instrument, sr, new SoundRng(seed)); break;
+                    }
+                }
+            }
+            Array.Copy(L, R, total);
+            if (track.Effects.Count > 0) SoundEffects.Apply(track.Effects, L, R, sr, files: samples);
+            // Level and place: equal-power pan.
+            var gain = Math.Pow(10, track.Gain / 20);
+            var angle = (track.Pan + 1) * Math.PI / 4;
+            double gl = Math.Cos(angle) * Math.Sqrt(2) * gain, gr = Math.Sin(angle) * Math.Sqrt(2) * gain;
+            for (var i = 0; i < total; i++) { L[i] *= gl; R[i] *= gr; mixL[i] += L[i]; mixR[i] += R[i]; }
+            if (stems) trackRenders.Add((track.Name, L, R));
+        }
+        // Master effects work on the mix (stems keep their track's own sound).
+        if (song.MasterEffects.Count > 0) SoundEffects.Apply(song.MasterEffects, mixL, mixR, sr, files: samples);
+        // The master: its gain, then never louder than just below full scale (the same gain for every stem).
+        var master = Math.Pow(10, song.MasterGain / 20);
+        if (loop) { Fold(mixL, length); Fold(mixR, length); foreach (var t in trackRenders) { Fold(t.L, length); Fold(t.R, length); } }
+        var n = loop ? length : LastSound(mixL, mixR, length);
+        double peak = 0;
+        for (var i = 0; i < n; i++) peak = Math.Max(peak, Math.Max(Math.Abs(mixL[i]), Math.Abs(mixR[i])) * master);
+        var g = master * (peak > 0.97 ? 0.97 / peak : 1);
+        SoundRender Make(double[] a, double[] b, IReadOnlyList<string> w)
+        {
+            float[] fl = new float[n], fr = new float[n];
+            double p = 0, sum = 0;
+            for (var i = 0; i < n; i++) { fl[i] = (float)(a[i] * g); fr[i] = (float)(b[i] * g); p = Math.Max(p, Math.Max(Math.Abs(fl[i]), Math.Abs(fr[i]))); sum += fl[i] * fl[i] + fr[i] * fr[i]; }
+            double Db(double x) => x <= 1e-9 ? -120 : Math.Round(20 * Math.Log10(x), 1);
+            return new SoundRender { SampleRate = sr, Left = fl, Right = fr, PeakDb = Db(p), RmsDb = Db(Math.Sqrt(sum / Math.Max(1, 2 * n))), Warnings = w };
+        }
+        return (Make(mixL, mixR, warnings), trackRenders.Select(t => (t.Name, Make(t.L, t.R, []))).ToList());
+    }
+
+    /// <summary>What rings on after the loop's end is added to its start, so the loop repeats seamlessly.</summary>
+    private static void Fold(double[] a, int length)
+    {
+        for (var i = length; i < a.Length; i++) a[(i - length) % length] += a[i];
+    }
+
+    /// <summary>The song's length plus its tail, up to where it falls silent.</summary>
+    private static int LastSound(double[] l, double[] r, int length)
+    {
+        var last = length;
+        for (var i = l.Length - 1; i >= length; i--) if (Math.Abs(l[i]) > 1e-4 || Math.Abs(r[i]) > 1e-4) { last = i + 1; break; }
+        return Math.Min(l.Length, last + 64);
+    }
+
+    private static double Freq(int pitch) => 440 * Math.Pow(2, (pitch - 69) / 12.0);
+
+    /// <summary>ADSR: attack, decay to sustain while held, release after.</summary>
+    private static double Envelope(double t, double held, SongInstrument i)
+    {
+        double Level(double x) => x < i.Attack ? x / i.Attack : x < i.Attack + i.Decay ? 1 - (1 - i.Sustain) * (x - i.Attack) / i.Decay : i.Sustain;
+        if (t < held) return Level(t);
+        var r = t - held;
+        return r >= i.Release ? 0 : Level(held) * (1 - r / i.Release);
+    }
+
+    /// <summary>The correction that takes the click out of a jump in a saw or square wave (polyBLEP).</summary>
+    private static double Blep(double t, double dt)
+    {
+        if (t < dt) { t /= dt; return t + t - t * t - 1; }
+        if (t > 1 - dt) { t = (t - 1) / dt; return t * t + t + t + 1; }
+        return 0;
+    }
+
+    private static void Synth(double[] buf, int at, SongNote note, double held, SongInstrument i, int sr, SoundRng rng)
+    {
+        var total = (int)((held + i.Release) * sr) + 1;
+        var baseFreq = Freq(note.Pitch + 12 * i.Octave);
+        var voices = i.Detune > 0 ? 2 : 1;
+        var phase = new double[voices];
+        // Every voice starts at phase 0: a pattern sounds the same each time it plays (only noise differs).
+        // A low-pass, its cutoff following the envelope.
+        var filter = new Svf();
+        var amp = note.Velocity * 0.32 / Math.Sqrt(voices);
+        for (var n = 0; n < total && at + n < buf.Length; n++)
+        {
+            if (at + n < 0) continue;
+            var t = (double)n / sr;
+            var env = Envelope(t, held, i);
+            if (env <= 0 && t > held) break;
+            var vib = i.Vibrato > 0 ? Math.Pow(2, i.Vibrato / 1200 * Math.Sin(2 * Math.PI * i.VibratoRate * t)) : 1;
+            double s = 0;
+            for (var v = 0; v < voices; v++)
+            {
+                var f = baseFreq * vib * (voices == 2 ? Math.Pow(2, (v == 0 ? -1 : 1) * i.Detune / 2400) : 1);
+                var dt = Math.Min(0.5, f / sr);
+                var p = phase[v];
+                s += i.Wave switch
+                {
+                    "sine" => Math.Sin(2 * Math.PI * p),
+                    "triangle" => 4 * Math.Abs(p - 0.5) - 1,
+                    "saw" => 2 * p - 1 - Blep(p, dt),
+                    "square" => (p < 0.5 ? 1 : -1) + Blep(p, dt) - Blep((p + 0.5) % 1, dt),
+                    "pulse" => (p < i.PulseWidth ? 1 : -1) + Blep(p, dt) - Blep((p + 1 - i.PulseWidth) % 1, dt),
+                    _ => rng.Bipolar(),
+                };
+                phase[v] = (p + dt) % 1;
+            }
+            if ((n & 15) == 0) filter.Set(i.Cutoff * Math.Pow(2, i.FilterEnvelope * env), i.Resonance, sr);
+            buf[at + n] += filter.Low(s) * env * amp;
+        }
+    }
+
+    /// <summary>A note of a sample: played faster or slower for its pitch, looped while held if asked, shaped by the envelope.</summary>
+    private static void SampleVoice(double[] buf, int at, SongNote note, double held, SongInstrument i, SampleAudio s, int sr)
+    {
+        var rate = Math.Pow(2, (note.Pitch + 12 * i.Octave - i.RootNote) / 12.0) * s.Rate / sr;
+        var len = s.Left.Length;
+        var total = i.Loop ? (int)((held + i.Release) * sr) + 1 : (int)Math.Min((held + i.Release) * sr, len / rate) + 1;
+        var amp = note.Velocity * 0.9;
+        for (var n = 0; n < total && at + n < buf.Length; n++)
+        {
+            if (at + n < 0) continue;
+            var pos = n * rate;
+            if (i.Loop) pos %= len; else if (pos >= len - 1) break;
+            var k = (int)pos; var f = pos - k;
+            var k2 = Math.Min(len - 1, k + 1);
+            var v = ((s.Left[k] + s.Right[k]) * (1 - f) + (s.Left[k2] + s.Right[k2]) * f) * 0.5;
+            buf[at + n] += v * Envelope((double)n / sr, held, i) * amp;
+        }
+    }
+
+    /// <summary>The synthesised kit: each row a recipe of tone and noise, tuned, stretched and brightened by the track.</summary>
+    private static void Drum(double[] buf, int at, SongNote note, SongInstrument ins, int sr, SoundRng rng)
+    {
+        var tune = Math.Pow(2, ins.DrumTune / 12);
+        var stretch = ins.DrumDecay;
+        var bright = 0.5 + ins.DrumTone;
+        var v = note.Velocity;
+        double hp = 0, hpPrev = 0;
+        var bp = new Svf();
+        var bpSet = false;
+        void Add(int n, double x) { if (at + n >= 0 && at + n < buf.Length) buf[at + n] += x * v; }
+        double Noise() => rng.Bipolar();
+        double HighPass(double x, double cutoff) { var a = Math.Exp(-2 * Math.PI * cutoff / sr); var y = a * (hp + x - hpPrev); hpPrev = x; hp = y; return y; }
+        double BandPass(double x, double cutoff) { if (!bpSet) { bp.Set(cutoff, 1.6, sr); bpSet = true; } bp.Low(x); return bp.Band; }
+        int Len(double s) => (int)(s * stretch * sr);
+        double phase = 0;
+        switch (note.Pitch)
+        {
+            case 0: // kick: a sine falling from 160 to 45 Hz, and a click
+                for (int n = 0, end = Len(0.45); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    var f = (45 + 115 * Math.Exp(-t / 0.035)) * tune;
+                    phase += f / sr;
+                    Add(n, (Math.Sin(2 * Math.PI * phase) * Math.Exp(-t / (0.16 * stretch)) + (n < sr / 1000 ? Noise() * 0.3 * bright : 0)) * 0.9);
+                }
+                break;
+            case 1: // snare: a short tone and bright noise
+                for (int n = 0, end = Len(0.3); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    phase += 185 * tune / sr;
+                    Add(n, 0.35 * Math.Sin(2 * Math.PI * phase) * Math.Exp(-t / 0.05) + 0.45 * HighPass(Noise(), 900 * bright) * Math.Exp(-t / (0.07 * stretch)));
+                }
+                break;
+            case 2: // clap: three quick bursts then a tail, band-passed
+                for (int n = 0, end = Len(0.35); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    var burst = t < 0.03 ? Math.Exp(-((t % 0.01) / 0.003)) : Math.Exp(-(t - 0.03) / (0.09 * stretch));
+                    Add(n, 0.8 * BandPass(Noise(), 1200 * bright * tune) * burst);
+                }
+                break;
+            case 3: case 4: // hats: high noise, short (closed) or long (open)
+                for (int n = 0, end = Len(note.Pitch == 3 ? 0.08 : 0.5); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    Add(n, 0.35 * HighPass(Noise(), 6500 * bright * tune) * Math.Exp(-t / ((note.Pitch == 3 ? 0.018 : 0.14) * stretch)));
+                }
+                break;
+            case 5: case 6: // toms: a falling sine, low or high
+                var start = (note.Pitch == 5 ? 110 : 180) * tune;
+                for (int n = 0, end = Len(0.5); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    phase += start * (0.75 + 0.25 * Math.Exp(-t / 0.08)) / sr;
+                    Add(n, 0.75 * Math.Sin(2 * Math.PI * phase) * Math.Exp(-t / (0.14 * stretch)));
+                }
+                break;
+            default: // rim: a short woody click
+                for (int n = 0, end = Len(0.06); n < end; n++)
+                {
+                    var t = (double)n / sr;
+                    phase += 820 * tune / sr;
+                    Add(n, (0.5 * (4 * Math.Abs(phase % 1 - 0.5) - 1) + 0.2 * Noise() * bright) * Math.Exp(-t / (0.012 * stretch)));
+                }
+                break;
+        }
+    }
+
+    /// <summary>A state-variable filter that stays stable at any cutoff (the trapezoidal form).</summary>
+    private struct Svf
+    {
+        private double _a1, _a2, _a3, _ic1, _ic2;
+        public double Band;
+
+        public void Set(double cutoff, double q, int sr)
+        {
+            var g = Math.Tan(Math.PI * Math.Clamp(cutoff, 20, sr * 0.49) / sr);
+            var k = 1 / q;
+            _a1 = 1 / (1 + g * (g + k)); _a2 = g * _a1; _a3 = g * _a2;
+        }
+
+        public double Low(double x)
+        {
+            var v3 = x - _ic2;
+            var v1 = _a1 * _ic1 + _a2 * v3;
+            var v2 = _ic2 + _a2 * _ic1 + _a3 * v3;
+            _ic1 = 2 * v1 - _ic1; _ic2 = 2 * v2 - _ic2;
+            Band = v1;
+            return v2;
+        }
+    }
+
+    // ------------------------------------------------------------------ MIDI
+
+    /// <summary>General MIDI drum notes for the kit's rows.</summary>
+    public static readonly int[] GmDrums = [36, 38, 39, 42, 46, 45, 50, 37];
+
+    /// <summary>
+    /// A Standard MIDI File (type 1, 480 ticks a beat): a tempo track, then one track per song track with its notes
+    /// (swing included); drums on channel 10 with General MIDI drum notes.
+    /// </summary>
+    public static byte[] ToMidi(SongRecipe recipe)
+    {
+        var song = recipe.Clone();
+        const int ppq = 480, stepTicks = ppq / 4;
+        var tracks = new List<byte[]>();
+        var head = new List<byte>();
+        void Meta(List<byte> b, int type, byte[] data) { b.AddRange(Vlq(0)); b.Add(0xFF); b.Add((byte)type); b.AddRange(Vlq(data.Length)); b.AddRange(data); }
+        var mpq = (int)Math.Round(60_000_000 / song.Tempo);
+        Meta(head, 0x03, Encoding.UTF8.GetBytes(song.Name));
+        Meta(head, 0x51, [(byte)(mpq >> 16), (byte)(mpq >> 8), (byte)mpq]);
+        Meta(head, 0x58, [(byte)song.BeatsPerBar, 2, 24, 8]);
+        head.AddRange(Vlq(0)); head.AddRange([0xFF, 0x2F, 0]);
+        tracks.Add([.. head]);
+        var channel = 0;
+        var anySolo = song.Tracks.Any(t => t.Solo);
+        foreach (var t in song.Tracks)
+        {
+            if (t.Mute || (anySolo && !t.Solo)) continue;
+            var ch = t.Kind == "drums" ? 9 : channel++;
+            if (channel == 9) channel++;
+            if (ch > 15) break;
+            var events = new List<(long Tick, int Order, byte[] Data)>();
+            for (var bar = 0; bar < song.Bars; bar++)
+            {
+                var number = t.Sequence[bar];
+                if (number <= 0 || number > t.Patterns.Count) continue;
+                foreach (var note in t.Patterns[number - 1].Notes)
+                {
+                    var on = (long)(bar * song.StepsPerBar + note.Step) * stepTicks + (note.Step % 2 == 1 ? (long)Math.Round(song.Swing * stepTicks) : 0);
+                    var off = t.Kind == "drums" ? on + stepTicks / 2 : on + note.Length * stepTicks;
+                    var pitch = t.Kind == "drums" ? GmDrums[note.Pitch] : Math.Clamp(note.Pitch + 12 * t.Instrument.Octave, 0, 127);
+                    var vel = (byte)Math.Clamp((int)Math.Round(note.Velocity * 127), 1, 127);
+                    events.Add((on, 1, [(byte)(0x90 | ch), (byte)pitch, vel]));
+                    events.Add((off, 0, [(byte)(0x80 | ch), (byte)pitch, 0]));
+                }
+            }
+            var b = new List<byte>();
+            Meta(b, 0x03, Encoding.UTF8.GetBytes(t.Name));
+            if (ch != 9) { b.AddRange(Vlq(0)); b.Add((byte)(0xC0 | ch)); b.Add((byte)GmProgram(t)); }
+            long last = 0;
+            foreach (var e in events.OrderBy(e => e.Tick).ThenBy(e => e.Order))
+            {
+                b.AddRange(Vlq((int)(e.Tick - last))); b.AddRange(e.Data); last = e.Tick;
+            }
+            b.AddRange(Vlq(0)); b.AddRange([0xFF, 0x2F, 0]);
+            tracks.Add([.. b]);
+        }
+        var ms = new MemoryStream();
+        void Be(int v, int bytes) { for (var k = bytes - 1; k >= 0; k--) ms.WriteByte((byte)(v >> (8 * k))); }
+        ms.Write("MThd"u8); Be(6, 4); Be(1, 2); Be(tracks.Count, 2); Be(ppq, 2);
+        foreach (var tr in tracks) { ms.Write("MTrk"u8); Be(tr.Length, 4); ms.Write(tr); }
+        return ms.ToArray();
+    }
+
+    /// <summary>A General MIDI instrument close to the track's sound.</summary>
+    private static int GmProgram(SongTrack t) => t.Kind == "sample" ? 0 : t.Instrument.Wave switch
+    {
+        "square" or "pulse" => 80, // square lead
+        "saw" => t.Instrument.Octave < 0 ? 38 : 81, // synth bass / saw lead
+        "sine" => t.Instrument.Attack > 0.2 ? 89 : 79, // warm pad / ocarina
+        "noise" => 122, // seashore
+        _ => t.Instrument.Attack > 0.2 ? 88 : 4, // new-age pad / electric piano
+    };
+
+    private static byte[] Vlq(int v)
+    {
+        var bytes = new List<byte> { (byte)(v & 0x7F) };
+        while ((v >>= 7) > 0) bytes.Insert(0, (byte)((v & 0x7F) | 0x80));
+        return [.. bytes];
+    }
+}

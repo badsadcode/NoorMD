@@ -29,13 +29,18 @@ public partial class MainWindow
             folder = p.TryGetProperty("folderPattern", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() ?? "" : "";
             file = p.TryGetProperty("filePattern", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
             if (folder.Length > ExportLayouts.MaxPattern || file.Length > ExportLayouts.MaxPattern) throw new BridgeError("That pattern is too long.");
-            if (file.Trim().Length == 0) file = bench == "sound" ? "{name}_{n}" : "{name}_{map}";
+            if (file.Trim().Length == 0) file = bench switch { "sound" => "{name}_{n}", "music" => "{name}", _ => "{name}_{map}" };
         }
         else
         {
             var layout = ExportLayouts.Get(id) ?? ExportLayouts.All[0];
             id = layout.Id;
-            (folder, file) = bench == "sound" ? (layout.SoundFolder, layout.SoundFile) : (layout.TextureFolder, layout.TextureFile);
+            (folder, file) = bench switch
+            {
+                "sound" => (layout.SoundFolder, layout.SoundFile),
+                "music" => (layout.MusicFolder, layout.MusicFile),
+                _ => (layout.TextureFolder, layout.TextureFile),
+            };
         }
         var projectId = p.TryGetProperty("project", out var pr) && pr.ValueKind == JsonValueKind.String ? pr.GetString() : null;
         ExportProject? project = null;
@@ -73,7 +78,7 @@ public partial class MainWindow
     private object ExportProjectsPayload() => new
     {
         projects = ExportProjects.List().Select(p => new { id = p.Id, name = p.Name, root = p.Root, missing = !Directory.Exists(p.Root) }),
-        layouts = ExportLayouts.All.Select(l => new { id = l.Id, name = l.Name, description = l.Description, texture = new { folder = l.TextureFolder, file = l.TextureFile }, sound = new { folder = l.SoundFolder, file = l.SoundFile } }),
+        layouts = ExportLayouts.All.Select(l => new { id = l.Id, name = l.Name, description = l.Description, texture = new { folder = l.TextureFolder, file = l.TextureFile }, sound = new { folder = l.SoundFolder, file = l.SoundFile }, music = new { folder = l.MusicFolder, file = l.MusicFile } }),
     };
 
     /// <summary>The tokens of a material or sound: its name, family and size; a map's tokens are added per file.</summary>
@@ -106,7 +111,7 @@ public partial class MainWindow
             case "export.plan":
             {
                 // A preview of where the files will go, as relative paths (and under which project).
-                var bench = req.GetString("bench", 10) == "sound" ? "sound" : "texture";
+                var bench = req.GetString("bench", 10) switch { "sound" => "sound", "music" => "music", _ => "texture" };
                 var place = ExportPlaceFrom(p, bench);
                 var name = req.GetString("name", 200) ?? "Untitled";
                 var tokens = ExportTokens(name, req.GetString("family", 80) ?? "", (int)(Json.OptDouble(p, "size") ?? 0), place.Project?.Name);
@@ -124,6 +129,17 @@ public partial class MainWindow
                         files.Add(ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, t), name) + ".png");
                     }
                     files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noortex.json");
+                }
+                else if (bench == "music")
+                {
+                    var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), name);
+                    var parts = p.TryGetProperty("parts", out var pa) && pa.ValueKind == JsonValueKind.Object ? pa : default;
+                    bool Part(string key, bool fallback) => parts.ValueKind == JsonValueKind.Object && parts.TryGetProperty(key, out var v) ? v.ValueKind == JsonValueKind.True : fallback;
+                    if (Part("mix", true)) files.Add(file + ".wav");
+                    if (Part("loop", false)) files.Add(file + "_loop.wav");
+                    if (Part("stems", false)) files.Add(file + " stems/01 …wav");
+                    if (Part("midi", false)) files.Add(file + ".mid");
+                    files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noorsong.json");
                 }
                 else
                 {

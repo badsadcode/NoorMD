@@ -4566,6 +4566,148 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the batch', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 59. NoorSequencer: templates, the song grid, patterns, the piano roll, drums, instruments, playback and export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.evaluate(() => { try { ['noormd.seq.export', 'noormd.seq.loop', 'noormd.seq.lock'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      check('Ctrl+Alt+Q opens NoorSequencer in the middle with the cozy template', await page.isVisible('#seqbench') && (await page.evaluate(() => NoorDock._state().center.active)) === 'sequencer'
+        && (await page.$$('#seq-grid .seq-row[data-track]')).length === 2 && (await page.inputValue('#seq-tempo')) === '96');
+      check('the grid shows pattern numbers per bar (a rest is empty)', (await page.textContent('#seq-grid .seq-cell[data-track="0"][data-bar="1"]')) === '2'
+        && (await page.textContent('#seq-grid .seq-cell[data-track="1"][data-bar="0"]')) === '' && (await page.$$('#seq-grid .seq-barnum')).length === 8);
+      check('the Notes tab shows the piano roll of the selected cell (track 1, bar 1 → pattern 1)', !!(await page.$('#seq-roll')) && (await SQ()).roll && (await SQ()).roll.rows > 10);
+      check('scale lock is on by default: only the major scale\'s notes are rows (7 per octave)', (await SQ()).scaleLock && (await SQ()).roll.rows === 43);
+      // The piano roll: click to add (and hear it), drag to lengthen, click a note to remove it.
+      const roll = await SQ();
+      const box = await page.$eval('#seq-roll', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top }; });
+      const rowOf = (pitch) => page.evaluate((p) => { const s = NoorSequencer._state(); const steps = [0, 2, 4, 5, 7, 9, 11]; const rows = []; for (let x = 96; x >= 24; x--) if (steps.includes(x % 12)) rows.push(x); return rows.indexOf(p); }, pitch);
+      const r74 = await rowOf(74);
+      await page.evaluate((y) => { document.querySelector('#seq-rollwrap').scrollTop = Math.max(0, y - 100); }, r74 * roll.roll.rowH);
+      const box2 = await page.$eval('#seq-roll', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top }; });
+      const at = (step, row) => ({ x: box2.x + roll.roll.keyW + step * roll.roll.stepW + roll.roll.stepW / 2, y: box2.y + row * roll.roll.rowH + roll.roll.rowH / 2 });
+      let pt = at(8, r74);
+      await page.mouse.move(pt.x, pt.y); await page.mouse.down();
+      const end = at(11, r74);
+      await page.mouse.move(end.x, end.y, { steps: 4 }); await page.mouse.up();
+      const p1 = (await SQ()).song.tracks[0].patterns[0].notes;
+      const added = p1.find((n) => n.pitch === 74);
+      check('click adds a note at the row\'s pitch and step, dragging makes it longer', !!added && added.step === 8 && added.length === 4, p1);
+      check('…and the note sounds as it is placed (the track\'s instrument, that pitch)', (await M()).notes.some((n) => n.track === 0 && n.pitch === 74));
+      await page.mouse.click(pt.x, pt.y);
+      check('a click on a note removes it', !(await SQ()).song.tracks[0].patterns[0].notes.some((n) => n.pitch === 74));
+      // Without the lock every semitone is a row.
+      await page.uncheck('#seq-lock');
+      check('scale lock off: every semitone is a row (24…96)', (await SQ()).roll.rows === 73);
+      await page.check('#seq-lock');
+      // The grid: keys on a cell, a new pattern, copy as new.
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="3"]');
+      await page.keyboard.press('1');
+      check('typing a number in a cell plays that pattern there', (await SQ()).song.tracks[0].sequence[3] === 1);
+      await page.keyboard.press('Delete');
+      check('Delete makes it a rest; the Notes tab offers a new pattern', (await SQ()).song.tracks[0].sequence[3] === 0 && await page.isVisible('#seq-startpattern'));
+      await page.click('#seq-startpattern');
+      check('a new pattern gets the next number in that bar', (await SQ()).song.tracks[0].patterns.length === 3 && (await SQ()).song.tracks[0].sequence[3] === 3 && (await page.textContent('#seq-grid .seq-cell[data-track="0"][data-bar="3"]')) === '3');
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="0"]');
+      await page.click('#seq-copypattern');
+      const t0 = (await SQ()).song.tracks[0];
+      check('Copy as new: the bar plays a copy (same notes, a new number), the other bars keep the original', t0.patterns.length === 4 && t0.sequence[0] === 4 && t0.sequence[2] === 1
+        && JSON.stringify(t0.patterns[3]) === JSON.stringify(t0.patterns[0]));
+      check('the pattern bar says where a pattern also plays', /Only in this bar/.test(await page.textContent('#seq-patternbar')));
+      // Drums: a step grid; click toggles, Shift+click is soft.
+      await page.click('#seq-grid .seq-cell[data-track="1"][data-bar="2"]');
+      await page.waitForSelector('#seq-drums');
+      await page.click('#seq-drums .seq-step[data-row="3"][data-step="2"]');
+      await page.click('#seq-drums .seq-step[data-row="3"][data-step="6"]', { modifiers: ['Shift'] });
+      let dn = (await SQ()).song.tracks[1].patterns[0].notes;
+      check('the drum grid adds hits (the closed hat, row 4); Shift+click a soft one', dn.some((n) => n.pitch === 3 && n.step === 2 && n.velocity === 0.8) && dn.some((n) => n.pitch === 3 && n.step === 6 && n.velocity === 0.45), dn);
+      await page.click('#seq-drums .seq-step[data-row="0"][data-step="0"]');
+      dn = (await SQ()).song.tracks[1].patterns[0].notes;
+      check('…and a click on a hit removes it', !dn.some((n) => n.pitch === 0 && n.step === 0) && (await page.getAttribute('#seq-drums .seq-step[data-row="0"][data-step="0"]', 'aria-pressed')) === 'false');
+      // Mute and solo.
+      await page.click('#seq-grid .seq-row[data-track="1"] .seq-ms[title="Mute"]');
+      check('M mutes a track', (await SQ()).song.tracks[1].mute === true && await page.$eval('#seq-grid .seq-row[data-track="1"]', (r) => r.classList.contains('muted')));
+      await page.click('#seq-grid .seq-row[data-track="1"] .seq-ms[title="Mute"]');
+      // Undo.
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorSequencer._state().future > 0);
+      check('Ctrl+Z steps back', (await SQ()).future > 0);
+      await page.keyboard.press('Control+y');
+      // A sample track: pick a WAV, its root note.
+      await page.selectOption('#seq-addtrack', 'sample');
+      check('＋ Add a track › Sample: a new track, its Instrument tab, playing in the selected bar', (await SQ()).song.tracks.length === 3 && (await SQ()).tab === 'instrument' && (await SQ()).song.tracks[2].sequence.filter(Boolean).length === 1);
+      await page.click('#seq-pick');
+      await waitFn(page, () => NoorSequencer._state().song.tracks[2].instrument.path);
+      check('Choose a WAV: the sample is the instrument', (await SQ()).song.tracks[2].instrument.sampleName === 'kalimba C4.wav' && /kalimba/.test(await page.textContent('#seq-samplename')));
+      await page.fill('#seq-rootnote', '72'); await page.press('#seq-rootnote', 'Enter');
+      check('…recorded as C5', (await SQ()).song.tracks[2].instrument.rootNote === 72);
+      await page.selectOption('#seqbench .sb-addfx[data-addfx="track"]', 'reverb');
+      check('effects on a track (the Sound Bench\'s)', (await SQ()).song.tracks[2].effects[0].type === 'reverb' && !!(await page.$('#seqbench .sb-fx[data-fx-type="reverb"]')));
+      await page.selectOption('#seqbench .sb-addfx[data-addfx="track"]', 'convolution');
+      check('convolution offers the built-in spaces only here (no recording to pick)', (await page.$$eval('#seqbench .sb-fx[data-fx-type="convolution"] select[data-fx="space"] option', (o) => o.map((x) => x.value))).join() === 'room,hall,church,cave,plate,tunnel');
+      // Song settings.
+      await page.fill('#seq-tempo', '120'); await page.press('#seq-tempo', 'Enter');
+      await page.selectOption('#seq-scale', 'minor');
+      await page.fill('#seq-bars', '12'); await page.press('#seq-bars', 'Enter');
+      const sg = (await SQ()).song;
+      check('tempo, scale and length; longer songs get rests at the end', sg.tempo === 120 && sg.scale === 'minor' && sg.bars === 12 && sg.tracks.every((t) => t.sequence.length === 12 && t.sequence[11] === 0) && (await page.$$('#seq-grid .seq-barnum')).length === 12);
+      // Playback: from a bar, and the loop.
+      await page.click('#seq-grid .seq-barnum[data-barnum="2"]');
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing);
+      let rr = (await M()).renders.at(-1);
+      check('▶ renders the song from the clicked bar (the app does the sound) and plays it', rr.fromBar === 2 && rr.loop === false && rr.song.tempo === 120 && (await SQ()).src === '/_media/4');
+      await page.keyboard.press('Space');
+      await waitFn(page, () => !NoorSequencer._state().playing);
+      await page.click('#seq-grid .seq-barnum[data-barnum="5"]', { modifiers: ['Shift'] });
+      check('Shift+click on a bar number ends the loop there', (await SQ()).song.loopEnd === 6);
+      await page.click('#seq-loop');
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing);
+      rr = (await M()).renders.at(-1);
+      check('🔁 plays the loop over and over', rr.loop === true && (await SQ()).loopMode && (await page.evaluate(() => NoorSequencer._state().render.loop)));
+      await page.keyboard.press('Space');
+      // Export and save.
+      await page.click('#seqbench .sb-tabs [data-tab="song"]');
+      await page.check('#seq-part-midi');
+      await page.check('#seq-part-stems');
+      await page.selectOption('#ex-music-layout', 'godot');
+      await waitFn(page, () => /assets\/audio\/music\/cozy_exploration/.test(document.querySelector('#ex-music-preview').textContent));
+      check('Where: the Godot layout puts music in assets/audio/music, with the loop and MIDI listed', /cozy_exploration_loop\.wav/.test(await page.textContent('#ex-music-preview')) && /cozy_exploration\.mid/.test(await page.textContent('#ex-music-preview')));
+      await page.click('#seq-export');
+      await waitFn(page, () => window.__mock.state.seq.exports.length === 1);
+      const ex = (await M()).exports[0];
+      check('Export sends the song, the parts (mix, loop, stems, MIDI) and the layout', ex.parts.mix && ex.parts.loop && ex.parts.stems && ex.parts.midi && ex.layout === 'godot' && ex.song.tracks.length === 3);
+      await waitFn(page, () => !!document.querySelector('#seq-reveal'));
+      check('…and says what was saved, with Show in folder', /Cozy_exploration_loop\.wav/.test(await page.textContent('#seq-export-status')));
+      await page.click('#seq-save');
+      await waitFn(page, () => window.__mock.state.seq.saves.length === 1);
+      await waitFn(page, () => !!document.querySelector('.seq-mine'));
+      check('Save to My songs: listed under My songs and under New song from…', (await page.$$('.seq-mine')).length === 1 && (await page.$$eval('#seq-template option', (o) => o.map((x) => x.value))).includes('user:Cozy exploration.json'));
+      // A new song from a template asks first.
+      await page.selectOption('#seq-template', 'empty');
+      await page.waitForSelector('.modal');
+      await page.click('.modal button:has-text("Start new")');
+      await waitFn(page, () => NoorSequencer._state().song.name === 'Untitled song');
+      check('New song from › Empty song (after asking): no notes, history cleared', (await SQ()).song.tracks.every((t) => t.patterns.every((p) => !p.notes.length)) && (await SQ()).history === 0);
+      await page.click('#seq-open');
+      await waitFn(page, () => NoorSequencer._state().song.name === 'Opened song');
+      check('📂 opens a .noorsong.json', (await SQ()).song.tempo === 120);
+      // One sound at a time.
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing);
+      await page.evaluate(() => NoorSound.open());
+      await page.waitForSelector('#sb-play');
+      await waitFn(page, () => NoorSound._state().render);
+      await page.click('#sb-play');
+      await waitFn(page, () => !NoorSequencer._state().playing);
+      check('the Sound Bench playing stops the song', !(await SQ()).playing);
+      check('no page errors in NoorSequencer', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -832,6 +832,28 @@ public partial class MainWindow
                 && sbp.Contains("\\\"peaks\\\":1200") && sbp.Contains("refused"), $"grains {grains.RmsDb} dB, stretched {stretched.RmsDb} dB, {sbp}");
         }
 
+        // NoorSequencer: a template renders in the app (the loop wrapped), the page can play it, and MIDI is written.
+        {
+            await Eval(@"window.__seq = null; (async () => {
+                try {
+                    const song = await NoorBridge.request('seq.template', { id: 'arcade' });
+                    const out = await NoorBridge.request('seq.render', { song, loop: true });
+                    const a = new Audio(); a.muted = true;
+                    a.onloadedmetadata = () => window.__seq = JSON.stringify({ url: out.url, seconds: out.seconds, duration: a.duration, bars: out.toBar - out.fromBar, bar: out.barSeconds });
+                    a.onerror = () => window.__seq = 'error ' + (a.error && a.error.code);
+                    a.src = out.url;
+                } catch (e) { window.__seq = 'error ' + e.message; } })()");
+            var seq = "null";
+            for (var i = 0; i < 100 && seq == "null"; i++) { await Task.Delay(100); seq = await Eval("window.__seq"); }
+            var arcade = SongTemplates.Make("arcade")!;
+            var loopSeconds = (arcade.LoopEnd - arcade.LoopStart) * arcade.BarSeconds;
+            var seqDuration = System.Text.RegularExpressions.Regex.Match(seq, @"duration\\"":([0-9.]+)").Groups[1].Value;
+            Check("NoorSequencer: a template's loop renders in the app and the page can play it (the loop's exact length)", seq.Contains("_sound")
+                && double.TryParse(seqDuration, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seqSeconds) && Math.Abs(seqSeconds - loopSeconds) < 0.05, seq);
+            var midi = SequencerEngine.ToMidi(arcade);
+            Check("NoorSequencer: MIDI is a type 1 file with a track for each track", midi.Length > 200 && midi[0] == (byte)'M' && midi[9] == 1 && midi[11] == arcade.Tracks.Count + 1);
+        }
+
         // Texture Bench: a material renders in the app, its maps are served to the page and load as pictures.
         {
             await Eval(@"window.__tex = null; (async () => {
