@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.0-preview.32 — Sound Bench: buses, sends and stems
+
+The first part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md), chosen as the
+most contained part of it.
+
+- **Buses (shared effects):** add a reverb bus, a delay bus or an empty one (up to four), each with its own
+  name, level, mute and effects chain. Send several layers to one bus so they share one reverb and sound like
+  one place, which separate reverbs on each layer don't do.
+- **Sends:** every layer gets a send level for each bus (−60 dB is off). A send is only stored once you move it,
+  and removing a bus removes the sends and connections to it.
+- **Modulation reaches buses too:** a bus's level and any of its effects can be connected to controls and
+  modulators ("Cave (bus) › 1. Reverb › Mix").
+- **Stems:** Export can also write each layer on its own, with its share of the buses, in a folder beside the
+  file. Normalising and the loudness target are worked out once on the whole sound and applied the same way to
+  every stem, so a quiet layer stays quiet and the stems line up with the mix (they add up to it whenever the
+  ceiling's limiter isn't working). Muted layers get no stem; with solo on, only the soloed ones do.
+- **New preset:** *Footsteps in a stone hall*, hard steps sharing one big reverb on a bus. 51 presets in all.
+- **Nothing changes for your saved sounds:** a recipe without buses renders exactly as before.
+
 ## 2.0.0-preview.31 — Sound Bench: meters, spectrogram and fair comparisons
 
 Stage 4 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): see and measure what you hear,

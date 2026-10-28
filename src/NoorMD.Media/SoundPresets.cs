@@ -149,6 +149,18 @@ public static class SoundPresets
             r.Duration = 4.4;
             return r;
         }),
+        new("walk-hall", "Footsteps", "Footsteps in a stone hall", "Hard steps sharing one big reverb: a bus (loops).", () =>
+        {
+            var r = Ambience("Footsteps", "Footsteps in a stone hall", 6, 0, 0.5,
+                new SoundLayer { Type = "synth", Name = "Heels", Wave = "triangle", Pitch = 190, PitchEnd = 120, Attack = 0.001, Release = 0.06, Repeat = 0.6, Gain = -8, Width = 0 },
+                new SoundLayer { Type = "events", Name = "Grit", Density = 1 / 0.6, Rhythm = 1, Burst = 4, BurstSpread = 15, Pitch = 2400, PitchSpread = 0.4, Tone = 0.3, Decay = 6, Gain = -16, GainSpread = 4, Width = 0.3 });
+            r.Duration = 4.8;
+            r.Buses.Add(new SoundBus { Name = "Hall", Effects = [new SoundEffect { Type = "reverb", Size = 0.9, Damping = 0.35, PreDelay = 30, Mix = 1 }, new SoundEffect { Type = "eq", Kind = "highpass", Freq = 250, Q = 0.7 }] });
+            r.Clamped();
+            r.Layers[0].Sends.Add(new SoundSend { Bus = "B1", Level = -6 });
+            r.Layers[1].Sends.Add(new SoundSend { Bus = "B1", Level = -9 });
+            return r;
+        }),
         // Impacts and weapons.
         new("hit-wood", "Impacts", "Wooden knock", "Knuckles or a stick on wood.", () => OneShot("Impacts", "Wooden knock", 0.5,
             Synth("Knock", "triangle", 190, 150, 0.001, 0, 0.12, -4),
@@ -304,7 +316,7 @@ public static class SoundPresets
         ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 21,
         ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 9.5, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
         ["fire-camp"] = 11, ["water-stream"] = 15, ["water-falls"] = 6,
-        ["walk-gravel"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 20.5, ["machine-fan"] = 2,
+        ["walk-gravel"] = 8, ["walk-hall"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 20.5, ["machine-fan"] = 2,
     };
 
     /// <summary>Adds a named control (shown in Quick) and its connections; layers are L1, L2… in the order given.</summary>

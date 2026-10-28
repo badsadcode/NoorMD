@@ -15,8 +15,9 @@ first, and anything that conflicts with it waits.
   preview.28. Stage 2, controls and modulators routed to any setting with drawn automation: preview.29. Stage 3,
   samples (a region editor on the waveform, stretch with pitch apart from speed, grain clouds, crossfaded loops):
   preview.30. Stage 4, feedback (meters with LUFS and true peak, a spectrogram, a loudness target, matched A/B
-  and a reference clip): preview.31. Last stage from that proposal, only after listening tests: optional buses,
-  resonators, convolution, stems and a node view.
+  and a reference clip): preview.31. Stage 5, first part (buses with sends, stems): preview.32. Still open from
+  that stage, each only after trying the last on real sounds: resonators, convolution with your own impulse
+  responses, and a node view.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

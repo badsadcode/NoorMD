@@ -466,10 +466,10 @@ function mockHostScript(initial) {
       case 'sound.reference.pick': SND.refPicks = (SND.refPicks || 0) + 1; return { url: '/_media/4', name: 'boss door.wav', seconds: 3, peaks: Array.from({ length: 1200 }, (_, i) => (i % 2 ? 0.7 : -0.7)), feedback: sndFeedback(-12, []) };
       case 'sound.reference.clear': SND.refCleared = (SND.refCleared || 0) + 1; return null;
       case 'sound.export': {
-        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits });
+        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems });
         const stem = p.recipe.name.replace(/ /g, '_');
         const files = p.variations > 1 ? Array.from({ length: p.variations }, (_, i) => `${stem}_${String(i + 1).padStart(2, '0')}.wav`) : [stem + '.wav'];
-        return { folder: 'D:\\Game\\Audio', files, recipe: stem + '.noorsound.json' };
+        return { folder: 'D:\\Game\\Audio', files, recipe: stem + '.noorsound.json', stems: p.stems ? files.map((f) => f.replace(/\.wav$/, ' stems')) : [] };
       }
       case 'sound.reveal': if (p.folder !== 'D:\\Game\\Audio') throw new Error('That is not a folder the sounds went to.'); SND.opened = p.folder; return null;
       case 'sound.save': {

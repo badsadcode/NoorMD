@@ -719,6 +719,7 @@ window.NoorSound = (() => {
               playMode(l), check('reverse', 'Backwards', true), ...(l.playMode === 'grains' ? [] : [check('loopSample', 'Loop it', true)]), check('useFilter', 'Filter'), choice('filter')] : [])),
         ...(l.type === 'sample' ? [regionEditor(l)] : []),
         el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))),
+        ...((recipe.buses || []).length ? [sendsRow(l)] : []),
         el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i, l.id)));
     });
     return [
@@ -732,6 +733,66 @@ window.NoorSound = (() => {
         }
         recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
       } }, '＋ ' + TYPE_LABEL[t]))),
+      ...busesSection(),
+    ];
+  }
+
+  // ---------------------------------------------------------------- buses (shared effects) and sends
+
+  const NEW_BUS = {
+    reverb: () => ({ name: 'Reverb bus', gain: 0, mute: false, effects: [{ type: 'reverb', bypass: false, out: 0, ...clone(NEW_FX.reverb), mix: 1 }] }),
+    delay: () => ({ name: 'Delay bus', gain: 0, mute: false, effects: [{ type: 'delay', bypass: false, out: 0, ...clone(NEW_FX.delay), mix: 1 }] }),
+    empty: () => ({ name: 'Bus', gain: 0, mute: false, effects: [] }),
+  };
+
+  /** A layer's sends: one level per bus (−60 dB = off). A send is only stored once it is moved. */
+  function sendsRow(l) {
+    const sliders = recipe.buses.map((b) => {
+      const send = {
+        get level() { const x = (l.sends || []).find((y) => y.bus === b.id); return x ? x.level : -60; },
+        set level(v) { l.sends ||= []; const x = l.sends.find((y) => y.bus === b.id); if (x) x.level = v; else l.sends.push({ bus: b.id, level: v }); },
+      };
+      const row = slider(send, ['level', `Send to ${b.name || b.id}`, -60, 6, 0.5, 'db'], false);
+      row.dataset.send = b.id;
+      return row;
+    });
+    return el('div', { class: 'sb-fields sb-sends' }, ...sliders);
+  }
+
+  function busesSection() {
+    const cards = (recipe.buses || []).map((b, i) => {
+      const name = el('input', { type: 'text', value: b.name, 'aria-label': 'Bus name', spellcheck: 'false', maxlength: '40' });
+      name.addEventListener('input', () => {
+        b.name = name.value;
+        // The layers' sends say where they go: renamed in place, so typing keeps its focus.
+        document.querySelectorAll(`#soundbench [data-send="${b.id}"] > span:first-child`).forEach((n) => { n.textContent = `Send to ${b.name || b.id}`; });
+        changed(false);
+      });
+      const remove = () => {
+        for (const l of recipe.layers) l.sends = (l.sends || []).filter((x) => x.bus !== b.id);
+        dropRoutes((t) => t.startsWith(b.id + ':') || t.startsWith(b.id + '/'));
+        recipe.buses.splice(i, 1);
+        changed(true);
+      };
+      return el('section', { class: 'sb-layer sb-bus' + (b.mute ? ' muted' : ''), 'data-bus': b.id },
+        el('div', { class: 'sb-layer-head' },
+          el('span', { class: 'sb-type', text: '⇉ Bus' }), name,
+          el('button', { class: 'icon-btn sb-ms' + (b.mute ? ' on' : ''), title: 'Mute this bus', 'aria-pressed': String(!!b.mute), onclick: () => { b.mute = !b.mute; changed(true); } }, 'M'),
+          el('button', { class: 'icon-btn', title: 'Remove this bus (and the sends to it)', 'aria-label': 'Remove this bus', onclick: remove }, '✕')),
+        el('div', { class: 'sb-fields' }, slider(b, ['gain', 'Level', -60, 12, 0.5, 'db'], false)),
+        effectsRack(b.effects ||= [], 'bus-' + i, b.id));
+    });
+    const full = (recipe.buses || []).length >= 4;
+    return [
+      el('h4', { class: 'music-subhead', text: 'Buses (shared effects)' }),
+      el('p', { class: 'pref-hint', text: 'Send several layers to one bus, so they share one reverb or delay and sound like one place. Each layer gets a send level for every bus.' }),
+      ...cards,
+      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }),
+        ...[['reverb', '＋ Reverb bus'], ['delay', '＋ Delay bus'], ['empty', '＋ Empty bus']].map(([k, label]) => el('button', { class: 'utility-btn', 'data-addbus': k, disabled: full || undefined, onclick: () => {
+          recipe.buses ||= [];
+          recipe.buses.push(NEW_BUS[k]());
+          changed(true);
+        } }, label))),
     ];
   }
 
@@ -755,6 +816,8 @@ window.NoorSound = (() => {
     assign(r.layers, 'L');
     for (const l of r.layers) assign(l.effects ||= [], 'F');
     assign(r.master.effects ||= [], 'F');
+    assign(r.buses ||= [], 'B');
+    for (const b of r.buses) assign(b.effects ||= [], 'F');
     assign(r.knobs, 'K', assign(r.modulators, 'M'));
   }
 
@@ -778,6 +841,10 @@ window.NoorSound = (() => {
       const params = ['gain', 'pan', ...(l.type === 'noise' ? [] : ['pitch']), 'freq', ...(l.type === 'events' || grains ? ['density'] : []), ...(grains ? ['position'] : [])];
       for (const p of params) out.push([`${l.id}:${p}`, `${l.name || l.id} › ${grains && p === 'density' ? 'Grains per second' : LAYER_TARGETS[p][0]}`, LAYER_TARGETS[p]]);
       fxTargets(l.id, l.name || l.id, l.effects || []);
+    }
+    for (const b of recipe.buses || []) {
+      out.push([`${b.id}:gain`, `${b.name || b.id} (bus) › Level`, LAYER_TARGETS.gain]);
+      fxTargets(b.id, `${b.name || b.id} (bus)`, b.effects || []);
     }
     for (const p of Object.keys(MASTER_TARGETS)) out.push([`master:${p}`, `Master › ${MASTER_TARGETS[p][0]}`, MASTER_TARGETS[p]]);
     fxTargets('master', 'Master', recipe.master.effects || []);
@@ -954,6 +1021,12 @@ window.NoorSound = (() => {
         sel('sb-variations', 'Files', [1, 2, 3, 4, 5, 8, 10].map((n) => [n, n === 1 ? 'Just this one' : `${n} variations`]), prefs.variations, 'variations'),
         sel('sb-rate', 'Sample rate', [[48000, '48 kHz'], [44100, '44.1 kHz']], prefs.sampleRate, 'sampleRate'),
         sel('sb-bits', 'Bits', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits')),
+      (() => {
+        const c = el('input', { type: 'checkbox', id: 'sb-stems', checked: prefs.stems || undefined });
+        c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), stems: c.checked }));
+        return el('label', { class: 'sb-inline', title: 'For a game engine or a video editor: each layer with its share of the buses, at the same gain as the mix, so they line up' },
+          c, el('span', { text: 'Also stems: each layer on its own, in a folder beside the file' }));
+      })(),
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'sb-export', onclick: exportSound }, '⤓ Export WAV…'),
         el('button', { class: 'action', id: 'sb-save', onclick: savePreset }, '★ Save as my preset…')),
@@ -1019,10 +1092,11 @@ window.NoorSound = (() => {
     const p = exportPrefs();
     const status = $('#sb-export-status');
     try {
-      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits });
+      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems });
       if (!r || r.cancelled) return;
       if (status) {
-        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${r.folder}. ` }),
+        const stems = r.stems && r.stems.length ? ` Stems: ${r.stems.join(', ')}.` : '';
+        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${r.folder}.${stems} ` }),
           el('button', { class: 'utility-btn', id: 'sb-reveal', onclick: () => req('sound.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
       notice(`Exported ${r.files.join(', ')}`, 2600);

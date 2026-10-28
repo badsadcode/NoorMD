@@ -103,6 +103,9 @@ public static class SoundTargets
 
     public static bool IsEffect(string target) => target.Contains('/');
 
+    /// <summary>Bus targets: "B1:gain" (dB), and its effects like any other ("B1/F1:mix").</summary>
+    public static readonly string[] BusParams = ["gain"];
+
     public static (double Lo, double Hi) AmountRange(string target) => (IsEffect(target), Param(target)) switch
     {
         (false, "gain") => (-48, 48),

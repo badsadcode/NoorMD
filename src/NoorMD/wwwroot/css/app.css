@@ -1395,6 +1395,8 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sb-route-head select { flex: 1; min-width: 0; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12.5px; }
 .sb-route-head .icon-btn { width: 24px; height: 24px; font-size: 12px; }
 .sb-curvewrap { margin: 6px 0; }
+.sb-bus { border-left: 3px solid var(--accent); }
+.sb-sends { margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--border); }
 .sb-feedback { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .sb-feedback .sb-status { flex: 1; min-width: 200px; }
 .sb-meters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 8px; }

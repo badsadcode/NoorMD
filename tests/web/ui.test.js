@@ -3701,6 +3701,63 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.view'); } catch { /* */ } });
       await page.close();
     }
+
+    // ---- 42. Sound Bench buses and stems: shared reverb, sends per layer, bus effects and level as targets, stems on export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      check('no sends until there is a bus', !(await page.$('.sb-sends')));
+      await page.click('[data-addbus="reverb"]');
+      await page.waitForSelector('.sb-bus[data-bus="B1"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).buses?.length === 1);
+      const bus = (await last()).buses[0];
+      check('＋ Reverb bus adds a bus with a fully wet reverb', bus.id === 'B1' && bus.name === 'Reverb bus' && bus.effects[0].type === 'reverb' && bus.effects[0].mix === 1 && bus.effects[0].id === 'F1');
+      check('…and every layer gets a send to it, off until moved', (await page.$$('.sb-layer[data-index] [data-send="B1"]')).length === 3 && (await last()).layers.every((l) => !(l.sends || []).length));
+      const sendBox = '.sb-layer[data-index="0"] [data-send="B1"] input[data-num="level"]';
+      check('…a send reads −60 dB (off)', (await page.inputValue(sendBox)) === '-60');
+      await page.fill(sendBox, '-9');
+      await page.press(sendBox, 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers[0].sends?.[0]?.level === -9);
+      check('moving a send stores it for that layer', (await last()).layers[0].sends[0].bus === 'B1' && (await last()).layers.slice(1).every((l) => !(l.sends || []).length));
+      await page.fill('.sb-bus[data-bus="B1"] input[aria-label="Bus name"]', 'Cave');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).buses[0].name === 'Cave');
+      check('a bus can be named; the send says where it goes', /Send to Cave/.test(await page.textContent('.sb-layer[data-index="0"] [data-send="B1"]')));
+      await page.selectOption('[data-addfx="bus-0"]', 'eq');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).buses[0].effects.length === 2);
+      check('a bus has its own effects chain', (await last()).buses[0].effects[1].id === 'F2');
+      await page.click('#soundbench .sb-tabs button[data-tab="mod"]');
+      await page.click('#sb-addknob');
+      await page.waitForSelector('[data-addroute="K1"]');
+      const opts = await page.$$eval('[data-addroute="K1"] option', (n) => n.map((o) => o.textContent));
+      check('a bus\'s level and effects can be modulated', opts.includes('Cave (bus) › Level') && opts.includes('Cave (bus) › 1. Reverb › Mix') && opts.includes('Cave (bus) › 2. EQ band › Boost / cut'));
+      await page.selectOption('[data-addroute="K1"]', 'B1:gain');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).routes.some((r) => r.target === 'B1:gain'));
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('.sb-bus[data-bus="B1"] button[aria-label="Remove this bus"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).buses.length === 0);
+      check('removing a bus removes the sends and connections to it', (await last()).layers.every((l) => !(l.sends || []).length) && (await last()).routes.length === 0 && !(await page.$('.sb-sends')));
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.check('#sb-stems');
+      await page.click('#sb-export');
+      await waitFn(page, () => window.__mock.state.sound.exports.length === 1);
+      await page.waitForSelector('#sb-reveal');
+      check('Export can also write stems', (await page.evaluate(() => window.__mock.state.sound.exports[0].stems)) === true && /Stems: Gentle_forest_breeze stems\./.test(await page.textContent('#sb-export-status')));
+      check('…and remembers that choice', await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.sound.export')).stems === true));
+      await page.uncheck('#sb-stems');
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with buses and stems', unexpected.length === 0, unexpected);
+      if (shots) {
+        await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+        await page.click('[data-addbus="reverb"]');
+        await page.waitForSelector('.sb-bus');
+        await page.evaluate(() => document.querySelector('.sb-bus').scrollIntoView());
+        await page.screenshot({ path: `${shots}/sound-buses.png` });
+      }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

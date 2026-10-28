@@ -225,6 +225,7 @@ public partial class MainWindow
                     var count = Math.Clamp((int)(NoorMD.Core.Bridge.Json.OptDouble(p, "variations") ?? 1), 1, 20);
                     var bits = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "bits") ?? 16) == 24 ? 24 : 16;
                     var rate = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "sampleRate") ?? SoundRate) == 44100 ? 44100 : 48000;
+                    var withStems = p.TryGetProperty("stems", out var stemsEl) && stemsEl.ValueKind == JsonValueKind.True;
                     var dlg = new OpenFolderDialog { Title = $"Save “{recipe.Name}” ({count} file{(count == 1 ? "" : "s")}) in… (you can make a new folder here)" };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
@@ -233,14 +234,33 @@ public partial class MainWindow
                     stem = Path.GetFileNameWithoutExtension(stem);
                     var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var files = new List<string>();
+                    var stemFolders = new List<string>();
                     for (var i = 0; i < count; i++)
                     {
                         var v = recipe.Clone();
                         v.Seed = recipe.Seed + i;
                         var name = count == 1 ? stem : $"{stem}_{i + 1:00}";
                         var path = PictureConvert.FreePath(folder, name, ".wav", taken);
-                        var render = await Task.Run(() => SoundEngine.Render(v, rate, LoadSample));
-                        await File.WriteAllBytesAsync(path, render.ToWav(bits));
+                        if (withStems)
+                        {
+                            // The mix as usual, and beside it a folder with each layer on its own (same gain as the mix).
+                            var stems = await Task.Run(() => SoundEngine.RenderStems(v, rate, LoadSample));
+                            await File.WriteAllBytesAsync(path, stems[0].Render.ToWav(bits));
+                            var stemDir = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(path) + " stems", "", taken);
+                            Directory.CreateDirectory(stemDir);
+                            var stemTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                            for (var k = 1; k < stems.Count; k++)
+                            {
+                                var layerName = Path.GetFileNameWithoutExtension(NoorMD.Core.Documents.DocumentFile.SafeFileName($"{k:00} {stems[k].Name}", ".wav"));
+                                await File.WriteAllBytesAsync(PictureConvert.FreePath(stemDir, layerName, ".wav", stemTaken), stems[k].Render.ToWav(bits));
+                            }
+                            stemFolders.Add(stemDir);
+                        }
+                        else
+                        {
+                            var render = await Task.Run(() => SoundEngine.Render(v, rate, LoadSample));
+                            await File.WriteAllBytesAsync(path, render.ToWav(bits));
+                        }
                         files.Add(path);
                         PushEvent("sound.exportProgress", new { done = i + 1, total = count });
                     }
@@ -249,7 +269,7 @@ public partial class MainWindow
                     await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
                     _soundFolders.Add(folder);
                     Log.Info($"Sound Bench: exported {files.Count} file(s) of “{recipe.Name}”");
-                    return new { folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath) };
+                    return new { folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemFolders.Select(Path.GetFileName) };
                 }
                 case "sound.reveal":
                 {

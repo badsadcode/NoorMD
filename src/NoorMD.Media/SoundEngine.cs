@@ -156,7 +156,10 @@ public sealed class SoundLayer
     /// <summary>This layer's effects, in order (EQ, compressor, delay…).</summary>
     public List<SoundEffect> Effects { get; set; } = [];
 
-    public SoundLayer Clone() { var c = (SoundLayer)MemberwiseClone(); c.Effects = Effects.Select(e => e.Clone()).ToList(); return c; }
+    /// <summary>How much of this layer also goes to each bus (after its own effects, level and pan).</summary>
+    public List<SoundSend> Sends { get; set; } = [];
+
+    public SoundLayer Clone() { var c = (SoundLayer)MemberwiseClone(); c.Effects = Effects.Select(e => e.Clone()).ToList(); c.Sends = Sends.Select(x => new SoundSend { Bus = x.Bus, Level = x.Level }).ToList(); return c; }
 }
 
 public sealed class MasterSettings
@@ -181,6 +184,29 @@ public sealed class MasterSettings
     public List<SoundEffect> Effects { get; set; } = [];
 }
 
+/// <summary>
+/// A bus: effects shared by the layers that send to it (one reverb for all, so they sound like one place). Its
+/// output joins the layers before the master.
+/// </summary>
+public sealed class SoundBus
+{
+    public const int Max = 4;
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Bus";
+    /// <summary>The bus's level (dB) as it joins the mix.</summary>
+    public double Gain { get; set; }
+    public bool Mute { get; set; }
+    public List<SoundEffect> Effects { get; set; } = [];
+}
+
+/// <summary>A layer's send to a bus, in dB (−60 and below is off).</summary>
+public sealed class SoundSend
+{
+    public const int Max = SoundBus.Max;
+    public string Bus { get; set; } = "";
+    public double Level { get; set; } = -12;
+}
+
 public sealed class SoundRecipe
 {
     public int Version { get; set; } = 1;
@@ -201,6 +227,8 @@ public sealed class SoundRecipe
     public List<SoundKnob> Knobs { get; set; } = [];
     /// <summary>Source → target connections.</summary>
     public List<SoundRoute> Routes { get; set; } = [];
+    /// <summary>Buses (shared effects) that layers send to.</summary>
+    public List<SoundBus> Buses { get; set; } = [];
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
 
@@ -296,6 +324,19 @@ public sealed class SoundRecipe
         Assign(Layers, "L", l => l.Id, (l, v) => l.Id = v);
         foreach (var l in Layers) Assign(l.Effects, "F", e => e.Id, (e, v) => e.Id = v);
         Assign(Master.Effects, "F", e => e.Id, (e, v) => e.Id = v);
+        Buses = (Buses ?? []).Where(b => b != null).Take(SoundBus.Max).ToList();
+        foreach (var b in Buses)
+        {
+            b.Name = string.IsNullOrWhiteSpace(b.Name) ? "Bus" : b.Name.Trim()[..Math.Min(b.Name.Trim().Length, 40)];
+            b.Gain = C(b.Gain, -60, 12);
+            b.Effects = (b.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
+        }
+        Assign(Buses, "B", b => b.Id, (b, v) => b.Id = v);
+        foreach (var b in Buses) Assign(b.Effects, "F", e => e.Id, (e, v) => e.Id = v);
+        var busIds = Buses.Select(b => b.Id).ToHashSet(StringComparer.Ordinal);
+        foreach (var l in Layers)
+            l.Sends = (l.Sends ?? []).Where(x => x != null && busIds.Contains(x.Bus ?? "")).GroupBy(x => x.Bus).Select(g => g.First())
+                .Select(x => { x.Level = C(x.Level, -60, 6); return x; }).ToList();
         Modulators = (Modulators ?? []).Where(m => m != null).Take(SoundModulator.Max).Select(m => m.Clamped()).ToList();
         Knobs = (Knobs ?? []).Where(k => k != null).Take(SoundKnob.Max).Select(k => k.Clamped()).ToList();
         var sources = new HashSet<string>(StringComparer.Ordinal);
@@ -404,7 +445,35 @@ public static class SoundEngine
     /// <param name="samples">Reads a sample layer's file (null when it can't or may not be used).</param>
     /// <param name="timeline">The length (seconds) drawn curves span; by default the recipe's. A preview that renders only
     /// the start of a long sound passes the full length, so its automation is heard where it will be in the export.</param>
-    public static SoundRender Render(SoundRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null, double? timeline = null)
+    public static SoundRender Render(SoundRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null, double? timeline = null) =>
+        RenderCore(recipe, sampleRate, samples, timeline, null, null, out _);
+
+    /// <summary>
+    /// The whole sound, then each layer that is heard on its own (with its share of the buses): stems that line up with
+    /// the mix. Normalising and the loudness target are worked out once, on the mix, and the same gain is given to every
+    /// stem, so a quiet layer stays quiet and the stems added together come close to the mix.
+    /// </summary>
+    public static IReadOnlyList<(string Name, SoundRender Render)> RenderStems(SoundRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
+    {
+        var mix = RenderCore(recipe, sampleRate, samples, null, null, null, out var scale);
+        var r = recipe.Clone().Clamped();
+        var soloing = r.Layers.Any(l => l.Solo && !l.Mute);
+        var stems = new List<(string, SoundRender)> { ("Mix", mix) };
+        for (var k = 0; k < r.Layers.Count; k++)
+        {
+            var layer = r.Layers[k];
+            if (layer.Mute || (soloing && !layer.Solo)) continue;
+            var only = k;
+            stems.Add((layer.Name, RenderCore(recipe, sampleRate, samples, null, i => i == only, scale, out _)));
+        }
+        return stems;
+    }
+
+    /// <param name="keep">Only these layers (by index) are rendered: a stem.</param>
+    /// <param name="fixedScale">The gain normalising and the loudness target gave the mix, used instead of working them out again.</param>
+    /// <param name="scale">The gain normalising and the loudness target gave (1 when neither is on).</param>
+    private static SoundRender RenderCore(SoundRecipe recipe, int sampleRate, Func<string, SampleAudio?>? samples, double? timeline,
+        Func<int, bool>? keep, double? fixedScale, out double scale)
     {
         if (sampleRate is < 8000 or > 192000) throw new ArgumentException("Sample rate out of range.");
         var r = recipe.Clone().Clamped().WithMacrosApplied();
@@ -418,10 +487,12 @@ public static class SoundEngine
         var soloing = r.Layers.Any(l => l.Solo && !l.Mute);
         var warnings = new List<string>();
         var mods = new ModulationField(r, sampleRate, total, timeline is > 0 and < 3600 ? (int)Math.Round(timeline.Value * sampleRate) : length);
+        var buses = r.Buses.Where(b => !b.Mute).ToDictionary(b => b.Id, _ => (L: new double[total], R: new double[total]), StringComparer.Ordinal);
         for (var k = 0; k < r.Layers.Count; k++)
         {
             var layer = r.Layers[k];
-            if (layer.Mute || (soloing && !layer.Solo)) continue;
+            if (layer.Mute || (soloing && !layer.Solo) || (keep != null && !keep(k))) continue;
+            var sends = layer.Sends.Where(x => x.Level > -60 && buses.ContainsKey(x.Bus)).ToList();
             // Each layer has its own random stream: muting one doesn't change the others.
             var rng = new SoundRng((ulong)(uint)r.Seed * 0x100000001B3UL + (ulong)k * 0x9E37UL + 17);
             // Drive, crush and a filter on a synth or a sample work on the layer alone, before it joins the others.
@@ -429,7 +500,7 @@ public static class SoundEngine
             var gainMod = mods.For(layer.Id + ":gain");
             var panMod = mods.For(layer.Id + ":pan");
             var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass)
-                || gainMod != null || panMod != null;
+                || gainMod != null || panMod != null || sends.Count > 0;
             var tl = post ? new double[total] : L;
             var tr = post ? new double[total] : R;
             switch (layer.Type)
@@ -452,7 +523,22 @@ public static class SoundEngine
                 GainPan(tl, tr, gainMod, panMod);
                 SoundEffects.Apply(layer.Effects, tl, tr, sampleRate, (fx, param) => mods.For($"{layer.Id}/{fx.Id}:{param}"));
                 for (var i = 0; i < total; i++) { L[i] += tl[i]; R[i] += tr[i]; }
+                foreach (var send in sends)
+                {
+                    var (bl, br) = buses[send.Bus];
+                    var g = Math.Pow(10, send.Level / 20);
+                    for (var i = 0; i < total; i++) { bl[i] += tl[i] * g; br[i] += tr[i] * g; }
+                }
             }
+        }
+        // Buses: their effects on what the layers sent, then their level, joining the mix before the master.
+        foreach (var bus in r.Buses)
+        {
+            if (!buses.TryGetValue(bus.Id, out var b)) continue;
+            SoundEffects.Apply(bus.Effects, b.L, b.R, sampleRate, (fx, param) => mods.For($"{bus.Id}/{fx.Id}:{param}"));
+            GainPan(b.L, b.R, mods.For(bus.Id + ":gain"), null);
+            var g = Math.Pow(10, bus.Gain / 20);
+            for (var i = 0; i < total; i++) { L[i] += b.L[i] * g; R[i] += b.R[i] * g; }
         }
         MasterChain(r.Master, L, R, sampleRate, mods.For("master:lowpass"));
         SoundEffects.Apply(r.Master.Effects, L, R, sampleRate, (fx, param) => mods.For($"master/{fx.Id}:{param}"));
@@ -474,14 +560,24 @@ public static class SoundEngine
         var peak = 0.0;
         for (var i = 0; i < length; i++) peak = Math.Max(peak, Math.Max(Math.Abs(outL[i]), Math.Abs(outR[i])));
         var ceiling = Math.Pow(10, r.Master.Ceiling / 20);
-        if (r.Master.Normalize && peak > 1e-6) Scale(outL, outR, ceiling / peak);
-        if (r.Master.TargetLufs < 0) ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling);
-        Limit(outL, outR, ceiling);
-        if (r.Master.TargetLufs < 0)
+        scale = 1;
+        if (fixedScale is { } fixedGain)
         {
-            // The limiter's soft knee can take a little off: measure again and make that up (once, within the same limit).
-            var (after, _, _) = SoundAnalysis.Loudness(outL, outR, sampleRate);
-            if (after > -100 && r.Master.TargetLufs - after > 0.1) { ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling); Limit(outL, outR, ceiling); }
+            if (fixedGain != 1) Scale(outL, outR, fixedGain);
+            scale = fixedGain;
+            Limit(outL, outR, ceiling);
+        }
+        else
+        {
+            if (r.Master.Normalize && peak > 1e-6) { Scale(outL, outR, ceiling / peak); scale *= ceiling / peak; }
+            if (r.Master.TargetLufs < 0) scale *= ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling);
+            Limit(outL, outR, ceiling);
+            if (r.Master.TargetLufs < 0)
+            {
+                // The limiter's soft knee can take a little off: measure again and make that up (once, within the same limit).
+                var (after, _, _) = SoundAnalysis.Loudness(outL, outR, sampleRate);
+                if (after > -100 && r.Master.TargetLufs - after > 0.1) { scale *= ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling); Limit(outL, outR, ceiling); }
+            }
         }
         double sumSq = 0; peak = 0;
         for (var i = 0; i < length; i++)
@@ -1181,14 +1277,15 @@ public static class SoundEngine
     /// Towards the loudness target, but never past the ceiling (by true peak): a very peaky sound (a crunchy step, a
     /// click) stays a little under the target rather than being squashed and distorted by the limiter.
     /// </summary>
-    private static void ToLoudness(float[] l, float[] r, int sr, double target, double ceiling)
+    private static double ToLoudness(float[] l, float[] r, int sr, double target, double ceiling)
     {
         var (lufs, _, _) = SoundAnalysis.Loudness(l, r, sr);
-        if (lufs <= -100) return;
+        if (lufs <= -100) return 1;
         var gain = Math.Pow(10, (target - lufs) / 20);
         var peak = Math.Max(SoundAnalysis.TruePeak(l), SoundAnalysis.TruePeak(r));
         if (peak > 1e-6) gain = Math.Min(gain, ceiling / peak);
         Scale(l, r, gain);
+        return gain;
     }
 
     private static void Limit(float[] l, float[] r, double ceiling)
