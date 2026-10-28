@@ -38,7 +38,7 @@ public sealed class TreeRecipe
     public static readonly string[] Styles = ["realistic", "stylized"];
     public static readonly string[] Shapes = ["spherical", "hemispherical", "conical", "cylindrical", "flame", "inverse", "tapered", "umbrella"];
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
-    public static readonly string[] Arrangements = ["scatter", "single", "cross", "star", "fan", "dome", "hanging", "fronds"];
+    public static readonly string[] Arrangements = ["scatter", "single", "cross", "star", "fan", "dome", "hanging", "fronds", "boughs"];
     public static readonly string[] BranchModes = ["merged", "separate", "mixed"];
     public static readonly string[] FoliageKinds = ["cards", "tufts", "clumps", "both", "crystals", "none"];
     public static readonly string[] LeafShapes = ["broad", "round", "needle", "maple", "slender", "frond"];
@@ -112,7 +112,8 @@ public sealed class TreeRecipe
     /// How the cards are set where leaves grow: "scatter" (one each, random), "single", "cross" (two upright, 90°
     /// apart), "star" (three, 60° apart), "fan" (three nearly level, for spruce tiers and acacias), "dome" (four
     /// leaning in and a cap), "hanging" (long ribbons down from the branches, willow) or "fronds" (a strip along every
-    /// outer branch, palm and fern).
+    /// outer branch, palm and fern) or "boughs" (a folded needle frond along every limb off the trunk: the tiers of a
+    /// low-poly conifer).
     /// </summary>
     public string Arrangement { get; set; } = "scatter";
     /// <summary>Hanging ribbons: how long (metres; they stop above the ground).</summary>
@@ -625,14 +626,25 @@ public static class TreePresets
             return r;
         }, GameProfiles.Find(profile)!.Group);
 
+    /// <summary>Low-poly conifer tiers: needle boughs on the limbs, no twigs (they would only be dropped at these budgets).</summary>
+    private static void Boughs(TreeRecipe r)
+    {
+        r.Levels = [r.Levels[0]];
+        r.Arrangement = "boughs";
+        r.CanopyFullness = 0;
+        r.LeafSize = 1;
+        r.Shading = 0.3;
+        r.TrunkRadius = Math.Max(r.TrunkRadius, r.Height * 0.022);
+    }
+
     /// <summary>
     /// Thornwake's woodland (its pack's nine species, at their heights and triangles per level) and the species it draws
     /// as placeholders today (its docs/ASSET_SPEC.md).
     /// </summary>
     public static readonly IReadOnlyList<Preset> Thornwake =
     [
-        ForGame("thornwake", "pine", "pine", "Pine", "Irregular tiers on an exposed lower trunk, an open top.", 12.5, [2800, 1100, 220], r => { r.Levels[0].Count = 30; r.Levels[0].Length = 0.24; r.Levels[0].Bend = -15; }),
-        ForGame("thornwake", "spruce", "spruce", "Spruce", "A dense, dark, low-reaching cone of needles.", 12.5, [4000, 1600, 280], r => { r.Levels[0].Length = 0.24; r.LeafColor = "#28492a"; r.LeafColor2 = "#4b6e34"; }),
+        ForGame("thornwake", "pine", "pine", "Pine", "Irregular tiers on an exposed lower trunk, an open top.", 12.5, [2800, 1100, 220], r => { Boughs(r); r.Levels[0].Count = 36; r.Levels[0].Start = 0.3; r.Levels[0].Length = 0.24; }),
+        ForGame("thornwake", "spruce", "spruce", "Spruce", "A dense, dark, low-reaching cone of needles.", 12.5, [4000, 1600, 280], r => { Boughs(r); r.Levels[0].Count = 48; r.Levels[0].Start = 0.12; r.Levels[0].Length = 0.26; r.LeafColor = "#28492a"; r.LeafColor2 = "#4b6e34"; }),
         ForGame("thornwake", "birch-green", "birch", "Birch_Green", "A slender pale trunk with small rising branches and loose leaf sprays.", 11.5, [2600, 1300, 500]),
         ForGame("thornwake", "birch-autumn", "birch", "Birch_Autumn", "The birch in yellow and ochre.", 11, [2600, 1300, 500], r => { r.LeafColor = "#c08a1e"; r.LeafColor2 = "#ecc848"; }),
         ForGame("thornwake", "oak", "oak", "Oak", "A broad crown on a heavy trunk with big limbs.", 10.5, [3600, 1800, 600]),

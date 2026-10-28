@@ -330,7 +330,7 @@ public static class TreeBuilder
 
             // The crown looked at from its sides: where the sky shows through, more cards on the nearest branches,
             // until it is as full as asked or the leaf budget is spent.
-            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement != "fronds")
+            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs"))
             {
                 var fill = FillCrown(made, sk, recipe, asset.Materials, leafIndex, detail, lodGrow, new Random(recipe.Seed * 6007 + lod), ct);
                 if (lod == 0) canopy = fill;
@@ -673,6 +673,7 @@ public static class TreeBuilder
     private static float AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
     {
         if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return 1; }
+        if (recipe.Arrangement == "boughs") { AddBoughs(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
@@ -756,7 +757,7 @@ public static class TreeBuilder
     private static float GrowCap(TreeRecipe recipe) => recipe.Archetype == "conifer" || recipe.LeafShape == "needle" ? 1.4f : 2f;
 
     /// <summary>The share of the leaf budget the first placement may use: with a canopy fullness, a part is kept for filling the gaps.</summary>
-    private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement != "fronds" ? 0.7f : 1f);
+    private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs") ? 0.7f : 1f);
 
     /// <summary>Triangles one placement of an arrangement costs (a card is a folded quad, front and back: 8).</summary>
     internal static int CardTriangles(string arrangement, TreeRecipe? recipe = null) => arrangement switch { "cross" => 16, "star" or "fan" => 24, "dome" => 40, "hanging" => 16 * (recipe == null ? 6 : HangSegments(recipe)), _ => 8 };
@@ -893,6 +894,47 @@ public static class TreeBuilder
         }
     }
 
+    /// <summary>
+    /// Conifer boughs: one folded needle frond along every limb off the trunk, broad at the trunk and pointed at the tip,
+    /// its sides drooping from a ridge on the limb. Whorls of them make the clear tiers of a low-poly pine, and the
+    /// tiers the cone. The level's leaf budget sets how many segments each has, and on the farthest levels how many
+    /// limbs keep one (wider, to cover for the others).
+    /// </summary>
+    private static void AddBoughs(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
+    {
+        static bool Limb(TreeBranch b) => b.Level == 1 && b.Kind == "branch" && !b.Bare;
+        var limbs = sk.Branches.Count(Limb);
+        if (limbs == 0) return;
+        var budget = recipe.LeafBudget / detail;
+        const int perSegment = 8;       // four triangles, front and back
+        var segs = Math.Clamp((int)(budget / (limbs * perSegment)), 2, 8);
+        var every = Math.Max(1, (int)MathF.Ceiling(limbs * segs * perSegment / MathF.Max(1, budget)));
+        var widen = MathF.Min(1.4f, MathF.Sqrt(every));
+        // Far levels: every n-th limb from the bottom up, so each whorl keeps boughs on different sides.
+        var order = sk.Branches.Where(Limb).OrderBy(b => b.ParentT).Select((b, i) => (b.Id, i)).ToDictionary(x => x.Id, x => x.i);
+        foreach (var id in branchIds)
+        {
+            var b = sk.Branches[id];
+            // Also on a limb the wood left out: the bough starts at the trunk, so it never floats.
+            if (!Limb(b)) continue;
+            if (every > 1 && order[id] % every != 0) continue;
+            var centres = new List<Vector3>();
+            var across = new List<Vector3>();
+            var widths = new List<float>();
+            for (var j = 0; j <= segs; j++)
+            {
+                var t = 0.04f + 0.96f * j / segs;
+                var (p, _, dir) = b.At(t);
+                var a = Vector3.Cross(dir, Vector3.UnitY);
+                a = a.LengthSquared() > 1e-6f ? Vector3.Normalize(a) : b.Normals[0];
+                centres.Add(p);
+                across.Add(a);
+                widths.Add(b.Length * (float)recipe.LeafSize * 0.55f * widen * (0.15f + 0.85f * MathF.Cos(MathF.PI / 2 * t)));
+            }
+            Strip(m, centres, across, widths, LeafCell(recipe, rng), hanging: false, sk, recipe, b, 1, material, fold: 0.6f);
+        }
+    }
+
     /// <summary>Mushroom caps: the big one on top of the trunk, smaller ones on the limb tips.</summary>
     private static void AddCaps(Mesh3D wood, TreeSkeleton sk, TreeRecipe recipe, Group g, int material, float detail)
     {
@@ -974,7 +1016,7 @@ public static class TreeBuilder
     /// A strip of cards along a line (hanging ribbons, fronds, moss): left, raised middle and right vertices per point,
     /// one atlas cell over its whole length (from the anchor), front and back faces, flutter rising along it.
     /// </summary>
-    private static void Strip(Mesh3D m, List<Vector3> centres, List<Vector3> across, List<float> widths, Vector4 cell, bool hanging, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material)
+    private static void Strip(Mesh3D m, List<Vector3> centres, List<Vector3> across, List<float> widths, Vector4 cell, bool hanging, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, float fold = 0.25f)
     {
         var sub = m.Sub(material);
         var first = m.VertexCount;
@@ -992,7 +1034,7 @@ public static class TreeBuilder
             for (var c = 0; c < 3; c++)
             {
                 var x = c - 1;
-                var pos = centres[j] + a * widths[j] * x + (c == 1 ? face * widths[j] * 0.25f : Vector3.Zero);
+                var pos = centres[j] + a * widths[j] * x + (c == 1 ? face * widths[j] * fold : Vector3.Zero);
                 var u = cell.X + (cell.Z - cell.X) * (c / 2f);
                 var own = Vector3.Normalize(face - a * x * 0.35f);
                 var wind = recipe.Wind ? baseWind with { Z = s } : Vector4.Zero;

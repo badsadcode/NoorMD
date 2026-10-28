@@ -23,6 +23,24 @@ public class GameProfileTests
     }
 
     [Fact]
+    public void Conifer_boughs_make_tiers_all_the_way_up_the_cone()
+    {
+        foreach (var id in new[] { "thornwake-pine", "thornwake-spruce" })
+        {
+            var b = TreeBuilder.Build(TreePresets.Make(id), new TreeBuilder.Options { TextureSize = 0 });
+            var leaves = b.Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
+            var h = b.Skeleton.Height;
+            // Leaves in every third of the crown (the bug: a skirt at the bottom and tufts glued to the trunk above).
+            var ys = leaves.Positions.Select(p => p.Y / h).ToList();
+            foreach (var (lo, hi) in new[] { (0.3, 0.55), (0.55, 0.8), (0.8, 1.0) })
+                Assert.True(ys.Count(y => y >= lo && y < hi) > ys.Count / 10, $"{id}: too few leaves between {lo} and {hi} of the height");
+            // A cone: the leaves reach less far out the higher they are.
+            float Reach(double lo, double hi) => leaves.Positions.Where(p => p.Y / h >= lo && p.Y / h < hi).Max(p => MathF.Sqrt(p.X * p.X + p.Z * p.Z));
+            Assert.True(Reach(0.3, 0.55) > Reach(0.55, 0.8) && Reach(0.55, 0.8) > Reach(0.8, 1.0), id);
+        }
+    }
+
+    [Fact]
     public void Levels_past_the_list_are_half_the_one_before_and_without_a_list_it_halves()
     {
         var r = new TreeRecipe { LodTriangles = [3000, 1000], Lods = 3 };

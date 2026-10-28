@@ -302,6 +302,15 @@ Game profiles (preview.67): trees made for one game, without NoorMD becoming tha
   textures' size and sampling.
 * Fix: hanging moss no longer hangs from twigs a level's wood left out.
 
+Fix (preview.68): the Thornwake pine and spruce looked wrong: a skirt of bare limbs at the bottom and tufts glued
+to the trunk above, no cone. At these budgets their twigs are dropped and the twig cards bunched up unevenly. A new
+leaf arrangement, **boughs**, does what the pack's conifers do: one folded needle frond along every limb off the
+trunk (broad at the trunk, pointed at the tip, sides drooping from a ridge on the limb), so the whorls make tiers
+and the tiers a cone. The level's leaf budget sets each bough's segments, and far levels keep every n-th limb
+from the bottom up (so each whorl keeps boughs on different sides). Both presets now use it with no twig level and
+a thicker trunk; it is in the Leaves tab for any conifer. A test checks leaves in every third of the crown and a
+reach that narrows upwards.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of
