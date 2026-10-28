@@ -6,12 +6,15 @@ window.NoorTexture = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
 
-  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks / tiles', weave: 'Weave', scratches: 'Scratches' };
+  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks / tiles', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)' };
   const NEW_LAYER = {
     noise: { scaleX: 4, scaleY: 4, octaves: 5 }, ridged: { scaleX: 3, scaleY: 3, octaves: 6 }, turbulence: { scaleX: 6, scaleY: 6, octaves: 4 },
     cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3 }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
     bricks: { scaleX: 4, scaleY: 8, mortar: 0.1, bevel: 0.08, offset: 0.5, variation: 0.3 }, weave: { scaleX: 32, scaleY: 32 },
     scratches: { scaleX: 1, scaleY: 1, count: 40, length: 0.2, width: 0.004 },
+    current: { scaleX: 1, scaleY: 1, opacity: 0, low: 0.6, high: 0.7, warp: 0.3, warpScale: 8 },
+    curvature: { scaleX: 2, scaleY: 1, opacity: 0, low: 0.55, high: 0.65, warp: 0.3, warpScale: 12 },
+    image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
   };
   // Sliders: [key, label, min, max, step, kind]; 'int' are whole numbers, 'pct' shows 0–100.
   const SCALE = [['scaleX', 'Repeats across', 1, 128, 1, 'int'], ['scaleY', 'Repeats down', 1, 128, 1, 'int']];
@@ -25,7 +28,15 @@ window.NoorTexture = (() => {
       ['offset', 'Row offset', 0, 1, 0.01, 'pct'], ['variation', 'Bricks differ', 0, 1, 0.01, 'pct'], ...WARP],
     weave: [['scaleX', 'Threads across', 2, 128, 2, 'int'], ['scaleY', 'Threads down', 2, 128, 2, 'int'], ...WARP],
     scratches: [['count', 'How many', 0, 500, 1, 'int'], ['length', 'Length', 0.005, 1, 0.005, 'pct'], ['width', 'Width', 0.0005, 0.05, 0.0005, 'pct']],
+    current: [...WARP],
+    curvature: [['scaleX', 'Width of the edges', 1, 64, 1, 'int'], ...WARP],
+    image: [['scaleX', 'Repeats across', 1, 16, 1, 'int'], ['scaleY', 'Repeats down', 1, 16, 1, 'int'], ['seamBlend', 'Seam blend (to tile)', 0, 0.5, 0.01, 'pct'],
+      ['delight', 'Even out the light', 0, 1, 0.01, 'pct'], ['delightRadius', '…over (size of the light)', 0.02, 1, 0.01, 'pct'],
+      ['detailFine', 'Height from fine detail', 0, 1, 0.01, 'pct'], ['detailMedium', 'Height from medium detail', 0, 1, 0.01, 'pct'], ['detailLarge', 'Height from large shapes', 0, 1, 0.01, 'pct'],
+      ['colorAmount', 'Its colours on the surface', 0, 1, 0.01, 'pct']],
   };
+  // Painting the surface, for any layer: where the layer is high.
+  const PAINT = [['tintAmount', 'Tint strength', 0, 1, 0.01, 'pct'], ['roughnessShift', 'Roughness change', -1, 1, 0.01, 'spct'], ['metallicShift', 'Metallic change', -1, 1, 0.01, 'spct']];
   const SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Levels: low', 0, 1, 0.01, 'pct'], ['high', 'Levels: high', 0, 1, 0.01, 'pct'], ['gamma', 'Levels: middle (gamma)', 0.1, 5, 0.01, 'num']];
   const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['max', 'Higher of the two'], ['min', 'Lower of the two']];
   const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct'],
@@ -133,7 +144,7 @@ window.NoorTexture = (() => {
       if (gen !== renderGen) return;
       render = out;
       showMaps();
-      setStatus(`${listening === 'A' ? 'A (pinned) · ' : ''}${out.size} × ${out.size} px preview${out.ms ? ` · ${out.ms} ms` : ''} · tiles seamlessly`);
+      setStatus(`${listening === 'A' ? 'A (pinned) · ' : ''}${out.size} × ${out.size} px preview${out.ms ? ` · ${out.ms} ms` : ''} · tiles seamlessly${out.warnings && out.warnings.length ? ' · ⚠ ' + out.warnings.join('; ') : ''}`);
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); }
   }
 
@@ -259,7 +270,7 @@ window.NoorTexture = (() => {
     document.querySelectorAll('#tb-presets .gnav-item').forEach((b) => b.classList.toggle('active', b.textContent.startsWith(recipe.name)));
   }
 
-  const UNIT = { pct: ['%', 100], int: ['', 1], num: ['', 1] };
+  const UNIT = { pct: ['%', 100], spct: ['%', 100], int: ['', 1], num: ['', 1] };
 
   /** A slider bound to obj[key], with a number box beside it for an exact value. */
   function slider(obj, [key, label, min, max, step, kind]) {
@@ -295,6 +306,10 @@ window.NoorTexture = (() => {
       invert.addEventListener('change', () => { l.invert = invert.checked; changed(false); });
       const move = (d) => { const j = i + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[i], recipe.layers[j]] = [recipe.layers[j], recipe.layers[i]]; changed(true); };
       const choices = [el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend), el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Invert' }))];
+      if (l.type === 'image') {
+        choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖼 ' + (l.imageName || 'no picture') }),
+          el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { l.path = f.path; l.imageName = f.name; changed(true); } } }, 'Change picture…'));
+      }
       if (l.type === 'cells') {
         const mode = el('select', { 'aria-label': 'Cells as', 'data-key': 'mode' }, ...[['cells', 'round bumps'], ['edges', 'raised edges'], ['cracks', 'cracks'], ['stones', 'flat stones']].map(([v, t]) => el('option', { value: v, text: t })));
         mode.value = l.mode || 'cells';
@@ -311,17 +326,57 @@ window.NoorTexture = (() => {
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), id: '', name: l.name + ' copy' }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...choices),
-        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...SHAPE.map((f) => slider(l, f))));
+        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...SHAPE.map((f) => slider(l, f))),
+        ...(l.type === 'image' ? [heightByColour(l)] : []),
+        paintGroup(l));
     });
     return [
-      el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it. The Surface tab turns the height into colour, relief and shine.' }),
+      el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. The Surface tab sets the base colour, relief and shine.' }),
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-addlayer': t, disabled: recipe.layers.length >= 12 || undefined, onclick: () => {
-        recipe.layers.push({ name: LAYER_LABEL[t].replace(/ \(.*/, ''), type: t, octaves: 5, persistence: 0.5, lacunarity: 2, warp: 0, warpScale: 3, low: 0, high: 1, gamma: 1, invert: false,
-          blend: recipe.layers.length ? 'overlay' : 'normal', opacity: recipe.layers.length ? 0.5 : 1, seedShift: recipe.layers.length * 11, mute: false, ...clone(NEW_LAYER[t]) });
-        changed(true);
+        const add = (extra) => {
+          recipe.layers.push({ name: LAYER_LABEL[t].replace(/ \(.*/, '').replace(/ \/.*/, ''), type: t, octaves: 5, persistence: 0.5, lacunarity: 2, warp: 0, warpScale: 3, low: 0, high: 1, gamma: 1, invert: false,
+            blend: recipe.layers.length ? 'overlay' : 'normal', opacity: recipe.layers.length ? 0.5 : 1, seedShift: recipe.layers.length * 11, mute: false,
+            tint: null, tintAmount: 0, roughnessShift: 0, metallicShift: 0, ...clone(NEW_LAYER[t]), ...extra });
+          changed(true);
+        };
+        // A picture is asked for first; it then replaces what is below it (its own colours and height).
+        if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1 }); }); return; }
+        // Masks paint rather than build height: they start with a tint to show where they are.
+        if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
+        add({});
       } }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
     ];
+  }
+
+  /** A colour of the picture that should be high (or low): picked with the eyedropper, or chosen. */
+  function heightByColour(l) {
+    const on = el('input', { type: 'checkbox', checked: l.heightColor ? true : undefined, 'data-key': 'useHeightColor' });
+    const color = el('input', { type: 'color', value: l.heightColor || '#808080', 'aria-label': 'The colour', 'data-key': 'heightColor', disabled: l.heightColor ? undefined : true });
+    on.addEventListener('change', () => { l.heightColor = on.checked ? color.value : null; if (on.checked && !l.heightColorAmount) l.heightColorAmount = -0.6; changed(true); });
+    color.addEventListener('input', () => { if (l.heightColor) { l.heightColor = color.value; changed(false); } });
+    const dropper = window.EyeDropper ? el('button', { class: 'utility-btn', title: 'Pick the colour from anywhere on screen (the flat map view shows the picture)', onclick: async () => {
+      try { const r = await new window.EyeDropper().open(); l.heightColor = r.sRGBHex.slice(0, 7).toLowerCase(); if (!l.heightColorAmount) l.heightColorAmount = -0.6; changed(true); } catch { /* cancelled */ }
+    } }, '💧 Pick') : null;
+    return el('details', { class: 'sb-fxgroup', open: l.heightColor ? true : undefined },
+      el('summary', { text: 'Height by colour (this colour is high or low)' }),
+      el('div', { class: 'sb-choices' }, el('label', { class: 'sb-inline' }, on, el('span', { text: 'Use a colour' })), color, ...(dropper ? [dropper] : [])),
+      ...(l.heightColor ? [el('div', { class: 'sb-fields' },
+        slider(l, ['heightColorAmount', 'Low ↔ high', -1, 1, 0.01, 'spct']), slider(l, ['heightColorTolerance', 'How alike counts', 0.02, 1, 0.01, 'pct']))] : []));
+  }
+
+  /** Painting the surface where this layer is high: a tint, roughness and metallic (for any layer, with or without height). */
+  function paintGroup(l) {
+    const on = el('input', { type: 'checkbox', checked: l.tint ? true : undefined, 'data-key': 'useTint' });
+    const color = el('input', { type: 'color', value: l.tint || '#4f7a2b', 'aria-label': 'Tint colour', 'data-key': 'tint', disabled: l.tint ? undefined : true });
+    on.addEventListener('change', () => { l.tint = on.checked ? color.value : null; if (on.checked && !l.tintAmount) l.tintAmount = 0.8; changed(true); });
+    color.addEventListener('input', () => { if (l.tint) { l.tint = color.value; changed(false); } });
+    const active = !!l.tint || !!l.roughnessShift || !!l.metallicShift;
+    return el('details', { class: 'sb-fxgroup', open: active || undefined },
+      el('summary', { text: `Paint the surface where this is high${active ? ' (on)' : ''}` }),
+      el('p', { class: 'pref-hint', text: 'Moss on the tops of stones, wet patches in the dips, rust that is no longer metal. Set Strength to 0 above to paint without changing the height.' }),
+      el('div', { class: 'sb-choices' }, el('label', { class: 'sb-inline' }, on, el('span', { text: 'Tint' })), color),
+      el('div', { class: 'sb-fields' }, ...PAINT.map((f) => slider(l, f))));
   }
 
   // ---------------------------------------------------------------- surface
@@ -427,6 +482,10 @@ window.NoorTexture = (() => {
   async function deletePreset(p) {
     if (!await NoorUI.confirm(`Delete “${p.name}”?`, 'Only the preset is deleted; maps you exported stay.', 'Delete')) return;
     try { presets.mine = (await req('texture.delete', { id: p.id })).mine; renderPresets(); } catch (err) { hooks.showError(err); }
+  }
+
+  async function pickImage() {
+    try { const f = await req('texture.image.pick'); return f && !f.cancelled ? f : null; } catch (err) { hooks.showError(err); return null; }
   }
 
   async function openRecipe() {

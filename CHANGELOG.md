@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.0.0-preview.37 — Texture Bench: photos, painting and masks
+
+The second stage of the Texture Bench (docs/TEXTURE_BENCH_PLAN.md). It is built around creative freedom rather than
+presets, using methods from professional texturing tools and research (frequency-separated height as in
+Materialize, delighting by dividing out a wide blur, variance-preserving blending for seamless tiling after Heitz &
+Neyret and Burley, horizon-based ambient occlusion).
+
+- **Your own photos as layers** (＋ Photo): a photo of a wall, the ground, bark, fabric, or a scan or a painting.
+  - **Seamless:** its edges are blended with a half-shifted copy of itself, so it tiles. The blend keeps its
+    contrast (variance-preserving) instead of going grey where the copies meet.
+  - **Light evened out:** the lighting baked into a photo is divided out (you choose how much, and how large the
+    light is), so the albedo isn't brighter on one side.
+  - **Height from its detail:** fine, medium and large detail, weighted as you choose (frequency separation).
+  - **Height by colour:** pick a colour of the photo (💧 eyedropper) and say it is low or high: mortar sunk
+    between bricks, raised joints, dark cracks.
+  - **Its colours** go on the surface by any amount, and it repeats a whole number of times across the tile.
+  - Like everything else it can be mixed with any other layer: noise, dirt and wear over a photo.
+  - Only pictures you picked (or that a recipe you opened names) are read, and a moved recipe finds its pictures
+    beside it.
+- **Every layer can paint the surface** where it is high: a tint colour, a roughness change and a metallic change.
+  Set its strength to 0 to paint without changing the height. The metallic map is now per pixel: rust that is not
+  metal on steel that is.
+- **Masks from the material itself:**
+  - **Height so far:** the tops, the dips, or a band of what the layers above have built. Use it for snow on top,
+    moss in the gaps or water in the dips.
+  - **Edges & cavities:** curvature, for paint worn off the edges and dirt in the corners.
+  - Both have warp, to break their outlines up.
+- **Better maps:** normals with a Sobel filter (smoother, less noisy), and horizon-based ambient occlusion: how much
+  sky each point sees past the surrounding height, as tall as the normal map shows it.
+- **New materials showing what this can do:** Mossy stones, Snowy rock, Wet ground with puddles, Worn painted panels
+  (blue paint worn to bare steel at the edges and scratches). Rusty metal is now steel with non-metal rust. 18 in all.
+
 ## 2.0.0-preview.36 — Texture Bench: materials for games
 
 The first stage of the Texture Bench (docs/TEXTURE_BENCH_PLAN.md, from the indie benches concept): tileable

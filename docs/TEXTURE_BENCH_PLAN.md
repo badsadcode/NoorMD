@@ -30,7 +30,7 @@ tried before the next.
 - Page: a lit 3D preview (WebGL2: sphere, cube, plane; drag to turn; tiling), map thumbnails and a tiled
   view, a layer stack editor, a colour ramp editor, variations by seed, undo/redo, A/B with a pinned version.
 
-## Stage 2: image → material and hybrid
+## Stage 2: image → material and hybrid (done in preview.37, with painting and masks)
 
 - Pick a picture: albedo from it (made seamless by edge blending), height from its detail (luminance with
   the large shapes removed), and the derived maps; sliders for strength, detail scale, levels.

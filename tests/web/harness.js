@@ -455,7 +455,8 @@ function mockHostScript(initial) {
         TEX.renders.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size });
         const key = 'k' + TEX.renders.length;
         const maps = {}; for (const m of ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height']) maps[m] = texPng(m, p.recipe.seed);
-        return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42 };
+        const warnings = (p.recipe.layers || []).filter((l) => l.type === 'image' && !/old wall/.test(l.path || '')).map((l) => `“${l.imageName || l.name}”: the picture is missing or can't be read`);
+        return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42, warnings };
       }
       case 'texture.export': {
         TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target });
@@ -464,6 +465,7 @@ function mockHostScript(initial) {
         return { folder: 'D:\\Game\\Materials', files: names.map((n) => `${stem}_${n}.png`), recipe: stem + '.noortex.json' };
       }
       case 'texture.reveal': TEX.opened = p.folder; return null;
+      case 'texture.image.pick': TEX.imagePicks = (TEX.imagePicks || 0) + 1; return TEX.imageCancel ? { cancelled: true } : { path: 'C:\\Photos\\old wall.jpg', name: 'old wall.jpg', width: 1600, height: 1200 };
       case 'texture.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = TEX.mine.some((x) => x.id === id); TEX.mine = TEX.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'texture.delete': TEX.mine = TEX.mine.filter((x) => x.id !== p.id); return { mine: mine() };
       case 'texture.open': return { recipe: { ...JSON.parse(JSON.stringify(TEX.recipes['stone-cobbles'])), name: 'Opened stones' } };

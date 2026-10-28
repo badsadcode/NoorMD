@@ -124,7 +124,8 @@ public class TextureTests
         Assert.All(f.Roughness, v => Assert.Equal(128, v));
         Assert.All(f.Metallic, v => Assert.Equal(255, v));
         // A slope rising to the right tilts the normal to the left (OpenGL: red low); DirectX flips green only.
-        var bricks = TextureEngine.Render(new TextureRecipe { Layers = [new TextureLayer { Type = "bricks", ScaleX = 1, ScaleY = 1, Offset = 0, Mortar = 0.2, Bevel = 0.4, Variation = 0 }] }.Clamped(), 64);
+        var bricks = TextureEngine.Render(new TextureRecipe { Layers = [new TextureLayer { Type = "bricks", ScaleX = 1, ScaleY = 1, Offset = 0, Mortar = 0.2, Bevel = 0.4, Variation = 0 }],
+            Surface = new TextureSurface { NormalStrength = 12, AoRadius = 0.08 } }.Clamped(), 64); // deep relief: the mortar sits well below the brick
         var rising = 32 * 64 + 8; // left part of the brick, its bevel rising to the right
         Assert.True(bricks.Height[rising + 1] > bricks.Height[rising - 1]);
         Assert.True(bricks.Normal[rising * 3] < 120, $"{bricks.Normal[rising * 3]}");

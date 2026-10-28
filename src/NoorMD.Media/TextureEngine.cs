@@ -11,7 +11,7 @@ namespace NoorMD.Media;
 /// <summary>One step of the height stack: a generator, how it is shaped, and how it is blended onto what is below.</summary>
 public sealed class TextureLayer
 {
-    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "weave", "scratches"];
+    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "weave", "scratches", "image", "current", "curvature"];
     public static readonly string[] Blends = ["normal", "add", "subtract", "multiply", "screen", "overlay", "max", "min"];
 
     public string Id { get; set; } = "";
@@ -51,6 +51,32 @@ public sealed class TextureLayer
     public double Opacity { get; set; } = 1;
     /// <summary>Added to the recipe's seed for this layer (two layers of the same kind can differ).</summary>
     public int SeedShift { get; set; }
+
+    // Painting the surface (any layer): where this layer is high, the albedo takes Tint (by TintAmount), the roughness
+    // and metallic move by their shifts (−1…1). Moss on the tops of stones, wet puddles in the dips, rust on metal.
+    public string? Tint { get; set; }
+    public double TintAmount { get; set; }
+    public double RoughnessShift { get; set; }
+    public double MetallicShift { get; set; }
+
+    // image: a picture you picked (Path, shown as ImageName), repeated ScaleX × ScaleY times across the tile.
+    public string? Path { get; set; }
+    public string? ImageName { get; set; }
+    /// <summary>How wide (0–0.5 of the picture) its edges are blended with a half-shifted copy, so it tiles.</summary>
+    public double SeamBlend { get; set; } = 0.15;
+    /// <summary>Evening out the light baked into a photo (0–1), over DelightRadius (0.02–1 of the picture).</summary>
+    public double Delight { get; set; }
+    public double DelightRadius { get; set; } = 0.25;
+    /// <summary>Height from the picture's fine, medium and large detail (0–1 each).</summary>
+    public double DetailFine { get; set; } = 0.4;
+    public double DetailMedium { get; set; } = 0.7;
+    public double DetailLarge { get; set; } = 0.5;
+    /// <summary>A colour of the picture that is high (amount above 0) or low (below 0), within a tolerance (0.02–1).</summary>
+    public string? HeightColor { get; set; }
+    public double HeightColorAmount { get; set; }
+    public double HeightColorTolerance { get; set; } = 0.15;
+    /// <summary>How much of the picture's own colours go on the albedo (0–1).</summary>
+    public double ColorAmount { get; set; } = 1;
 
     public TextureLayer Clone() => (TextureLayer)MemberwiseClone();
 }
@@ -119,6 +145,16 @@ public sealed class TextureRecipe
             l.Blend = TextureLayer.Blends.Contains(l.Blend) ? l.Blend : "normal";
             l.Opacity = C(l.Opacity, 0, 1);
             l.SeedShift = Math.Clamp(l.SeedShift, -100000, 100000);
+            l.Tint = l.Tint == null ? null : HexOrNull(l.Tint); l.TintAmount = C(l.TintAmount, 0, 1);
+            l.RoughnessShift = double.IsFinite(l.RoughnessShift) ? Math.Clamp(l.RoughnessShift, -1, 1) : 0;
+            l.MetallicShift = double.IsFinite(l.MetallicShift) ? Math.Clamp(l.MetallicShift, -1, 1) : 0;
+            if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
+            if (l.ImageName != null) l.ImageName = l.ImageName.Length > 120 ? l.ImageName[..120] : l.ImageName;
+            l.SeamBlend = C(l.SeamBlend, 0, 0.5); l.Delight = C(l.Delight, 0, 1); l.DelightRadius = C(l.DelightRadius, 0.02, 1);
+            l.DetailFine = C(l.DetailFine, 0, 1); l.DetailMedium = C(l.DetailMedium, 0, 1); l.DetailLarge = C(l.DetailLarge, 0, 1);
+            l.HeightColor = l.HeightColor == null ? null : HexOrNull(l.HeightColor);
+            l.HeightColorAmount = double.IsFinite(l.HeightColorAmount) ? Math.Clamp(l.HeightColorAmount, -1, 1) : 0;
+            l.HeightColorTolerance = C(l.HeightColorTolerance, 0.02, 1); l.ColorAmount = C(l.ColorAmount, 0, 1);
             // Patterns that alternate need an even count to meet themselves at the edge.
             if (l.Type == "weave") { l.ScaleX += l.ScaleX & 1; l.ScaleY += l.ScaleY & 1; }
             if (l.Type == "bricks" && l.Offset > 0) l.ScaleY += l.ScaleY & 1;
@@ -134,6 +170,30 @@ public sealed class TextureRecipe
         s.ColorVariation = C(s.ColorVariation, 0, 1); s.Dirt = C(s.Dirt, 0, 1);
         s.RoughnessLow = C(s.RoughnessLow, 0, 1); s.RoughnessHigh = C(s.RoughnessHigh, 0, 1); s.RoughnessVariation = C(s.RoughnessVariation, 0, 1);
         s.Metallic = C(s.Metallic, 0, 1); s.NormalStrength = C(s.NormalStrength, 0, 20); s.AoStrength = C(s.AoStrength, 0, 1); s.AoRadius = C(s.AoRadius, 0.002, 0.1);
+        return this;
+    }
+
+    private static string? HexOrNull(string c) => c is { Length: 7 } && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : null;
+
+    /// <summary>Pictures the recipe reads (image layers).</summary>
+    public IEnumerable<string> Files() => (Layers ?? []).Where(l => l.Type == "image" && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!);
+
+    /// <summary>For a recipe opened from a file: pictures named by a relative path, or whose folder moved, are found next to it.</summary>
+    public TextureRecipe FindImagesBeside(string folder)
+    {
+        foreach (var l in Layers ?? [])
+        {
+            if (l.Type != "image" || string.IsNullOrEmpty(l.Path)) continue;
+            try
+            {
+                if (!System.IO.Path.IsPathFullyQualified(l.Path)) { l.Path = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, l.Path)); continue; }
+                if (File.Exists(l.Path)) continue;
+                var name = System.IO.Path.GetFileName(l.Path.Replace('\\', System.IO.Path.DirectorySeparatorChar));
+                var beside = System.IO.Path.Combine(folder, name);
+                if (name.Length > 0 && File.Exists(beside)) l.Path = beside;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { /* reported missing when rendered */ }
+        }
         return this;
     }
 
@@ -153,6 +213,8 @@ public sealed class TextureMaps
     public required byte[] Roughness { get; init; }
     public required byte[] Ao { get; init; }
     public required byte[] Metallic { get; init; }
+    /// <summary>What couldn't be used (a picture that is missing or not allowed).</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 
     public static readonly string[] Names = ["albedo", "normal", "roughness", "ao", "metallic", "height"];
 
@@ -186,24 +248,44 @@ public static class TextureEngine
 {
     public const int MinSize = 64, MaxSize = 4096;
 
-    public static TextureMaps Render(TextureRecipe recipe, int size)
+    /// <summary>A layer's own values (after its levels), kept when it paints the surface; an image layer's colours too.</summary>
+    private sealed record Paint(TextureLayer Layer, float[] Mask, float[]? Rgb);
+
+    /// <param name="images">Reads a picture an image layer uses (null when it can't or may not be used).</param>
+    public static TextureMaps Render(TextureRecipe recipe, int size, Func<string, TextureImage?>? images = null)
     {
         if (size is < MinSize or > MaxSize) throw new ArgumentException("Texture size out of range.");
         var r = recipe.Clone().Clamped();
         var n = size * size;
         var h = new float[n];
+        var paints = new List<Paint>();
+        var warnings = new List<string>();
         foreach (var layer in r.Layers)
         {
-            if (layer.Mute || layer.Opacity <= 0) continue;
+            if (layer.Mute) continue;
+            var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0);
+            if (layer.Opacity <= 0 && !painting) continue;
             var seed = (uint)(r.Seed + layer.SeedShift) * 2654435761u + 0x9E3779B9u;
-            var values = Generate(layer, size, seed);
+            float[]? rgb = null;
+            double[] values;
+            if (layer.Type == "image")
+            {
+                var img = string.IsNullOrEmpty(layer.Path) ? null : images?.Invoke(layer.Path);
+                if (img == null) { warnings.Add($"“{layer.ImageName ?? layer.Name}”: the picture is missing or can't be read"); continue; }
+                (values, rgb) = ImageLayer(layer, img, size);
+            }
+            else if (layer.Type is "current" or "curvature") values = FromStack(layer, h, size, seed);
+            else values = Generate(layer, size, seed);
+            var mask = painting ? new float[n] : null;
             for (var i = 0; i < n; i++)
             {
                 var v = Shape(layer, values[i]);
-                h[i] = (float)Math.Clamp(Mix(layer.Blend, h[i], v, layer.Opacity), 0, 1);
+                if (mask != null) mask[i] = (float)v;
+                if (layer.Opacity > 0) h[i] = (float)Math.Clamp(Mix(layer.Blend, h[i], v, layer.Opacity), 0, 1);
             }
+            if (mask != null) paints.Add(new Paint(layer, mask, rgb));
         }
-        return Surface(r, h, size);
+        return Surface(r, h, size, paints, warnings);
     }
 
     private static double Shape(TextureLayer l, double v)
@@ -229,6 +311,39 @@ public static class TextureEngine
             _ => b,
         };
         return a + (f - a) * opacity;
+    }
+
+    /// <summary>
+    /// Masks from the material itself: "current" is the height built so far (tops, dips or a band of it, through the
+    /// levels); "curvature" is how much each point stands above (edges, ridges) or below (cavities) its surroundings
+    /// over ScaleX/256 of the tile. Warp breaks their outlines up.
+    /// </summary>
+    private static double[] FromStack(TextureLayer l, float[] h, int size, uint seed)
+    {
+        var field = h;
+        if (l.Type == "curvature")
+        {
+            var blurred = BlurRect(h, size, size, Math.Max(1, (int)Math.Round(l.ScaleX * size / 256.0)));
+            field = new float[h.Length];
+            for (var i = 0; i < h.Length; i++) field[i] = (float)Math.Clamp(0.5 + (h[i] - blurred[i]) * 6, 0, 1);
+        }
+        var v = new double[size * size];
+        Parallel.For(0, size, y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                if (l.Warp <= 0) { v[y * size + x] = field[y * size + x]; continue; }
+                double u = (x + 0.5) / size, w = (y + 0.5) / size;
+                var du = l.Warp * 0.08 * Fbm(u, w, l.WarpScale, l.WarpScale, 4, 0.5, 2, seed ^ 0xA5A5A5A5u);
+                var dv = l.Warp * 0.08 * Fbm(u, w, l.WarpScale, l.WarpScale, 4, 0.5, 2, seed ^ 0x5A5A5A5Au);
+                var fx = (u + du) * size - 0.5; var fy = (w + dv) * size - 0.5;
+                int x0 = (int)Math.Floor(fx), y0 = (int)Math.Floor(fy);
+                double tx = fx - x0, ty = fy - y0;
+                double F(int xx, int yy) => field[Wrap(yy, size) * size + Wrap(xx, size)];
+                v[y * size + x] = (F(x0, y0) * (1 - tx) + F(x0 + 1, y0) * tx) * (1 - ty) + (F(x0, y0 + 1) * (1 - tx) + F(x0 + 1, y0 + 1) * tx) * ty;
+            }
+        });
+        return v;
     }
 
     // ------------------------------------------------------------------ generators (values 0–1, tileable)
@@ -452,30 +567,21 @@ public static class TextureEngine
 
     // ------------------------------------------------------------------ the surface
 
-    private static TextureMaps Surface(TextureRecipe r, float[] h, int size)
+    private static TextureMaps Surface(TextureRecipe r, float[] h, int size, List<Paint> paints, List<string> warnings)
     {
         var s = r.Surface;
         var n = size * size;
         var seed = (uint)r.Seed * 2654435761u + 77;
-        // AO: how far below its surroundings each point sits (blurred height minus height), at two widths.
-        var radius = Math.Max(1, (int)Math.Round(s.AoRadius * size));
-        var near = Blur(h, size, Math.Max(1, radius / 3));
-        var wide = Blur(h, size, radius);
+        var strength = s.NormalStrength * size / 256.0; // slope per pixel for a height step of 1
+        var cavity = Occlusion(h, size, Math.Max(2, s.AoRadius * size), Math.Max(0.5, strength));
         var ao = new byte[n];
-        var cavity = new float[n];
-        for (var i = 0; i < n; i++)
-        {
-            var c = Math.Max(0, (near[i] - h[i]) * 0.6 + (wide[i] - h[i]) * 0.9);
-            cavity[i] = (float)Math.Clamp(c * 4, 0, 1);
-            ao[i] = (byte)Math.Round(255 * Math.Clamp(1 - s.AoStrength * cavity[i], 0, 1));
-        }
+        for (var i = 0; i < n; i++) ao[i] = Byte(1 - s.AoStrength * cavity[i]);
         var ramp = s.Ramp.Select(st => (st.Pos, R: Convert.ToInt32(st.Color[1..3], 16) / 255.0, G: Convert.ToInt32(st.Color[3..5], 16) / 255.0, B: Convert.ToInt32(st.Color[5..7], 16) / 255.0)).ToArray();
+        var tints = paints.Select(p => p.Layer.Tint is { } t ? (R: Convert.ToInt32(t[1..3], 16) / 255.0, G: Convert.ToInt32(t[3..5], 16) / 255.0, B: Convert.ToInt32(t[5..7], 16) / 255.0) : (R: 0.0, G: 0.0, B: 0.0)).ToArray();
         var albedo = new byte[n * 3];
         var rough = new byte[n];
         var normal = new byte[n * 3];
         var metal = new byte[n];
-        var mbyte = (byte)Math.Round(255 * s.Metallic);
-        var strength = s.NormalStrength * size / 256.0;
         Parallel.For(0, size, y =>
         {
             for (var x = 0; x < size; x++)
@@ -485,20 +591,229 @@ public static class TextureEngine
                 var drift = s.ColorVariation > 0 ? Fbm(u, v, 3, 3, 4, 0.5, 2, seed) : 0;
                 var t = Math.Clamp(h[i] + drift * s.ColorVariation * 0.5, 0, 1);
                 var (cr, cg, cb) = Ramp(ramp, t);
+                var rv = s.RoughnessVariation > 0 ? Fbm(u, v, 8, 8, 3, 0.5, 2, seed ^ 0x77777777u) : 0;
+                var ro = s.RoughnessLow + (s.RoughnessHigh - s.RoughnessLow) * h[i] + rv * s.RoughnessVariation * 0.5;
+                var me = s.Metallic;
+                // Layers that paint: a picture's colours, a tint, roughness and metallic, where each layer is high.
+                for (var k = 0; k < paints.Count; k++)
+                {
+                    var p = paints[k]; var m = p.Mask[i]; var l = p.Layer;
+                    if (p.Rgb != null && l.ColorAmount > 0)
+                    {
+                        var a = l.ColorAmount;
+                        cr += (p.Rgb[i * 3] - cr) * a; cg += (p.Rgb[i * 3 + 1] - cg) * a; cb += (p.Rgb[i * 3 + 2] - cb) * a;
+                    }
+                    if (l.Tint != null && l.TintAmount > 0)
+                    {
+                        var a = l.TintAmount * m;
+                        cr += (tints[k].R - cr) * a; cg += (tints[k].G - cg) * a; cb += (tints[k].B - cb) * a;
+                    }
+                    ro += l.RoughnessShift * m;
+                    me += l.MetallicShift * m;
+                }
                 var dirt = 1 - s.Dirt * cavity[i] * 0.85;
                 albedo[i * 3] = Byte(cr * dirt); albedo[i * 3 + 1] = Byte(cg * dirt); albedo[i * 3 + 2] = Byte(cb * dirt);
-                var rv = s.RoughnessVariation > 0 ? Fbm(u, v, 8, 8, 3, 0.5, 2, seed ^ 0x77777777u) : 0;
-                rough[i] = Byte(s.RoughnessLow + (s.RoughnessHigh - s.RoughnessLow) * h[i] + rv * s.RoughnessVariation * 0.5);
-                metal[i] = mbyte;
-                // Normal from the height's slope (wrapping at the edges), OpenGL convention: +Y up.
-                double l = h[y * size + (x + size - 1) % size], rr = h[y * size + (x + 1) % size];
-                double up = h[((y + size - 1) % size) * size + x], dn = h[((y + 1) % size) * size + x];
-                double nx = (l - rr) * strength, ny = (dn - up) * strength, nz = 1;
+                rough[i] = Byte(ro);
+                metal[i] = Byte(me);
+                // Normal from the height's slope: a Sobel filter (smoother than two neighbours), wrapping at the edges;
+                // OpenGL convention, +Y up.
+                int xl = (x + size - 1) % size, xr = (x + 1) % size, yu = (y + size - 1) % size, yd = (y + 1) % size;
+                double H(int xx, int yy) => h[yy * size + xx];
+                var gx = (H(xr, yu) + 2 * H(xr, y) + H(xr, yd) - H(xl, yu) - 2 * H(xl, y) - H(xl, yd)) / 4;
+                var gy = (H(xl, yd) + 2 * H(x, yd) + H(xr, yd) - H(xl, yu) - 2 * H(x, yu) - H(xr, yu)) / 4;
+                double nx = -gx * strength * 0.5, ny = gy * strength * 0.5, nz = 1;
                 var len = Math.Sqrt(nx * nx + ny * ny + nz * nz);
                 normal[i * 3] = Byte(nx / len * 0.5 + 0.5); normal[i * 3 + 1] = Byte(ny / len * 0.5 + 0.5); normal[i * 3 + 2] = Byte(nz / len * 0.5 + 0.5);
             }
         });
-        return new TextureMaps { Size = size, Height = h, Albedo = albedo, Normal = normal, Roughness = rough, Ao = ao, Metallic = metal };
+        return new TextureMaps { Size = size, Height = h, Albedo = albedo, Normal = normal, Roughness = rough, Ao = ao, Metallic = metal, Warnings = warnings };
+    }
+
+    /// <summary>
+    /// Horizon-based ambient occlusion from the height: in 8 directions, how high the surroundings rise above each point
+    /// (as seen from it), within a radius. 0 = open sky, 1 = fully hidden. The height is as tall as the normal map shows it.
+    /// </summary>
+    private static float[] Occlusion(float[] h, int size, double radius, double slope)
+    {
+        const int dirs = 8, steps = 6;
+        var offsets = new (int Dx, int Dy, double Dist)[dirs * steps];
+        for (var d = 0; d < dirs; d++)
+        {
+            var a = (d + 0.5) * Math.PI * 2 / dirs;
+            for (var k = 0; k < steps; k++)
+            {
+                var dist = Math.Max(1, radius * Math.Pow((k + 1.0) / steps, 1.5));
+                var dx = (int)Math.Round(Math.Cos(a) * dist); var dy = (int)Math.Round(Math.Sin(a) * dist);
+                offsets[d * steps + k] = (dx, dy, Math.Max(1, Math.Sqrt(dx * dx + dy * dy)));
+            }
+        }
+        var occ = new float[size * size];
+        Parallel.For(0, size, y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var h0 = h[y * size + x];
+                double sum = 0;
+                for (var d = 0; d < dirs; d++)
+                {
+                    double best = 0;
+                    for (var k = 0; k < steps; k++)
+                    {
+                        var (dx, dy, dist) = offsets[d * steps + k];
+                        var hh = h[Wrap(y + dy, size) * size + Wrap(x + dx, size)];
+                        var tan = (hh - h0) * slope / dist;
+                        if (tan > best) best = tan;
+                    }
+                    sum += best / Math.Sqrt(1 + best * best); // sine of the horizon's elevation
+                }
+                occ[y * size + x] = (float)Math.Clamp(sum / dirs * 1.6, 0, 1);
+            }
+        });
+        return occ;
+    }
+
+    // ------------------------------------------------------------------ pictures
+
+    private sealed record Prepared(int W, int H, float[] Rgb, float[] Height);
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Prepared> PreparedCache = new();
+
+    /// <summary>An image layer at the tile's size: its height (0–1) and its colours, repeated ScaleX × ScaleY times.</summary>
+    private static (double[] Values, float[] Rgb) ImageLayer(TextureLayer l, TextureImage img, int size)
+    {
+        var key = string.Join('|', img.Id, l.SeamBlend, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
+        if (!PreparedCache.TryGetValue(key, out var p))
+        {
+            p = Prepare(l, img);
+            if (PreparedCache.Count > 8) PreparedCache.Clear();
+            PreparedCache[key] = p;
+        }
+        var values = new double[size * size];
+        var rgb = new float[size * size * 3];
+        Parallel.For(0, size, y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                // Where in the picture: ScaleX × ScaleY repeats, sampled between pixels, wrapping.
+                var fx = (x + 0.5) / size * l.ScaleX * p.W - 0.5; var fy = (y + 0.5) / size * l.ScaleY * p.H - 0.5;
+                int x0 = (int)Math.Floor(fx), y0 = (int)Math.Floor(fy);
+                double tx = fx - x0, ty = fy - y0;
+                int ax = Wrap(x0, p.W), bx = Wrap(x0 + 1, p.W), ay = Wrap(y0, p.H), by = Wrap(y0 + 1, p.H);
+                double W(int px, int py, float[] a, int ch, int stride) => a[(py * p.W + px) * stride + ch];
+                double Bi(float[] a, int ch, int stride) =>
+                    (W(ax, ay, a, ch, stride) * (1 - tx) + W(bx, ay, a, ch, stride) * tx) * (1 - ty) + (W(ax, by, a, ch, stride) * (1 - tx) + W(bx, by, a, ch, stride) * tx) * ty;
+                var i = y * size + x;
+                values[i] = Bi(p.Height, 0, 1);
+                for (var c = 0; c < 3; c++) rgb[i * 3 + c] = (float)Math.Clamp(Bi(p.Rgb, c, 3), 0, 1);
+            }
+        });
+        return (values, rgb);
+    }
+
+    /// <summary>
+    /// A picture made ready to tile: its light evened out (divided by a wide blur of itself), its edges blended with a
+    /// half-shifted copy so the left meets the right and the top the bottom (variance-preserving, so the blend keeps
+    /// its contrast), and its height from three bands of detail plus any colour you said is high or low.
+    /// </summary>
+    private static Prepared Prepare(TextureLayer l, TextureImage img)
+    {
+        int w = img.Width, h = img.Height, n = w * h;
+        var ch = new float[3][];
+        for (var c = 0; c < 3; c++) { ch[c] = new float[n]; for (var i = 0; i < n; i++) ch[c][i] = img.Rgb[i * 3 + c]; }
+        // Even out the light: a wide blur is the lighting; dividing by it (and keeping the average) leaves the surface.
+        if (l.Delight > 0)
+        {
+            var r = Math.Max(2, (int)(l.DelightRadius * Math.Min(w, h) * 0.5));
+            for (var c = 0; c < 3; c++)
+            {
+                var mean = ch[c].Average();
+                var light = BlurRect(ch[c], w, h, r, wrap: false); // the photo doesn't tile yet: mirror at its edges
+                for (var i = 0; i < n; i++)
+                {
+                    var flat = ch[c][i] / Math.Max(0.02, light[i]) * mean;
+                    ch[c][i] = (float)Math.Clamp(ch[c][i] + (flat - ch[c][i]) * l.Delight, 0, 1);
+                }
+            }
+        }
+        // Seamless: near the edges, blend with the picture shifted by half its size (which meets itself there).
+        if (l.SeamBlend > 0)
+        {
+            var means = ch.Select(a => a.Average()).ToArray();
+            var outp = ch.Select(_ => new float[n]).ToArray();
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++)
+                {
+                    var edge = Math.Min(Math.Min(x + 0.5, w - x - 0.5) / w, Math.Min(y + 0.5, h - y - 0.5) / h);
+                    var w2 = 1 - SmoothStep(0, l.SeamBlend, edge); var w1 = 1 - w2;
+                    var norm = Math.Sqrt(w1 * w1 + w2 * w2);
+                    var j = ((y + h / 2) % h) * w + (x + w / 2) % w;
+                    var i = y * w + x;
+                    for (var c = 0; c < 3; c++)
+                        outp[c][i] = (float)Math.Clamp(means[c] + ((ch[c][i] - means[c]) * w1 + (ch[c][j] - means[c]) * w2) / norm, 0, 1);
+                }
+            ch = outp;
+        }
+        // Height: brightness in three bands of detail (fine, medium, large), weighted; the light was evened out above.
+        var lum = new float[n];
+        for (var i = 0; i < n; i++) lum[i] = 0.2126f * ch[0][i] + 0.7152f * ch[1][i] + 0.0722f * ch[2][i];
+        var unit = Math.Max(1.0, Math.Max(w, h) / 1024.0);
+        var b1 = BlurRect(lum, w, h, Math.Max(1, (int)(2 * unit)));
+        var b2 = BlurRect(lum, w, h, Math.Max(2, (int)(8 * unit)));
+        var b3 = BlurRect(lum, w, h, Math.Max(4, (int)(32 * unit)));
+        var b4 = BlurRect(lum, w, h, Math.Max(8, (int)(96 * unit)));
+        var band = new double[n];
+        for (var i = 0; i < n; i++)
+            band[i] = l.DetailFine * (lum[i] - b1[i]) + l.DetailMedium * (b1[i] - b2[i]) + l.DetailLarge * (b2[i] - b3[i]) + l.DetailLarge * 0.5 * (b3[i] - b4[i]);
+        var std = Math.Sqrt(band.Select(v => v * v).Average()) + 1e-6;
+        (double R, double G, double B)? pick = l.HeightColor is { } hc && l.HeightColorAmount != 0
+            ? (Convert.ToInt32(hc[1..3], 16) / 255.0, Convert.ToInt32(hc[3..5], 16) / 255.0, Convert.ToInt32(hc[5..7], 16) / 255.0) : null;
+        var height = new float[n];
+        for (var i = 0; i < n; i++)
+        {
+            var v = 0.5 + band[i] / (4 * std);
+            if (pick is { } c)
+            {
+                var d = Math.Sqrt(((ch[0][i] - c.R) * (ch[0][i] - c.R) + (ch[1][i] - c.G) * (ch[1][i] - c.G) + (ch[2][i] - c.B) * (ch[2][i] - c.B)) / 3);
+                v += l.HeightColorAmount * 0.5 * Math.Exp(-(d / l.HeightColorTolerance) * (d / l.HeightColorTolerance));
+            }
+            height[i] = (float)Math.Clamp(v, 0, 1);
+        }
+        var rgb = new float[n * 3];
+        for (var i = 0; i < n; i++) { rgb[i * 3] = ch[0][i]; rgb[i * 3 + 1] = ch[1][i]; rgb[i * 3 + 2] = ch[2][i]; }
+        return new Prepared(w, h, rgb, height);
+    }
+
+    /// <summary>A box blur of radius r over a w × h picture, wrapping (or mirroring) at the edges; three passes: close to a Gaussian.</summary>
+    private static float[] BlurRect(float[] src, int w, int h, int r, bool wrap = true)
+    {
+        var a = (float[])src.Clone();
+        var b = new float[a.Length];
+        for (var pass = 0; pass < 3; pass++)
+        {
+            BlurLines(a, b, w, h, r, horizontal: true, wrap);
+            BlurLines(b, a, w, h, r, horizontal: false, wrap);
+        }
+        return a;
+    }
+
+    private static int Mirror(int k, int len) { var p = 2 * len; k = ((k % p) + p) % p; return k < len ? k : p - 1 - k; }
+
+    private static void BlurLines(float[] src, float[] dst, int w, int h, int r, bool horizontal, bool wrap)
+    {
+        int lines = horizontal ? h : w, len = horizontal ? w : h;
+        var rr = Math.Min(r, (len - 1) / 2);
+        var span = 2 * rr + 1;
+        Parallel.For(0, lines, line =>
+        {
+            int Idx(int k) => wrap ? Wrap(k, len) : Mirror(k, len);
+            int At(int k) => horizontal ? line * w + Idx(k) : Idx(k) * w + line;
+            double sum = 0;
+            for (var k = -rr; k <= rr; k++) sum += src[At(k)];
+            for (var k = 0; k < len; k++)
+            {
+                dst[horizontal ? line * w + k : k * w + line] = (float)(sum / span);
+                sum += src[At(k + rr + 1)] - src[At(k - rr)];
+            }
+        });
     }
 
     private static byte Byte(double v) => (byte)Math.Round(255 * Math.Clamp(v, 0, 1));
@@ -517,32 +832,14 @@ public static class TextureEngine
         return (z.R, z.G, z.B);
     }
 
-    /// <summary>A box blur of radius r, wrapping at the edges (three passes: close to a Gaussian).</summary>
-    private static float[] Blur(float[] src, int size, int r)
-    {
-        var a = (float[])src.Clone();
-        var b = new float[a.Length];
-        for (var pass = 0; pass < 3; pass++)
-        {
-            BlurLine(a, b, size, r, horizontal: true);
-            BlurLine(b, a, size, r, horizontal: false);
-        }
-        return a;
-    }
+}
 
-    private static void BlurLine(float[] src, float[] dst, int size, int r, bool horizontal)
-    {
-        var w = 2 * r + 1;
-        Parallel.For(0, size, line =>
-        {
-            double sum = 0;
-            int At(int k) => horizontal ? line * size + Wrap(k, size) : Wrap(k, size) * size + line;
-            for (var k = -r; k <= r; k++) sum += src[At(k)];
-            for (var k = 0; k < size; k++)
-            {
-                dst[horizontal ? line * size + k : k * size + line] = (float)(sum / w);
-                sum += src[At(k + r + 1)] - src[At(k - r)];
-            }
-        });
-    }
+/// <summary>A picture for an image layer: its pixels as 0–1 RGB, and an id that changes when the picture does.</summary>
+public sealed class TextureImage
+{
+    public required int Width { get; init; }
+    public required int Height { get; init; }
+    /// <summary>RGB, 3 floats a pixel, 0–1.</summary>
+    public required float[] Rgb { get; init; }
+    public required string Id { get; init; }
 }

@@ -20,8 +20,9 @@ first, and anything that conflicts with it waits.
   connected blocks, each opening its editor): preview.35. Possible later, only if real use asks for connections the
   layers, buses and modulation can't make: an editable patching graph (a general signal graph in the engine, a new
   recipe format that still opens old recipes, and careful design so it stays usable).
-- Texture Bench, stage 1 (procedural tileable materials, PBR maps, 3D preview, engine exports): preview.36. Next
-  stages in docs/TEXTURE_BENCH_PLAN.md: image → material and hybrid, then shapes, masks and NoorSketch round trips.
+- Texture Bench, stage 1 (procedural tileable materials, PBR maps, 3D preview, engine exports): preview.36.
+  Stage 2 (photos as layers, painting from any layer, height and curvature masks, Sobel normals, horizon AO):
+  preview.37. Next in docs/TEXTURE_BENCH_PLAN.md: more shapes, NoorSketch round trips, Gallery and Vault.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

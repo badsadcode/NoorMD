@@ -848,6 +848,17 @@ public partial class MainWindow
             var maps = TextureEngine.Render(TexturePresets.Make("metal-rusty"), 512);
             var orm = maps.Packed("ao", "roughness", "metallic");
             Check("Texture Bench: maps are written as PNG files", orm.Length > 1000 && orm[1] == (byte)'P' && maps.Png("height").Length > 1000 && maps.Png("normal", directX: true).Length > 1000);
+            // A photo as a layer: decoded by Windows, read only once picked; an unpicked one (there, readable) is refused.
+            var photoPath = Path.Combine(SelfTestDir!, "Texture photo.png");
+            var photoNotPicked = Path.Combine(SelfTestDir!, "Texture photo, not picked.png");
+            await File.WriteAllBytesAsync(photoPath, maps.Png("albedo"));
+            File.Copy(photoPath, photoNotPicked, true);
+            _textureImageFiles.Add(Path.GetFullPath(photoPath));
+            TextureMaps WithPhoto(string path) => TextureEngine.Render(new TextureRecipe { Layers = [new TextureLayer { Type = "image", Path = path, ImageName = Path.GetFileName(path), SeamBlend = 0.2, Delight = 0.5 }] }.Clamped(), 256, LoadTextureImage);
+            var photoUsed = WithPhoto(photoPath);
+            var photoRefused = WithPhoto(photoNotPicked);
+            Check("Texture Bench: a picked photo becomes a layer, one nobody picked is refused", photoUsed.Warnings.Count == 0 && photoUsed.Height.Max() - photoUsed.Height.Min() > 0.3 && photoRefused.Warnings.Count == 1,
+                $"used: {string.Join("; ", photoUsed.Warnings)} range {photoUsed.Height.Max() - photoUsed.Height.Min():0.00}; refused: {photoRefused.Warnings.Count}");
         }
 
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.

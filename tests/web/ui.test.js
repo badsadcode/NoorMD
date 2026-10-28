@@ -3994,6 +3994,56 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       }
       await page.close();
     }
+
+    // ---- 47. Texture Bench: a photo as a layer (seamless, light evened out, height from detail and by colour), painting, masks.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1).recipe);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      const before = (await last()).layers.length;
+      await page.evaluate(() => { window.__mock.state.texture.imageCancel = true; });
+      await page.click('[data-addlayer="image"]');
+      await waitFn(page, () => window.__mock.state.texture.imagePicks === 1);
+      await page.waitForTimeout(200);
+      check('＋ Photo asks for a picture; cancelling adds nothing', (await page.evaluate(() => NoorTexture._state().recipe.layers.length)) === before);
+      await page.evaluate(() => { window.__mock.state.texture.imageCancel = false; });
+      await page.click('[data-addlayer="image"]');
+      await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === n + 1, before);
+      const photo = (await last()).layers.at(-1);
+      check('…a picked photo becomes a layer that replaces what is below, colours and all', photo.type === 'image' && photo.path === 'C:\\Photos\\old wall.jpg' && photo.name === 'old wall' && photo.blend === 'normal' && photo.opacity === 1 && photo.colorAmount === 1);
+      const card = `.sb-layer[data-index="${before}"]`;
+      check('…with its seam blend, light evening and height from detail', await page.evaluate((c) => ['seamBlend', 'delight', 'delightRadius', 'detailFine', 'detailMedium', 'detailLarge', 'colorAmount', 'scaleX'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card)
+        && /old wall\.jpg/.test(await page.textContent(card)) && !/⚠/.test(await page.textContent('#tb-status')));
+      await page.fill(`${card} input[data-num="delight"]`, '80');
+      await page.press(`${card} input[data-num="delight"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).delight === 0.8);
+      check('…values typed exactly (light evened out 80 %)', true);
+      await page.click(`${card} details.sb-fxgroup summary >> text=Height by colour`);
+      await page.check(`${card} input[data-key="useHeightColor"]`);
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).heightColor === '#808080');
+      await page.$eval(`${card} input[data-key="heightColor"]`, (n) => { n.value = '#5a5248'; n.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).heightColor === '#5a5248');
+      check('a colour of the photo can be made low (or high)', (await last()).layers.at(-1).heightColorAmount === -0.6 && !!(await page.$(`${card} input[data-num="heightColorTolerance"]`)));
+      // Painting from an ordinary layer: a tint, shinier and metal where it is high.
+      await page.click('.sb-layer[data-index="0"] details.sb-fxgroup summary >> text=Paint the surface');
+      await page.check('.sb-layer[data-index="0"] input[data-key="useTint"]');
+      await waitFn(page, () => !!window.__mock.state.texture.renders.at(-1).recipe.layers[0].tint);
+      await page.fill('.sb-layer[data-index="0"] input[data-num="roughnessShift"]', '-50');
+      await page.press('.sb-layer[data-index="0"] input[data-num="roughnessShift"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers[0].roughnessShift === -0.5);
+      check('any layer can paint the surface: a tint, roughness and metallic', (await last()).layers[0].tintAmount === 0.8 && !!(await page.$('.sb-layer[data-index="0"] input[data-num="metallicShift"]')));
+      for (const t of ['current', 'curvature']) await page.click(`[data-addlayer="${t}"]`);
+      await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === n + 3, before);
+      const masks = (await last()).layers.slice(-2);
+      check('mask layers (height so far, edges & cavities) paint without changing the height', masks.every((m) => m.opacity === 0 && m.tintAmount === 0.8 && !!m.tint) && masks.map((m) => m.type).join() === 'current,curvature'
+        && !!(await page.$(`.sb-layer[data-index="${before + 2}"] input[data-num="scaleX"]`)));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with photos, painting and masks', unexpected.length === 0, unexpected);
+      if (shots) { await page.evaluate((c) => document.querySelector(c).scrollIntoView(), card); await page.screenshot({ path: `${shots}/texture-photo.png` }); }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
