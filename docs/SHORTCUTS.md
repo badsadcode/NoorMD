@@ -85,7 +85,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Open the Stream Desk (in its dock, or bring its own window forward) | Ctrl+Alt+B |
 | Apps Hub (your programs, games and sites) | Ctrl+Alt+H |
 | Radio (your internet stations) · play / stop in the panel | Ctrl+Alt+I · Space |
-| Sound Bench (wind, rain, effects) · in it: play / stop · play over and over · variation · A/B · undo / redo | Ctrl+Alt+K · Space · L · V · B · Ctrl+Z / Ctrl+Y |
+| Sound Bench (wind, rain, effects) · in it: play / stop · play over and over · variation · mutate · A/B · undo / redo | Ctrl+Alt+K · Space · L · V · M · B · Ctrl+Z / Ctrl+Y |
 | Texture Bench (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light · room for the preview (on the bar between preview and controls) | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) · drag, arrow keys, double-click resets |
 | NoorSequencer (compose music) · in it: play / stop · play the loop · undo / redo · on a song-grid cell: pattern number · next / previous pattern · rest · new pattern · move | Ctrl+Alt+Q · Space · L · Ctrl+Z / Ctrl+Y · 0–9 · + / − (or the wheel) · Delete · N · arrow keys |
 | Gallery (your pictures) | Ctrl+Alt+G |

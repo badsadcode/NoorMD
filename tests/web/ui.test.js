@@ -4916,6 +4916,48 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the connected benches', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 63. Sound Bench: 🧬 Mutate only the chosen kinds of settings (timing, tone, level), never in locked layers.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.mutate'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound.isOpen() && NoorSound._state().recipe && NoorSound._state().recipe.layers.length >= 3);
+      const R = () => page.evaluate(() => NoorSound._state().recipe);
+      // The rule itself, seeded.
+      const rule = await page.evaluate(() => {
+        const base = NoorSound._state().recipe;
+        const tone = JSON.parse(JSON.stringify(base));
+        NoorSound._mutate(tone, { tone: true, amount: 0.5, locked: [base.layers[0].id] }, 7);
+        const same = (a, b, keys) => keys.every((k) => a[k] === b[k]);
+        return {
+          lockedKept: JSON.stringify(tone.layers[0]) === JSON.stringify(base.layers[0]),
+          levelsKept: tone.layers.every((l, i) => same(l, base.layers[i], ['gain', 'pan', 'width', 'density', 'release'])),
+          toneMoved: tone.layers.slice(1).some((l, i) => l.freq !== base.layers[i + 1].freq || l.q !== base.layers[i + 1].q || l.pitch !== base.layers[i + 1].pitch),
+          inRange: tone.layers.every((l) => l.freq >= 20 && l.freq <= 20000 && l.q >= 0.1 && l.q <= 60),
+        };
+      });
+      check('Mutate (tone only) changes pitch and filter, never level or timing, and never a locked layer; all within the sliders\' limits', rule.lockedKept && rule.levelsKept && rule.toneMoved && rule.inRange, rule);
+      // In the Layers tab.
+      await page.click('#soundbench .sb-tabs [data-tab="layers"]');
+      await page.waitForSelector('#sb-mutate');
+      check('the Layers tab: 🧬 Mutate with Timing and Tone on by default, Level off; a 🔓 on each layer', await page.isChecked('#sb-mut-timing') && await page.isChecked('#sb-mut-tone') && !(await page.isChecked('#sb-mut-level')) && (await page.$$('.sb-layer .sb-lock')).length === (await R()).layers.length);
+      const before = await R();
+      await page.click(`.sb-layer[data-index="0"] .sb-lock`);
+      check('🔓 locks a layer', (await page.textContent('.sb-layer[data-index="0"] .sb-lock')) === '🔒' && /1 layer locked/.test(await page.textContent('.sb-mutate')));
+      await page.click('#sb-mutate');
+      const after = await R();
+      check('🧬 Mutate changed the unlocked layers only', JSON.stringify(after.layers[0]) === JSON.stringify(before.layers[0]) && JSON.stringify(after.layers.slice(1)) !== JSON.stringify(before.layers.slice(1)));
+      await page.keyboard.press('Control+z');
+      await waitFn(page, (b) => JSON.stringify(NoorSound._state().recipe.layers) === b, JSON.stringify(before.layers));
+      check('Ctrl+Z brings the sound back', true);
+      await page.uncheck('#sb-mut-timing'); await page.uncheck('#sb-mut-tone');
+      await page.click('#sb-mutate');
+      check('with nothing chosen it says so and changes nothing', JSON.stringify((await R()).layers) === JSON.stringify(before.layers));
+      check('the choices are remembered', await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.sound.mutate')).timing === false));
+      check('no page errors with Mutate', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

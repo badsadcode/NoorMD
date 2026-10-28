@@ -190,7 +190,7 @@ window.NoorTexture = (() => {
   function setRecipe(r, fresh) {
     if (!fresh && recipe) pushHistory();
     recipe = r;
-    if (fresh) { history.length = 0; future = []; pinned = null; listening = 'B'; }
+    if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; pinned = null; listening = 'B'; }
     lastSnapshot = JSON.stringify(recipe);
     renderEditor();
     preview(512);

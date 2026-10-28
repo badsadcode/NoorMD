@@ -103,7 +103,8 @@ window.NoorSequencer = (() => {
   function setSong(s, fresh) {
     if (!fresh && song) pushHistory();
     song = s;
-    if (fresh) { history.length = 0; future = []; sel = { track: 0, bar: 0 }; playFrom = 0; audio.pause(); }
+    // A fresh song: no undo steps (also none still waiting to be saved from the song before).
+    if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; sel = { track: 0, bar: 0 }; playFrom = 0; audio.pause(); }
     fixSelection();
     lastSnapshot = JSON.stringify(song);
     renderAll();

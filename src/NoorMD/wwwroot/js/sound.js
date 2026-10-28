@@ -55,6 +55,9 @@ window.NoorSound = (() => {
   let view = (() => { try { return localStorage.getItem('noormd.sound.view') === 'spectrum' ? 'spectrum' : 'wave'; } catch { return 'wave'; } })();
   let matchLoudness = (() => { try { return localStorage.getItem('noormd.sound.match') !== 'off'; } catch { return true; } })();
   const history = []; let future = [];
+  // Mutate: which settings change (timing, tone, level), how much, and the layers kept as they are (by id; while editing).
+  const locked = new Set();
+  let mutation = (() => { try { return { timing: true, tone: true, level: false, amount: 0.25, ...JSON.parse(localStorage.getItem('noormd.sound.mutate') || '{}') }; } catch { return { timing: true, tone: true, level: false, amount: 0.25 }; } })();
   let lastSnapshot = null, snapTimer = null;
   const audio = new Audio();
   audio.preload = 'auto';
@@ -114,7 +117,7 @@ window.NoorSound = (() => {
     if (!fresh && recipe) pushHistory();
     recipe = r;
     ensureIds(recipe);
-    if (fresh) { history.length = 0; future = []; pinned = null; listening = 'B'; setRepeat(!!recipe.loop); }
+    if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; pinned = null; listening = 'B'; setRepeat(!!recipe.loop); }
     lastSnapshot = JSON.stringify(recipe);
     renderEditor();
     schedule(0);
@@ -424,6 +427,7 @@ window.NoorSound = (() => {
       else if (e.key.toLowerCase() === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (e.key.toLowerCase() === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
+      else if (e.key.toLowerCase() === 'm' && !e.ctrlKey && !e.altKey) { e.preventDefault(); mutate(); }
       else if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.altKey) { e.preventDefault(); setRepeat(!repeat); }
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && (pinned || reference)) { e.preventDefault(); flipAB(); }
     });
@@ -478,8 +482,11 @@ window.NoorSound = (() => {
     document.querySelectorAll('#soundbench .sb-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#sb-pane');
     const keep = pane.scrollTop;
+    // The button pressed is re-drawn: its new copy (same id) keeps the keyboard in the bench (Space, Ctrl+Z, M).
+    const focusedId = pane.contains(document.activeElement) && document.activeElement.id;
     pane.replaceChildren(...(tab === 'quick' ? quickPane() : tab === 'layers' ? layersPane() : tab === 'mod' ? modPane() : tab === 'map' ? mapPane() : outputPane()));
     pane.scrollTop = keep;
+    if (document.activeElement === document.body && isOpen()) { const again = focusedId && document.getElementById(focusedId); (again || $('#soundbench')).focus({ preventScroll: true }); }
   }
 
   /** A slider bound to obj[key]; kinds make Hz and times logarithmic and show units. */
@@ -753,6 +760,8 @@ window.NoorSound = (() => {
         el('div', { class: 'sb-layer-head' },
           el('span', { class: 'sb-type', text: TYPE_LABEL[l.type] || l.type }), name,
           toggleBtn('mute', 'M', 'Mute this layer'), toggleBtn('solo', 'S', 'Solo: hear only the soloed layers'),
+          el('button', { class: 'icon-btn sb-lock' + (locked.has(l.id) ? ' on' : ''), 'data-lock': l.id, 'aria-pressed': String(locked.has(l.id)), title: locked.has(l.id) ? 'Locked: 🧬 Mutate leaves this layer as it is (click to unlock)' : 'Lock this layer: 🧬 Mutate leaves it as it is',
+            onclick: () => { if (locked.has(l.id)) locked.delete(l.id); else locked.add(l.id); renderEditor(); } }, locked.has(l.id) ? '🔒' : '🔓'),
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), name: l.name + ' copy', solo: false }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { dropRoutes((t) => t.startsWith(l.id + ':') || t.startsWith(l.id + '/')); recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...(l.type === 'noise' ? [choice('color'), choice('filter')]
@@ -765,7 +774,21 @@ window.NoorSound = (() => {
         ...((recipe.buses || []).length ? [sendsRow(l)] : []),
         el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i, l.id)));
     });
+    const mcheck = (key, label, title) => {
+      const c = el('input', { type: 'checkbox', id: `sb-mut-${key}`, checked: mutation[key] || undefined });
+      c.addEventListener('change', () => { mutation[key] = c.checked; saveMutation(); });
+      return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
+    };
+    const amount = el('input', { type: 'range', id: 'sb-mut-amount', min: '5', max: '60', step: '5', value: String(Math.round(mutation.amount * 100)), 'aria-label': 'How much Mutate changes', title: `${Math.round(mutation.amount * 100)} %` });
+    amount.addEventListener('input', () => { mutation.amount = Number(amount.value) / 100; amount.title = `${amount.value} %`; saveMutation(); });
     return [
+      el('div', { class: 'sb-row sb-mutate' },
+        el('button', { class: 'utility-btn', id: 'sb-mutate', title: 'Change the chosen kinds of settings a little, in the layers that are not locked 🔒 (M). Ctrl+Z brings the sound back.', onclick: mutate }, '🧬 Mutate'),
+        mcheck('timing', 'Timing', 'How often and when: events per second, rhythm, clusters, start, attack and release, repeats, wobble speed'),
+        mcheck('tone', 'Tone', 'How it sounds: pitch, filter, brightness, ring time, wobble, FM, vibrato'),
+        mcheck('level', 'Level', 'How loud and where: level, pan, stereo width, loudness spread'),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'How much' }), amount),
+        el('small', { class: 'pref-hint', text: locked.size ? `${locked.size} layer${locked.size > 1 ? 's' : ''} locked` : '🔓 on a layer locks it' })),
       el('details', { class: 'sb-group', open: true }, el('summary', { text: 'Gusts (the slow movement layers can follow)' }), el('div', { class: 'sb-fields' }, ...GUST.map((f) => slider(g, f, false)))),
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-add': t, onclick: () => {
@@ -1284,6 +1307,52 @@ window.NoorSound = (() => {
     try { const f = await req('sound.sample.pick'); return f && !f.cancelled ? f : null; } catch (err) { hooks.showError(err); return null; }
   }
 
+  function saveMutation() { try { localStorage.setItem('noormd.sound.mutate', JSON.stringify(mutation)); } catch { /* private storage off */ } }
+
+  // Which settings belong to which kind of change.
+  const MUTATE_GROUPS = {
+    timing: ['density', 'rhythm', 'burst', 'burstSpread', 'start', 'attack', 'hold', 'release', 'repeat', 'wobbleRate', 'arpTime', 'vibratoRate'],
+    tone: ['pitch', 'pitchEnd', 'pitchSpread', 'freq', 'freqEnd', 'q', 'tone', 'decay', 'drift', 'wobble', 'duty', 'fmRatio', 'fmDepth', 'vibrato', 'semitones', 'drive', 'gustFilter'],
+    level: ['gain', 'pan', 'width', 'gainSpread', 'gustAmount'],
+  };
+
+  /**
+   * Nudges the chosen kinds of settings in the unlocked layers, each by up to `amount` of its range (frequencies,
+   * times and speeds by up to `amount` × 2 octaves, as they are heard), within the slider's limits. Settings at 0
+   * that mean "off" (an end pitch, a repeat) stay off.
+   */
+  function mutateRecipe(r, opts, rand = Math.random) {
+    const keys = new Set(['timing', 'tone', 'level'].filter((k) => opts[k]).flatMap((k) => MUTATE_GROUPS[k]));
+    let changedCount = 0;
+    for (const l of r.layers) {
+      if (opts.locked && opts.locked.has(l.id)) continue;
+      const fields = l.type === 'sample' ? sampleFields(l) : FIELDS[l.type] || FIELDS.noise;
+      for (const [key, , min, max, step, kind] of fields) {
+        if (!keys.has(key) || typeof l[key] !== 'number') continue;
+        const v = l[key];
+        if (v === 0 && (kind === 'hz0' || key === 'repeat' || key === 'start' || key === 'hold' || key === 'drift' || key === 'fmDepth' || key === 'vibrato')) continue;
+        const d = (rand() * 2 - 1) * opts.amount;
+        const log = (kind === 'hz' || kind === 'hz0' || kind === 'ms' || kind === 'rate' || kind === 'q' || kind === 's') && v > 0 && min >= 0;
+        let next = log ? v * Math.pow(2, d * 2) : v + d * (max - min) * 0.5;
+        next = Math.max(kind === 'hz0' ? Math.max(min, 20) : min, Math.min(max, next));
+        if (!log) next = Math.round(next / step) * step;
+        next = Number(next.toFixed(4));
+        if (next !== v) { l[key] = next; changedCount++; }
+      }
+    }
+    return changedCount;
+  }
+
+  function mutate() {
+    if (!recipe) return;
+    if (!mutation.timing && !mutation.tone && !mutation.level) { notice('Choose what Mutate may change: timing, tone or level.', 2000); return; }
+    pushHistory();
+    const n = mutateRecipe(recipe, { ...mutation, locked });
+    if (!n) { notice(locked.size >= recipe.layers.length ? 'Every layer is locked.' : 'Nothing to change there.', 1600); return; }
+    changed(true);
+    notice(`🧬 ${n} setting${n > 1 ? 's' : ''} changed (Ctrl+Z to undo)`, 1400);
+  }
+
   function newVariation() {
     if (!recipe) return;
     recipe.seed = (recipe.seed + 1 + Math.floor(Math.random() * 100000)) % 2147483647;
@@ -1359,8 +1428,9 @@ window.NoorSound = (() => {
     init, open, close, toggle, isOpen,
     /** The effects and their settings, shared with NoorSequencer's tracks. */
     fx: { FX_LABEL, FX_FIELDS, FX_CHOICES, FX_CHECKS, NEW_FX, UNIT },
+    _mutate: (r, opts, seed) => { let a = seed >>> 0; const rand = () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; return mutateRecipe(r, { ...opts, locked: new Set(opts.locked || []) }, rand); },
     /** Another player started: the preview stops. */
     stopForOther: () => { if (!audio.paused) audio.pause(); },
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: matchGain, listenVolume, outVolume: audio.volume, repeat, loop: audio.loop, reference: reference ? reference.name : null, match: matchLoudness }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: matchGain, listenVolume, outVolume: audio.volume, repeat, loop: audio.loop, reference: reference ? reference.name : null, match: matchLoudness, locked: [...locked], mutation: { ...mutation } }),
   };
 })();

@@ -90,6 +90,34 @@ public static class SoundPresets
             r.Master.Reverb = 0.2; r.Master.Room = 0.3;
             return r;
         }),
+        new("rain-window", "Rain", "Rain on a window", "Indoors: drops tapping the glass, runoff, the rain outside muffled.", () =>
+        {
+            var r = Ambience("Rain", "Rain on a window", 4, 0.3, 0.5,
+                Noise("Outside, muffled", "pink", "lowpass", 700, 0.7, -24, gust: 0.4),
+                Events("Glass taps", 18, 6, 4200, 0.6, 0.55, -26, gust: 0.5, gainSpread: 9, width: 0.7),
+                Noise("Runoff", "white", "bandpass", 2600, 2.5, -40, wobble: 0.5, wobbleRate: 1.2, width: 0.4),
+                Events("Big drops", 1.2, 25, 1500, 0.4, 0.7, -30, width: 0.5));
+            r.Macros.Shelter = 0.7;
+            return r;
+        }),
+        new("rain-leaves", "Rain", "Rain on leaves", "Under the trees: soft pattering on the canopy and heavier drops falling from it.", () =>
+        {
+            var r = Ambience("Rain", "Rain on leaves", 5, 0.4, 0.45,
+                Noise("Canopy", "pink", "bandpass", 2200, 0.5, -24, gust: 0.6, gustFilter: 0.3),
+                Events("Patter", 400, 8, 1800, 1.2, 0.15, -32, gust: 0.6, gainSpread: 8),
+                Events("Drops from branches", 3, 30, 900, 0.8, 0.35, -26, gainSpread: 10, width: 0.8),
+                Noise("Leaves stirring", "white", "highpass", 5000, 0.7, -44, gust: 1, wobble: 0.5, wobbleRate: 3));
+            return r;
+        }),
+        new("rain-puddles", "Rain", "Rain on puddles", "Drops plinking into water, with bubbles and a wet bed.", () =>
+        {
+            var r = Ambience("Rain", "Rain on puddles", 3, 0.25, 0.5,
+                Noise("Rain bed", "white", "bandpass", 3200, 0.5, -28, gust: 0.4),
+                Events("Plinks", 60, 40, 1400, 0.9, 0.85, -30, gust: 0.4, gainSpread: 8),
+                Events("Bubbles", 15, 60, 700, 0.7, 1, -34, width: 0.7),
+                Noise("Splash", "pink", "highpass", 4000, 0.7, -38, wobble: 0.4, wobbleRate: 4));
+            return r;
+        }),
         // Fire and water.
         new("fire-camp", "Fire", "Campfire", "A low flutter of flames with crackles and the odd pop.", () => Ambience("Fire", "Campfire", 6, 0.3, 0.5,
             Noise("Flames", "brown", "lowpass", 250, 0.7, -16, wobble: 0.6, wobbleRate: 2, width: 0.5),
@@ -109,6 +137,15 @@ public static class SoundPresets
             return r;
         }),
         // One-shots.
+        new("thunder-near", "Thunder", "Close thunder", "A sharp crack overhead, then a heavy rumble rolling away.", () =>
+        {
+            var r = OneShot("Thunder", "Close thunder", 7,
+                new SoundLayer { Type = "noise", Name = "Crack", Color = "white", Filter = "highpass", Freq = 1200, Q = 0.7, Gain = -4, Attack = 0.002, Hold = 0.05, Release = 0.6, Width = 1 },
+                new SoundLayer { Type = "events", Name = "Crackle", Density = 120, Decay = 4, Pitch = 3000, PitchSpread = 1, Tone = 0.1, Gain = -10, Attack = 0.001, Release = 0.9, Width = 1 },
+                new SoundLayer { Type = "noise", Name = "Rumble", Color = "brown", Filter = "lowpass", Freq = 220, Q = 0.7, Gain = 0, Start = 0.08, Attack = 0.15, Release = 5.5, Wobble = 0.6, WobbleRate = 4, Width = 0.9 });
+            r.Master.Reverb = 0.35; r.Master.Room = 0.9;
+            return r;
+        }),
         new("thunder-distant", "Thunder", "Distant thunder", "A long, rolling rumble far away.", () =>
         {
             var r = OneShot("Thunder", "Distant thunder", 8,
@@ -335,7 +372,7 @@ public static class SoundPresets
     private static readonly Dictionary<string, double> Level = new()
     {
         ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 21,
-        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 9.5, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
+        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 9.5, ["rain-tent"] = 6, ["rain-roof"] = 20.5, ["rain-window"] = 20, ["rain-leaves"] = 23, ["rain-puddles"] = 22,
         ["fire-camp"] = 11, ["water-stream"] = 15, ["water-falls"] = 6,
         ["walk-gravel"] = 8, ["walk-hall"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 20.5, ["machine-fan"] = 2,
     };

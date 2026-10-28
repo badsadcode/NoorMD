@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.0.0-preview.51 — Sound Bench: mutate what you choose, more weather
+
+- **🧬 Mutate** (Layers tab, or M): changes the settings themselves a little (🎲 Variation only changes the seed), and
+  only the kinds you tick: **Timing** (events per second, rhythm, start, attack and release, repeats), **Tone**
+  (pitch, filter, brightness, ring time, wobble, FM) or **Level** (level, pan, width), by as much as you choose.
+  **🔒 Lock** a layer to keep it as it is: e.g. change the drops' timing without touching the rain bed. Ctrl+Z
+  undoes it; the choices are remembered.
+- **New weather presets:** Rain on a window (indoors: taps on the glass, runoff, the rain outside muffled), Rain on
+  leaves (under the trees: pattering on the canopy, heavier drops falling from it), Rain on puddles (plinks and
+  bubbles) and Close thunder (a crack overhead, then a rumble rolling away). Levels set to sit with the other rain
+  sounds.
+- Also includes preview.50 (connected benches: OGG from the Sound Bench, exports added to the Music Bench, sound
+  recipes in the Vault), whose release check found the bug below.
+- Fixed: starting a new song (NoorSequencer), recipe (Sound Bench) or material (Texture Bench) right after a change
+  could leave one stray undo step from before. After a button that re-draws the Sound Bench's editor, the keyboard
+  stays in the bench (Space, Ctrl+Z).
+
 ## 2.0.0-preview.50 — Connected benches
 
 Make it in one bench, use it in another (the indie developer benches' asset workflow):
