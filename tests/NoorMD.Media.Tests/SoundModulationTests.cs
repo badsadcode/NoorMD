@@ -27,7 +27,7 @@ public class SoundModulationTests
     {
         foreach (var (id, (rms, samples)) in Preview28)
         {
-            var r = SoundPresets.Make(id);
+            var r = SoundRecipe.FromJson(FrozenRecipes.Preview28[id]);
             r.Duration = Math.Min(r.Duration, 2);
             var x = SoundEngine.Render(r, Sr);
             Assert.Equal(rms, x.RmsDb, 1);

@@ -68,10 +68,10 @@ public class SoundAnalysisTests
         Assert.True(clipped.Clipped > 1000);
         Assert.Contains(clipped.Warnings(false, -1), w => w.Contains("clipping"));
         // 1000 Hz over exactly 1 s wraps cleanly; cut a little short, it jumps.
-        Assert.True(mono.SeamJump < 2, $"{mono.SeamJump}");
+        Assert.True(mono.SeamJump < 1.2, $"{mono.SeamJump}");
         var cut = l.Take(l.Length - 11).ToArray();
         var seam = SoundAnalysis.Measure(cut, cut, Sr);
-        Assert.True(seam.SeamJump > 4, $"{seam.SeamJump}");
+        Assert.True(seam.SeamJump > 1.5, $"{seam.SeamJump}");
         Assert.Contains(seam.Warnings(true, -1), w => w.Contains("loop"));
         Assert.DoesNotContain(seam.Warnings(false, -1), w => w.Contains("loop"));
     }
@@ -94,15 +94,17 @@ public class SoundAnalysisTests
     [Fact]
     public void A_Loudness_Target_Brings_The_Sound_There()
     {
-        foreach (var (id, target) in new[] { ("rain-steady", -23.0), ("ui-coin", -16.0), ("wind-storm", -14.0) })
+        foreach (var (id, target) in new[] { ("rain-steady", -23.0), ("ui-coin", -16.0), ("wind-storm", -14.0), ("step-wood", -14.0), ("rain-steady", -10.0) })
         {
             var r = SoundPresets.Make(id);
             r.Duration = Math.Min(r.Duration, 4);
             r.Master.TargetLufs = target;
             var x = SoundEngine.Render(r, Sr);
             var m = x.Measure();
-            Assert.InRange(m.Lufs, target - 0.6, target + 0.3);
-            Assert.True(x.PeakDb <= r.Master.Ceiling + 0.01);
+            // At the target, or as close as the ceiling allows (a peaky sound is not squashed to get there).
+            Assert.True(m.Lufs <= target + 0.3, $"{id}: {m.Lufs}");
+            Assert.True(m.Lufs >= target - 0.6 || m.TruePeakDb >= r.Master.Ceiling - 0.6, $"{id}: {m.Lufs} LUFS, {m.TruePeakDb} dBTP");
+            Assert.True(m.TruePeakDb <= r.Master.Ceiling + 0.05, $"{id}: {m.TruePeakDb} dBTP");
         }
         var c = new SoundRecipe { Master = new MasterSettings { TargetLufs = -80 } }.Clamped();
         Assert.Equal(-40, c.Master.TargetLufs);

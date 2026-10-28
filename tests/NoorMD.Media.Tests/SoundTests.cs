@@ -92,10 +92,23 @@ public class SoundTests
     [Fact]
     public void One_Shots_Are_Normalized_And_Fade_Out()
     {
-        var r = SoundEngine.Render(SoundPresets.Make("ui-laser"), 48000);
+        var recipe = SoundPresets.Make("ui-laser");
+        recipe.Master.TargetLufs = 0; // normalising alone: the peak goes to the ceiling
+        var r = SoundEngine.Render(recipe, 48000);
         Assert.InRange(r.PeakDb, -1.6, -0.9);
         Assert.Equal(0f, r.Left[^1]);
         Assert.Equal(0.4, r.Seconds, 2);
+        // As presets, one-shots are brought to one loudness; a peaky one (a step) stops at the ceiling instead of
+        // being squashed. Either way nothing goes over the ceiling between samples.
+        foreach (var p in SoundPresets.All)
+        {
+            var recipe2 = SoundPresets.Make(p.Id);
+            if (recipe2.Loop) continue;
+            var m = SoundEngine.Render(recipe2, 48000).Measure();
+            Assert.True(m.TruePeakDb <= -0.95, $"{p.Id}: {m.TruePeakDb} dBTP");
+            Assert.True(m.Lufs <= SoundPresets.OneShotLufs + 0.3, $"{p.Id}: {m.Lufs} LUFS");
+            Assert.True(m.Lufs >= SoundPresets.OneShotLufs - 0.6 || m.TruePeakDb >= -1.6, $"{p.Id}: {m.Lufs} LUFS short of the target with room to spare ({m.TruePeakDb} dBTP)");
+        }
     }
 
     [Fact]

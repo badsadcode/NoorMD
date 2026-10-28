@@ -21,7 +21,12 @@ and compare fairly.
 - **🎧 Reference…:** pick a finished sound (a WAV from a game, a library, or one you like) and compare it with
   yours: its waveform, spectrogram and meters are shown, and B (or the A/B/R button) goes round A, B and R.
   Only the file you picked is read.
-- **Nothing changes for your existing sounds:** without a loudness target, renders are exactly as before.
+- **Built-in one-shots now sit together:** measured with the new meters, the one-shot presets were 17 LU apart
+  (Coin pickup at −4 LUFS, a wooden step at −21), and six went over the ceiling between samples. One-shot presets
+  and 🎲 generated sounds now use a −16 LUFS target. A very peaky sound (a footstep, a fall) stops at the ceiling
+  instead of being squashed, so it may stay a little under. Nothing goes over the ceiling now. Four ambiences that
+  sat far from the others (Downpour, Computer fan, Cave drips, Window draft) were evened out.
+- **Nothing changes for your saved sounds:** a recipe without a loudness target renders exactly as before.
 
 ## 2.0.0-preview.30 — Sound Bench: samples, stretched and as grains
 

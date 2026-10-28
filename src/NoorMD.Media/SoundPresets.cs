@@ -301,10 +301,10 @@ public static class SoundPresets
     /// </summary>
     private static readonly Dictionary<string, double> Level = new()
     {
-        ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 19,
-        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 12, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
+        ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 21,
+        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 9.5, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
         ["fire-camp"] = 11, ["water-stream"] = 15, ["water-falls"] = 6,
-        ["walk-gravel"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 18,
+        ["walk-gravel"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 20.5, ["machine-fan"] = 2,
     };
 
     /// <summary>Adds a named control (shown in Quick) and its connections; layers are L1, L2… in the order given.</summary>
@@ -318,12 +318,19 @@ public static class SoundPresets
         return r;
     }
 
+    /// <summary>
+    /// One-shots are brought to one loudness, so a coin and a footstep sit together (peak normalising alone left them
+    /// 17 LU apart, the square-wave ones loudest). Loops keep their own levels from <see cref="Level"/>.
+    /// </summary>
+    public const double OneShotLufs = -16;
+
     public static SoundRecipe Make(string id)
     {
         var p = All.FirstOrDefault(x => x.Id == id) ?? throw new ArgumentException("Unknown preset.");
         var r = p.Make();
         r.Name = p.Name;
         if (Level.TryGetValue(id, out var level)) r.Master.Gain += level;
+        if (!r.Loop && r.Master.TargetLufs == 0) r.Master.TargetLufs = OneShotLufs;
         return r.Clamped();
     }
 }

@@ -174,6 +174,7 @@ public sealed class MasterSettings
     /// <summary>
     /// Loudness the finished sound is brought to (LUFS, as streaming services and game audio guides measure it; 0 = off).
     /// Applied after Normalize, before the ceiling's limiter, so a set of sounds made with the same target sit together.
+    /// It never raises a sound past the ceiling (by true peak): a very peaky one stays a little under the target.
     /// </summary>
     public double TargetLufs { get; set; }
     /// <summary>Effects on the whole sound, in order, after the master filters and room.</summary>
@@ -474,13 +475,13 @@ public static class SoundEngine
         for (var i = 0; i < length; i++) peak = Math.Max(peak, Math.Max(Math.Abs(outL[i]), Math.Abs(outR[i])));
         var ceiling = Math.Pow(10, r.Master.Ceiling / 20);
         if (r.Master.Normalize && peak > 1e-6) Scale(outL, outR, ceiling / peak);
-        if (r.Master.TargetLufs < 0) ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs);
+        if (r.Master.TargetLufs < 0) ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling);
         Limit(outL, outR, ceiling);
         if (r.Master.TargetLufs < 0)
         {
-            // The limiter can take a little off a loud target: measure again and make that up (once).
+            // The limiter's soft knee can take a little off: measure again and make that up (once, within the same limit).
             var (after, _, _) = SoundAnalysis.Loudness(outL, outR, sampleRate);
-            if (after > -100 && r.Master.TargetLufs - after > 0.1) { ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs); Limit(outL, outR, ceiling); }
+            if (after > -100 && r.Master.TargetLufs - after > 0.1) { ToLoudness(outL, outR, sampleRate, r.Master.TargetLufs, ceiling); Limit(outL, outR, ceiling); }
         }
         double sumSq = 0; peak = 0;
         for (var i = 0; i < length; i++)
@@ -1176,10 +1177,18 @@ public static class SoundEngine
     private static void Scale(float[] l, float[] r, double k) { for (var i = 0; i < l.Length; i++) { l[i] = (float)(l[i] * k); r[i] = (float)(r[i] * k); } }
 
     /// <summary>A soft limiter: below the knee nothing changes; above it, peaks are rounded off toward the ceiling.</summary>
-    private static void ToLoudness(float[] l, float[] r, int sr, double target)
+    /// <summary>
+    /// Towards the loudness target, but never past the ceiling (by true peak): a very peaky sound (a crunchy step, a
+    /// click) stays a little under the target rather than being squashed and distorted by the limiter.
+    /// </summary>
+    private static void ToLoudness(float[] l, float[] r, int sr, double target, double ceiling)
     {
         var (lufs, _, _) = SoundAnalysis.Loudness(l, r, sr);
-        if (lufs > -100) Scale(l, r, Math.Pow(10, (target - lufs) / 20));
+        if (lufs <= -100) return;
+        var gain = Math.Pow(10, (target - lufs) / 20);
+        var peak = Math.Max(SoundAnalysis.TruePeak(l), SoundAnalysis.TruePeak(r));
+        if (peak > 1e-6) gain = Math.Min(gain, ceiling / peak);
+        Scale(l, r, gain);
     }
 
     private static void Limit(float[] l, float[] r, double ceiling)

@@ -236,6 +236,7 @@ public static class SoundGenerator
                 break;
             }
         }
+        if (!r.Loop) r.Master.TargetLufs = SoundPresets.OneShotLufs;
         return r.Clamped();
     }
 

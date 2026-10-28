@@ -8,6 +8,7 @@ namespace NoorMD.Media;
 public sealed record SoundMeasure(
     double Lufs, double ShortTermMax, double MomentaryMax, double TruePeakDb, double SamplePeakDb,
     double Correlation, double Width, double DcPercent, int Clipped, double CentroidHz, double SeamJump)
+    // SeamJump: the step where a loop wraps, as a multiple of the largest step anywhere else (above 1.5 = a click).
 {
     /// <summary>Plain warnings for the page (the loop seam only matters for loops).</summary>
     public IReadOnlyList<string> Warnings(bool loop, double ceilingDb)
@@ -18,7 +19,7 @@ public sealed record SoundMeasure(
         if (Lufs > -120 && Lufs < -40) w.Add("Very quiet (below −40 LUFS)");
         if (Correlation < -0.2) w.Add("Left and right mostly cancel each other in mono");
         if (Math.Abs(DcPercent) > 1) w.Add($"DC offset ({DcPercent:0.0} %)");
-        if (loop && SeamJump > 4) w.Add("The loop has a jump where it wraps (a click)");
+        if (loop && SeamJump > 1.5) w.Add("The loop has a jump where it wraps (a click)");
         return w;
     }
 }
@@ -166,16 +167,15 @@ public static class SoundAnalysis
         var corr = ll > 1e-12 && rr > 1e-12 ? lr / Math.Sqrt(ll * rr) : 1;
         var width = mid > 1e-12 ? Math.Sqrt(side / mid) : side > 1e-12 ? 9.99 : 0;
         var dc = n > 0 ? (sumL + sumR) / (2.0 * n) * 100 : 0;
-        // The loop seam: the step from the last sample to the first, against the steps the sound usually takes.
+        // The loop seam: the step from the last sample back to the first, against the largest step anywhere else. A
+        // click is a jump bigger than anything in the sound itself (a saw wave's own edges are not one).
         var seam = 0.0;
         if (n > 16)
         {
-            var every = Math.Max(1, n / 65536); // a sample of the steps is enough for "usually"
-            var steps = new double[(n - 1) / every];
-            for (var k = 0; k < steps.Length; k++) { var i = 1 + k * every; steps[k] = Math.Abs(left[i] - left[i - 1]) + Math.Abs(right[i] - right[i - 1]); }
-            Array.Sort(steps);
-            var usual = Math.Max(1e-4, steps[(int)(steps.Length * 0.99)]);
-            seam = (Math.Abs(left[0] - left[^1]) + Math.Abs(right[0] - right[^1])) / usual;
+            var largest = 1e-4;
+            for (var i = 1; i < n; i++) largest = Math.Max(largest, Math.Abs(left[i] - left[i - 1]) + Math.Abs(right[i] - right[i - 1]));
+            var step = Math.Abs(left[0] - left[^1]) + Math.Abs(right[0] - right[^1]);
+            seam = step < 0.02 ? Math.Min(1, step / largest) : step / largest;
         }
         var tp = Math.Max(TruePeak(left), TruePeak(right));
         return new SoundMeasure(lufs, st, mom, Db(tp), Db(peak), Math.Round(corr, 3), Math.Round(width, 3), Math.Round(dc, 3), clipped,
