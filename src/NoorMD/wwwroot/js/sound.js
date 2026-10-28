@@ -377,6 +377,7 @@ window.NoorSound = (() => {
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🔊' }), el('strong', { text: 'Sound Bench' }), el('small', { id: 'sb-family' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'sb-open', title: 'Open a recipe (.noorsound.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
+          NoorDock.fullButton('Sound Bench'),
           el('button', { class: 'icon-btn', id: 'sb-dock', title: 'Where this panel goes', 'aria-label': 'Move the Sound Bench', onclick: (e) => NoorDock.showMenu('sound', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+K)', 'aria-label': 'Close the Sound Bench', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
@@ -421,7 +422,7 @@ window.NoorSound = (() => {
     new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); drawWave(); }).observe(root);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
-      if (e.key === 'Escape' && !typing) { e.preventDefault(); e.stopPropagation(); close(); return; }
+      if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; } // in the whole window, Esc goes back to NoorMD
       if (typing) return;
       if (e.key === ' ' && !e.target.closest('button')) { e.preventDefault(); playStop(); }
       else if (e.key.toLowerCase() === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }

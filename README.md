@@ -72,7 +72,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   HTML, footnotes and hard line breaks are examples. NoorMD detects this when a file opens. It
   then opens the file in Markdown mode so nothing is rewritten, and asks before switching. A
   file that is only opened, never edited, is never re-saved.
-- **Focus mode** (F11): the document fills the whole window.
+- **Focus mode** (F11): the document fills the whole window. With a bench in the middle (Texture Bench, Asset Bench,
+  NoorSequencer, Sound Bench) the bench gets the whole window instead; its ⛶ button does the same, and “Back to
+  NoorMD” (or Esc, F11) brings the menus, tabs and panels back.
 - **Studio tools:** document outline with navigation, word/character counts, reading time,
   a writing goal, a command palette (Ctrl+K), find & replace (Ctrl+F / Ctrl+H) and revision
   snapshots with preview, restore and delete. Snapshots are kept across restarts.

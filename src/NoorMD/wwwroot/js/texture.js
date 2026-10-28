@@ -294,6 +294,7 @@ window.NoorTexture = (() => {
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🧱' }), el('strong', { text: 'Texture Bench' }), el('small', { id: 'tb-family' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'tb-open', title: 'Open a recipe (.noortex.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
+          NoorDock.fullButton('Texture Bench'),
           el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move the Texture Bench', onclick: (e) => NoorDock.showMenu('texture', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+T)', 'aria-label': 'Close the Texture Bench', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
@@ -305,8 +306,8 @@ window.NoorTexture = (() => {
             el('button', { class: 'utility-btn', id: 'tb-vary', title: 'Another variation: same recipe, another seed (V)', onclick: newVariation }, '🎲 Variation'),
             el('button', { class: 'utility-btn', id: 'tb-pin', title: 'Keep this version as A, to compare while you change things', onclick: pin }, '📌 Pin as A'),
             el('button', { class: 'utility-btn', id: 'tb-ab', title: 'Show A (pinned) or B (now) (B)', hidden: true, onclick: flipAB }, 'A/B: B'),
-            el('button', { class: 'icon-btn', id: 'tb-side', title: 'Preview and controls side by side, or one above the other', 'aria-label': 'Side by side', 'aria-pressed': 'false', onclick: () => setLayout({ side: !layoutPrefs.side }) }, '◫'),
-            el('button', { class: 'icon-btn', id: 'tb-list', title: 'Show or hide the list of materials', 'aria-label': 'Materials list', 'aria-pressed': 'true', onclick: () => setLayout({ list: !layoutPrefs.list }) }, '☰')),
+            el('button', { class: 'icon-btn', id: 'tb-side', title: 'Preview and controls side by side, or one above the other', 'aria-label': 'Side by side', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
+            el('button', { class: 'icon-btn', id: 'tb-list', title: 'Show or hide the list of materials', 'aria-label': 'Materials list', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
           el('div', { class: 'tb-split', id: 'tb-split' },
           el('div', { class: 'tb-view-col', id: 'tb-view-col' },
           el('div', { class: 'tb-views', id: 'tb-views', role: 'group', 'aria-label': 'What to show' },
@@ -369,7 +370,7 @@ el('span', { class: 'tb-zoom' },
     new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); fitFlat(); if (gl3d) gl3d.resize(); }).observe(root);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
-      if (e.key === 'Escape' && !typing) { e.preventDefault(); e.stopPropagation(); close(); return; }
+      if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; } // in the whole window, Esc goes back to NoorMD
       if (typing) return;
       if (e.key.toLowerCase() === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (e.key.toLowerCase() === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
@@ -377,8 +378,11 @@ el('span', { class: 'tb-zoom' },
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
     });
     try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
-    setupSplitter();
-    applyLayout();
+    layout = NoorBenchLayout.attach({
+      root: $('#texturebench'), storageKey: 'noormd.texture.layout', split: $('#tb-split'), viewCol: $('#tb-view-col'), editCol: $('#tb-edit-col'),
+      splitter: $('#tb-splitter'), sideButton: $('#tb-side'), listButton: $('#tb-list'), onChange: () => { fitFlat(); if (gl3d) gl3d.resize(); },
+    });
+    new ResizeObserver(() => { fitFlat(); if (gl3d) gl3d.resize(); }).observe($('#tb-stage'));
     setView(view);
   }
 
@@ -391,61 +395,8 @@ el('span', { class: 'tb-zoom' },
 
   // ---------------------------------------------------------------- layout: how much room the preview gets
 
-  /** Side by side or stacked, the preview's share (px, per arrangement), and whether the materials list shows. Remembered. */
-  let layoutPrefs = (() => { try { return { side: false, list: true, height: 0, width: 0, ...JSON.parse(localStorage.getItem('noormd.texture.layout') || '{}') }; } catch { return { side: false, list: true, height: 0, width: 0 }; } })();
-
-  function setLayout(change) {
-    layoutPrefs = { ...layoutPrefs, ...change };
-    try { localStorage.setItem('noormd.texture.layout', JSON.stringify(layoutPrefs)); } catch { /* private storage off */ }
-    applyLayout();
-  }
-
-  function applyLayout() {
-    const root = $('#texturebench');
-    if (!root) return;
-    root.classList.toggle('tb-side', !!layoutPrefs.side);
-    root.classList.toggle('tb-no-list', !layoutPrefs.list);
-    const col = $('#tb-view-col');
-    col.style.height = !layoutPrefs.side && layoutPrefs.height ? layoutPrefs.height + 'px' : '';
-    col.style.width = layoutPrefs.side && layoutPrefs.width ? layoutPrefs.width + 'px' : '';
-    $('#tb-side').setAttribute('aria-pressed', String(!!layoutPrefs.side));
-    $('#tb-side').classList.toggle('on', !!layoutPrefs.side);
-    $('#tb-list').setAttribute('aria-pressed', String(!!layoutPrefs.list));
-    const sp = $('#tb-splitter');
-    sp.setAttribute('aria-orientation', layoutPrefs.side ? 'vertical' : 'horizontal');
-    fitFlat();
-    if (gl3d) gl3d.resize();
-  }
-
-  /** Dragging (or arrow keys on) the bar between the preview and the controls. */
-  function setupSplitter() {
-    const sp = $('#tb-splitter'), split = $('#tb-split'), col = $('#tb-view-col');
-    const limit = (v) => {
-      const box = split.getBoundingClientRect();
-      const total = layoutPrefs.side ? box.width : box.height;
-      return Math.round(Math.max(layoutPrefs.side ? 240 : 150, Math.min(total - (layoutPrefs.side ? 300 : 140), v)));
-    };
-    const set = (v) => setLayout(layoutPrefs.side ? { width: limit(v) } : { height: limit(v) });
-    let drag = null;
-    sp.addEventListener('pointerdown', (e) => {
-      e.preventDefault(); sp.setPointerCapture(e.pointerId);
-      const r = col.getBoundingClientRect();
-      drag = { start: layoutPrefs.side ? e.clientX : e.clientY, size: layoutPrefs.side ? r.width : r.height };
-      sp.classList.add('dragging');
-    });
-    sp.addEventListener('pointermove', (e) => { if (drag) set(drag.size + (layoutPrefs.side ? e.clientX : e.clientY) - drag.start); });
-    const end = () => { drag = null; sp.classList.remove('dragging'); };
-    sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
-    sp.addEventListener('dblclick', () => setLayout(layoutPrefs.side ? { width: 0 } : { height: 0 }));
-    sp.addEventListener('keydown', (e) => {
-      const step = { ArrowUp: -24, ArrowLeft: -24, ArrowDown: 24, ArrowRight: 24 }[e.key];
-      if (!step) return;
-      e.preventDefault();
-      const r = col.getBoundingClientRect();
-      set((layoutPrefs.side ? r.width : r.height) + step);
-    });
-    new ResizeObserver(() => { fitFlat(); if (gl3d) gl3d.resize(); }).observe($('#tb-stage'));
-  }
+  /** Side by side or stacked, the preview's share and whether the materials list shows (NoorBenchLayout; remembered). */
+  let layout = { prefs: {}, set() {}, apply() {} };
 
   function renderPresets() {
     const nav = $('#tb-presets');
@@ -1348,6 +1299,6 @@ el('span', { class: 'tb-zoom' },
     /** Pictures from the Gallery for the batch (Export tab). */
     batchPictures: async (pics) => { await open(); addBatchPictures(pics || []); },
     hasMaterial: () => !!recipe,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: { ...layoutPrefs }, batch: { pictures: batch.pictures.map((x) => x.path), running: batch.running, progress: batch.progress }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: layout.prefs, batch: { pictures: batch.pictures.map((x) => x.path), running: batch.running, progress: batch.progress }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

@@ -268,6 +268,7 @@ window.NoorSequencer = (() => {
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎼' }), el('strong', { text: 'NoorSequencer' }), el('small', { id: 'seq-family' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'seq-open', title: 'Open a song (.noorsong.json)', 'aria-label': 'Open a song', onclick: openSong }, '📂'),
+          NoorDock.fullButton('NoorSequencer'),
           el('button', { class: 'icon-btn', id: 'seq-dock', title: 'Where this panel goes', 'aria-label': 'Move NoorSequencer', onclick: (e) => NoorDock.showMenu('sequencer', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+Q)', 'aria-label': 'Close NoorSequencer', onclick: close }, '✕'))),
       el('div', { class: 'seq-top' },
@@ -318,7 +319,7 @@ window.NoorSequencer = (() => {
 
   function onKey(e) {
     const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
-    if (e.key === 'Escape' && !typing) { e.preventDefault(); e.stopPropagation(); close(); return; }
+    if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; } // in the whole window, Esc goes back to NoorMD
     if (typing) return;
     const k = e.key.toLowerCase();
     if (e.key === ' ' && !e.target.closest('button')) { e.preventDefault(); playStop(); }

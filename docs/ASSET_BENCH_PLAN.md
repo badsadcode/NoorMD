@@ -183,6 +183,15 @@ Godot is the main engine, then Unity, then Unreal.
   Godot 4.4 and checks the visibility ranges, the materials (textures kept, cutoff, wind source), that a single level
   gets no range, and that a scene not made by NoorMD is left alone (tests/godot/check.gd).
 
+### Room to work (preview.57)
+
+- **Settings beside the tree** (◫ in the view's toolbar): the tree takes the free room and the settings, with the name
+  and seed, are a column on the right; the bar between them drags (double-click: back to normal). ☰ hides the list
+  of trees. The usual arrangement (settings under the tree) stays the default; the choice is remembered. Shared
+  with the Texture Bench (NoorBenchLayout).
+- **The whole window** (⛶, or F11 with a bench in the middle): Focus mode now shows the bench instead of hiding it;
+  “Back to NoorMD”, Esc or F11 return.
+
 Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks

@@ -5080,7 +5080,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const AS = () => page.evaluate(() => NoorAssets._state());
       const AM = () => page.evaluate(() => window.__mock.state.assets);
-      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
       check('Ctrl+Alt+M opens the Asset Bench with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
@@ -5089,6 +5089,45 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and can show only the stylized ones', !(await page.$('#ab-presets [data-preset="oak"]')) && !!(await page.$('#ab-presets [data-preset="stylized-oak"]')) && !(await page.$('#ab-presets [data-preset="willow"]')));
       await page.click('#ab-presets [data-look="all"]');
       check('…or all of them', !!(await page.$('#ab-presets [data-preset="willow"]')));
+      check('no stray text in the list (an empty slot used to read “null”)', !/null|undefined/.test(await page.textContent('#ab-presets')));
+      // Layout: the settings under the tree (as before), or the tree big with the settings in a column on the right.
+      check('the settings start under the tree', !(await page.$eval('#assetbench', (r) => r.classList.contains('tb-side'))) && await page.$eval('#ab-top', (t) => t.nextElementSibling.id === 'ab-split'));
+      if (shots) await page.screenshot({ path: `${shots}/65-asset-bench-stacked.png` });
+      await page.click('#ab-side');
+      const side = await page.evaluate(() => {
+        const v = document.querySelector('#ab-view-col').getBoundingClientRect(), e = document.querySelector('#ab-edit-col').getBoundingClientRect();
+        return { on: document.querySelector('#assetbench').classList.contains('tb-side'), topInEdit: document.querySelector('#ab-edit-col').firstElementChild.id === 'ab-top', viewLeft: v.right <= e.left + 1, viewWidth: v.width, editWidth: e.width, viewHeight: v.height, pressed: document.querySelector('#ab-side').getAttribute('aria-pressed') };
+      });
+      check('◫: the tree on the left taking the room, the settings (name and seed too) in a column on the right', side.on && side.topInEdit && side.viewLeft && side.viewWidth > side.editWidth * 1.5 && side.viewHeight > 600 && side.pressed === 'true', side);
+      if (shots) await page.screenshot({ path: `${shots}/65-asset-bench-side.png` });
+      const editBefore = side.editWidth;
+      const bar = await page.$eval('#ab-splitter', (b) => { const r = b.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+      await page.mouse.move(bar.x, bar.y); await page.mouse.down(); await page.mouse.move(bar.x - 120, bar.y, { steps: 4 }); await page.mouse.up();
+      const editAfter = await page.$eval('#ab-edit-col', (e) => e.getBoundingClientRect().width);
+      check('…dragging the bar left gives the settings more room', editAfter > editBefore + 80, { editBefore, editAfter });
+      await page.click('#ab-list');
+      check('☰ hides the list of trees', await page.$eval('#ab-presets', (n) => getComputedStyle(n).display === 'none'));
+      check('…and the layout is remembered', await page.evaluate(() => { const l = JSON.parse(localStorage.getItem('noormd.assets.layout')); return l.side === true && l.list === false && l.width > 0; }));
+      await page.click('#ab-list');
+      await page.click('#ab-side');
+      check('…and back to the settings under the tree', await page.$eval('#ab-top', (t) => t.nextElementSibling.id === 'ab-split') && !(await page.$eval('#assetbench', (r) => r.classList.contains('tb-side'))));
+      // The whole window for the bench, and an easy way back.
+      check('⛶ is offered while the bench is in the middle', await page.$eval('#assetbench .bench-full', (b) => getComputedStyle(b).display !== 'none' && /⛶/.test(b.textContent)));
+      await page.click('#assetbench .bench-full');
+      const full = await page.evaluate(() => {
+        const b = document.querySelector('#assetbench').getBoundingClientRect();
+        const shown = (sel) => { const n = document.querySelector(sel); return !!n && getComputedStyle(n).display !== 'none' && n.getBoundingClientRect().height > 0; };
+        return { zen: document.body.classList.contains('zen'), width: b.width, height: b.height, menu: shown('#menubar'), tabs: shown('.tabstrip'), exitFloat: shown('#zen-exit'), back: document.querySelector('#assetbench .bench-full').innerText.trim() };
+      });
+      check('…the bench gets the whole window (no menus, tabs or floating exit), with “Back to NoorMD”', full.zen && full.width > 1450 && full.height > 950 && !full.menu && !full.tabs && !full.exitFloat && /Back to NoorMD/.test(full.back), full);
+      if (shots) await page.screenshot({ path: `${shots}/65-asset-bench-full-window.png` });
+      await page.focus('#ab-canvas');
+      await page.keyboard.press('Escape');
+      check('…Esc brings NoorMD back and keeps the bench open', !(await page.evaluate(() => document.body.classList.contains('zen'))) && await page.evaluate(() => NoorAssets.isOpen()));
+      await page.keyboard.press('F11');
+      check('F11 (Focus mode) with a bench in the middle shows the bench, not an empty page', await page.evaluate(() => document.body.classList.contains('zen') && getComputedStyle(document.querySelector('#dock-center')).display !== 'none' && document.querySelector('#assetbench').getBoundingClientRect().height > 900));
+      await page.click('#assetbench .bench-full');
+      check('…and its “Back to NoorMD” button leaves it', !(await page.evaluate(() => document.body.classList.contains('zen'))) && await page.$eval('#menubar', (m) => getComputedStyle(m).display !== 'none'));
       const webgl = (await AS()).viewer !== null;
       if (webgl) {
         await waitFn(page, () => NoorAssets._state().viewer.loaded);

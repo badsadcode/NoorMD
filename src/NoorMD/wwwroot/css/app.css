@@ -401,7 +401,14 @@ body.compact .sidebar { padding: 14px 12px; gap: 14px; }
 
 /* ---------- Focus mode: the document uses the whole window. ---------- */
 body.zen .app { --sb-col: 0px; --dock-left: 0px !important; --dock-right: 0px !important; --dock-bottom: 0px !important; }
-body.zen .dock { display: none !important; }
+body.zen .dock:not(.center-dock) { display: none !important; }
+/* Focus mode with a bench in the middle: the bench gets the whole window; its own button (or Esc, F11) brings NoorMD back. */
+body.zen.center-active .zen-exit { display: none !important; }
+body.zen.center-active .workspace { width: calc(100% - 16px) !important; margin: 8px auto !important; }
+.bench-full { padding: 4px 9px; }
+body:not(.center-active) .bench-full { display: none; }
+body:not(.zen) .bench-full .bf-exit, body.zen .bench-full .bf-enter { display: none; }
+body.zen .bench-full { border-color: var(--accent); color: var(--text); }
 body.zen .music, body.zen .music-resizer, body.zen .miniplayer { display: none !important; }
 body.zen .sidebar, body.zen .sidebar-resizer, body.zen .top, body.zen .eyebrow, body.zen .subtitle, body.zen .footer { display: none !important; }
 body.zen .workspace { width: calc(100% - 32px) !important; max-width: none !important; margin: 12px auto !important; }
@@ -1418,7 +1425,7 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .texbench.tb-side .tb-edit-col { padding-top: 8px; }
 .texbench.tb-no-list .sb-presets { display: none; }
 .texbench.tb-no-list.wide .sb-main { grid-template-columns: minmax(0, 1fr); }
-#tb-side.on { color: var(--accent); }
+#tb-side.on, #ab-side.on { color: var(--accent); }
 .tb-canvas, .tb-flat { width: 100%; height: 100%; min-height: 0; border-radius: 10px; border: 1px solid var(--border); background-color: #17171c; display: block; min-width: 0; }
 .tb-canvas { cursor: grab; touch-action: none; }
 .tb-canvas.lighting { cursor: crosshair; }
@@ -1503,6 +1510,11 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 /* NoorSequencer: the song grid (tracks × bars), the piano roll and the drum grid. */
 /* Asset Bench: the preview fills its column (no map thumbnails), the controls in titled groups. */
 .assetbench .tb-stage { grid-template-columns: minmax(0, 1fr); }
+/* Side by side: the tree takes the room, the settings (with the name and seed row) are a column on the right. */
+.assetbench.tb-side .tb-view-col { width: auto; flex: 1 1 0; min-width: 260px; }
+.assetbench.tb-side .tb-edit-col { flex: 0 0 auto; width: clamp(320px, 32%, 560px); }
+.assetbench.tb-side .tb-edit-col > .sb-top { flex-wrap: wrap; margin-bottom: 6px; }
+.assetbench.tb-side .tb-edit-col > .sb-top .tb-name { flex: 1 1 100%; }
 .assetbench .tb-canvas.dragging { cursor: grabbing; }
 .assetbench fieldset.sb-group { min-width: 0; }
 .assetbench fieldset.sb-group legend { font-size: 12.5px; font-weight: 650; padding: 0 4px; }

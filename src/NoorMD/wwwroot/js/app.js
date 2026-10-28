@@ -1991,10 +1991,13 @@
     const on = force === undefined ? !document.body.classList.contains('zen') : force;
     document.body.classList.toggle('zen', on);
     refreshChrome();
-    notice(on ? 'Focus mode · Esc or F11 to exit' : 'Focus mode off', 1600);
+    notice(on ? (window.NoorDock && NoorDock.centerActive() ? 'The whole window · Esc or F11 to go back' : 'Focus mode · Esc or F11 to exit') : 'Focus mode off', 1600);
     requestAnimationFrame(() => {
       window.dispatchEvent(new Event('resize'));
-      if (editor) editor.focus();
+      // A bench in the middle keeps the keyboard; otherwise the document does.
+      const bench = window.NoorDock && NoorDock.centerActive();
+      if (bench) document.querySelector('#dock-center > :not(.center-hidden)')?.focus({ preventScroll: true });
+      else if (editor) editor.focus();
     });
   }
 
@@ -2051,7 +2054,8 @@
     if (key === 'Escape') {
       if (closeTabMenu()) { e.preventDefault(); return; }
       if (closeFind()) { e.preventDefault(); return; }
-      if (document.body.classList.contains('zen')) { e.preventDefault(); toggleZen(false); }
+      // Leaving Focus mode takes the key: a bench in the middle must not also close on it.
+      if (document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); toggleZen(false); }
       return;
     }
     if (key === 'F2' && e.target.closest && e.target.closest('#vault-tree, #gallery')) return; // F2 renames in the explorer and the Gallery
@@ -2193,6 +2197,7 @@
     NoorDock.init({
       getPrefs: () => prefs, setPrefs,
       setSidebarCollapsed: (c) => toggleSidebar(c),
+      toggleFocus: () => toggleZen(),
       isSidebarCollapsed: () => document.body.classList.contains('sidebar-collapsed'),
       panels: {
         music: { label: 'Music Bench', el: () => $('#music'), open: () => NoorMusic.togglePanel(true), close: () => NoorMusic.togglePanel(false), isOpen: () => NoorMusic.isOpen() },

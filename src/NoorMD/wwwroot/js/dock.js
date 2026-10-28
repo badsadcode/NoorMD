@@ -226,6 +226,15 @@ window.NoorDock = (() => {
   }
   const isWide = (panel) => AREAS.some((a) => shown[a] === panel && wide[a]);
 
+  /**
+   * The ⛶ button of a bench in the middle: the whole window for it (Focus mode: no menus, tabs, side panels or status
+   * bar), and in Focus mode a plain "Back to NoorMD". Shown only while a bench is in the middle.
+   */
+  function fullButton(label) {
+    return el('button', { class: 'utility-btn bench-full', title: `The whole window for the ${label} (F11). Esc or F11 brings NoorMD back`, 'aria-label': `Use the whole window for the ${label}, or go back`, onclick: () => hooks.toggleFocus && hooks.toggleFocus() },
+      el('span', { class: 'bf-enter', text: '⛶' }), el('span', { class: 'bf-exit', text: '◇ Back to NoorMD' }));
+  }
+
   /** Menu items for a panel's ⊞ button: where it can live. */
   function menuItems(panel) {
     const options = panel === 'stream' ? [...AREAS, 'center', 'window'] : [...AREAS, 'center'];
@@ -304,7 +313,7 @@ window.NoorDock = (() => {
 
   return {
     init, opened, closed, place, setSidebar, toggleWide, isWide, showMenu, menuItems, showLayouts, applyPreset, saveAs, applySaved,
-    placeOf: area, PRESETS, activate, showDocuments, centerActive: () => center.active,
+    placeOf: area, PRESETS, activate, showDocuments, fullButton, centerActive: () => center.active,
     _state: () => ({ layout: clone(layout), shown: { ...shown }, wide: { ...wide }, center: { open: [...center.open], active: center.active } }),
   };
 })();

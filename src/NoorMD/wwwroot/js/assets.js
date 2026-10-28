@@ -81,12 +81,13 @@ window.NoorAssets = (() => {
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🌳' }), el('strong', { text: 'Asset Bench' }), el('small', { id: 'ab-kind' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'ab-open', title: 'Open a recipe (.noortree.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
+          NoorDock.fullButton('Asset Bench'),
           el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move the Asset Bench', onclick: (e) => NoorDock.showMenu('assets', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+M)', 'aria-label': 'Close the Asset Bench', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
         el('nav', { class: 'sb-presets', id: 'ab-presets', 'aria-label': 'Trees' }),
         el('div', { class: 'sb-editor' },
-          el('div', { class: 'sb-top' },
+          el('div', { class: 'sb-top', id: 'ab-top' },
             el('input', { type: 'text', id: 'ab-name', class: 'tb-name', 'aria-label': 'Name of the tree', spellcheck: 'false', maxlength: '80' }),
             el('label', { class: 'sb-seed', title: 'The random seed: the same seed gives the same tree' }, el('span', { text: 'Seed' }), el('input', { type: 'number', id: 'ab-seed', min: '0', max: '2147483647', step: '1' })),
             el('button', { class: 'utility-btn', id: 'ab-vary', title: 'Another tree of the same kind: same recipe, another seed (V)', onclick: newVariation }, '🎲 Variation')),
@@ -105,12 +106,15 @@ window.NoorAssets = (() => {
                 el('span', { class: 'sb-fx-space' }),
                 el('button', { class: 'icon-btn', title: 'Zoom out (−, or the mouse wheel)', 'aria-label': 'Zoom out', onclick: () => viewer && viewer.zoom(1.2) }, '−'),
                 el('button', { class: 'icon-btn', title: 'Zoom in (+, or the mouse wheel)', 'aria-label': 'Zoom in', onclick: () => viewer && viewer.zoom(1 / 1.2) }, '+'),
-                el('button', { class: 'icon-btn', id: 'ab-reset', title: 'Back to the whole tree', 'aria-label': 'Reset the view', onclick: () => viewer && viewer.reset() }, '⟲')),
+                el('button', { class: 'icon-btn', id: 'ab-reset', title: 'Back to the whole tree', 'aria-label': 'Reset the view', onclick: () => viewer && viewer.reset() }, '⟲'),
+                el('button', { class: 'icon-btn', id: 'ab-side', title: 'The tree big, with the settings in a column on the right; or the settings under the tree', 'aria-label': 'Settings beside the tree', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
+                el('button', { class: 'icon-btn', id: 'ab-list', title: 'Show or hide the list of trees', 'aria-label': 'List of trees', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
               el('div', { class: 'tb-stage' },
                 el('canvas', { id: 'ab-canvas', class: 'tb-canvas', role: 'img', 'aria-label': 'The tree: drag to turn it, wheel to zoom, right-drag or Shift+drag to move', title: 'Drag: turn · wheel: zoom · right-drag or Shift+drag: move' })),
               el('p', { class: 'pref-hint sb-status', id: 'ab-status', 'aria-live': 'polite' }),
               el('p', { class: 'pref-hint ab-stats', id: 'ab-stats' })),
-            el('div', { class: 'tb-edit-col' },
+            el('div', { class: 'tb-splitter', id: 'ab-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to change how much room the tree and the settings get (double-click: back to normal)' }),
+            el('div', { class: 'tb-edit-col', id: 'ab-edit-col' },
               el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']].map(([id, label]) =>
                 el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
               el('div', { class: 'sb-pane', id: 'ab-pane' }))))));
@@ -121,7 +125,7 @@ window.NoorAssets = (() => {
     new ResizeObserver(() => root.classList.toggle('wide', root.clientWidth >= 820)).observe(root);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
-      if (e.key === 'Escape' && !typing) { e.preventDefault(); e.stopPropagation(); close(); return; }
+      if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; } // in the whole window, Esc goes back to NoorMD
       if (typing || e.altKey) return;
       const k = e.key.toLowerCase();
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
@@ -131,8 +135,16 @@ window.NoorAssets = (() => {
       else if (k === 'w') { e.preventDefault(); setWire(!wireframe); }
       else if (e.key === ' ' && !e.target.closest('button')) { e.preventDefault(); setWind(!wind); }
     });
+    // Stacked (the settings under the tree) or side by side (the tree takes the room, the settings a column on the right).
+    layout = NoorBenchLayout.attach({
+      root, storageKey: 'noormd.assets.layout', split: $('#ab-split'), viewCol: $('#ab-view-col'), editCol: $('#ab-edit-col'), splitter: $('#ab-splitter'),
+      sideButton: $('#ab-side'), listButton: $('#ab-list'), top: $('#ab-top'), sideSized: 'edit',
+    });
     try { viewer = NoorAssetView.create($('#ab-canvas')); viewer.setMode(viewMode); } catch (err) { console.warn('Asset Bench: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2, which is not available here. Exports still work.'); }
   }
+
+  /** How the bench is arranged (NoorBenchLayout, remembered). */
+  let layout = { prefs: {}, set() {}, apply() {} };
 
   function setStatus(text) { const s = $('#ab-status'); if (s) s.textContent = text; }
 
@@ -164,7 +176,7 @@ window.NoorAssets = (() => {
       el('button', { class: 'utility-btn' + (look === v ? ' active' : ''), 'data-look': v, 'aria-pressed': String(look === v), onclick: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } }, t)));
     nav.replaceChildren(looks, ...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []),
       el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
-      selectedPreset.startsWith('user:') ? el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one') : null);
+      ...(selectedPreset.startsWith('user:') ? [el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one')] : []));
   }
 
   async function loadPreset(id) {
@@ -538,6 +550,6 @@ window.NoorAssets = (() => {
 
   return {
     init, open, close, toggle, isOpen,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, tab, lod, build: build ? { lods: build.lods.length, nodes: build.nodes.map((n) => n.name) } : null, viewer: viewer ? viewer.state() : null, history: history.length, future: future.length, wind, wireframe, viewMode, selectedPreset }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, tab, lod, build: build ? { lods: build.lods.length, nodes: build.nodes.map((n) => n.name) } : null, viewer: viewer ? viewer.state() : null, history: history.length, future: future.length, wind, wireframe, viewMode, selectedPreset, layout: layout.prefs }),
   };
 })();
