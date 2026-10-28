@@ -453,7 +453,8 @@ window.NoorAssets = (() => {
         slider(recipe, ['cardScale', 'Card size', 0.3, 4, 0.05, 'pct', 'Each card’s plane bigger or smaller without changing how many there are: bigger makes a fuller crown for the same triangles']),
         check(recipe, 'trimCards', 'Cards cut to their leaves', 'Each card is the outline of its leaves (six corners) instead of a rectangle: the same triangles, about half the see-through pixels for the GPU to draw'),
         slider(recipe, ['outerLeaves', 'Outer leaves', 0, 1, 0.01, 'pct', 'Leaves moved from the hidden inside of the crown to its outside, where they are seen']),
-        slider(recipe, ['leafBudget', 'Leaf budget', 500, 60000, 500, 'int', 'Most triangles the leaves may use in LOD0. When the density asks for more, the cards get bigger and fewer instead, so the crown stays as full']),
+        slider(recipe, ['canopyFullness', 'Canopy fullness', 0, 0.98, 0.01, 'pct', 'How full the crown should look (0: off). The crown is looked at from its sides; where the sky shows through, more cards go on the nearest branches until it is this full or the leaf budget is spent']),
+        recipe.triangleTarget > 0 ? null : slider(recipe, ['leafBudget', 'Leaf budget', 500, 60000, 500, 'int', 'Most triangles the leaves may use in LOD0. When the density asks for more, the cards get bigger and fewer instead, so the crown stays as full']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
         slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards']),
         ownPicture('leafImage', 'leaves', 'Your own leaf picture…', 'A PNG with transparency, the stem at the bottom middle'),
@@ -476,6 +477,24 @@ window.NoorAssets = (() => {
     ];
   }
 
+  /** The whole tree's triangles in LOD0, by what it is for; or the wood and leaf budgets set by hand. */
+  const TARGETS = [[0, 'Set the wood and leaf budgets yourself'], [2000, 'Far forest filler · 2,000'], [4000, 'Forest tree · 4,000'], [8000, 'Feature tree · 8,000'], [20000, 'Hero tree · 20,000']];
+  function targetChoice() {
+    const v = Number(recipe.triangleTarget) || 0;
+    const options = TARGETS.some(([t]) => t === v) ? TARGETS : [...TARGETS, [v, `Your own · ${v.toLocaleString()}`]];
+    const s = el('select', { 'aria-label': 'Triangle target', 'data-key': 'triangleTarget', title: 'Triangles for the whole tree in LOD0 (each farther level about half). With many thousands of trees in a scene, most are far away and drawn as the billboard; the close ones want a few thousand. A quarter goes to the wood (its finest twigs left out when that is little), the rest to the leaves, filled where the crown is see-through' },
+      ...options.map(([t, label]) => el('option', { value: String(t), text: label })));
+    s.value = String(v);
+    s.addEventListener('change', () => { recipe.triangleTarget = Number(s.value); changed(true); });
+    return el('label', { class: 'sb-inline ab-choice' }, el('span', { text: 'Triangle target' }), s);
+  }
+  function targetSplit() {
+    const t = recipe.triangleTarget;
+    const leafy = recipe.foliage !== 'none' && recipe.archetype !== 'dead';
+    const wood = Math.max(200, Math.floor(t * (leafy ? 0.25 : 1)));
+    return leafy ? `About ${wood.toLocaleString()} for the wood and ${Math.max(500, t - wood).toLocaleString()} for the leaves.` : `All ${wood.toLocaleString()} for the wood.`;
+  }
+
   function meshPane() {
     return [
       section('Branches',
@@ -483,7 +502,10 @@ window.NoorAssets = (() => {
         recipe.branches === 'mixed' ? slider(recipe, ['mixedRadius', 'Weld limbs thicker than', 0.005, 2, 0.005, 'cm']) : null),
       section('Detail',
         choice(recipe, 'quality', 'Quality', QUALITY, 'How finely the surface is sampled before it is simplified to the budget'),
-        slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),
+        targetChoice(),
+        recipe.triangleTarget > 0
+          ? el('small', { class: 'pref-hint', id: 'ab-target-split', text: targetSplit() })
+          : slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),
         slider(recipe, ['lods', 'Levels of detail', 1, 6, 1, 'int', 'Each next level has about half the triangles']),
         check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)'),
         check(recipe, 'billboard', 'Billboard as the last level (the tree drawn on crossed cards, for far away)', 'Eight triangles for a whole tree: it is drawn from its sides into a texture and shown on crossed cards', true),

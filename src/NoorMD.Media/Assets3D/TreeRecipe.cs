@@ -156,6 +156,26 @@ public sealed class TreeRecipe
     public double OuterLeaves { get; set; } = 0.5;
     /// <summary>Cards cut to the outline of their leaves (six corners) instead of rectangles: the same triangles, far fewer see-through pixels to draw.</summary>
     public bool TrimCards { get; set; } = true;
+    /// <summary>
+    /// How full the crown should look (0–0.98; 0 off): the crown is looked at from its sides and where the sky shows
+    /// through, more cards go on the nearest branches, until it is this full or the leaf budget is spent.
+    /// </summary>
+    public double CanopyFullness { get; set; } = 0.85;
+    /// <summary>
+    /// Triangles for the whole finest level (0: the wood and leaf budgets as set). A quarter goes to the wood (its finest
+    /// twigs, hidden in the leaves anyway, are left out when that is little), the rest to the leaves; each farther level
+    /// about half. A forest of hundreds of thousands of trees wants a few thousand; a hero tree tens of thousands.
+    /// </summary>
+    public int TriangleTarget { get; set; }
+
+    /// <summary>The wood and leaf budgets this recipe builds with (from the triangle target when there is one).</summary>
+    public (int Wood, int Leaves) Budgets()
+    {
+        if (TriangleTarget <= 0) return (Budget, LeafBudget);
+        var leafy = Foliage != "none" && Archetype != "dead";
+        var wood = Math.Max(200, (int)(TriangleTarget * (leafy ? 0.25 : 1)));
+        return (wood, Math.Max(500, TriangleTarget - wood));
+    }
 
     // Bark.
     public string BarkColor { get; set; } = "#5a4636";
@@ -269,6 +289,8 @@ public sealed class TreeRecipe
         CardScale = C(CardScale, 0.3, 4, 1);
         LeafBudget = Math.Clamp(LeafBudget, 500, 200_000);
         OuterLeaves = C(OuterLeaves, 0, 1, 0.5);
+        CanopyFullness = C(CanopyFullness, 0, 0.98, 0.85);
+        TriangleTarget = TriangleTarget <= 0 ? 0 : Math.Clamp(TriangleTarget, 1000, 200_000);
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
         BarkTile = C(BarkTile, 0.05, 20, 1);

@@ -11,9 +11,10 @@ public class TreeTests
         var r = TreePresets.Make(preset);
         r.Branches = branches;
         r.Quality = "low";
-        r.Budget = 2000;
+        r.Budget = 2500;            // just enough for full tubes (the lean wood of small budgets has its own test)
         r.Lods = 2;
         r.Billboard = false;
+        r.CanopyFullness = 0;       // the cards as placed (the canopy fill has its own test)
         return r;
     }
 
@@ -754,5 +755,46 @@ public class TreeTests
             if (sign == 0) sign = s; else if (s != sign) return false;
         }
         return true;
+    }
+
+    [Fact]
+    public void The_canopy_fill_puts_cards_where_the_sky_shows_through()
+    {
+        var r = TreePresets.Make("oak");
+        r.Billboard = false; r.Lods = 1;
+        r.CanopyFullness = 0;
+        var open = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+        r.CanopyFullness = 0.85;
+        var filled = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+        var a = TreeStatsMeter.Measure(open.Lods[0]);
+        var b = TreeStatsMeter.Measure(filled.Lods[0]);
+        Assert.True(b.Fullness > a.Fullness + 0.04, $"{a.Fullness:0.00} → {b.Fullness:0.00}");
+        Assert.True(b.LeafTriangles <= r.LeafBudget * 1.05, $"{b.LeafTriangles} leaf triangles");
+        Assert.Empty(Leaves(filled)!.Problems());
+        // The wood is the same tree.
+        Assert.Equal(a.WoodTriangles, b.WoodTriangles);
+    }
+
+    [Fact]
+    public void A_triangle_target_makes_a_forest_tree_of_a_few_thousand_triangles()
+    {
+        var r = TreePresets.Make("oak");
+        r.Billboard = false; r.Lods = 3;
+        r.TriangleTarget = 3000;
+        Assert.Equal((750, 2250), r.Budgets());
+        var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+        var s = TreeStatsMeter.Measure(b.Lods[0]);
+        Assert.InRange(s.Triangles, 2000, 3000 * 1.25);
+        Assert.InRange(s.WoodTriangles, 300, 1400);
+        Assert.True(s.Fullness > 0.7, $"crown {s.Fullness:0.00} full at {s.Triangles} triangles");
+        // Farther levels about half each.
+        Assert.True(b.Lods[1].TriangleCount < s.Triangles * 0.75 && b.Lods[2].TriangleCount < b.Lods[1].TriangleCount * 0.8,
+            string.Join(", ", b.Lods.Select(l => l.TriangleCount)));
+        // A tree without leaves gives it all to the wood; none means the budgets as set.
+        var dead = TreePresets.Make("dead");
+        dead.TriangleTarget = 3000;
+        Assert.Equal(3000, dead.Budgets().Wood);
+        Assert.Equal(0, TreeRecipe.FromJson("{}").TriangleTarget);
+        Assert.Equal(1000, TreeRecipe.FromJson("{\"triangleTarget\":5}").TriangleTarget);
     }
 }

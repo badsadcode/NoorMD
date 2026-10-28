@@ -196,6 +196,8 @@ public partial class MainWindow
                 {
                     var id = req.GetString("id", 300) ?? "";
                     var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? TreeRecipe.FromJson(await File.ReadAllTextAsync(UserTreePath(id))) : TreePresets.Make(id);
+                    // Built-in trees start as forest trees (a few thousand triangles, for scenes with very many); yours keep theirs.
+                    if (!id.StartsWith("user:", StringComparison.Ordinal) && recipe.TriangleTarget == 0) recipe.TriangleTarget = 4000;
                     AllowTreeImages(recipe);
                     return TreeForPage(recipe);
                 }

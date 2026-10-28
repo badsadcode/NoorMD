@@ -231,6 +231,21 @@ keep the crown's outline, and camera-facing impostors.
   maps with glTF slot, colour space, channels and the normal-map convention (glTF's OpenGL, green up).
 - **Godot plugin kept out of a project** if you like: written beside the trees instead.
 
+### A full crown for a few thousand triangles (preview.61)
+
+For scenes with hundreds of thousands of trees: most are far away (the 8-triangle billboard), and the close ones
+want a few thousand triangles, not fifty.
+
+- **Canopy fullness** (85 % by default): the crown drawn from four sides as the fullness is measured; spots a little
+  out from every leafy branch are scored by how many gaps (sky through the crown) a card there would cover, and the
+  best, a card apart, get one, in rounds, until the crown is as full as asked or the leaf budget is spent (a note
+  says so). Cards go on the branch's own mesh with its wind. 30 % of the leaf budget is kept for this fill.
+- **Triangle target** for the whole tree (Mesh tab): far forest filler 2,000, forest tree 4,000 (what built-in trees
+  now start as), feature tree 8,000, hero 20,000, or the budgets by hand. A quarter for the wood (with less than
+  2,500 the finest twigs, hidden in the leaves, are left out and thin branches get three or four sides on every
+  second or third ring), the rest for the leaves.
+- The oak: 11,300 triangles 77 % full before; at the 3,000 target about 3,300 triangles, 78 % full.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

@@ -51,9 +51,12 @@ public static class TreeBuilder
         options ??= new Options();
         var watch = Stopwatch.StartNew();
         recipe = recipe.Clone();
+        // A triangle target sets both budgets.
+        (recipe.Budget, recipe.LeafBudget) = recipe.Budgets();
         var sk = TreeSkeleton.Grow(recipe);
         var build = new TreeBuild { Recipe = recipe, Skeleton = sk };
         cardShapes = null;
+        measureLeaves = null;
         var stylized = recipe.Style == "stylized";
         var q = recipe.Quality switch { "low" => 5f, "high" => 12f, _ => 8f };
         var cell = MathF.Max((float)recipe.TrunkRadius / q, (float)recipe.Height / (q * 60));
@@ -168,11 +171,11 @@ public static class TreeBuilder
             else if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed, recipe.LeafCluster));
             else leafMat.BaseColor = Color(recipe.LeafColor);
             // Each sprite's outline, from a small copy of the picture (so the cards' shape doesn't depend on the texture size).
+            // (The same small copy is what the crown's fullness is measured with.)
+            var src = ownLeaves ?? LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, 128, recipe.Seed, recipe.LeafCluster);
+            measureLeaves = src;
             if (recipe.TrimCards)
-            {
-                var src = ownLeaves ?? LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, 128, recipe.Seed, recipe.LeafCluster);
                 cardShapes = Enumerable.Range(0, 5).Select(i => i < 4 ? CardShape.Outline(src, LeafAtlas.Cell(i)) : CardShape.Outline(src, new Vector4(0, 0, 1, 1))).ToArray();
-            }
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
         var mossy = recipe.Moss > 0;
@@ -206,6 +209,7 @@ public static class TreeBuilder
 
         var lodCount = Math.Min(recipe.Lods, options.MaxLods ?? recipe.Lods);
         var leafGrow = 1f;      // how much the leaf budget made the finest level's cards fewer and bigger
+        (double Before, double After, int Added)? canopy = null;
         for (var lod = 0; lod < lodCount; lod++)
         {
             ct.ThrowIfCancellationRequested();
@@ -230,8 +234,8 @@ public static class TreeBuilder
                 foreach (var (id, start, attach) in g.Tubes)
                 {
                     var b = sk.Branches[id];
-                    // Distant levels drop the finest twigs.
-                    if (lod >= 2 && b.Level >= recipe.Levels.Count && b.Level >= 2) continue;
+                    // Distant levels drop the finest twigs; so does a small wood budget (they are inside the leaves).
+                    if ((lod >= 2 || (recipe.Budget < 2500 && cards)) && b.Level >= recipe.Levels.Count && b.Level >= 2) continue;
                     AddTube(m, sk, b, start, attach && b.Parent >= 0 && (id == g.RootBranch || start == 0), cell * 1.6f * detail, tile, recipe);
                 }
                 tubes[g.Index] = m;
@@ -240,7 +244,8 @@ public static class TreeBuilder
             var denseTotal = groups.Sum(g => g.Dense?.TriangleCount ?? 0);
             var implicitBudget = Math.Max(budget / 4, budget - tubeTris);
 
-            Node3D? trunkNode = null;
+            var made = new List<(Group G, Mesh3D Wood, Mesh3D Leaves)>();
+            var lodGrow = 1f;
             foreach (var g in groups)
             {
                 Mesh3D wood;
@@ -277,11 +282,25 @@ public static class TreeBuilder
                         ? AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng, recipe.Foliage == "tufts")
                         : AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
                     if (lod == 0) leafGrow = MathF.Max(leafGrow, grew);
+                    lodGrow = MathF.Max(lodGrow, grew);
                 }
 
                 if (crystals) AddCrystals(leaves, sk, recipe, g.Branches, crystalIndex, detail, new Random(recipe.Seed * 31337 + g.Index * 7 + lod));
                 if (mossy) AddMoss(leaves, sk, recipe, g.Branches, mossIndex, detail, new Random(recipe.Seed * 104729 + g.Index * 17 + lod));
+                made.Add((g, wood, leaves));
+            }
 
+            // The crown looked at from its sides: where the sky shows through, more cards on the nearest branches,
+            // until it is as full as asked or the leaf budget is spent.
+            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("hanging" or "fronds"))
+            {
+                var fill = FillCrown(made, sk, recipe, asset.Materials, leafIndex, detail, lodGrow, new Random(recipe.Seed * 6007 + lod), ct);
+                if (lod == 0) canopy = fill;
+            }
+
+            Node3D? trunkNode = null;
+            foreach (var (g, wood, leaves) in made)
+            {
                 WindChannel(wood, recipe);
                 WindChannel(leaves, recipe);
                 Shade(wood, sk, recipe, leafy: false);
@@ -297,6 +316,8 @@ public static class TreeBuilder
             }
             build.Lods.Add(asset);
         }
+        if (canopy is { } c && c.After < recipe.CanopyFullness - 0.02)
+            build.Notes.Add($"The crown is {c.After:P0} full of the {recipe.CanopyFullness:P0} asked: the leaf budget ({recipe.LeafBudget:N0} triangles) ran out. Raise it, make the cards bigger, or use spray or cluster cards.");
         if (leafGrow > 1.05f)
             build.Notes.Add($"The leaf budget ({recipe.LeafBudget:N0} triangles) is less than the density asks for: {leafGrow:0.#}× fewer cards, each bigger, keep the crown as full. Raise the budget for smaller leaves, or lower the density.");
 
@@ -320,6 +341,7 @@ public static class TreeBuilder
             build.Lods.Add(asset);
         }
         cardShapes = null;
+        measureLeaves = null;
         build.Seconds = watch.Elapsed.TotalSeconds;
         return build;
     }
@@ -417,6 +439,9 @@ public static class TreeBuilder
     /// <summary>A swept tube along a thin branch (from point <paramref name="start"/>), its sides fitting the radius.</summary>
     private static void AddTube(Mesh3D m, TreeSkeleton sk, TreeBranch b, int start, bool attach, float edge, float tile, TreeRecipe recipe)
     {
+        // A small wood budget: rings on every second or third point, and three or four sides.
+        var step = recipe.Budget < 1200 ? 3 : recipe.Budget < 2500 ? 2 : 1;
+        var maxSides = recipe.Budget < 1200 ? 3 : recipe.Budget < 2500 ? 4 : 10;
         var pts = new List<(Vector3 P, float R, Vector3 N, float D)>();
         if (attach && start == 0 && b.Parent >= 0)
         {
@@ -424,9 +449,10 @@ public static class TreeBuilder
             var back = MathF.Min(pr * 0.6f, b.Length * 0.3f);
             pts.Add((b.Points[0] - b.Tangent(0) * back, b.Radii[0], b.Normals[0], -back));
         }
-        for (var k = start; k < b.Points.Count; k++) pts.Add((b.Points[k], b.Radii[k], b.Normals[k], b.Distance[k]));
+        for (var k = start; k < b.Points.Count; k++)
+            if ((k - start) % step == 0 || k == b.Points.Count - 1) pts.Add((b.Points[k], b.Radii[k], b.Normals[k], b.Distance[k]));
         if (pts.Count < 2) return;
-        var sides = Math.Clamp((int)MathF.Round(MathF.Tau * b.BaseRadius / edge), 3, 10);
+        var sides = Math.Clamp((int)MathF.Round(MathF.Tau * b.BaseRadius / edge), 3, maxSides);
         var period = Math.Max(1, MathF.Round(MathF.Tau * b.BaseRadius / tile));
         var sub = m.Sub(0);
         var first = m.VertexCount;
@@ -575,9 +601,9 @@ public static class TreeBuilder
         var weighted = plan.Sum(x => x.Weighted);
         if (asked <= 0) return 1;
         // Over the budget: fewer, bigger cards covering the same.
-        var grow = MathF.Max(1, asked * trisPer / recipe.LeafBudget);
+        var grow = MathF.Max(1, asked * trisPer / BaseLeafBudget(recipe));
         var start = m.TriangleCount;
-        var ceiling = recipe.LeafBudget * 1.25f / detail;
+        var ceiling = BaseLeafBudget(recipe) * 1.25f / detail;
         foreach (var (b, from, _, w) in plan)
         {
             var cover = w * asked / weighted;
@@ -617,6 +643,9 @@ public static class TreeBuilder
     internal static float PlaneScale(TreeRecipe recipe) =>
         (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, _ => 1 });
 
+    /// <summary>The share of the leaf budget the first placement may use: with a canopy fullness, a part is kept for filling the gaps.</summary>
+    private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement is not ("hanging" or "fronds") ? 0.7f : 1f);
+
     /// <summary>Triangles one placement of an arrangement costs (a card is a folded quad, front and back: 8).</summary>
     internal static int CardTriangles(string arrangement) => arrangement switch { "cross" => 16, "star" or "fan" => 24, "dome" => 40, "hanging" => 48, _ => 8 };
 
@@ -634,7 +663,7 @@ public static class TreeBuilder
                 area += Vector3.Cross(clumps.Positions[s.Indices[i + 1]] - clumps.Positions[s.Indices[i]], clumps.Positions[s.Indices[i + 2]] - clumps.Positions[s.Indices[i]]).Length() / 2;
         // The density asks for so many cards; over the leaf budget they get bigger and fewer instead.
         var asked = area * recipe.LeafDensity * (tufts ? 5.0 : 1.2) / (size * size);
-        var cardsAllowed = recipe.LeafBudget / (double)CardTriangles("scatter") / detail;
+        var cardsAllowed = BaseLeafBudget(recipe) / (double)CardTriangles("scatter") / detail;
         var count = (int)Math.Min(asked, cardsAllowed);
         if (asked > cardsAllowed) size *= (float)Math.Sqrt(asked / cardsAllowed);
         // Outer leaves: cards nearer the clumps' surface, fewer sunk deep inside.
@@ -922,6 +951,108 @@ public static class TreeBuilder
 
     /// <summary>The outline of each leaf sprite (atlas cells 0–3, a whole picture 4) while a tree is built; null: rectangles.</summary>
     [ThreadStatic] private static Vector2[]?[]? cardShapes;
+
+    /// <summary>A small copy of the leaf picture while a tree is built: what the crown's fullness is measured with.</summary>
+    [ThreadStatic] private static RawImage? measureLeaves;
+
+    /// <summary>
+    /// Fills the crown where it is see-through. The crown is drawn from four sides (the leaves cut out by their alpha);
+    /// spots a little out from every leafy branch are scored by how many gaps a card there would cover, and the best,
+    /// a card apart, get one, in rounds, until the crown is as full as asked or the leaf budget is spent. Cards go on
+    /// the branch's own group (its leaves mesh), with the branch's wind.
+    /// </summary>
+    private static (double Before, double After, int Added) FillCrown(List<(Group G, Mesh3D Wood, Mesh3D Leaves)> made, TreeSkeleton sk, TreeRecipe recipe,
+        List<Material3D> materials, int leafIndex, int detail, float grew, Random rng, CancellationToken ct)
+    {
+        var target = recipe.CanopyFullness;
+        // As big as the other cards (which the leaf budget may have made bigger).
+        var size = (float)recipe.LeafSize * PlaneScale(recipe) * MathF.Sqrt(detail * grew);
+        var leafTris = made.Sum(x => x.Leaves.TriangleCount);
+        var room = recipe.LeafBudget / detail - leafTris;
+        // Where the crown is: everything drawn, and room for a card past the outermost leaves.
+        float halfWidth = 0.5f, top = 0.5f;
+        foreach (var (_, wood, leaves) in made)
+            foreach (var p in wood.Positions.Concat(leaves.Positions)) { halfWidth = MathF.Max(halfWidth, MathF.Max(MathF.Abs(p.X), MathF.Abs(p.Z))); top = MathF.Max(top, p.Y); }
+        var cov = new CrownCoverage(halfWidth + size, top + size * 0.5f);
+        void DrawMesh(Mesh3D m, bool leaf, int from = 0)
+        {
+            foreach (var sub in m.Submeshes)
+            {
+                var cut = leaf && sub.Material == leafIndex && materials[leafIndex].Alpha == "mask" ? measureLeaves : null;
+                for (var i = sub == m.Submeshes[0] ? from : 0; i + 2 < sub.Indices.Count; i += 3)
+                {
+                    int a = sub.Indices[i], b = sub.Indices[i + 1], c = sub.Indices[i + 2];
+                    Vector2 U(int v) => m.UV0.Count > v ? m.UV0[v] : Vector2.Zero;
+                    cov.Draw(m.Positions[a], m.Positions[b], m.Positions[c], U(a), U(b), U(c), cut, 0.5f, leaf);
+                }
+            }
+        }
+        foreach (var (_, wood, leaves) in made) { DrawMesh(wood, false); DrawMesh(leaves, true); }
+        var before = cov.Refresh();
+        if (before >= target || room < 8) return (before, before, 0);
+
+        // Spots to fill: along every leafy branch, a little out from it in six directions.
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Select(b => b.Level).DefaultIfEmpty(0).Max();
+        var spots = new List<(int Made, TreeBranch B, float T, Vector3 Anchor, Vector3 Out, Vector3 Centre)>();
+        for (var gi = 0; gi < made.Count; gi++)
+            foreach (var id in made[gi].G.Branches)
+            {
+                var b = sk.Branches[id];
+                if (b.Root || b.Bare || (b.Level == 0 && deepest > 0) || b.Level < deepest - 1) continue;
+                var steps = Math.Max(1, (int)(b.Length / (size * 0.6f)));
+                for (var k = 0; k < steps; k++)
+                {
+                    var t = 0.2f + 0.8f * (k + 0.5f) / steps;
+                    var (p, _, dir) = b.At(t);
+                    var n0 = b.Normals[Math.Min(b.Normals.Count - 1, (int)(t * (b.Points.Count - 1)))];
+                    for (var d = 0; d < 6; d++)
+                    {
+                        var side = Vector3.Normalize(Vector3.Transform(n0, Quaternion.CreateFromAxisAngle(dir, MathF.Tau * d / 6)));
+                        var outward = Vector3.Normalize(side + dir * 0.3f + Vector3.UnitY * 0.2f);
+                        spots.Add((gi, b, t, p, outward, p + outward * size * 0.5f));
+                    }
+                }
+            }
+        if (spots.Count == 0) return (before, before, 0);
+        var used = new bool[spots.Count];
+        var after = before;
+        var added = 0;
+        while (after < target && room >= 8)
+        {
+            ct.ThrowIfCancellationRequested();
+            // The best spots this round, a card apart from each other.
+            var ranked = Enumerable.Range(0, spots.Count).Where(i => !used[i]).Select(i => (I: i, S: cov.Score(spots[i].Centre, size * 0.5f))).Where(x => x.S >= 3).OrderByDescending(x => x.S).ToList();
+            if (ranked.Count == 0) break;
+            var picked = new List<int>();
+            foreach (var (i, _) in ranked)
+            {
+                if (picked.Count >= 12) break;
+                if (picked.Any(j => Vector3.DistanceSquared(spots[j].Centre, spots[i].Centre) < size * size * 0.36f)) continue;
+                picked.Add(i);
+            }
+            foreach (var i in picked)
+            {
+                used[i] = true;
+                var (gi, b, t, anchor, outward, _) = spots[i];
+                var leaves = made[gi].Leaves;
+                var sub = leaves.Sub(leafIndex);
+                var from = sub.Indices.Count;
+                var trisBefore = leaves.TriangleCount;
+                Card(leaves, anchor, outward, size * (0.85f + 0.3f * (float)rng.NextDouble()), sk, recipe, b, t, leafIndex, rng);
+                room -= leaves.TriangleCount - trisBefore;
+                added++;
+                var cut = materials[leafIndex].Alpha == "mask" ? measureLeaves : null;
+                for (var k = from; k + 2 < sub.Indices.Count; k += 3)
+                {
+                    int a = sub.Indices[k], bb = sub.Indices[k + 1], c = sub.Indices[k + 2];
+                    cov.Draw(leaves.Positions[a], leaves.Positions[bb], leaves.Positions[c], leaves.UV0[a], leaves.UV0[bb], leaves.UV0[c], cut, 0.5f, true);
+                }
+                if (room < 8) break;
+            }
+            after = cov.Refresh();
+        }
+        return (before, after, added);
+    }
 
     // ---- Helpers ----
 

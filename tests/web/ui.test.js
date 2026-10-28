@@ -5170,6 +5170,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#ab-pane input[data-key="trimCards"]');
       await waitFn(page, () => window.__mock.state.assets.builds.at(-1).trimCards === false);
       check('…off: the tree is built with rectangles', true);
+      check('canopy fullness: how full the crown should look', !!(await page.$('#ab-pane input[data-key="canopyFullness"]')));
       check('the card size reads as a share (160 %)', await page.$eval('#ab-pane input[data-num="cardScale"]', (x) => x.value) === '160');
       await page.click('#ab-pane [data-own="leaves"]');
       await waitFn(page, () => NoorAssets._state().recipe.leafImage === 'D:\\Art\\my leaves.png');
@@ -5194,6 +5195,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('every level of branches has its settings', (await page.$$('#ab-pane [data-remove-level]')).length === levels);
       if (levels < 3) { await page.click('#ab-add-level'); check('a level can be added', (await AS()).recipe.levels.length === levels + 1); }
       await page.click('#assetbench [data-tab="mesh"]');
+      // A triangle target for the whole tree (forest trees by the hundred thousand), or the budgets by hand.
+      check('budgets by hand while there is no triangle target', !!(await page.$('#ab-pane input[data-key="budget"]')));
+      await page.selectOption('#ab-pane select[data-key="triangleTarget"]', '4000');
+      await waitFn(page, () => window.__mock.state.assets.builds.at(-1).triangleTarget === 4000);
+      check('a triangle target: the tree is built with it, and the page says how it is shared', /About 1,000 for the wood and 3,000 for the leaves/.test(await page.textContent('#ab-target-split')) && !(await page.$('#ab-pane input[data-key="budget"]')));
+      await page.selectOption('#ab-pane select[data-key="triangleTarget"]', '0');
+      await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="budget"]'));
       await page.selectOption('#ab-pane select[data-key="branches"]', 'separate');
       await waitFn(page, () => window.__mock.state.assets.builds.at(-1).branches === 'separate');
       if (webgl) {
