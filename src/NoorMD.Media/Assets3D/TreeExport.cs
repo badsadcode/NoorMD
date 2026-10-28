@@ -93,11 +93,11 @@ public static class TreeExport
     public static IEnumerable<object> Maps(Material3D m, int textureSize)
     {
         if (m.BaseColorPng != null)
-            yield return new { map = "baseColor", gltf = "baseColorTexture", colorSpace = "sRGB", channels = m.Alpha == "mask" ? "RGB colour, A coverage (alpha cut-out at " + m.AlphaCutoff.ToString("0.##", CultureInfo.InvariantCulture) + ")" : "RGB colour", size = m.BaseColorPixels?.Width ?? textureSize };
+            yield return new { map = "baseColor", gltf = "baseColorTexture", colorSpace = "sRGB", channels = m.Alpha == "mask" ? "RGB colour, A coverage (alpha cut-out at " + m.AlphaCutoff.ToString("0.##", CultureInfo.InvariantCulture) + ")" : "RGB colour", size = m.BaseColorPixels?.Width ?? textureSize, sampling = m.Nearest ? "nearest" : "linear" };
         if (m.NormalPng != null)
-            yield return new { map = "normal", gltf = "normalTexture", colorSpace = "linear", channels = "tangent-space normal", convention = "OpenGL (green +Y), as glTF", size = textureSize };
+            yield return new { map = "normal", gltf = "normalTexture", colorSpace = "linear", channels = "tangent-space normal", convention = "OpenGL (green +Y), as glTF", size = textureSize, sampling = m.Nearest ? "nearest" : "linear" };
         if (m.OcclusionRoughnessMetallicPng != null)
-            yield return new { map = "occlusionRoughnessMetallic", gltf = "occlusionTexture and metallicRoughnessTexture", colorSpace = "linear", channels = "R occlusion, G roughness, B metallic", size = textureSize };
+            yield return new { map = "occlusionRoughnessMetallic", gltf = "occlusionTexture and metallicRoughnessTexture", colorSpace = "linear", channels = "R occlusion, G roughness, B metallic", size = textureSize, sampling = m.Nearest ? "nearest" : "linear" };
     }
 
     private static float Round(float v) => float.Parse(v.ToString("0.##", CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);

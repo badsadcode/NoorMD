@@ -12,7 +12,8 @@ window.NoorAssets = (() => {
   let recipe = null;
   let presets = { builtIn: [], mine: [], barks: [] };
   let selectedPreset = '';
-  let look = (() => { try { return ['all', 'realistic', 'stylized'].includes(localStorage.getItem('noormd.assets.look')) ? localStorage.getItem('noormd.assets.look') : 'all'; } catch { return 'all'; } })();
+  // All, a look, or one game's trees ("game:thornwake").
+  let look = (() => { try { const v = localStorage.getItem('noormd.assets.look'); return ['all', 'realistic', 'stylized'].includes(v) || /^game:[a-z0-9-]+$/.test(v || '') ? v : 'all'; } catch { return 'all'; } })();
   let tab = 'tree';
   let viewer = null;
   let build = null;          // the last build: { key, lods, nodes, notes, ms }
@@ -171,19 +172,34 @@ window.NoorAssets = (() => {
   function renderPresets() {
     const nav = $('#ab-presets');
     const item = (p) => el('button', { class: 'gnav-item' + (p.id === selectedPreset ? ' active' : ''), 'data-preset': p.id, title: p.description || '', onclick: () => loadPreset(p.id) }, p.name);
-    const shown = presets.builtIn.filter((p) => look === 'all' || (look === 'stylized') === (p.style === 'stylized'));
+    // A game's trees show under All and under the game; the looks are the general trees.
+    const shown = presets.builtIn.filter((p) => look === 'all' || (look.startsWith('game:') ? p.profile === look.slice(5) : !p.profile && (look === 'stylized') === (p.style === 'stylized')));
     const groupNames = [...new Set(shown.map((p) => p.group || 'Forest'))];
     const groups = [...groupNames.map((g) => [g, shown.filter((p) => (p.group || 'Forest') === g)]), ['Mine', presets.mine]];
-    const looks = el('div', { class: 'ab-looks', role: 'group', 'aria-label': 'Show' }, ...[['all', 'All'], ['realistic', 'Realistic'], ['stylized', 'Stylized']].map(([v, t]) =>
-      el('button', { class: 'utility-btn' + (look === v ? ' active' : ''), 'data-look': v, 'aria-pressed': String(look === v), onclick: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } }, t)));
+    const looks = el('div', { class: 'ab-looks', role: 'group', 'aria-label': 'Show' }, ...[['all', 'All'], ['realistic', 'Realistic'], ['stylized', 'Stylized'], ...(presets.profiles || []).map((g) => [`game:${g.id}`, `🎮 ${g.name}`, g.description])].map(([v, t, d]) =>
+      el('button', { class: 'utility-btn' + (look === v ? ' active' : ''), 'data-look': v, title: d || '', 'aria-pressed': String(look === v), onclick: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } }, t)));
     nav.replaceChildren(looks, ...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []),
       el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
       ...(selectedPreset.startsWith('user:') ? [el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one')] : []));
   }
 
   async function loadPreset(id) {
-    try { selectedPreset = id; setRecipe(await req('asset.preset', { id }), true); renderPresets(); } catch (err) { hooks.showError(err); }
+    try {
+      selectedPreset = id;
+      setRecipe(await req('asset.preset', { id }), true);
+      useProfileExport();
+      renderPresets();
+    } catch (err) { hooks.showError(err); }
   }
+
+  /** A tree made for a game exports the way that game takes it (still yours to change on the Export tab). */
+  function useProfileExport() {
+    const g = (presets.profiles || []).find((x) => x.id === recipe.profile);
+    if (!g || !ENGINES[g.engine]) return;
+    Object.assign(exportPrefs, { engine: g.engine, lodFiles: g.lodFiles, shaders: g.helpers });
+    saveExportPrefs();
+  }
+  const profileOf = () => (presets.profiles || []).find((x) => x.id === recipe.profile);
 
   async function savePreset() {
     try {
@@ -486,13 +502,46 @@ window.NoorAssets = (() => {
       ...options.map(([t, label]) => el('option', { value: String(t), text: label })));
     s.value = String(v);
     s.addEventListener('change', () => { recipe.triangleTarget = Number(s.value); changed(true); });
-    return el('label', { class: 'sb-inline ab-choice' }, el('span', { text: 'Triangle target' }), s);
+    const each = el('button', { class: 'utility-btn', id: 'ab-each-level', title: 'Triangles for each level of detail on its own (what a game can afford at each distance)' }, 'Set each level');
+    each.addEventListener('click', () => {
+      const first = v || 4000;
+      recipe.lodTriangles = Array.from({ length: recipe.lods }, (_, i) => Math.max(60, Math.round(first / 2 ** i)));
+      changed(true);
+    });
+    return el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline ab-choice' }, el('span', { text: 'Triangle target' }), s), each);
   }
   function targetSplit() {
     const t = recipe.triangleTarget;
     const leafy = recipe.foliage !== 'none' && recipe.archetype !== 'dead';
     const wood = Math.max(200, Math.floor(t * (leafy ? 0.25 : 1)));
     return leafy ? `About ${wood.toLocaleString()} for the wood and ${Math.max(500, t - wood).toLocaleString()} for the leaves.` : `All ${wood.toLocaleString()} for the wood.`;
+  }
+
+  /** Triangles for each level (a game that knows what each distance affords), or back to one target halved per level. */
+  function perLevel() {
+    const list = recipe.lodTriangles;
+    const boxes = list.map((t, i) => {
+      const box = el('input', { type: 'number', class: 'sb-num', min: '60', max: '200000', step: '50', value: String(t), 'aria-label': `LOD${i} triangles`, 'data-level': String(i) });
+      box.addEventListener('change', () => {
+        const v = Math.round(Number(box.value));
+        if (!Number.isFinite(v)) { box.value = String(list[i]); return; }
+        list[i] = Math.max(60, Math.min(200000, v));
+        box.value = String(list[i]);
+        changed(false);
+      });
+      return el('label', { class: 'sb-inline' }, el('span', { text: `LOD${i}` }), box);
+    });
+    const back = el('button', { class: 'utility-btn', id: 'ab-one-target', title: 'One triangle target for LOD0, each farther level about half' }, 'Use one target');
+    back.addEventListener('click', () => { recipe.triangleTarget = Math.max(1000, list[0] || 4000); recipe.lodTriangles = []; changed(true); });
+    return el('div', { class: 'ab-per-level', id: 'ab-per-level', title: 'Triangles for the whole tree on each level (a quarter to the wood). Levels past these are half the one before' },
+      el('div', { class: 'sb-row' }, el('span', { text: 'Triangles per level' }), ...boxes), back);
+  }
+
+  function pixelChoice() {
+    const s = el('select', { 'aria-label': 'Pixel art', 'data-key': 'pixels' }, ...[[0, 'Off'], [32, '32 px'], [64, '64 px'], [128, '128 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
+    s.value = String(recipe.pixels || 0);
+    s.addEventListener('change', () => { recipe.pixels = Number(s.value); changed(false); });
+    return el('label', { class: 'sb-inline ab-choice' }, el('span', { text: 'Pixel art' }), s);
   }
 
   function meshPane() {
@@ -502,15 +551,18 @@ window.NoorAssets = (() => {
         recipe.branches === 'mixed' ? slider(recipe, ['mixedRadius', 'Weld limbs thicker than', 0.005, 2, 0.005, 'cm']) : null),
       section('Detail',
         choice(recipe, 'quality', 'Quality', QUALITY, 'How finely the surface is sampled before it is simplified to the budget'),
-        targetChoice(),
+        ...(recipe.lodTriangles?.length ? [perLevel()] : [targetChoice()]),
         slider(recipe, ['trunkSides', 'Trunk sides (closest level)', 0, 24, 1, 'int', 'With low-poly wood (a small budget): the least sides the trunk has on the closest level, so it stays round up close (0: as its thickness asks, 10 or more). Farther levels have a simple 6- then 5-sided trunk, hidden by the leaves']),
-        recipe.triangleTarget > 0
+        recipe.lodTriangles?.length ? null : recipe.triangleTarget > 0
           ? el('small', { class: 'pref-hint', id: 'ab-target-split', text: targetSplit() })
           : slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),
         slider(recipe, ['lods', 'Levels of detail', 1, 6, 1, 'int', 'Each next level has about half the triangles']),
         check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)'),
         check(recipe, 'billboard', 'Billboard as the last level (the tree drawn on crossed cards, for far away)', 'Eight triangles for a whole tree: it is drawn from its sides into a texture and shown on crossed cards', true),
         recipe.billboard ? slider(recipe, ['billboardViews', 'Billboard sides', 2, 4, 1, 'int', 'How many crossed cards (each drawn from its own side)']) : null),
+      section('Pixel art',
+        pixelChoice(),
+        el('small', { class: 'pref-hint', text: 'Every texture a few dozen pixels in a few colours, the leaves cut out hard, and the files tell engines to sample them nearest: crisp square pixels, the pixel-art game look. No normal or ORM maps.' })),
       section('Shading',
         slider(recipe, ['shading', 'Painted shading', 0, 1, 0.01, 'pct', 'In the vertex colours: crowns darker inside and below, lighter on top; trunks darker near the ground. Engines multiply it with the textures. Off when the wind data uses the vertex colours'])),
       section('Wind',
@@ -567,11 +619,13 @@ window.NoorAssets = (() => {
         helper,
         inProject,
         el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
+      profileOf() ? el('p', { class: 'pref-hint', id: 'ab-profile-note', text: `Made for ${profileOf().name}: lettered ${recipe.name}_A, _B…, plain glTF files, the manifest with the names ${profileOf().name} knows them by, and a hand-off note (${recipe.name}.handoff.md) for whoever brings them into the game.` }) : null,
       section('Where', exportWhere.node),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn primary', id: 'ab-export', onclick: exportNow }, '⬇ Export'),
         lastExport ? el('button', { class: 'utility-btn', id: 'ab-reveal', onclick: () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError) }, '📁 Show in folder') : null),
       lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.variants > 1 ? `${lastExport.variants} trees (${lastExport.files.length} files)` : lastExport.files.join(', ')} with ${lastExport.variants > 1 ? 'their recipes' : lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
+      lastExport?.handoff ? el('p', { class: 'pref-hint', id: 'ab-handoff-note', text: `For ${lastExport.profile}: give ${lastExport.handoff} with the files to whoever brings them in.` }) : null,
       lastExport?.godot ? el('p', { class: 'pref-hint', id: 'ab-godot-note', text: lastExport.godot.inProject
         ? `The NoorMD trees plugin is in ${lastExport.godot.resPath}${lastExport.godot.written ? '' : ' (already there)'}. In Godot, turn it on once in Project → Project Settings → Plugins; trees imported after that switch their levels by distance and move in the wind.`
         : 'The NoorMD trees plugin is beside the trees, in addons/noor_trees: copy that folder into your Godot project’s addons folder and turn it on once in Project → Project Settings → Plugins. (Export into a Godot project and it goes there by itself.)' }) : null,

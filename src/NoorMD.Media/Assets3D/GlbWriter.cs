@@ -52,11 +52,13 @@ public static class GlbWriter
             return bytes;
         }
 
-        int Texture(byte[] png)
+        var nearestUsed = false;
+        int Texture(byte[] png, bool nearest = false)
         {
             var view = View(png, null);
             images.Add(new Dictionary<string, object> { ["bufferView"] = view, ["mimeType"] = "image/png" });
-            textures.Add(new Dictionary<string, object> { ["source"] = images.Count - 1, ["sampler"] = 0 });
+            nearestUsed |= nearest;
+            textures.Add(new Dictionary<string, object> { ["source"] = images.Count - 1, ["sampler"] = nearest ? 1 : 0 });
             return textures.Count - 1;
         }
 
@@ -73,14 +75,14 @@ public static class GlbWriter
                 ["metallicFactor"] = m.Metallic, ["roughnessFactor"] = m.Roughness,
             };
             var mat = new Dictionary<string, object> { ["name"] = m.Name, ["pbrMetallicRoughness"] = pbr };
-            if (m.BaseColorPng != null) pbr["baseColorTexture"] = new Dictionary<string, object> { ["index"] = Texture(m.BaseColorPng) };
+            if (m.BaseColorPng != null) pbr["baseColorTexture"] = new Dictionary<string, object> { ["index"] = Texture(m.BaseColorPng, m.Nearest) };
             if (m.OcclusionRoughnessMetallicPng != null)
             {
-                var t = Texture(m.OcclusionRoughnessMetallicPng);
+                var t = Texture(m.OcclusionRoughnessMetallicPng, m.Nearest);
                 pbr["metallicRoughnessTexture"] = new Dictionary<string, object> { ["index"] = t };
                 mat["occlusionTexture"] = new Dictionary<string, object> { ["index"] = t };
             }
-            if (m.NormalPng != null) mat["normalTexture"] = new Dictionary<string, object> { ["index"] = Texture(m.NormalPng) };
+            if (m.NormalPng != null) mat["normalTexture"] = new Dictionary<string, object> { ["index"] = Texture(m.NormalPng, m.Nearest) };
             if (m.Alpha == "mask") { mat["alphaMode"] = "MASK"; mat["alphaCutoff"] = m.AlphaCutoff; }
             else if (m.Alpha == "blend") mat["alphaMode"] = "BLEND";
             if (m.DoubleSided) mat["doubleSided"] = true;
@@ -147,8 +149,10 @@ public static class GlbWriter
         {
             gltf["images"] = images;
             gltf["textures"] = textures;
-            // Repeat (bark and rock tile); trilinear.
-            gltf["samplers"] = new[] { new Dictionary<string, object> { ["magFilter"] = 9729, ["minFilter"] = 9987, ["wrapS"] = 10497, ["wrapT"] = 10497 } };
+            // Repeat (bark and rock tile); trilinear. Pixel art: nearest, and the nearest mipmap.
+            var samplers = new List<object> { new Dictionary<string, object> { ["magFilter"] = 9729, ["minFilter"] = 9987, ["wrapS"] = 10497, ["wrapT"] = 10497 } };
+            if (nearestUsed) samplers.Add(new Dictionary<string, object> { ["magFilter"] = 9728, ["minFilter"] = 9984, ["wrapS"] = 10497, ["wrapT"] = 10497 });
+            gltf["samplers"] = samplers;
         }
         var json = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(gltf));
         var jsonPadded = (json.Length + 3) & ~3;

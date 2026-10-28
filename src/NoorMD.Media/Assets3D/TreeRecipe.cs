@@ -174,13 +174,45 @@ public sealed class TreeRecipe
     /// </summary>
     public int TrunkSides { get; set; }
 
+    /// <summary>
+    /// Triangles for each level of detail, closest first (empty: the triangle target, or the budgets, each farther level
+    /// about half). A game that knows what each distance can afford sets them all, e.g. 2,800 / 1,100 / 220; levels past
+    /// the list are half the one before. Each is shared out like the triangle target: a quarter to the wood.
+    /// </summary>
+    public List<int> LodTriangles { get; set; } = [];
+
+    /// <summary>
+    /// Pixel art (0 off, or 32, 64 or 128): every texture this many pixels across, a few colours, leaves cut out hard,
+    /// and sampled nearest (no blur) in every engine, the look of a pixel-art game. No normal or ORM maps.
+    /// </summary>
+    public int Pixels { get; set; }
+    public static readonly int[] PixelSizes = [0, 32, 64, 128];
+
+    /// <summary>The game this tree is made for (GameProfiles: its manifest names and hand-off note), or empty for any.</summary>
+    public string Profile { get; set; } = "";
+
     /// <summary>The wood and leaf budgets this recipe builds with (from the triangle target when there is one).</summary>
     public (int Wood, int Leaves) Budgets()
     {
-        if (TriangleTarget <= 0) return (Budget, LeafBudget);
+        var target = LodTriangles.Count > 0 ? LodTriangles[0] : TriangleTarget;
+        if (target <= 0) return (Budget, LeafBudget);
         var leafy = Foliage != "none" && Archetype != "dead";
-        var wood = Math.Max(200, (int)(TriangleTarget * (leafy ? 0.25 : 1)));
-        return (wood, Math.Max(500, TriangleTarget - wood));
+        var wood = Math.Max(200, (int)(target * (leafy ? 0.25 : 1)));
+        return (wood, Math.Max(500, target - wood));
+    }
+
+    /// <summary>
+    /// The wood and leaf triangles of one level (0 closest). With triangles set per level, from those (no floor: a far
+    /// level of 200 triangles is a trunk and a few big cards); otherwise half the level before.
+    /// </summary>
+    public (int Wood, int Leaves) LevelBudgets(int lod)
+    {
+        var (wood, leaves) = Budgets();
+        if (LodTriangles.Count == 0 || lod == 0) return (wood >> lod, leaves >> lod);
+        var total = lod < LodTriangles.Count ? LodTriangles[lod] : LodTriangles[^1] >> (lod - LodTriangles.Count + 1);
+        var leafy = Foliage != "none" && Archetype != "dead";
+        var w = leafy ? Math.Max(30, total / 4) : total;
+        return (w, Math.Max(leafy ? 40 : 0, total - w));
     }
 
     // Bark.
@@ -298,6 +330,9 @@ public sealed class TreeRecipe
         CanopyFullness = C(CanopyFullness, 0, 0.98, 0.85);
         TriangleTarget = TriangleTarget <= 0 ? 0 : Math.Clamp(TriangleTarget, 1000, 200_000);
         TrunkSides = TrunkSides <= 0 ? 0 : Math.Clamp(TrunkSides, 3, 32);
+        LodTriangles = (LodTriangles ?? []).Take(6).Select(t => Math.Clamp(t, 60, 200_000)).ToList();
+        Pixels = PixelSizes.Contains(Pixels) ? Pixels : 0;
+        Profile = GameProfiles.Find(Profile) != null ? Profile : "";
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
         BarkTile = C(BarkTile, 0.05, 20, 1);
@@ -563,7 +598,65 @@ public static class TreePresets
         }, "Fantasy"),
     ];
 
-    public static TreeRecipe Make(string id) => (All.FirstOrDefault(p => p.Id == id) ?? All[0]).Make().Clamped();
+    public static TreeRecipe Make(string id) => (All.Concat(Thornwake).FirstOrDefault(p => p.Id == id) ?? All[0]).Make().Clamped();
+
+    /// <summary>
+    /// A tree for a game (GameProfiles): another preset grown at the game's size, triangles per level and texture look,
+    /// under the name the game's catalogue knows the species by.
+    /// </summary>
+    private static Preset ForGame(string profile, string id, string from, string name, string description, double height, int[] triangles, Action<TreeRecipe>? change = null) =>
+        new($"{profile}-{id}", name.Replace('_', ' '), description, () =>
+        {
+            var r = All.First(p => p.Id == from).Make();
+            var scale = height / r.Height;
+            r.Name = name;
+            r.Height = height;
+            r.TrunkRadius *= Math.Pow(scale, 0.8);
+            r.Profile = profile;
+            r.LodTriangles = [.. triangles];
+            r.Lods = triangles.Length;
+            r.TriangleTarget = 0;
+            r.Billboard = false;
+            r.Pixels = 64;
+            r.Quality = "low";
+            r.Seed = 101;
+            r.Shading = 0.45;       // the pack's trees are lit by the game, not painted dark underneath
+            change?.Invoke(r);
+            return r;
+        }, GameProfiles.Find(profile)!.Group);
+
+    /// <summary>
+    /// Thornwake's woodland (its pack's nine species, at their heights and triangles per level) and the species it draws
+    /// as placeholders today (its docs/ASSET_SPEC.md).
+    /// </summary>
+    public static readonly IReadOnlyList<Preset> Thornwake =
+    [
+        ForGame("thornwake", "pine", "pine", "Pine", "Irregular tiers on an exposed lower trunk, an open top.", 12.5, [2800, 1100, 220], r => { r.Levels[0].Count = 30; r.Levels[0].Length = 0.24; r.Levels[0].Bend = -15; }),
+        ForGame("thornwake", "spruce", "spruce", "Spruce", "A dense, dark, low-reaching cone of needles.", 12.5, [4000, 1600, 280], r => { r.Levels[0].Length = 0.24; r.LeafColor = "#28492a"; r.LeafColor2 = "#4b6e34"; }),
+        ForGame("thornwake", "birch-green", "birch", "Birch_Green", "A slender pale trunk with small rising branches and loose leaf sprays.", 11.5, [2600, 1300, 500]),
+        ForGame("thornwake", "birch-autumn", "birch", "Birch_Autumn", "The birch in yellow and ochre.", 11, [2600, 1300, 500], r => { r.LeafColor = "#c08a1e"; r.LeafColor2 = "#ecc848"; }),
+        ForGame("thornwake", "oak", "oak", "Oak", "A broad crown on a heavy trunk with big limbs.", 10.5, [3600, 1800, 600]),
+        ForGame("thornwake", "maple-autumn", "maple", "Maple_Autumn", "A broad, branching crown in copper and orange.", 10.8, [3600, 1800, 600], r => { r.Levels[0].Length = 0.75; r.Levels[0].Angle = 58; r.Shape = "hemispherical"; }),
+        ForGame("thornwake", "sparse", "oak", "Sparse", "A crooked trunk, open branches and grey-green leaf groups.", 8.7, [1500, 800, 300], r =>
+        {
+            r.Lean = 10; r.Wobble = 12; r.Shape = "spherical"; r.LeafDensity = 0.35; r.CanopyFullness = 0;
+            r.LeafColor = "#5c6b4a"; r.LeafColor2 = "#94a07a"; r.BarkColor = "#6a5d50";
+        }),
+        ForGame("thornwake", "poplar", "birch", "Poplar", "Tall, with a narrow upright crown.", 16.7, [2200, 1100, 450], r =>
+        {
+            r.Archetype = "broadleaf"; r.Shape = "cylindrical"; r.CrownStart = 0.25; r.Lean = 1; r.BarkMaterial = "bark"; r.BarkColor = "#7a7468";
+            r.Levels[0].Angle = 22; r.Levels[0].Bend = 10; r.Levels[0].Length = 0.22; r.Levels[1].Angle = 25; r.Levels[1].Bend = 5;
+            r.LeafColor = "#4e7a2a"; r.LeafColor2 = "#90ac3c";
+        }),
+        ForGame("thornwake", "willow", "willow", "Willow", "A broad frame under irregular hanging curtains.", 9, [4500, 2300, 600]),
+        ForGame("thornwake", "palm", "palm", "Palm", "A slim curving trunk under drooping fronds (the game's placeholder today).", 9, [1600, 800, 250]),
+        ForGame("thornwake", "acacia", "acacia", "Acacia", "A flat umbrella crown for the savanna (the game's placeholder today).", 7, [2400, 1200, 400]),
+        ForGame("thornwake", "dead", "dead", "Dead_Tree", "Bare and broken (the game's placeholder today).", 7, [900, 450, 150]),
+        ForGame("thornwake", "bald-cypress", "cypress", "Bald_Cypress", "The swamp tree: fluted base, knees and moss (the game's placeholder today).", 14, [4000, 1800, 500], r => { r.Knees = 8; r.Budget = 8000; }),
+    ];
+
+    /// <summary>Every preset: the general ones, then each game's.</summary>
+    public static IEnumerable<Preset> Everything => All.Concat(Thornwake);
 }
 
 /// <summary>Variety packs: many trees of one kind, each from its own seed and a little bigger or smaller.</summary>

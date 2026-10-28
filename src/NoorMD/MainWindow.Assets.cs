@@ -139,16 +139,23 @@ public partial class MainWindow
     /// from, units, axes, bounds and pivot, each level with its file (or node) and triangles, each material's maps with
     /// their colour space and normal-map convention, and the wind data's layout.
     /// </summary>
-    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize, string recipeFile, bool oneFile)
+    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize, string recipeFile, bool oneFile, int variant = 0, string? species = null)
     {
         var (lo, hi) = TreeExport.Bounds(build.Lods[0]);
         float R(float v) => MathF.Round(v, 3);
+        float[] V(System.Numerics.Vector3 v) => [R(v.X), R(v.Y), R(v.Z)];
         var at = TreeExport.SwitchDistances(build);
+        var profile = GameProfiles.Find(build.Recipe.Profile);
         return new
         {
             generator = "NoorMD Asset Bench",
             kind = "tree",
             name = build.Recipe.Name,
+            // Made for a game: its profile and the name its catalogue knows this tree by.
+            profile = profile?.Id,
+            catalogue = profile?.CatalogueName(species ?? build.Recipe.Name, variant),
+            species = GameProfile.Species(species ?? build.Recipe.Name).ToLowerInvariant(),
+            variant = GameProfile.Variant(variant),
             recipe = recipeFile,
             seed = build.Recipe.Seed,
             units = "metres",
@@ -157,6 +164,9 @@ public partial class MainWindow
             pivot = new { position = new[] { 0f, 0f, 0f }, at = "the base of the trunk, on the ground" },
             bounds = new { min = new[] { R(lo.X), R(lo.Y), R(lo.Z) }, max = new[] { R(hi.X), R(hi.Y), R(hi.Z) }, size = new[] { R(hi.X - lo.X), R(hi.Y - lo.Y), R(hi.Z - lo.Z) } },
             height = build.Recipe.Height,
+            heightMetres = R(hi.Y),
+            widthMetres = R(MathF.Max(hi.X - lo.X, hi.Z - lo.Z)),
+            texture = new { size = build.Recipe.Pixels > 0 && textureSize > 0 ? build.Recipe.Pixels : textureSize, sampling = build.Recipe.Pixels > 0 ? "nearest" : "linear", pixelArt = build.Recipe.Pixels > 0 },
             branches = build.Recipe.Branches,
             files,
             lods = build.Lods.Select((l, i) => new
@@ -165,6 +175,8 @@ public partial class MainWindow
                 file = oneFile || build.Lods.Count == 1 ? files.FirstOrDefault() : files.ElementAtOrDefault(i),
                 node = oneFile && build.Lods.Count > 1 ? l.Root.Name : null,
                 triangles = l.TriangleCount,
+                objects = l.Root.All().Count(n => n.Mesh is { TriangleCount: > 0 }),
+                bounds = new { min = V(TreeExport.Bounds(l).Min), max = V(TreeExport.Bounds(l).Max) },
                 billboard = build.Recipe.Billboard && i == build.Lods.Count - 1 && build.Lods.Count > 1,
                 nodes = l.Root.All().Where(n => n.Mesh != null).Select(n => n.Name),
                 visibleFrom = i == 0 ? 0 : at[i - 1],
@@ -187,7 +199,8 @@ public partial class MainWindow
                 case "asset.presets":
                     return new
                     {
-                        builtIn = TreePresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, archetype = r.Archetype, group = x.Group }; }),
+                        builtIn = TreePresets.Everything.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, archetype = r.Archetype, group = x.Group, profile = r.Profile }; }),
+                        profiles = GameProfiles.All.Select(g => new { id = g.Id, name = g.Name, description = g.Description, group = g.Group, engine = g.Engine, lodFiles = g.LodFiles, helpers = g.Helpers }),
                         mine = UserTreePresets(),
                         barks = new[] { new { id = "bark", name = "Bark in the bark colour (realistic)" }, new { id = "painted", name = "Painted bark (stylized)" }, new { id = "birch", name = "Birch bark" } }
                             .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = "Texture Bench: " + t.Name })),
@@ -197,7 +210,7 @@ public partial class MainWindow
                     var id = req.GetString("id", 300) ?? "";
                     var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? TreeRecipe.FromJson(await File.ReadAllTextAsync(UserTreePath(id))) : TreePresets.Make(id);
                     // Built-in trees start as forest trees (a few thousand triangles, for scenes with very many); yours keep theirs.
-                    if (!id.StartsWith("user:", StringComparison.Ordinal) && recipe.TriangleTarget == 0) recipe.TriangleTarget = 4000;
+                    if (!id.StartsWith("user:", StringComparison.Ordinal) && recipe.TriangleTarget == 0 && recipe.LodTriangles.Count == 0) recipe.TriangleTarget = 4000;
                     AllowTreeImages(recipe);
                     return TreeForPage(recipe);
                 }
@@ -261,6 +274,10 @@ public partial class MainWindow
                     var oneFile = req.GetString("lodFiles", 10) == "one";
                     // A variety pack: several trees of this kind from consecutive seeds, sizes spread a little.
                     var variants = TreeVariants.Make(recipe, (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "variants") ?? 1), NoorMD.Core.Bridge.Json.OptDouble(p, "spread") ?? 0.15);
+                    // Made for a game: variants lettered as its catalogue names them (Pine_A, Pine_B…), even a single tree.
+                    var profile = GameProfiles.Find(recipe.Profile);
+                    if (profile != null)
+                        for (var v = 0; v < variants.Count; v++) variants[v].Name = $"{GameProfile.Species(recipe.Name)}_{GameProfile.Variant(v)}";
                     var place = ExportPlaceFrom(p, "model");
                     var root = ExportBase(place, variants.Count > 1 ? $"Save {variants.Count} × “{recipe.Name}” in… (you can make a new folder here)" : $"Save “{recipe.Name}” in… (you can make a new folder here)");
                     if (root == null) return new { cancelled = true };
@@ -270,9 +287,9 @@ public partial class MainWindow
                     var stem = ExportLayouts.FileName(tokens["name"], recipe.Name);
                     var levels = recipe.Lods + (recipe.Billboard ? 1 : 0);
                     var separate = !oneFile && levels > 1;
-                    string Suffix(int v) => variants.Count > 1 ? $"_{v + 1:00}" : "";
+                    string Suffix(int v) => profile != null ? "_" + GameProfile.Variant(v) : variants.Count > 1 ? $"_{v + 1:00}" : "";
                     List<string> GlbNames(int v) => separate ? Enumerable.Range(0, levels).Select(i => $"{file}{Suffix(v)}_LOD{i}.glb").ToList() : [$"{file}{Suffix(v)}.glb"];
-                    var planned = Enumerable.Range(0, variants.Count).SelectMany(v => GlbNames(v).Append($"{stem}{Suffix(v)}.noortree.json")).Append(stem + ".manifest.json").Select(n => Path.Combine(folder, n)).ToList();
+                    var planned = Enumerable.Range(0, variants.Count).SelectMany(v => GlbNames(v).Append($"{stem}{Suffix(v)}.noortree.json")).Append(stem + ".manifest.json").Concat(profile != null ? [stem + ".handoff.md"] : []).Select(n => Path.Combine(folder, n)).ToList();
                     var how = AskReplace(planned, $"“{recipe.Name}”");
                     if (how == null) return new { cancelled = true };
                     var keep = how == "keep";
@@ -282,6 +299,7 @@ public partial class MainWindow
                     var recipes = new List<string>();
                     var manifests = new List<object>();
                     var triangles = new List<int>();
+                    var delivered = new List<GameProfiles.Delivered>();
                     for (var v = 0; v < variants.Count; v++)
                     {
                         var variant = variants[v];
@@ -309,12 +327,25 @@ public partial class MainWindow
                         await File.WriteAllTextAsync(recipePath, variant.ToJson(), new UTF8Encoding(false));
                         written.AddRange(mine);
                         recipes.Add(Path.GetFileName(recipePath));
-                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size, Path.GetFileName(recipePath), !separate));
+                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size, Path.GetFileName(recipePath), !separate, v, recipe.Name));
                         triangles.Add(build.Lods[0].TriangleCount);
+                        if (profile != null)
+                        {
+                            var (blo, bhi) = TreeExport.Bounds(build.Lods[0]);
+                            delivered.Add(new(profile.CatalogueName(recipe.Name, v), Path.GetFileName(recipePath), mine.Select(f => Path.GetFileName(f)!).ToList(), build.Lods.Select(l => l.TriangleCount).ToList(), bhi.Y, MathF.Max(bhi.X - blo.X, bhi.Z - blo.Z)));
+                        }
                     }
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
                     object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "tree variety pack", name = recipe.Name, variants = manifests };
                     await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+                    // For a game: a note for whoever brings the trees in (a person, or an agent working on the game).
+                    string? handoff = null;
+                    if (profile != null)
+                    {
+                        var handoffPath = ExportTarget(folder, stem + ".handoff.md", keep, taken);
+                        await File.WriteAllTextAsync(handoffPath, GameProfiles.Handoff(profile, recipe, Path.GetFileName(manifestPath), delivered, size), new UTF8Encoding(false));
+                        handoff = Path.GetFileName(handoffPath);
+                    }
                     // Engine helpers. Godot: the import plugin (levels switched by distance, the wind material), in the
                     // project's addons folder when the trees go into a Godot project, else beside them. Unity and Unreal: the
                     // HLSL wind function. Other: both shader files. Shaders already there may have been changed by you, so
@@ -349,7 +380,7 @@ public partial class MainWindow
                     PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                     _assetFolders.Add(folder);
                     Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), shaders, engine, godot, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), handoff, profile = profile?.Name, shaders, engine, godot, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
                 }
                 case "asset.reveal":
                 {

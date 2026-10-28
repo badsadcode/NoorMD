@@ -283,6 +283,25 @@ card meant for a missing twig hangs from the nearest point of the nearest branch
 where the twig's leaves were, and the canopy fill does the same. A test measures it (on the old code 30 % of the
 oak's leaf cards at 2,000 hung in the air).
 
+Game profiles (preview.67): trees made for one game, without NoorMD becoming that game's tool. A profile
+(GameProfiles.cs) only picks settings every tree has anyway, and the files stay plain glTF and JSON:
+* **Triangles per level** (`lodTriangles`): a game that knows what each distance affords sets each level (e.g.
+  2,800 / 1,100 / 220) instead of one target halved; each shared out as before (a quarter to the wood), and far
+  levels have no floor (a trunk and a few big cards). Mesh tab: "Set each level" / "Use one target".
+* **Pixel art** (`pixels`: 32, 64 or 128): every texture shrunk to that size (each pixel the average of the opaque
+  ones it covers, cut out hard), reduced to 12 colours, sampled NEAREST in the glTF; no normal or ORM maps. The
+  leaf outlines are cut from the pixel texture, so they fit its hard edges.
+* **Thornwake**, the first profile: its pack's nine species at their heights and triangles per level (pine, spruce,
+  green and autumn birch, oak, autumn maple, sparse, poplar, willow) and the species it draws as placeholders today
+  (palm, acacia, dead tree, bald cypress); 64-pixel textures, three levels, no billboard (the game bakes its own
+  impostors). The 🎮 Thornwake filter in the tree list shows them; picking one sets the export to glTF, a file per
+  level, no helpers. The export letters the trees (`Pine_A_LOD0.glb`…), adds the game's catalogue name
+  (`TREE_Pine_A`), species and variant to the manifest, and writes `<name>.handoff.md`: the files, triangles per
+  level, sizes, materials, axes, wind layout and the game's `--test-tree` line, for whoever brings them in.
+* The manifest now has, for any tree: per-level bounds and object counts, height and width in metres, and the
+  textures' size and sampling.
+* Fix: hanging moss no longer hangs from twigs a level's wood left out.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

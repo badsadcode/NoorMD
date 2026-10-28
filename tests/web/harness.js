@@ -462,14 +462,16 @@ function mockHostScript(initial) {
   state.assets = ASSET;
   function assetMock(type, p) {
     const builtIn = [{ id: 'oak', name: 'Oak (realistic)', description: 'A broad crown.', style: 'realistic', archetype: 'broadleaf', group: 'Forest' }, { id: 'stylized-oak', name: 'Stylized oak', description: 'Chunky and puffy.', style: 'stylized', archetype: 'broadleaf', group: 'Forest' },
-      { id: 'willow', name: 'Weeping willow (realistic)', description: 'Curtains.', style: 'realistic', archetype: 'broadleaf', group: 'Swamp & marsh' }];
+      { id: 'willow', name: 'Weeping willow (realistic)', description: 'Curtains.', style: 'realistic', archetype: 'broadleaf', group: 'Swamp & marsh' },
+      { id: 'thornwake-pine', name: 'Pine', description: 'Tiers.', style: 'realistic', archetype: 'conifer', group: 'Thornwake', profile: 'thornwake' }];
+    const profiles = [{ id: 'thornwake', name: 'Thornwake', description: 'Pixel-art woodland.', group: 'Thornwake', engine: 'other', lodFiles: 'separate', helpers: false }];
     const mine = () => ASSET.mine.map((x) => ({ id: x.id, name: x.recipe.name, style: x.recipe.style, archetype: x.recipe.archetype, description: 'Your preset' }));
     switch (type) {
-      case 'asset.presets': return { builtIn, mine: mine(), barks: [{ id: 'wood-bark', name: 'Tree bark' }, { id: 'wood-planks', name: 'Wooden planks' }] };
+      case 'asset.presets': return { builtIn, profiles, mine: mine(), barks: [{ id: 'wood-bark', name: 'Tree bark' }, { id: 'wood-planks', name: 'Wooden planks' }] };
       case 'asset.preset': {
         const own = ASSET.mine.find((x) => x.id === p.id);
         if (own) return JSON.parse(JSON.stringify(own.recipe));
-        const r = p.id === 'willow' ? { ...ASSET.recipes.oak, name: 'Weeping willow', arrangement: 'hanging', leafShape: 'slender', hangLength: 7, rootStyle: 'surface' } : ASSET.recipes[p.id === 'stylized-oak' ? 'stylized' : p.id];
+        const r = p.id === 'thornwake-pine' ? { ...ASSET.recipes.oak, name: 'Pine', archetype: 'conifer', profile: 'thornwake', pixels: 64, lodTriangles: [2800, 1100, 220], triangleTarget: 0, billboard: false } : p.id === 'willow' ? { ...ASSET.recipes.oak, name: 'Weeping willow', arrangement: 'hanging', leafShape: 'slender', hangLength: 7, rootStyle: 'surface' } : ASSET.recipes[p.id === 'stylized-oak' ? 'stylized' : p.id];
         if (!r) throw new Error('Unknown preset.');
         return JSON.parse(JSON.stringify(r));
       }
@@ -486,11 +488,11 @@ function mockHostScript(initial) {
         ASSET.exports.push(JSON.parse(JSON.stringify(p)));
         const stem = p.recipe.name.replace(/ /g, '_');
         const n = p.variants || 1;
-        const sfx = (v) => (n > 1 ? '_' + String(v + 1).padStart(2, '0') : '');
+        const sfx = (v) => (p.recipe.profile ? '_' + 'ABCDEFGHIJ'[v] : n > 1 ? '_' + String(v + 1).padStart(2, '0') : '');
         const files = Array.from({ length: n }, (_, v) => p.lodFiles === 'one' || p.recipe.lods < 2 ? [stem + sfx(v) + '.glb'] : Array.from({ length: p.recipe.lods }, (_, i) => `${stem}${sfx(v)}_LOD${i}.glb`)).flat();
         const recipes = Array.from({ length: n }, (_, v) => stem + sfx(v) + '.noortree.json');
         const godot = p.engine === 'godot' && p.shaders ? (p.godotInProject === false ? { folder: 'D:\\Game\\Trees\\addons\\noor_trees', inProject: false, resPath: null, written: 5 } : { folder: 'D:\\Game\\addons\\noor_trees', inProject: true, resPath: 'res://addons/noor_trees', written: 5 }) : null;
-        return { folder: 'D:\\Game\\Trees', files, recipe: recipes[0], recipes, variants: n, manifest: stem + '.manifest.json', engine: p.engine, godot, project: null, relative: '.', triangles: Array(n).fill(2454) };
+        return { folder: 'D:\\Game\\Trees', files, recipe: recipes[0], recipes, variants: n, manifest: stem + '.manifest.json', handoff: p.recipe.profile ? stem + '.handoff.md' : null, profile: p.recipe.profile ? 'Thornwake' : null, engine: p.engine, godot, project: null, relative: '.', triangles: Array(n).fill(2454) };
       }
       case 'asset.reveal': ASSET.opened = p.folder; return null;
       case 'asset.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ASSET.mine.some((x) => x.id === id); ASSET.mine = ASSET.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }

@@ -22,6 +22,8 @@ public sealed class Material3D
     public byte[]? BaseColorPng { get; set; }
     public byte[]? NormalPng { get; set; }
     public byte[]? OcclusionRoughnessMetallicPng { get; set; }
+    /// <summary>Textures sampled nearest, not blurred between pixels (pixel art).</summary>
+    public bool Nearest { get; set; }
     /// <summary>The colour texture's pixels (not exported): what the billboard renderer samples.</summary>
     public RawImage? BaseColorPixels { get; set; }
 }

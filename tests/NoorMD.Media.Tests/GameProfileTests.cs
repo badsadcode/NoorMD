@@ -1,0 +1,114 @@
+using System.Text.Json;
+using NoorMD.Media.Assets3D;
+using Xunit;
+
+namespace NoorMD.Media.Tests;
+
+public class GameProfileTests
+{
+    private static TreeBuild Build(string id, int textureSize = 256) =>
+        TreeBuilder.Build(TreePresets.Make(id), new TreeBuilder.Options { TextureSize = textureSize });
+
+    [Fact]
+    public void Each_level_comes_close_to_its_own_triangles()
+    {
+        foreach (var id in new[] { "thornwake-pine", "thornwake-oak", "thornwake-dead" })
+        {
+            var r = TreePresets.Make(id);
+            var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 0 });
+            Assert.Equal(3, b.Lods.Count);      // no billboard: the game bakes its own impostors
+            for (var i = 0; i < 3; i++)
+                Assert.InRange(b.Lods[i].TriangleCount, r.LodTriangles[i] * 0.6, r.LodTriangles[i] * 1.2 + 40);      // a far level: at least a simple trunk
+        }
+    }
+
+    [Fact]
+    public void Levels_past_the_list_are_half_the_one_before_and_without_a_list_it_halves()
+    {
+        var r = new TreeRecipe { LodTriangles = [3000, 1000], Lods = 3 };
+        Assert.Equal(500, r.LevelBudgets(2).Wood + r.LevelBudgets(2).Leaves);
+        Assert.Equal(1000, r.LevelBudgets(1).Wood + r.LevelBudgets(1).Leaves);
+        Assert.Equal((750, 2250), r.Budgets());
+        var plain = new TreeRecipe { TriangleTarget = 4000 };
+        Assert.Equal((500, 1500), plain.LevelBudgets(1));
+    }
+
+    [Fact]
+    public void Pixel_art_is_small_few_coloured_hard_edged_and_sampled_nearest()
+    {
+        var b = Build("thornwake-birch-green");
+        var leaves = b.Lods[0].Materials.First(m => m.Name == "Leaves");
+        var bark = b.Lods[0].Materials.First(m => m.Name == "Bark");
+        foreach (var m in new[] { leaves, bark })
+        {
+            Assert.True(m.Nearest);
+            Assert.Null(m.NormalPng);
+            Assert.Null(m.OcclusionRoughnessMetallicPng);
+            Assert.Equal(64, m.BaseColorPixels!.Width);
+            var px = m.BaseColorPixels.Rgba;
+            Assert.All(Enumerable.Range(0, px.Length / 4), i => Assert.True(px[i * 4 + 3] is 0 or 255));
+            var colours = Enumerable.Range(0, px.Length / 4).Where(i => px[i * 4 + 3] > 0).Select(i => (px[i * 4], px[i * 4 + 1], px[i * 4 + 2])).Distinct().Count();
+            Assert.InRange(colours, 2, 12);
+        }
+        var (json, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(b, 0)));
+        var samplers = json.GetProperty("samplers").EnumerateArray().ToList();
+        var textures = json.GetProperty("textures").EnumerateArray().ToList();
+        Assert.All(textures, t => Assert.Equal(9728, samplers[t.GetProperty("sampler").GetInt32()].GetProperty("magFilter").GetInt32()));
+        // A tree without pixel art keeps the one smooth sampler.
+        var (smooth, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(Build("birch"), 0)));
+        Assert.Equal(9729, Assert.Single(smooth.GetProperty("samplers").EnumerateArray()).GetProperty("magFilter").GetInt32());
+    }
+
+    [Fact]
+    public void Pixel_art_averages_the_opaque_pixels_and_cuts_out_the_rest()
+    {
+        // 4 × 4: the left half opaque red, the right half see-through.
+        var px = new byte[4 * 4 * 4];
+        for (var y = 0; y < 4; y++) for (var x = 0; x < 2; x++) { var i = (y * 4 + x) * 4; px[i] = 200; px[i + 3] = 255; }
+        var small = PixelArt.Make(new RawImage(4, 4, px), 2);
+        Assert.Equal((2, 2), (small.Width, small.Height));
+        Assert.Equal(new byte[] { 200, 0, 0, 255, 0, 0, 0, 0 }, small.Rgba[..8]);
+    }
+
+    [Fact]
+    public void Recipes_keep_only_known_profiles_and_pixel_sizes()
+    {
+        var r = new TreeRecipe { Profile = "nope", Pixels = 50, LodTriangles = [10, 900_000] }.Clamped();
+        Assert.Equal("", r.Profile);
+        Assert.Equal(0, r.Pixels);
+        Assert.Equal([60, 200_000], r.LodTriangles);
+        var tw = TreeRecipe.FromJson(TreePresets.Make("thornwake-pine").ToJson());
+        Assert.Equal(("thornwake", 64, 3), (tw.Profile, tw.Pixels, tw.LodTriangles.Count));
+    }
+
+    [Fact]
+    public void Every_thornwake_tree_grows_for_the_game()
+    {
+        Assert.True(TreePresets.Thornwake.Count >= 9);
+        foreach (var p in TreePresets.Thornwake)
+        {
+            var r = p.Make().Clamped();
+            Assert.Equal("Thornwake", p.Group);
+            Assert.Equal(("thornwake", false, 64), (r.Profile, r.Billboard, r.Pixels));
+            Assert.Equal(3, r.LodTriangles.Count);
+            Assert.True(r.LodTriangles[0] > r.LodTriangles[1] && r.LodTriangles[1] > r.LodTriangles[2]);
+            Assert.DoesNotContain(' ', r.Name);
+        }
+        Assert.Contains(TreePresets.Everything, p => p.Id == "thornwake-spruce");
+    }
+
+    [Fact]
+    public void Catalogue_names_and_the_handoff_note()
+    {
+        var tw = GameProfiles.Find("thornwake")!;
+        Assert.Equal("TREE_Birch_Green_A", tw.CatalogueName("Birch Green", 0));
+        Assert.Equal("TREE_Pine_C", tw.CatalogueName("Pine", 2));
+        Assert.Equal("AA", GameProfile.Variant(26));
+        var recipe = TreePresets.Make("thornwake-pine");
+        var note = GameProfiles.Handoff(tw, recipe, "Pine.manifest.json",
+            [new("TREE_Pine_A", "Pine_A.noortree.json", ["Pine_A_LOD0.glb", "Pine_A_LOD1.glb", "Pine_A_LOD2.glb"], [2700, 1100, 200], 12.5f, 7.1f)], 1024);
+        foreach (var s in new[] { "TREE_Pine_A", "`Pine_A`", "2,700 / 1,100 / 200", "NEAREST", "TEXCOORD_1", "No billboard", "--test-tree", "Pine.manifest.json" })
+            Assert.Contains(s, note);
+        Assert.DoesNotContain("\r", note);
+    }
+}

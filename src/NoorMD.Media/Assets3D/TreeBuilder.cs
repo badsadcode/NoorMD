@@ -176,6 +176,12 @@ public static class TreeBuilder
             // Each sprite's outline, from a small copy of the picture (so the cards' shape doesn't depend on the texture size).
             // (The same small copy is what the crown's fullness is measured with.)
             var src = ownLeaves ?? LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, 128, recipe.Seed, recipe.LeafCluster);
+            // Pixel art: the leaves' texture is that small copy in pixels, so the outlines fit its hard edges exactly.
+            if (recipe.Pixels > 0)
+            {
+                src = PixelArt.Make(src, recipe.Pixels);
+                if (options.TextureSize > 0) Use(leafMat, src);
+            }
             measureLeaves = src;
             if (recipe.TrimCards)
                 cardShapes = Enumerable.Range(0, 5).Select(i => i < 4 ? CardShape.Outline(src, LeafAtlas.Cell(i)) : CardShape.Outline(src, new Vector4(0, 0, 1, 1))).ToArray();
@@ -210,6 +216,19 @@ public static class TreeBuilder
             else clumpMat.BaseColor = Color(recipe.LeafColor);
         }
 
+        // Pixel art: every texture a few dozen pixels in a few colours, drawn nearest; no normal or ORM maps (the
+        // pixels are the detail).
+        if (recipe.Pixels > 0 && options.TextureSize > 0)
+            foreach (var m in new[] { bark, leafMat, mossMat, capMat, clumpMat })
+            {
+                if (m.BaseColorPixels == null) continue;
+                if (m != leafMat) Use(m, PixelArt.Make(m.BaseColorPixels, recipe.Pixels));
+                m.NormalPng = null;
+                m.OcclusionRoughnessMetallicPng = null;
+                m.Roughness = MathF.Max(m.Roughness, 0.9f);
+                m.Nearest = true;
+            }
+
         var lodCount = Math.Min(recipe.Lods, options.MaxLods ?? recipe.Lods);
         var leafGrow = 1f;      // how much the leaf budget made the finest level's cards fewer and bigger
         (double Before, double After, int Added)? canopy = null;
@@ -225,8 +244,10 @@ public static class TreeBuilder
             if (capped) { asset.Materials.Add(capMat); capIndex = asset.Materials.Count - 1; }
             if (crystals) { asset.Materials.Add(crystalMat); crystalIndex = asset.Materials.Count - 1; }
             asset.Root = new Node3D { Name = asset.Name };
-            var budget = Math.Max(150, recipe.Budget >> lod);
-            var detail = 1 << lod;
+            // The wood's triangles, and how much sparser the leaves are than on the closest level.
+            var (levelWood, levelLeaves) = recipe.LevelBudgets(lod);
+            var budget = recipe.LodTriangles.Count > 0 ? Math.Max(30, levelWood) : Math.Max(150, levelWood);
+            var detail = recipe.LodTriangles.Count > 0 ? MathF.Max(1, recipe.LeafBudget / (float)Math.Max(1, levelLeaves)) : 1 << lod;
 
             // Tubes first: what they cost comes off the budget of the implicit surfaces. Branches left out of this
             // level's wood are noted: leaves meant for them go on the nearest branch that is there.
@@ -237,7 +258,7 @@ public static class TreeBuilder
             // welded trunk up close, a simple one where the leaves hide it.
             if (lowPoly || budget < LowPolyWood)
             {
-                var (kept, left) = LowPolyWoodMeshes(groups, sk, recipe, budget, cell * 1.6f * detail, tile, tubes, lod);
+                var (kept, left) = LowPolyWoodMeshes(groups, sk, recipe, budget, cell * 1.6f * (1 << lod), tile, tubes, lod);
                 tubeTris = tubes.Values.Sum(m => m.TriangleCount);
                 if (lod == 0) build.Notes.Add($"Low-poly wood (a small wood budget): {kept} branches as clean tubes{(left > 0 ? $", the {left} finest left out (they are inside the leaves)" : "")}.");
             }
@@ -253,7 +274,7 @@ public static class TreeBuilder
                         if (start == 0) missingWood!.Add(id);     // all of it was this tube: it is not in the wood
                         continue;
                     }
-                    AddTube(m, sk, b, start, attach && b.Parent >= 0 && (id == g.RootBranch || start == 0), cell * 1.6f * detail, tile, recipe);
+                    AddTube(m, sk, b, start, attach && b.Parent >= 0 && (id == g.RootBranch || start == 0), cell * 1.6f * (1 << lod), tile, recipe);
                 }
                 tubes[g.Index] = m;
                 tubeTris += m.TriangleCount;
@@ -286,7 +307,7 @@ public static class TreeBuilder
                 if (clumpShapes && g.ClumpDense != null && g.ClumpField != null)
                 {
                     clumpMesh = Copy(g.ClumpDense);
-                    var clumpBudget = Math.Max(80, (int)((long)Math.Max(300, recipe.Budget / 2 >> lod) * g.ClumpDense.TriangleCount / Math.Max(1, groups.Sum(x => x.ClumpDense?.TriangleCount ?? 0))));
+                    var clumpBudget = Math.Max(80, (int)((long)Math.Max(recipe.LodTriangles.Count > 0 ? 60 : 300, recipe.LodTriangles.Count > 0 ? levelWood / 2 : recipe.Budget / 2 >> lod) * g.ClumpDense.TriangleCount / Math.Max(1, groups.Sum(x => x.ClumpDense?.TriangleCount ?? 0))));
                     Simplifier.Simplify(clumpMesh, clumpBudget);
                     clumpMesh = FinishClumps(clumpMesh, g.ClumpField, sk, recipe, clumpIndex);
                     if (recipe.FlatShading && clumps) clumpMesh = Flatten(clumpMesh);
@@ -649,7 +670,7 @@ public static class TreeBuilder
     /// in the crown to those near its surface; the leaf budget caps the triangles, the cards growing instead so the
     /// crown stays as full; the card scale makes each plane bigger without changing their number.
     /// </summary>
-    private static float AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    private static float AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
     {
         if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
@@ -747,7 +768,7 @@ public static class TreeBuilder
     /// Cards over the clump shapes, growing outwards: a leafy edge round solid clumps, or (tufts) the whole canopy, with
     /// cards also deeper inside so it looks full through the gaps and there is no solid mesh behind them.
     /// </summary>
-    private static float AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, int detail, Random rng, bool tufts = false)
+    private static float AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, float detail, Random rng, bool tufts = false)
     {
         if (clumps.VertexCount == 0) return 1;
         var size = (float)recipe.LeafSize * (tufts ? 0.6f : 0.8f) * MathF.Sqrt(detail);
@@ -845,7 +866,7 @@ public static class TreeBuilder
     }
 
     /// <summary>Palms and tree ferns: a frond strip along every outer branch, widest in the middle, folded along its rib.</summary>
-    private static void AddFronds(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    private static void AddFronds(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
     {
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var k = 0;
@@ -853,7 +874,7 @@ public static class TreeBuilder
         {
             var b = sk.Branches[id];
             if (b.Root || b.Bare || b.Level == 0 && deepest > 0 || b.Level < deepest) continue;
-            if (detail > 1 && k++ % detail != 0 && detail > 2) continue;     // far levels keep a share of the fronds
+            if (detail > 2 && k++ % (int)MathF.Round(detail) != 0) continue;     // far levels keep a share of the fronds
             var centres = new List<Vector3>();
             var across = new List<Vector3>();
             var widths = new List<float>();
@@ -873,9 +894,9 @@ public static class TreeBuilder
     }
 
     /// <summary>Mushroom caps: the big one on top of the trunk, smaller ones on the limb tips.</summary>
-    private static void AddCaps(Mesh3D wood, TreeSkeleton sk, TreeRecipe recipe, Group g, int material, int detail)
+    private static void AddCaps(Mesh3D wood, TreeSkeleton sk, TreeRecipe recipe, Group g, int material, float detail)
     {
-        var sides = Math.Max(8, 28 / detail);
+        var sides = Math.Max(8, (int)(28 / detail));
         if (g.Index == 0)
         {
             var (top, _, dir) = sk.Trunk.At(1);
@@ -893,7 +914,7 @@ public static class TreeBuilder
     }
 
     /// <summary>Crystal clusters on the outer branch tips (instead of leaves): a few pointed shards fanning out of each.</summary>
-    private static void AddCrystals(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    private static void AddCrystals(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
     {
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         foreach (var id in branchIds)
@@ -901,7 +922,7 @@ public static class TreeBuilder
             var b = sk.Branches[id];
             if (b.Root || b.Bare || b.Level < deepest) continue;
             var (tip, _, dir) = b.At(1);
-            var n = Math.Max(1, (2 + (int)MathF.Round(4 * (float)recipe.LeafDensity)) / detail);
+            var n = Math.Max(1, (int)((2 + (int)MathF.Round(4 * (float)recipe.LeafDensity)) / detail));
             for (var k = 0; k < n; k++)
             {
                 var spread = new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() * 0.4f, (float)rng.NextDouble() - 0.5f) * 1.2f;
@@ -913,19 +934,21 @@ public static class TreeBuilder
     }
 
     /// <summary>Spanish moss: grey-green ribbons hanging under the branches (the swamp look), crossed, swaying.</summary>
-    private static void AddMoss(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    private static void AddMoss(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, Random rng)
     {
         var scale = Math.Clamp((float)recipe.Height / 10, 0.4f, 3f);
         // Moss shares the leaf budget: at most 30 % of it, strands thinned evenly over the tree (and shorter ribbons
         // when the budget is small).
         var segs = recipe.LeafBudget < 4000 ? 2 : 4;
         var perStrand = 2 * segs * 8;
-        var wanted = branchIds.Select(id => sk.Branches[id]).Where(b => !(b.Root || b.Bare || b.Level == 0)).Sum(b => (float)recipe.Moss * 1.6f * b.Length / scale / detail);
+        // Only from wood this level has: moss on a twig it left out would hang in the air.
+        bool Hangs(TreeBranch b) => !(b.Root || b.Bare || b.Level == 0) && missingWood?.Contains(b.Id) != true;
+        var wanted = branchIds.Select(id => sk.Branches[id]).Where(Hangs).Sum(b => (float)recipe.Moss * 1.6f * b.Length / scale / detail);
         var keep = wanted <= 0 ? 1 : MathF.Min(1, recipe.LeafBudget * 0.3f / detail / (wanted * perStrand));
         foreach (var id in branchIds)
         {
             var b = sk.Branches[id];
-            if (b.Root || b.Bare || b.Level == 0) continue;
+            if (!Hangs(b)) continue;
             var asked = (float)recipe.Moss * 1.6f * b.Length / scale / detail * keep;
             var count = (int)asked + (rng.NextDouble() < asked - (int)asked ? 1 : 0);
             for (var c = 0; c < count; c++)
@@ -1091,7 +1114,7 @@ public static class TreeBuilder
     /// the branch's own group (its leaves mesh), with the branch's wind.
     /// </summary>
     private static (double Before, double After, int Added) FillCrown(List<(Group G, Mesh3D Wood, Mesh3D Leaves)> made, TreeSkeleton sk, TreeRecipe recipe,
-        List<Material3D> materials, int leafIndex, int detail, float grew, Random rng, CancellationToken ct)
+        List<Material3D> materials, int leafIndex, float detail, float grew, Random rng, CancellationToken ct)
     {
         var target = recipe.CanopyFullness;
         // As big as the other cards (which the leaf budget may have made bigger).

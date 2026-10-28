@@ -5274,6 +5274,29 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the plugin can be kept out of the project (written beside the trees instead)', (await AM()).exports[2].godotInProject === false);
       await waitFn(page, () => /copy that folder/.test((document.querySelector('#ab-godot-note') || {}).textContent || ''));
       check('…and the note says to copy it in', true);
+      // A game's trees: their own filter, triangles per level, pixel art, and exported the way the game takes them.
+      await page.click('#assetbench [data-tab="tree"]');
+      await page.click('[data-look="game:thornwake"]');
+      const twList = await page.$$eval('#ab-presets [data-preset]', (b) => b.map((x) => x.dataset.preset).filter((id) => !id.startsWith('user:')));
+      check('the Thornwake filter shows only Thornwake trees (and yours)', twList.length === 1 && twList[0] === 'thornwake-pine', twList);
+      await page.click('[data-preset="thornwake-pine"]');
+      await waitFn(page, async () => (await window.NoorAssets._state()).recipe?.profile === 'thornwake');
+      await page.click('#assetbench [data-tab="mesh"]');
+      check('a Thornwake tree has triangles for each level', (await page.$$eval('#ab-per-level [data-level]', (b) => b.map((x) => Number(x.value)))).join() === '2800,1100,220');
+      check('…and pixel art at 64 px', (await page.inputValue('[data-key="pixels"]')) === '64');
+      await page.fill('#ab-per-level [data-level="2"]', '300');
+      await page.dispatchEvent('#ab-per-level [data-level="2"]', 'change');
+      check('a level’s triangles can be changed', (await AS()).recipe.lodTriangles[2] === 300);
+      await page.click('#assetbench [data-tab="export"]');
+      check('the export is set the way Thornwake takes it (glTF, a file per level, no helpers)', (await page.inputValue('#ab-engine')) === 'other' && (await page.inputValue('#ab-lod-files')) === 'separate' && !(await page.isChecked('#ab-shaders')));
+      check('…and says what comes with it', /Made for Thornwake[\s\S]*handoff\.md/.test(await page.textContent('#ab-profile-note')));
+      await page.click('#ab-export');
+      await waitFn(page, () => !!document.querySelector('#ab-handoff-note'));
+      check('the export names the hand-off note', /Pine\.handoff\.md/.test(await page.textContent('#ab-handoff-note')) && (await AM()).exports.at(-1).recipe.lodTriangles[2] === 300);
+      await page.click('#assetbench [data-tab="mesh"]');
+      await page.click('#ab-one-target');
+      check('…and back to one triangle target', (await AS()).recipe.lodTriangles.length === 0 && !!(await page.$('#ab-each-level')));
+      await page.click('[data-look="all"]');
       if (shots) {
         await page.click('#assetbench [data-tab="tree"]');
         await page.selectOption('#ab-view', 'shaded');
