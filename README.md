@@ -183,8 +183,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   each from its own seed and a little taller or shorter. Fantasy trees too: mushroom trees (fly agaric, a
   glowing swamp glowcap, a giant toadstool) and crystal trees with glowing shards. Bark is made in each tree's
   colour (realistic furrows, painted grooves for the stylized look, birch); a painted shading in the vertex colours
-  darkens the inside of the crown and the foot of the trunk. Exports can bring wind shaders that read the wind
-  data: a Godot 4 shader, and an HLSL function for Unity Shader Graph or an Unreal Custom node. The last level of
+  darkens the inside of the crown and the foot of the trunk. Exports are made for your engine, Godot first: one
+  file with every level, plus a small Godot import plugin (addons/noor_trees, put in your project's addons folder
+  when you export into a Godot project; turn it on once in Project Settings → Plugins) that switches the levels by
+  distance and gives the tree the wind shader with its own textures. For Unity (a LOD Group from the _LOD0… names)
+  and Unreal (a file per level) an HLSL wind function comes along. The last level of
   detail can be a billboard: the tree drawn from its sides onto crossed cards. Bring your own bark texture or leaf
   picture (a 2 × 2 atlas or a single twig) if you like. Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep

@@ -159,6 +159,30 @@ Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh wo
 - **Pictures of your own:** a bark texture (colour), and a leaf picture with transparency, a 2 × 2 atlas or one sprite
   for every card; read only when picked in the bench or named by a recipe you opened (looked for beside it).
 
+### Godot first (preview.56)
+
+Godot is the main engine, then Unity, then Unreal.
+
+- **Levels that know their distances:** every level's root in the GLB carries glTF extras: its level, the camera
+  distances it is seen between (the first switch a few tree heights away, each next 2.5 times farther; the
+  billboard has no far limit) and whether it is the billboard. The tree's root says what the file is: its height and
+  where the wind data is (UVs, colours or none). Godot keeps extras as node metadata; the manifest lists them too.
+- **The Godot import plugin** (addons/noor_trees, an EditorScenePostImportPlugin): for NoorMD trees only, it sets each
+  level's visibility range (with a small margin against flicker) and swaps the materials for the wind shader with
+  the same textures (colour, normal, ORM, emission, alpha cutoff), one shader material per source material. Per
+  file in the Import dock: on/off, distance scale, wind material on/off. Written into the project's addons folder
+  when the export folder is inside a Godot project (found by project.godot above it); its files carry a version line,
+  so a newer NoorMD updates them and a file you changed is kept.
+- **The Godot wind shader** reads UV2 (glTF TEXCOORD_1) or, for colour-wind exports, COLOR; the phase comes from each
+  instance's position (MultiMesh forests don't move in step).
+- **One material list for all levels:** the billboard's material comes after the tree's own, so one-file exports
+  point every mesh at the right material; the GLB writer writes only the materials a file uses.
+- **Engine choice in the export:** Godot 4 (one file, the plugin), Unity (one file: the importer makes a LOD Group
+  from the names; the HLSL function), Unreal (a file per level; the HLSL function), Other (both shader files).
+- **Checked in Godot on CI:** a Linux job exports trees and the plugin into a project, imports them in a headless
+  Godot 4.4 and checks the visibility ranges, the materials (textures kept, cutoff, wind source), that a single level
+  gets no range, and that a scene not made by NoorMD is left alone (tests/godot/check.gd).
+
 Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks
