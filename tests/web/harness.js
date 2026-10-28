@@ -164,6 +164,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sound.')) { try { return reply(m.id, true, soundMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('texture.')) { try { return reply(m.id, true, textureMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -452,6 +453,76 @@ function mockHostScript(initial) {
     { id: 'unity', name: 'Unity', description: '', texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' }, music: { folder: 'Assets/Audio/Music/{Name}', file: '{Name}' } },
     { id: 'unreal', name: 'Unreal Engine', description: '', texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' }, music: { folder: 'Content/Audio/Music/{Name}', file: 'A_{Name}' } },
   ];
+  // NoorCalendar: entries relative to today, and a small copy of the engine's repeats (enough to draw the views).
+  const pad2 = (n) => String(n).padStart(2, '0');
+  const calDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+  const calTime = (d) => `${calDay(d)}T${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const calParse = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?/.exec(s); return new Date(+m[1], +m[2] - 1, +m[3], +(m[4] || 0), +(m[5] || 0)); };
+  const calToday = new Date(); calToday.setHours(0, 0, 0, 0);
+  const calAt = (days, h, m) => { const d = new Date(calToday); d.setDate(d.getDate() + days); if (h != null) d.setHours(h, m || 0); return d; };
+  const CAL = {
+    saves: [], deletes: [], snoozes: [], dismissed: [], exports: [], imports: 0, problem: null,
+    entries: [
+      { id: 'meet', title: 'Team meeting', notes: 'Room 4', category: 'appointment', color: '', allDay: false, start: calTime(calAt(0, 10)), end: calTime(calAt(0, 11)), repeat: { freq: 'weekly', interval: 1, days: [], monthMode: 'day', until: null, count: null }, skip: [], moved: [], reminders: [15], sinceYear: null, note: null, game: null, platform: null, updated: '' },
+      { id: 'ola', title: 'Ola', notes: '', category: 'birthday', color: '', allDay: true, start: calDay(new Date(calAt(3).getFullYear() - 30, calAt(3).getMonth(), calAt(3).getDate())), end: calDay(new Date(calAt(3).getFullYear() - 30, calAt(3).getMonth(), calAt(3).getDate())), repeat: { freq: 'yearly', interval: 1, days: [], monthMode: 'day', until: null, count: null }, skip: [], moved: [], reminders: [-540], sinceYear: calAt(3).getFullYear() - 30, note: null, game: null, platform: null, updated: '' },
+    ],
+  };
+  state.calendar = CAL;
+  function calOccurrences(e, from, to) {
+    const out = [];
+    const s0 = calParse(e.start), e0 = calParse(e.end);
+    const len = e.allDay ? (calParse(e.end) - calParse(e.start)) + 86400000 : e0 - s0;
+    const starts = [];
+    if (!e.repeat) starts.push(s0);
+    else {
+      const r = e.repeat;
+      for (let k = 0, at = new Date(s0); at < to && k < 5000; k++) {
+        if (r.freq === 'daily') { at = new Date(s0); at.setDate(s0.getDate() + k * r.interval); }
+        else if (r.freq === 'weekly') { at = new Date(s0); at.setDate(s0.getDate() + 7 * k * r.interval); }
+        else if (r.freq === 'monthly') { at = new Date(s0); at.setMonth(s0.getMonth() + k * r.interval); }
+        else { at = new Date(s0); at.setFullYear(s0.getFullYear() + k * r.interval); }
+        if (r.until && at > calParse(r.until + 'T23:59')) break;
+        if (r.count && k >= r.count) break;
+        starts.push(at);
+      }
+    }
+    for (const at of starts) {
+      const key = calDay(at);
+      if ((e.skip || []).includes(key)) continue;
+      const mv = (e.moved || []).find((m) => m.date === key);
+      const st = mv ? calParse(mv.start) : at, en = mv ? (e.allDay ? new Date(calParse(mv.end).getTime() + 86400000) : calParse(mv.end)) : new Date(at.getTime() + len);
+      if (st < to && en > from) out.push({ entryId: e.id, date: key, start: calTime(st), end: calTime(en), allDay: e.allDay, age: e.sinceYear ? st.getFullYear() - e.sinceYear : null, moved: !!mv });
+    }
+    return out;
+  }
+  function calMock(type, p) {
+    switch (type) {
+      case 'cal.entries': return { entries: JSON.parse(JSON.stringify(CAL.entries)), problem: CAL.problem, now: calTime(new Date()), categories: [] };
+      case 'cal.range': {
+        const from = calParse(p.from), to = calParse(p.to);
+        return { occurrences: CAL.entries.flatMap((e) => calOccurrences(e, from, to)).sort((a, b) => a.start.localeCompare(b.start)) };
+      }
+      case 'cal.save': {
+        const e = JSON.parse(JSON.stringify(p.entry));
+        if (!e.id) e.id = 'n' + (CAL.saves.length + 1);
+        CAL.saves.push(JSON.parse(JSON.stringify(e)));
+        CAL.entries = CAL.entries.filter((x) => x.id !== e.id).concat([e]);
+        return { entry: e };
+      }
+      case 'cal.delete': { const e = CAL.entries.find((x) => x.id === p.id); CAL.deletes.push(p.id); CAL.entries = CAL.entries.filter((x) => x.id !== p.id); return { entry: e || null }; }
+      case 'cal.snooze': CAL.snoozes.push({ key: p.key, minutes: p.minutes }); return null;
+      case 'cal.dismiss': CAL.dismissed.push(p.key); return null;
+      case 'cal.import': {
+        CAL.imports++;
+        const e = { id: 'imp1', title: 'Imported dentist', notes: '', category: 'appointment', color: '', allDay: false, start: calTime(calAt(1, 9)), end: calTime(calAt(1, 9, 30)), repeat: null, skip: [], moved: [], reminders: [], sinceYear: null, note: null, game: null, platform: null, updated: '' };
+        CAL.entries.push(e);
+        return { added: 1, notes: ['“Hourly thing” repeats hourly, which NoorMD doesn\'t do: only its first time was kept.'], file: 'google.ics', entries: JSON.parse(JSON.stringify(CAL.entries)) };
+      }
+      case 'cal.export': CAL.exports.push(p); return { path: 'C:\\Users\\me\\NoorMD calendar.ics', count: CAL.entries.length };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+
   // NoorSequencer: templates are small songs; renders, notes and exports are recorded.
   const seqTrack = (name, kind, instrument, patterns, sequence, extra) => ({ id: '', name, kind, instrument: { wave: 'triangle', pulseWidth: 0.25, detune: 6, octave: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.2, cutoff: 8000, resonance: 0.7, filterEnvelope: 0, vibrato: 0, vibratoRate: 5, drumTune: 0, drumDecay: 1, drumTone: 0.5, path: null, sampleName: null, rootNote: 60, loop: false, ...instrument },
     gain: -8, pan: 0, mute: false, solo: false, effects: [], patterns, sequence, ...extra });

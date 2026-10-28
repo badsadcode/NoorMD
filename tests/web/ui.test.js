@@ -4959,6 +4959,122 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with Mutate', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 64. NoorCalendar: month, week and agenda, entries with repeats, birthdays with the age, reminders, undo, .ics.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const CS = () => page.evaluate(() => NoorCalendar._state());
+      const CM = () => page.evaluate(() => window.__mock.state.calendar);
+      const dk = (days) => page.evaluate((n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, days);
+      await page.evaluate(() => { try { ['noormd.cal.view', 'noormd.cal.monday'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+c');
+      await waitFn(page, () => NoorCalendar.isOpen() && document.querySelector('.cal-monthgrid'));
+      const today = await dk(0), in3 = await dk(3);
+      check('Ctrl+Alt+C opens the calendar on the month, today marked, weeks from Monday', (await page.$$('.cal-day')).length === 42 && await page.$eval(`.cal-day[data-day="${today}"]`, (d) => d.classList.contains('today'))
+        && /^(mon|pon)/i.test(await page.textContent('.cal-monthhead span:first-child')));
+      check('entries show on their days: the weekly meeting today', !!(await page.$(`.cal-day[data-day="${today}"] .cal-chip[data-entry="meet"]`)));
+      const ola = await page.evaluate((d) => { const c = document.querySelector(`.cal-chip[data-entry="ola"][data-date="${d}"]`); return c && c.textContent; }, in3);
+      if (await page.$(`.cal-day[data-day="${in3}"]`)) check('a birthday shows the age it turns (30)', /Ola \(30\)/.test(ola || ''), ola);
+      check('the strip says what is today and what is next', /Team meeting/.test(await page.textContent('#cal-strip')));
+      // A new entry: weekly on two days, with reminders.
+      await page.click(`.cal-day[data-day="${in3}"]`);
+      await page.click('#cal-new');
+      await page.waitForSelector('#cal-e-title');
+      await page.fill('#cal-e-title', 'Stream: Thornwake');
+      await page.selectOption('#cal-e-cat', 'stream');
+      check('a stream asks for its game and platform', await page.isVisible('#cal-e-game') && !(await page.isVisible('#cal-e-since')));
+      await page.fill('#cal-e-game', 'Thornwake'); await page.fill('#cal-e-platform', 'Twitch');
+      if (await page.isChecked('#cal-e-allday')) await page.uncheck('#cal-e-allday');
+      await page.fill('#cal-e-starttime', '19:00');
+      await page.dispatchEvent('#cal-e-starttime', 'change');
+      check('moving the start moves the end (an hour later)', (await page.inputValue('#cal-e-endtime')) === '20:00');
+      await page.selectOption('#cal-e-freq', 'weekly');
+      await page.waitForSelector('#cal-e-days');
+      const startDow = await page.evaluate((d) => new Date(d + 'T12:00').getDay(), in3);
+      const otherDow = (startDow + 2) % 7;
+      await page.check(`#cal-e-days input[data-weekday="${otherDow}"]`);
+      await page.selectOption('#cal-e-ends', 'count');
+      await page.fill('#cal-e-count', '6'); await page.dispatchEvent('#cal-e-count', 'change');
+      await page.selectOption('#cal-e-addreminder', '60');
+      await page.click('#cal-e-save');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 1);
+      const saved = (await CM()).saves[0];
+      check('saved: the title, kind, game, platform, 19:00–20:00, every week on two days six times, reminders 15 min and 1 hour before',
+        saved.title === 'Stream: Thornwake' && saved.category === 'stream' && saved.game === 'Thornwake' && saved.platform === 'Twitch' && saved.start === `${in3}T19:00` && saved.end === `${in3}T20:00`
+        && saved.repeat.freq === 'weekly' && saved.repeat.days.sort().join() === [startDow, otherDow].sort().join() && saved.repeat.count === 6 && saved.reminders.join() === '15,60', saved);
+      // A birthday: all day, every year, a reminder on the day, the year for the age.
+      await page.click('#cal-new');
+      await page.fill('#cal-e-title', 'Mama');
+      await page.selectOption('#cal-e-cat', 'birthday');
+      check('a birthday is all day, every year, with a reminder on the day at 9:00, and asks for the year', await page.isChecked('#cal-e-allday') && (await page.inputValue('#cal-e-freq')) === 'yearly'
+        && /On the day at 9:00/.test(await page.textContent('#cal-e-reminders')) && await page.isVisible('#cal-e-since'));
+      await page.fill('#cal-e-since', '1960');
+      await page.click('#cal-e-save');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 2);
+      check('…saved with the year', (await CM()).saves[1].sinceYear === 1960 && (await CM()).saves[1].allDay === true);
+      // Only this one: an occurrence of the weekly meeting moved, another skipped.
+      const nextWeek = await dk(7);
+      await page.click('[data-view="agenda"]');
+      await page.click('#cal-todaybtn');
+      await page.waitForSelector('.cal-agenda');
+      await waitFn(page, () => /Today/.test(document.querySelector('.cal-agendaday:first-child h4').textContent));
+      check('the agenda lists the coming days, grouped, with today first', /Today/.test(await page.textContent('.cal-agendaday:first-child h4')));
+      await page.click(`.cal-agendaday[data-day="${nextWeek}"] .cal-agendaitem[data-entry="meet"]`);
+      await page.waitForSelector('#cal-e-scope');
+      await page.selectOption('#cal-e-scope', 'one');
+      await page.fill('#cal-e-starttime', '14:00'); await page.dispatchEvent('#cal-e-starttime', 'change');
+      await page.click('#cal-e-save');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 3);
+      const moved = (await CM()).saves[2];
+      check('“only on that day” keeps the rule and moves that one time', moved.id === 'meet' && moved.start.endsWith('T10:00') && moved.moved.length === 1 && moved.moved[0].date === nextWeek && moved.moved[0].start === `${nextWeek}T14:00`, moved);
+      const in14 = await dk(14);
+      await page.click(`.cal-agendaday[data-day="${in14}"] .cal-agendaitem[data-entry="meet"]`);
+      await page.click('#cal-e-skip');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 4);
+      await waitFn(page, (d) => !document.querySelector(`.cal-agendaday[data-day="${d}"] .cal-agendaitem[data-entry="meet"]`), in14, { timeout: 3000 }).catch(() => {});
+      check('Skip this day leaves that one out', (await CM()).saves[3].skip.includes(in14) && !(await page.$(`.cal-agendaday[data-day="${in14}"] .cal-agendaitem[data-entry="meet"]`)));
+      // Search.
+      await page.fill('#cal-search', 'thorn');
+      await waitFn(page, () => /Search/.test(document.querySelector('#cal-title').textContent));
+      check('search finds entries by their title, notes or game', (await page.$$('.cal-agendaitem')).length >= 1 && (await page.$$eval('.cal-agendaitem', (b) => b.every((x) => /Thornwake/.test(x.textContent)))));
+      await page.fill('#cal-search', '');
+      await page.dispatchEvent('#cal-search', 'input');
+      // Week view.
+      await page.click('[data-view="week"]');
+      await page.waitForSelector('.cal-weekgrid');
+      await page.click('#cal-todaybtn');
+      await waitFn(page, () => !!document.querySelector('.cal-col .cal-block'));
+      check('the week view places timed entries by their hour (the meeting at 10:00)', await page.$eval(`.cal-col[data-day="${today}"] .cal-block[data-entry="meet"]`, (b) => parseFloat(b.style.top) === 440));
+      // Delete and undo.
+      await page.click(`.cal-col[data-day="${today}"] .cal-block[data-entry="meet"]`);
+      await page.click('#cal-e-delete');
+      await waitFn(page, () => !!document.querySelector('#cal-undo'));
+      check('Delete takes it away, with Undo', !(await page.$('.cal-block[data-entry="meet"]')) && (await CM()).deletes.includes('meet'));
+      await page.click('#cal-undo button');
+      await waitFn(page, () => !!document.querySelector('.cal-block[data-entry="meet"]'));
+      check('…and Undo brings it back', (await CM()).saves.at(-1).id === 'meet');
+      // Reminders: cards in the app, with snooze and dismiss.
+      await page.evaluate((d) => window.__mock.emit({ v: 2, event: 'cal.reminders', payload: { reminders: [
+        { key: `meet|${d}|15`, entryId: 'meet', minutes: 15, at: `${d}T09:45`, title: 'Team meeting', category: 'appointment', age: null, occurrence: { entryId: 'meet', date: d, start: `${d}T10:00`, end: `${d}T11:00`, allDay: false, age: null, moved: false } },
+        { key: 'ola|x|-540', entryId: 'ola', minutes: -540, at: `${d}T09:00`, title: 'Ola', category: 'birthday', age: 30, occurrence: { entryId: 'ola', date: d, start: d, end: d, allDay: true, age: 30, moved: false } }] } }), today);
+      await waitFn(page, () => document.querySelectorAll('.cal-card').length === 2);
+      check('due reminders appear as cards (a birthday with the age)', /Ola \(30\)/.test(await page.textContent('#cal-cards')) && /Team meeting/.test(await page.textContent('#cal-cards')));
+      await page.selectOption(`.cal-card[data-key="meet|${today}|15"] select`, '15');
+      await waitFn(page, () => window.__mock.state.calendar.snoozes.length === 1);
+      check('Snooze asks the app to remind again later, and the card goes', (await CM()).snoozes[0].minutes === 15 && (await page.$$('.cal-card')).length === 1);
+      await page.click('.cal-card[data-key="ola|x|-540"] button:has-text("Dismiss")');
+      check('Dismiss takes the card away', (await page.$$('.cal-card')).length === 0 && (await CM()).dismissed.includes('ola|x|-540'));
+      // Import and export.
+      await page.click('#cal-import');
+      await page.waitForSelector('.modal');
+      check('.ics import: entries added, and what was simplified is listed', /Imported 1 entry from google\.ics/.test(await page.textContent('.modal')) && /hourly/.test(await page.textContent('.modal')));
+      await page.click('.modal button:has-text("OK")');
+      await page.click('#cal-export');
+      await waitFn(page, () => window.__mock.state.calendar.exports.length === 1);
+      check('.ics export', true);
+      check('no page errors in the calendar', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

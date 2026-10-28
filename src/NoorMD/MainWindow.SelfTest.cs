@@ -528,6 +528,25 @@ public partial class MainWindow
         Check("…and is hidden from screen capture (Windows 10 2004+)", ind.ExcludedFromCapture);
         ind.Close();
 
+        // NoorCalendar: the engine and .ics on this computer's time zone (your own calendar is not touched), and the
+        // reminder pop-up near the clock, which must not take focus.
+        {
+            var bday = NoorMD.Core.Calendar.CalendarCheck.Clamped(new NoorMD.Core.Calendar.CalendarEntry { Id = "selftest", Title = "Self-test birthday", Category = "birthday", AllDay = true,
+                Start = "2000-02-29", End = "2000-02-29", SinceYear = 2000, Repeat = new NoorMD.Core.Calendar.CalendarRepeat { Freq = "yearly" }, Reminders = [-540] });
+            var occ = NoorMD.Core.Calendar.CalendarEngine.Occurrences([bday], new DateTime(2027, 1, 1), new DateTime(2028, 12, 31));
+            var round = NoorMD.Core.Calendar.Ics.Import(NoorMD.Core.Calendar.Ics.Export([bday]));
+            Check("Calendar: a 29 February birthday repeats with its age, and survives an .ics round trip",
+                occ.Count == 2 && occ[0].Date == "2027-02-28" && occ[0].Age == 27 && round.Entries.Count == 1 && round.Entries[0].SinceYear == 2000 && round.Entries[0].Reminders.SequenceEqual([-540]),
+                string.Join(", ", occ.Select(o => $"{o.Date} ({o.Age})")));
+            var pop = new ReminderWindow(this);
+            pop.Add([new ReminderWindow.Item("selftest|x|0", "Self-test reminder", "Today 12:00", "Nothing to do")]);
+            await Task.Delay(300);
+            Check("Calendar: the reminder pop-up shows on top without taking focus", pop.IsVisible && pop.Topmost && !pop.IsActive && pop.ActualHeight > 60, $"{pop.ActualWidth:0}×{pop.ActualHeight:0}");
+            pop.Remove("selftest|x|0");
+            Check("…and goes when its reminder is handled", !pop.IsVisible);
+            pop.Close();
+        }
+
         // The Stream Desk's own window: opens with its page at full size, reaches the Stream Desk, and nothing else.
         OpenStreamWindow("mic", false, false);
         var sw = _streamWindow!;

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.0-preview.52 — Calendar
+
+- **Calendar** (Tools menu, **Ctrl+Alt+C**; docks at the side or in the middle): important days, birthdays,
+  appointments, reminders, streams and anything else.
+  - **Views:** month, week (with the hours and a line at the time now) and agenda (the coming two months, grouped by
+    day), with **search** (titles, notes, games). A strip on top says what is today and what is next.
+  - **Entries:** a title, a kind (important, birthday or anniversary, appointment, reminder, stream, holiday, other)
+    with its colour (or your own), all day or from–to, over several days, notes; streams have a game and a platform.
+  - **Repeats:** every N days, weeks (on the days you tick), months (on the same day, on "the 2nd Tuesday" or on
+    "the last Friday") or years; for ever, until a date, or a number of times. Change **only one time** (it moves,
+    the rest stay) or **skip a day**.
+  - **Birthdays and anniversaries** with the year they began show the age ("Ola (30)"). A 29 February birthday
+    falls on the 28th in other years.
+  - **Reminders** (up to eight per entry: at the start, minutes, hours or days before, or "on the day at 9:00"):
+    a card in the app with Open, Snooze (5 minutes to tomorrow) and Dismiss; when NoorMD is minimized or behind
+    other windows, also a pop-up near the clock (it never takes focus) and the taskbar button flashes. What came due
+    while NoorMD was closed (up to a week back) is shown when it starts.
+  - **.ics import and export** (Google, Outlook, Apple and other calendars): repeats, skipped and moved days and
+    reminders go both ways; times in other time zones are turned into yours; what can't be kept exactly is imported
+    as near as possible and listed.
+  - Kept in NoorMD's local data, saved crash-safely with the previous version as a backup (a damaged file falls back
+    to it). Deleting an entry can be undone.
+- The app's self-test checks the calendar's repeats and ages, an .ics round trip, and the reminder pop-up.
+
 ## 2.0.0-preview.51 — Sound Bench: mutate what you choose, more weather
 
 - **🧬 Mutate** (Layers tab, or M): changes the settings themselves a little (🎲 Variation only changes the seed), and

@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.51-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.52-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -156,6 +156,12 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   and export (⤓ Export at the top) the song, a seamless loop (its tails wrapped into the start), each layer's
   loop, stems and MIDI, as WAV or OGG, optionally kept in your Vault, arranged for Godot, Unity
   or Unreal or into a game project, with the song beside them.
+- **Calendar** (Ctrl+Alt+C): important days, birthdays (with the age they turn), appointments, reminders, streams
+  and anything else, in a month, week or agenda view, with search. Entries can repeat (daily, on chosen weekdays,
+  monthly on a day or on "the 2nd Tuesday" or "the last Friday", yearly), skip a day or move just one time, and
+  have reminders: shown in the app, and near the clock with a taskbar flash when NoorMD is in the background; what
+  came due while NoorMD was closed is shown when it starts. Import and export .ics files (Google, Outlook, Apple
+  and other calendars). Kept on your computer, saved safely with a backup.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

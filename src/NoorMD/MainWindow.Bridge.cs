@@ -148,6 +148,8 @@ public partial class MainWindow
                 return await DispatchSoundAsync(req);
             case var texture when texture.StartsWith("texture.", StringComparison.Ordinal):
                 return await DispatchTextureAsync(req);
+            case var cal when cal.StartsWith("cal.", StringComparison.Ordinal):
+                return await DispatchCalendarAsync(req);
             case var seq when seq.StartsWith("seq.", StringComparison.Ordinal):
                 return await DispatchSequencerAsync(req);
             case var export when export.StartsWith("export.", StringComparison.Ordinal):
@@ -195,7 +197,7 @@ public partial class MainWindow
                 try { OpenVault(lastVault); }
                 catch (Exception ex) { Log.Error("Reopening the Vault failed", ex); }
             }
-            if (_persistSession) { RestoreStream(); RestoreMic(); }
+            if (_persistSession) { RestoreStream(); RestoreMic(); StartCalendarReminders(); }
             if (_persistSession && _settings.Prefs.RestoreSession)
             {
                 tabs = RestoreSession(out var missing, out var recovered);

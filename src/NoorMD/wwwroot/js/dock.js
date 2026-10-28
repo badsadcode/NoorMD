@@ -11,10 +11,10 @@ window.NoorDock = (() => {
 
   const AREAS = ['left', 'right', 'bottom'];
   const AREA_LABEL = { left: 'Left', right: 'Right', bottom: 'Bottom', center: 'Middle', window: 'Own window' };
-  const ICON = { music: '♫', video: '▶', stream: '◉', apps: '◫', voice: '🎙', gallery: '▦', radio: '📻', sound: '🔊', texture: '🧱', sequencer: '🎼' };
+  const ICON = { music: '♫', video: '▶', stream: '◉', apps: '◫', voice: '🎙', gallery: '▦', radio: '📻', sound: '🔊', texture: '🧱', sequencer: '🎼', calendar: '📅' };
   const DEFAULT = Object.freeze({
     v: 1, sidebar: 'left',
-    place: { music: 'right', video: 'right', stream: 'right', apps: 'right', voice: 'right', gallery: 'right', radio: 'right', sound: 'center', texture: 'center', sequencer: 'center' },
+    place: { music: 'right', video: 'right', stream: 'right', apps: 'right', voice: 'right', gallery: 'right', radio: 'right', sound: 'center', texture: 'center', sequencer: 'center', calendar: 'right' },
     size: { left: 400, right: 460, bottom: 300 },
   });
   // Ready-made layouts. `open` lists the panels a layout shows; `sidebar` may also be 'hidden'.

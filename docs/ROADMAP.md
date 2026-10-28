@@ -39,6 +39,9 @@ first, and anything that conflicts with it waits.
 - Connected benches (the concept's asset workflow): OGG from the Sound Bench, sounds and songs added to the Music
   Bench (playlist "Made in NoorMD"), sound recipes kept in and opened from the Vault: preview.50. Materials (Gallery,
   Vault) and songs (Vault) were connected earlier; samples for NoorSequencer come from the Sound and Music Benches.
+- Calendar, stage 1 (entries, repeats, birthdays with ages, reminders in the app and near the clock, month, week
+  and agenda views, search, .ics import and export): preview.52. Next: stage 2 (notes, public holidays, streams on
+  the Stream Desk). See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 
