@@ -10,6 +10,8 @@ public sealed class SoundEffect
     public static readonly string[] Types = ["eq", "compressor", "gate", "saturate", "crush", "delay", "chorus", "flanger", "phaser", "tremolo", "reverb", "width"];
 
     public string Type { get; set; } = "eq";
+    /// <summary>A stable id ("F1"…) within its chain, for modulation routes.</summary>
+    public string Id { get; set; } = "";
     public bool Bypass { get; set; }
     /// <summary>0 = only the sound coming in, 1 = only the processed sound.</summary>
     public double Mix { get; set; } = 1;
@@ -83,22 +85,25 @@ public sealed class SoundEffect
 /// <summary>The processors behind <see cref="SoundEffect"/>, working in place on stereo buffers.</summary>
 public static class SoundEffects
 {
-    public static void Apply(IReadOnlyList<SoundEffect> chain, double[] L, double[] R, int sr)
+    /// <param name="mod">The modulation of an effect's parameter ("mix", "freq", "gain", "drive"), per block, or null.</param>
+    public static void Apply(IReadOnlyList<SoundEffect> chain, double[] L, double[] R, int sr, Func<SoundEffect, string, double[]?>? mod = null)
     {
         foreach (var fx in chain)
         {
             if (fx.Bypass) continue;
+            var mixMod = mod?.Invoke(fx, "mix");
             var mix = fx.Mix;
             var outGain = Math.Pow(10, fx.Out / 20);
-            if (mix <= 0) { Scale(L, R, outGain); continue; }
+            if (mix <= 0 && mixMod == null) { Scale(L, R, outGain); continue; }
             // Mixing needs the incoming sound kept aside (only when it isn't fully wet).
             double[]? dl = null, dr = null;
-            if (mix < 1) { dl = (double[])L.Clone(); dr = (double[])R.Clone(); }
-            Process(fx, L, R, sr);
+            if (mix < 1 || mixMod != null) { dl = (double[])L.Clone(); dr = (double[])R.Clone(); }
+            Process(fx, L, R, sr, mod == null ? null : p => mod(fx, p));
             for (var i = 0; i < L.Length; i++)
             {
-                var l = dl == null ? L[i] : dl[i] * (1 - mix) + L[i] * mix;
-                var r = dr == null ? R[i] : dr[i] * (1 - mix) + R[i] * mix;
+                var m = mixMod == null ? mix : Math.Clamp(mix + ModulationField.At(mixMod, i), 0, 1);
+                var l = dl == null ? L[i] : dl[i] * (1 - m) + L[i] * m;
+                var r = dr == null ? R[i] : dr[i] * (1 - m) + R[i] * m;
                 L[i] = Finite(l * outGain); R[i] = Finite(r * outGain);
             }
         }
@@ -108,14 +113,20 @@ public static class SoundEffects
 
     private static void Scale(double[] L, double[] R, double k) { if (k == 1) return; for (var i = 0; i < L.Length; i++) { L[i] *= k; R[i] *= k; } }
 
-    private static void Process(SoundEffect fx, double[] L, double[] R, int sr)
+    private static void Process(SoundEffect fx, double[] L, double[] R, int sr, Func<string, double[]?>? mod)
     {
         switch (fx.Type)
         {
-            case "eq": Eq(fx, L, sr); Eq(fx, R, sr); break;
+            case "eq":
+            {
+                var freqMod = mod?.Invoke("freq"); var gainMod = mod?.Invoke("gain");
+                if (freqMod == null && gainMod == null) { Eq(fx, L, sr); Eq(fx, R, sr); }
+                else { MovingEq(fx, L, sr, freqMod, gainMod); MovingEq(fx, R, sr, freqMod, gainMod); }
+                break;
+            }
             case "compressor": Dynamics(fx, L, R, sr, gate: false); break;
             case "gate": Dynamics(fx, L, R, sr, gate: true); break;
-            case "saturate": Saturate(fx, L); Saturate(fx, R); break;
+            case "saturate": { var dm = mod?.Invoke("drive"); Saturate(fx, L, dm); Saturate(fx, R, dm); break; }
             case "crush": Crush(fx, L); Crush(fx, R); break;
             case "delay": Delay(fx, L, R, sr); break;
             case "chorus": Modulated(fx, L, R, sr, baseMs: 18, depthMs: 8, feedback: 0); break;
@@ -167,12 +178,36 @@ public static class SoundEffects
             _b0 = b0 / a0; _b1 = b1 / a0; _b2 = b2 / a0; _a1 = a1 / a0; _a2 = a2 / a0;
         }
 
+        /// <summary>New settings, keeping the filter's memory (so a moving band doesn't click).</summary>
+        public Band Retuned(string kind, double freq, double q, double gainDb, int sr)
+        {
+            var n = new Band(kind, freq, q, gainDb, sr) { _x1 = _x1, _x2 = _x2, _y1 = _y1, _y2 = _y2 };
+            return n;
+        }
+
         public double Run(double x)
         {
             var y = _b0 * x + _b1 * _x1 + _b2 * _x2 - _a1 * _y1 - _a2 * _y2;
             if (Math.Abs(y) < 1e-25) y = 0; // no denormals in long tails
             _x2 = _x1; _x1 = x; _y2 = _y1; _y1 = y;
             return y;
+        }
+    }
+
+    /// <summary>An EQ band whose frequency (octaves) and boost (dB) move with modulation.</summary>
+    private static void MovingEq(SoundEffect fx, double[] x, int sr, double[]? freqMod, double[]? gainMod)
+    {
+        Band? band = null;
+        for (var i = 0; i < x.Length; i++)
+        {
+            if (i % ModulationField.Block == 0)
+            {
+                var b = i / ModulationField.Block;
+                var f = fx.Freq * (freqMod == null ? 1 : Math.Pow(2, freqMod[Math.Min(b, freqMod.Length - 1)]));
+                var g = fx.Gain + (gainMod == null ? 0 : gainMod[Math.Min(b, gainMod.Length - 1)]);
+                band = band == null ? new Band(fx.Kind, f, fx.Q, g, sr) : band.Retuned(fx.Kind, f, fx.Q, g, sr);
+            }
+            x[i] = band!.Run(x[i]);
         }
     }
 
@@ -204,13 +239,19 @@ public static class SoundEffects
         }
     }
 
-    private static void Saturate(SoundEffect fx, double[] x)
+    private static void Saturate(SoundEffect fx, double[] x, double[]? driveMod)
     {
-        var k = 1 + fx.Drive * 9;
+        var drive = fx.Drive;
+        var k = 1 + drive * 9;
         var norm = fx.Shape == "soft" ? 1 / Math.Tanh(k) : 1;
-        var comp = 1 / (1 + fx.Drive * 2.5);
+        var comp = 1 / (1 + drive * 2.5);
         for (var i = 0; i < x.Length; i++)
         {
+            if (driveMod != null && i % ModulationField.Block == 0)
+            {
+                drive = Math.Clamp(fx.Drive + driveMod[Math.Min(i / ModulationField.Block, driveMod.Length - 1)], 0, 1);
+                k = 1 + drive * 9; norm = fx.Shape == "soft" ? 1 / Math.Tanh(k) : 1; comp = 1 / (1 + drive * 2.5);
+            }
             var v = x[i] * k;
             x[i] = (fx.Shape switch
             {

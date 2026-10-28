@@ -40,6 +40,8 @@ public sealed class SoundLayer
     /// <summary>"noise" (a bed of filtered noise), "events" (many small sounds: drops, crackles, steps), "synth" (a tone with a
     /// pitch sweep) or "sample" (a WAV file of your own).</summary>
     public string Type { get; set; } = "noise";
+    /// <summary>A stable id ("L1"…) that modulation routes point to; kept when layers are reordered.</summary>
+    public string Id { get; set; } = "";
     public string Name { get; set; } = "Layer";
     public bool Mute { get; set; }
     public bool Solo { get; set; }
@@ -168,6 +170,12 @@ public sealed class SoundRecipe
     public GustSettings Gust { get; set; } = new();
     public List<SoundLayer> Layers { get; set; } = [];
     public MasterSettings Master { get; set; } = new();
+    /// <summary>LFOs, envelopes, random, steps and drawn curves that routes can use.</summary>
+    public List<SoundModulator> Modulators { get; set; } = [];
+    /// <summary>Named Quick-mode controls ("Motor RPM") that routes can use.</summary>
+    public List<SoundKnob> Knobs { get; set; } = [];
+    /// <summary>Source → target connections.</summary>
+    public List<SoundRoute> Routes { get; set; } = [];
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
 
@@ -219,6 +227,24 @@ public sealed class SoundRecipe
         Master.Gain = C(Master.Gain, -40, 24); Master.HighPass = C(Master.HighPass, 10, 5000); Master.LowPass = C(Master.LowPass, 200, 20000);
         Master.Width = C(Master.Width, 0, 2); Master.Reverb = C(Master.Reverb, 0, 1); Master.Room = C(Master.Room, 0, 1); Master.Ceiling = C(Master.Ceiling, -24, 0);
         Master.Effects = (Master.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
+        // Stable ids: missing or repeated ones get the next free number (routes find layers and effects by them).
+        string Fresh(string prefix, HashSet<string> used) { for (var n = 1; ; n++) { var id = prefix + n; if (used.Add(id)) return id; } }
+        bool Valid(string? id, string prefix) => id != null && id.Length is > 1 and <= 8 && id.StartsWith(prefix, StringComparison.Ordinal) && id[1..].All(char.IsAsciiDigit);
+        var layerIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var l in Layers)
+        {
+            if (!Valid(l.Id, "L") || !layerIds.Add(l.Id)) l.Id = Fresh("L", layerIds);
+            var fxIds = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var e in l.Effects) if (!Valid(e.Id, "F") || !fxIds.Add(e.Id)) e.Id = Fresh("F", fxIds);
+        }
+        var masterFx = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var e in Master.Effects) if (!Valid(e.Id, "F") || !masterFx.Add(e.Id)) e.Id = Fresh("F", masterFx);
+        Modulators = (Modulators ?? []).Where(m => m != null).Take(SoundModulator.Max).Select(m => m.Clamped()).ToList();
+        Knobs = (Knobs ?? []).Where(k => k != null).Take(SoundKnob.Max).Select(k => k.Clamped()).ToList();
+        var srcIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in Modulators) if (!Valid(m.Id, "M") || !srcIds.Add(m.Id)) m.Id = Fresh("M", srcIds);
+        foreach (var k in Knobs) if (!Valid(k.Id, "K") || !srcIds.Add(k.Id)) k.Id = Fresh("K", srcIds);
+        Routes = (Routes ?? []).Where(x => x != null).Take(SoundRoute.Max).Select(x => x.Clamped()).ToList();
         return this;
     }
 
@@ -329,6 +355,7 @@ public static class SoundEngine
         var gust = GustCurve(r, total, sampleRate);
         var soloing = r.Layers.Any(l => l.Solo && !l.Mute);
         var warnings = new List<string>();
+        var mods = new ModulationField(r, sampleRate, total, length);
         for (var k = 0; k < r.Layers.Count; k++)
         {
             var layer = r.Layers[k];
@@ -336,31 +363,37 @@ public static class SoundEngine
             // Each layer has its own random stream: muting one doesn't change the others.
             var rng = new SoundRng((ulong)(uint)r.Seed * 0x100000001B3UL + (ulong)k * 0x9E37UL + 17);
             // Drive, crush and a filter on a synth or a sample work on the layer alone, before it joins the others.
-            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass);
+            var md = new LayerMod(mods.For(layer.Id + ":pitch"), mods.For(layer.Id + ":freq"), mods.For(layer.Id + ":density"));
+            var gainMod = mods.For(layer.Id + ":gain");
+            var panMod = mods.For(layer.Id + ":pan");
+            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass)
+                || gainMod != null || panMod != null;
             var tl = post ? new double[total] : L;
             var tr = post ? new double[total] : R;
             switch (layer.Type)
             {
-                case "noise": RenderNoise(layer, rng, gust, tl, tr, sampleRate, total); break;
-                case "events": RenderEvents(layer, rng, gust, tl, tr, sampleRate, total); break;
-                case "synth": RenderSynth(layer, rng, tl, tr, sampleRate, total); break;
+                case "noise": RenderNoise(layer, rng, gust, tl, tr, sampleRate, total, md); break;
+                case "events": RenderEvents(layer, rng, gust, tl, tr, sampleRate, total, md); break;
+                case "synth": RenderSynth(layer, rng, tl, tr, sampleRate, total, md); break;
                 case "sample":
                 {
                     var audio = string.IsNullOrEmpty(layer.Path) ? null : samples?.Invoke(layer.Path);
                     if (audio == null) { warnings.Add($"“{layer.SampleName ?? layer.Name}”: the file is missing or can't be read"); continue; }
-                    RenderSample(layer, audio, tl, tr, sampleRate, total);
+                    RenderSample(layer, audio, tl, tr, sampleRate, total, md);
                     break;
                 }
             }
             if (post)
             {
-                PostLayer(layer, tl, tr, sampleRate, total);
-                SoundEffects.Apply(layer.Effects, tl, tr, sampleRate);
+                PostLayer(layer, tl, tr, sampleRate, total, md);
+                GainPan(tl, tr, gainMod, panMod);
+                SoundEffects.Apply(layer.Effects, tl, tr, sampleRate, (fx, param) => mods.For($"{layer.Id}/{fx.Id}:{param}"));
                 for (var i = 0; i < total; i++) { L[i] += tl[i]; R[i] += tr[i]; }
             }
         }
-        MasterChain(r.Master, L, R, sampleRate);
-        SoundEffects.Apply(r.Master.Effects, L, R, sampleRate);
+        MasterChain(r.Master, L, R, sampleRate, mods.For("master:lowpass"));
+        SoundEffects.Apply(r.Master.Effects, L, R, sampleRate, (fx, param) => mods.For($"master/{fx.Id}:{param}"));
+        GainPan(L, R, mods.For("master:gain"), null);
         float[] outL = new float[length], outR = new float[length];
         for (var i = 0; i < length; i++)
         {
@@ -388,6 +421,31 @@ public static class SoundEngine
         }
         var rms = Math.Sqrt(sumSq / Math.Max(1, length));
         return new SoundRender { SampleRate = sampleRate, Left = outL, Right = outR, PeakDb = Db(peak), RmsDb = Db(rms), Warnings = warnings };
+    }
+
+    /// <summary>Modulation a layer's own sound follows: pitch (semitones), filter (octaves) and event density (octaves).</summary>
+    private sealed record LayerMod(double[]? Pitch, double[]? Freq, double[]? Density)
+    {
+        public double PitchFactor(int i) => Pitch == null ? 1 : Math.Pow(2, ModulationField.At(Pitch, i) / 12);
+        public double FreqFactor(int block) => Freq == null ? 1 : Math.Pow(2, Freq[Math.Min(block, Freq.Length - 1)]);
+        public double DensityFactor(int block) => Density == null ? 1 : Math.Pow(2, Density[Math.Min(block, Density.Length - 1)]);
+    }
+
+    /// <summary>Level (dB) and pan (−1…1, a balance) moving over time.</summary>
+    private static void GainPan(double[] L, double[] R, double[]? gain, double[]? pan)
+    {
+        if (gain == null && pan == null) return;
+        for (var i = 0; i < L.Length; i++)
+        {
+            var g = gain == null ? 1 : Math.Pow(10, ModulationField.At(gain, i) / 20);
+            double gl = g, gr = g;
+            if (pan != null)
+            {
+                var p = Math.Clamp(ModulationField.At(pan, i), -1, 1);
+                gl *= p > 0 ? 1 - p : 1; gr *= p < 0 ? 1 + p : 1;
+            }
+            L[i] *= gl; R[i] *= gr;
+        }
     }
 
     private static double Db(double v) => v > 1e-9 ? Math.Round(20 * Math.Log10(v), 1) : -120;
@@ -508,7 +566,7 @@ public static class SoundEngine
 
     private static double SweptFreq(SoundLayer l, double t) => l.FreqEnd > 0 ? l.Freq * Math.Pow(l.FreqEnd / l.Freq, Sweep(l, t)) : l.Freq;
 
-    private static void RenderNoise(SoundLayer l, SoundRng rng, double[] gust, double[] L, double[] R, int sr, int total)
+    private static void RenderNoise(SoundLayer l, SoundRng rng, double[] gust, double[] L, double[] R, int sr, int total, LayerMod md)
     {
         var srcL = new NoiseSource(l.Color, new SoundRng(rng.Next()));
         var srcR = new NoiseSource(l.Color, new SoundRng(rng.Next()));
@@ -530,7 +588,7 @@ public static class SoundEngine
             var target = gain * (1 - l.GustAmount + l.GustAmount * g * 1.6) * Math.Max(0, w) * Envelope(l, (double)start / sr);
             if (l.Filter != "none")
             {
-                var f = SweptFreq(l, (double)start / sr) * Math.Pow(2, l.GustFilter * 2 * (g - 0.4)) * Math.Pow(2, l.Drift * 0.5 * drift.Next(dt));
+                var f = SweptFreq(l, (double)start / sr) * Math.Pow(2, l.GustFilter * 2 * (g - 0.4)) * Math.Pow(2, l.Drift * 0.5 * drift.Next(dt)) * md.FreqFactor(b);
                 fl.Set(l.Filter, f, l.Q, sr); fr.Set(l.Filter, f, l.Q, sr);
                 if (narrow) { fl2.Set("bandpass", f, l.Q, sr); fr2.Set("bandpass", f, l.Q, sr); }
             }
@@ -562,7 +620,7 @@ public static class SoundEngine
     /// Many small sounds: a short noise burst (the click) ringing a little resonator (the ping). They come at random
     /// moments or evenly spaced (Rhythm), alone or as clusters (Burst: gravel under a step, a rattle).
     /// </summary>
-    private static void RenderEvents(SoundLayer l, SoundRng rng, double[] gust, double[] L, double[] R, int sr, int total)
+    private static void RenderEvents(SoundLayer l, SoundRng rng, double[] gust, double[] L, double[] R, int sr, int total, LayerMod md)
     {
         var voices = new List<Voice>();
         var gain = Math.Pow(10, l.Gain / 20);
@@ -573,7 +631,7 @@ public static class SoundEngine
         {
             var g = gust[start / Block];
             var env = Envelope(l, (double)start / sr);
-            var rate = l.Density * (1 - l.GustAmount + l.GustAmount * g * 1.8) * (env > 0 ? 1 : 0);
+            var rate = l.Density * (1 - l.GustAmount + l.GustAmount * g * 1.8) * (env > 0 ? 1 : 0) * md.DensityFactor(start / Block);
             var end = Math.Min(total, start + Block);
             for (var i = start; i < end; i++)
             {
@@ -587,7 +645,7 @@ public static class SoundEngine
                         {
                             var delay = b == 0 ? 0 : (int)(rng.NextDouble() * l.BurstSpread / 1000 * sr);
                             var amp = gain * env * Math.Pow(10, -l.GainSpread * Math.Abs(rng.Gaussian()) / 20) * (b == 0 ? 1 : 0.55 + 0.45 * rng.NextDouble());
-                            voices.Add(NewVoice(l, rng, sr, amp, delay));
+                            voices.Add(NewVoice(l, rng, sr, amp, delay, md.PitchFactor(i)));
                         }
                     }
                     next--;
@@ -624,9 +682,9 @@ public static class SoundEngine
         return Math.Max(1, mean * ((1 - rhythm) * random + rhythm * even));
     }
 
-    private static Voice NewVoice(SoundLayer l, SoundRng rng, int sr, double amp, int delay)
+    private static Voice NewVoice(SoundLayer l, SoundRng rng, int sr, double amp, int delay, double pitchFactor)
     {
-        var freq = Math.Clamp(l.Pitch * Math.Pow(2, l.PitchSpread * rng.Bipolar()), 30, sr * 0.45);
+        var freq = Math.Clamp(l.Pitch * pitchFactor * Math.Pow(2, l.PitchSpread * rng.Bipolar()), 30, sr * 0.45);
         var decay = l.Decay / 1000 * (0.6 + 0.8 * rng.NextDouble());
         var rr = Math.Exp(-6.9 / (decay * sr)); // −60 dB after the decay time
         var (pl, pr) = PanGains(Math.Clamp(l.Pan + l.Width * rng.Bipolar(), -1, 1));
@@ -657,7 +715,7 @@ public static class SoundEngine
     }
 
     /// <summary>A tone with a pitch sweep, an optional jump (Arp), FM and an envelope (UI sounds, pickups, lasers, bells, engines); it can repeat.</summary>
-    private static void RenderSynth(SoundLayer l, SoundRng rng, double[] L, double[] R, int sr, int total)
+    private static void RenderSynth(SoundLayer l, SoundRng rng, double[] L, double[] R, int sr, int total, LayerMod md)
     {
         var gain = Math.Pow(10, l.Gain / 20);
         var (pl, pr) = PanGains(l.Pan);
@@ -675,6 +733,7 @@ public static class SoundEngine
                 var f = l.PitchEnd > 0 ? l.Pitch * Math.Pow(l.PitchEnd / l.Pitch, x) : l.Pitch;
                 if (l.Arp != 0 && u >= l.ArpTime) f *= Math.Pow(2, l.Arp / 12);
                 f *= 1 + l.Vibrato * 0.06 * Math.Sin(2 * Math.PI * l.VibratoRate * u);
+                if (md.Pitch != null) f *= md.PitchFactor(i);
                 phase += f / sr; phase -= Math.Floor(phase);
                 var p = phase;
                 if (l.FmRatio > 0 && l.FmDepth > 0)
@@ -701,7 +760,7 @@ public static class SoundEngine
     }
 
     /// <summary>A WAV of your own: trimmed, maybe reversed, pitched (tape-style), placed, repeated or looped, with an envelope.</summary>
-    private static void RenderSample(SoundLayer l, SampleAudio a, double[] L, double[] R, int sr, int total)
+    private static void RenderSample(SoundLayer l, SampleAudio a, double[] L, double[] R, int sr, int total, LayerMod md)
     {
         var from = (int)Math.Min(a.Left.Length, l.TrimStart * a.Rate);
         var to = l.TrimEnd > 0 ? (int)Math.Min(a.Left.Length, l.TrimEnd * a.Rate) : a.Left.Length;
@@ -718,12 +777,14 @@ public static class SoundEngine
         foreach (var t0 in starts)
         {
             var o0 = (int)(t0 * sr);
-            for (var j = 0; j < outLen; j++)
+            var moving = 0.0; // the playback position when the pitch is modulated (it no longer moves at a fixed speed)
+            for (var j = 0; md.Pitch != null ? moving < len - 1 : j < outLen; j++)
             {
                 var i = o0 + j;
                 if (i >= total) break;
+                var pos = md.Pitch == null ? j * step : moving;
+                if (md.Pitch != null) moving += step * md.PitchFactor(Math.Max(0, i));
                 if (i < 0) continue;
-                var pos = j * step;
                 var k = (int)pos;
                 var frac = pos - k;
                 if (k + 1 >= len) break;
@@ -735,21 +796,22 @@ public static class SoundEngine
                 vl = mid + (vl - mid) * l.Width; vr = mid + (vr - mid) * l.Width;
                 var env = (l.LoopSample ? Math.Min(1, (i - l.Start * sr) / Math.Max(1.0, l.Attack * sr)) : EnvAt(l, (double)j / sr, 0)) * gain;
                 if (j < edge) env *= (double)j / edge;
-                if (outLen - j < edge) env *= (double)(outLen - j) / edge;
+                var left = md.Pitch == null ? outLen - j : (len - pos) / step;
+                if (left < edge) env *= Math.Max(0, left) / edge;
                 L[i] += vl * env * pl; R[i] += vr * env * pr;
             }
         }
     }
 
     /// <summary>A layer's own shaping: the filter (synth and sample layers), its sweep, drive and crush.</summary>
-    private static void PostLayer(SoundLayer l, double[] L, double[] R, int sr, int total)
+    private static void PostLayer(SoundLayer l, double[] L, double[] R, int sr, int total, LayerMod md)
     {
         if (l.Type is "synth" or "sample" && l.UseFilter && l.Filter != "none")
         {
             var fl = new Biquad(); var fr = new Biquad();
             for (var start = 0; start < total; start += Block)
             {
-                var f = SweptFreq(l, (double)start / sr);
+                var f = SweptFreq(l, (double)start / sr) * md.FreqFactor(start / Block);
                 fl.Set(l.Filter, f, l.Q, sr); fr.Set(l.Filter, f, l.Q, sr);
                 var end = Math.Min(total, start + Block);
                 for (var i = start; i < end; i++) { L[i] = fl.Run(L[i]); R[i] = fr.Run(R[i]); }
@@ -775,15 +837,21 @@ public static class SoundEngine
     }
 
     /// <summary>High-pass, low-pass, width, a small room (Schroeder: combs and all-passes) and the master level.</summary>
-    private static void MasterChain(MasterSettings m, double[] L, double[] R, int sr)
+    private static void MasterChain(MasterSettings m, double[] L, double[] R, int sr, double[]? lowpassMod)
     {
         var hpL = new Biquad(); var hpR = new Biquad(); var lpL = new Biquad(); var lpR = new Biquad();
         hpL.Set("highpass", m.HighPass, 0.707, sr); hpR.Set("highpass", m.HighPass, 0.707, sr);
-        var lowpass = m.LowPass < 19000;
+        var lowpass = m.LowPass < 19000 || lowpassMod != null;
         if (lowpass) { lpL.Set("lowpass", m.LowPass, 0.707, sr); lpR.Set("lowpass", m.LowPass, 0.707, sr); }
         var gain = Math.Pow(10, m.Gain / 20);
         for (var i = 0; i < L.Length; i++)
         {
+            if (lowpassMod != null && i % Block == 0)
+            {
+                // The high cut moves (octaves) with its modulation.
+                var f = Math.Clamp(m.LowPass * Math.Pow(2, lowpassMod[Math.Min(i / Block, lowpassMod.Length - 1)]), 40, 20000);
+                lpL.Set("lowpass", f, 0.707, sr); lpR.Set("lowpass", f, 0.707, sr);
+            }
             double l = hpL.Run(L[i]), r = hpR.Run(R[i]);
             if (lowpass) { l = lpL.Run(l); r = lpR.Run(r); }
             var mid = (l + r) / 2; var side = (l - r) / 2 * m.Width;
