@@ -4708,6 +4708,94 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in NoorSequencer', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 60. NoorSequencer help (stage 2): chords of the key, progressions, rhythms, variations, presets, arpeggiator, LFO, FM, humanize, automation.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.evaluate(() => { try { ['noormd.seq.export', 'noormd.seq.loop', 'noormd.seq.lock', 'noormd.seq.progression'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && !!document.querySelector('#seq-chords'));
+      // The chords of C major, with their mood.
+      const chords = await page.$$eval('#seq-chords .seq-chord', (b) => b.map((x) => x.textContent.replace(/\s+/g, ' ').trim()));
+      check('the chords of the key: I ii iii IV V vi vii° in C major (C Dm Em F G Am Bdim)', chords.join('|') === 'I C|ii Dm|iii Em|IV F|V G|vi Am|vii° Bdim', chords);
+      check('…each says its mood', /tension: wants to go home/.test(await page.getAttribute('#seq-chords .seq-chord[data-degree="4"]', 'title')));
+      check('helper chords in A minor: i is Am, III is C, VII is G', await page.evaluate(() => { const c = NoorSeqHelp.chords(9, 'minor'); return c[0].name === 'Am' && c[2].name === 'C' && c[6].name === 'G' && c[0].numeral === 'i' && c[1].numeral === 'ii°'; }));
+      // A chord into the pattern, where the roll was last clicked.
+      await page.click('#seq-newpattern');
+      await page.click('#seq-chords .seq-chord[data-degree="3"]');
+      let notes = (await SQ()).song.tracks[0].patterns.at(-1).notes;
+      check('clicking IV puts F A C at the start of the pattern, and sounds the chord', notes.map((n) => n.pitch).join() === '53,57,60' && notes.every((n) => n.step === 0 && n.length === 2)
+        && (await M()).notes.some((n) => n.pitches && n.pitches.join() === '53,57,60'));
+      await page.click('#seq-chords .seq-chord[data-degree="4"]');
+      notes = (await SQ()).song.tracks[0].patterns.at(-1).notes;
+      check('…the next chord goes after it, close by (G B D)', notes.filter((n) => n.step === 2).map((n) => n.pitch).join() === '55,59,62');
+      // A variation.
+      const before = (await SQ()).song.tracks[0];
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="0"]');
+      await page.click('#seq-vary');
+      const after = (await SQ()).song.tracks[0];
+      check('🎲 Variation: a new pattern in that bar, the original untouched', after.patterns.length === before.patterns.length + 1 && after.sequence[0] === after.patterns.length
+        && JSON.stringify(after.patterns[0]) === JSON.stringify(before.patterns[0]));
+      check('variations keep a melody in the scale and drums keep their kick', await page.evaluate(() => {
+        const mel = { notes: [{ step: 0, length: 4, pitch: 60, velocity: 0.8 }, { step: 4, length: 4, pitch: 64, velocity: 0.8 }, { step: 8, length: 8, pitch: 67, velocity: 0.8 }] };
+        const ok = [1, 2, 3, 4, 5, 6, 7, 8].every((seed) => NoorSeqHelp.vary(mel, 'synth', 0, 'major', 16, seed, 0.9).notes.every((n) => [0, 2, 4, 5, 7, 9, 11].includes(n.pitch % 12) && n.step < 16));
+        const drums = NoorSeqHelp.rhythmBar('rock', 4);
+        const kicks = drums.notes.filter((n) => n.pitch === 0).length;
+        return ok && [1, 2, 3].every((seed) => NoorSeqHelp.vary(drums, 'drums', 0, 'major', 16, seed, 0.9).notes.filter((n) => n.pitch === 0).length === kicks);
+      }));
+      // Rhythms for drums.
+      await page.click('#seq-grid .seq-cell[data-track="1"][data-bar="2"]');
+      await page.selectOption('#seq-rhythm', 'four');
+      const kit = (await SQ()).song.tracks[1].patterns[0].notes;
+      check('🥁 A rhythm: Four on the floor writes a kick on every beat and claps on 2 and 4', kit.filter((n) => n.pitch === 0).map((n) => n.step).join() === '0,4,8,12' && kit.filter((n) => n.pitch === 2).map((n) => n.step).join() === '4,12');
+      check('a 4/4 rhythm in a 3/4 song is cut to the bar', await page.evaluate(() => NoorSeqHelp.rhythmBar('rock', 3).notes.every((n) => n.step < 12)));
+      // Chords for the song.
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="0"]');
+      await page.click('#seq-progression');
+      await page.waitForSelector('#seq-prog');
+      check('Chords for the song: a preview of the chords in the key', /C → G → Am → F, from bar 1 to the end \(8 bars\)/.test(await page.textContent('#seq-progpreview')));
+      await page.selectOption('#seq-progstyle', 'beats');
+      await page.click('#seq-progok');
+      await waitFn(page, () => NoorSequencer._state().song.tracks.length === 4);
+      let sg = (await SQ()).song;
+      const ch = sg.tracks[2], bass = sg.tracks[3];
+      check('…writes a Chords track (a pattern per chord, repeating) and a Bass track on the roots', ch.name === 'Chords' && ch.patterns.length === 4 && ch.sequence.join() === '1,2,3,4,1,2,3,4'
+        && bass.name === 'Bass' && bass.patterns[0].notes.every((n) => n.pitch % 12 === 0) && bass.patterns[2].notes.every((n) => n.pitch % 12 === 9) && bass.patterns[0].notes[0].pitch < 55);
+      check('…struck on each beat, in the electric-piano preset', ch.patterns[0].notes.filter((n) => n.pitch === 60).map((n) => n.step).join() === '0,4,8,12' && ch.instrument.fmDepth > 0);
+      // Instrument: preset, arpeggiator, LFO, FM, humanize.
+      await page.click('#seqbench .sb-tabs [data-tab="instrument"]');
+      await page.selectOption('#seq-preset', 'wobble');
+      sg = (await SQ()).song;
+      check('★ A preset sets the sound (Wobble bass: saw, an octave down, the LFO on the filter) and plays a note', sg.tracks[2].instrument.wave === 'saw' && sg.tracks[2].instrument.octave === -1 && sg.tracks[2].instrument.lfo === 'filter' && sg.tracks[2].instrument.fmDepth === 0);
+      check('…its LFO speed and depth are there to change', !!(await page.$('#seqbench [data-key="lfoRate"]')) && !!(await page.$('#seqbench [data-key="lfoDepth"]')));
+      await page.selectOption('#seq-arp', 'updown');
+      await page.selectOption('#seq-arprate', '1');
+      check('the arpeggiator: up and down, in sixteenths', (await SQ()).song.tracks[2].instrument.arp === 'updown' && (await SQ()).song.tracks[2].instrument.arpRate === 1);
+      await page.selectOption('#seq-wave', 'sine');
+      check('FM depth and ratio appear for a sine wave', !!(await page.$('#seqbench [data-key="fmDepth"]')) && !!(await page.$('#seqbench [data-key="fmRatio"]')));
+      await page.$eval('#seqbench [data-key="humanize"]', (s) => { s.value = '0.5'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+      check('Humanize', (await SQ()).song.tracks[2].humanize === 0.5);
+      // Automation: click adds a point, right-click removes it.
+      await page.$eval('#seqbench .seq-lane[data-lane="gainAutomation"]', (c) => c.scrollIntoView({ block: 'center' }));
+      const lane = await (await page.$('#seqbench .seq-lane[data-lane="gainAutomation"]')).boundingBox();
+      await page.mouse.click(lane.x + 8 + (lane.width - 16) * 0.5, lane.y + 6);
+      await page.mouse.click(lane.x + 8 + (lane.width - 16) * 1, lane.y + lane.height - 2);
+      let auto = (await SQ()).song.tracks[2].gainAutomation;
+      check('the level lane: clicks add points (bar 4 at +12 dB, the end at −48 dB)', auto.length === 2 && auto[0].bar === 4 && auto[0].value === 12 && auto[1].bar === 8 && auto[1].value === -48, auto);
+      await page.mouse.click(lane.x + 8 + (lane.width - 16) * 0.5, lane.y + 6, { button: 'right' });
+      auto = (await SQ()).song.tracks[2].gainAutomation;
+      check('…right-click removes one', auto.length === 1 && auto[0].bar === 8);
+      check('a filter lane for synths', !!(await page.$('#seqbench .seq-lane[data-lane="filterAutomation"]')));
+      await page.click('#seq-play');
+      await waitFn(page, () => window.__mock.state.seq.renders.length > 0);
+      const sent = (await M()).renders.at(-1).song.tracks[2];
+      check('…and all of it goes to the app to render', sent.instrument.arp === 'updown' && sent.gainAutomation.length === 1 && sent.humanize === 0.5);
+      await page.keyboard.press('Space');
+      check('no page errors in the sequencer help', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

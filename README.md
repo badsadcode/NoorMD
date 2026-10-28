@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.47-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.48-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -146,7 +146,10 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   numbered patterns, as in BeepBox: change a pattern once and every bar playing it changes. Write melodies in a
   piano roll that shows (or only offers) the notes of your key and scale, beats in a drum grid, and choose each
   track's sound: a synth (sine to saw, two detuned voices, envelope, filter, vibrato), a synthesised drum kit, or a
-  WAV of your own played at any pitch, with the Sound Bench's effects. Play from any bar or the loop over and over,
+  WAV of your own played at any pitch, with the Sound Bench's effects. Help for non-musicians: the chords of your
+  key with their mood in plain words, whole chord progressions (with a bass line) written for you, drum rhythms,
+  variations of a pattern, instrument presets, an arpeggiator, humanize, an LFO and FM, and level and filter
+  automation over the song. Play from any bar or the loop over and over,
   and export the song, a seamless loop (its tails wrapped into the start), stems and MIDI, arranged for Godot, Unity
   or Unreal or into a game project, with the song beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep

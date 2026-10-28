@@ -210,7 +210,7 @@ window.NoorSequencer = (() => {
   /** A note as it will sound, when it is placed (or a drum row's name is clicked). */
   async function hear(trackIndex, pitch, velocity) {
     try {
-      const r = await req('seq.note', { song, track: trackIndex, pitch, velocity: velocity || newVelocity });
+      const r = await req('seq.note', { song, track: trackIndex, ...(Array.isArray(pitch) ? { pitches: pitch } : { pitch }), velocity: velocity || newVelocity });
       noteAudio.src = r.url; noteAudio.volume = volume;
       noteAudio.play().catch(() => {});
     } catch { /* a note that can't sound (a missing sample) stays silent */ }
@@ -485,6 +485,7 @@ window.NoorSequencer = (() => {
       el('label', { class: 'sb-inline' }, el('span', { text: 'Plays' }), pick),
       el('button', { class: 'utility-btn', id: 'seq-newpattern', title: 'A new empty pattern in this bar (N)', disabled: t.patterns.length >= MAX_PATTERNS || undefined, onclick: () => newPattern(false) }, '＋ New pattern'),
       el('button', { class: 'utility-btn', id: 'seq-copypattern', title: 'A copy of this pattern as a new number, to change without changing the other bars', disabled: !n || t.patterns.length >= MAX_PATTERNS || undefined, onclick: () => newPattern(true) }, '⧉ Copy as new'),
+      el('button', { class: 'utility-btn', id: 'seq-vary', title: 'A variation of this pattern as a new number: the same idea with a few notes changed (the original stays as it is)', disabled: !n || t.patterns.length >= MAX_PATTERNS || undefined, onclick: varyPattern }, '🎲 Variation'),
       el('button', { class: 'utility-btn', id: 'seq-fill', title: 'Play this pattern in every bar of the track that is a rest', disabled: !n || undefined, onclick: () => { t.sequence = t.sequence.map((x) => x || n); changed('grid'); } }, '⇥ Fill rests'),
       el('small', { class: 'pref-hint', text: n ? (used.length > 1 ? `Also plays in bars ${used.filter((b) => b !== sel.bar + 1).join(', ')}: changing it changes them too.` : 'Only in this bar.') : 'This bar is a rest for this track.' }));
   }
@@ -494,6 +495,97 @@ window.NoorSequencer = (() => {
     if (t.patterns.length >= MAX_PATTERNS) return;
     const n = t.sequence[sel.bar];
     t.patterns.push(copy && n ? clone(t.patterns[n - 1]) : { notes: [] });
+    t.sequence[sel.bar] = t.patterns.length;
+    tab = 'notes';
+    changed('all');
+  }
+
+  /**
+   * Chords for the song: a progression from the key, written into a track (this one or a new one) from the selected
+   * bar on, a chord every bar or two, in a style; optionally a bass line playing the chords' roots on its own track.
+   */
+  function progressionDialog() {
+    const prefs = (() => { try { return { progression: 'hopeful', style: 'held', per: 1, into: 'new', bass: true, ...JSON.parse(localStorage.getItem('noormd.seq.progression') || '{}') }; } catch { return { progression: 'hopeful', style: 'held', per: 1, into: 'new', bass: true }; } })();
+    NoorUI.modal({ label: 'Chords for the song', width: 560 }, (s, close) => {
+      const select = (id, label, options, value) => {
+        const e = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
+        e.value = String(value);
+        return [e, el('label', { class: 'sb-inline seq-dlgrow' }, el('span', { text: label }), e)];
+      };
+      const minor = NoorSeqHelp.isMinorKey(song.scale);
+      const progs = [...NoorSeqHelp.PROGRESSIONS].sort((a, b) => (/minor keys/.test(a.mood) === minor ? -1 : 0) - (/minor keys/.test(b.mood) === minor ? -1 : 0));
+      const [prog, progRow] = select('seq-prog', 'Progression', progs.map((p) => [p.id, `${p.name} — ${p.mood}`]), prefs.progression);
+      const [style, styleRow] = select('seq-progstyle', 'Played as', [['held', 'Held chords (pads, strings)'], ['beats', 'Struck on each beat (piano, guitar)'], ['offbeat', 'Between the beats (reggae, ska)'], ['arp', 'An arpeggio (up)']], prefs.style);
+      const [per, perRow] = select('seq-progper', 'Each chord lasts', [[1, 'one bar'], [2, 'two bars']], prefs.per);
+      const melodic = track() && track().kind !== 'drums';
+      const [into, intoRow] = select('seq-proginto', 'Into', [['new', 'a new track'], ...(melodic ? [['this', `this track (${track().name})`]] : [])], melodic ? prefs.into : 'new');
+      const bass = el('input', { type: 'checkbox', id: 'seq-progbass', checked: prefs.bass || undefined });
+      const from = sel.bar;
+      const preview = el('p', { class: 'pref-hint', id: 'seq-progpreview' });
+      const show = () => {
+        const p = NoorSeqHelp.PROGRESSIONS.find((x) => x.id === prog.value);
+        preview.textContent = `${p.degrees.map((d) => NoorSeqHelp.chord(song.key, song.scale, d).name).join(' → ')}, from bar ${from + 1} to the end (${song.bars - from} bars), repeating.`;
+      };
+      [prog, style, per, into].forEach((e) => e.addEventListener('change', show));
+      show();
+      s.append(NoorUI.head('✨ Chords for the song', close), el('div', { class: 'modal-body' },
+        el('p', { class: 'pref-hint', text: `In ${song.key >= 0 ? ['C', 'C♯', 'D', 'D♯', 'E', 'F', 'F♯', 'G', 'G♯', 'A', 'A♯', 'B'][song.key] : ''} ${song.scale.replace('-', ' ')}: these chords belong to the key, so they fit the melodies the piano roll offers.` }),
+        progRow, styleRow, perRow, intoRow,
+        el('label', { class: 'sb-inline seq-dlcheck' }, bass, el('span', { text: 'Also a bass line (the chords\' roots, on its own track)' })),
+        preview),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => close() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'seq-progok', onclick: () => {
+            const choice = { progression: prog.value, style: style.value, per: Number(per.value), into: into.value, bass: bass.checked };
+            try { localStorage.setItem('noormd.seq.progression', JSON.stringify(choice)); } catch { /* private storage off */ }
+            writeProgression(choice, from);
+            close();
+          } }, 'Write the chords'))));
+    });
+  }
+
+  function writeProgression(choice, from) {
+    const p = NoorSeqHelp.PROGRESSIONS.find((x) => x.id === choice.progression) || NoorSeqHelp.PROGRESSIONS[0];
+    const steps = song.beatsPerBar * 4;
+    const room = MAX_TRACKS - song.tracks.length;
+    const newTrack = (kind, name, preset) => {
+      const base = clone(NEW_TRACK[kind]);
+      const taken = new Set(song.tracks.map((x) => x.name));
+      let unique = name;
+      for (let k = 2; taken.has(unique); k++) unique = `${name} ${k}`;
+      const t = { id: '', ...base, name: unique, pan: 0, mute: false, solo: false, effects: [], patterns: [], sequence: Array.from({ length: song.bars }, () => 0) };
+      if (preset) NoorSeqHelp.applyPreset(t.instrument, preset);
+      song.tracks.push(t);
+      return t;
+    };
+    const target = choice.into === 'this' && track() && track().kind !== 'drums' ? track() : room > 0 ? newTrack('synth', 'Chords', choice.style === 'held' ? 'pad' : choice.style === 'arp' ? 'pluck' : 'piano') : null;
+    if (!target) { notice('Twelve tracks is the most: remove one first.'); return; }
+    if (choice.style === 'arp') { target.instrument.arp = 'up'; target.instrument.arpRate = 2; }
+    // One pattern per chord of the progression (shared where a chord comes back).
+    const write = (t, style) => {
+      const byDegree = new Map();
+      for (let b = from, k = 0; b < song.bars; b++, k++) {
+        const degree = p.degrees[Math.floor(k / choice.per) % p.degrees.length];
+        if (!byDegree.has(degree)) {
+          if (t.patterns.length >= MAX_PATTERNS) break;
+          t.patterns.push(NoorSeqHelp.chordBar(NoorSeqHelp.chord(song.key, song.scale, degree), style === 'arp' ? 'held' : style, steps));
+          byDegree.set(degree, t.patterns.length);
+        }
+        t.sequence[b] = byDegree.get(degree);
+      }
+    };
+    write(target, choice.style);
+    if (choice.bass && song.tracks.length < MAX_TRACKS) write(newTrack('synth', 'Bass', 'synthbass'), 'bass');
+    sel.track = song.tracks.indexOf(target);
+    tab = 'notes';
+    changed('all');
+  }
+
+  function varyPattern() {
+    const t = track();
+    const n = t.sequence[sel.bar];
+    if (!n || t.patterns.length >= MAX_PATTERNS) return;
+    t.patterns.push(NoorSeqHelp.vary(t.patterns[n - 1], t.kind, song.key, song.scale, song.beatsPerBar * 4, Math.floor(Math.random() * 2 ** 31)));
     t.sequence[sel.bar] = t.patterns.length;
     tab = 'notes';
     changed('all');
@@ -546,7 +638,15 @@ window.NoorSequencer = (() => {
     velocity.addEventListener('input', () => { newVelocity = Number(velocity.value) / 100; velocity.title = `${velocity.value}%`; });
     const clear = el('button', { class: 'utility-btn', id: 'seq-clearpattern', title: 'Remove every note of this pattern', disabled: !pattern.notes.length || undefined, onclick: () => { pattern.notes = []; changed('all'); } }, '🧹 Clear');
     if (t.kind === 'drums') {
+      const rhythm = el('select', { id: 'seq-rhythm', 'aria-label': 'Fill this pattern with a rhythm' },
+        el('option', { value: '', text: '🥁 A rhythm…' }), ...NoorSeqHelp.RHYTHMS.map((r) => el('option', { value: r.id, text: r.name + (r.beats !== song.beatsPerBar ? ` (${r.beats}/4)` : '') })));
+      rhythm.addEventListener('change', () => {
+        if (!rhythm.value) return;
+        pattern.notes = NoorSeqHelp.rhythmBar(rhythm.value, song.beatsPerBar).notes;
+        changed('all');
+      });
       return [el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline', title: 'How hard new hits are. Shift+click a step for a soft hit.' }, el('span', { text: 'Velocity' }), velocity), clear,
+        el('label', { class: 'sb-inline', title: 'Replaces this pattern\'s hits with a common rhythm (Ctrl+Z brings them back)' }, rhythm),
         el('small', { class: 'pref-hint', text: 'Click a step to add or remove a hit; Shift+click for a soft one. Click a drum\'s name to hear it.' })), drumGrid(t, pattern)];
     }
     const lock = el('input', { type: 'checkbox', id: 'seq-lock', checked: scaleLock || undefined });
@@ -555,13 +655,29 @@ window.NoorSequencer = (() => {
     len.value = String(newLength);
     len.addEventListener('change', () => { newLength = Number(len.value); });
     const canvas = el('canvas', { class: 'seq-roll', id: 'seq-roll', tabindex: '0', role: 'img', 'aria-label': `Piano roll of pattern ${n}: ${pattern.notes.length} notes` });
-    roll = { canvas, track: t, pattern, rows: [], rowH: 14, keyW: 46, stepW: 24, playhead: -1, drag: null };
+    roll = { canvas, track: t, pattern, rows: [], rowH: 14, keyW: 46, stepW: 24, playhead: -1, drag: null, cursor: 0 };
     setupRoll(roll);
+    const ti = sel.track;
+    const chordRow = el('div', { class: 'sb-row seq-chords', id: 'seq-chords' },
+      el('span', { class: 'sb-inline', title: 'The chords of the song\'s key: they all sound right together. Click one to put it in the pattern where you last clicked (or at the start), as long as new notes.' }, 'Chords'),
+      ...NoorSeqHelp.chords(song.key, song.scale).map((c) => el('button', {
+        class: 'utility-btn seq-chord', 'data-degree': String(c.degree), title: `${c.name}: ${c.mood}`,
+        onclick: () => {
+          const at = roll ? roll.cursor || 0 : 0;
+          for (const p of c.notes) if (!pattern.notes.some((x) => x.step === at && x.pitch === p)) pattern.notes.push({ step: at, length: newLength, pitch: p, velocity: newVelocity });
+          pattern.notes.sort((a, b) => a.step - b.step || a.pitch - b.pitch);
+          if (roll) { roll.cursor = Math.min(song.beatsPerBar * 4 - 1, at + newLength); }
+          hear(ti, c.notes, newVelocity);
+          changed('grid'); drawRoll();
+        },
+      }, el('strong', { text: c.numeral }), ' ', el('small', { text: c.name }))),
+      el('button', { class: 'utility-btn', id: 'seq-progression', title: 'Write a chord progression across the song, with a mood you choose', onclick: progressionDialog }, '✨ Chords for the song…'));
     return [el('div', { class: 'sb-row' },
       el('label', { class: 'sb-inline', title: 'Only the notes of the key and scale are shown (they always sound right together)' }, lock, el('span', { text: 'Scale lock' })),
       el('label', { class: 'sb-inline' }, el('span', { text: 'New notes' }), len),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Velocity' }), velocity), clear,
       el('small', { class: 'pref-hint', text: 'Click to add a note, drag to lengthen; drag a note to move it, its right end to resize; click or right-click a note to remove it.' })),
+    chordRow,
     el('div', { class: 'seq-rollwrap', id: 'seq-rollwrap' }, canvas)];
   }
 
@@ -701,6 +817,7 @@ window.NoorSequencer = (() => {
         const endX = r.keyW + (n.step + n.length) * r.stepW;
         r.drag = { note: n, mode: pos.x > endX - 7 ? 'resize' : 'move', from: pos, start: { step: n.step, pitch: n.pitch, length: n.length }, moved: false };
       } else {
+        r.cursor = pos.step;
         const note = { step: pos.step, length: Math.min(newLength, steps() * 8), pitch: pos.pitch, velocity: newVelocity };
         r.pattern.notes.push(note);
         r.drag = { note, mode: 'resize', from: pos, start: { step: note.step, pitch: note.pitch, length: note.length }, moved: true, fresh: true };
@@ -808,8 +925,22 @@ window.NoorSequencer = (() => {
       const wave = el('select', { id: 'seq-wave', 'aria-label': 'Waveform' }, ...WAVES.map(([v, l]) => el('option', { value: v, text: l })));
       wave.value = ins.wave;
       wave.addEventListener('change', () => { ins.wave = wave.value; changed('pane'); hear(i, 60 + song.key); });
-      out.push(el('h4', { class: 'music-subhead', text: 'Sound' }), el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Wave' }), wave)),
-        el('div', { class: 'sb-fields' }, ...(ins.wave === 'pulse' ? [slider(ins, ['pulseWidth', 'Pulse width', 0.05, 0.5, 0.01, 'pct'])] : []), ...SYNTH.map((f) => slider(ins, f))));
+      const preset = el('select', { id: 'seq-preset', 'aria-label': 'Instrument preset' },
+        el('option', { value: '', text: '★ A preset…' }), ...NoorSeqHelp.PRESETS.map((p) => el('option', { value: p.id, text: p.name })));
+      preset.addEventListener('change', () => {
+        if (!NoorSeqHelp.applyPreset(ins, preset.value)) return;
+        changed('pane');
+        hear(i, NoorSeqHelp.PRESETS.find((p) => p.id === preset.value).ins.octave < 0 ? 48 + song.key : 60 + song.key);
+      });
+      const lfo = el('select', { id: 'seq-lfo', 'aria-label': 'LFO moves' }, ...[['off', 'Nothing'], ['pitch', 'Pitch (vibrato, sirens)'], ['filter', 'Filter (wah, wobble)'], ['volume', 'Volume (tremolo)']].map(([v, t]) => el('option', { value: v, text: t })));
+      lfo.value = ins.lfo || 'off';
+      lfo.addEventListener('change', () => { ins.lfo = lfo.value; changed('pane'); });
+      out.push(el('h4', { class: 'music-subhead', text: 'Sound' }), el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Wave' }), wave), preset),
+        el('div', { class: 'sb-fields' }, ...(ins.wave === 'pulse' ? [slider(ins, ['pulseWidth', 'Pulse width', 0.05, 0.5, 0.01, 'pct'])] : []), ...SYNTH.map((f) => slider(ins, f))),
+        el('h4', { class: 'music-subhead', text: 'Movement' }),
+        el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline', title: 'A slow wave that moves part of the sound, in time with the song' }, el('span', { text: 'LFO moves' }), lfo)),
+        el('div', { class: 'sb-fields' }, ...(ins.lfo && ins.lfo !== 'off' ? [slider(ins, ['lfoRate', 'LFO speed', 0.05, 20, 0.01, 'rate']), slider(ins, ['lfoDepth', 'LFO depth', 0, 1, 0.01, 'pct'])] : []),
+          ...(ins.wave === 'sine' ? [slider(ins, ['fmDepth', 'FM depth (bells, electric piano; 0 = off)', 0, 10, 0.05, 'num']), slider(ins, ['fmRatio', 'FM ratio (whole numbers sound musical)', 0.25, 16, 0.25, 'num'])] : [])));
     } else if (t.kind === 'drums') {
       out.push(el('h4', { class: 'music-subhead', text: 'Kit' }), el('div', { class: 'sb-fields' }, ...DRUMS.map((f) => slider(ins, f))));
     } else {
@@ -826,8 +957,82 @@ window.NoorSequencer = (() => {
           el('label', { class: 'sb-inline', title: 'Loop the sample for as long as the note is held (for pads and drones)' }, loop, el('span', { text: 'Loop while held' }))),
         el('div', { class: 'sb-fields' }, ...SAMPLE.map((f) => slider(ins, f))));
     }
+    if (t.kind !== 'drums') {
+      const arp = el('select', { id: 'seq-arp', 'aria-label': 'Arpeggiator' }, ...[['off', 'Off'], ['up', 'Up'], ['down', 'Down'], ['updown', 'Up and down'], ['random', 'Random'], ['chord', 'Chord, again and again']].map(([v, tx]) => el('option', { value: v, text: tx })));
+      arp.value = ins.arp || 'off';
+      arp.addEventListener('change', () => { ins.arp = arp.value; changed('pane'); });
+      const rate = el('select', { id: 'seq-arprate', 'aria-label': 'Arpeggio speed' }, ...[[1, '1/16'], [2, '1/8'], [4, '1/4']].map(([v, tx]) => el('option', { value: String(v), text: tx })));
+      rate.value = String(ins.arpRate || 2);
+      rate.addEventListener('change', () => { ins.arpRate = Number(rate.value); changed(); });
+      const octs = el('select', { id: 'seq-arpoct', 'aria-label': 'Arpeggio octaves' }, ...[1, 2, 3].map((v) => el('option', { value: String(v), text: `${v} octave${v > 1 ? 's' : ''}` })));
+      octs.value = String(ins.arpOctaves || 1);
+      octs.addEventListener('change', () => { ins.arpOctaves = Number(octs.value); changed(); });
+      out.push(el('div', { class: 'sb-row' },
+        el('label', { class: 'sb-inline', title: 'Notes held together are played one after another: write a chord, hear an arpeggio' }, el('span', { text: 'Arpeggiator' }), arp),
+        ...(ins.arp && ins.arp !== 'off' ? [el('label', { class: 'sb-inline' }, el('span', { text: 'Speed' }), rate), octs] : [])));
+    }
+    out.push(el('div', { class: 'sb-fields' }, slider(t, ['humanize', 'Humanize (a little early or late, softer or harder, as a person plays)', 0, 1, 0.01, 'pct'])),
+      el('h4', { class: 'music-subhead', text: 'Over the song' }),
+      automationLane(t, 'gainAutomation', 'Level', -48, 12, 'dB'),
+      ...(t.kind === 'synth' ? [automationLane(t, 'filterAutomation', 'Filter', -6, 6, 'oct')] : []));
     out.push(el('h4', { class: 'music-subhead', text: 'Effects on this track' }), effectsRack(t.effects ||= [], 'track'));
     return out;
+  }
+
+  /**
+   * An automation lane across the song's bars: click to add a point, drag it, right-click (or double-click) to
+   * remove it. Between points the value moves in a straight line; no points means no change.
+   */
+  function automationLane(t, key, label, min, max, unit) {
+    const points = (t[key] ||= []);
+    const c = el('canvas', { class: 'seq-lane', 'data-lane': key, tabindex: '0', role: 'img', 'aria-label': `${label} over the song: ${points.length} points` });
+    const H = 64;
+    const geo = () => { const w = c.clientWidth || 600; return { w, x: (bar) => 8 + (bar / song.bars) * (w - 16), bar: (x) => Math.max(0, Math.min(song.bars, ((x - 8) / (w - 16)) * song.bars)), y: (v) => 6 + (1 - (v - min) / (max - min)) * (H - 12), v: (y) => Math.max(min, Math.min(max, min + (1 - (y - 6) / (H - 12)) * (max - min))) }; };
+    const draw = () => {
+      const dpr = window.devicePixelRatio || 1;
+      const { w, x, y } = geo();
+      c.width = Math.round(w * dpr); c.height = Math.round(H * dpr); c.style.height = `${H}px`;
+      const g = c.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const css = getComputedStyle(document.body);
+      const accent = css.getPropertyValue('--accent').trim() || '#7c5cff', muted = css.getPropertyValue('--muted').trim() || '#888';
+      g.clearRect(0, 0, w, H);
+      g.fillStyle = muted; g.globalAlpha = 0.25;
+      for (let b = 0; b <= song.bars; b++) g.fillRect(Math.round(x(b)), 0, 1, H);
+      g.fillRect(0, Math.round(y(0)), w, 1);
+      g.globalAlpha = 1;
+      g.fillStyle = muted; g.font = '10px system-ui, sans-serif'; g.fillText(`${label}${points.length ? '' : ' — no change (click to add a point)'}`, 12, 14);
+      if (!points.length) return;
+      g.strokeStyle = accent; g.lineWidth = 2; g.beginPath();
+      g.moveTo(x(0), y(points[0].value));
+      points.forEach((p) => g.lineTo(x(p.bar), y(p.value)));
+      g.lineTo(x(song.bars), y(points[points.length - 1].value));
+      g.stroke();
+      g.fillStyle = accent;
+      points.forEach((p) => { g.beginPath(); g.arc(x(p.bar), y(p.value), 4, 0, Math.PI * 2); g.fill(); });
+    };
+    const near = (e) => { const r = c.getBoundingClientRect(); const { x, y } = geo(); const mx = e.clientX - r.left, my = e.clientY - r.top; return points.findIndex((p) => Math.hypot(x(p.bar) - mx, y(p.value) - my) < 8); };
+    const sortPoints = () => points.sort((a, b) => a.bar - b.bar);
+    const remove = (e) => { e.preventDefault(); const k = near(e); if (k >= 0) { points.splice(k, 1); changed(); draw(); } };
+    c.addEventListener('contextmenu', remove);
+    c.addEventListener('dblclick', remove);
+    c.addEventListener('mousedown', (e) => {
+      if (e.button !== 0) return;
+      const r = c.getBoundingClientRect();
+      let k = near(e);
+      if (k < 0) {
+        const { bar, v } = geo();
+        points.push({ bar: Math.round(bar(e.clientX - r.left) * 4) / 4, value: Math.round(v(e.clientY - r.top) * 2) / 2 });
+        sortPoints(); k = points.findIndex((p) => p.bar === Math.round(geo().bar(e.clientX - r.left) * 4) / 4);
+        changed(); draw();
+      }
+      const p = points[k];
+      const move = (ev) => { const { bar, v } = geo(); p.bar = Math.round(bar(ev.clientX - r.left) * 4) / 4; p.value = Math.round(v(ev.clientY - r.top) * 2) / 2; sortPoints(); c.title = `bar ${(p.bar + 1).toFixed(2)}: ${p.value} ${unit}`; draw(); };
+      const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); changed(); };
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    });
+    requestAnimationFrame(draw);
+    return el('div', { class: 'seq-lanewrap' }, c,
+      el('button', { class: 'icon-btn', title: `No ${label.toLowerCase()} changes over the song`, 'aria-label': `Clear the ${label.toLowerCase()} lane`, disabled: !points.length || undefined, onclick: () => { points.length = 0; changed('pane'); } }, '✕'));
   }
 
   async function pickSample() {

@@ -1,5 +1,29 @@
 # Changelog
 
+## 2.0.0-preview.48 — NoorSequencer, stage 2: help for non-musicians
+
+- **Chords of the key** (Notes tab of a synth or sample track): I ii iii IV V vi vii° (or i ii° III… in minor),
+  each with its name and its mood in plain words ("tension: wants to go home"). Click one to put it in the pattern
+  where you last clicked; it sounds as it goes in. Chords sit in the middle of the keyboard so they don't jump.
+- **✨ Chords for the song:** choose a progression by its mood (hopeful, sad and tender, classic, dreamy, calm
+  sway, epic, dark march, mystery, rising tension), how it is played (held, on each beat, between the beats, an
+  arpeggio), one or two bars a chord, and it is written from the selected bar to the end, into this track or a new
+  one with a fitting sound, with a **bass line** on the chords' roots if you like. A pattern per chord, so changing
+  one changes it everywhere.
+- **🥁 Rhythms** for drum tracks: four on the floor, rock, half-time, hip-hop, chiptune, march, shuffle, bossa nova,
+  tribal toms, waltz, heartbeat.
+- **🎲 Variation:** a copy of the pattern as a new number with a few notes moved within the scale or split (drums:
+  a few hats and ghost notes changed); the original stays.
+- **★ Instrument presets:** pluck, soft keys, bell, warm pad, strings, flute, organ, chiptune lead, brass, sub bass,
+  synth bass, wobble bass, wind; every setting still there to change.
+- **Arpeggiator** (up, down, up and down, random, or the chord again and again; 1/16, 1/8 or 1/4; up to three
+  octaves): write a chord, hear an arpeggio. MIDI export has the notes as heard.
+- **Movement:** an LFO on pitch, filter or volume (in time with the song) and FM for sine waves (bells, electric
+  piano).
+- **Humanize** per track: notes a little early or late (up to 20 ms) and softer or harder, the same every time.
+- **Over the song:** level and filter automation lanes per track: click to add a point, drag it, right-click to
+  remove it. A fade takes the track's echoes with it.
+
 ## 2.0.0-preview.47 — NoorSequencer, stage 1: a friendly composer
 
 - **NoorSequencer** (Tools menu, **Ctrl+Alt+Q**; opens in the middle like the other benches): loops, jingles and

@@ -127,10 +127,14 @@ public partial class MainWindow
                 {
                     var song = SongFrom(p);
                     var track = (int)(Json.OptDouble(p, "track") ?? 0);
-                    var pitch = Math.Clamp((int)(Json.OptDouble(p, "pitch") ?? 60), 0, 127);
+                    // One note, or a chord ("pitches").
+                    var pitches = p.TryGetProperty("pitches", out var ps) && ps.ValueKind == JsonValueKind.Array
+                        ? ps.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number).Take(8).Select(x => Math.Clamp((int)x.GetDouble(), 0, 127)).ToList()
+                        : [Math.Clamp((int)(Json.OptDouble(p, "pitch") ?? 60), 0, 127)];
+                    if (pitches.Count == 0) throw new BridgeError("No notes to play.");
                     var velocity = Math.Clamp(Json.OptDouble(p, "velocity") ?? 0.8, 0.05, 1);
-                    var render = await Task.Run(() => SequencerEngine.RenderNote(song, track, pitch, velocity, SoundRate, LoadSample));
-                    return new { url = Serve(render, $"{song.ToJson()}|note|{track}|{pitch}|{velocity}") };
+                    var render = await Task.Run(() => SequencerEngine.RenderNotes(song, track, pitches, velocity, SoundRate, LoadSample));
+                    return new { url = Serve(render, $"{song.ToJson()}|note|{track}|{string.Join(',', pitches)}|{velocity}") };
                 }
                 case "seq.sample.pick":
                 {

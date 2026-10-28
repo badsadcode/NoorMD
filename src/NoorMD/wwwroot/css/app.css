@@ -1547,3 +1547,11 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .seq-step.seq-now { box-shadow: 0 0 0 2px var(--text); }
 .seq-mine { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 12px; color: var(--muted); }
 #seq-trackname, #seq-familyname { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; font: inherit; font-size: 13px; font-weight: 600; }
+.seq-chords { gap: 6px; }
+.seq-chord { display: inline-flex; gap: 4px; align-items: baseline; }
+.seq-chord small { color: var(--muted); }
+.seq-lanewrap { display: flex; align-items: center; gap: 6px; margin: 4px 0; }
+.seq-lane { flex: 1; min-width: 0; height: 64px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: crosshair; display: block; }
+.seq-dlgrow { display: flex; justify-content: space-between; margin: 8px 0; }
+.seq-dlgrow select { max-width: 360px; }
+.seq-dlcheck { margin: 8px 0; }

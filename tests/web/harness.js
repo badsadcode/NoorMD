@@ -483,7 +483,7 @@ function mockHostScript(initial) {
         const from = p.loop ? p.song.loopStart : p.fromBar || 0, to = p.loop ? p.song.loopEnd : p.song.bars;
         return { url: '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
       }
-      case 'seq.note': SEQ.notes.push({ track: p.track, pitch: p.pitch, velocity: p.velocity }); return { url: '/_media/4' };
+      case 'seq.note': SEQ.notes.push({ track: p.track, pitch: p.pitch, pitches: p.pitches, velocity: p.velocity }); return { url: '/_media/4' };
       case 'seq.sample.pick': SEQ.picks++; return { path: 'C:\\Samples\\kalimba C4.wav', name: 'kalimba C4.wav', seconds: 1.2 };
       case 'seq.export': {
         SEQ.exports.push(JSON.parse(JSON.stringify(p)));

@@ -36,12 +36,15 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
 - **Export:** WAV (mix; stems; a seamless loop), MIDI (one track per track; drums on channel 10, General MIDI
   drum notes), the recipe beside them; the shared layouts and projects. Save and open songs; my songs.
 
-## Stage 2 — help for non-musicians
+## Stage 2 — help for non-musicians (preview.48, done)
 
 - Chord helper (chords of the key with their mood in plain words), progressions; arpeggiator; rhythm generator;
   bass and harmony suggestions; humanize (timing and velocity); variation of a pattern without losing the original.
 - Instrument editor: LFOs, unison width, FM; instrument presets with previews; automation of gain, filter and
   effects over the song.
+- Done in preview.48: chords of the key with moods, nine progressions (with a bass line), eleven drum rhythms,
+  variations, thirteen instrument presets, arpeggiator, humanize, LFO, FM, level and filter automation. Left for
+  later: automating effects, unison width, a rhythm generator beyond the presets.
 
 ## Stage 3 — game music
 

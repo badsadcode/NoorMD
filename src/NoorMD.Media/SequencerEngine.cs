@@ -56,6 +56,31 @@ public sealed class SongInstrument
     public string? SampleName { get; set; }
     public int RootNote { get; set; } = 60;
     public bool Loop { get; set; }
+
+    // stage 2: arpeggiator (synth and sample): notes held together are played one after another
+    public static readonly string[] ArpModes = ["off", "up", "down", "updown", "random", "chord"];
+    /// <summary>"off", "up", "down", "updown" (up then down), "random", or "chord" (the chord struck again and again).</summary>
+    public string Arp { get; set; } = "off";
+    /// <summary>Steps (sixteenths) per arpeggio note: 1, 2 or 4.</summary>
+    public int ArpRate { get; set; } = 2;
+    /// <summary>How many octaves the arpeggio climbs (1–3).</summary>
+    public int ArpOctaves { get; set; } = 1;
+    // stage 2: an LFO (synth): "off", "pitch" (± semitones), "filter" (± octaves) or "volume" (tremolo)
+    public static readonly string[] LfoTargets = ["off", "pitch", "filter", "volume"];
+    public string Lfo { get; set; } = "off";
+    public double LfoRate { get; set; } = 4;
+    /// <summary>0–1: pitch up to ±2 semitones, filter up to ±3 octaves, volume fully down.</summary>
+    public double LfoDepth { get; set; } = 0.3;
+    // stage 2: FM (synth, sine wave): a modulator at this ratio of the note's pitch, this deep (bells, electric piano)
+    public double FmRatio { get; set; } = 2;
+    public double FmDepth { get; set; }
+}
+
+/// <summary>A point of a track's automation: at this place in the song (in bars, fractional), this value.</summary>
+public sealed class SongPoint
+{
+    public double Bar { get; set; }
+    public double Value { get; set; }
 }
 
 public sealed class SongTrack
@@ -77,6 +102,12 @@ public sealed class SongTrack
     public List<SongPattern> Patterns { get; set; } = [];
     /// <summary>For each bar, the pattern played (0 = nothing).</summary>
     public List<int> Sequence { get; set; } = [];
+    /// <summary>0–1: notes a little early or late and a little softer or harder, as a person plays (seeded).</summary>
+    public double Humanize { get; set; }
+    /// <summary>Level over the song (dB added; empty = none), between points a straight line.</summary>
+    public List<SongPoint> GainAutomation { get; set; } = [];
+    /// <summary>Synth filter over the song (octaves added to the cutoff; empty = none).</summary>
+    public List<SongPoint> FilterAutomation { get; set; } = [];
 }
 
 public sealed class SongRecipe
@@ -143,6 +174,16 @@ public sealed class SongRecipe
             i.RootNote = Math.Clamp(i.RootNote, 0, 127);
             if (i.Path != null && (i.Path.Length > 1000 || i.Path.Any(char.IsControl))) i.Path = null;
             if (i.SampleName != null && i.SampleName.Length > 120) i.SampleName = i.SampleName[..120];
+            i.Arp = SongInstrument.ArpModes.Contains(i.Arp) ? i.Arp : "off";
+            i.ArpRate = i.ArpRate is 1 or 2 or 4 ? i.ArpRate : 2; i.ArpOctaves = Math.Clamp(i.ArpOctaves, 1, 3);
+            i.Lfo = SongInstrument.LfoTargets.Contains(i.Lfo) ? i.Lfo : "off";
+            i.LfoRate = C(i.LfoRate, 0.05, 20); i.LfoDepth = C(i.LfoDepth, 0, 1);
+            i.FmRatio = C(i.FmRatio, 0.25, 16); i.FmDepth = C(i.FmDepth, 0, 10);
+            t.Humanize = C(t.Humanize, 0, 1);
+            List<SongPoint> Points(List<SongPoint>? list, double lo, double hi) =>
+                (list ?? []).Where(p => p != null).Take(256).Select(p => { p.Bar = C(p.Bar, 0, Bars); p.Value = C(p.Value, lo, hi); return p; }).OrderBy(p => p.Bar).ToList();
+            t.GainAutomation = Points(t.GainAutomation, -48, 12);
+            t.FilterAutomation = Points(t.FilterAutomation, -6, 6);
             t.Effects = (t.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
             t.Patterns = (t.Patterns ?? []).Take(SongTrack.MaxPatterns).Select(p => p ?? new SongPattern()).ToList();
             var steps = StepsPerBar;
@@ -224,13 +265,19 @@ public static class SequencerEngine
         RenderAll(song, sampleRate, false, samples, stems: false, fromBar, toBar).Mix;
 
     /// <summary>One note of a track, as it sounds in the song (its instrument, effects, level and pan), for hearing a note as it is placed.</summary>
-    public static SoundRender RenderNote(SongRecipe recipe, int track, int pitch, double velocity = 0.8, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
+    public static SoundRender RenderNote(SongRecipe recipe, int track, int pitch, double velocity = 0.8, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null) =>
+        RenderNotes(recipe, track, [pitch], velocity, sampleRate, samples);
+
+    /// <summary>Notes struck together (a chord) on a track, as they sound in the song.</summary>
+    public static SoundRender RenderNotes(SongRecipe recipe, int track, IReadOnlyList<int> pitches, double velocity = 0.8, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
     {
         var song = recipe.Clone();
         if (track < 0 || track >= song.Tracks.Count) throw new ArgumentException("There is no such track.");
         var t = song.Tracks[track];
         t.Mute = false; t.Solo = false;
-        t.Patterns = [new SongPattern { Notes = [new SongNote { Step = 0, Length = t.Kind == "drums" ? 1 : 2, Pitch = pitch, Velocity = velocity }] }];
+        t.Patterns = [new SongPattern { Notes = [.. pitches.Take(8).Select(pitch => new SongNote { Step = 0, Length = t.Kind == "drums" ? 1 : pitches.Count > 1 ? 4 : 2, Pitch = pitch, Velocity = velocity })] }];
+        // A note on its own: not arpeggiated or humanized, and with no automation.
+        t.Instrument.Arp = "off"; t.Humanize = 0; t.GainAutomation = []; t.FilterAutomation = [];
         t.Sequence = [1];
         song.Tracks = [t];
         song.Bars = 1; song.LoopStart = 0; song.LoopEnd = 1;
@@ -274,27 +321,33 @@ public static class SequencerEngine
             var trackIndex = song.Tracks.IndexOf(track);
             for (var bar = fromBar; bar < toBar; bar++)
             {
-                var number = track.Sequence[bar];
-                if (number <= 0 || number > track.Patterns.Count) continue;
-                var pattern = track.Patterns[number - 1];
-                for (var k = 0; k < pattern.Notes.Count; k++)
+                var played = Played(song, track, trackIndex, bar);
+                for (var k = 0; k < played.Count; k++)
                 {
-                    var note = pattern.Notes[k];
-                    var startStep = (bar - fromBar) * song.StepsPerBar + note.Step;
-                    var start = (startStep + (note.Step % 2 == 1 ? song.Swing : 0)) * song.StepSeconds;
-                    var seconds = note.Length * song.StepSeconds;
-                    var seed = (ulong)(uint)song.Seed * 0x9E3779B97F4A7C15UL ^ (ulong)(trackIndex * 7919 + bar * 104729 + k * 31 + note.Pitch);
+                    var (step, noteSteps, pitch, velocity) = played[k];
+                    var note = new SongNote { Step = 0, Length = 1, Pitch = pitch, Velocity = velocity };
+                    var songSeconds = step * song.StepSeconds;
+                    var start = songSeconds - fromBar * song.BarSeconds;
+                    var seconds = noteSteps * song.StepSeconds;
+                    var seed = (ulong)(uint)song.Seed * 0x9E3779B97F4A7C15UL ^ (ulong)(trackIndex * 7919 + bar * 104729 + k * 31 + pitch);
                     var at = (int)Math.Round(start * sr);
                     switch (track.Kind)
                     {
                         case "drums": Drum(L, at, note, track.Instrument, sr, new SoundRng(seed)); break;
                         case "sample": SampleVoice(L, at, note, seconds, track.Instrument, sample!, sr); break;
-                        default: Synth(L, at, note, seconds, track.Instrument, sr, new SoundRng(seed)); break;
+                        default: Synth(L, at, note, seconds, track.Instrument, sr, new SoundRng(seed), songSeconds, At(track.FilterAutomation, step / song.StepsPerBar, 0)); break;
                     }
                 }
             }
             Array.Copy(L, R, total);
             if (track.Effects.Count > 0) SoundEffects.Apply(track.Effects, L, R, sr, files: samples);
+            // Level automation (after the effects, so a fade takes the echoes with it).
+            if (track.GainAutomation.Count > 0)
+                for (var i = 0; i < total; i++)
+                {
+                    var level = Math.Pow(10, At(track.GainAutomation, fromBar + (double)i / sr / song.BarSeconds, 0) / 20);
+                    L[i] *= level; R[i] *= level;
+                }
             // Level and place: equal-power pan.
             var gain = Math.Pow(10, track.Gain / 20);
             var angle = (track.Pan + 1) * Math.PI / 4;
@@ -320,6 +373,71 @@ public static class SequencerEngine
             return new SoundRender { SampleRate = sr, Left = fl, Right = fr, PeakDb = Db(p), RmsDb = Db(Math.Sqrt(sum / Math.Max(1, 2 * n))), Warnings = w };
         }
         return (Make(mixL, mixR, warnings), trackRenders.Select(t => (t.Name, Make(t.L, t.R, []))).ToList());
+    }
+
+    /// <summary>An automation's value at a place in the song: a straight line between its points, flat before and after.</summary>
+    internal static double At(List<SongPoint> points, double bar, double none)
+    {
+        if (points.Count == 0) return none;
+        if (bar <= points[0].Bar) return points[0].Value;
+        for (var k = 1; k < points.Count; k++)
+            if (bar <= points[k].Bar)
+            {
+                var (a, b) = (points[k - 1], points[k]);
+                return b.Bar - a.Bar < 1e-9 ? b.Value : a.Value + (b.Value - a.Value) * (bar - a.Bar) / (b.Bar - a.Bar);
+            }
+        return points[^1].Value;
+    }
+
+    /// <summary>
+    /// The notes of a track's bar as they are played: arpeggiated if its instrument says so, swung, and humanized
+    /// (seeded: the same song plays the same). Step is from the song's start, in sixteenths (fractional).
+    /// </summary>
+    internal static List<(double Step, double Length, int Pitch, double Velocity)> Played(SongRecipe song, SongTrack track, int trackIndex, int bar)
+    {
+        var result = new List<(double, double, int, double)>();
+        var number = bar < track.Sequence.Count ? track.Sequence[bar] : 0;
+        if (number <= 0 || number > track.Patterns.Count) return result;
+        var notes = track.Patterns[number - 1].Notes;
+        var ins = track.Instrument;
+        var rng = new SoundRng((ulong)(uint)song.Seed * 0xD1B54A32D192ED69UL ^ (ulong)(trackIndex * 15485863 + bar * 32452843 + 7));
+        var raw = new List<(int Step, double Length, int Pitch, double Velocity)>();
+        if (ins.Arp != "off" && track.Kind != "drums")
+        {
+            foreach (var group in notes.GroupBy(n => n.Step))
+            {
+                var pitches = group.Select(n => n.Pitch).Distinct().OrderBy(p => p).ToList();
+                var up = Enumerable.Range(0, ins.ArpOctaves).SelectMany(o => pitches.Select(p => Math.Min(127, p + 12 * o))).ToList();
+                var order = ins.Arp switch
+                {
+                    "down" => Enumerable.Reverse(up).ToList(),
+                    "updown" => up.Count > 2 ? [.. up, .. Enumerable.Reverse(up).Skip(1).Take(up.Count - 2)] : up,
+                    _ => up,
+                };
+                var length = group.Max(n => n.Length);
+                var velocity = group.Max(n => n.Velocity);
+                for (int s = 0, k = 0; s < length; s += ins.ArpRate, k++)
+                {
+                    var len = Math.Min(ins.ArpRate, length - s);
+                    if (ins.Arp == "chord") foreach (var p in pitches) raw.Add((group.Key + s, len, p, velocity));
+                    else raw.Add((group.Key + s, len, ins.Arp == "random" ? order[(int)(rng.NextDouble() * order.Count) % order.Count] : order[k % order.Count], velocity));
+                }
+            }
+        }
+        else raw.AddRange(notes.Select(n => (n.Step, (double)n.Length, n.Pitch, n.Velocity)));
+        foreach (var (step, length, pitch, velocity) in raw.OrderBy(n => n.Step).ThenBy(n => n.Pitch))
+        {
+            var at = bar * song.StepsPerBar + step + (step % 2 == 1 ? song.Swing : 0);
+            var v = velocity;
+            if (track.Humanize > 0)
+            {
+                // Up to ±20 ms early or late, up to ±25 % softer or harder.
+                at += rng.Bipolar() * 0.02 * track.Humanize / song.StepSeconds;
+                v = Math.Clamp(v * (1 + rng.Bipolar() * 0.25 * track.Humanize), 0.05, 1);
+            }
+            result.Add((Math.Max(0, at), length, pitch, v));
+        }
+        return result;
     }
 
     /// <summary>What rings on after the loop's end is added to its start, so the loop repeats seamlessly.</summary>
@@ -355,8 +473,10 @@ public static class SequencerEngine
         return 0;
     }
 
-    private static void Synth(double[] buf, int at, SongNote note, double held, SongInstrument i, int sr, SoundRng rng)
+    private static void Synth(double[] buf, int at, SongNote note, double held, SongInstrument i, int sr, SoundRng rng, double songSeconds = 0, double filterShift = 0)
     {
+        var fmPhase = 0.0;
+        var cutoffBase = i.Cutoff * Math.Pow(2, filterShift);
         var total = (int)((held + i.Release) * sr) + 1;
         var baseFreq = Freq(note.Pitch + 12 * i.Octave);
         var voices = i.Detune > 0 ? 2 : 1;
@@ -372,6 +492,17 @@ public static class SequencerEngine
             var env = Envelope(t, held, i);
             if (env <= 0 && t > held) break;
             var vib = i.Vibrato > 0 ? Math.Pow(2, i.Vibrato / 1200 * Math.Sin(2 * Math.PI * i.VibratoRate * t)) : 1;
+            // The LFO runs with the song (its phase from the song's start), so held and repeated notes move together.
+            var lfo = i.Lfo == "off" ? 0 : Math.Sin(2 * Math.PI * i.LfoRate * (songSeconds + t));
+            if (i.Lfo == "pitch") vib *= Math.Pow(2, lfo * i.LfoDepth * 2 / 12);
+            var tremolo = i.Lfo == "volume" ? 1 - i.LfoDepth * (0.5 + 0.5 * lfo) : 1;
+            var fm = 0.0;
+            if (i.FmDepth > 0 && i.Wave == "sine")
+            {
+                // Phase modulation, its depth following the envelope (brighter at the start, as a struck bell).
+                fm = i.FmDepth * env * Math.Sin(2 * Math.PI * fmPhase);
+                fmPhase = (fmPhase + baseFreq * vib * i.FmRatio / sr) % 1;
+            }
             double s = 0;
             for (var v = 0; v < voices; v++)
             {
@@ -380,7 +511,7 @@ public static class SequencerEngine
                 var p = phase[v];
                 s += i.Wave switch
                 {
-                    "sine" => Math.Sin(2 * Math.PI * p),
+                    "sine" => Math.Sin(2 * Math.PI * p + fm),
                     "triangle" => 4 * Math.Abs(p - 0.5) - 1,
                     "saw" => 2 * p - 1 - Blep(p, dt),
                     "square" => (p < 0.5 ? 1 : -1) + Blep(p, dt) - Blep((p + 0.5) % 1, dt),
@@ -389,8 +520,8 @@ public static class SequencerEngine
                 };
                 phase[v] = (p + dt) % 1;
             }
-            if ((n & 15) == 0) filter.Set(i.Cutoff * Math.Pow(2, i.FilterEnvelope * env), i.Resonance, sr);
-            buf[at + n] += filter.Low(s) * env * amp;
+            if ((n & 15) == 0) filter.Set(cutoffBase * Math.Pow(2, i.FilterEnvelope * env + (i.Lfo == "filter" ? lfo * i.LfoDepth * 3 : 0)), i.Resonance, sr);
+            buf[at + n] += filter.Low(s) * env * amp * tremolo;
         }
     }
 
@@ -538,14 +669,14 @@ public static class SequencerEngine
             if (channel == 9) channel++;
             if (ch > 15) break;
             var events = new List<(long Tick, int Order, byte[] Data)>();
+            var trackIndex = song.Tracks.IndexOf(t);
             for (var bar = 0; bar < song.Bars; bar++)
             {
-                var number = t.Sequence[bar];
-                if (number <= 0 || number > t.Patterns.Count) continue;
-                foreach (var note in t.Patterns[number - 1].Notes)
+                // The notes as heard: arpeggiated, swung and humanized.
+                foreach (var note in Played(song, t, trackIndex, bar))
                 {
-                    var on = (long)(bar * song.StepsPerBar + note.Step) * stepTicks + (note.Step % 2 == 1 ? (long)Math.Round(song.Swing * stepTicks) : 0);
-                    var off = t.Kind == "drums" ? on + stepTicks / 2 : on + note.Length * stepTicks;
+                    var on = (long)Math.Round(note.Step * stepTicks);
+                    var off = t.Kind == "drums" ? on + stepTicks / 2 : on + Math.Max(1, (long)Math.Round(note.Length * stepTicks));
                     var pitch = t.Kind == "drums" ? GmDrums[note.Pitch] : Math.Clamp(note.Pitch + 12 * t.Instrument.Octave, 0, 127);
                     var vel = (byte)Math.Clamp((int)Math.Round(note.Velocity * 127), 1, 127);
                     events.Add((on, 1, [(byte)(0x90 | ch), (byte)pitch, vel]));
