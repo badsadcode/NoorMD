@@ -523,15 +523,16 @@ public static class TreeBuilder
         for (var i = 0; i + 1 < pts.Count; i++)
             for (var j = 0; j < sides; j++)
             {
+                // Counter-clockwise seen from outside: the faces point the way the normals do.
                 int a = first + i * (sides + 1) + j, c = a + sides + 1;
-                sub.Indices.AddRange([a, c, a + 1, a + 1, c, c + 1]);
+                sub.Indices.AddRange([a, a + 1, c, a + 1, c + 1, c]);
             }
         // A tip closing the end.
         var last = pts[^1];
         var dirEnd = Vector3.Normalize(last.P - pts[^2].P);
         var tip = m.AddVertex(last.P + dirEnd * last.R * 0.6f, dirEnd, new Vector2(period / 2, (last.D + last.R) / tile), Wind(b, 1, last.P, sk, recipe));
         var ring = first + (pts.Count - 1) * (sides + 1);
-        for (var j = 0; j < sides; j++) sub.Indices.AddRange([ring + j, tip, ring + j + 1]);
+        for (var j = 0; j < sides; j++) sub.Indices.AddRange([ring + j, ring + j + 1, tip]);
     }
 
     // ---- Leaves ----

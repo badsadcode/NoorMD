@@ -257,6 +257,10 @@ left out are inside the leaves. A note says how many branches made it. Also: mos
 small budgets and the canopy fill also fills a willow's crown; cards grown by the budget stop at twice the leaf size
 (beyond that a spruce turns into a bush; the crown is thinner instead).
 
+Fix (preview.63): tubes were wound inwards (faces against their normals), so engines culled their outside and showed
+the inside of a low-poly trunk; thin twig tubes had it from the start. Tubes and their tips now face outwards, and a
+test checks every wood triangle against its normals.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

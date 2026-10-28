@@ -833,4 +833,36 @@ public class TreeTests
         var b = TreeBuilder.Build(r, NoTextures);
         Assert.True(Leaves(b)!.TriangleCount <= r.Budgets().Leaves * 1.15, $"{Leaves(b)!.TriangleCount} leaf and moss triangles");
     }
+
+    /// <summary>Triangles whose face points against their vertex normals (seen from outside, they would be culled).</summary>
+    private static double InsideOut(Mesh3D m)
+    {
+        int bad = 0, all = 0;
+        foreach (var sub in m.Submeshes)
+            for (var i = 0; i + 2 < sub.Indices.Count; i += 3)
+            {
+                int a = sub.Indices[i], b = sub.Indices[i + 1], c = sub.Indices[i + 2];
+                var face = Vector3.Cross(m.Positions[b] - m.Positions[a], m.Positions[c] - m.Positions[a]);
+                if (face.LengthSquared() < 1e-14f) continue;
+                all++;
+                if (Vector3.Dot(face, m.Normals[a] + m.Normals[b] + m.Normals[c]) < 0) bad++;
+            }
+        return all == 0 ? 0 : bad / (double)all;
+    }
+
+    [Fact]
+    public void Wood_faces_outwards_whether_welded_or_tubes()
+    {
+        // Low-poly tubes (a small budget), tubes on the thin ends of a welded tree, and the welded surface.
+        foreach (var target in new[] { 2000, 20000 })
+        {
+            var r = TreePresets.Make("oak");
+            r.Billboard = false; r.Lods = 1; r.TriangleTarget = target;
+            var wood = Wood(TreeBuilder.Build(r, NoTextures));
+            Assert.True(InsideOut(wood) < 0.01, $"target {target}: {InsideOut(wood):P1} of the wood faces inwards");
+        }
+        var thin = TreePresets.Make("pine");
+        thin.Billboard = false; thin.Lods = 1; thin.Quality = "low";
+        Assert.True(InsideOut(Wood(TreeBuilder.Build(thin, NoTextures))) < 0.01);
+    }
 }
