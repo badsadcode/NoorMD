@@ -4387,6 +4387,46 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors starting from scratch', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 55. Texture Bench layout: drag how much room the preview gets, side by side, hide the materials list; remembered.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const L = () => page.evaluate(() => NoorTexture._state().layout);
+      const box = (sel) => page.$eval(sel, (n) => { const r = n.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.layout'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      const before = await box('#tb-view-col'), paneBefore = await box('#tb-pane');
+      const sp = await box('#tb-splitter');
+      await page.mouse.move(sp.x + sp.w / 2, sp.y + sp.h / 2); await page.mouse.down();
+      await page.mouse.move(sp.x + sp.w / 2, sp.y - 150, { steps: 5 }); await page.mouse.up();
+      const after = await box('#tb-view-col'), paneAfter = await box('#tb-pane');
+      check('dragging the bar makes the preview smaller and gives the controls the room', after.h < before.h - 120 && paneAfter.h > paneBefore.h + 120 && (await L()).height > 0, [before.h, after.h, paneBefore.h, paneAfter.h]);
+      await page.focus('#tb-splitter');
+      await page.keyboard.press('ArrowDown');
+      check('…or the arrow keys on it', Math.abs((await box('#tb-view-col')).h - after.h - 24) < 2);
+      await page.dblclick('#tb-splitter');
+      check('…double-click: back to normal', Math.abs((await box('#tb-view-col')).h - before.h) < 2 && (await L()).height === 0);
+      await page.click('#tb-side');
+      const col = await box('#tb-view-col'), edit = await box('#tb-edit-col');
+      check('◫ side by side: the preview on the left, the controls beside it', (await L()).side === true && edit.x > col.x + col.w - 2 && Math.abs(edit.y - col.y) < 30 && (await page.getAttribute('#tb-splitter', 'aria-orientation')) === 'vertical');
+      const sp2 = await box('#tb-splitter');
+      await page.mouse.move(sp2.x + sp2.w / 2, sp2.y + sp2.h / 2); await page.mouse.down();
+      await page.mouse.move(sp2.x - 120, sp2.y + sp2.h / 2, { steps: 5 }); await page.mouse.up();
+      check('…and the bar between them drags sideways', (await box('#tb-view-col')).w < col.w - 100 && (await L()).width > 0);
+      const presetsVisible = await page.isVisible('#tb-presets');
+      await page.click('#tb-list');
+      check('☰ hides the materials list, giving the room to the editor', presetsVisible && await page.isHidden('#tb-presets') && (await box('#tb-split')).w > (await box('#tb-view-col')).w + 300);
+      await page.reload();
+      await waitFn(page, () => window.NoorMD && document.querySelector('.toastui-editor-defaultUI'));
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      const kept = await L();
+      check('the layout is remembered next time', kept.side === true && kept.list === false && kept.width > 0 && await page.isHidden('#tb-presets'));
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.layout'); } catch { /* */ } });
+      check('no page errors changing the layout', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -1403,7 +1403,22 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-views .utility-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .tb-views select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 3px 6px; font: inherit; font-size: 12px; }
 .tb-views select[hidden] { display: none; }
-.tb-stage { display: grid; grid-template-columns: minmax(0, 1fr) 92px; grid-template-rows: minmax(0, 1fr); gap: 8px; margin-top: 8px; height: clamp(280px, 46vh, 640px); }
+.tb-stage { display: grid; grid-template-columns: minmax(0, 1fr) 92px; grid-template-rows: minmax(0, 1fr); gap: 8px; margin-top: 8px; flex: 1; min-height: 0; }
+/* The preview and the controls share the editor: stacked (a bar to drag between them) or side by side. */
+.tb-split { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tb-view-col { display: flex; flex-direction: column; min-height: 150px; height: clamp(280px, 46vh, 640px); flex: 0 0 auto; min-width: 0; }
+.tb-edit-col { flex: 1; min-height: 0; min-width: 0; display: flex; flex-direction: column; }
+.tb-splitter { flex: 0 0 auto; height: 9px; margin: 0 0 2px; cursor: row-resize; border-radius: 5px; position: relative; touch-action: none; }
+.tb-splitter::after { content: ''; position: absolute; left: 50%; top: 3px; width: 46px; height: 3px; margin-left: -23px; border-radius: 2px; background: var(--border); }
+.tb-splitter:hover::after, .tb-splitter.dragging::after, .tb-splitter:focus-visible::after { background: var(--accent); }
+.texbench.tb-side .tb-split { flex-direction: row; }
+.texbench.tb-side .tb-view-col { height: auto; width: min(52%, 900px); min-width: 240px; padding-bottom: 8px; }
+.texbench.tb-side .tb-splitter { width: 9px; height: auto; margin: 0 4px; cursor: col-resize; }
+.texbench.tb-side .tb-splitter::after { left: 3px; top: 50%; width: 3px; height: 46px; margin: -23px 0 0; }
+.texbench.tb-side .tb-edit-col { padding-top: 8px; }
+.texbench.tb-no-list .sb-presets { display: none; }
+.texbench.tb-no-list.wide .sb-main { grid-template-columns: minmax(0, 1fr); }
+#tb-side.on { color: var(--accent); }
 .tb-canvas, .tb-flat { width: 100%; height: 100%; min-height: 0; border-radius: 10px; border: 1px solid var(--border); background-color: #17171c; display: block; min-width: 0; }
 .tb-canvas { cursor: grab; touch-action: none; }
 .tb-canvas.lighting { cursor: crosshair; }
@@ -1474,3 +1489,4 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .ex-preview .ex-folder { color: var(--text); }
 .tb-start { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px 8px; }
 .tb-start .utility-btn { flex: 1; font-size: 12px; padding: 4px 6px; }
+.tb-zoom { display: inline-flex; gap: 2px; white-space: nowrap; margin-left: auto; }

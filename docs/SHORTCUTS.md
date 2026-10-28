@@ -86,7 +86,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Apps Hub (your programs, games and sites) | Ctrl+Alt+H |
 | Radio (your internet stations) · play / stop in the panel | Ctrl+Alt+I · Space |
 | Sound Bench (wind, rain, effects) · in it: play / stop · play over and over · variation · A/B · undo / redo | Ctrl+Alt+K · Space · L · V · B · Ctrl+Z / Ctrl+Y |
-| Texture Bench (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) |
+| Texture Bench (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light · room for the preview (on the bar between preview and controls) | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) · drag, arrow keys, double-click resets |
 | Gallery (your pictures) | Ctrl+Alt+G |
 | Voice note: record / stop (opens the recorder) | Ctrl+Alt+D |
 | Mic Guard: mute / unmute everywhere (works in any program; you choose a key, e.g. Ctrl+/ or F13, or a side mouse button) | your hotkey (Stream Desk › Mic Guard) |

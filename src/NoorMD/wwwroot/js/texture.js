@@ -254,7 +254,11 @@ window.NoorTexture = (() => {
             el('label', { class: 'sb-seed', title: 'The random seed: the same seed gives the same material' }, el('span', { text: 'Seed' }), el('input', { type: 'number', id: 'tb-seed', min: '0', max: '2147483647', step: '1' })),
             el('button', { class: 'utility-btn', id: 'tb-vary', title: 'Another variation: same recipe, another seed (V)', onclick: newVariation }, '🎲 Variation'),
             el('button', { class: 'utility-btn', id: 'tb-pin', title: 'Keep this version as A, to compare while you change things', onclick: pin }, '📌 Pin as A'),
-            el('button', { class: 'utility-btn', id: 'tb-ab', title: 'Show A (pinned) or B (now) (B)', hidden: true, onclick: flipAB }, 'A/B: B')),
+            el('button', { class: 'utility-btn', id: 'tb-ab', title: 'Show A (pinned) or B (now) (B)', hidden: true, onclick: flipAB }, 'A/B: B'),
+            el('button', { class: 'icon-btn', id: 'tb-side', title: 'Preview and controls side by side, or one above the other', 'aria-label': 'Side by side', 'aria-pressed': 'false', onclick: () => setLayout({ side: !layoutPrefs.side }) }, '◫'),
+            el('button', { class: 'icon-btn', id: 'tb-list', title: 'Show or hide the list of materials', 'aria-label': 'Materials list', 'aria-pressed': 'true', onclick: () => setLayout({ list: !layoutPrefs.list }) }, '☰')),
+          el('div', { class: 'tb-split', id: 'tb-split' },
+          el('div', { class: 'tb-view-col', id: 'tb-view-col' },
           el('div', { class: 'tb-views', id: 'tb-views', role: 'group', 'aria-label': 'What to show' },
             ...VIEWS.map(([v, label]) => el('button', { class: 'utility-btn', 'data-view': v, onclick: () => setView(v) }, label)),
             el('span', { class: 'sb-fx-space' }),
@@ -295,17 +299,20 @@ window.NoorTexture = (() => {
                 return r;
               })()),
             el('span', { class: 'sb-fx-space' }),
+el('span', { class: 'tb-zoom' },
             el('button', { class: 'icon-btn', id: 'tb-zoomout', title: 'Zoom out (−, or the mouse wheel)', 'aria-label': 'Zoom out', onclick: () => gl3d && gl3d.zoom(1.2) }, '−'),
             el('button', { class: 'icon-btn', id: 'tb-zoomin', title: 'Zoom in (+, or the mouse wheel)', 'aria-label': 'Zoom in', onclick: () => gl3d && gl3d.zoom(1 / 1.2) }, '+'),
-            el('button', { class: 'icon-btn', id: 'tb-reset', title: 'Back to the starting view and light', 'aria-label': 'Reset the view', onclick: () => gl3d && gl3d.reset() }, '⟲')),
-          el('div', { class: 'tb-stage' },
+            el('button', { class: 'icon-btn', id: 'tb-reset', title: 'Back to the starting view and light', 'aria-label': 'Reset the view', onclick: () => gl3d && gl3d.reset() }, '⟲'))),
+          el('div', { class: 'tb-stage', id: 'tb-stage' },
             el('canvas', { id: 'tb-canvas', class: 'tb-canvas', 'aria-label': 'The material on a lit shape: drag to turn it, wheel to zoom, Shift+drag to move the light', title: 'Drag: turn · wheel: zoom · Shift+drag or right-drag: move the light', role: 'img' }),
             el('div', { id: 'tb-flat', class: 'tb-flat', role: 'img', 'aria-label': 'The map, tiled', hidden: true }),
             el('div', { class: 'tb-thumbs', id: 'tb-thumbs' }, ...VIEWS.slice(1).map(([m, label]) => el('button', { class: 'tb-thumb', 'data-map': m, title: `${label} map`, 'aria-label': `Show the ${label} map`, onclick: () => setView(m) }, el('span', { text: label }))))),
-          el('p', { class: 'pref-hint sb-status', id: 'tb-status', 'aria-live': 'polite' }),
+          el('p', { class: 'pref-hint sb-status', id: 'tb-status', 'aria-live': 'polite' })),
+          el('div', { class: 'tb-splitter', id: 'tb-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to change how much room the preview and the controls get (double-click: back to normal)' }),
+          el('div', { class: 'tb-edit-col', id: 'tb-edit-col' },
           el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['layers', 'Layers'], ['surface', 'Surface'], ['export', 'Export']].map(([id, label]) =>
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
-          el('div', { class: 'sb-pane', id: 'tb-pane' }))));
+          el('div', { class: 'sb-pane', id: 'tb-pane' }))))));
     ($('#app') || document.body).append(root);
     $('#tb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
     $('#tb-seed').addEventListener('change', (e) => { recipe.seed = Math.max(0, Math.min(2147483647, Math.round(Number(e.target.value) || 0))); changed(false); });
@@ -320,6 +327,8 @@ window.NoorTexture = (() => {
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
     });
     try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
+    setupSplitter();
+    applyLayout();
     setView(view);
   }
 
@@ -328,6 +337,64 @@ window.NoorTexture = (() => {
     const b = $('#tb-orbit');
     b.setAttribute('aria-pressed', String(orbit)); b.classList.toggle('active', orbit);
     if (gl3d) gl3d.setOrbit(orbit);
+  }
+
+  // ---------------------------------------------------------------- layout: how much room the preview gets
+
+  /** Side by side or stacked, the preview's share (px, per arrangement), and whether the materials list shows. Remembered. */
+  let layoutPrefs = (() => { try { return { side: false, list: true, height: 0, width: 0, ...JSON.parse(localStorage.getItem('noormd.texture.layout') || '{}') }; } catch { return { side: false, list: true, height: 0, width: 0 }; } })();
+
+  function setLayout(change) {
+    layoutPrefs = { ...layoutPrefs, ...change };
+    try { localStorage.setItem('noormd.texture.layout', JSON.stringify(layoutPrefs)); } catch { /* private storage off */ }
+    applyLayout();
+  }
+
+  function applyLayout() {
+    const root = $('#texturebench');
+    if (!root) return;
+    root.classList.toggle('tb-side', !!layoutPrefs.side);
+    root.classList.toggle('tb-no-list', !layoutPrefs.list);
+    const col = $('#tb-view-col');
+    col.style.height = !layoutPrefs.side && layoutPrefs.height ? layoutPrefs.height + 'px' : '';
+    col.style.width = layoutPrefs.side && layoutPrefs.width ? layoutPrefs.width + 'px' : '';
+    $('#tb-side').setAttribute('aria-pressed', String(!!layoutPrefs.side));
+    $('#tb-side').classList.toggle('on', !!layoutPrefs.side);
+    $('#tb-list').setAttribute('aria-pressed', String(!!layoutPrefs.list));
+    const sp = $('#tb-splitter');
+    sp.setAttribute('aria-orientation', layoutPrefs.side ? 'vertical' : 'horizontal');
+    fitFlat();
+    if (gl3d) gl3d.resize();
+  }
+
+  /** Dragging (or arrow keys on) the bar between the preview and the controls. */
+  function setupSplitter() {
+    const sp = $('#tb-splitter'), split = $('#tb-split'), col = $('#tb-view-col');
+    const limit = (v) => {
+      const box = split.getBoundingClientRect();
+      const total = layoutPrefs.side ? box.width : box.height;
+      return Math.round(Math.max(layoutPrefs.side ? 240 : 150, Math.min(total - (layoutPrefs.side ? 300 : 140), v)));
+    };
+    const set = (v) => setLayout(layoutPrefs.side ? { width: limit(v) } : { height: limit(v) });
+    let drag = null;
+    sp.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); sp.setPointerCapture(e.pointerId);
+      const r = col.getBoundingClientRect();
+      drag = { start: layoutPrefs.side ? e.clientX : e.clientY, size: layoutPrefs.side ? r.width : r.height };
+      sp.classList.add('dragging');
+    });
+    sp.addEventListener('pointermove', (e) => { if (drag) set(drag.size + (layoutPrefs.side ? e.clientX : e.clientY) - drag.start); });
+    const end = () => { drag = null; sp.classList.remove('dragging'); };
+    sp.addEventListener('pointerup', end); sp.addEventListener('pointercancel', end);
+    sp.addEventListener('dblclick', () => setLayout(layoutPrefs.side ? { width: 0 } : { height: 0 }));
+    sp.addEventListener('keydown', (e) => {
+      const step = { ArrowUp: -24, ArrowLeft: -24, ArrowDown: 24, ArrowRight: 24 }[e.key];
+      if (!step) return;
+      e.preventDefault();
+      const r = col.getBoundingClientRect();
+      set((layoutPrefs.side ? r.width : r.height) + step);
+    });
+    new ResizeObserver(() => { fitFlat(); if (gl3d) gl3d.resize(); }).observe($('#tb-stage'));
   }
 
   function renderPresets() {
@@ -1028,6 +1095,6 @@ window.NoorTexture = (() => {
   return {
     init, open, close, toggle, isOpen, fromPictures, newMaterial, randomMaterial,
     hasMaterial: () => !!recipe,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: { ...layoutPrefs }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.0-preview.43 — Texture Bench: room to work
+
+- **Drag the bar** between the preview and the controls to give either more room (or use the arrow keys on it;
+  double-click goes back to normal).
+- **◫ Side by side:** the preview on the left and the controls in their own column on the right, each scrolling on
+  its own, with a bar between them to drag. Good on wide screens.
+- **☰ Hide the materials list** to give its width to the editor.
+- All three are remembered. The zoom buttons stay together in a narrow preview.
+
 ## 2.0.0-preview.42 — Export structures, pictures from the Gallery, materials from scratch
 
 - **Where exports go** (Texture Bench and Sound Bench), with a preview of every file's path before anything is written:
