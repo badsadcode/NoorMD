@@ -192,6 +192,20 @@ Godot is the main engine, then Unity, then Unreal.
 - **The whole window** (⛶, or F11 with a bench in the middle): Focus mode now shows the bench instead of hiding it;
   “Back to NoorMD”, Esc or F11 return.
 
+### Fuller crowns for fewer triangles (preview.58)
+
+- **What a card shows** (Leaves → Each card shows): a twig (one stem, as before), a spray (three stems fanning out) or
+  a cluster (five stems, smaller leaves filling the card): 1.3–2 times the leaf cover per card at the same 8
+  triangles. The plane of a spray or cluster grows by itself (×1.3, ×1.65) so each leaf stays about its twig size.
+  The leaves keep inside their cell (no cut-off edges). Realistic card presets use clusters, conifers sprays; saved
+  recipes keep their twigs.
+- **Card size**: each plane bigger or smaller without changing how many cards there are (before, a bigger leaf size
+  also meant fewer cards, so the crown never got fuller).
+- **Leaf budget** (16,000 triangles by default): when the density asks for more, there are fewer, bigger cards
+  covering the same, instead of 50,000–100,000 triangles.
+- **Outer leaves**: cover moved from branches deep in the crown to those near its surface, and along a branch towards
+  its end (and, for tufts, cards sunk less deep), where they are seen.
+
 Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks

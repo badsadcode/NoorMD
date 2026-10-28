@@ -5156,6 +5156,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.$eval('#ab-pane input[data-key="moss"]', (r) => { r.value = '0.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
       await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="mossColor"]'));
       check('hanging moss, with its colour once there is some', (await AS()).recipe.moss === 0.5);
+      // Fuller crowns for fewer triangles: what a card shows, the card's size, outer leaves and the leaf budget.
+      check('leaves: what each card shows (twig, spray, cluster), card size, outer leaves and a leaf budget', !!(await page.$('#ab-pane select[data-key="leafCluster"]')) && !!(await page.$('#ab-pane input[data-key="cardScale"]'))
+        && !!(await page.$('#ab-pane input[data-key="outerLeaves"]')) && !!(await page.$('#ab-pane input[data-key="leafBudget"]')));
+      await page.selectOption('#ab-pane select[data-key="leafCluster"]', 'spray');
+      await page.$eval('#ab-pane input[data-key="cardScale"]', (r) => { r.value = '1.6'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.$eval('#ab-pane input[data-key="leafBudget"]', (r) => { r.value = '8000'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => { const b = window.__mock.state.assets.builds.at(-1); return b.leafCluster === 'spray' && b.cardScale === 1.6 && b.leafBudget === 8000; });
+      check('…and the tree is built with them', true);
+      check('the card size reads as a share (160 %)', await page.$eval('#ab-pane input[data-num="cardScale"]', (x) => x.value) === '160');
       await page.click('#ab-pane [data-own="leaves"]');
       await waitFn(page, () => NoorAssets._state().recipe.leafImage === 'D:\\Art\\my leaves.png');
       check('your own leaf picture: picked, named, asked whether it is an atlas', /my leaves\.png/.test(await page.textContent('#ab-pane')) && !!(await page.$('#ab-pane input[data-key="leafImageAtlas"]')));

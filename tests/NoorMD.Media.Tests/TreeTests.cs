@@ -544,4 +544,104 @@ public class TreeTests
         Assert.Equal(2, missing.Notes.Count(n => n.Contains("picture")));
         Assert.NotNull(missing.Lods[0].Materials.First(m => m.Name == "Leaves").BaseColorPng);
     }
+
+    // ---- Fuller crowns for fewer triangles ----
+
+    private static int Opaque(RawImage img) { var n = 0; for (var i = 3; i < img.Rgba.Length; i += 4) if (img.Rgba[i] > 128) n++; return n; }
+
+    [Fact]
+    public void A_spray_or_a_cluster_card_holds_more_leaf_than_a_twig()
+    {
+        var twig = LeafAtlas.Pixels("broad", "#3f6b26", "#7a9a33", false, 256, 3, "twig");
+        var spray = LeafAtlas.Pixels("broad", "#3f6b26", "#7a9a33", false, 256, 3, "spray");
+        var cluster = LeafAtlas.Pixels("broad", "#3f6b26", "#7a9a33", false, 256, 3, "cluster");
+        Assert.True(Opaque(spray) > Opaque(twig) * 1.3, $"spray {Opaque(spray)} vs twig {Opaque(twig)}");
+        Assert.True(Opaque(cluster) > Opaque(twig) * 1.3, $"cluster {Opaque(cluster)} vs twig {Opaque(twig)}");
+        // Nothing is cut off at a cell's edge: the outermost pixel columns of every cell stay clear.
+        foreach (var img in new[] { spray, cluster })
+            for (var y = 0; y < img.Height; y++)
+                foreach (var x in new[] { 0, img.Width / 2 - 1, img.Width / 2, img.Width - 1 })
+                    Assert.True(img.Rgba[(y * img.Width + x) * 4 + 3] < 200, $"edge pixel {x},{y}");
+        // Fronds and moss are their own sprites: no clusters.
+        Assert.Equal(LeafAtlas.Pixels("frond", "#3f6b26", "#7a9a33", false, 64, 3, "twig").Rgba, LeafAtlas.Pixels("frond", "#3f6b26", "#7a9a33", false, 64, 3, "cluster").Rgba);
+    }
+
+    [Fact]
+    public void The_leaf_budget_caps_the_leaves_and_the_cards_grow_instead()
+    {
+        var r = Small();
+        r.Quality = "medium";
+        r.LeafDensity = 1;
+        r.LeafSize = 0.4;
+        r.LeafBudget = 200_000;
+        var free = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        r.LeafBudget = 2000;
+        var capped = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        Assert.True(free.TriangleCount > 4000, $"free {free.TriangleCount}");
+        Assert.InRange(capped.TriangleCount, 1200, 2500);
+        // The crown is as wide: the fewer cards are bigger.
+        var (flo, fhi) = free.Bounds();
+        var (clo, chi) = capped.Bounds();
+        Assert.InRange(chi.X - clo.X, (fhi.X - flo.X) * 0.85, (fhi.X - flo.X) * 1.3);
+        var cardFree = free.TriangleCount / 8;
+        var cardCapped = capped.TriangleCount / 8;
+        Assert.True(CardArea(capped) / cardCapped > CardArea(free) / cardFree * 2, "the capped cards are bigger");
+    }
+
+    private static double CardArea(Mesh3D m)
+    {
+        double a = 0;
+        foreach (var s in m.Submeshes)
+            for (var i = 0; i + 2 < s.Indices.Count; i += 3)
+                a += Vector3.Cross(m.Positions[s.Indices[i + 1]] - m.Positions[s.Indices[i]], m.Positions[s.Indices[i + 2]] - m.Positions[s.Indices[i]]).Length() / 2;
+        return a;
+    }
+
+    [Fact]
+    public void Card_size_makes_the_planes_bigger_not_more()
+    {
+        var r = Small();
+        r.LeafCluster = "twig";
+        var normal = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        r.CardScale = 2;
+        var big = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        Assert.Equal(normal.TriangleCount, big.TriangleCount);
+        Assert.InRange(CardArea(big) / CardArea(normal), 3.5, 4.5);
+        // A cluster's card grows by itself so its smaller leaves stay their size.
+        r.CardScale = 1;
+        r.LeafCluster = "cluster";
+        var cluster = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        Assert.Equal(normal.TriangleCount, cluster.TriangleCount);
+        Assert.InRange(CardArea(cluster) / CardArea(normal), 2.3, 3.2);
+    }
+
+    [Fact]
+    public void Outer_leaves_move_cover_to_the_outside_of_the_crown()
+    {
+        var r = Small();
+        r.Quality = "medium";
+        double Mean(double outer)
+        {
+            r.OuterLeaves = outer;
+            var b = TreeBuilder.Build(r, NoTextures);
+            var m = Leaves(b)!;
+            return m.Positions.Average(p => Vector3.Distance(p, b.Skeleton.CrownCentre)) / b.Skeleton.CrownRadius;
+        }
+        var inside = Mean(0);
+        var outside = Mean(1);
+        Assert.True(outside > inside + 0.03, $"outer 0: {inside:0.000}, outer 1: {outside:0.000}");
+    }
+
+    [Fact]
+    public void Realistic_card_trees_come_with_clusters_and_conifers_with_sprays()
+    {
+        Assert.Equal("cluster", TreePresets.Make("oak").LeafCluster);
+        Assert.Equal("cluster", TreePresets.Make("maple").LeafCluster);
+        Assert.Equal("spray", TreePresets.Make("spruce").LeafCluster);
+        Assert.Equal("twig", TreePresets.Make("willow").LeafCluster);
+        // A recipe saved before keeps its twigs.
+        Assert.Equal("twig", TreeRecipe.FromJson("{\"name\":\"Old\"}").LeafCluster);
+        Assert.Equal(16000, TreeRecipe.FromJson("{\"name\":\"Old\"}").LeafBudget);
+        Assert.Equal(4, TreeRecipe.FromJson("{\"cardScale\":9}").CardScale);
+    }
 }

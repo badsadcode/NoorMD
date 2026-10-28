@@ -191,7 +191,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   distance and gives the tree the wind shader with its own textures. For Unity (a LOD Group from the _LOD0… names)
   and Unreal (a file per level) an HLSL wind function comes along. The last level of
   detail can be a billboard: the tree drawn from its sides onto crossed cards. Bring your own bark texture or leaf
-  picture (a 2 × 2 atlas or a single twig) if you like. Rocks come next.
+  picture (a 2 × 2 atlas or a single twig) if you like. Crowns look full for few triangles: each card can
+  show a spray or a dense cluster of leaves, cards can be made bigger without adding more, a leaf budget caps the
+  leaves' triangles (bigger cards instead), and outer leaves put the cover where it is seen. Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

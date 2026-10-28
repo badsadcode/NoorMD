@@ -140,6 +140,20 @@ public sealed class TreeRecipe
     public string LeafColor2 { get; set; } = "#8aa83a";
     /// <summary>Leaf normals bent to point out of the crown (0 the card's own … 1 fully outwards): soft, even lighting.</summary>
     public double CrownNormals { get; set; } = 0.6;
+    /// <summary>What one card shows: a twig, a spray of three twigs or a dense cluster (LeafAtlas.Clusters).</summary>
+    public string LeafCluster { get; set; } = "twig";
+    /// <summary>
+    /// The size of each card's plane, as a share of the leaf size (0.3–4). Unlike the leaf size it doesn't change how many
+    /// cards there are: bigger planes make a fuller crown for the same triangles.
+    /// </summary>
+    public double CardScale { get; set; } = 1;
+    /// <summary>
+    /// Most triangles the leaves may use on the finest level. When the density asks for more, the cards get bigger and
+    /// fewer instead, so the crown stays as full.
+    /// </summary>
+    public int LeafBudget { get; set; } = 16000;
+    /// <summary>Leaves moved from the hidden inside of the crown to its outside, where they are seen (0 none … 1 most).</summary>
+    public double OuterLeaves { get; set; } = 0.5;
 
     // Bark.
     public string BarkColor { get; set; } = "#5a4636";
@@ -249,6 +263,10 @@ public sealed class TreeRecipe
         LeafSize = C(LeafSize, 0.05, 5, 0.6);
         LeafColor = Hex(LeafColor, "#4f7a2c"); LeafColor2 = Hex(LeafColor2, "#8aa83a");
         CrownNormals = C(CrownNormals, 0, 1, 0.6);
+        LeafCluster = Pick(LeafCluster, LeafAtlas.Clusters);
+        CardScale = C(CardScale, 0.3, 4, 1);
+        LeafBudget = Math.Clamp(LeafBudget, 500, 200_000);
+        OuterLeaves = C(OuterLeaves, 0, 1, 0.5);
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
         BarkTile = C(BarkTile, 0.05, 20, 1);
@@ -273,21 +291,21 @@ public static class TreePresets
             Levels = [new() { Count = 7, Start = 0.35, Angle = 55, AngleSpread = 15, Length = 0.62, Radius = 0.6, Bend = 12, Wobble = 10 },
                       new() { Count = 9, Start = 0.15, Angle = 45, Length = 0.5, Radius = 0.5, Bend = 8, Wobble = 12 },
                       new() { Count = 6, Start = 0.2, Angle = 50, Length = 0.4, Radius = 0.5, Bend = 0, Wobble = 15 }],
-            LeafShape = "broad", LeafSize = 0.9, LeafDensity = 0.65, LeafColor = "#3f6b26", LeafColor2 = "#7a9a33",
+            LeafCluster = "cluster", LeafShape = "broad", LeafSize = 0.9, LeafDensity = 0.65, LeafColor = "#3f6b26", LeafColor2 = "#7a9a33",
         }),
         new("pine", "Pine (realistic)", "A tall conifer with whorls of near-level branches and needle cards.", () => new TreeRecipe
         {
             Name = "Pine", Archetype = "conifer", Height = 14, TrunkRadius = 0.25, Taper = 0.95, CrownStart = 1, Flare = 0.35, Roots = 4, Shape = "conical", Lean = 1, Wobble = 2,
             Levels = [new() { Count = 40, Start = 0.25, Angle = 85, AngleSpread = 8, Length = 0.35, Radius = 0.35, Bend = -10, Wobble = 5, Whorl = 5, Spiral = 36 },
                       new() { Count = 10, Start = 0.1, Angle = 55, Length = 0.4, Radius = 0.5, Bend = 5, Wobble = 6 }],
-            LeafShape = "needle", LeafSize = 0.7, LeafDensity = 0.85, LeafColor = "#2c4a26", LeafColor2 = "#4d6b30", BarkColor = "#5b4130",
+            LeafCluster = "spray", LeafShape = "needle", LeafSize = 0.7, LeafDensity = 0.85, LeafColor = "#2c4a26", LeafColor2 = "#4d6b30", BarkColor = "#5b4130",
         }),
         new("birch", "Birch (realistic)", "A slender white trunk and fine, drooping branches.", () => new TreeRecipe
         {
             Name = "Birch", Archetype = "birch", Height = 11, TrunkRadius = 0.16, Taper = 0.9, CrownStart = 0.9, Flare = 0.25, Roots = 4, Shape = "flame", Lean = 4,
             Levels = [new() { Count = 22, Start = 0.3, Angle = 40, Length = 0.38, Radius = 0.45, Bend = -25, Wobble = 8 },
                       new() { Count = 10, Start = 0.15, Angle = 35, Length = 0.5, Radius = 0.5, Bend = -40, Wobble = 10 }],
-            LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#e2ddd2", BarkMaterial = "birch",
+            LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#e2ddd2", BarkMaterial = "birch",
         }),
         new("dead", "Dead tree (realistic)", "Bare, twisted and broken: no leaves.", () => new TreeRecipe
         {
@@ -322,13 +340,13 @@ public static class TreePresets
         {
             Name = "Spruce", Archetype = "conifer", Height = 16, TrunkRadius = 0.28, Taper = 0.95, CrownStart = 1, Flare = 0.4, Roots = 5, Shape = "conical", Lean = 1, Wobble = 2,
             Levels = [L(48, 0.15, 95, 0.3, 0.32, -20, 4, 8, 4, 45), L(8, 0.15, 55, 0.45, 0.5, 0, 5)],
-            LeafShape = "needle", Arrangement = "fan", LeafSize = 0.75, LeafDensity = 0.7, LeafColor = "#1f3d24", LeafColor2 = "#3e5f2c", BarkColor = "#4d3a2e",
+            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.75, LeafDensity = 0.7, LeafColor = "#1f3d24", LeafColor2 = "#3e5f2c", BarkColor = "#4d3a2e",
         }),
         new("maple", "Autumn maple (realistic)", "A round crown of maple leaves in autumn reds and oranges.", () => new TreeRecipe
         {
             Name = "Autumn maple", Archetype = "broadleaf", Height = 11, TrunkRadius = 0.3, Taper = 0.7, CrownStart = 0.35, Flare = 0.45, Shape = "spherical",
             Levels = [L(7, 0.35, 45, 0.6, 0.6, 15, 10), L(8, 0.15, 45, 0.5, 0.5, 5, 10), L(5, 0.2, 50, 0.4, 0.5, 0, 12)],
-            LeafShape = "maple", Arrangement = "dome", LeafSize = 0.7, LeafDensity = 0.6, LeafColor = "#a3301a", LeafColor2 = "#f0a028", BarkColor = "#5a4a40",
+            LeafCluster = "cluster", LeafShape = "maple", Arrangement = "dome", LeafSize = 0.7, LeafDensity = 0.6, LeafColor = "#a3301a", LeafColor2 = "#f0a028", BarkColor = "#5a4a40",
         }),
 
         // ---- Swamp and marsh.
@@ -337,7 +355,7 @@ public static class TreePresets
             Name = "Bald cypress", Archetype = "broadleaf", Height = 18, TrunkRadius = 0.7, Taper = 0.85, CrownStart = 0.5, Flare = 0.9, Roots = 7, Collar = 0.7, Shape = "umbrella",
             Flute = 0.8, FluteLobes = 9, FluteHeight = 0.25, Knees = 14,
             Levels = [L(12, 0.45, 70, 0.45, 0.45, -10, 12, 15), L(7, 0.15, 50, 0.5, 0.5, 0, 10)],
-            LeafShape = "needle", Arrangement = "fan", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#3d5a2a", LeafColor2 = "#6f8a3c", BarkColor = "#6b5848",
+            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#3d5a2a", LeafColor2 = "#6f8a3c", BarkColor = "#6b5848",
             Moss = 0.7, Budget = 12000,
         }, "Swamp & marsh"),
         new("stylized-cypress", "Stylized swamp cypress", "Chunky, fluted and twisted, knees all round, moss dripping from the boughs.", () => new TreeRecipe
@@ -352,7 +370,7 @@ public static class TreePresets
         {
             Name = "Mangrove", Archetype = "broadleaf", Height = 7, TrunkRadius = 0.25, Taper = 0.6, CrownStart = 0.45, RootStyle = "prop", Roots = 9, Shape = "hemispherical", Lean = 5,
             Levels = [L(7, 0.4, 55, 0.6, 0.55, 10, 12), L(7, 0.2, 45, 0.5, 0.5, 5, 12)],
-            LeafShape = "broad", Arrangement = "dome", LeafSize = 0.6, LeafDensity = 0.6, LeafColor = "#2f5a22", LeafColor2 = "#5f8a2e", BarkColor = "#5e5348",
+            LeafCluster = "cluster", LeafShape = "broad", Arrangement = "dome", LeafSize = 0.6, LeafDensity = 0.6, LeafColor = "#2f5a22", LeafColor2 = "#5f8a2e", BarkColor = "#5e5348",
         }, "Swamp & marsh"),
         new("stylized-mangrove", "Stylized mangrove", "A squat crown on a tangle of chunky stilt roots.", () => new TreeRecipe
         {
@@ -391,7 +409,7 @@ public static class TreePresets
             Name = "Giant sequoia", Archetype = "conifer", Height = 75, TrunkRadius = 3.2, Taper = 0.9, CrownStart = 1, Flare = 0.8, Roots = 8, Lean = 1, Wobble = 1.5,
             Flute = 0.7, FluteLobes = 11, FluteHeight = 0.3, Shape = "conical",
             Levels = [L(55, 0.45, 80, 0.2, 0.22, -20, 8), L(7, 0.15, 50, 0.55, 0.5, 10, 8)],
-            LeafShape = "needle", Arrangement = "fan", LeafSize = 2.6, LeafDensity = 0.8, LeafColor = "#2c4a26", LeafColor2 = "#55702f", BarkColor = "#8a4a2c", BarkTile = 3, Budget = 20000,
+            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 2.6, LeafDensity = 0.8, LeafColor = "#2c4a26", LeafColor2 = "#55702f", BarkColor = "#8a4a2c", BarkTile = 3, Budget = 20000,
         }, "Giants"),
         new("stylized-sequoia", "Stylized sequoia", "A towering chunky red trunk, ribbed, under tiered tufts.", () => new TreeRecipe
         {
@@ -424,7 +442,7 @@ public static class TreePresets
         {
             Name = "Baobab", Archetype = "broadleaf", Height = 12, TrunkRadius = 0.9, Taper = 0.6, CrownStart = 0.75, RootStyle = "compact", Bulge = 1, BulgeAt = 0.35, Shape = "umbrella",
             Levels = [L(8, 0.4, 70, 0.4, 0.45, 20, 12, 15), L(4, 0.3, 45, 0.45, 0.5, 10, 12)],
-            LeafShape = "round", Arrangement = "dome", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#4a6a2a", LeafColor2 = "#8aa840", BarkColor = "#8a7a6a",
+            LeafCluster = "cluster", LeafShape = "round", Arrangement = "dome", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#4a6a2a", LeafColor2 = "#8aa840", BarkColor = "#8a7a6a",
         }, "Tropical"),
         new("stylized-baobab", "Stylized baobab", "A comically fat bottle trunk with a tiny tufted crown.", () => new TreeRecipe
         {
@@ -438,7 +456,7 @@ public static class TreePresets
         {
             Name = "Windswept juniper", Archetype = "broadleaf", Height = 4, TrunkRadius = 0.22, Taper = 0.7, CrownStart = 0.3, Flare = 0.6, Windswept = 0.85, Twist = 0.5, Wobble = 10, Shape = "hemispherical",
             Levels = [L(8, 0.3, 50, 0.6, 0.55, 0, 14, 15), L(6, 0.2, 45, 0.5, 0.5, -5, 14)],
-            LeafShape = "needle", Arrangement = "fan", LeafSize = 0.5, LeafDensity = 0.7, LeafColor = "#2f4a2a", LeafColor2 = "#5a7040", BarkColor = "#7a6a5c",
+            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.5, LeafDensity = 0.7, LeafColor = "#2f4a2a", LeafColor2 = "#5a7040", BarkColor = "#7a6a5c",
         }, "Dry & windswept"),
         new("stylized-juniper", "Stylized windswept pine", "A cliff-top pine swept flat by the wind, chunky and twisted.", () => new TreeRecipe
         {
@@ -450,7 +468,7 @@ public static class TreePresets
         {
             Name = "Acacia", Archetype = "broadleaf", Height = 7, TrunkRadius = 0.28, Taper = 0.6, CrownStart = 0.45, Flare = 0.4, Lean = 6, Shape = "umbrella",
             Levels = [L(6, 0.4, 68, 0.95, 0.6, -5, 8, 12), L(7, 0.3, 60, 0.55, 0.5, -10, 8)],
-            LeafShape = "round", Arrangement = "fan", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#556a2a", LeafColor2 = "#a0a840", BarkColor = "#6a5a4a",
+            LeafCluster = "cluster", LeafShape = "round", Arrangement = "fan", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#556a2a", LeafColor2 = "#a0a840", BarkColor = "#6a5a4a",
         }, "Dry & windswept"),
         new("stylized-acacia", "Stylized acacia", "A chunky umbrella tree with a flat, layered crown.", () => new TreeRecipe
         {

@@ -164,7 +164,7 @@ public static class TreeBuilder
             var ownLeaves = recipe.LeafImage != "" ? options.Images?.Invoke(recipe.LeafImage) : null;
             if (recipe.LeafImage != "" && ownLeaves == null) build.Notes.Add("Your leaf picture can't be read (moved, deleted, or not chosen here); the leaves are generated.");
             if (ownLeaves != null) Use(leafMat, ownLeaves);
-            else if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed));
+            else if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed, recipe.LeafCluster));
             else leafMat.BaseColor = Color(recipe.LeafColor);
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
@@ -525,50 +525,85 @@ public static class TreeBuilder
         return d.LengthSquared() > 1e-8f ? Vector3.Normalize(d) : Vector3.UnitY;
     }
 
-    /// <summary>Leaf cards along the outermost branches, growing away from them, facing up and out of the crown.</summary>
+    /// <summary>
+    /// Leaf cards along the outermost branches, growing away from them, facing up and out of the crown. The density says
+    /// how full the crown is (cards of the leaf size per metre of twig); outer leaves move that cover from branches deep
+    /// in the crown to those near its surface; the leaf budget caps the triangles, the cards growing instead so the
+    /// crown stays as full; the card scale makes each plane bigger without changing their number.
+    /// </summary>
     private static void AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
     {
         if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
-        var budget = 8000 / detail;
-        var placed = 0;
+        var outer = (float)recipe.OuterLeaves;
+        var perTuft = recipe.Arrangement switch { "cross" => 2, "star" or "fan" => 3, "dome" => 5, _ => 1 };
+        var trisPer = CardTriangles(recipe.Arrangement);
+        var crownRadius = MathF.Max(0.3f, sk.CrownRadius);
+
+        // Where the cards go and how much cover each branch gets.
+        var plan = new List<(TreeBranch B, float From, float Cover, float Weighted)>();
         foreach (var id in branchIds)
         {
             var b = sk.Branches[id];
             if (b.Root || b.Bare || (b.Level == 0 && deepest > 0)) continue;
             // The outermost branches, and the outer part of the level below (where twigs would be).
-            var outer = b.Children.Count == 0 || b.Level >= deepest;
-            if (!outer && b.Level < deepest - 1) continue;
-            var from = outer ? (conifer ? 0.1f : 0.25f) : 0.6f;
-            var perTuft = recipe.Arrangement switch { "cross" => 2, "star" or "fan" => 3, "dome" => 5, _ => 1 };
-            var count = (int)MathF.Round((float)recipe.LeafDensity * 11f * b.Length * (1 - from) / size0 / MathF.Pow(perTuft, 0.75f));
-            if (count <= 0 && rng.NextDouble() < recipe.LeafDensity) count = 1;
-            // Farther levels: fewer, bigger cards covering the same area.
-            var n = Math.Max(count > 0 ? 1 : 0, (int)MathF.Ceiling(count / (float)detail));
-            var size = n > 0 ? size0 * MathF.Sqrt(Math.Max(1, count) / (float)n) : size0;
-            // A ceiling on the leaves' triangles too (hanging curtains and tufts cost several cards each).
-            for (var k = 0; k < n && placed < budget && m.TriangleCount < 36000 / detail; k++, placed++)
+            var isOuter = b.Children.Count == 0 || b.Level >= deepest;
+            if (!isOuter && b.Level < deepest - 1) continue;
+            var from = isOuter ? (conifer ? 0.1f : 0.25f) : 0.6f;
+            var cover = (float)recipe.LeafDensity * 11f * b.Length * (1 - from) / size0 / MathF.Pow(perTuft, 0.75f);
+            var (mid, _, _) = b.At((1 + from) / 2);
+            var depth = Math.Clamp(Vector3.Distance(mid, sk.CrownCentre) / crownRadius, 0, 1.3f);
+            plan.Add((b, from, cover, cover * (1 + outer * (0.15f + 1.4f * depth * depth - 1))));
+        }
+        var asked = plan.Sum(x => x.Cover);
+        var weighted = plan.Sum(x => x.Weighted);
+        if (asked <= 0) return;
+        // Over the budget: fewer, bigger cards covering the same.
+        var grow = MathF.Max(1, asked * trisPer / recipe.LeafBudget);
+        var start = m.TriangleCount;
+        var ceiling = recipe.LeafBudget * 1.25f / detail;
+        foreach (var (b, from, _, w) in plan)
+        {
+            var cover = w * asked / weighted;
+            // Whole cards, rounding by chance so small branches still get their share.
+            var wanted = cover / (detail * grow);
+            var n = (int)wanted + (rng.NextDouble() < wanted - (int)wanted ? 1 : 0);
+            if (n == 0) continue;
+            var size = size0 * MathF.Sqrt(MathF.Max(1, cover) / n);
+            for (var k = 0; k < n && m.TriangleCount - start < ceiling; k++)
             {
-                var t = from + (1 - from) * (n == 1 ? 1 : (k + (float)rng.NextDouble() * 0.8f) / n);
+                // Along the leafy part, leaning to the branch's end when leaves are pushed outwards.
+                var u = n == 1 ? 1 : (k + (float)rng.NextDouble() * 0.8f) / n;
+                var t = from + (1 - from) * MathF.Pow(u, 1 - 0.45f * outer);
                 var (p, _, dir) = b.At(t);
                 var around = (float)(rng.NextDouble() * MathF.Tau);
                 var n0 = b.Normals[Math.Min(b.Normals.Count - 1, (int)(t * (b.Points.Count - 1)))];
                 var side = Vector3.Normalize(Vector3.Transform(n0, Quaternion.CreateFromAxisAngle(dir, around)));
                 var tilt = (conifer ? 0.5f : 0.6f) + (float)rng.NextDouble() * 0.6f;
-                var grow = Vector3.Normalize(dir * MathF.Cos(tilt) + side * MathF.Sin(tilt));
-                if (t >= 0.99f) grow = Vector3.Normalize(dir + side * 0.2f);
-                var cardSize = size * (0.8f + 0.4f * (float)rng.NextDouble());
+                var growDir = Vector3.Normalize(dir * MathF.Cos(tilt) + side * MathF.Sin(tilt));
+                if (t >= 0.99f) growDir = Vector3.Normalize(dir + side * 0.2f);
+                var cardSize = size * PlaneScale(recipe) * (0.8f + 0.4f * (float)rng.NextDouble());
                 switch (recipe.Arrangement)
                 {
-                    case "scatter": Card(m, p, grow, cardSize, sk, recipe, b, t, material, rng); break;
+                    case "scatter": Card(m, p, growDir, cardSize, sk, recipe, b, t, material, rng); break;
                     case "hanging": Hanging(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
                     default: Tuft(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
                 }
             }
         }
     }
+
+    /// <summary>
+    /// How big a card's plane is against the leaf size: the card scale, and bigger for sprays and clusters (their leaves
+    /// are drawn smaller, so the plane grows to keep each leaf about the size it is on a twig: a fuller crown for free).
+    /// </summary>
+    internal static float PlaneScale(TreeRecipe recipe) =>
+        (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, _ => 1 });
+
+    /// <summary>Triangles one placement of an arrangement costs (a card is a folded quad, front and back: 8).</summary>
+    internal static int CardTriangles(string arrangement) => arrangement switch { "cross" => 16, "star" or "fan" => 24, "dome" => 40, "hanging" => 48, _ => 8 };
 
     /// <summary>
     /// Cards over the clump shapes, growing outwards: a leafy edge round solid clumps, or (tufts) the whole canopy, with
@@ -582,15 +617,21 @@ public static class TreeBuilder
         foreach (var s in clumps.Submeshes)
             for (var i = 0; i + 2 < s.Indices.Count; i += 3)
                 area += Vector3.Cross(clumps.Positions[s.Indices[i + 1]] - clumps.Positions[s.Indices[i]], clumps.Positions[s.Indices[i + 2]] - clumps.Positions[s.Indices[i]]).Length() / 2;
-        var count = Math.Min((tufts ? 6000 : 4000) / detail, (int)(area * recipe.LeafDensity * (tufts ? 5.0 : 1.2) / (size * size)));
+        // The density asks for so many cards; over the leaf budget they get bigger and fewer instead.
+        var asked = area * recipe.LeafDensity * (tufts ? 5.0 : 1.2) / (size * size);
+        var cardsAllowed = recipe.LeafBudget / (double)CardTriangles("scatter") / detail;
+        var count = (int)Math.Min(asked, cardsAllowed);
+        if (asked > cardsAllowed) size *= (float)Math.Sqrt(asked / cardsAllowed);
+        // Outer leaves: cards nearer the clumps' surface, fewer sunk deep inside.
+        var sink = 1 - 0.6f * (float)recipe.OuterLeaves;
         for (var k = 0; k < count; k++)
         {
             var v = rng.Next(clumps.VertexCount);
             var n = clumps.Normals[v];
-            var p = clumps.Positions[v] - n * size * (tufts ? 0.2f + 0.9f * (float)rng.NextDouble() : 0.3f);
+            var p = clumps.Positions[v] - n * size * (tufts ? (0.2f + 0.9f * (float)rng.NextDouble()) * sink : 0.3f);
             var jitter = new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f) * 0.6f;
             var grow = Vector3.Normalize(n + Vector3.UnitY * 0.3f + jitter);
-            Card(m, p, grow, size * (0.8f + 0.4f * (float)rng.NextDouble()), sk, recipe, sk.Trunk, 1, material, rng, clumps.Colors.Count > v ? clumps.Colors[v] : null);
+            Card(m, p, grow, size * PlaneScale(recipe) * (0.8f + 0.4f * (float)rng.NextDouble()), sk, recipe, sk.Trunk, 1, material, rng, clumps.Colors.Count > v ? clumps.Colors[v] : null);
         }
     }
 

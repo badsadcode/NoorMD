@@ -43,6 +43,7 @@ window.NoorAssets = (() => {
   const ARRANGE = [['scatter', 'Scattered cards'], ['single', 'Single cards'], ['cross', 'Crossed pairs'], ['star', 'Stars of three'], ['fan', 'Fans (spruce tiers, acacia)'], ['dome', 'Domes (full broadleaf)'], ['hanging', 'Hanging curtains (willow)'], ['fronds', 'Fronds along the branches (palm, fern)']];
   const BRANCH_MODES = [['merged', 'Merged: one welded mesh'], ['separate', 'Separate: each limb its own mesh'], ['mixed', 'Mixed: thick limbs welded, thin ones separate']];
   const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['crystals', 'Crystals (glowing shards)'], ['none', 'None (bare)']];
+  const CLUSTERS = [['twig', 'A twig'], ['spray', 'A spray (3 twigs)'], ['cluster', 'A cluster (dense)']];
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
@@ -435,8 +436,12 @@ window.NoorAssets = (() => {
         el('div', { class: 'sb-row' }, choice(recipe, 'arrangement', 'Set as', ARRANGE, 'How the leaf cards are set where leaves grow', true)),
         recipe.arrangement === 'hanging' ? slider(recipe, ['hangLength', 'Curtain length', 0.2, 30, 0.1, 'm', 'How far the curtains hang (they stop above the ground)']) : null,
         el('div', { class: 'sb-row' }, choice(recipe, 'foliage', 'Foliage', FOLIAGE, 'Cards: leaf sprites with alpha along the branches (realistic). Tufts: the same cards gathered into chunky clumps (stylized), with no solid mesh. Solid clumps: puffy painted blobs', true), choice(recipe, 'leafShape', 'Leaf', LEAVES)),
+        recipe.leafShape === 'frond' ? null : choice(recipe, 'leafCluster', 'Each card shows', CLUSTERS, 'A twig: one stem with its leaves. A spray or a cluster: several stems on one card, many more leaves for the same triangles (the card grows to keep each leaf its size). The way game trees look full'),
         slider(recipe, ['leafDensity', 'Density', 0, 1, 0.01, 'pct', 'How full the crown is']),
-        slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'One leaf card (or the size of a clump)']),
+        slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'How far apart the cards are spread, and their size (or the size of a clump)']),
+        slider(recipe, ['cardScale', 'Card size', 0.3, 4, 0.05, 'pct', 'Each card’s plane bigger or smaller without changing how many there are: bigger makes a fuller crown for the same triangles']),
+        slider(recipe, ['outerLeaves', 'Outer leaves', 0, 1, 0.01, 'pct', 'Leaves moved from the hidden inside of the crown to its outside, where they are seen']),
+        slider(recipe, ['leafBudget', 'Leaf budget', 500, 60000, 500, 'int', 'Most triangles the leaves may use in LOD0. When the density asks for more, the cards get bigger and fewer instead, so the crown stays as full']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
         slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards']),
         ownPicture('leafImage', 'leaves', 'Your own leaf picture…', 'A PNG with transparency, the stem at the bottom middle'),
