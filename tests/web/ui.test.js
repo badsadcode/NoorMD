@@ -1092,7 +1092,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Narrow window: nothing clipped, overflow menu works.
       await page.setViewportSize({ width: 1024, height: 720 });
-      await page.waitForTimeout(250);
+      // The toolbar re-lays itself out after the resize: wait for that (up to a few seconds on a busy machine).
+      await waitFn(page, () => { const b = document.querySelector('#toolbar'); return b.scrollWidth <= b.clientWidth + 1 && !document.querySelector('#toolbar-more').hidden; }, undefined, { timeout: 5000 }).catch(() => {});
       const fit = await page.evaluate(() => { const b = document.querySelector('#toolbar'); return { sw: b.scrollWidth, cw: b.clientWidth, more: !document.querySelector('#toolbar-more').hidden, menus: document.querySelector('#menubar').scrollWidth <= document.querySelector('#menubar').clientWidth + 1 }; });
       check('at 1024 px the toolbar is not clipped: extra commands move to “More”', fit.sw <= fit.cw + 1 && fit.more, fit);
       check('at 1024 px every menu title is visible', fit.menus, fit);
