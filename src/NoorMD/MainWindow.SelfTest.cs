@@ -832,6 +832,24 @@ public partial class MainWindow
                 && sbp.Contains("\\\"peaks\\\":1200") && sbp.Contains("refused"), $"grains {grains.RmsDb} dB, stretched {stretched.RmsDb} dB, {sbp}");
         }
 
+        // Texture Bench: a material renders in the app, its maps are served to the page and load as pictures.
+        {
+            await Eval(@"window.__tex = null; (async () => {
+                try {
+                    const r = await NoorBridge.request('texture.preset', { id: 'bricks-red' });
+                    const out = await NoorBridge.request('texture.render', { recipe: r, size: 256 });
+                    const sizes = await Promise.all(['albedo', 'normal', 'height'].map((m) => new Promise((res) => { const i = new Image(); i.onload = () => res(i.naturalWidth); i.onerror = () => res(-1); i.src = out.maps[m]; })));
+                    window.__tex = JSON.stringify({ size: out.size, sizes, layers: r.layers.length });
+                } catch (e) { window.__tex = 'error ' + e.message; } })()");
+            var tex = "null";
+            for (var i = 0; i < 80 && tex == "null"; i++) { await Task.Delay(100); tex = await Eval("window.__tex"); }
+            Check("Texture Bench: a material renders and its maps load in the page", tex.Contains("\\\"sizes\\\":[256,256,256]") && tex.Contains("\\\"size\\\":256"), tex);
+            // A full set for Unreal at 512 writes valid PNGs (DirectX normal, ORM).
+            var maps = TextureEngine.Render(TexturePresets.Make("metal-rusty"), 512);
+            var orm = maps.Packed("ao", "roughness", "metallic");
+            Check("Texture Bench: maps are written as PNG files", orm.Length > 1000 && orm[1] == (byte)'P' && maps.Png("height").Length > 1000 && maps.Png("normal", directX: true).Length > 1000);
+        }
+
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
         await Eval(@"window.__vt = null; (async () => {
             let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }

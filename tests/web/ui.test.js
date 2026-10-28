@@ -3881,6 +3881,119 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.check('#sb-map-mod'); await page.waitForSelector('#sb-map [data-node="K1"]'); await page.screenshot({ path: `${shots}/sound-map.png` }); }
       await page.close();
     }
+
+    // ---- 46. Texture Bench: materials by family, a lit 3D preview and flat maps, layers, surface, variations, undo, export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const TS = () => page.evaluate(() => NoorTexture._state());
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.view'); localStorage.removeItem('noormd.texture.export'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      check('Ctrl+Alt+T opens the Texture Bench in the middle with a material', (await page.evaluate(() => NoorDock._state().center.active)) === 'texture' && (await page.inputValue('#tb-name')) === 'Red bricks');
+      check('…materials listed by family', (await page.$$eval('#tb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Walls,Stone,Metal,My presets');
+      check('…rendered at 512 with its maps shown as thumbnails', (await last()).size === 512 && /512 × 512 px preview/.test(await page.textContent('#tb-status'))
+        && await page.evaluate(() => [...document.querySelectorAll('#tb-thumbs [data-map]')].every((b) => /url\("data:image\/png/.test(b.style.backgroundImage))));
+      const webgl = (await TS()).webgl;
+      if (webgl) {
+        await waitFn(page, () => Number(document.querySelector('#tb-canvas').dataset.loaded || 0) >= 5);
+        const lit = await page.evaluate(() => { const c = document.querySelector('#tb-canvas'); const g = document.createElement('canvas'); g.width = c.width; g.height = c.height; const x = g.getContext('2d'); x.drawImage(c, 0, 0); const d = x.getImageData(c.width / 2, c.height / 2, 1, 1).data; return d[0] + d[1] + d[2]; });
+        check('the 3D preview shows the material lit on a sphere', lit > 60 && (await TS()).view === '3d', lit);
+      } else check('without WebGL 2 the albedo is shown flat, with a note', /WebGL 2/.test(await page.getAttribute('#tb-flat', 'data-note')));
+      await slide('.sb-layer[data-index="0"] input[data-key="mortar"]', 0.3);
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers[0].mortar === 0.3);
+      check('moving a slider renders a quick small preview first…', (await last()).size === 256);
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).size === 512);
+      check('…then the full one when it settles', true);
+      await page.click('#tb-views [data-view="normal"]');
+      check('a map can be shown flat and tiled', await page.isVisible('#tb-flat') && await page.isHidden('#tb-canvas') && /data:image\/png/.test(await page.$eval('#tb-flat', (n) => n.style.backgroundImage)));
+      await page.selectOption('#tb-tiling', '3');
+      check('…as many times across as chosen', (await page.$eval('#tb-flat', (n) => n.style.backgroundSize)).startsWith('33.3'));
+      await page.click('#tb-thumbs [data-map="albedo"]');
+      check('clicking a thumbnail shows that map', (await TS()).view === 'albedo');
+      await page.click('#tb-views [data-view="3d"]');
+      if (webgl) { await page.selectOption('#tb-shape', 'cube'); check('the preview shape can be a cube (or plane)', (await TS()).view === '3d' && await page.isVisible('#tb-canvas')); }
+      await page.click('[data-addlayer="cells"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.length === 3);
+      const added = (await last()).recipe.layers[2];
+      check('＋ Cells adds a layer blended over the others', added.type === 'cells' && added.blend === 'overlay' && added.opacity === 0.5);
+      await page.selectOption('.sb-layer[data-index="2"] select[data-key="mode"]', 'cracks');
+      await page.selectOption('.sb-layer[data-index="2"] select[data-key="blend"]', 'multiply');
+      await waitFn(page, () => { const l = window.__mock.state.texture.renders.at(-1).recipe.layers[2]; return l.mode === 'cracks' && l.blend === 'multiply'; });
+      check('a layer\'s kind and blend can be chosen', true);
+      await page.click('.sb-layer[data-index="2"] button[aria-label="Move up"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers[1].type === 'cells');
+      check('layers can be reordered', true);
+      await page.click('.sb-layer[data-index="1"] button[title="Hide this layer"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers[1].mute === true);
+      check('…hidden', true);
+      await page.click('.sb-layer[data-index="1"] button[aria-label="Remove this layer"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.length === 2);
+      check('…and removed', true);
+      await page.waitForTimeout(700);
+      const seed = (await TS()).recipe.seed;
+      await page.click('#tb-vary');
+      await waitFn(page, (s0) => window.__mock.state.texture.renders.at(-1).recipe.seed === s0 + 1, seed);
+      check('🎲 Variation gives the next seed', true);
+      await page.waitForTimeout(700);
+      await page.focus('#tb-vary');
+      await page.keyboard.press('Control+z');
+      await waitFn(page, (s0) => NoorTexture._state().recipe.seed === s0, seed);
+      check('Ctrl+Z undoes it', (await TS()).future === 1);
+      await page.click('#texturebench .sb-tabs button[data-tab="surface"]');
+      await page.$eval('#tb-pane input[type=color][data-stop="0"]', (n) => { n.value = '#112233'; n.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.surface.ramp[0].color === '#112233');
+      check('the colour ramp can be edited', /rgb\(17, 34, 51\)/.test(await page.$eval('#tb-ramp', (n) => n.style.background)));
+      const stops = (await TS()).recipe.surface.ramp.length;
+      await page.click('#tb-addstop');
+      await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.surface.ramp.length === n + 1, stops);
+      await page.fill('#tb-pane input[data-num="metallic"]', '100');
+      await page.press('#tb-pane input[data-num="metallic"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.surface.metallic === 1);
+      check('…colours added, and surface values typed exactly (metallic 100 %)', true);
+      await page.click('#tb-pin');
+      await page.fill('#tb-pane input[data-num="metallic"]', '0');
+      await page.press('#tb-pane input[data-num="metallic"]', 'Enter');
+      await page.waitForSelector('#tb-ab:not([hidden])');
+      await page.click('#tb-ab');
+      await waitFn(page, () => NoorTexture._state().listening === 'A' && window.__mock.state.texture.renders.at(-1).recipe.surface.metallic === 1);
+      check('📌 Pin as A, then A/B shows the pinned version', (await page.textContent('#tb-ab')) === 'A/B: A');
+      await page.click('#tb-ab');
+      await page.click('#texturebench .sb-tabs button[data-tab="export"]');
+      await page.selectOption('#tb-size', '2048');
+      await page.selectOption('#tb-target', 'unreal');
+      await page.click('#tb-export');
+      await waitFn(page, () => window.__mock.state.texture.exports.length === 1);
+      await page.waitForSelector('#tb-reveal');
+      const ex = await page.evaluate(() => window.__mock.state.texture.exports[0]);
+      check('Export writes the maps for the chosen engine and size', ex.size === 2048 && ex.target === 'unreal' && /Saved 4 maps/.test(await page.textContent('#tb-export-status')));
+      check('…and remembers the choices', await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')).target === 'unreal'));
+      await page.click('#tb-reveal');
+      await waitFn(page, () => window.__mock.state.texture.opened === 'D:\\Game\\Materials');
+      page.once('dialog', () => {});
+      await page.click('#tb-save');
+      await page.waitForSelector('.modal input, dialog input, [role=dialog] input');
+      await page.keyboard.press('Control+a');
+      await page.keyboard.type('My wall');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => [...document.querySelectorAll('#tb-presets [data-preset]')].some((b) => b.dataset.preset === 'user:My wall.json'));
+      check('★ Save as my preset adds it to My presets', true);
+      await page.keyboard.press('Control+Alt+t');
+      await waitFn(page, () => !NoorTexture.isOpen());
+      check('Ctrl+Alt+T closes it again', true);
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in the Texture Bench', unexpected.length === 0, unexpected);
+      if (shots) {
+        await page.keyboard.press('Control+Alt+t');
+        await page.click('#tb-presets [data-preset="stone-cobbles"]');
+        await page.click('#texturebench .sb-tabs button[data-tab="layers"]');
+        await page.waitForTimeout(600);
+        await page.screenshot({ path: `${shots}/texture-bench.png` });
+      }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

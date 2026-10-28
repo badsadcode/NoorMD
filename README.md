@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.35-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.36-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -129,6 +129,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   spectrogram and loudness meters (LUFS, true
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
+- **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: stone, ground, wood, metal,
+  walls and fabric. Layers of noise, cells, wood grain, bricks, weave and scratches build the height; a colour
+  ramp, dirt, roughness and metallic make the surface. See it lit on a sphere, cube or plane, or each map tiled,
+  and export seamless PNG maps (albedo, normal, roughness, AO, metallic, 16-bit height) for Godot, Unity or
+  Unreal at up to 4096 pixels, with the recipe beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
@@ -184,8 +189,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.35-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.35-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.36-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.36-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

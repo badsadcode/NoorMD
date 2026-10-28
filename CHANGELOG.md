@@ -1,5 +1,36 @@
 # Changelog
 
+## 2.0.0-preview.36 — Texture Bench: materials for games
+
+The first stage of the Texture Bench (docs/TEXTURE_BENCH_PLAN.md, from the indie benches concept): tileable
+materials for game worlds, made from a recipe rather than painted, with their PBR maps.
+
+- **Texture Bench** (Ctrl+Alt+T, in the middle): 14 materials to start from: cobblestones, rough rock, gravel,
+  dried mud, forest soil, sand ripples, snow, wooden planks, tree bark, brushed metal, rusty metal, red bricks,
+  floor tiles and woven fabric.
+- **Seamless at any size:** every map tiles without a seam at 512 to 4096 pixels, and the same material looks
+  the same at every size. The same recipe and seed always give the same pixels.
+- **Layers** build the height of the material, each blended onto the ones before it (replace, add, subtract,
+  multiply, screen, overlay, higher, lower), with its strength, levels and invert:
+  - **noise, ridged noise and turbulence**, with detail (octaves) and domain warp (swirl);
+  - **cells**: round bumps, raised edges, cracks or flat stones;
+  - **wood grain**, **bricks / tiles** (mortar, bevel, row offset, bricks that differ), **weave** and
+    **scratches**.
+  - Each layer can be hidden, reordered, copied, or given another random version of its own (🎲).
+- **Surface:** colour along the height from a colour ramp you edit, colour variation, dirt in the cavities,
+  roughness for the low and high parts, metallic (set, never guessed), relief and ambient occlusion.
+- **See it:** the material lit on a sphere, cube or plane (drag to turn it), tiled 1 × 1 to 4 × 4, or each map
+  flat and tiled (albedo, normal, roughness, AO, height, metallic). Changes show a quick preview at once and the
+  full one when you stop.
+- **Variation, undo and compare:** 🎲 Variation (V) tries the next seed, Ctrl+Z / Ctrl+Y undo and redo, and
+  📌 Pin as A with A/B (B) compares versions.
+- **Export** PNG maps at 512, 1024, 2048 or 4096 for:
+  - Generic or Godot (one map each);
+  - Unity (metallic with smoothness in alpha);
+  - Unreal (DirectX normal and an ORM map: occlusion, roughness, metallic).
+  Height is 16-bit. The recipe (.noortex.json) is saved with the maps, to make another size or change it later.
+  Your own presets are kept like the Sound Bench's.
+
 ## 2.0.0-preview.35 — Sound Bench: the Map
 
 The last part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md), as a view of the
