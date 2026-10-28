@@ -49,7 +49,40 @@ game engines.
 - **Preview:** WebGL in the page: orbit, lights, wireframe, normals, UV checker, LOD switching, the triangle count,
   a ground grid, and wind playing on the real wind data.
 
-## Stage 1 — trees (preview.53 and after)
+## Stage 1 — trees (preview.53, done)
+
+What shipped, and how it works:
+
+- **Growth** (`TreeSkeleton`): a trunk with roots, then up to three levels of branches placed along their parent
+  (golden-angle spiral or whorls), angled, bent towards the light or drooping, wobbling, twisting; lengths follow
+  the crown shape; the tree is scaled to exactly the asked height. Seven presets: oak, pine, birch and dead tree
+  (realistic); oak, pine and dead tree (stylized).
+- **Wood** (`ImplicitField`): every limb thick enough for the grid is a round cone in a signed distance field,
+  joined with a smooth union (wide at a limb's base: the collar; roots melt into the flare). The surface is
+  extracted as a closed, manifold mesh (patch loops per cell, decided per face so neighbours agree, a centre vertex
+  for larger patches), pulled onto the true surface, then simplified to the budget with quadric error
+  (`Simplifier`: link condition, no fold-overs, borders kept). Normals come from the field; bark UVs from the
+  skeleton (around in whole repeats, along in tiles), split at the wrap-around seam and where branches meet;
+  tangents for the normal map. Twigs thinner than the grid are swept tubes starting inside their parent.
+- **Branches mode:** merged (one mesh), separate (each level-1 limb with everything on it is its own node, pivot
+  where it leaves the trunk, its base reaching into the trunk) or mixed (a radius decides).
+- **Leaves** (`LeafAtlas`): a generated 2 × 2 atlas of twig sprites (broad, round, maple-like, needles; painted for
+  the stylized look) with the anchor at the bottom middle of each cell; cards anchored on the outer branches,
+  growing away from them, facing up and out, with a real back face (so lighting is right in every engine) and
+  normals bent out of the crown. Clumps: blobs at the branch tips joined with a little blending (distinct lobes),
+  coloured by a gradient texture (dark under, light on top); conifers get tiers and a tip.
+- **Wind data:** trunk sway, branch bend, leaf flutter, phase; in TEXCOORD_1/2 by default (vertex colours would tint
+  the model in viewers and Godot), or COLOR_0 as an option. The manifest says which.
+- **Levels of detail:** each about half the triangles; distant levels drop the finest twigs and use fewer, bigger
+  cards covering the same area. Exported as a file each (Name_LOD0.glb…) or in one file (nodes Name_LOD0…).
+- **Checked:** unit tests for the field, extraction (closed and manifold, also with 40 random forks), simplifier,
+  growth, every preset in every branches mode, cards, wind data and UV seams; the Khronos validator runs on
+  generated trees in CI.
+
+Still to do from the original stage 1 list: a ready-made wind shader for the main engine (waiting for which engine),
+billboards (crossed-card impostors) and variety packs (N seeds at once).
+
+The original stage 1 plan:
 
 - **Growth:** parametric branching (from Weber & Penn's paper: per-level split angles, taper, curvature, branch
   counts) with species profiles as data. Four archetypes to start: broadleaf (oak-like), conifer, birch-like, and

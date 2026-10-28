@@ -528,6 +528,31 @@ public partial class MainWindow
         Check("…and is hidden from screen capture (Windows 10 2004+)", ind.ExcludedFromCapture);
         ind.Close();
 
+        // Asset Bench: a tree is grown and meshed in the app, its GLB is served to the page and read back there; separate
+        // branches come out as meshes of their own with clean geometry.
+        {
+            await Eval(@"window.__tree = null; (async () => {
+                try {
+                    const r = await NoorBridge.request('asset.preset', { id: 'stylized-oak' });
+                    r.budget = 1500; r.lods = 2;
+                    const out = await NoorBridge.request('asset.build', { recipe: r });
+                    const glb = NoorAssetView.parseGlb(await (await fetch(out.lods[0].url)).arrayBuffer());
+                    window.__tree = JSON.stringify({ lods: out.lods.length, nodes: glb.nodes.filter((n) => n.mesh >= 0).map((n) => n.name), images: glb.images.length, tris: out.lods.map((l) => l.triangles) });
+                } catch (e) { window.__tree = 'error ' + e.message; } })()");
+            var tree = "null";
+            for (var i = 0; i < 300 && tree == "null"; i++) { await Task.Delay(100); tree = await Eval("window.__tree"); }
+            Check("Asset Bench: a tree builds in the app and its GLB loads in the page", tree.Contains("\\\"lods\\\":2") && tree.Contains("Trunk") && tree.Contains("Leaves") && !tree.Contains("error"), tree);
+            var sep = NoorMD.Media.Assets3D.TreePresets.Make("oak");
+            sep.Branches = "separate"; sep.Quality = "low"; sep.Lods = 1; sep.Budget = 2000;
+            var built = NoorMD.Media.Assets3D.TreeBuilder.Build(sep, new NoorMD.Media.Assets3D.TreeBuilder.Options { TextureSize = 64 });
+            var meshes = built.Lods[0].Root.All().Where(n => n.Mesh != null).ToList();
+            var glbBytes = NoorMD.Media.Assets3D.GlbWriter.Write(built.Lods[0]);
+            Check("Asset Bench: separate branches are meshes of their own, all clean, written as GLB",
+                meshes.Count(n => n.Name.StartsWith("Branch_") && !n.Name.EndsWith("_Leaves")) == built.Skeleton.Branches.Count(b => b.Level == 1)
+                && meshes.All(n => n.Mesh!.Problems().Count == 0) && glbBytes.Length > 10000 && BitConverter.ToUInt32(glbBytes, 0) == 0x46546C67,
+                $"{meshes.Count} meshes, {glbBytes.Length} bytes, {built.Seconds:0.0} s");
+        }
+
         // NoorCalendar: the engine and .ics on this computer's time zone (your own calendar is not touched), and the
         // reminder pop-up near the clock, which must not take focus.
         {

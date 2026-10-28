@@ -150,6 +150,8 @@ public partial class MainWindow
                 return await DispatchTextureAsync(req);
             case var cal when cal.StartsWith("cal.", StringComparison.Ordinal):
                 return await DispatchCalendarAsync(req);
+            case var asset when asset.StartsWith("asset.", StringComparison.Ordinal):
+                return await DispatchAssetAsync(req);
             case var seq when seq.StartsWith("seq.", StringComparison.Ordinal):
                 return await DispatchSequencerAsync(req);
             case var export when export.StartsWith("export.", StringComparison.Ordinal):

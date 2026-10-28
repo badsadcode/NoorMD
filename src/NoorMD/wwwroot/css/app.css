@@ -1501,6 +1501,15 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-batch-item .icon-btn { width: 20px; height: 20px; font-size: 11px; }
 
 /* NoorSequencer: the song grid (tracks × bars), the piano roll and the drum grid. */
+/* Asset Bench: the preview fills its column (no map thumbnails), the controls in titled groups. */
+.assetbench .tb-stage { grid-template-columns: minmax(0, 1fr); }
+.assetbench .tb-canvas.dragging { cursor: grabbing; }
+.assetbench fieldset.sb-group { min-width: 0; }
+.assetbench fieldset.sb-group legend { font-size: 12.5px; font-weight: 650; padding: 0 4px; }
+.assetbench .ab-choice select { max-width: 260px; }
+.assetbench .ab-colour input[type=color] { width: 40px; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+.assetbench .ab-stats { margin-top: 0; font-variant-numeric: tabular-nums; }
+.assetbench .sb-presets .sb-save { margin: 14px 4px 4px; width: calc(100% - 8px); }
 .seqbench { padding: 0 12px; }
 .seqbench .music-head { margin: 0 -12px; }
 .seq-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 8px; }

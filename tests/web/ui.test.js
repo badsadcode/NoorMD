@@ -5075,6 +5075,94 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the calendar', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 65. Asset Bench: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const AS = () => page.evaluate(() => NoorAssets._state());
+      const AM = () => page.evaluate(() => window.__mock.state.assets);
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      check('Ctrl+Alt+M opens the Asset Bench with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
+      check('presets are grouped by look (realistic, stylized)', /Realistic/i.test(await page.textContent('#ab-presets')) && /Stylized/i.test(await page.textContent('#ab-presets')));
+      const webgl = (await AS()).viewer !== null;
+      if (webgl) {
+        await waitFn(page, () => NoorAssets._state().viewer.loaded);
+        const v = (await AS()).viewer;
+        check('the preview reads the GLB: meshes drawn, wind data found in the UV channels', v.draws >= 2 && v.windFrom === 'uv' && v.nodes.includes('Trunk'), v);
+      }
+      check('the stats say triangles, vertices and size', /LOD0: 2,454 triangles · 4,800 vertices · 115 KB/.test(await page.textContent('#ab-stats')));
+      check('levels of detail to choose from', (await page.$$eval('#ab-lod option', (o) => o.map((x) => x.textContent))).join('|') === 'LOD0 · 2,454 triangles|LOD1 · 1,524 triangles');
+      await page.selectOption('#ab-lod', '1');
+      await waitFn(page, () => /LOD1:/.test(document.querySelector('#ab-stats').textContent));
+      check('…and LOD1 shows', /LOD1: 1,524 triangles/.test(await page.textContent('#ab-stats')));
+      // A slider rebuilds once it settles; undo takes it back.
+      await page.$eval('#ab-pane input[data-key="height"]', (r) => { r.value = '14'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => window.__mock.state.assets.builds.at(-1).height === 14);
+      check('changing the height builds the tree again', (await AM()).builds.at(-1).height === 14);
+      await page.waitForTimeout(700);
+      await page.click('#ab-canvas');
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorAssets._state().recipe.height === 10);
+      check('Ctrl+Z undoes it (and builds again)', (await AM()).builds.at(-1).height === 10);
+      // Branches: levels and the mesh mode.
+      await page.click('#assetbench [data-tab="branches"]');
+      const levels = (await AS()).recipe.levels.length;
+      check('every level of branches has its settings', (await page.$$('#ab-pane [data-remove-level]')).length === levels);
+      if (levels < 3) { await page.click('#ab-add-level'); check('a level can be added', (await AS()).recipe.levels.length === levels + 1); }
+      await page.click('#assetbench [data-tab="mesh"]');
+      await page.selectOption('#ab-pane select[data-key="branches"]', 'separate');
+      await waitFn(page, () => window.__mock.state.assets.builds.at(-1).branches === 'separate');
+      if (webgl) {
+        await waitFn(page, () => NoorAssets._state().viewer.nodes.includes('Branch_01'));
+        check('separate branches: each limb is its own mesh in the preview', (await AS()).viewer.nodes.filter((n) => /^Branch_\d+$/.test(n)).length === 5);
+      }
+      await page.selectOption('#ab-pane select[data-key="branches"]', 'mixed');
+      check('mixed asks how thick a limb must be to stay welded', !!(await page.$('#ab-pane input[data-key="mixedRadius"]')));
+      await page.selectOption('#ab-pane select[data-key="windData"]', 'color');
+      await waitFn(page, () => window.__mock.state.assets.builds.at(-1).windData === 'color');
+      check('the wind data can go to vertex colours instead', true);
+      // Views, wireframe and wind.
+      await page.selectOption('#ab-view', 'parts');
+      await page.click('#ab-canvas');
+      await page.keyboard.press('w');
+      await page.keyboard.press(' ');
+      const st = await AS();
+      check('views: parts, wireframe (W) and wind (Space)', st.viewMode === 'parts' && st.wireframe && st.wind && (!webgl || (st.viewer.mode === 2 && st.viewer.wireframe && st.viewer.wind === 1)), st.viewer);
+      await page.keyboard.press(' ');
+      // A variation, and keeping it as my own preset.
+      const seed = (await AS()).recipe.seed;
+      await page.click('#ab-vary');
+      check('🎲 Variation: another seed', (await AS()).recipe.seed !== seed);
+      await page.fill('#ab-name', 'Forest oak');
+      await page.click('#ab-save');
+      await waitFn(page, () => /Forest oak/.test(document.querySelector('#ab-presets').textContent));
+      check('Save as mine: it is listed under Mine', (await AM()).mine[0].recipe.name === 'Forest oak' && /Mine/.test(await page.textContent('#ab-presets')));
+      // Export: where, which files, and the call.
+      await page.click('#assetbench [data-tab="export"]');
+      await waitFn(page, () => /noortree/.test((document.querySelector('#ex-model-preview') || {}).textContent || ''));
+      check('the export preview lists a GLB per level, the recipe and the manifest', /Forest_oak_LOD0\.glb[\s\S]*Forest_oak_LOD1\.glb[\s\S]*Forest_oak\.noortree\.json[\s\S]*Forest_oak\.manifest\.json/.test(await page.textContent('#ex-model-preview')));
+      await page.selectOption('#ex-model-layout', 'unreal');
+      await waitFn(page, () => /SM_ForestOak/.test(document.querySelector('#ex-model-preview').textContent));
+      check('engine layouts name models their way (Unreal: Content/Broadleaf/…/SM_)', /Content\/Broadleaf\/ForestOak/.test(await page.textContent('#ex-model-preview')));
+      await page.selectOption('#ab-lod-files', 'one');
+      await page.selectOption('#ab-tex-size', '2048');
+      await page.click('#ab-export');
+      await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
+      const ex = (await AM()).exports[0];
+      check('Export sends the recipe, the texture size and the levels choice', ex.recipe.name === 'Forest oak' && ex.textureSize === 2048 && ex.lodFiles === 'one' && ex.layout === 'unreal');
+      await waitFn(page, () => !!document.querySelector('#ab-reveal'));
+      await page.click('#ab-reveal');
+      check('…and the folder can be shown', (await AM()).opened === 'D:\\Game\\Trees');
+      if (shots) {
+        await page.click('#assetbench [data-tab="tree"]');
+        await page.selectOption('#ab-view', 'shaded');
+        await page.waitForTimeout(400);
+        await page.screenshot({ path: `${shots}/65-asset-bench.png` });
+      }
+      check('no page errors in the Asset Bench', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

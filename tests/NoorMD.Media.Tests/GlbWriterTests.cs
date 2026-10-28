@@ -166,5 +166,21 @@ public class GlbWriterTests
 /// <summary>Generated assets the validator checks (filled in as the generators arrive).</summary>
 internal static class AssetSamples
 {
-    public static IEnumerable<(string Name, Asset3D Asset)> All() => [];
+    public static IEnumerable<(string Name, Asset3D Asset)> All()
+    {
+        foreach (var (preset, mode) in new[] { ("oak", "merged"), ("pine", "separate"), ("stylized-oak", "mixed"), ("stylized-dead", "merged") })
+        {
+            var r = TreePresets.Make(preset);
+            r.Branches = mode;
+            r.Quality = "low";
+            r.Lods = 2;
+            var build = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64 });
+            for (var i = 0; i < build.Lods.Count; i++) yield return ($"tree-{preset}-{mode}-lod{i}", build.Lods[i]);
+        }
+        var colour = TreePresets.Make("birch");
+        colour.WindData = "color";
+        colour.Quality = "low";
+        colour.Lods = 1;
+        yield return ("tree-birch-colour-wind", TreeBuilder.Build(colour, new TreeBuilder.Options { TextureSize = 0 }).Lods[0]);
+    }
 }

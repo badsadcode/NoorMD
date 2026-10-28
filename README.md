@@ -162,6 +162,18 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   have reminders: shown in the app, and near the clock with a taskbar flash when NoorMD is in the background; what
   came due while NoorMD was closed is shown when it starts. Import and export .ics files (Google, Outlook, Apple
   and other calendars). Kept on your computer, saved safely with a backup.
+- **Asset Bench** (Ctrl+Alt+M): game-ready trees, realistic or stylized (the chunky, painted fantasy look). A
+  tree grows from a recipe (trunk, roots, up to three levels of branches, crown shape, lean, wobble, twist), and its
+  wood is one organic surface: limbs grow out of the trunk with smooth collars, the base flares into roots, forks
+  blend; it is not made of scaled cylinders. Keep the branches merged in one welded mesh, separate (each limb its
+  own mesh, its pivot where it leaves the trunk, to animate or break off), or mixed (thick limbs welded, thin ones
+  separate). Leaves are alpha cards from a generated leaf atlas (broad, round, maple-like or needles), puffy painted
+  clumps, or clumps with a leafy edge; bark from a Texture Bench material or a plain colour. Every tree is
+  simplified to a triangle budget with levels of detail, carries wind data (trunk sway, branch bend, leaf flutter,
+  phase) in its UVs or vertex colours, and is previewed in 3D exactly as exported, with the wireframe, each part
+  in its own colour, the wind data, and the wind playing. Export GLB files (Y up, metres, the pivot at the base,
+  textures inside) with the recipe and a manifest beside them, to a folder or a game project (Godot, Unity, Unreal
+  layouts). Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

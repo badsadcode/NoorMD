@@ -29,7 +29,7 @@ public partial class MainWindow
             folder = p.TryGetProperty("folderPattern", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() ?? "" : "";
             file = p.TryGetProperty("filePattern", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() ?? "" : "";
             if (folder.Length > ExportLayouts.MaxPattern || file.Length > ExportLayouts.MaxPattern) throw new BridgeError("That pattern is too long.");
-            if (file.Trim().Length == 0) file = bench switch { "sound" => "{name}_{n}", "music" => "{name}", _ => "{name}_{map}" };
+            if (file.Trim().Length == 0) file = bench switch { "sound" => "{name}_{n}", "music" or "model" => "{name}", _ => "{name}_{map}" };
         }
         else
         {
@@ -39,6 +39,7 @@ public partial class MainWindow
             {
                 "sound" => (layout.SoundFolder, layout.SoundFile),
                 "music" => (layout.MusicFolder, layout.MusicFile),
+                "model" => (layout.ModelFolder, layout.ModelFile),
                 _ => (layout.TextureFolder, layout.TextureFile),
             };
         }
@@ -78,7 +79,7 @@ public partial class MainWindow
     private object ExportProjectsPayload() => new
     {
         projects = ExportProjects.List().Select(p => new { id = p.Id, name = p.Name, root = p.Root, missing = !Directory.Exists(p.Root) }),
-        layouts = ExportLayouts.All.Select(l => new { id = l.Id, name = l.Name, description = l.Description, texture = new { folder = l.TextureFolder, file = l.TextureFile }, sound = new { folder = l.SoundFolder, file = l.SoundFile }, music = new { folder = l.MusicFolder, file = l.MusicFile } }),
+        layouts = ExportLayouts.All.Select(l => new { id = l.Id, name = l.Name, description = l.Description, texture = new { folder = l.TextureFolder, file = l.TextureFile }, sound = new { folder = l.SoundFolder, file = l.SoundFile }, music = new { folder = l.MusicFolder, file = l.MusicFile }, model = new { folder = l.ModelFolder, file = l.ModelFile } }),
     };
 
     /// <summary>The tokens of a material or sound: its name, family and size; a map's tokens are added per file.</summary>
@@ -131,7 +132,7 @@ public partial class MainWindow
             case "export.plan":
             {
                 // A preview of where the files will go, as relative paths (and under which project).
-                var bench = req.GetString("bench", 10) switch { "sound" => "sound", "music" => "music", _ => "texture" };
+                var bench = req.GetString("bench", 10) switch { "sound" => "sound", "music" => "music", "model" => "model", _ => "texture" };
                 var place = ExportPlaceFrom(p, bench);
                 var name = req.GetString("name", 200) ?? "Untitled";
                 var tokens = ExportTokens(name, req.GetString("family", 80) ?? "", (int)(Json.OptDouble(p, "size") ?? 0), place.Project?.Name);
@@ -149,6 +150,15 @@ public partial class MainWindow
                         files.Add(ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, t), name) + ".png");
                     }
                     files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noortex.json");
+                }
+                else if (bench == "model")
+                {
+                    var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), name);
+                    var lods = Math.Clamp((int)(Json.OptDouble(p, "lods") ?? 1), 1, 6);
+                    if (lods > 1 && req.GetString("lodFiles", 10) != "one") for (var i = 0; i < lods; i++) files.Add($"{file}_LOD{i}.glb");
+                    else files.Add(file + ".glb");
+                    files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noortree.json");
+                    files.Add(ExportLayouts.FileName(tokens["name"], name) + ".manifest.json");
                 }
                 else if (bench == "music")
                 {

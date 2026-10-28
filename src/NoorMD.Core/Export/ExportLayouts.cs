@@ -7,7 +7,7 @@ namespace NoorMD.Core.Export;
 
 /// <summary>
 /// Where a bench's export goes inside the folder you choose (or a game project's folder), and what its files are
-/// called: a folder pattern and a file-name pattern with tokens. Texture Bench, Sound Bench and NoorSequencer share the templates.
+/// called: a folder pattern and a file-name pattern with tokens. Texture Bench, Sound Bench, NoorSequencer and the Asset Bench share the templates.
 /// </summary>
 /// <param name="TextureFolder">Folder for a material's maps, recipe and paintings.</param>
 /// <param name="TextureFile">A map's file name (without .png).</param>
@@ -15,19 +15,21 @@ namespace NoorMD.Core.Export;
 /// <param name="SoundFile">A sound file's name (without .wav); {n} is the variation (01, 02…), dropped when there is one.</param>
 /// <param name="MusicFolder">Folder for a song's WAV, loop, stems, MIDI and recipe.</param>
 /// <param name="MusicFile">A song file's name (without the extension; the loop adds _loop).</param>
+/// <param name="ModelFolder">Folder for a 3D asset's files (GLB, recipe, manifest).</param>
+/// <param name="ModelFile">A 3D asset's file name (without .glb; separate levels of detail add _LOD0, _LOD1…).</param>
 public sealed record ExportLayout(string Id, string Name, string Description, string TextureFolder, string TextureFile, string SoundFolder, string SoundFile,
-    string MusicFolder = "", string MusicFile = "{name}");
+    string MusicFolder = "", string MusicFile = "{name}", string ModelFolder = "", string ModelFile = "{name}");
 
 public static class ExportLayouts
 {
     public static readonly IReadOnlyList<ExportLayout> All =
     [
-        new("flat", "Flat: everything in the folder", "The files go straight into the folder.", "", "{name}_{map}", "", "{name}_{n}", "", "{name}"),
-        new("per-item", "A folder for each", "Its own folder for each material or sound, named after it.", "{name}", "{name}_{map}", "{name}", "{name}_{n}", "{name}", "{name}"),
-        new("godot", "Godot", "res:// style: lower-case folders and snake_case names.", "assets/materials/{name_snake}", "{name_snake}_{map}", "assets/audio/sfx/{name_snake}", "{name_snake}_{n}", "assets/audio/music/{name_snake}", "{name_snake}"),
-        new("unity", "Unity", "Assets/… with PascalCase names.", "Assets/Materials/{Name}/Textures", "{Name}_{Map}", "Assets/Audio/SFX/{Name}", "{Name}_{n}", "Assets/Audio/Music/{Name}", "{Name}"),
-        new("unreal", "Unreal Engine", "Content/… with the usual prefixes: T_ for textures, A_ for audio, short map codes (BC, N, ORM).", "Content/Materials/{Name}", "T_{Name}_{MAP}", "Content/Audio/SFX/{Name}", "A_{Name}_{n}", "Content/Audio/Music/{Name}", "A_{Name}"),
-        new("by-size", "By size or kind", "Textures by their size, sounds and music by their family.", "Textures/{size}/{name}", "{name}_{map}", "Audio/{family}/{name}", "{name}_{n}", "Audio/Music/{family}/{name}", "{name}"),
+        new("flat", "Flat: everything in the folder", "The files go straight into the folder.", "", "{name}_{map}", "", "{name}_{n}", "", "{name}", "", "{name}"),
+        new("per-item", "A folder for each", "Its own folder for each material, sound or model, named after it.", "{name}", "{name}_{map}", "{name}", "{name}_{n}", "{name}", "{name}", "{name}", "{name}"),
+        new("godot", "Godot", "res:// style: lower-case folders and snake_case names.", "assets/materials/{name_snake}", "{name_snake}_{map}", "assets/audio/sfx/{name_snake}", "{name_snake}_{n}", "assets/audio/music/{name_snake}", "{name_snake}", "assets/models/{family_snake}/{name_snake}", "{name_snake}"),
+        new("unity", "Unity", "Assets/… with PascalCase names.", "Assets/Materials/{Name}/Textures", "{Name}_{Map}", "Assets/Audio/SFX/{Name}", "{Name}_{n}", "Assets/Audio/Music/{Name}", "{Name}", "Assets/Models/{Family}/{Name}", "{Name}"),
+        new("unreal", "Unreal Engine", "Content/… with the usual prefixes: T_ for textures, A_ for audio, SM_ for meshes, short map codes (BC, N, ORM).", "Content/Materials/{Name}", "T_{Name}_{MAP}", "Content/Audio/SFX/{Name}", "A_{Name}_{n}", "Content/Audio/Music/{Name}", "A_{Name}", "Content/{Family}/{Name}", "SM_{Name}"),
+        new("by-size", "By size or kind", "Textures by their size; sounds, music and models by their family.", "Textures/{size}/{name}", "{name}_{map}", "Audio/{family}/{name}", "{name}_{n}", "Audio/Music/{family}/{name}", "{name}", "Models/{family}/{name}", "{name}"),
     ];
 
     public static ExportLayout? Get(string? id) => All.FirstOrDefault(l => l.Id == id);

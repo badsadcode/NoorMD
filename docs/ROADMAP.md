@@ -42,6 +42,10 @@ first, and anything that conflicts with it waits.
 - Calendar, stage 1 (entries, repeats, birthdays with ages, reminders in the app and near the clock, month, week
   and agenda views, search, .ics import and export): preview.52. Next: stage 2 (notes, public holidays, streams on
   the Stream Desk). See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
+- Asset Bench, stage 1 (trees: skeleton growth, welded implicit wood with collars and root flare, merged, separate
+  or mixed branches, leaf cards, clumps, wind data, levels of detail, GLB export checked by the Khronos validator,
+  the 3D preview): preview.53. Next: stage 2 (rocks, realistic to hyper-realistic and stylized). See
+  [ASSET_BENCH_PLAN.md](ASSET_BENCH_PLAN.md).
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

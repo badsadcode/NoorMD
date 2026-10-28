@@ -42,6 +42,9 @@ function serve() {
     if (vid) { serveMedia(Number(vid[1]), req, res, true); return; }
     if (/^\/_sub\/\d+\/0$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }); res.end('WEBVTT\n\n00:00:00.500 --> 00:00:05.000\nHello from the subtitles\n'); return; }
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
+    // Asset Bench previews: real GLBs made by the C# tree builder ("s" keys: separate branches).
+    const glb = /^\/_asset\/(k\d+)(s?)\/lod(\d)\.glb$/.exec(url.pathname);
+    if (glb) { const f = glb[2] ? 'tree-separate.glb' : `tree-lod${Math.min(1, Number(glb[3]))}.glb`; res.writeHead(200, { 'Content-Type': 'model/gltf-binary' }); res.end(fs.readFileSync(path.join(FIXTURES, f))); return; }
     const pic = /^\/_(img|thumb)\/(\d+)$/.exec(url.pathname); // Gallery: every picture id under 900 is the same small photo
     if (pic) { if (Number(pic[2]) >= 900) { res.writeHead(404); res.end(); return; } res.writeHead(200, { 'Content-Type': 'image/jpeg' }); res.end(fs.readFileSync(path.join(FIXTURES, 'photo-exif.jpg'))); return; }
     if (url.pathname.startsWith('/_hubicon/')) { res.writeHead(200, { 'Content-Type': 'image/png' }); res.end(Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M9QzwAEjDAGNzYAAA1bAgNOzQdTAAAAAElFTkSuQmCC', 'base64')); return; }
@@ -165,6 +168,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('sound.')) { try { return reply(m.id, true, soundMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('texture.')) { try { return reply(m.id, true, textureMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -447,12 +451,49 @@ function mockHostScript(initial) {
   const EXP = { projects: [], plans: [], added: 0 };
   state.export = EXP;
   const LAYOUTS = [
-    { id: 'flat', name: 'Flat: everything in the folder', description: '', texture: { folder: '', file: '{name}_{map}' }, sound: { folder: '', file: '{name}_{n}' }, music: { folder: '', file: '{name}' } },
-    { id: 'per-item', name: 'A folder for each', description: '', texture: { folder: '{name}', file: '{name}_{map}' }, sound: { folder: '{name}', file: '{name}_{n}' }, music: { folder: '{name}', file: '{name}' } },
-    { id: 'godot', name: 'Godot', description: '', texture: { folder: 'assets/materials/{name_snake}', file: '{name_snake}_{map}' }, sound: { folder: 'assets/audio/sfx/{name_snake}', file: '{name_snake}_{n}' }, music: { folder: 'assets/audio/music/{name_snake}', file: '{name_snake}' } },
-    { id: 'unity', name: 'Unity', description: '', texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' }, music: { folder: 'Assets/Audio/Music/{Name}', file: '{Name}' } },
-    { id: 'unreal', name: 'Unreal Engine', description: '', texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' }, music: { folder: 'Content/Audio/Music/{Name}', file: 'A_{Name}' } },
+    { id: 'flat', name: 'Flat: everything in the folder', description: '', texture: { folder: '', file: '{name}_{map}' }, sound: { folder: '', file: '{name}_{n}' }, music: { folder: '', file: '{name}' }, model: { folder: '', file: '{name}' } },
+    { id: 'per-item', name: 'A folder for each', description: '', model: { folder: '{name}', file: '{name}' }, texture: { folder: '{name}', file: '{name}_{map}' }, sound: { folder: '{name}', file: '{name}_{n}' }, music: { folder: '{name}', file: '{name}' } },
+    { id: 'godot', name: 'Godot', description: '', model: { folder: 'assets/models/{family_snake}/{name_snake}', file: '{name_snake}' }, texture: { folder: 'assets/materials/{name_snake}', file: '{name_snake}_{map}' }, sound: { folder: 'assets/audio/sfx/{name_snake}', file: '{name_snake}_{n}' }, music: { folder: 'assets/audio/music/{name_snake}', file: '{name_snake}' } },
+    { id: 'unity', name: 'Unity', description: '', model: { folder: 'Assets/Models/{Family}/{Name}', file: '{Name}' }, texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' }, music: { folder: 'Assets/Audio/Music/{Name}', file: '{Name}' } },
+    { id: 'unreal', name: 'Unreal Engine', description: '', model: { folder: 'Content/{Family}/{Name}', file: 'SM_{Name}' }, texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' }, music: { folder: 'Content/Audio/Music/{Name}', file: 'A_{Name}' } },
   ];
+  // Asset Bench: two real presets (from TreePresets), builds that point at the fixture GLBs, exports recorded.
+  const ASSET = { recipes: {"oak":{"version":1,"name":"Oak","seed":1,"archetype":"broadleaf","style":"realistic","height":10,"trunkRadius":0.35,"taper":0.7,"crownStart":0.35,"lean":3,"wobble":4,"twist":0,"flare":0.6,"roots":6,"collar":0.6,"shape":"hemispherical","levels":[{"count":7,"start":0.35,"angle":55,"angleSpread":15,"length":0.62,"lengthSpread":0.15,"radius":0.6,"bend":12,"wobble":10,"spiral":137.5,"whorl":1},{"count":9,"start":0.15,"angle":45,"angleSpread":12,"length":0.5,"lengthSpread":0.15,"radius":0.5,"bend":8,"wobble":12,"spiral":137.5,"whorl":1},{"count":6,"start":0.2,"angle":50,"angleSpread":12,"length":0.4,"lengthSpread":0.15,"radius":0.5,"bend":0,"wobble":15,"spiral":137.5,"whorl":1}],"branches":"merged","mixedRadius":0.08,"quality":"medium","budget":8000,"lods":3,"flatShading":false,"foliage":"cards","leafShape":"broad","leafDensity":0.65,"leafSize":0.9,"leafColor":"#3f6b26","leafColor2":"#7a9a33","crownNormals":0.6,"barkColor":"#5a4636","barkMaterial":"wood-bark","barkTile":1,"wind":true,"windData":"uv"},"stylized":{"version":1,"name":"Stylized oak","seed":1,"archetype":"broadleaf","style":"stylized","height":7,"trunkRadius":0.45,"taper":0.6,"crownStart":0.4,"lean":3,"wobble":6,"twist":0.6,"flare":0.9,"roots":5,"collar":0.9,"shape":"spherical","levels":[{"count":5,"start":0.45,"angle":50,"angleSpread":12,"length":0.6,"lengthSpread":0.15,"radius":0.65,"bend":25,"wobble":10,"spiral":137.5,"whorl":1},{"count":4,"start":0.3,"angle":40,"angleSpread":12,"length":0.5,"lengthSpread":0.15,"radius":0.55,"bend":20,"wobble":10,"spiral":137.5,"whorl":1}],"branches":"merged","mixedRadius":0.08,"quality":"low","budget":3000,"lods":3,"flatShading":false,"foliage":"both","leafShape":"broad","leafDensity":0.7,"leafSize":1.3,"leafColor":"#3e7d2a","leafColor2":"#b7d14a","crownNormals":0.6,"barkColor":"#6e4a2f","barkMaterial":"","barkTile":1,"wind":true,"windData":"uv"}}, builds: [], exports: [], mine: [], opened: null };
+  state.assets = ASSET;
+  function assetMock(type, p) {
+    const builtIn = [{ id: 'oak', name: 'Oak (realistic)', description: 'A broad crown.', style: 'realistic', archetype: 'broadleaf' }, { id: 'stylized-oak', name: 'Stylized oak', description: 'Chunky and puffy.', style: 'stylized', archetype: 'broadleaf' }];
+    const mine = () => ASSET.mine.map((x) => ({ id: x.id, name: x.recipe.name, style: x.recipe.style, archetype: x.recipe.archetype, description: 'Your preset' }));
+    switch (type) {
+      case 'asset.presets': return { builtIn, mine: mine(), barks: [{ id: 'wood-bark', name: 'Tree bark' }, { id: 'wood-planks', name: 'Wooden planks' }] };
+      case 'asset.preset': {
+        const own = ASSET.mine.find((x) => x.id === p.id);
+        if (own) return JSON.parse(JSON.stringify(own.recipe));
+        const r = ASSET.recipes[p.id === 'stylized-oak' ? 'stylized' : p.id];
+        if (!r) throw new Error('Unknown preset.');
+        return JSON.parse(JSON.stringify(r));
+      }
+      case 'asset.build': {
+        ASSET.builds.push(JSON.parse(JSON.stringify(p.recipe)));
+        const key = 'k' + ASSET.builds.length + (p.recipe.branches === 'separate' ? 's' : '');
+        const lods = Math.max(1, Math.min(p.recipe.lods, 2));
+        const separate = p.recipe.branches === 'separate';
+        return { key, ms: 840, branches: 26, notes: ['3 thin branch ends are tubes (thinner than the low quality grid).'],
+          lods: Array.from({ length: lods }, (_, i) => ({ url: `/_asset/${key}/lod${i}.glb`, triangles: i ? 1524 : 2454, vertices: i ? 2900 : 4800, bytes: i ? 75384 : 117984 })),
+          nodes: separate ? ['Trunk', 'Branch_01', 'Branch_01_Leaves'].map((name) => ({ name, triangles: 300 })) : [{ name: 'Trunk', triangles: 1200 }, { name: 'Leaves', triangles: 1254 }] };
+      }
+      case 'asset.export': {
+        ASSET.exports.push(JSON.parse(JSON.stringify(p)));
+        const stem = p.recipe.name.replace(/ /g, '_');
+        const files = p.lodFiles === 'one' || p.recipe.lods < 2 ? [stem + '.glb'] : Array.from({ length: p.recipe.lods }, (_, i) => `${stem}_LOD${i}.glb`);
+        return { folder: 'D:\\Game\\Trees', files, recipe: stem + '.noortree.json', manifest: stem + '.manifest.json', project: null, relative: '.', triangles: [2454] };
+      }
+      case 'asset.reveal': ASSET.opened = p.folder; return null;
+      case 'asset.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ASSET.mine.some((x) => x.id === id); ASSET.mine = ASSET.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
+      case 'asset.delete': ASSET.mine = ASSET.mine.filter((x) => x.id !== p.id); return { mine: mine() };
+      case 'asset.open': return { recipe: { ...JSON.parse(JSON.stringify(ASSET.recipes.oak)), name: 'Opened tree' } };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
   // NoorCalendar: entries relative to today, and a small copy of the engine's repeats (enough to draw the views).
   const pad2 = (n) => String(n).padStart(2, '0');
   const calDay = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
@@ -594,14 +635,18 @@ function mockHostScript(initial) {
       case 'export.plan': {
         EXP.plans.push(JSON.parse(JSON.stringify(p)));
         const words = (p.name || 'Untitled').split(/[^A-Za-z0-9]+/).filter(Boolean);
-        const t = { name: words.join('_'), Name: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(''), name_snake: words.map((w) => w.toLowerCase()).join('_') };
+        const fam = (p.family || 'Custom').split(/[^A-Za-z0-9]+/).filter(Boolean);
+        const t = { name: words.join('_'), Name: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(''), name_snake: words.map((w) => w.toLowerCase()).join('_'),
+          family: fam.join('_'), Family: fam.map((w) => w[0].toUpperCase() + w.slice(1)).join(''), family_snake: fam.map((w) => w.toLowerCase()).join('_') };
         const l = LAYOUTS.find((x) => x.id === p.layout);
-        const pat = l ? l[p.bench] : { folder: p.folderPattern || '', file: p.filePattern || (p.bench === 'sound' ? '{name}_{n}' : '{name}_{map}') };
+        const pat = l ? l[p.bench] : { folder: p.folderPattern || '', file: p.filePattern || (p.bench === 'sound' ? '{name}_{n}' : p.bench === 'model' ? '{name}' : '{name}_{map}') };
         const fill = (s, more) => s.replace(/\{([^}]+)\}/g, (_, k) => ({ ...t, ...more })[k] ?? '');
         const maps = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target] || ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'];
         const codes = { albedo: 'BC', basecolor: 'BC', normal: 'N', orm: 'ORM', height: 'H', roughness: 'R', ao: 'AO', metallic: 'M' };
         const exts = p.format === 'both' ? ['.wav', '.ogg'] : [p.format === 'ogg' ? '.ogg' : '.wav'];
-        const files = p.bench === 'music'
+        const files = p.bench === 'model'
+          ? [...(p.lods > 1 && p.lodFiles !== 'one' ? Array.from({ length: p.lods }, (_, i) => `${fill(pat.file)}_LOD${i}.glb`) : [fill(pat.file) + '.glb']), t.name + '.noortree.json', t.name + '.manifest.json']
+          : p.bench === 'music'
           ? [...exts.flatMap((e) => [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + e]), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop' + e] : []),
               ...(p.parts && p.parts.layers ? (p.layers || []).map((l) => `${fill(pat.file)}_${l.split(/\s+/).join('_')}_loop${e}`) : [])]), ...(p.parts && p.parts.midi ? [fill(pat.file) + '.mid'] : [])]
           : p.bench === 'sound'

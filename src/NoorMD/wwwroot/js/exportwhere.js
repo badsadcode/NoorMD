@@ -9,6 +9,7 @@ window.NoorExportWhere = (() => {
     texture: '{name} {Name} {name_snake} {name-kebab} · {map} {Map} {MAP} (BC, N, ORM…) · {size} {family} {project}',
     sound: '{name} {Name} {name_snake} {name-kebab} · {n} (variation 01, 02…) · {family} {project}',
     music: '{name} {Name} {name_snake} {name-kebab} · {family} {project} (the loop adds _loop)',
+    model: '{name} {Name} {name_snake} {name-kebab} · {family} {Family} {family_snake} (broadleaf, conifer…) · {project} (levels of detail add _LOD0, _LOD1…)',
   };
 
   function prefsOf(bench) {
@@ -28,7 +29,7 @@ window.NoorExportWhere = (() => {
     const project = el('select', { id: `ex-${bench}-project`, 'aria-label': 'Into' });
     const layout = el('select', { id: `ex-${bench}-layout`, 'aria-label': 'Arranged' });
     const folderIn = el('input', { type: 'text', id: `ex-${bench}-folder`, spellcheck: 'false', maxlength: '200', 'aria-label': 'Folder pattern', placeholder: 'e.g. Art/{family}/{name}' });
-    const fileIn = el('input', { type: 'text', id: `ex-${bench}-file`, spellcheck: 'false', maxlength: '200', 'aria-label': 'File name pattern', placeholder: bench === 'sound' ? '{name}_{n}' : bench === 'music' ? '{name}' : '{name}_{map}' });
+    const fileIn = el('input', { type: 'text', id: `ex-${bench}-file`, spellcheck: 'false', maxlength: '200', 'aria-label': 'File name pattern', placeholder: bench === 'sound' ? '{name}_{n}' : bench === 'music' || bench === 'model' ? '{name}' : '{name}_{map}' });
     const custom = el('div', { class: 'ex-custom', hidden: true },
       el('label', { class: 'sb-inline' }, el('span', { text: 'Folders' }), folderIn),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Files' }), fileIn),

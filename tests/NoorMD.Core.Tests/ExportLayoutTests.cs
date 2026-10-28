@@ -9,7 +9,8 @@ public class ExportLayoutTests
     {
         var t = ExportLayouts.NameTokens(name);
         foreach (var kv in ExportLayouts.MapTokens(map)) t[kv.Key] = kv.Value;
-        t["size"] = size; t["family"] = family;
+        t["size"] = size;
+        foreach (var kv in ExportLayouts.NameTokens(family, "family")) t[kv.Key] = kv.Value;   // as the app does
         return t;
     }
 
@@ -47,6 +48,23 @@ public class ExportLayoutTests
         Assert.Equal("Assets/Audio/Music/CozyVillage/CozyVillage.wav", Music("unity", "Cozy village"));
         Assert.Equal("Content/Audio/Music/CozyVillage/A_CozyVillage.wav", Music("unreal", "Cozy village"));
         Assert.Equal("Audio/Music/Exploration/Cozy_village/Cozy_village.wav", Music("by-size", "Cozy village"));
+    }
+
+    [Fact]
+    public void Models_go_to_each_engines_model_folder_by_kind()
+    {
+        string Model(string layout, string name)
+        {
+            var l = ExportLayouts.Get(layout)!;
+            var t = T(name, family: "Broadleaf");
+            return string.Join('/', [.. ExportLayouts.Folders(ExportLayouts.Expand(l.ModelFolder, t)), ExportLayouts.FileName(ExportLayouts.Expand(l.ModelFile, t), name) + ".glb"]);
+        }
+        Assert.Equal("Old_oak.glb", Model("flat", "Old oak"));
+        Assert.Equal("Old_oak/Old_oak.glb", Model("per-item", "Old oak"));
+        Assert.Equal("assets/models/broadleaf/old_oak/old_oak.glb", Model("godot", "Old oak"));
+        Assert.Equal("Assets/Models/Broadleaf/OldOak/OldOak.glb", Model("unity", "Old oak"));
+        Assert.Equal("Content/Broadleaf/OldOak/SM_OldOak.glb", Model("unreal", "Old oak"));
+        Assert.Equal("Models/Broadleaf/Old_oak/Old_oak.glb", Model("by-size", "Old oak"));
     }
 
     [Fact]
