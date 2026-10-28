@@ -537,11 +537,12 @@ window.NoorAssets = (() => {
       el('div', { class: 'sb-row' }, el('span', { text: 'Triangles per level' }), ...boxes), back);
   }
 
-  function pixelChoice() {
-    const s = el('select', { 'aria-label': 'Pixel art', 'data-key': 'pixels' }, ...[[0, 'Off'], [32, '32 px'], [64, '64 px'], [128, '128 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
-    s.value = String(recipe.pixels || 0);
-    s.addEventListener('change', () => { recipe.pixels = Number(s.value); changed(false); });
-    return el('label', { class: 'sb-inline ab-choice' }, el('span', { text: 'Pixel art' }), s);
+  /** A number picked from a list (the plain choice() keeps strings). */
+  function numberChoice(key, label, options, hint, rerender) {
+    const s = el('select', { 'aria-label': label, 'data-key': key, title: hint || '' }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
+    s.value = String(recipe[key] || 0);
+    s.addEventListener('change', () => { recipe[key] = Number(s.value); changed(!!rerender); });
+    return el('label', { class: 'sb-inline ab-choice' }, el('span', { text: label }), s);
   }
 
   function meshPane() {
@@ -560,9 +561,12 @@ window.NoorAssets = (() => {
         check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)'),
         check(recipe, 'billboard', 'Billboard as the last level (the tree drawn on crossed cards, for far away)', 'Eight triangles for a whole tree: it is drawn from its sides into a texture and shown on crossed cards', true),
         recipe.billboard ? slider(recipe, ['billboardViews', 'Billboard sides', 2, 4, 1, 'int', 'How many crossed cards (each drawn from its own side)']) : null),
-      section('Pixel art',
-        pixelChoice(),
-        el('small', { class: 'pref-hint', text: 'Every texture a few dozen pixels in a few colours, the leaves cut out hard, and the files tell engines to sample them nearest: crisp square pixels, the pixel-art game look. No normal or ORM maps.' })),
+      section('Texture pixels',
+        el('div', { class: 'sb-row' },
+          numberChoice('pixels', 'Small textures', [[0, 'Off (the export’s size)'], [32, '32 px'], [64, '64 px'], [128, '128 px']], 'Every map (colour, normal, ORM) this many pixels across, the leaves cut out hard: for a game that draws its trees with tiny textures. Still full colour and full PBR', true),
+          recipe.pixels > 0 ? numberChoice('pixelColours', 'Palette', [[0, 'All colours'], [8, '8 colours'], [12, '12 colours'], [16, '16 colours'], [32, '32 colours']], 'Reduce the colours, for a hand-made pixel-art palette') : null),
+        recipe.pixels > 0 ? null : check(recipe, 'sharpPixels', 'Sharp pixels (nearest-neighbour sampling)', 'Every texture drawn as crisp square pixels instead of smoothed between them, in the preview and in engines (the files say NEAREST)'),
+        el('small', { class: 'pref-hint', text: recipe.pixels > 0 ? 'Small textures are always drawn sharp (nearest neighbour): crisp pixels, no blur.' : 'Smooth by default; sharp for a pixel look at any size.' })),
       section('Shading',
         slider(recipe, ['shading', 'Painted shading', 0, 1, 0.01, 'pct', 'In the vertex colours: crowns darker inside and below, lighter on top; trunks darker near the ground. Engines multiply it with the textures. Off when the wind data uses the vertex colours'])),
       section('Wind',

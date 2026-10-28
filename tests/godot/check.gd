@@ -95,6 +95,13 @@ func _init() -> void:
 	check(wind_materials(far).all(func(m): return m is ShaderMaterial), "…but does get the wind material")
 	far.free()
 
+	# Small textures (a Thornwake tree): drawn as crisp pixels, the PBR maps kept.
+	var small: Node = load("res://trees/pine_small_LOD0.glb").instantiate()
+	var sm := wind_materials(small).filter(func(m): return m != null)
+	check(sm.size() > 0 and sm.all(func(m): return m.get_shader_parameter("sharp_pixels") == true and m.get_shader_parameter("albedo_sharp") is Texture2D), "small textures are sampled sharp (nearest)")
+	check(sm.any(func(m): return m.get_shader_parameter("use_normal_texture") == true and m.get_shader_parameter("normal_sharp") is Texture2D), "…and keep their normal maps")
+	small.free()
+
 	# Not ours: untouched.
 	var plain: Node = load("res://trees/plain.glb").instantiate()
 	check(wind_materials(plain).all(func(m): return m == null) and meshes(plain).all(func(m): return m.visibility_range_end == 0.0), "a scene not made by NoorMD is left alone")

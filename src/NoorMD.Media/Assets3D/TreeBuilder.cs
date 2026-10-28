@@ -153,6 +153,8 @@ public static class TreeBuilder
                 bark.BaseColorPixels = RawImage.FromRgb(maps.Size, maps.Size, maps.Albedo);
                 bark.NormalPng = maps.Png("normal");
                 bark.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
+                bark.NormalPixels = RawImage.FromRgb(maps.Size, maps.Size, maps.Normal);
+                bark.OrmPixels = RawImage.FromRgb(maps.Size, maps.Size, Enumerable.Range(0, maps.Size * maps.Size).SelectMany(i => new[] { maps.Ao[i], maps.Roughness[i], maps.Metallic[i] }).ToArray());
                 bark.Roughness = 1;
             }
             catch (ArgumentException) { build.Notes.Add($"The bark material \"{recipe.BarkMaterial}\" was not found; a plain colour is used."); }
@@ -180,7 +182,7 @@ public static class TreeBuilder
             // Pixel art: the leaves' texture is that small copy in pixels, so the outlines fit its hard edges exactly.
             if (recipe.Pixels > 0)
             {
-                src = PixelArt.Make(src, recipe.Pixels);
+                src = PixelArt.Make(src, recipe.Pixels, recipe.PixelColours);
                 if (options.TextureSize > 0) Use(leafMat, src);
             }
             measureLeaves = src;
@@ -217,18 +219,28 @@ public static class TreeBuilder
             else clumpMat.BaseColor = Color(recipe.LeafColor);
         }
 
-        // Pixel art: every texture a few dozen pixels in a few colours, drawn nearest; no normal or ORM maps (the
-        // pixels are the detail).
+        // Small textures (a pixel look): every map shrunk to that size, each pixel the average of what it covers (the
+        // normals renormalized), the leaves cut out hard; a palette only when asked for. Still full PBR.
         if (recipe.Pixels > 0 && options.TextureSize > 0)
             foreach (var m in new[] { bark, leafMat, mossMat, capMat, clumpMat })
             {
                 if (m.BaseColorPixels == null) continue;
-                if (m != leafMat) Use(m, PixelArt.Make(m.BaseColorPixels, recipe.Pixels));
-                m.NormalPng = null;
-                m.OcclusionRoughnessMetallicPng = null;
-                m.Roughness = MathF.Max(m.Roughness, 0.9f);
-                m.Nearest = true;
+                if (m != leafMat) Use(m, PixelArt.Make(m.BaseColorPixels, recipe.Pixels, recipe.PixelColours));
+                m.NormalPng = m.NormalPixels != null ? PixelArt.Normals(m.NormalPixels, recipe.Pixels).Png() : null;
+                m.OcclusionRoughnessMetallicPng = m.OrmPixels != null ? PixelArt.Shrink(m.OrmPixels, recipe.Pixels).Png() : null;
             }
+        // Full PBR leaves: a normal map from the leaves' shape and an ORM map (the bark has its own).
+        if (options.TextureSize > 0)
+            foreach (var m in new[] { leafMat, mossMat })
+                if (m.BaseColorPixels != null && m.NormalPng == null)
+                {
+                    (m.NormalPng, m.OcclusionRoughnessMetallicPng) = LeafAtlas.Maps(m.BaseColorPixels);
+                    m.Roughness = 1;
+                }
+        // Sharp pixels: textures sampled nearest, in the files and the preview.
+        if (recipe.Pixels > 0 || recipe.SharpPixels)
+            foreach (var m in new[] { bark, leafMat, mossMat, capMat, clumpMat })
+                m.Nearest = true;
 
         var lodCount = Math.Min(recipe.Lods, options.MaxLods ?? recipe.Lods);
         var leafGrow = 1f;      // how much the leaf budget made the finest level's cards fewer and bigger
@@ -348,6 +360,7 @@ public static class TreeBuilder
                 // Pivots: a separate limb's node sits where it leaves its parent.
                 Offset(wood, -g.Pivot);
                 Offset(leaves, -g.Pivot);
+                if ((leafMat.NormalPng != null || mossMat.NormalPng != null) && leaves.VertexCount > 0) leaves.ComputeTangents();
                 var node = new Node3D { Name = g.Name, Translation = g.Pivot, Mesh = wood.TriangleCount > 0 ? wood : null };
                 if (leaves.TriangleCount > 0) node.Children.Add(new Node3D { Name = leaves.Name, Mesh = leaves });
                 if (g.Index == 0) { trunkNode = node; asset.Root.Children.Add(node); }

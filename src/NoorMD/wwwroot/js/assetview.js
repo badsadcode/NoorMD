@@ -41,6 +41,9 @@ window.NoorAssetView = (() => {
     }));
     const images = (json.images || []).map((im) => new Blob([viewBytes(im.bufferView)], { type: im.mimeType || 'image/png' }));
     const textures = (json.textures || []).map((t) => t.source);
+    // Images drawn sharp: a texture's sampler magnifying NEAREST (9728), as small pixel-look textures ask.
+    const samplers = json.samplers || [];
+    const nearest = new Set((json.textures || []).filter((t) => (samplers[t.sampler ?? -1] || {}).magFilter === 9728).map((t) => t.source));
     const materials = (json.materials || []).map((m) => {
       const pbr = m.pbrMetallicRoughness || {};
       const tex = (t) => (t && t.index !== undefined ? textures[t.index] : -1);
@@ -61,7 +64,7 @@ window.NoorAssetView = (() => {
     }
     const scene = (json.scenes || [])[json.scene || 0];
     (scene ? scene.nodes : []).forEach((i) => walk(i, ident()));
-    return { nodes, meshes, materials, images };
+    return { nodes, meshes, materials, images, nearest };
   }
 
   // ---------------------------------------------------------------- matrices (column-major)
@@ -236,7 +239,9 @@ window.NoorAssetView = (() => {
         gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
         gl.texImage2D(gl.TEXTURE_2D, 0, srgb ? gl.SRGB8_ALPHA8 : gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
         gl.generateMipmap(gl.TEXTURE_2D);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        const sharp = glb.nearest.has(i);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, sharp ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, sharp ? gl.NEAREST : gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
         return t;

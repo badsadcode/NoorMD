@@ -27,7 +27,7 @@ public static class GameProfiles
 {
     public static readonly IReadOnlyList<GameProfile> All =
     [
-        new("thornwake", "Thornwake", "Woodland trees in Thornwake's pixel-art look: three levels at the game's triangle budgets (it bakes its own far impostors, so no billboard), 64-pixel textures sampled nearest, a glTF file per level.",
+        new("thornwake", "Thornwake", "Trees for Thornwake: three levels at the game's triangle budgets (it bakes its own far impostors, so no billboard), full PBR textures (colour, normal, ORM) at the game's 64 pixels, sampled sharp, a glTF file per level.",
             "Thornwake", "other", "separate", false, "TREE_{species}_{variant}",
             """
             Thornwake reads exported files and the manifest only (docs/ASSET_SPEC.md, Part 1), and maps NoorMD's names
@@ -72,7 +72,8 @@ public static class GameProfiles
         if (recipe.Moss > 0) sb.Append(", `Moss` (alpha MASK)");
         sb.Append(".\n");
         if (recipe.Pixels > 0)
-            sb.Append("* Pixel art: textures ").Append(recipe.Pixels).Append(" × ").Append(recipe.Pixels).Append(" px, a small palette, hard alpha; the files' samplers say NEAREST — keep the engine's filter on nearest. No normal or ORM maps.\n");
+            sb.Append("* Textures ").Append(recipe.Pixels).Append(" × ").Append(recipe.Pixels).Append(" px, embedded, full PBR: colour (sRGB")
+              .Append(recipe.PixelColours > 0 ? $", {recipe.PixelColours} colours" : "").Append("), normal (OpenGL, Y+) and ORM (R occlusion, G roughness, B metallic); leaves cut out hard. The files' samplers say NEAREST — keep the engine's filter on nearest for crisp pixels.\n");
         else if (textureSize > 0)
             sb.Append("* Textures ").Append(textureSize).Append(" px, embedded: colour (sRGB), normal (OpenGL, Y+), ORM (R occlusion, G roughness, B metallic).\n");
         sb.Append(recipe.Wind

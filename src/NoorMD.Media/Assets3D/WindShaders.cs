@@ -21,6 +21,11 @@ public static class WindShaders
 
         uniform bool use_albedo_texture = true;
         uniform sampler2D albedo_texture : source_color, hint_default_white, filter_linear_mipmap_anisotropic, repeat_enable;
+        // Small textures drawn as crisp pixels: the same textures, sampled nearest (the plugin sets these for them).
+        uniform bool sharp_pixels = false;
+        uniform sampler2D albedo_sharp : source_color, hint_default_white, filter_nearest_mipmap, repeat_enable;
+        uniform sampler2D normal_sharp : hint_normal, filter_nearest_mipmap, repeat_enable;
+        uniform sampler2D orm_sharp : hint_default_white, filter_nearest_mipmap, repeat_enable;
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform bool use_alpha_cutoff = false;
         uniform float alpha_cutoff : hint_range(0.0, 1.0) = 0.5;
@@ -65,7 +70,7 @@ public static class WindShaders
         }
 
         void fragment() {
-        	vec4 tex = (use_albedo_texture ? texture(albedo_texture, UV) : vec4(1.0)) * albedo_tint;
+        	vec4 tex = (use_albedo_texture ? (sharp_pixels ? texture(albedo_sharp, UV) : texture(albedo_texture, UV)) : vec4(1.0)) * albedo_tint;
         	if (use_alpha_cutoff && tex.a < alpha_cutoff) {
         		discard;
         	}
@@ -73,13 +78,13 @@ public static class WindShaders
         	ROUGHNESS = roughness;
         	METALLIC = metallic;
         	if (use_orm_texture) {
-        		vec3 orm = texture(orm_texture, UV).rgb;
+        		vec3 orm = sharp_pixels ? texture(orm_sharp, UV).rgb : texture(orm_texture, UV).rgb;
         		AO = orm.r;
         		ROUGHNESS = roughness * orm.g;
         		METALLIC = metallic * orm.b;
         	}
         	if (use_normal_texture) {
-        		NORMAL_MAP = texture(normal_texture, UV).rgb;
+        		NORMAL_MAP = sharp_pixels ? texture(normal_sharp, UV).rgb : texture(normal_texture, UV).rgb;
         		NORMAL_MAP_DEPTH = normal_strength;
         	}
         	EMISSION = emission;

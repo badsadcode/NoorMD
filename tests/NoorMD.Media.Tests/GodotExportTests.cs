@@ -96,12 +96,12 @@ public class GodotExportTests
                 // GDScript: indented with tabs only, and the import script reads the same keys the export writes.
                 Assert.DoesNotContain(text.Split('\n'), l => l.StartsWith(' '));
                 if (name == "noor_tree_import.gd")
-                    foreach (var key in new[] { "noor_tree", "noor_lod", "noor_visible_from", "noor_visible_to", "noor_height", "noor_wind" }) Assert.Contains($"\"{key}\"", text);
+                    foreach (var key in new[] { "noor_tree", "noor_lod", "noor_visible_from", "noor_visible_to", "noor_height", "noor_wind", "noor_sharp" }) Assert.Contains($"\"{key}\"", text);
             }
         }
         var shader = GodotAddon.Files.Single(f => f.Name.EndsWith(".gdshader", StringComparison.Ordinal)).Text;
         Assert.Equal(shader.Count(c => c == '{'), shader.Count(c => c == '}'));
-        foreach (var uniform in new[] { "albedo_texture", "use_albedo_texture", "albedo_tint", "use_alpha_cutoff", "alpha_cutoff", "roughness", "metallic", "normal_texture", "use_normal_texture", "normal_strength", "orm_texture", "use_orm_texture", "emission", "wind_enabled", "wind_in_color", "vertex_shading", "tree_height" })
+        foreach (var uniform in new[] { "albedo_texture", "use_albedo_texture", "albedo_tint", "use_alpha_cutoff", "alpha_cutoff", "roughness", "metallic", "normal_texture", "use_normal_texture", "normal_strength", "orm_texture", "use_orm_texture", "emission", "wind_enabled", "wind_in_color", "vertex_shading", "tree_height", "sharp_pixels", "albedo_sharp", "normal_sharp", "orm_sharp" })
             Assert.Contains($" {uniform} ", shader);
 
         var dir = Path.Combine(Path.GetTempPath(), "noormd-godot-" + Guid.NewGuid().ToString("N"));
@@ -169,6 +169,8 @@ public class GodotExportTests
         File.WriteAllBytes(Path.Combine(dir, "trees", "birch_colour.glb"), GlbWriter.Write(TreeExport.OneFile(Build("birch", billboard: false, windData: "color"))));
         var mushroom = Build("fly-agaric");
         File.WriteAllBytes(Path.Combine(dir, "trees", "fly_agaric_LOD2.glb"), GlbWriter.Write(TreeExport.Level(mushroom, 2)));
+        var small = TreeBuilder.Build(TreePresets.Make("thornwake-pine"), new TreeBuilder.Options { TextureSize = 256 });
+        File.WriteAllBytes(Path.Combine(dir, "trees", "pine_small_LOD0.glb"), GlbWriter.Write(TreeExport.Level(small, 0)));
         // Not a NoorMD tree: must come through untouched.
         File.WriteAllBytes(Path.Combine(dir, "trees", "plain.glb"), GlbWriter.Write(GlbWriterTests.Sample()));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()) }));

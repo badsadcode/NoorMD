@@ -156,6 +156,63 @@ public static class LeafAtlas
     }
 
     /// <summary>A soft vertical gradient (dark at the bottom of the crown, light at the top) for stylized leaf clumps.</summary>
+    /// <summary>
+    /// A leaf picture's PBR maps, for engines that light leaves fully: a tangent-space normal map (OpenGL, green up)
+    /// from a height made of the leaves' coverage and brightness (raised blades, sunken edges and veins), and an ORM map
+    /// (R occlusion: darker where the leaves are thin and at their edges; G roughness: a waxy 0.5–0.7; B metallic 0).
+    /// Outside the leaves: flat and fully lit. Both PNG, RGB, the picture's size.
+    /// </summary>
+    public static (byte[] Normal, byte[] Orm) Maps(RawImage colour, float strength = 3)
+    {
+        var (normal, orm) = MapPixels(colour, strength);
+        return (PngWriter.Rgb(colour.Width, colour.Height, normal), PngWriter.Rgb(colour.Width, colour.Height, orm));
+    }
+
+    /// <summary>The same maps as RGB pixels (3 bytes each).</summary>
+    internal static (byte[] Normal, byte[] Orm) MapPixels(RawImage colour, float strength = 3)
+    {
+        int w = colour.Width, h = colour.Height;
+        var height = new float[w * h];
+        for (var i = 0; i < w * h; i++)
+        {
+            var a = colour.Rgba[i * 4 + 3] / 255f;
+            var luma = (colour.Rgba[i * 4] * 0.3f + colour.Rgba[i * 4 + 1] * 0.59f + colour.Rgba[i * 4 + 2] * 0.11f) / 255f;
+            height[i] = a * (0.55f + 0.45f * luma);
+        }
+        // A little blur, so the edges slope instead of stepping.
+        var soft = new float[w * h];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                float sum = 0;
+                for (var dy = -1; dy <= 1; dy++)
+                    for (var dx = -1; dx <= 1; dx++)
+                        sum += height[Math.Clamp(y + dy, 0, h - 1) * w + Math.Clamp(x + dx, 0, w - 1)];
+                soft[y * w + x] = sum / 9;
+            }
+        float H(int x, int y) => soft[Math.Clamp(y, 0, h - 1) * w + Math.Clamp(x, 0, w - 1)];
+        var normal = new byte[w * h * 3];
+        var orm = new byte[w * h * 3];
+        var scale = strength * w / 256f;
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * w + x;
+                // Image rows go down, so the slope towards +V (up the picture) is the row above minus the row below.
+                var dx = (H(x + 1, y) - H(x - 1, y)) * scale;
+                var dy = (H(x, y - 1) - H(x, y + 1)) * scale;
+                var n = Vector3.Normalize(new Vector3(-dx, -dy, 1));
+                normal[i * 3] = (byte)Math.Round((n.X * 0.5f + 0.5f) * 255);
+                normal[i * 3 + 1] = (byte)Math.Round((n.Y * 0.5f + 0.5f) * 255);
+                normal[i * 3 + 2] = (byte)Math.Round((n.Z * 0.5f + 0.5f) * 255);
+                var cover = colour.Rgba[i * 4 + 3] / 255f;
+                orm[i * 3] = (byte)Math.Round(255 * (cover <= 0 ? 1 : 0.7f + 0.3f * soft[i]));
+                orm[i * 3 + 1] = (byte)Math.Round(255 * (0.7f - 0.2f * soft[i]));
+                orm[i * 3 + 2] = 0;
+            }
+        return (normal, orm);
+    }
+
     public static byte[] Gradient(string color, string color2, int height = 64) => GradientPixels(color, color2, height).Png();
 
     public static RawImage GradientPixels(string color, string color2, int height = 64)

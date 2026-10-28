@@ -84,29 +84,61 @@ public class GameProfileTests
     }
 
     [Fact]
-    public void Pixel_art_is_small_few_coloured_hard_edged_and_sampled_nearest()
+    public void Small_textures_keep_full_pbr_and_colour_and_are_sampled_nearest()
     {
         var b = Build("thornwake-birch-green");
         var leaves = b.Lods[0].Materials.First(m => m.Name == "Leaves");
         var bark = b.Lods[0].Materials.First(m => m.Name == "Bark");
+        int Colours(Material3D m) => Enumerable.Range(0, m.BaseColorPixels!.Rgba.Length / 4).Where(i => m.BaseColorPixels.Rgba[i * 4 + 3] > 0)
+            .Select(i => (m.BaseColorPixels.Rgba[i * 4], m.BaseColorPixels.Rgba[i * 4 + 1], m.BaseColorPixels.Rgba[i * 4 + 2])).Distinct().Count();
         foreach (var m in new[] { leaves, bark })
         {
             Assert.True(m.Nearest);
-            Assert.Null(m.NormalPng);
-            Assert.Null(m.OcclusionRoughnessMetallicPng);
             Assert.Equal(64, m.BaseColorPixels!.Width);
-            var px = m.BaseColorPixels.Rgba;
-            Assert.All(Enumerable.Range(0, px.Length / 4), i => Assert.True(px[i * 4 + 3] is 0 or 255));
-            var colours = Enumerable.Range(0, px.Length / 4).Where(i => px[i * 4 + 3] > 0).Select(i => (px[i * 4], px[i * 4 + 1], px[i * 4 + 2])).Distinct().Count();
-            Assert.InRange(colours, 2, 12);
+            // Small isn't flat: the normal and ORM maps are there, at the same size.
+            Assert.NotNull(m.NormalPng);
+            Assert.NotNull(m.OcclusionRoughnessMetallicPng);
+            Assert.True(Colours(m) > 24, $"{m.Name}: {Colours(m)} colours");
         }
+        var px = leaves.BaseColorPixels!.Rgba;
+        Assert.All(Enumerable.Range(0, px.Length / 4), i => Assert.True(px[i * 4 + 3] is 0 or 255));
+        // Every texture in the file is sampled nearest; the leaves (with their normal maps) have tangents.
         var (json, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(b, 0)));
         var samplers = json.GetProperty("samplers").EnumerateArray().ToList();
-        var textures = json.GetProperty("textures").EnumerateArray().ToList();
-        Assert.All(textures, t => Assert.Equal(9728, samplers[t.GetProperty("sampler").GetInt32()].GetProperty("magFilter").GetInt32()));
-        // A tree without pixel art keeps the one smooth sampler.
+        Assert.All(json.GetProperty("textures").EnumerateArray(), t => Assert.Equal(9728, samplers[t.GetProperty("sampler").GetInt32()].GetProperty("magFilter").GetInt32()));
+        Assert.True((bool)TreeExport.About(b)["noor_sharp"]);
+        Assert.NotEmpty(b.Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!.Tangents);
+        // A palette only when asked for.
+        var r = TreePresets.Make("thornwake-birch-green");
+        r.PixelColours = 12;
+        var paletted = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 256 });
+        Assert.InRange(Colours(paletted.Lods[0].Materials.First(m => m.Name == "Bark")), 2, 12);
+        // A tree without small textures keeps the one smooth sampler, unless sharp pixels are asked for.
         var (smooth, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(Build("birch"), 0)));
         Assert.Equal(9729, Assert.Single(smooth.GetProperty("samplers").EnumerateArray()).GetProperty("magFilter").GetInt32());
+        var sharp = TreePresets.Make("birch");
+        sharp.SharpPixels = true;
+        var (crisp, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(TreeBuilder.Build(sharp, new TreeBuilder.Options { TextureSize = 256 }), 0)));
+        Assert.All(crisp.GetProperty("samplers").EnumerateArray(), x => Assert.Equal(9728, x.GetProperty("magFilter").GetInt32()));
+    }
+
+    [Fact]
+    public void Leaves_get_a_normal_map_from_their_shape_and_an_orm_map()
+    {
+        // A square leaf in the middle of a clear picture: its edges slope, the clear part is flat and fully lit.
+        var px = new byte[16 * 16 * 4];
+        for (var y = 4; y < 12; y++) for (var x = 4; x < 12; x++) { var i = (y * 16 + x) * 4; px[i + 1] = 160; px[i + 3] = 255; }
+        var (normal, orm) = LeafAtlas.MapPixels(new RawImage(16, 16, px));
+        int I(int x, int y) => (y * 16 + x) * 3;
+        Assert.Equal(new byte[] { 128, 128, 255 }, normal[I(0, 0)..(I(0, 0) + 3)]);
+        Assert.Equal(255, orm[I(0, 0)]);
+        // The left edge tilts left (−X), the right edge right, the top edge up (+Y, OpenGL), the bottom down.
+        Assert.True(normal[I(4, 8)] < 120 && normal[I(11, 8)] > 136);
+        Assert.True(normal[I(8, 4) + 1] > 136 && normal[I(8, 11) + 1] < 120);
+        // Inside the leaf: some occlusion and a waxy roughness, no metal.
+        Assert.InRange(orm[I(8, 8)], 150, 254);
+        Assert.InRange(orm[I(8, 8) + 1], 100, 190);
+        Assert.Equal(0, orm[I(8, 8) + 2]);
     }
 
     [Fact]

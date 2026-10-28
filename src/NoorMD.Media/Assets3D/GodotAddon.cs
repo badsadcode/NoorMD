@@ -9,7 +9,7 @@ namespace NoorMD.Media.Assets3D;
 public static class GodotAddon
 {
     public const string Folder = "noor_trees";
-    public const int Version = 1;
+    public const int Version = 2;
     /// <summary>The first line of every file, so a later export can tell our files (and how old they are) from yours.</summary>
     public static string Header => $"NoorMD Asset Bench, Godot tree import v{Version}";
 
@@ -188,6 +188,15 @@ public static class GodotAddon
         		m.set_shader_parameter("use_orm_texture", true)
         	if source.emission_enabled:
         		m.set_shader_parameter("emission", source.emission * source.emission_energy_multiplier)
+        	# Small textures drawn as crisp pixels (the glTF said NEAREST, or the tree says so).
+        	var sharp := bool(about.get("noor_sharp", false)) or source.texture_filter in [BaseMaterial3D.TEXTURE_FILTER_NEAREST, BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS, BaseMaterial3D.TEXTURE_FILTER_NEAREST_WITH_MIPMAPS_ANISOTROPIC]
+        	m.set_shader_parameter("sharp_pixels", sharp)
+        	if sharp:
+        		m.set_shader_parameter("albedo_sharp", source.albedo_texture)
+        		if source.normal_enabled and source.normal_texture != null:
+        			m.set_shader_parameter("normal_sharp", source.normal_texture)
+        		if source.roughness_texture != null:
+        			m.set_shader_parameter("orm_sharp", source.roughness_texture)
         	var wind := str(about.get("noor_wind", "uv"))
         	m.set_shader_parameter("wind_enabled", wind != "none")
         	m.set_shader_parameter("wind_in_color", wind == "color")

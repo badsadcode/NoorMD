@@ -183,11 +183,16 @@ public sealed class TreeRecipe
     public List<int> LodTriangles { get; set; } = [];
 
     /// <summary>
-    /// Pixel art (0 off, or 32, 64 or 128): every texture this many pixels across, a few colours, leaves cut out hard,
-    /// and sampled nearest (no blur) in every engine, the look of a pixel-art game. No normal or ORM maps.
+    /// Small textures (0 off, or 32, 64 or 128): every map (colour, normal, ORM) this many pixels across, leaves cut
+    /// out hard, sampled nearest (crisp pixels, no blur) in every engine: a game drawing its trees with tiny textures.
+    /// Small doesn't mean flat: the maps keep all their colours and the full PBR set.
     /// </summary>
     public int Pixels { get; set; }
+    /// <summary>With small textures: the colours reduced to this many (a pixel-art palette), or 0 to keep them all.</summary>
+    public int PixelColours { get; set; }
     public static readonly int[] PixelSizes = [0, 32, 64, 128];
+    /// <summary>Sharp pixels: every texture sampled nearest (no blur between pixels), whatever its size. Pixel art always is.</summary>
+    public bool SharpPixels { get; set; }
 
     /// <summary>The game this tree is made for (GameProfiles: its manifest names and hand-off note), or empty for any.</summary>
     public string Profile { get; set; } = "";
@@ -333,6 +338,7 @@ public sealed class TreeRecipe
         TrunkSides = TrunkSides <= 0 ? 0 : Math.Clamp(TrunkSides, 3, 32);
         LodTriangles = (LodTriangles ?? []).Take(6).Select(t => Math.Clamp(t, 60, 200_000)).ToList();
         Pixels = PixelSizes.Contains(Pixels) ? Pixels : 0;
+        PixelColours = PixelColours <= 0 ? 0 : Math.Clamp(PixelColours, 4, 64);
         Profile = GameProfiles.Find(Profile) != null ? Profile : "";
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
@@ -677,7 +683,7 @@ public static class TreePresets
             r.Lods = triangles.Length;
             r.TriangleTarget = 0;
             r.Billboard = false;
-            r.Pixels = 64;
+            r.Pixels = 64;          // the game's texture size, full colour and full PBR, sampled sharp
             r.Quality = "low";
             r.Seed = 101;
             r.Shading = 0.45;       // the pack's trees are lit by the game, not painted dark underneath

@@ -43,6 +43,8 @@ public static class TreeExport
         ["noor_height"] = Round(Size(build)),
         ["noor_wind"] = !build.Recipe.Wind ? "none" : build.Recipe.WindData == "color" ? "color" : "uv",
         ["noor_style"] = build.Recipe.Style,
+        // Textures meant to be drawn as crisp pixels (sampled nearest).
+        ["noor_sharp"] = build.Recipe.Pixels > 0 || build.Recipe.SharpPixels,
     };
 
     /// <summary>All levels in one asset: a root holding Name_LOD0, Name_LOD1…, each tagged; the levels share materials.</summary>
