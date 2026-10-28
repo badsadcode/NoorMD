@@ -41,7 +41,15 @@ jobs:
           dotnet-version: 10.0.x
       - name: Build and package
         shell: pwsh
+        env:
+          NOORMD_GLB_OUT: ${{ github.workspace }}/glb-out
         run: ./scripts/publish-win-x64.ps1
+      - name: Validate GLB exports (Khronos glTF validator)
+        working-directory: tests/glb
+        shell: pwsh
+        run: |
+          npm install --no-audit --no-fund
+          node validate.mjs ../../glb-out
       - name: Ensure WebView2 Runtime
         shell: pwsh
         run: |

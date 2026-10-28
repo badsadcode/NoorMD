@@ -1,0 +1,8 @@
+{
+  "name": "noormd-glb-validation",
+  "private": true,
+  "description": "Checks the Asset Bench's GLB exports with the Khronos glTF validator.",
+  "devDependencies": {
+    "gltf-validator": "2.0.0-dev.3.10"
+  }
+}
