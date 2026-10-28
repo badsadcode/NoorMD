@@ -142,6 +142,8 @@ window.NoorVault = (() => {
     if (/\.pdf$/i.test(e.p)) return '📄';
     if (/\.noorsketch$/i.test(e.p)) return '✎';
     if (/\.noortex\.json$/i.test(e.p)) return '🧱';
+    if (/\.noorsound\.json$/i.test(e.p)) return '🔊';
+    if (/\.noorsong\.json$/i.test(e.p)) return '🎼';
     return '·';
   }
 

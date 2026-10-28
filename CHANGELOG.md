@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.0-preview.50 — Connected benches
+
+Make it in one bench, use it in another (the indie developer benches' asset workflow):
+
+- **Sound Bench: OGG export** (WAV, OGG or both; four qualities). Loops are tagged LOOPSTART/LOOPLENGTH; stems
+  stay WAV.
+- **Also add the files to the Music Bench** (Sound Bench and NoorSequencer): the exported sounds, songs, loops and
+  layers go into the Music Bench's library and its playlist **Made in NoorMD**, to audition, rate, tag and compare
+  them there.
+- **Sound Bench: Also keep the recipe in my Vault:** the recipe and an OGG to listen to in the Vault's Sounds
+  folder. A .noorsound.json opened from the Vault opens in the Sound Bench (as materials open in the Texture Bench
+  and songs in NoorSequencer). The Vault shows 🔊 for sound recipes and 🎼 for songs.
+
 ## 2.0.0-preview.49 — NoorSequencer, stage 3: music for games
 
 - **Adaptive layers** (Song & export): up to four versions of the loop for a game to switch between (exploration,

@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.49-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.50-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -127,8 +127,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   your own named controls (*Motor RPM*) and modulators (LFOs, envelopes, random drift, steps, drawn curves) that
   move any setting over time, all shown on a map of connected blocks. Listen as you change things, see the
   spectrogram and loudness meters (LUFS, true
-  peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
-  (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
+  peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV or OGG files
+  (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them;
+  optionally kept in your Vault and added to the Music Bench to audition and rate.
 - **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
   ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, Musgrave fractals, Voronoi cells, waves, gradients, checkers, Magic, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
   rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their

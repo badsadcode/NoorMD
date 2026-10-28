@@ -355,11 +355,16 @@ public partial class MainWindow
                             try { vault = await SaveSongToVaultAsync(song, stem); }
                             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("The song couldn't be kept in the Vault: " + ex.Message); }
                     }
+                    // Optionally in the Music Bench too, to audition and rate (the song, the loop and the layers; not stems).
+                    var music = 0;
+                    if (Json.IsTrue(p, "musicBench"))
+                        try { music = await AddToMusicBenchAsync(files); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to the Music Bench: " + ex.Message); }
                     Log.Info($"NoorSequencer: exported {files.Count} file(s) of “{song.Name}”");
                     return new
                     {
                         folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemDir == null ? null : Path.GetFileName(stemDir),
-                        warnings = warnings.Distinct(), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), vault, notes,
+                        warnings = warnings.Distinct(), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), vault, notes, music,
                     };
                 }
                 case "seq.reveal":

@@ -69,6 +69,7 @@ window.NoorSound = (() => {
 
   function init(h) {
     hooks = { ...hooks, ...h };
+    NoorBridge.on('sound.openRecipe', async (p) => { await open(); setRecipe(p.recipe, true); family = p.recipe.family; renderPresets(); notice(`Opened “${p.recipe.name}” from the Vault`, 1600); });
     NoorBridge.on('sound.exportProgress', (p) => { const s = $('#sb-export-status'); if (s) s.textContent = `Rendering ${p.done} of ${p.total}…`; });
     audio.addEventListener('play', () => { renderTransport(); tickPlayhead(); });
     audio.addEventListener('pause', renderTransport);
@@ -1202,10 +1203,15 @@ window.NoorSound = (() => {
     const sel = (id, label, options, value, key) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
       s.value = String(value);
-      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: Number(s.value) }); where.refresh(); });
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: Number.isFinite(Number(s.value)) ? Number(s.value) : s.value }); where.refresh(); if (key === 'format') renderEditor(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
-    where = NoorExportWhere.panel('sound', () => ({ name: recipe.name, family: recipe.family || '', variations: exportPrefs().variations }), hooks.showError);
+    where = NoorExportWhere.panel('sound', () => ({ name: recipe.name, family: recipe.family || '', variations: exportPrefs().variations, format: exportPrefs().format }), hooks.showError);
+    const check = (id, key, label, title) => {
+      const c = el('input', { type: 'checkbox', id, checked: prefs[key] || undefined });
+      c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: c.checked }));
+      return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
+    };
     return [
       el('div', { class: 'sb-fields' }, ...MASTER.map((f) => slider(m, f, false))),
       el('div', { class: 'sb-row' },
@@ -1217,16 +1223,21 @@ window.NoorSound = (() => {
       el('div', { class: 'sb-row' },
         sel('sb-variations', 'Files', [1, 2, 3, 4, 5, 8, 10].map((n) => [n, n === 1 ? 'Just this one' : `${n} variations`]), prefs.variations, 'variations'),
         sel('sb-rate', 'Sample rate', [[48000, '48 kHz'], [44100, '44.1 kHz']], prefs.sampleRate, 'sampleRate'),
-        sel('sb-bits', 'Bits', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits')),
+        sel('sb-bits', 'Bits (WAV)', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits'),
+        sel('sb-format', 'Format', [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']], prefs.format, 'format'),
+        ...(prefs.format !== 'wav' ? [sel('sb-oggq', 'OGG quality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']], prefs.oggQuality, 'oggQuality')] : [])),
       (() => {
         const c = el('input', { type: 'checkbox', id: 'sb-stems', checked: prefs.stems || undefined });
         c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), stems: c.checked }));
         return el('label', { class: 'sb-inline', title: 'For a game engine or a video editor: each layer with its share of the buses, at the same gain as the mix, so they line up' },
           c, el('span', { text: 'Also stems: each layer on its own, in a folder beside the file' }));
       })(),
+      el('div', { class: 'sb-row' },
+        check('sb-vault', 'vault', 'Also keep the recipe in my Vault', 'The recipe (.noorsound.json) and an OGG to listen to, in the Sounds folder of the Vault that is open'),
+        check('sb-musicbench', 'musicBench', 'Also add the files to the Music Bench', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)')),
       where.node,
       el('div', { class: 'sb-row' },
-        el('button', { class: 'action primary', id: 'sb-export', onclick: exportSound }, '⤓ Export WAV…'),
+        el('button', { class: 'action primary', id: 'sb-export', onclick: exportSound }, '⤓ Export…'),
         el('button', { class: 'action', id: 'sb-save', onclick: savePreset }, '★ Save as my preset…')),
       el('p', { class: 'pref-hint', id: 'sb-export-status', text: 'Variations use the next seeds, so each file is a different take of the same sound. The recipe (.noorsound.json) is saved with them: open it later to make more or change it.' }),
     ];
@@ -1244,7 +1255,8 @@ window.NoorSound = (() => {
     return el('label', { class: 'sb-inline', title: 'Brings the finished sound to this loudness (BS.1770), after Normalize and before the ceiling' }, el('span', { text: 'Loudness target' }), s);
   }
 
-  function exportPrefs() { try { return { variations: 1, sampleRate: 48000, bits: 16, ...JSON.parse(localStorage.getItem('noormd.sound.export') || '{}') }; } catch { return { variations: 1, sampleRate: 48000, bits: 16 }; } }
+  const EXPORT_DEFAULTS = { variations: 1, sampleRate: 48000, bits: 16, format: 'wav', oggQuality: 0.5, vault: false, musicBench: false };
+  function exportPrefs() { try { return { ...EXPORT_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.sound.export') || '{}') }; } catch { return { ...EXPORT_DEFAULTS }; } }
   function saveExportPrefs(p) { try { localStorage.setItem('noormd.sound.export', JSON.stringify(p)); } catch { /* private storage off */ } }
 
   // ---------------------------------------------------------------- actions
@@ -1302,12 +1314,13 @@ window.NoorSound = (() => {
     const p = exportPrefs();
     const status = $('#sb-export-status');
     try {
-      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, ...(where ? where.payload() : {}) });
+      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, musicBench: !!p.musicBench, ...(where ? where.payload() : {}) });
       if (!r || r.cancelled) return;
       if (status) {
         const stems = r.stems && r.stems.length ? ` Stems: ${r.stems.join(', ')}.` : '';
         const into = r.project ? `${r.project}: ${r.relative && r.relative !== '.' ? r.relative : 'its folder'}` : r.folder;
-        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${into}.${stems} ` }),
+        const extra = `${r.vault ? ` Kept in the Vault as ${r.vault}.` : ''}${r.music ? ` Added to the Music Bench (playlist “Made in NoorMD”).` : ''}${r.notes && r.notes.length ? ' ⚠ ' + r.notes.join(' ') : ''}`;
+        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${into}.${stems}${extra} ` }),
           el('button', { class: 'utility-btn', id: 'sb-reveal', onclick: () => req('sound.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
       notice(`Exported ${r.files.join(', ')}`, 2600);

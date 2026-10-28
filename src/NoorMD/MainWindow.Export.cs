@@ -91,6 +91,26 @@ public partial class MainWindow
         return t;
     }
 
+    /// <summary>
+    /// Exported sounds and songs added to the Music Bench's library (in a "Made in NoorMD" playlist), to audition,
+    /// rate, tag and compare them there. Returns how many were added.
+    /// </summary>
+    private async Task<int> AddToMusicBenchAsync(IEnumerable<string> files)
+    {
+        var audio = files.Where(f => NoorMD.Media.AudioFormats.IsAudio(f) && File.Exists(f)).ToList();
+        if (audio.Count == 0) return 0;
+        var lib = Music;
+        var count = await Task.Run(() =>
+        {
+            var ids = audio.Select(lib.AddFile).ToList();
+            var playlist = lib.Playlists().FirstOrDefault(pl => pl.Name == "Made in NoorMD")?.Id ?? lib.CreatePlaylist("Made in NoorMD");
+            lib.AddToPlaylist(playlist, ids.Where(id => !lib.PlaylistTrackIds(playlist).Contains(id)));
+            return ids.Count;
+        });
+        PushEvent("music.changed", new { });
+        return count;
+    }
+
     private object? DispatchExport(BridgeRequest req)
     {
         var p = req.Payload;
@@ -152,10 +172,12 @@ public partial class MainWindow
                 else
                 {
                     var count = Math.Clamp((int)(Json.OptDouble(p, "variations") ?? 1), 1, 20);
+                    var fmt = req.GetString("format", 8);
+                    string[] exts = fmt == "both" ? [".wav", ".ogg"] : [fmt == "ogg" ? ".ogg" : ".wav"];
                     for (var i = 1; i <= Math.Min(count, 3); i++)
                     {
                         var t = new Dictionary<string, string>(tokens) { ["n"] = i.ToString("00", System.Globalization.CultureInfo.InvariantCulture) };
-                        files.Add(ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, t, single: count == 1), name) + ".wav");
+                        foreach (var ext in exts) files.Add(ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, t, single: count == 1), name) + ext);
                     }
                     if (count > 3) files.Add("…");
                     files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noorsound.json");

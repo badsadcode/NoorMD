@@ -109,6 +109,17 @@ public partial class MainWindow
                         PushEvent("texture.openRecipe", new { recipe = TextureForPage(recipe) });
                         return new { texture = true };
                     }
+                    if (full.EndsWith(".noorsound.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A sound recipe opens in the Sound Bench, with its samples found beside it.
+                        if (new FileInfo(full).Length > 200_000) throw new BridgeError("That file is too big for a sound recipe.");
+                        NoorMD.Media.SoundRecipe sound;
+                        try { sound = NoorMD.Media.SoundRecipe.FromJson(await File.ReadAllTextAsync(full)).FindSamplesBeside(Path.GetDirectoryName(full)!); }
+                        catch (System.Text.Json.JsonException ex) { throw new BridgeError("The recipe can't be read: " + ex.Message); }
+                        AllowSamples(sound);
+                        PushEvent("sound.openRecipe", new { recipe = RecipeForPage(sound) });
+                        return new { sound = true };
+                    }
                     if (full.EndsWith(".noorsong.json", StringComparison.OrdinalIgnoreCase))
                     {
                         // A song opens in NoorSequencer, with its samples found beside it.

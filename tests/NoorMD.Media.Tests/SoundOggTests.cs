@@ -50,3 +50,30 @@ public class SoundOggTests
         Assert.True(ogg.Length < render.Left.Length * 4 / 5); // much smaller than a 16-bit WAV
     }
 }
+
+public class ConnectedBenchTests
+{
+    [Fact]
+    public void An_Exported_Ogg_Goes_Into_The_Music_Library_With_Its_Length_And_Title()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "noormd-ogg-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var song = SongTemplates.Make("adaptive")!;
+            var render = SequencerEngine.Render(song, 48000, loop: true);
+            var path = Path.Combine(dir, "Adaptive_adventure_loop.ogg");
+            File.WriteAllBytes(path, SoundOgg.Encode(render, 0.5, "Adaptive adventure", loop: true));
+            var lib = new MusicLibrary(Path.Combine(dir, "library.db"));
+            var id = lib.AddFile(path);
+            var row = lib.Get(id)!;
+            Assert.Equal("Adaptive adventure", row.Title);
+            Assert.InRange(row.Duration, render.Seconds - 0.05, render.Seconds + 0.05);
+            Assert.Equal(id, lib.AddFile(path)); // added once
+            var playlist = lib.CreatePlaylist("Made in NoorMD");
+            lib.AddToPlaylist(playlist, [id]);
+            Assert.Equal([id], lib.PlaylistTrackIds(playlist));
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+}

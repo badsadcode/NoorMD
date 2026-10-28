@@ -4877,6 +4877,45 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the game-music features', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 62. Connected benches: OGG from the Sound Bench, exports added to the Music Bench, recipes kept in and opened from the Vault.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.evaluate(() => { try { ['noormd.sound.export', 'noormd.seq.export'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound.isOpen() && NoorSound._state().recipe);
+      await page.click('#soundbench .sb-tabs [data-tab="output"]');
+      await page.waitForSelector('#sb-format');
+      check('Sound Bench export: WAV by default, no OGG quality shown', (await page.inputValue('#sb-format')) === 'wav' && !(await page.$('#sb-oggq')));
+      await page.selectOption('#sb-format', 'ogg');
+      await page.waitForSelector('#sb-oggq');
+      await page.selectOption('#sb-oggq', '0.7');
+      await waitFn(page, () => /\.ogg/.test(document.querySelector('#ex-sound-preview').textContent));
+      check('OGG: the quality appears, and the preview of paths lists .ogg files', /\.ogg/.test(await page.textContent('#ex-sound-preview')) && !/\.wav/.test(await page.textContent('#ex-sound-preview')));
+      await page.check('#sb-vault');
+      await page.check('#sb-musicbench');
+      await page.click('#sb-export');
+      await waitFn(page, () => window.__mock.state.sound.exports.length === 1);
+      const se = await page.evaluate(() => window.__mock.state.sound.exports[0]);
+      check('Export sends OGG, its quality, the Vault and the Music Bench choices', se.format === 'ogg' && se.oggQuality === 0.7 && se.vault && se.musicBench, se);
+      await waitFn(page, () => /Made in NoorMD/.test(document.querySelector('#sb-export-status').textContent));
+      check('…and says where it all went', /Kept in the Vault as Sounds\//.test(await page.textContent('#sb-export-status')));
+      // A sound recipe opened from the Vault.
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'sound.openRecipe', payload: { recipe: { ...window.__mock.state.sound.recipes['ui-coin'], name: 'Coin from the Vault' } } }));
+      await waitFn(page, () => NoorSound._state().recipe.name === 'Coin from the Vault');
+      check('a .noorsound.json opened from the Vault opens in the Sound Bench', true);
+      // NoorSequencer to the Music Bench.
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song);
+      await page.click('#seq-exportbtn');
+      await page.check('#seq-musicbench');
+      await page.click('#seq-export');
+      await waitFn(page, () => window.__mock.state.seq.exports.length === 1);
+      check('NoorSequencer: Also add the files to the Music Bench', (await page.evaluate(() => window.__mock.state.seq.exports[0].musicBench)) === true);
+      await waitFn(page, () => /added to the Music Bench/.test(document.querySelector('#seq-export-status').textContent));
+      check('no page errors in the connected benches', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

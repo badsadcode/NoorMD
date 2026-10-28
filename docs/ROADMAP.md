@@ -36,6 +36,9 @@ first, and anything that conflicts with it waits.
   Stage 2, help for non-musicians (chords of the key, progressions, rhythms, variations, presets, arpeggiator,
   humanize, LFO, FM, automation): preview.48. Stage 3, game music (adaptive layers, transitions, loop check, OGG,
   samples from the other benches, the Vault): preview.49 — the plan is complete; what comes next depends on use. See [SEQUENCER_PLAN.md](SEQUENCER_PLAN.md).
+- Connected benches (the concept's asset workflow): OGG from the Sound Bench, sounds and songs added to the Music
+  Bench (playlist "Made in NoorMD"), sound recipes kept in and opened from the Vault: preview.50. Materials (Gallery,
+  Vault) and songs (Vault) were connected earlier; samples for NoorSequencer come from the Sound and Music Benches.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

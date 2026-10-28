@@ -1142,7 +1142,7 @@ window.NoorSequencer = (() => {
 
   // ---------------------------------------------------------------- song & export
 
-  const EXPORT_DEFAULTS = { sampleRate: 48000, bits: 16, mix: true, loop: true, layers: true, stems: false, midi: false, format: 'wav', oggQuality: 0.5, vault: false };
+  const EXPORT_DEFAULTS = { sampleRate: 48000, bits: 16, mix: true, loop: true, layers: true, stems: false, midi: false, format: 'wav', oggQuality: 0.5, vault: false, musicBench: false };
   function exportPrefs() { try { return { ...EXPORT_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.seq.export') || '{}') }; } catch { return { ...EXPORT_DEFAULTS }; } }
   function saveExportPrefs(p) { try { localStorage.setItem('noormd.seq.export', JSON.stringify(p)); } catch { /* private storage off */ } }
 
@@ -1164,6 +1164,8 @@ window.NoorSequencer = (() => {
     const fmtName = { wav: 'WAV', ogg: 'OGG', both: 'WAV + OGG' }[prefs.format] || 'WAV';
     const vault = el('input', { type: 'checkbox', id: 'seq-vault', checked: prefs.vault || undefined });
     vault.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), vault: vault.checked }));
+    const musicBench = el('input', { type: 'checkbox', id: 'seq-musicbench', checked: prefs.musicBench || undefined });
+    musicBench.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), musicBench: musicBench.checked }));
     const family = el('input', { type: 'text', id: 'seq-familyname', value: song.family || '', maxlength: '40', spellcheck: 'false', 'aria-label': 'Kind of music (for folders)', placeholder: 'e.g. Exploration' });
     family.addEventListener('input', () => { song.family = family.value; changed(); where.refresh(); });
     const seed = el('input', { type: 'number', id: 'seq-seed', min: '0', max: '2147483647', step: '1', value: String(song.seed ?? 1), class: 'seq-num' });
@@ -1194,7 +1196,9 @@ window.NoorSequencer = (() => {
         sel2('seq-bits', 'Bits (WAV)', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits'),
         sel2('seq-format', 'Format', [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']], prefs.format, 'format'),
         ...(prefs.format !== 'wav' ? [sel2('seq-oggq', 'OGG quality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']], prefs.oggQuality, 'oggQuality')] : [])),
-      el('label', { class: 'sb-inline', title: 'The song (.noorsong.json) and an OGG to listen to, in the Music folder of the Vault that is open: find it, link it from notes, open it again' }, vault, el('span', { text: 'Also keep the song in my Vault' })),
+      el('div', { class: 'sb-row' },
+        el('label', { class: 'sb-inline', title: 'The song (.noorsong.json) and an OGG to listen to, in the Music folder of the Vault that is open: find it, link it from notes, open it again' }, vault, el('span', { text: 'Also keep the song in my Vault' })),
+        el('label', { class: 'sb-inline', title: 'The song, loop and layer files in the Music Bench (playlist “Made in NoorMD”), to audition, rate and tag them' }, musicBench, el('span', { text: 'Also add the files to the Music Bench' }))),
       where.node,
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'seq-export', onclick: exportSong }, '⤓ Export…'),
@@ -1290,10 +1294,10 @@ window.NoorSequencer = (() => {
     const status = $('#seq-export-status');
     try {
       status.textContent = 'Rendering…';
-      const r = await req('seq.export', { song, parts: { mix: !!p.mix, loop: !!p.loop, layers: !!p.layers && (song.layers || []).length > 0, stems: !!p.stems, midi: !!p.midi }, sampleRate: p.sampleRate, bits: p.bits, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, ...where.payload() });
+      const r = await req('seq.export', { song, parts: { mix: !!p.mix, loop: !!p.loop, layers: !!p.layers && (song.layers || []).length > 0, stems: !!p.stems, midi: !!p.midi }, sampleRate: p.sampleRate, bits: p.bits, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, musicBench: !!p.musicBench, ...where.payload() });
       if (!r || r.cancelled) { status.textContent = 'Export cancelled.'; return; }
       const files = [...r.files, ...(r.stems ? [r.stems + '/'] : []), r.recipe];
-      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
+      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${r.music ? ' · added to the Music Bench' : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
         el('button', { class: 'utility-btn', id: 'seq-reveal', onclick: () => req('seq.reveal', { folder: r.folder }).catch(hooks.showError) }, 'Show in folder'));
     } catch (err) { status.textContent = ''; hooks.showError(err); }
   }

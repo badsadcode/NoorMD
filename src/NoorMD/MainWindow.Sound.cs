@@ -125,6 +125,24 @@ public partial class MainWindow
         return Path.Combine(UserSoundFolder, file);
     }
 
+    /// <summary>The recipe kept in the open Vault (Sounds folder) with an OGG of it, to find, link from notes and open again.</summary>
+    private async Task<string> SaveSoundToVaultAsync(SoundRecipe recipe, string stem)
+    {
+        var v = _vault ?? throw new BridgeError("Open a Vault first.");
+        var folder = Path.Combine(v.Root, "Sounds");
+        Directory.CreateDirectory(folder);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recipePath = PictureConvert.FreePath(folder, stem + ".noorsound", ".json", taken);
+        var listen = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(recipePath)), ".ogg", taken);
+        var copy = recipe.Clone();
+        if (copy.Duration > 60) copy.Duration = 60;
+        var render = await Task.Run(() => SoundEngine.Render(copy, SoundRate, LoadSample));
+        await File.WriteAllBytesAsync(listen, await Task.Run(() => SoundOgg.Encode(render, 0.4, recipe.Name, copy.Clamped().Loop)));
+        await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
+        ScheduleRescan(0);
+        return Path.GetRelativePath(v.Root, recipePath).Replace('\\', '/');
+    }
+
     private async Task<object?> DispatchSoundAsync(BridgeRequest req)
     {
         var p = req.Payload;
@@ -238,6 +256,10 @@ public partial class MainWindow
                     var bits = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "bits") ?? 16) == 24 ? 24 : 16;
                     var rate = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "sampleRate") ?? SoundRate) == 44100 ? 44100 : 48000;
                     var withStems = p.TryGetProperty("stems", out var stemsEl) && stemsEl.ValueKind == JsonValueKind.True;
+                    // WAV, OGG (smaller; loops tagged LOOPSTART/LOOPLENGTH) or both. Stems are always WAV.
+                    var format = req.GetString("format", 8) is "ogg" or "both" ? req.GetString("format", 8)! : "wav";
+                    var quality = Math.Clamp(NoorMD.Core.Bridge.Json.OptDouble(p, "oggQuality") ?? 0.5, 0.1, 0.9);
+                    var looping = recipe.Clone().Clamped().Loop;
                     // Where: a folder chosen now or a game project's, arranged by the chosen layout.
                     var place = ExportPlaceFrom(p, "sound");
                     var root = ExportBase(place, $"Save “{recipe.Name}” ({count} file{(count == 1 ? "" : "s")}) in… (you can make a new folder here)");
@@ -245,9 +267,11 @@ public partial class MainWindow
                     var tokens = ExportTokens(recipe.Name, recipe.Family, 0, place.Project?.Name);
                     var folder = NoorMD.Core.Export.ExportLayouts.Under(root, NoorMD.Core.Export.ExportLayouts.Folders(NoorMD.Core.Export.ExportLayouts.Expand(place.FolderPattern, tokens)));
                     var stem = NoorMD.Core.Export.ExportLayouts.FileName(tokens["name"], recipe.Name);
-                    var names = Enumerable.Range(1, count).Select(i =>
-                        NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, new Dictionary<string, string>(tokens) { ["n"] = i.ToString("00", System.Globalization.CultureInfo.InvariantCulture) }, single: count == 1), recipe.Name) + ".wav").ToList();
-                    var how = AskReplace([.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noorsound.json")], $"“{recipe.Name}”");
+                    var bases = Enumerable.Range(1, count).Select(i =>
+                        NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, new Dictionary<string, string>(tokens) { ["n"] = i.ToString("00", System.Globalization.CultureInfo.InvariantCulture) }, single: count == 1), recipe.Name)).ToList();
+                    string[] exts = format == "both" ? [".wav", ".ogg"] : [format == "ogg" ? ".ogg" : ".wav"];
+                    var names = bases.Select(b => b + exts[0]).ToList();
+                    var how = AskReplace([.. bases.SelectMany(b => exts.Select(e => Path.Combine(folder, b + e))), Path.Combine(folder, stem + ".noorsound.json")], $"“{recipe.Name}”");
                     if (how == null) return new { cancelled = true };
                     var keep = how == "keep";
                     Directory.CreateDirectory(folder);
@@ -259,11 +283,22 @@ public partial class MainWindow
                         var v = recipe.Clone();
                         v.Seed = recipe.Seed + i;
                         var path = ExportTarget(folder, names[i], keep, taken);
+                        async Task WriteSound(SoundRender r)
+                        {
+                            // The first format at the planned path, the other (if both) beside it with the same name.
+                            await File.WriteAllBytesAsync(path, exts[0] == ".ogg" ? await Task.Run(() => SoundOgg.Encode(r, quality, recipe.Name, looping)) : r.ToWav(bits));
+                            if (exts.Length > 1)
+                            {
+                                var other = ExportTarget(folder, Path.GetFileNameWithoutExtension(path) + ".ogg", keep, taken);
+                                await File.WriteAllBytesAsync(other, await Task.Run(() => SoundOgg.Encode(r, quality, recipe.Name, looping)));
+                                files.Add(other);
+                            }
+                        }
                         if (withStems)
                         {
                             // The mix as usual, and beside it a folder with each layer on its own (same gain as the mix).
                             var stems = await Task.Run(() => SoundEngine.RenderStems(v, rate, LoadSample));
-                            await File.WriteAllBytesAsync(path, stems[0].Render.ToWav(bits));
+                            await WriteSound(stems[0].Render);
                             var stemDir = keep ? PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(path) + " stems", "", taken) : Path.Combine(folder, Path.GetFileNameWithoutExtension(path) + " stems");
                             Directory.CreateDirectory(stemDir);
                             var stemTaken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -277,7 +312,7 @@ public partial class MainWindow
                         else
                         {
                             var render = await Task.Run(() => SoundEngine.Render(v, rate, LoadSample));
-                            await File.WriteAllBytesAsync(path, render.ToWav(bits));
+                            await WriteSound(render);
                         }
                         files.Add(path);
                         PushEvent("sound.exportProgress", new { done = i + 1, total = count });
@@ -286,8 +321,22 @@ public partial class MainWindow
                     var recipePath = ExportTarget(folder, stem + ".noorsound.json", keep, taken);
                     await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
                     _soundFolders.Add(folder);
+                    var notes = new List<string>();
+                    // Optionally kept in the open Vault (Sounds folder, with an OGG to listen to) and added to the Music Bench.
+                    string? vault = null;
+                    if (NoorMD.Core.Bridge.Json.IsTrue(p, "vault"))
+                    {
+                        if (_vault == null) notes.Add("No Vault is open, so the recipe wasn't kept there.");
+                        else
+                            try { vault = await SaveSoundToVaultAsync(recipe, stem); }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("The recipe couldn't be kept in the Vault: " + ex.Message); }
+                    }
+                    var music = 0;
+                    if (NoorMD.Core.Bridge.Json.IsTrue(p, "musicBench"))
+                        try { music = await AddToMusicBenchAsync(files); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to the Music Bench: " + ex.Message); }
                     Log.Info($"Sound Bench: exported {files.Count} file(s) of “{recipe.Name}”");
-                    return new { folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemFolders.Select(Path.GetFileName), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/') };
+                    return new { folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemFolders.Select(Path.GetFileName), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), vault, music, notes };
                 }
                 case "sound.reveal":
                 {

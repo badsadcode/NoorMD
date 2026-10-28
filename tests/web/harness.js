@@ -498,7 +498,7 @@ function mockHostScript(initial) {
       case 'seq.export': {
         SEQ.exports.push(JSON.parse(JSON.stringify(p)));
         const f = p.song.name.replace(/[^A-Za-z0-9]+/g, '_');
-        return { folder: 'D:\\Game\\Music', files: [...(p.parts.mix ? [f + '.wav'] : []), ...(p.parts.loop ? [f + '_loop.wav'] : []), ...(p.parts.midi ? [f + '.mid'] : [])], recipe: f + '.noorsong.json', stems: p.parts.stems ? f + ' stems' : null, warnings: [], project: null, relative: '.' };
+        return { music: p.musicBench ? 2 : 0, folder: 'D:\\Game\\Music', files: [...(p.parts.mix ? [f + '.wav'] : []), ...(p.parts.loop ? [f + '_loop.wav'] : []), ...(p.parts.midi ? [f + '.mid'] : [])], recipe: f + '.noorsong.json', stems: p.parts.stems ? f + ' stems' : null, warnings: [], project: null, relative: '.' };
       }
       case 'seq.reveal': SEQ.revealed = p.folder; return null;
       case 'seq.save': {
@@ -534,7 +534,7 @@ function mockHostScript(initial) {
           ? [...exts.flatMap((e) => [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + e]), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop' + e] : []),
               ...(p.parts && p.parts.layers ? (p.layers || []).map((l) => `${fill(pat.file)}_${l.split(/\s+/).join('_')}_loop${e}`) : [])]), ...(p.parts && p.parts.midi ? [fill(pat.file) + '.mid'] : [])]
           : p.bench === 'sound'
-          ? Array.from({ length: Math.min(p.variations || 1, 3) }, (_, i) => fill(p.variations > 1 ? pat.file : pat.file.replace(/_\{n\}/, ''), { n: String(i + 1).padStart(2, '0') }) + '.wav')
+          ? Array.from({ length: Math.min(p.variations || 1, 3) }, (_, i) => exts.map((e) => fill(p.variations > 1 ? pat.file : pat.file.replace(/_\{n\}/, ''), { n: String(i + 1).padStart(2, '0') }) + e)).flat()
           : maps.map((m) => fill(pat.file, { map: m, Map: m[0].toUpperCase() + m.slice(1), MAP: codes[m] }) + '.png');
         const project = EXP.projects.find((x) => x.id === p.project);
         return { project: project ? project.name : null, root: project ? project.root : null, folder: fill(pat.folder, {}), files };
@@ -626,10 +626,11 @@ function mockHostScript(initial) {
       case 'sound.reference.pick': SND.refPicks = (SND.refPicks || 0) + 1; return { url: '/_media/4', name: 'boss door.wav', seconds: 3, peaks: Array.from({ length: 1200 }, (_, i) => (i % 2 ? 0.7 : -0.7)), feedback: sndFeedback(-12, []) };
       case 'sound.reference.clear': SND.refCleared = (SND.refCleared || 0) + 1; return null;
       case 'sound.export': {
-        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, project: p.project || null, layout: p.layout });
+        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, project: p.project || null, layout: p.layout, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, musicBench: !!p.musicBench });
         const stem = p.recipe.name.replace(/ /g, '_');
         const files = p.variations > 1 ? Array.from({ length: p.variations }, (_, i) => `${stem}_${String(i + 1).padStart(2, '0')}.wav`) : [stem + '.wav'];
-        return { folder: 'D:\\Game\\Audio', files, recipe: stem + '.noorsound.json', stems: p.stems ? files.map((f) => f.replace(/\.wav$/, ' stems')) : [] };
+        return { folder: 'D:\\Game\\Audio', files: p.format === 'ogg' ? files.map((f) => f.replace(/\.wav$/, '.ogg')) : files, recipe: stem + '.noorsound.json', stems: p.stems ? files.map((f) => f.replace(/\.wav$/, ' stems')) : [],
+          vault: p.vault ? `Sounds/${stem}.noorsound.json` : null, music: p.musicBench ? files.length : 0, notes: [] };
       }
       case 'sound.reveal': if (p.folder !== 'D:\\Game\\Audio') throw new Error('That is not a folder the sounds went to.'); SND.opened = p.folder; return null;
       case 'sound.save': {
