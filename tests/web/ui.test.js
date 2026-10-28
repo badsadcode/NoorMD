@@ -4271,6 +4271,122 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors painting for a material', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 52. Gallery → Texture Bench: pictures chosen in the Gallery become a material, or are added over the one being made.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 6, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const T = () => page.evaluate(() => NoorTexture._state().recipe);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('#gallery:not([hidden]) .gallery-tile');
+      await page.evaluate(() => NoorDock.place('gallery', 'center')); // wide: a click selects
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.click('.gallery-tile[data-index="1"]', { modifiers: ['Control'] });
+      await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Open in")');
+      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("Texture Bench")');
+      check('right-click › Open in › Texture Bench: new material from them, or add over the current one', await page.isVisible('.menu-popup[data-depth="2"] .menu-item:has-text("New material from these 2")'));
+      await page.click('.menu-popup[data-depth="2"] .menu-item:has-text("New material from these 2")');
+      await waitFn(page, () => NoorTexture._state().recipe && NoorTexture._state().recipe.layers.every((l) => l.type === 'image'));
+      const made = await T();
+      check('…a new material: the first picture as its base, the next over it, each repeated in its own proportions', made.layers.length === 2 && made.name === 'Zdjęcie 006'
+        && made.layers[0].blend === 'normal' && made.layers[0].opacity === 1 && made.layers[1].blend === 'overlay' && made.layers[0].scaleX === 3 && made.layers[0].scaleY === 4
+        && /Zdjęcie 006\.jpg$/.test(made.layers[0].path), made.layers.map((l) => [l.name, l.blend, l.scaleX]));
+      check('…the Texture Bench opens with it', await page.isVisible('#texturebench'));
+      await page.evaluate(() => NoorGallery.open());
+      await waitFn(page, () => NoorDock._state().center.active === 'gallery');
+      await page.click('.gallery-tile[data-index="3"]');
+      await page.click('#ginfo-texture');
+      await page.click('.menu-popup .menu-item:has-text("Add it over the current material")');
+      await waitFn(page, () => NoorTexture._state().recipe.layers.length === 3);
+      const added = (await T()).layers[2];
+      check('🧱 Texture… in the info panel adds a picture over the current material', added.type === 'image' && added.blend === 'overlay' && added.opacity === 0.5 && (await page.evaluate(() => window.__mock.state.gallery.toTexture.length)) === 2);
+      check('no page errors from the Gallery to the Texture Bench', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 53. Export structures: a game project chosen once, a layout (Godot, Unity, Unreal… or your own), and a preview of the paths.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const EXP = () => page.evaluate(() => window.__mock.state.export);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.export.where.texture'); localStorage.removeItem('noormd.export.where.sound'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      await page.click('#texturebench .sb-tabs button[data-tab="export"]');
+      await page.waitForSelector('#ex-texture-preview .ex-file');
+      check('Export starts flat, into a folder chosen each time (as before), with a preview of the files', (await page.inputValue('#ex-texture-project')) === '' && (await page.inputValue('#ex-texture-layout')) === 'flat'
+        && /the folder you choose/.test(await page.textContent('#ex-texture-preview')) && /Red_bricks_albedo\.png/.test(await page.textContent('#ex-texture-preview')));
+      check('…with templates for Godot, Unity and Unreal, and your own pattern', (await page.$$eval('#ex-texture-layout option', (o) => o.map((x) => x.value))).join() === 'flat,per-item,godot,unity,unreal,custom');
+      await page.selectOption('#ex-texture-project', '+');
+      await waitFn(page, () => document.querySelector('#ex-texture-project').value === 'p1');
+      check('＋ Add a game project picks its folder once', (await EXP()).projects.length === 1 && /My Game/.test(await page.textContent('#ex-texture-project')) && await page.isVisible('#ex-texture-remove'));
+      await page.selectOption('#ex-texture-layout', 'unreal');
+      await page.selectOption('#tb-target', 'unreal');
+      await waitFn(page, () => /T_RedBricks_ORM\.png/.test(document.querySelector('#ex-texture-preview').textContent));
+      const prev = await page.textContent('#ex-texture-preview');
+      check('…the Unreal layout: Content/Materials/RedBricks with T_RedBricks_BC, _N, _ORM', /My Game \/ Content\/Materials\/RedBricks/.test(prev) && /T_RedBricks_BC\.png/.test(prev) && /T_RedBricks_N\.png/.test(prev), prev);
+      await page.selectOption('#ex-texture-layout', 'custom');
+      check('My own pattern starts from the template chosen before', (await page.inputValue('#ex-texture-folder')) === 'Content/Materials/{Name}' && (await page.inputValue('#ex-texture-file')) === 'T_{Name}_{MAP}' && await page.isVisible('#ex-texture-folder'));
+      await page.fill('#ex-texture-folder', 'Art/{name_snake}');
+      await waitFn(page, () => /Art\/red_bricks/.test(document.querySelector('#ex-texture-preview').textContent));
+      check('…and the preview follows what you type', true);
+      await page.click('#tb-export');
+      await page.waitForSelector('#tb-reveal');
+      const ex = (await page.evaluate(() => window.__mock.state.texture.exports.at(-1)));
+      check('Export sends the project and the pattern to the app (which writes only inside the project)', ex.project === 'p1' && ex.layout === 'custom' && ex.folderPattern === 'Art/{name_snake}' && ex.filePattern === 'T_{Name}_{MAP}', ex);
+      check('…and the choices are remembered for the Texture Bench', (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.export.where.texture')))).folderPattern === 'Art/{name_snake}');
+      // The Sound Bench has the same, with its own layout and the same projects.
+      await page.keyboard.press('Control+Alt+k');
+      await page.waitForSelector('#soundbench:not([hidden])');
+      await waitFn(page, () => NoorSound._state().recipe !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.waitForSelector('#ex-sound-preview .ex-file');
+      await page.selectOption('#ex-sound-project', 'p1');
+      await page.selectOption('#ex-sound-layout', 'unity');
+      await page.selectOption('#sb-variations', '3');
+      await waitFn(page, () => /_03\.wav/.test(document.querySelector('#ex-sound-preview').textContent));
+      const sp = await page.textContent('#ex-sound-preview');
+      check('Sound Bench: the same projects, and the Unity layout for sounds (Assets/Audio/SFX/…, numbered takes)', /My Game \/ Assets\/Audio\/SFX\//.test(sp) && /_01\.wav/.test(sp), sp);
+      await page.click('#sb-export');
+      await waitFn(page, () => window.__mock.state.sound.exports.length === 1);
+      check('…and its export goes there', (await page.evaluate(() => window.__mock.state.sound.exports[0])).layout === 'unity');
+      await page.click('#ex-sound-remove');
+      await waitFn(page, () => window.__mock.state.export.projects.length === 0 && document.querySelector('#ex-sound-project').value === '');
+      check('a project can be taken off the list (its folder is not touched)', !/My Game/.test(await page.textContent('#ex-sound-project')));
+      check('no page errors choosing where exports go', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 54. Texture Bench from scratch: a new material with one layer to build on, or a random start.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const R = () => page.evaluate(() => NoorTexture._state().recipe);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await page.click('#tb-new');
+      await waitFn(page, () => NoorTexture._state().recipe.name === 'New material');
+      const fresh = await R();
+      check('＋ New material: one noise layer on a plain grey surface, nothing from a preset', fresh.layers.length === 1 && fresh.layers[0].type === 'noise' && fresh.family === 'Custom'
+        && fresh.surface.ramp.length === 2 && fresh.surface.metallic === 0 && (await page.$$('#tb-pane .sb-layer')).length === 1);
+      await page.click('#tb-pane .sb-layer[data-index="0"] button[aria-label="Remove this layer"]');
+      await waitFn(page, () => NoorTexture._state().recipe.layers.length === 0);
+      await page.click('[data-addlayer="hexagons"]');
+      await page.click('[data-addlayer="erosion"]');
+      await waitFn(page, () => NoorTexture._state().recipe.layers.length === 2);
+      check('…built up from nothing with the layer buttons', (await R()).layers.map((l) => l.type).join() === 'hexagons,erosion' && (await R()).layers[0].blend === 'normal');
+      const seen = new Set();
+      for (let k = 0; k < 4; k++) {
+        await page.click('#tb-random');
+        await waitFn(page, (n) => NoorTexture._state().recipe.name === 'Random material' && JSON.stringify(NoorTexture._state().recipe) !== n, [...seen].pop() || '');
+        const r = await R();
+        seen.add(JSON.stringify(r));
+        if (!(r.layers.length >= 2 && r.layers.length <= 5 && r.surface.ramp.length === 3 && r.layers[0].blend === 'normal')) { check('🎲 Random gives a stack of 2–5 layers and colours', false, r); break; }
+      }
+      check('🎲 Random: a different stack of layers and colours each time, all of it editable', seen.size === 4);
+      check('no page errors starting from scratch', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

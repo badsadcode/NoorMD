@@ -442,9 +442,29 @@ window.NoorGallery = (() => {
 
   // ---------------------------------------------------------------- open in an editor, copy/move anywhere, ZIP
 
+  /** Pictures into the Texture Bench: a new material from them, or added over the one being made. */
+  async function toTexture(ids, mode) {
+    try {
+      const r = await req('gallery.toTexture', { ids });
+      if (r.skipped && r.skipped.length) notice(`Can't be read as a texture: ${r.skipped.join(', ')}`, 3000);
+      if (r.pictures.length) await NoorTexture.fromPictures(r.pictures, mode);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  function textureMenu(ids) {
+    const many = ids.length > 1;
+    const has = window.NoorTexture && NoorTexture.hasMaterial();
+    return [
+      { label: many ? `New material from these ${ids.length} (as photo layers)` : 'New material from this picture', run: () => toTexture(ids, 'new') },
+      { label: many ? 'Add them over the current material' : 'Add it over the current material', disabled: !has, run: () => toTexture(ids, 'add') },
+    ];
+  }
+
   function openInMenu(ids) {
     const eds = status.editors || [];
     return [
+      { label: '🧱 Texture Bench', sub: () => textureMenu(ids) },
+      '-',
       ...eds.map((e, i) => ({ label: e.name, run: () => req('gallery.openWith', { ids, how: 'editor', editor: i }).catch(hooks.showError) })),
       ...(eds.length ? ['-'] : []),
       { label: 'The default program', run: () => req('gallery.openWith', { ids, how: 'default' }).catch(hooks.showError) },
@@ -829,6 +849,7 @@ window.NoorGallery = (() => {
           el('button', { class: 'utility-btn', onclick: () => insert(it) }, '⤓ Into note'),
           el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu([it.id])); } }, '→ Move…'),
           el('button', { class: 'utility-btn', id: 'ginfo-openin', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…'),
+          el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from it in the Texture Bench, or add it over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu([it.id])) }, '🧱 Texture…'),
           el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures([it.id]) }, '⇲ Convert…'),
           el('button', { class: 'utility-btn', onclick: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) }, '📁 Explorer'),
           el('button', { class: 'utility-btn danger', onclick: () => deletePictures([it.id]) }, '🗑 Delete…')));
@@ -847,6 +868,7 @@ window.NoorGallery = (() => {
         el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu(ids)); } }, '→ Move…'),
         el('button', { class: 'utility-btn', onclick: () => saveSlideshow(ids) }, '＋ New slideshow…'),
         el('button', { class: 'utility-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu(ids)) }, '✎ Open in…'),
+        el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from them in the Texture Bench, or add them over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu(ids)) }, '🧱 Texture…'),
         el('button', { class: 'utility-btn', onclick: () => copyOrMove(ids, true) }, '⧉ Copy to…'),
         el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures(ids) }, '⇲ Convert or resize…'),
         el('button', { class: 'utility-btn', id: 'ginfo-zip', onclick: () => packZip(ids) }, '🗜 ZIP…'),

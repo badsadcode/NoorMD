@@ -164,6 +164,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('voice.')) { try { return reply(m.id, true, voiceMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sound.')) { try { return reply(m.id, true, soundMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('texture.')) { try { return reply(m.id, true, textureMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('apps.')) { try { return reply(m.id, true, appsMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('mic.')) { try { return reply(m.id, true, micMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -440,6 +441,40 @@ function mockHostScript(initial) {
     if (map === 'albedo') { g.fillStyle = 'rgb(60,40,30)'; g.fillRect(0, 14, 32, 4); g.fillRect(14, 0, 4, 14); }
     return c.toDataURL('image/png');
   }
+  // Where exports go: projects and layouts (a small copy of ExportLayouts.cs, enough to check the panel).
+  const EXP = { projects: [], plans: [], added: 0 };
+  state.export = EXP;
+  const LAYOUTS = [
+    { id: 'flat', name: 'Flat: everything in the folder', description: '', texture: { folder: '', file: '{name}_{map}' }, sound: { folder: '', file: '{name}_{n}' } },
+    { id: 'per-item', name: 'A folder for each', description: '', texture: { folder: '{name}', file: '{name}_{map}' }, sound: { folder: '{name}', file: '{name}_{n}' } },
+    { id: 'godot', name: 'Godot', description: '', texture: { folder: 'assets/materials/{name_snake}', file: '{name_snake}_{map}' }, sound: { folder: 'assets/audio/sfx/{name_snake}', file: '{name_snake}_{n}' } },
+    { id: 'unity', name: 'Unity', description: '', texture: { folder: 'Assets/Materials/{Name}/Textures', file: '{Name}_{Map}' }, sound: { folder: 'Assets/Audio/SFX/{Name}', file: '{Name}_{n}' } },
+    { id: 'unreal', name: 'Unreal Engine', description: '', texture: { folder: 'Content/Materials/{Name}', file: 'T_{Name}_{MAP}' }, sound: { folder: 'Content/Audio/SFX/{Name}', file: 'A_{Name}_{n}' } },
+  ];
+  function exportMock(type, p) {
+    const all = () => ({ projects: EXP.projects, layouts: LAYOUTS });
+    switch (type) {
+      case 'export.projects': return all();
+      case 'export.project.add': { EXP.added++; const id = 'p' + EXP.added; EXP.projects.push({ id, name: 'My Game', root: 'D:\\Games\\My Game', missing: false }); return { id, all: all() }; }
+      case 'export.project.remove': EXP.projects = EXP.projects.filter((x) => x.id !== p.id); return all();
+      case 'export.plan': {
+        EXP.plans.push(JSON.parse(JSON.stringify(p)));
+        const words = (p.name || 'Untitled').split(/[^A-Za-z0-9]+/).filter(Boolean);
+        const t = { name: words.join('_'), Name: words.map((w) => w[0].toUpperCase() + w.slice(1)).join(''), name_snake: words.map((w) => w.toLowerCase()).join('_') };
+        const l = LAYOUTS.find((x) => x.id === p.layout);
+        const pat = l ? l[p.bench] : { folder: p.folderPattern || '', file: p.filePattern || (p.bench === 'sound' ? '{name}_{n}' : '{name}_{map}') };
+        const fill = (s, more) => s.replace(/\{([^}]+)\}/g, (_, k) => ({ ...t, ...more })[k] ?? '');
+        const maps = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target] || ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'];
+        const codes = { albedo: 'BC', basecolor: 'BC', normal: 'N', orm: 'ORM', height: 'H', roughness: 'R', ao: 'AO', metallic: 'M' };
+        const files = p.bench === 'sound'
+          ? Array.from({ length: Math.min(p.variations || 1, 3) }, (_, i) => fill(p.variations > 1 ? pat.file : pat.file.replace(/_\{n\}/, ''), { n: String(i + 1).padStart(2, '0') }) + '.wav')
+          : maps.map((m) => fill(pat.file, { map: m, Map: m[0].toUpperCase() + m.slice(1), MAP: codes[m] }) + '.png');
+        const project = EXP.projects.find((x) => x.id === p.project);
+        return { project: project ? project.name : null, root: project ? project.root : null, folder: fill(pat.folder, {}), files };
+      }
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
   function textureMock(type, p) {
     const builtIn = [{ id: 'bricks-red', family: 'Walls', name: 'Red bricks', description: 'Bricks.' }, { id: 'stone-cobbles', family: 'Stone', name: 'Cobblestones', description: 'Stones.' }, { id: 'metal-brushed', family: 'Metal', name: 'Brushed metal', description: 'Metal.' }];
     const mine = () => TEX.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' }));
@@ -459,7 +494,7 @@ function mockHostScript(initial) {
         return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42, warnings };
       }
       case 'texture.export': {
-        TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target });
+        TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target, project: p.project || null, layout: p.layout, folderPattern: p.folderPattern, filePattern: p.filePattern });
         const stem = p.recipe.name.replace(/ /g, '_');
         const names = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], godot: ['albedo', 'normal', 'roughness', 'metallic', 'ao', 'height'], unity: ['albedo', 'normal', 'metallic_smoothness', 'ao', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target];
         const paintings = (p.recipe.layers || []).filter((l) => l.type === 'painted' && l.path).length;
@@ -520,7 +555,7 @@ function mockHostScript(initial) {
       case 'sound.reference.pick': SND.refPicks = (SND.refPicks || 0) + 1; return { url: '/_media/4', name: 'boss door.wav', seconds: 3, peaks: Array.from({ length: 1200 }, (_, i) => (i % 2 ? 0.7 : -0.7)), feedback: sndFeedback(-12, []) };
       case 'sound.reference.clear': SND.refCleared = (SND.refCleared || 0) + 1; return null;
       case 'sound.export': {
-        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems });
+        SND.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, project: p.project || null, layout: p.layout });
         const stem = p.recipe.name.replace(/ /g, '_');
         const files = p.variations > 1 ? Array.from({ length: p.variations }, (_, i) => `${stem}_${String(i + 1).padStart(2, '0')}.wav`) : [stem + '.wav'];
         return { folder: 'D:\\Game\\Audio', files, recipe: stem + '.noorsound.json', stems: p.stems ? files.map((f) => f.replace(/\.wav$/, ' stems')) : [] };
@@ -700,6 +735,7 @@ function mockHostScript(initial) {
       case 'gallery.editor.add': GAL.editors.push({ name: 'Affinity Photo 2', detected: false }); return { editors: GAL.editors };
       case 'gallery.editor.remove': GAL.editors.splice(p.index, 1); return { editors: GAL.editors };
       case 'gallery.openWith': GAL.opened.push({ ids: [...p.ids], how: p.how, editor: p.editor }); return null;
+      case 'gallery.toTexture': GAL.toTexture = (GAL.toTexture || []).concat([[...p.ids]]); return { pictures: p.ids.map(get).map((i) => ({ path: `C:\\Pics\\${i.name}.jpg`, name: i.name + '.jpg', width: 1600, height: 1200 })), skipped: [] };
       case 'gallery.duplicates': { const by = new Map(); GAL.images.forEach((i) => { const k = i.id % 4; by.set(k, [...(by.get(k) || []), i]); }); return [...by.values()].filter((g) => g.length > 1).slice(0, 2).map((g) => ({ kind: 'same', items: g.slice(0, 3).map((i) => ({ ...i })) })); }
       case 'gallery.rating': p.ids.forEach((id) => { get(id).rating = Math.max(0, Math.min(5, p.stars)); }); return null;
       case 'gallery.label': if (p.label && !['red', 'orange', 'yellow', 'green', 'blue', 'purple'].includes(p.label)) throw new Error('Unknown colour label.'); p.ids.forEach((id) => { get(id).label = p.label || null; }); return null;

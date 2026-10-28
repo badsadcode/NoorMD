@@ -337,9 +337,67 @@ window.NoorTexture = (() => {
     const item = (p) => el('button', { class: 'gnav-item' + (recipe && recipe.name === p.name ? ' active' : ''), 'data-preset': p.id, title: p.description, onclick: () => loadPreset(p.id) },
       el('span', { text: p.name }), ...(p.id.startsWith('user:') ? [el('span', { class: 'icon-btn', role: 'button', title: 'Delete this preset', onclick: (e) => { e.stopPropagation(); deletePreset(p); } }, '✕')] : []));
     nav.replaceChildren(
+      el('div', { class: 'tb-start' },
+        el('button', { class: 'utility-btn', id: 'tb-new', title: 'Start from scratch: one noise layer on a plain grey surface; add layers, shapes and photos from there', onclick: newMaterial }, '＋ New material'),
+        el('button', { class: 'utility-btn', id: 'tb-random', title: 'A random stack of layers and colours to start from (press again for another)', onclick: randomMaterial }, '🎲 Random')),
       ...[...groups].flatMap(([family, list]) => [el('div', { class: 'gnav-head', text: family }), ...list.map(item)]),
       el('div', { class: 'gnav-head', text: 'My presets' }),
       ...(presets.mine.length ? presets.mine.map(item) : [el('p', { class: 'pref-hint', text: 'Save a material you like with “Save as my preset”.' })]));
+  }
+
+  // ---------------------------------------------------------------- from scratch
+
+  /** A plain grey surface: the colours, relief and shine are yours to set. */
+  const PLAIN_SURFACE = { ramp: [{ pos: 0, color: '#3c3c3c' }, { pos: 1, color: '#c4c4c4' }], colorVariation: 0, dirt: 0.2, roughnessLow: 0.9, roughnessHigh: 0.6,
+    roughnessVariation: 0.05, metallic: 0, normalStrength: 4, aoStrength: 0.5, aoRadius: 0.02 };
+
+  function newMaterial() {
+    setRecipe({ version: 1, name: 'New material', family: 'Custom', seed: 1 + Math.floor(Math.random() * 99999), layers: [layerOf('noise', 0, { name: 'Base' })], surface: clone(PLAIN_SURFACE) }, true);
+    tab = 'layers'; renderEditor();
+    notice('A new material: one noise layer to start. Add layers below; the Surface tab sets colours and shine.', 2600);
+  }
+
+  /** A random starting point: 2–4 layers of any kind, blended in different ways, with colours that go together. */
+  function randomMaterial() {
+    let a = (Math.random() * 2 ** 31) >>> 0;
+    const rnd = () => { a = (a + 0x6d2b79f5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const int = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
+    const num = (lo, hi) => Math.round((lo + rnd() * (hi - lo)) * 100) / 100;
+    const base = {
+      noise: () => ({ scaleX: int(2, 8), scaleY: int(2, 8), octaves: int(3, 7) }), ridged: () => ({ scaleX: int(2, 6), scaleY: int(2, 6), octaves: int(4, 7) }),
+      cells: () => ({ scaleX: int(3, 10), scaleY: int(3, 10), mode: pick(['cells', 'edges', 'cracks', 'stones']), jitter: num(0.5, 1), variation: num(0.1, 0.5) }),
+      bricks: () => ({ scaleX: int(2, 8), scaleY: 2 * int(2, 8), mortar: num(0.05, 0.2), bevel: num(0.03, 0.15), offset: pick([0.5, 0.25, 0.33]), variation: num(0.1, 0.4) }),
+      tiles: () => ({ scaleX: int(2, 8), scaleY: int(2, 8), mortar: num(0.04, 0.15), bevel: num(0.03, 0.12), roundness: num(0, 0.5), tilt: num(0, 0.4), variation: num(0, 0.3) }),
+      hexagons: () => { const x = int(4, 10); return { scaleX: x, scaleY: 2 * Math.round(x * 1.155 / 2), mortar: num(0.05, 0.15), bevel: num(0.03, 0.12), tilt: num(0, 0.3), variation: num(0, 0.3) }; },
+      planks: () => ({ scaleX: int(3, 10), scaleY: int(1, 4), mortar: num(0.02, 0.08), bevel: num(0.02, 0.08), offset: num(0.5, 1), tilt: num(0, 0.3), variation: num(0.1, 0.3), grain: num(0.4, 1) }),
+      wood: () => ({ scaleX: int(4, 16), scaleY: int(1, 5), octaves: int(3, 6) }),
+      weave: () => ({ scaleX: 2 * int(6, 24), scaleY: 2 * int(6, 24) }),
+      spots: () => ({ scaleX: int(4, 16), scaleY: int(4, 16), size: num(0.3, 0.9), density: num(0.4, 1), jitter: num(0, 1), variation: num(0, 0.6), profile: pick(['dome', 'dome', 'flat', 'crater', 'cone']) }),
+    };
+    const detail = {
+      noise: () => ({ scaleX: int(8, 32), scaleY: int(8, 32), octaves: int(3, 5) }), turbulence: () => ({ scaleX: int(4, 16), scaleY: int(4, 16), octaves: int(3, 5) }),
+      ridged: () => ({ scaleX: int(4, 12), scaleY: int(4, 12), octaves: int(3, 6) }), cells: () => ({ scaleX: int(6, 20), scaleY: int(6, 20), mode: pick(['cracks', 'edges']), jitter: 1 }),
+      scratches: () => ({ count: int(20, 120), length: num(0.05, 0.3), width: num(0.001, 0.004) }), spots: () => ({ scaleX: int(10, 32), scaleY: int(10, 32), size: num(0.2, 0.6), density: num(0.2, 0.7), jitter: 1, variation: 0.5 }),
+    };
+    const first = pick(Object.keys(base));
+    const layers = [layerOf(first, 0, { ...base[first](), warp: rnd() < 0.4 ? num(0.1, 0.5) : 0 })];
+    for (let i = 1, n = int(1, 3); i <= n; i++) {
+      const t = pick(Object.keys(detail));
+      layers.push(layerOf(t, i, { ...detail[t](), blend: pick(['overlay', 'multiply', 'add', 'subtract', 'max', 'screen']), opacity: num(0.2, 0.6) }));
+    }
+    if (rnd() < 0.3) layers.push(layerOf('erosion', layers.length, { mode: pick(['rain', 'crumble', 'wear']), amount: num(0.3, 0.8), blend: 'normal', opacity: 1, tint: null }));
+    // Colours that go together: one hue, from dark to light, with a touch of a neighbouring hue at the top.
+    const hue = rnd() * 360, sat = num(0.1, 0.6), hex = (h, s2, l) => {
+      const f = (n) => { const k = (n + h / 30) % 12, c = s2 * Math.min(l, 1 - l); return Math.round(255 * (l - c * Math.max(-1, Math.min(k - 3, 9 - k, 1)))).toString(16).padStart(2, '0'); };
+      return '#' + f(0) + f(8) + f(4);
+    };
+    const metal = rnd() < 0.15;
+    const surface = { ramp: [{ pos: 0, color: hex(hue, sat, 0.12) }, { pos: 0.5, color: hex(hue, sat, 0.38) }, { pos: 1, color: hex((hue + num(-30, 30) + 360) % 360, sat * 0.8, 0.68) }],
+      colorVariation: num(0, 0.4), dirt: num(0.1, 0.6), roughnessLow: num(0.6, 1), roughnessHigh: metal ? num(0.2, 0.5) : num(0.4, 0.9), roughnessVariation: num(0, 0.2),
+      metallic: metal ? 1 : 0, normalStrength: num(3, 9), aoStrength: num(0.4, 0.8), aoRadius: num(0.01, 0.04) };
+    setRecipe({ version: 1, name: 'Random material', family: 'Custom', seed: 1 + Math.floor(rnd() * 99999), layers, surface }, true);
+    notice(`A random start: ${layers.map((l) => LAYER_LABEL[l.type].replace(/ \(.*/, '').toLowerCase()).join(' + ')}. 🎲 again for another.`, 2600);
   }
 
   function renderHeader() {
@@ -445,12 +503,7 @@ window.NoorTexture = (() => {
       el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. Erosion reshapes the height made above it: rain cuts gullies, steep parts crumble, edges wear round. The Surface tab sets the base colour, relief and shine.' }),
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-addlayer': t, disabled: recipe.layers.length >= 12 || undefined, onclick: () => {
-        const add = (extra) => {
-          recipe.layers.push({ name: LAYER_LABEL[t].replace(/ \(.*/, '').replace(/ \/.*/, ''), type: t, octaves: 5, persistence: 0.5, lacunarity: 2, warp: 0, warpScale: 3, low: 0, high: 1, gamma: 1, invert: false,
-            blend: recipe.layers.length ? 'overlay' : 'normal', opacity: recipe.layers.length ? 0.5 : 1, seedShift: recipe.layers.length * 11, mute: false,
-            tint: null, tintAmount: 0, roughnessShift: 0, metallicShift: 0, ...clone(NEW_LAYER[t]), ...extra });
-          changed(true);
-        };
+        const add = (extra) => { recipe.layers.push(layerOf(t, recipe.layers.length, extra)); changed(true); };
         // A picture is asked for first; it then replaces what is below it (its own colours and height).
         if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
         // Masks paint rather than build height: they start with a tint to show where they are.
@@ -465,6 +518,38 @@ window.NoorTexture = (() => {
         add({});
       } }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
     ];
+  }
+
+  /** A new layer of type t, as the index-th layer: blended over the others (the first replaces), with its defaults. */
+  function layerOf(t, index, extra) {
+    return { name: LAYER_LABEL[t].replace(/ \(.*/, '').replace(/ \/.*/, ''), type: t, octaves: 5, persistence: 0.5, lacunarity: 2, warp: 0, warpScale: 3, low: 0, high: 1, gamma: 1, invert: false,
+      blend: index ? 'overlay' : 'normal', opacity: index ? 0.5 : 1, seedShift: index * 11, mute: false,
+      tint: null, tintAmount: 0, roughnessShift: 0, metallicShift: 0, ...clone(NEW_LAYER[t]), ...extra };
+  }
+
+  /** A plain surface for a material made from photos: their own colours, a little dirt and relief. */
+  const PHOTO_SURFACE = { ramp: [{ pos: 0, color: '#3a3a3a' }, { pos: 1, color: '#bdbdbd' }], colorVariation: 0, dirt: 0.2, roughnessLow: 0.9, roughnessHigh: 0.7,
+    roughnessVariation: 0.05, metallic: 0, normalStrength: 6, aoStrength: 0.6, aoRadius: 0.02 };
+
+  /**
+   * Pictures from the Gallery as photo layers: a new material from them (the first one as its base, the others over
+   * it), or added over the material you are making. A layer is a starting point: everything stays editable.
+   */
+  async function fromPictures(pics, mode) {
+    if (!pics || !pics.length) return;
+    await open();
+    const photo = (f, i, base) => layerOf('image', i, { path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), ...(base ? { blend: 'normal', opacity: 1 } : {}), ...keepProportions(f) });
+    if (mode === 'new' || !recipe) {
+      const list = pics.slice(0, 12);
+      setRecipe({ version: 1, name: list[0].name.replace(/\.[^.]+$/, ''), family: 'Custom', seed: 1, layers: list.map((f, i) => photo(f, i, i === 0)), surface: clone(PHOTO_SURFACE) }, true);
+      notice(list.length === 1 ? 'A new material from the picture' : `A new material from ${list.length} pictures`, 1800);
+      return;
+    }
+    const room = 12 - recipe.layers.length;
+    if (room <= 0) { notice('This material already has 12 layers: remove one first.', 2400); return; }
+    pics.slice(0, room).forEach((f) => recipe.layers.push(photo(f, recipe.layers.length, false)));
+    changed(true);
+    notice(pics.length > room ? `Added ${room} of the ${pics.length} pictures (a material has at most 12 layers)` : `Added ${pics.length === 1 ? 'the picture' : `${pics.length} pictures`} over the material`, 2200);
   }
 
   /** A colour of the picture that should be high (or low): picked with the eyedropper, or chosen. */
@@ -558,9 +643,10 @@ window.NoorTexture = (() => {
     const sel = (id, label, options, value, key, num) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
       s.value = String(value);
-      s.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }));
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }); where.refresh(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
+    where = NoorExportWhere.panel('texture', () => ({ name: recipe.name, family: recipe.family || '', size: exportPrefs().size, target: exportPrefs().target }), hooks.showError);
     const check = (id, label, title, key) => {
       const c = el('input', { type: 'checkbox', id, checked: prefs[key] ? true : undefined });
       c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: c.checked }));
@@ -570,6 +656,7 @@ window.NoorTexture = (() => {
       el('div', { class: 'sb-row' },
         sel('tb-size', 'Size', [512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), prefs.size, 'size', true),
         sel('tb-target', 'For', TARGETS, prefs.target, 'target', false)),
+      where.node,
       el('div', { class: 'sb-row' },
         check('tb-to-gallery', 'Show them in the Gallery', 'Adds the folder to the Gallery (if no Gallery folder holds it yet) and tags the maps “material” and with its name', 'gallery'),
         check('tb-to-vault', 'Keep the recipe in the Vault', 'Copies the recipe (with its paintings) and a small picture to the open Vault’s Materials folder; open it from there later', 'vault')),
@@ -599,16 +686,19 @@ window.NoorTexture = (() => {
     preview(512);
   }
 
+  let where = null; // where exports go (the Export tab)
+
   async function exportMaps() {
     const p = exportPrefs();
     const status = $('#tb-export-status');
     try {
-      const r = await req('texture.export', { recipe, size: p.size, target: p.target, gallery: !!p.gallery, vault: !!p.vault });
+      const r = await req('texture.export', { recipe, size: p.size, target: p.target, gallery: !!p.gallery, vault: !!p.vault, ...(where ? where.payload() : {}) });
       if (!r || r.cancelled) return;
       if (status) {
         const more = [r.paintings ? `${r.paintings === 1 ? 'Its painting went' : `Its ${r.paintings} paintings went`} along.` : '',
           r.gallery != null ? `In the Gallery, tagged “material”.` : '', r.vault ? `Recipe kept in the Vault: ${r.vault}.` : '', ...(r.notes || [])].filter(Boolean).join(' ');
-        status.replaceChildren(el('span', { text: `Saved ${r.files.length} maps and the recipe in ${r.folder}. ${more} ` }),
+        const into = r.project ? `${r.project}: ${r.relative && r.relative !== '.' ? r.relative : 'its folder'}` : r.folder;
+        status.replaceChildren(el('span', { text: `Saved ${r.files.length} maps and the recipe in ${into}. ${more} ` }),
           el('button', { class: 'utility-btn', id: 'tb-reveal', onclick: () => req('texture.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
       notice(`Exported ${r.files.join(', ')}`, 2600);
@@ -936,7 +1026,8 @@ window.NoorTexture = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen,
+    init, open, close, toggle, isOpen, fromPictures, newMaterial, randomMaterial,
+    hasMaterial: () => !!recipe,
     _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

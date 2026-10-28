@@ -434,6 +434,23 @@ public partial class MainWindow
                     if (i >= 0 && i < list.Count && !list[i].Detected) { list.RemoveAt(i); SaveEditors(list); }
                     return new { editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }) };
                 }
+                case "gallery.toTexture":
+                {
+                    // Pictures chosen in the Gallery, for photo layers in the Texture Bench: allowed for it and measured.
+                    var imgs = Ids(p, "ids").Take(12).Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
+                    if (imgs.Count == 0) throw new BridgeError("Those pictures are not there any more.");
+                    var list = new List<object>();
+                    var skipped = new List<string>();
+                    foreach (var img in imgs)
+                    {
+                        var full = Path.GetFullPath(img.Path);
+                        _textureImageFiles.Add(full);
+                        var read = await Task.Run(() => LoadTextureImage(full));
+                        if (read == null) { skipped.Add(img.Name); continue; }
+                        list.Add(new { path = full, name = img.Name, width = read.Width, height = read.Height });
+                    }
+                    return new { pictures = list, skipped };
+                }
                 case "gallery.openWith":
                 {
                     var imgs = Ids(p, "ids").Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();

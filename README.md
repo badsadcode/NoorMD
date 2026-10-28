@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.41-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.42-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -129,8 +129,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   spectrogram and loudness meters (LUFS, true
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
-- **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: stone, ground, wood, metal,
-  walls and fabric. Layers of noise, cells, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
+- **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
+  ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, cells, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
   rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their
   detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Paint on a material by hand in
   NoorSketch (the material underneath, strokes carrying on across the edges so it still tiles) and apply it
@@ -138,7 +138,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   and metal, masked by the material's own height and edges; a colour ramp, dirt and roughness make the surface.
   See it on a sphere, rounded cube, cube or plane under five lights (or as grey clay, or one map at a time), or each map tiled, and export seamless PNG maps (albedo, normal,
   roughness, AO, metallic, 16-bit height) for Godot, Unity or Unreal at up to 4096 pixels, with the recipe
-  (and its paintings) beside them; optionally shown in the Gallery and the recipe kept in your Vault.
+  (and its paintings) beside them; optionally shown in the Gallery and the recipe kept in your Vault. Exports (and
+  the Sound Bench's) can go straight into a game project, arranged for Godot, Unity or Unreal or by your own
+  folder and file-name pattern, with a preview of every path.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

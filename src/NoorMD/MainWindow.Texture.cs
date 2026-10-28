@@ -135,16 +135,28 @@ public partial class MainWindow
     }
 
     /// <summary>A copy of the recipe whose paintings are copied into the folder and named relative to it (a recipe that travels with its paintings).</summary>
-    private static async Task<TextureRecipe> CopyPaintingsBesideAsync(TextureRecipe recipe, string folder, HashSet<string> taken)
+    private static async Task<TextureRecipe> CopyPaintingsBesideAsync(TextureRecipe recipe, string folder, HashSet<string> taken, bool replace = false)
     {
         var copy = recipe.Clone();
         foreach (var l in copy.Layers.Where(l => l.Type == "painted" && !string.IsNullOrEmpty(l.Path) && File.Exists(l.Path)))
         {
-            var dest = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(l.Path!), ".noorsketch", taken);
-            await Task.Run(() => File.Copy(l.Path!, dest, overwrite: false));
+            var source = Path.GetFullPath(l.Path!);
+            var dest = ExportTarget(folder, Path.GetFileName(source), keep: !replace, taken);
+            if (!string.Equals(source, dest, StringComparison.OrdinalIgnoreCase)) await Task.Run(() => File.Copy(source, dest, overwrite: true));
             l.Path = Path.GetFileName(dest);
         }
         return copy;
+    }
+
+    /// <summary>A file's place in an export: as named (replacing, after asking), or numbered beside what is there.</summary>
+    private static string ExportTarget(string folder, string fileName, bool keep, HashSet<string> taken)
+    {
+        var path = Path.Combine(folder, fileName);
+        if (!keep && taken.Add(path)) return path;
+        // "x.noortex.json" numbers as "x (2).noortex.json".
+        var dot = fileName.IndexOf('.', 1);
+        var (stem, ext) = dot > 0 ? (fileName[..dot], fileName[dot..]) : (fileName, "");
+        return PictureConvert.FreePath(folder, stem, ext, taken);
     }
 
     /// <summary>What each export target writes: (file suffix, what goes in it).</summary>
@@ -268,25 +280,37 @@ public partial class MainWindow
                     if (size is not (512 or 1024 or 2048 or 4096)) throw new BridgeError("Choose 512, 1024, 2048 or 4096 pixels.");
                     var target = req.GetString("target", 20) ?? "generic";
                     if (!TextureTargets.TryGetValue(target, out var files)) throw new BridgeError("Unknown export target.");
-                    var dlg = new OpenFolderDialog { Title = $"Save the maps of “{recipe.Name}” ({size} × {size}) in… (you can make a new folder here)" };
-                    NativeCursor.Restore();
-                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
-                    var folder = dlg.FolderName;
-                    var stem = Path.GetFileNameWithoutExtension(NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name.Replace(' ', '_'), ".png"));
+                    // Where: a folder chosen now or a game project's, arranged by the chosen layout.
+                    var place = ExportPlaceFrom(p, "texture");
+                    var root = ExportBase(place, $"Save the maps of “{recipe.Name}” ({size} × {size}) in… (you can make a new folder here)");
+                    if (root == null) return new { cancelled = true };
+                    var tokens = ExportTokens(recipe.Name, recipe.Family, size, place.Project?.Name);
+                    var folder = NoorMD.Core.Export.ExportLayouts.Under(root, NoorMD.Core.Export.ExportLayouts.Folders(NoorMD.Core.Export.ExportLayouts.Expand(place.FolderPattern, tokens)));
+                    var stem = NoorMD.Core.Export.ExportLayouts.FileName(tokens["name"], recipe.Name);
+                    var names = files.Select(f =>
+                    {
+                        var t = new Dictionary<string, string>(tokens); foreach (var kv in NoorMD.Core.Export.ExportLayouts.MapTokens(f.Suffix)) t[kv.Key] = kv.Value;
+                        return NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, t), recipe.Name) + ".png";
+                    }).ToList();
+                    var how = AskReplace([.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortex.json")], $"“{recipe.Name}”");
+                    if (how == null) return new { cancelled = true };
+                    var keep = how == "keep";
+                    Directory.CreateDirectory(folder);
                     var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage));
                     var written = new List<string>();
-                    foreach (var (suffix, what) in files)
+                    for (var k = 0; k < files.Length; k++)
                     {
-                        var path = PictureConvert.FreePath(folder, $"{stem}_{suffix}", ".png", taken);
+                        var (_, what) = files[k];
+                        var path = ExportTarget(folder, names[k], keep, taken);
                         var png = await Task.Run(() => TextureFile(maps, what));
                         await File.WriteAllBytesAsync(path, png);
                         written.Add(path);
                         PushEvent("texture.exportProgress", new { done = written.Count, total = files.Length });
                     }
                     // Paintings go along, so the recipe beside the maps opens complete anywhere.
-                    var travelling = await CopyPaintingsBesideAsync(recipe, folder, taken);
-                    var recipePath = PictureConvert.FreePath(folder, stem + ".noortex", ".json", taken);
+                    var travelling = await CopyPaintingsBesideAsync(recipe, folder, taken, replace: !keep);
+                    var recipePath = ExportTarget(folder, stem + ".noortex.json", keep, taken);
                     await File.WriteAllTextAsync(recipePath, travelling.ToJson(), new UTF8Encoding(false));
                     _textureFolders.Add(folder);
                     Log.Info($"Texture Bench: exported {written.Count} maps of “{recipe.Name}” at {size}");
@@ -301,7 +325,7 @@ public partial class MainWindow
                             try { vault = await SaveTextureToVaultAsync(recipe, maps, stem); }
                             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("Not kept in the Vault: " + ex.Message); }
                     }
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), paintings = travelling.Layers.Count(l => l.Type == "painted" && l.Path != null), gallery, vault, notes };
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), paintings = travelling.Layers.Count(l => l.Type == "painted" && l.Path != null), gallery, vault, notes };
                 }
                 case "texture.reveal":
                 {

@@ -1202,9 +1202,10 @@ window.NoorSound = (() => {
     const sel = (id, label, options, value, key) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
       s.value = String(value);
-      s.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: Number(s.value) }));
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: Number(s.value) }); where.refresh(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
+    where = NoorExportWhere.panel('sound', () => ({ name: recipe.name, family: recipe.family || '', variations: exportPrefs().variations }), hooks.showError);
     return [
       el('div', { class: 'sb-fields' }, ...MASTER.map((f) => slider(m, f, false))),
       el('div', { class: 'sb-row' },
@@ -1223,6 +1224,7 @@ window.NoorSound = (() => {
         return el('label', { class: 'sb-inline', title: 'For a game engine or a video editor: each layer with its share of the buses, at the same gain as the mix, so they line up' },
           c, el('span', { text: 'Also stems: each layer on its own, in a folder beside the file' }));
       })(),
+      where.node,
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'sb-export', onclick: exportSound }, '⤓ Export WAV…'),
         el('button', { class: 'action', id: 'sb-save', onclick: savePreset }, '★ Save as my preset…')),
@@ -1294,15 +1296,18 @@ window.NoorSound = (() => {
     if (listening === 'R') showReference(); else schedule(0);
   }
 
+  let where = null; // where exports go (the Export panel)
+
   async function exportSound() {
     const p = exportPrefs();
     const status = $('#sb-export-status');
     try {
-      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems });
+      const r = await req('sound.export', { recipe, variations: p.variations, sampleRate: p.sampleRate, bits: p.bits, stems: !!p.stems, ...(where ? where.payload() : {}) });
       if (!r || r.cancelled) return;
       if (status) {
         const stems = r.stems && r.stems.length ? ` Stems: ${r.stems.join(', ')}.` : '';
-        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${r.folder}.${stems} ` }),
+        const into = r.project ? `${r.project}: ${r.relative && r.relative !== '.' ? r.relative : 'its folder'}` : r.folder;
+        status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${into}.${stems} ` }),
           el('button', { class: 'utility-btn', id: 'sb-reveal', onclick: () => req('sound.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
       notice(`Exported ${r.files.join(', ')}`, 2600);

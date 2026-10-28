@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-preview.42 — Export structures, pictures from the Gallery, materials from scratch
+
+- **Where exports go** (Texture Bench and Sound Bench), with a preview of every file's path before anything is written:
+  - **Into:** a folder chosen each time (as before), or a **game project**: its folder chosen once, then exports
+    go straight into it. Projects are shared by both benches; taking one off the list leaves its folder alone.
+  - **Arranged:** Flat (as before), A folder for each, **Godot** (assets/materials/red_bricks/red_bricks_albedo),
+    **Unity** (Assets/Materials/RedBricks/Textures/RedBricks_Albedo), **Unreal** (Content/Materials/RedBricks/
+    T_RedBricks_BC, _N, _ORM; sounds as A_…), By size or kind, or **your own pattern** for folders and file names
+    with tokens: {name} {Name} {name_snake} {name-kebab}, {map} {Map} {MAP}, {size}, {family}, {project}, and {n}
+    for a sound's variation.
+  - Files are only written inside the folder or project you chose (patterns can't lead out of it, and names
+    Windows refuses are cleaned). If any file is already there, you're asked: **Replace** (keeps the game's
+    references working), **Keep both** (numbered), or Cancel.
+- **Pictures from the Gallery into the Texture Bench:** right-click › Open in › 🧱 Texture Bench, or 🧱 Texture… in
+  the info panel: a **new material** from them (the first as its base, the others over it, each repeated in its
+  own proportions), or **added over the material you are making**.
+- **Materials from scratch:** **＋ New material** starts with one noise layer on a plain grey surface to build on (or
+  remove it and start empty); **🎲 Random** makes a different stack of 2–5 layers (shapes, noises, spots,
+  scratches, sometimes erosion) with colours that go together, every part of it editable.
+
 ## 2.0.0-preview.41 — Texture Bench: paint in NoorSketch, the Gallery and the Vault
 
 Stage 3 of the Texture Bench is complete (docs/TEXTURE_BENCH_PLAN.md).

@@ -1463,3 +1463,14 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sb-step { writing-mode: vertical-lr; direction: rtl; width: 22px; height: 70px; accent-color: var(--accent); }
 .sb-knob span:first-child { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-addfx, .sb-addroute { align-self: flex-start; background: var(--surface); color: var(--text); border: 1px dashed var(--border); border-radius: 8px; padding: 4px 8px; font: inherit; font-size: 12px; }
+
+/* Where exports go (Texture and Sound Bench): project, layout, own patterns, and a preview of the paths. */
+.ex-where { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; }
+.ex-where select { max-width: 260px; }
+.ex-custom { display: flex; flex-direction: column; gap: 4px; }
+.ex-custom[hidden] { display: none; }
+.ex-custom input { flex: 1; min-width: 220px; font-family: var(--font-mono); font-size: 12px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 8px; }
+.ex-preview { font-family: var(--font-mono); font-size: 11.5px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; white-space: pre; overflow-x: auto; }
+.ex-preview .ex-folder { color: var(--text); }
+.tb-start { display: flex; flex-wrap: wrap; gap: 4px; padding: 2px 4px 8px; }
+.tb-start .utility-btn { flex: 1; font-size: 12px; padding: 4px 6px; }

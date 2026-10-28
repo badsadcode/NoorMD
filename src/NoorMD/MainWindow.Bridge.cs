@@ -148,6 +148,8 @@ public partial class MainWindow
                 return await DispatchSoundAsync(req);
             case var texture when texture.StartsWith("texture.", StringComparison.Ordinal):
                 return await DispatchTextureAsync(req);
+            case var export when export.StartsWith("export.", StringComparison.Ordinal):
+                return DispatchExport(req);
             case var radio when radio.StartsWith("radio.", StringComparison.Ordinal):
                 return await DispatchRadioAsync(req);
             case var gallery when gallery.StartsWith("gallery.", StringComparison.Ordinal):
