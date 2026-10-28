@@ -163,6 +163,8 @@ public sealed class ImplicitField
         var f = new float[8];
         var next = new int[12];
         var loop = new List<int>(12);
+        var edge = new int[4];
+        var kind = new int[4];     // per face: +1 the walk leaves the inside there, -1 enters it, 0 no crossing
 
         int Crossing(int i, int j, int k, int e)
         {
@@ -198,8 +200,6 @@ public sealed class ImplicitField
                         // from a crossing where the walk leaves the inside to one where it enters it: inside on the left.
                         foreach (var face in Faces)
                         {
-                            Span<int> edge = stackalloc int[4];
-                            Span<int> kind = stackalloc int[4];     // +1 leaving the inside, -1 entering, 0 none
                             var n = 0;
                             for (var c = 0; c < 4; c++)
                             {
