@@ -6,10 +6,16 @@ window.NoorTexture = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
 
-  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', painted: 'Hand-painted (NoorSketch)', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
+  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', musgrave: 'Musgrave (fractal terrain)', cells: 'Cells (Voronoi: stones, cracks)',
+    wave: 'Wave (bands, rings)', gradient: 'Gradient', checker: 'Checker', magic: 'Magic', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', painted: 'Hand-painted (NoorSketch)', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
   const NEW_LAYER = {
     noise: { scaleX: 4, scaleY: 4, octaves: 5 }, ridged: { scaleX: 3, scaleY: 3, octaves: 6 }, turbulence: { scaleX: 6, scaleY: 6, octaves: 4 },
-    cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3 }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
+    cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3, metric: 'euclidean' }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
+    musgrave: { scaleX: 3, scaleY: 3, octaves: 7, mode: 'fbm', dimension: 1, gain: 1, offset: 0.5 },
+    wave: { scaleX: 6, scaleY: 0, mode: 'bands', profile: 'sine', frequency: 4, distortion: 0.3, octaves: 3 },
+    gradient: { scaleX: 1, scaleY: 1, mode: 'linear' },
+    checker: { scaleX: 8, scaleY: 8, bevel: 0.05 },
+    magic: { scaleX: 1, scaleY: 1, octaves: 3, distortion: 0.5 },
     bricks: { scaleX: 4, scaleY: 8, mortar: 0.1, bevel: 0.08, offset: 0.5, variation: 0.3 },
     tiles: { scaleX: 4, scaleY: 4, mortar: 0.08, bevel: 0.06, roundness: 0.2, tilt: 0.2, variation: 0.1 },
     hexagons: { scaleX: 7, scaleY: 8, mortar: 0.1, bevel: 0.08, tilt: 0.2, variation: 0.15 },
@@ -30,6 +36,13 @@ window.NoorTexture = (() => {
   const FIELDS = {
     noise: [...SCALE, ...FRACTAL, ...WARP], ridged: [...SCALE, ...FRACTAL, ...WARP], turbulence: [...SCALE, ...FRACTAL, ...WARP],
     cells: [...SCALE, ['jitter', 'Irregular', 0, 1, 0.01, 'pct'], ['variation', 'Stones differ', 0, 1, 0.01, 'pct'], ...WARP],
+    musgrave: [...SCALE, ['octaves', 'Detail (octaves)', 1, 10, 1, 'int'], ['dimension', 'Dimension (detail fades faster)', 0, 2, 0.01, 'num'], ['lacunarity', 'Detail step', 2, 4, 1, 'int'],
+      ['offset', 'Offset', 0, 1, 0.01, 'pct'], ['gain', 'Gain', 0, 4, 0.01, 'num'], ...WARP],
+    wave: [['scaleX', 'Across (bands) / cells across (rings)', 0, 64, 1, 'int'], ['scaleY', 'Down (bands) / cells down (rings)', 0, 64, 1, 'int'], ['frequency', 'Rings in a cell', 1, 64, 1, 'int'],
+      ['distortion', 'Distortion', 0, 4, 0.01, 'num'], ['octaves', 'Distortion detail', 1, 8, 1, 'int'], ...WARP],
+    gradient: [['scaleX', 'Repeats across', 1, 64, 1, 'int'], ['scaleY', 'Repeats down', 1, 64, 1, 'int'], ...WARP],
+    checker: [['scaleX', 'Squares across', 2, 128, 2, 'int'], ['scaleY', 'Squares down', 2, 128, 2, 'int'], ['bevel', 'Soft edges', 0, 0.5, 0.005, 'pct'], ...WARP],
+    magic: [...SCALE, ['octaves', 'Depth', 1, 10, 1, 'int'], ['distortion', 'Distortion', 0, 4, 0.01, 'num'], ...WARP],
     wood: [['scaleX', 'Grain lines across', 1, 64, 1, 'int'], ['scaleY', 'Waviness', 1, 16, 1, 'int'], ['octaves', 'Detail (octaves)', 1, 10, 1, 'int'], ...WARP],
     bricks: [['scaleX', 'Bricks across', 1, 64, 1, 'int'], ['scaleY', 'Rows', 1, 64, 1, 'int'], ['mortar', 'Mortar', 0, 0.5, 0.005, 'pct'], ['bevel', 'Bevel', 0, 0.5, 0.005, 'pct'],
       ['offset', 'Row offset', 0, 1, 0.01, 'pct'], ['variation', 'Bricks differ', 0, 1, 0.01, 'pct'], ...WARP],
@@ -60,7 +73,16 @@ window.NoorTexture = (() => {
   const EROSION_SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Paints from (fainter traces)', 0, 1, 0.01, 'pct'], ['high', 'Paints fully at', 0, 1, 0.01, 'pct'], ['gamma', 'Paint: middle (gamma)', 0.1, 5, 0.01, 'num']];
   // A painting raises the relief where it is light and lowers it where it is dark (mid-grey: no change).
   const PAINTED_SHAPE = [['opacity', 'Relief from its brightness (white up, black down)', 0, 1, 0.01, 'pct']];
-  const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['max', 'Higher of the two'], ['min', 'Lower of the two']];
+  const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['softlight', 'Soft light'],
+    ['linearlight', 'Linear light'], ['dodge', 'Dodge'], ['burn', 'Burn'], ['difference', 'Difference'], ['divide', 'Divide'], ['max', 'Higher of the two (lighten)'], ['min', 'Lower of the two (darken)']];
+  /** Kinds a layer type can be (Blender's options), and how a ramp goes between its colours. */
+  const KINDS = {
+    cells: ['As', [['cells', 'round bumps (F1)'], ['edges', 'raised edges (F2 − F1)'], ['cracks', 'cracks'], ['stones', 'flat stones'], ['f2', 'second nearest (F2)'], ['smooth', 'smooth (melting cells)']]],
+    musgrave: ['Kind', [['fbm', 'fBm'], ['multifractal', 'multifractal'], ['hybrid', 'hybrid multifractal'], ['hetero', 'hetero terrain'], ['ridged', 'ridged multifractal']]],
+    wave: ['As', [['bands', 'bands'], ['rings', 'rings']]],
+    gradient: ['As', [['linear', 'linear'], ['quadratic', 'quadratic'], ['diagonal', 'diagonal'], ['radial', 'radial (round)'], ['spherical', 'spherical (dome)']]],
+  };
+  const RAMP_MODES = [['linear', 'Linear'], ['ease', 'Ease'], ['constant', 'Constant (steps)'], ['bspline', 'B-spline (smooth)']];
   const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct']];
   /**
    * Each map on its own (the Maps tab): [map, title, hint, sliders, switches, neutral values]. The neutral values are
@@ -468,6 +490,9 @@ el('span', { class: 'tb-zoom' },
       wood: () => ({ scaleX: int(4, 16), scaleY: int(1, 5), octaves: int(3, 6) }),
       weave: () => ({ scaleX: 2 * int(6, 24), scaleY: 2 * int(6, 24) }),
       spots: () => ({ scaleX: int(4, 16), scaleY: int(4, 16), size: num(0.3, 0.9), density: num(0.4, 1), jitter: num(0, 1), variation: num(0, 0.6), profile: pick(['dome', 'dome', 'flat', 'crater', 'cone']) }),
+      musgrave: () => ({ scaleX: int(2, 5), scaleY: int(2, 5), octaves: int(5, 8), mode: pick(['fbm', 'hetero', 'hybrid', 'ridged', 'multifractal']), dimension: num(0.6, 1.4), gain: num(0.8, 2), offset: num(0.3, 0.6) }),
+      wave: () => ({ scaleX: int(2, 10), scaleY: pick([0, 0, int(1, 4)]), mode: pick(['bands', 'bands', 'rings']), profile: pick(['sine', 'triangle', 'saw']), frequency: int(3, 10), distortion: num(0.1, 1.2), octaves: int(2, 5) }),
+      magic: () => ({ scaleX: int(1, 3), scaleY: int(1, 3), octaves: int(2, 6), distortion: num(0.2, 1.2) }),
     };
     const detail = {
       noise: () => ({ scaleX: int(8, 32), scaleY: int(8, 32), octaves: int(3, 5) }), turbulence: () => ({ scaleX: int(4, 16), scaleY: int(4, 16), octaves: int(3, 5) }),
@@ -478,7 +503,7 @@ el('span', { class: 'tb-zoom' },
     const layers = [layerOf(first, 0, { ...base[first](), warp: rnd() < 0.4 ? num(0.1, 0.5) : 0 })];
     for (let i = 1, n = int(1, 3); i <= n; i++) {
       const t = pick(Object.keys(detail));
-      layers.push(layerOf(t, i, { ...detail[t](), blend: pick(['overlay', 'multiply', 'add', 'subtract', 'max', 'screen']), opacity: num(0.2, 0.6) }));
+      layers.push(layerOf(t, i, { ...detail[t](), blend: pick(['overlay', 'multiply', 'add', 'subtract', 'max', 'screen', 'softlight', 'difference', 'linearlight']), opacity: num(0.2, 0.6), ...(rnd() < 0.25 ? { bump: num(0.3, 1), opacity: 0 } : {}) }));
     }
     if (rnd() < 0.3) layers.push(layerOf('erosion', layers.length, { mode: pick(['rain', 'crumble', 'wear']), amount: num(0.3, 0.8), blend: 'normal', opacity: 1, tint: null }));
     // Colours that go together: one hue, from dark to light, with a touch of a neighbouring hue at the top.
@@ -573,11 +598,17 @@ el('span', { class: 'tb-zoom' },
         kind.addEventListener('change', () => { l.mode = kind.value; changed(false); });
         choices.unshift(el('label', { class: 'sb-inline' }, el('span', { text: 'By' }), kind));
       }
-      if (l.type === 'cells') {
-        const mode = el('select', { 'aria-label': 'Cells as', 'data-key': 'mode' }, ...[['cells', 'round bumps'], ['edges', 'raised edges'], ['cracks', 'cracks'], ['stones', 'flat stones']].map(([v, t]) => el('option', { value: v, text: t })));
-        mode.value = l.mode || 'cells';
-        mode.addEventListener('change', () => { l.mode = mode.value; changed(false); });
-        choices.unshift(el('label', { class: 'sb-inline' }, el('span', { text: 'As' }), mode));
+      const pickOne = (key, label, options, fallback) => {
+        const sel = el('select', { 'aria-label': label, 'data-key': key }, ...options.map(([v, t]) => el('option', { value: v, text: t })));
+        sel.value = l[key] || fallback;
+        sel.addEventListener('change', () => { l[key] = sel.value; changed(false); });
+        return el('label', { class: 'sb-inline' }, el('span', { text: label }), sel);
+      };
+      if (KINDS[l.type]) {
+        const [label, options] = KINDS[l.type];
+        if (l.type === 'cells') choices.unshift(pickOne('metric', 'Distance', [['euclidean', 'Euclidean (round)'], ['manhattan', 'Manhattan (diamond)'], ['chebyshev', 'Chebyshev (square)']], 'euclidean'));
+        if (l.type === 'wave') choices.unshift(pickOne('profile', 'Profile', [['sine', 'sine'], ['saw', 'saw'], ['triangle', 'triangle']], 'sine'));
+        choices.unshift(pickOne('mode', label, options, options[0][0]));
       }
       return el('section', { class: 'sb-layer' + (l.mute ? ' muted' : ''), 'data-index': String(i), 'data-layer': l.id || '' },
         el('div', { class: 'sb-layer-head' },
@@ -591,6 +622,7 @@ el('span', { class: 'tb-zoom' },
         el('div', { class: 'sb-choices' }, ...choices),
         el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : l.type === 'painted' ? PAINTED_SHAPE : SHAPE).map((f) => slider(l, f))),
         ...(l.type === 'image' ? [heightByColour(l)] : []),
+        ...(['painted', 'current', 'curvature', 'erosion'].includes(l.type) ? [] : [placeGroup(l)]),
         paintGroup(l));
     });
     return [
@@ -662,6 +694,58 @@ el('span', { class: 'tb-zoom' },
         slider(l, ['heightColorAmount', 'Low ↔ high', -1, 1, 0.01, 'spct']), slider(l, ['heightColorTolerance', 'How alike counts', 0.02, 1, 0.01, 'pct']))] : []));
   }
 
+  /**
+   * A layer's position and extras: moved across or down (it still tiles), relief for the normal map only (a bump,
+   * as Blender's Bump node), and colours of its own through a ramp (with transparency).
+   */
+  function placeGroup(l) {
+    const active = !!l.shiftX || !!l.shiftY || !!l.bump || !!(l.ramp && l.ramp.length);
+    const ramp = l.ramp && l.ramp.length;
+    return el('details', { class: 'sb-fxgroup', 'data-place': l.id || '', open: active || undefined },
+      el('summary', { text: `Position, relief and colours of its own${active ? ' (on)' : ''}` }),
+      el('div', { class: 'sb-fields' }, slider(l, ['shiftX', 'Move across', 0, 1, 0.01, 'pct']), slider(l, ['shiftY', 'Move down', 0, 1, 0.01, 'pct']),
+        slider(l, ['bump', 'Relief only (bump: normal map, not height)', 0, 1, 0.01, 'pct'])),
+      ramp
+        ? el('div', { class: 'tb-layer-ramp' }, ...rampEditor(l.ramp, { alpha: true, mode: l, prefix: 'tb-lramp-' + (l.id || 'x') }),
+          el('div', { class: 'sb-fields' }, slider(l, ['colorAmount', 'How much of its colours', 0, 1, 0.01, 'pct'])),
+          el('button', { class: 'utility-btn', 'data-noramp': '', onclick: () => { l.ramp = null; changed(true); } }, 'No colours of its own'))
+        : el('button', { class: 'utility-btn', 'data-addramp': '', title: 'Its value through a colour ramp, on the surface (transparent parts let what is below show)',
+          onclick: () => { l.ramp = [{ pos: 0.4, color: '#2d5a1e', alpha: 0 }, { pos: 0.7, color: '#5b8f2c', alpha: 1 }]; l.rampMode = 'linear'; if (!(l.colorAmount > 0)) l.colorAmount = 1; changed(true); } }, '＋ Colours of its own (ramp)'));
+  }
+
+  /**
+   * A colour ramp's editor: the bar, each colour (with how visible it is, for layer ramps), add, sort, and how it
+   * goes between colours. Used for the surface and for layers.
+   */
+  function rampEditor(list, { alpha = false, mode = null, prefix = 'tb' } = {}) {
+    const bar = el('div', { class: 'tb-ramp', id: prefix === 'tb' ? 'tb-ramp' : prefix, 'aria-hidden': 'true' });
+    const paintBar = () => {
+      const c = (r) => { const a = alpha ? (r.alpha ?? 1) : 1; const n = parseInt(r.color.slice(1), 16); return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${a})`; };
+      bar.style.background = `linear-gradient(to right, ${list.map((r) => `${alpha ? c(r) : r.color} ${Math.round(r.pos * 100)}%`).join(', ')})${alpha ? ', repeating-conic-gradient(#888 0 25%, #555 0 50%) 0 0 / 12px 12px' : ''}`;
+    };
+    paintBar();
+    const stops = list.map((r, i) => {
+      const color = el('input', { type: 'color', value: r.color, 'aria-label': `Colour ${i + 1}`, 'data-stop': String(i) });
+      color.addEventListener('input', () => { r.color = color.value; paintBar(); changed(false); });
+      return el('div', { class: 'tb-stop' }, color, slider(r, ['pos', 'At', 0, 1, 0.01, 'pct']),
+        ...(alpha ? [slider(r, ['alpha', 'Shows', 0, 1, 0.01, 'pct'])] : []),
+        el('button', { class: 'icon-btn', title: 'Remove this colour', 'aria-label': 'Remove this colour', disabled: list.length <= 1 || undefined, onclick: () => { list.splice(i, 1); changed(true); } }, '✕'));
+    });
+    const target = mode || recipe.surface;
+    const modeSel = el('select', { 'aria-label': 'Between colours', 'data-key': 'rampMode', id: prefix === 'tb' ? 'tb-rampmode' : undefined }, ...RAMP_MODES.map(([v, t]) => el('option', { value: v, text: t })));
+    modeSel.value = target.rampMode || 'linear';
+    modeSel.addEventListener('change', () => { target.rampMode = modeSel.value; changed(false); });
+    return [bar, ...stops,
+      el('div', { class: 'sb-row' },
+        el('button', { class: 'utility-btn', id: prefix === 'tb' ? 'tb-addstop' : undefined, 'data-addstop': '', disabled: list.length >= 16 || undefined, onclick: () => {
+          const last = list[list.length - 1];
+          list.push({ pos: Math.min(1, (last ? last.pos : 0.5) + 0.1), color: last ? last.color : '#808080', ...(alpha ? { alpha: 1 } : {}) });
+          changed(true);
+        } }, '＋ Colour'),
+        el('button', { class: 'utility-btn', onclick: () => { list.sort((a, b) => a.pos - b.pos); changed(true); } }, 'Sort'),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Between colours' }), modeSel))];
+  }
+
   /** Painting the surface where this layer is high: a tint, roughness and metallic (for any layer, with or without height). */
   function paintGroup(l) {
     const on = el('input', { type: 'checkbox', checked: l.tint ? true : undefined, 'data-key': 'useTint' });
@@ -682,27 +766,9 @@ el('span', { class: 'tb-zoom' },
 
   function surfacePane() {
     const s = recipe.surface;
-    const bar = el('div', { class: 'tb-ramp', id: 'tb-ramp', 'aria-hidden': 'true' });
-    const paintBar = () => { bar.style.background = `linear-gradient(to right, ${s.ramp.map((r) => `${r.color} ${Math.round(r.pos * 100)}%`).join(', ')})`; };
-    paintBar();
-    const stops = s.ramp.map((r, i) => {
-      const color = el('input', { type: 'color', value: r.color, 'aria-label': `Colour ${i + 1}`, 'data-stop': String(i) });
-      color.addEventListener('input', () => { r.color = color.value; paintBar(); changed(false); });
-      const pos = slider(r, ['pos', `At height`, 0, 1, 0.01, 'pct']);
-      return el('div', { class: 'tb-stop' }, color, pos,
-        el('button', { class: 'icon-btn', title: 'Remove this colour', 'aria-label': 'Remove this colour', disabled: s.ramp.length <= 1 || undefined, onclick: () => { s.ramp.splice(i, 1); changed(true); } }, '✕'));
-    });
     return [
       el('h4', { class: 'music-subhead', text: 'Colour along the height (low → high)' }),
-      bar,
-      ...stops,
-      el('div', { class: 'sb-row' },
-        el('button', { class: 'utility-btn', id: 'tb-addstop', disabled: s.ramp.length >= 16 || undefined, onclick: () => {
-          const last = s.ramp[s.ramp.length - 1];
-          s.ramp.push({ pos: Math.min(1, (last ? last.pos : 0.5) + 0.1), color: last ? last.color : '#808080' });
-          changed(true);
-        } }, '＋ Colour'),
-        el('button', { class: 'utility-btn', onclick: () => { s.ramp.sort((a, b) => a.pos - b.pos); changed(true); } }, 'Sort by height')),
+      ...rampEditor(s.ramp),
       el('h4', { class: 'music-subhead', text: 'Surface' }),
       el('div', { class: 'sb-fields' }, ...SURFACE.map((f) => slider(s, f))),
       el('p', { class: 'pref-hint', text: 'Relief, shine, metal, occlusion and the height map are each set on their own in the Maps tab.' }),

@@ -11,10 +11,23 @@ namespace NoorMD.Media;
 /// <summary>One step of the height stack: a generator, how it is shaped, and how it is blended onto what is below.</summary>
 public sealed class TextureLayer
 {
-    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "painted", "current", "curvature", "erosion"];
+    public static readonly string[] Types = ["noise", "ridged", "turbulence", "musgrave", "cells", "wave", "gradient", "checker", "magic", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "painted", "current", "curvature", "erosion"];
     public static readonly string[] Profiles = ["dome", "flat", "crater", "cone"];
+    public static readonly string[] WaveProfiles = ["sine", "saw", "triangle"];
     public static readonly string[] ErosionModes = ["rain", "crumble", "wear"];
-    public static readonly string[] Blends = ["normal", "add", "subtract", "multiply", "screen", "overlay", "max", "min"];
+    public static readonly string[] Metrics = ["euclidean", "manhattan", "chebyshev"];
+    public static readonly string[] Blends = ["normal", "add", "subtract", "multiply", "screen", "overlay", "softlight", "linearlight", "dodge", "burn", "difference", "divide", "max", "min"];
+    public static readonly string[] RampModes = ["linear", "ease", "constant", "bspline"];
+
+    /// <summary>The kinds each type can be (its Mode); the first is the default.</summary>
+    public static readonly Dictionary<string, string[]> Modes = new()
+    {
+        ["cells"] = ["cells", "edges", "cracks", "stones", "f2", "smooth"],
+        ["musgrave"] = ["fbm", "multifractal", "hybrid", "hetero", "ridged"],
+        ["wave"] = ["bands", "rings"],
+        ["gradient"] = ["linear", "quadratic", "diagonal", "radial", "spherical"],
+        ["erosion"] = ["rain", "crumble", "wear"],
+    };
 
     public string Id { get; set; } = "";
     public string Name { get; set; } = "Layer";
@@ -54,6 +67,21 @@ public sealed class TextureLayer
     public double Density { get; set; } = 1;
     /// <summary>Spots: "dome", "flat" (rivets, coins), "crater" (a rim and a hollow) or "cone".</summary>
     public string Profile { get; set; } = "dome";
+    // Blender-style noises: cells' distance Metric; musgrave's Dimension (how fast detail fades) and Gain (hybrid,
+    // ridged); wave's rings per cell (Frequency) and Distortion (noise added to the waves).
+    public string Metric { get; set; } = "euclidean";
+    public double Dimension { get; set; } = 1;
+    public double Gain { get; set; } = 1;
+    public int Frequency { get; set; } = 4;
+    public double Distortion { get; set; }
+    /// <summary>Relief only: how much this layer adds to the normal map's detail without changing the height (a bump).</summary>
+    public double Bump { get; set; }
+    /// <summary>Moves the pattern across and down (0–1 of the tile; it still tiles).</summary>
+    public double ShiftX { get; set; }
+    public double ShiftY { get; set; }
+    /// <summary>Colours of its own: the layer's value through this ramp (with transparency), on the surface by ColorAmount.</summary>
+    public List<RampStop>? Ramp { get; set; }
+    public string RampMode { get; set; } = "linear";
     // erosion (works on the height so far; Mode is "rain", "crumble" or "wear")
     /// <summary>Erosion: how much (0–1).</summary>
     public double Amount { get; set; } = 0.5;
@@ -107,6 +135,8 @@ public sealed class RampStop
 {
     public double Pos { get; set; }
     public string Color { get; set; } = "#808080";
+    /// <summary>How much of this colour shows (layer ramps: 0 = see through to what is below).</summary>
+    public double Alpha { get; set; } = 1;
 }
 
 /// <summary>How the height becomes a surface.</summary>
@@ -114,6 +144,8 @@ public sealed class TextureSurface
 {
     /// <summary>Albedo: colours along the height (0 = deepest, 1 = highest).</summary>
     public List<RampStop> Ramp { get; set; } = [new() { Pos = 0, Color = "#3a3a3a" }, new() { Pos = 1, Color = "#bdbdbd" }];
+    /// <summary>How the ramp goes from one colour to the next: linear, ease, constant (steps) or bspline (smooth).</summary>
+    public string RampMode { get; set; } = "linear";
     /// <summary>A slow colour drift that doesn't follow the height (0–1).</summary>
     public double ColorVariation { get; set; } = 0.15;
     /// <summary>Dirt: how much the cavities darken the albedo (0–1).</summary>
@@ -177,13 +209,22 @@ public sealed class TextureRecipe
         {
             l.Type = TextureLayer.Types.Contains(l.Type) ? l.Type : "noise";
             l.Name = string.IsNullOrWhiteSpace(l.Name) ? "Layer" : l.Name.Trim()[..Math.Min(l.Name.Trim().Length, 40)];
-            l.ScaleX = Math.Clamp(l.ScaleX, 1, 256); l.ScaleY = Math.Clamp(l.ScaleY, 1, 256);
+            // Wave bands may run one way only (0 the other way); everything else repeats at least once.
+            var lowest = l.Type == "wave" && l.Mode != "rings" ? 0 : 1;
+            l.ScaleX = Math.Clamp(l.ScaleX, lowest, 256); l.ScaleY = Math.Clamp(l.ScaleY, lowest, 256);
+            if (l.ScaleX == 0 && l.ScaleY == 0) l.ScaleX = 1;
             l.Octaves = Math.Clamp(l.Octaves, 1, 10); l.Persistence = C(l.Persistence, 0, 1); l.Lacunarity = Math.Clamp(l.Lacunarity, 2, 4);
             l.Warp = C(l.Warp, 0, 1); l.WarpScale = Math.Clamp(l.WarpScale, 1, 64);
-            l.Mode = l.Type == "erosion" ? (TextureLayer.ErosionModes.Contains(l.Mode) ? l.Mode : "rain") : l.Mode is "cells" or "edges" or "cracks" or "stones" ? l.Mode : "cells";
+            l.Mode = TextureLayer.Modes.TryGetValue(l.Type, out var modes) ? (modes.Contains(l.Mode) ? l.Mode : modes[0]) : TextureLayer.Modes["cells"].Contains(l.Mode) ? l.Mode : "cells";
+            l.Metric = TextureLayer.Metrics.Contains(l.Metric) ? l.Metric : "euclidean";
+            l.Dimension = C(l.Dimension, 0, 2); l.Gain = C(l.Gain, 0, 4); l.Frequency = Math.Clamp(l.Frequency, 1, 64); l.Distortion = C(l.Distortion, 0, 4);
+            l.Bump = C(l.Bump, 0, 1); l.ShiftX = C(l.ShiftX, 0, 1); l.ShiftY = C(l.ShiftY, 0, 1);
+            l.RampMode = TextureLayer.RampModes.Contains(l.RampMode) ? l.RampMode : "linear";
+            l.Ramp = l.Ramp == null ? null : CleanRamp(l.Ramp);
+            if (l.Ramp is { Count: 0 }) l.Ramp = null;
             l.Roundness = C(l.Roundness, 0, 1); l.Tilt = C(l.Tilt, 0, 1); l.Grain = C(l.Grain, 0, 1);
             l.Size = C(l.Size, 0.05, 1); l.Density = C(l.Density, 0, 1);
-            l.Profile = TextureLayer.Profiles.Contains(l.Profile) ? l.Profile : "dome";
+            l.Profile = l.Type == "wave" ? (TextureLayer.WaveProfiles.Contains(l.Profile) ? l.Profile : "sine") : TextureLayer.Profiles.Contains(l.Profile) ? l.Profile : "dome";
             l.Amount = C(l.Amount, 0, 1);
             l.Jitter = C(l.Jitter, 0, 1);
             l.Mortar = C(l.Mortar, 0, 0.5); l.Bevel = C(l.Bevel, 0, 0.5); l.Offset = C(l.Offset, 0, 1); l.Variation = C(l.Variation, 0, 1);
@@ -203,7 +244,7 @@ public sealed class TextureRecipe
             l.HeightColorAmount = double.IsFinite(l.HeightColorAmount) ? Math.Clamp(l.HeightColorAmount, -1, 1) : 0;
             l.HeightColorTolerance = C(l.HeightColorTolerance, 0.02, 1); l.ColorAmount = C(l.ColorAmount, 0, 1);
             // Patterns that alternate need an even count to meet themselves at the edge.
-            if (l.Type == "weave") { l.ScaleX += l.ScaleX & 1; l.ScaleY += l.ScaleY & 1; }
+            if (l.Type is "weave" or "checker") { l.ScaleX += l.ScaleX & 1; l.ScaleY += l.ScaleY & 1; }
             if (l.Type == "bricks" && l.Offset > 0 || l.Type == "hexagons") l.ScaleY += l.ScaleY & 1;
         }
         // Stable ids, as in the Sound Bench: valid ones kept (the first of repeats), the others the lowest free number.
@@ -212,7 +253,8 @@ public sealed class TextureRecipe
         for (var i = 0; i < Layers.Count; i++) { if (keep[i]) continue; var n = 1; while (!used.Add("T" + n)) n++; Layers[i].Id = "T" + n; }
         Surface ??= new();
         var s = Surface;
-        s.Ramp = (s.Ramp ?? []).Where(r => r != null).Take(16).Select(r => { r.Pos = C(r.Pos, 0, 1); r.Color = Hex(r.Color); return r; }).OrderBy(r => r.Pos).ToList();
+        s.Ramp = CleanRamp(s.Ramp ?? []);
+        s.RampMode = TextureLayer.RampModes.Contains(s.RampMode) ? s.RampMode : "linear";
         if (s.Ramp.Count == 0) s.Ramp = [new() { Pos = 0, Color = "#000000" }, new() { Pos = 1, Color = "#ffffff" }];
         s.ColorVariation = C(s.ColorVariation, 0, 1); s.Dirt = C(s.Dirt, 0, 1);
         s.RoughnessLow = C(s.RoughnessLow, 0, 1); s.RoughnessHigh = C(s.RoughnessHigh, 0, 1); s.RoughnessVariation = C(s.RoughnessVariation, 0, 1);
@@ -248,6 +290,9 @@ public sealed class TextureRecipe
         }
         return this;
     }
+
+    private static List<RampStop> CleanRamp(List<RampStop> stops) =>
+        stops.Where(r => r != null).Take(16).Select(r => { r.Pos = C(r.Pos, 0, 1); r.Color = Hex(r.Color); r.Alpha = C(r.Alpha, 0, 1); return r; }).OrderBy(r => r.Pos).ToList();
 
     private static string Hex(string? c) =>
         c is { Length: 7 } && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : "#808080";
@@ -321,6 +366,7 @@ public static class TextureEngine
         var h = new float[n];
         var paints = new List<Paint>();
         var warnings = new List<string>();
+        float[]? detail = null; // relief for the normal map only (layers' Bump)
         foreach (var layer in r.Layers)
         {
             if (layer.Mute) continue;
@@ -338,8 +384,9 @@ public static class TextureEngine
                 paints.Add(new Paint(layer, alpha, prgb, alpha));
                 continue;
             }
-            var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0);
-            if (layer.Opacity <= 0 && !painting) continue;
+            var ramped = layer.Ramp is { Count: > 0 } && layer.ColorAmount > 0;
+            var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0) || ramped;
+            if (layer.Opacity <= 0 && !painting && layer.Bump <= 0) continue;
             var seed = (uint)(r.Seed + layer.SeedShift) * 2654435761u + 0x9E3779B9u;
             float[]? rgb = null;
             double[] values;
@@ -352,20 +399,39 @@ public static class TextureEngine
             else if (layer.Type is "current" or "curvature") values = FromStack(layer, h, size, seed);
             else if (layer.Type == "erosion") (values, rgb) = Erosion(layer, h, size, seed);
             else values = Generate(layer, size, seed);
+            if ((layer.ShiftX > 0 || layer.ShiftY > 0) && layer.Type is not ("current" or "curvature" or "erosion"))
+            {
+                values = Roll(values, size, layer.ShiftX, layer.ShiftY, 1);
+                if (rgb != null) rgb = Roll(rgb, size, layer.ShiftX, layer.ShiftY, 3);
+            }
             // Erosion paints where it acted (where the water ran, the rubble settled or the edges wore), not by height.
             var where = layer.Type == "erosion" ? rgb : null;
             if (where != null) rgb = null;
             var mask = painting ? new float[n] : null;
+            if (layer.Bump > 0) detail ??= new float[n];
             for (var i = 0; i < n; i++)
             {
                 // Erosion's height is used as it comes; its levels shape where it paints instead.
                 var v = where != null ? Math.Clamp(values[i], 0, 1) : Shape(layer, values[i]);
                 if (mask != null) mask[i] = where != null ? (float)Shape(layer, where[i]) : (float)v;
                 if (layer.Opacity > 0) h[i] = (float)Math.Clamp(Mix(layer.Blend, h[i], v, layer.Opacity), 0, 1);
+                if (layer.Bump > 0) detail![i] += (float)(layer.Bump * 0.25 * (v - 0.5));
             }
-            if (mask != null) paints.Add(new Paint(layer, mask, rgb));
+            if (ramped)
+            {
+                // Colours of its own: its value (as shaped) through its ramp; the ramp's transparency lets what is below show.
+                var stops = Stops(layer.Ramp!);
+                var colours = new float[n * 3]; var alpha = new float[n];
+                Parallel.For(0, n, i =>
+                {
+                    var (cr, cg, cb, ca) = RampSample(stops, mask![i], layer.RampMode);
+                    colours[i * 3] = (float)cr; colours[i * 3 + 1] = (float)cg; colours[i * 3 + 2] = (float)cb; alpha[i] = (float)ca;
+                });
+                paints.Add(new Paint(layer, mask!, colours, alpha));
+            }
+            else if (mask != null) paints.Add(new Paint(layer, mask, rgb));
         }
-        return Surface(r, h, size, paints, warnings);
+        return Surface(r, h, size, paints, warnings, detail);
     }
 
     private static double Shape(TextureLayer l, double v)
@@ -377,7 +443,7 @@ public static class TextureEngine
         return l.Gamma == 1 ? v : Math.Pow(v, l.Gamma);
     }
 
-    private static double Mix(string blend, double a, double b, double opacity)
+    internal static double Mix(string blend, double a, double b, double opacity)
     {
         var f = blend switch
         {
@@ -386,6 +452,12 @@ public static class TextureEngine
             "multiply" => a * b,
             "screen" => 1 - (1 - a) * (1 - b),
             "overlay" => a < 0.5 ? 2 * a * b : 1 - 2 * (1 - a) * (1 - b),
+            "softlight" => (1 - 2 * b) * a * a + 2 * b * a,
+            "linearlight" => a + 2 * b - 1,
+            "dodge" => b >= 1 ? 1 : Math.Min(1, a / (1 - b)),
+            "burn" => b <= 0 ? 0 : 1 - Math.Min(1, (1 - a) / b),
+            "difference" => Math.Abs(a - b),
+            "divide" => b <= 1e-6 ? 1 : Math.Min(1, a / b),
             "max" => Math.Max(a, b),
             "min" => Math.Min(a, b),
             _ => b,
@@ -446,6 +518,7 @@ public static class TextureEngine
                 v[y * size + x] = Sample(l, u, w, seed);
             }
         });
+        if (l.Type == "musgrave") Level(v);
         return v;
     }
 
@@ -455,6 +528,11 @@ public static class TextureEngine
         "ridged" => Ridged(u, v, l, seed),
         "turbulence" => Turbulence(u, v, l, seed),
         "cells" => Cells(u, v, l, seed),
+        "musgrave" => Musgrave(u, v, l, seed),
+        "wave" => Wave(u, v, l, seed),
+        "gradient" => GradientShape(u, v, l),
+        "checker" => Checker(u, v, l),
+        "magic" => Magic(u, v, l),
         "wood" => Wood(u, v, l, seed),
         "bricks" => Bricks(u, v, l, seed),
         "tiles" => Tiles(u, v, l, seed),
@@ -545,7 +623,7 @@ public static class TextureEngine
         int px = l.ScaleX, py = l.ScaleY;
         double x = u * px, y = v * py;
         int ix = (int)Math.Floor(x), iy = (int)Math.Floor(y);
-        double f1 = 9, f2 = 9; uint id = 0;
+        double f1 = 9, f2 = 9, soft = 0; uint id = 0;
         for (var dy = -1; dy <= 1; dy++)
             for (var dx = -1; dx <= 1; dx++)
             {
@@ -553,7 +631,9 @@ public static class TextureEngine
                 var hsh = Hash(Wrap(cx, px), Wrap(cy, py), seed);
                 var fpx = cx + 0.5 + (Unit(hsh) - 0.5) * l.Jitter;
                 var fpy = cy + 0.5 + (Unit(Hash(Wrap(cx, px), Wrap(cy, py), seed ^ 0x68E31DA4u)) - 0.5) * l.Jitter;
-                var d = Math.Sqrt((x - fpx) * (x - fpx) + (y - fpy) * (y - fpy));
+                double ddx = Math.Abs(x - fpx), ddy = Math.Abs(y - fpy);
+                var d = l.Metric switch { "manhattan" => (ddx + ddy) * 0.7071, "chebyshev" => Math.Max(ddx, ddy), _ => Math.Sqrt(ddx * ddx + ddy * ddy) };
+                soft += Math.Exp(-8 * d);
                 if (d < f1) { f2 = f1; f1 = d; id = hsh; }
                 else if (d < f2) f2 = d;
             }
@@ -562,11 +642,159 @@ public static class TextureEngine
             "edges" => Math.Clamp((f2 - f1) * 1.5, 0, 1),
             "cracks" => SmoothStep(0, 0.12, f2 - f1),
             "stones" => SmoothStep(0.02, 0.12, f2 - f1) * (1 - l.Variation * Unit(id)) * (0.85 + 0.15 * (1 - Math.Min(1, f1))),
+            "f2" => Math.Clamp(f2 / 1.2, 0, 1),
+            "smooth" => 1 - Math.Clamp(-Math.Log(Math.Max(1e-12, soft)) / 8, 0, 1), // smooth F1: cells melting into each other
             _ => 1 - Math.Clamp(f1, 0, 1),
         };
     }
 
     private static double SmoothStep(double a, double b, double x) { var t = Math.Clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+
+    /// <summary>
+    /// Musgrave fractals (F. K. Musgrave, as in Blender): fBm, multifractal, hybrid multifractal, heterogeneous terrain
+    /// and ridged multifractal, over gradient noise with whole-number periods (seamless). Dimension sets how fast the
+    /// detail fades; Offset and Gain shape the hybrid, hetero and ridged kinds. Levelled to 0–1 per layer afterwards.
+    /// </summary>
+    private static double Musgrave(double u, double v, TextureLayer l, uint seed)
+    {
+        double N(int o, int fx, int fy) => Gradient(u, v, fx, fy, seed + (uint)o * 1013u);
+        var pwHL = Math.Pow(l.Lacunarity, -l.Dimension);
+        int fx0 = l.ScaleX, fy0 = l.ScaleY;
+        double pwr = 1, value;
+        var offset = l.Offset * 2; // 0–2
+        switch (l.Mode)
+        {
+            case "multifractal":
+                value = 1;
+                for (int o = 0, fx = fx0, fy = fy0; o < l.Octaves && fx <= 4096; o++, fx *= l.Lacunarity, fy *= l.Lacunarity) { value *= pwr * N(o, fx, fy) + 1; pwr *= pwHL; }
+                return value;
+            case "hetero":
+            {
+                value = offset + N(0, fx0, fy0); pwr = pwHL;
+                for (int o = 1, fx = fx0 * l.Lacunarity, fy = fy0 * l.Lacunarity; o < l.Octaves && fx <= 4096; o++, fx *= l.Lacunarity, fy *= l.Lacunarity) { value += (N(o, fx, fy) + offset) * pwr * value; pwr *= pwHL; }
+                return value;
+            }
+            case "hybrid":
+            {
+                value = N(0, fx0, fy0) + offset; var weight = l.Gain * value; pwr = pwHL;
+                for (int o = 1, fx = fx0 * l.Lacunarity, fy = fy0 * l.Lacunarity; o < l.Octaves && fx <= 4096 && weight > 0.001; o++, fx *= l.Lacunarity, fy *= l.Lacunarity)
+                {
+                    weight = Math.Min(weight, 1);
+                    var signal = (N(o, fx, fy) + offset) * pwr;
+                    pwr *= pwHL; value += weight * signal; weight *= l.Gain * signal;
+                }
+                return value;
+            }
+            case "ridged":
+            {
+                var signal = offset - Math.Abs(N(0, fx0, fy0)); signal *= signal; value = signal; var weight = 1.0;
+                for (int o = 1, fx = fx0 * l.Lacunarity, fy = fy0 * l.Lacunarity; o < l.Octaves && fx <= 4096; o++, fx *= l.Lacunarity, fy *= l.Lacunarity)
+                {
+                    pwr *= pwHL;
+                    weight = Math.Clamp(signal * l.Gain, 0, 1);
+                    signal = offset - Math.Abs(N(o, fx, fy)); signal *= signal; signal *= weight;
+                    value += signal * pwr;
+                }
+                return value;
+            }
+            default:
+                value = 0;
+                for (int o = 0, fx = fx0, fy = fy0; o < l.Octaves && fx <= 4096; o++, fx *= l.Lacunarity, fy *= l.Lacunarity) { value += N(o, fx, fy) * pwr; pwr *= pwHL; }
+                return value;
+        }
+    }
+
+    /// <summary>A layer's values spread to 0–1 (the 1st to the 99th percentile), for generators whose range varies.</summary>
+    private static void Level(double[] v)
+    {
+        var sorted = (double[])v.Clone();
+        Array.Sort(sorted);
+        double lo = sorted[(int)(sorted.Length * 0.01)], hi = sorted[(int)(sorted.Length * 0.99)];
+        var span = Math.Max(1e-9, hi - lo);
+        for (var i = 0; i < v.Length; i++) v[i] = Math.Clamp((v[i] - lo) / span, 0, 1);
+    }
+
+    /// <summary>
+    /// Waves: bands (ScaleX across and ScaleY down: both set gives diagonal bands; whole numbers keep them seamless)
+    /// or rings (Frequency rings in each of ScaleX × ScaleY cells), with a sine, saw or triangle profile, bent by
+    /// Distortion (noise of Octaves detail).
+    /// </summary>
+    private static double Wave(double u, double v, TextureLayer l, uint seed)
+    {
+        double t;
+        if (l.Mode == "rings")
+        {
+            double x = u * l.ScaleX, y = v * l.ScaleY;
+            double fx = x - Math.Floor(x) - 0.5, fy = y - Math.Floor(y) - 0.5;
+            t = Math.Sqrt(fx * fx + fy * fy) * 2 * l.Frequency;
+        }
+        else t = u * l.ScaleX + v * l.ScaleY;
+        if (l.Distortion > 0) t += l.Distortion * Fbm(u, v, Math.Max(1, l.ScaleX), Math.Max(1, l.ScaleY), Math.Max(1, l.Octaves), l.Persistence, l.Lacunarity, seed);
+        var f = t - Math.Floor(t);
+        return l.Profile switch
+        {
+            "saw" => f,
+            "triangle" => 1 - Math.Abs(2 * f - 1),
+            _ => 0.5 + 0.5 * Math.Sin(2 * Math.PI * t),
+        };
+    }
+
+    /// <summary>
+    /// Gradients that still tile: linear and quadratic go up and back down across each of ScaleX repeats, diagonal
+    /// along ScaleX across and ScaleY down; radial goes round, spherical is a dome, in each of ScaleX × ScaleY cells.
+    /// </summary>
+    private static double GradientShape(double u, double v, TextureLayer l)
+    {
+        double Tri(double t) { var f = t - Math.Floor(t); return 1 - Math.Abs(2 * f - 1); }
+        double x = u * l.ScaleX, y = v * l.ScaleY;
+        double cx = x - Math.Floor(x) - 0.5, cy = y - Math.Floor(y) - 0.5;
+        return l.Mode switch
+        {
+            "quadratic" => Tri(x) * Tri(x),
+            "diagonal" => Tri(x + y),
+            "radial" => (Math.Atan2(cy, cx) / (2 * Math.PI) + 0.5),
+            "spherical" => Math.Max(0, 1 - 2 * Math.Sqrt(cx * cx + cy * cy)),
+            _ => Tri(x),
+        };
+    }
+
+    /// <summary>A checkerboard of ScaleX × ScaleY squares (even counts, to tile), its edges softened by Bevel.</summary>
+    private static double Checker(double u, double v, TextureLayer l)
+    {
+        double x = u * l.ScaleX, y = v * l.ScaleY;
+        var odd = (((int)Math.Floor(x) + (int)Math.Floor(y)) & 1) == 1;
+        if (l.Bevel <= 0) return odd ? 1 : 0;
+        double fx = x - Math.Floor(x), fy = y - Math.Floor(y);
+        var edge = Math.Min(Math.Min(fx, 1 - fx), Math.Min(fy, 1 - fy));
+        var k = SmoothStep(0, l.Bevel, edge); // 0 at the edge, 1 inside
+        return 0.5 + (odd ? 0.5 : -0.5) * k;
+    }
+
+    /// <summary>
+    /// Blender's Magic texture (psychedelic interference of sines), its inputs made periodic so it tiles: Octaves is
+    /// its depth (0–9) and Distortion its turbulence.
+    /// </summary>
+    private static double Magic(double u, double v, TextureLayer l)
+    {
+        double px = 2 * Math.PI * u * l.ScaleX, py = 2 * Math.PI * v * l.ScaleY;
+        var x = Math.Sin(px + py); var y = Math.Cos(-px + py); var z = -Math.Cos(-px - py);
+        var d = 1 + l.Distortion * 2;
+        var n = Math.Min(9, Math.Max(0, l.Octaves - 1));
+        if (n > 0)
+        {
+            x *= d; y *= d; z *= d; y = -Math.Cos(x - y + z); y *= d;
+            if (n > 1) { x = Math.Cos(x - y - z); x *= d;
+            if (n > 2) { z = Math.Sin(-x - y - z); z *= d;
+            if (n > 3) { x = -Math.Cos(-x + y - z); x *= d;
+            if (n > 4) { y = -Math.Sin(-x + y + z); y *= d;
+            if (n > 5) { y = -Math.Cos(-x + y + z); y *= d;
+            if (n > 6) { x = Math.Cos(x + y + z); x *= d;
+            if (n > 7) { z = Math.Sin(x + y - z); z *= d;
+            if (n > 8) { x = -Math.Cos(-x - y + z); x *= d; } } } } } } } }
+        }
+        if (d != 0) { x /= 2 * d; y /= 2 * d; z /= 2 * d; }
+        return Math.Clamp(((0.5 - x) + (0.5 - y) + (0.5 - z)) / 3, 0, 1);
+    }
 
     /// <summary>
     /// Wood grain: ScaleX bands across the tile, gently bent by noise (ScaleY sets how fine the bending is). Each band
@@ -1009,7 +1237,7 @@ public static class TextureEngine
 
     // ------------------------------------------------------------------ the surface
 
-    private static TextureMaps Surface(TextureRecipe r, float[] h, int size, List<Paint> paints, List<string> warnings)
+    private static TextureMaps Surface(TextureRecipe r, float[] h, int size, List<Paint> paints, List<string> warnings, float[]? detail = null)
     {
         var s = r.Surface;
         var n = size * size;
@@ -1020,7 +1248,7 @@ public static class TextureEngine
         for (var i = 0; i < n; i++) ao[i] = Byte(Math.Pow(Math.Max(0, 1 - s.AoStrength * cavity[i]), s.AoGamma));
         var adjustAlbedo = s.AlbedoBrightness != 0 || s.AlbedoContrast != 0 || s.AlbedoSaturation != 1 || s.AlbedoHue != 0;
         double hueCos = Math.Cos(s.AlbedoHue * Math.PI / 180), hueSin = Math.Sin(s.AlbedoHue * Math.PI / 180);
-        var ramp = s.Ramp.Select(st => (st.Pos, R: Convert.ToInt32(st.Color[1..3], 16) / 255.0, G: Convert.ToInt32(st.Color[3..5], 16) / 255.0, B: Convert.ToInt32(st.Color[5..7], 16) / 255.0)).ToArray();
+        var ramp = Stops(s.Ramp);
         var tints = paints.Select(p => p.Layer.Tint is { } t ? (R: Convert.ToInt32(t[1..3], 16) / 255.0, G: Convert.ToInt32(t[3..5], 16) / 255.0, B: Convert.ToInt32(t[5..7], 16) / 255.0) : (R: 0.0, G: 0.0, B: 0.0)).ToArray();
         var albedo = new byte[n * 3];
         var rough = new byte[n];
@@ -1034,7 +1262,7 @@ public static class TextureEngine
                 double u = (x + 0.5) / size, v = (y + 0.5) / size;
                 var drift = s.ColorVariation > 0 ? Fbm(u, v, 3, 3, 4, 0.5, 2, seed) : 0;
                 var t = Math.Clamp(h[i] + drift * s.ColorVariation * 0.5, 0, 1);
-                var (cr, cg, cb) = Ramp(ramp, t);
+                var (cr, cg, cb, _) = RampSample(ramp, t, s.RampMode);
                 var rv = s.RoughnessVariation > 0 ? Fbm(u, v, 8, 8, 3, 0.5, 2, seed ^ 0x77777777u) : 0;
                 var ro = s.RoughnessLow + (s.RoughnessHigh - s.RoughnessLow) * h[i] + rv * s.RoughnessVariation * 0.5;
                 var me = s.Metallic;
@@ -1068,7 +1296,7 @@ public static class TextureEngine
                 // Normal from the height's slope: a Sobel filter (smoother than two neighbours), wrapping at the edges;
                 // OpenGL convention, +Y up.
                 int xl = (x + size - 1) % size, xr = (x + 1) % size, yu = (y + size - 1) % size, yd = (y + 1) % size;
-                double H(int xx, int yy) => h[yy * size + xx];
+                double H(int xx, int yy) => detail == null ? h[yy * size + xx] : h[yy * size + xx] + detail[yy * size + xx];
                 var gx = (H(xr, yu) + 2 * H(xr, y) + H(xr, yd) - H(xl, yu) - 2 * H(xl, y) - H(xl, yd)) / 4;
                 var gy = (H(xl, yd) + 2 * H(x, yd) + H(xr, yd) - H(xl, yu) - 2 * H(x, yu) - H(xr, yu)) / 4;
                 double nx = -gx * strength * 0.5, ny = gy * strength * 0.5, nz = 1;
@@ -1385,18 +1613,52 @@ public static class TextureEngine
 
     private static byte Byte(double v) => (byte)Math.Round(255 * Math.Clamp(v, 0, 1));
 
-    private static (double, double, double) Ramp((double Pos, double R, double G, double B)[] stops, double t)
+    private static (double Pos, double R, double G, double B, double A)[] Stops(List<RampStop> list) =>
+        list.Select(st => (st.Pos, Convert.ToInt32(st.Color[1..3], 16) / 255.0, Convert.ToInt32(st.Color[3..5], 16) / 255.0, Convert.ToInt32(st.Color[5..7], 16) / 255.0, st.Alpha)).ToArray();
+
+    /// <summary>
+    /// A colour ramp at t: linear, ease (smoothed between stops), constant (each stop's colour up to the next) or
+    /// bspline (a smooth curve through the stops, Catmull-Rom).
+    /// </summary>
+    private static (double R, double G, double B, double A) RampSample((double Pos, double R, double G, double B, double A)[] stops, double t, string mode)
     {
-        if (t <= stops[0].Pos) return (stops[0].R, stops[0].G, stops[0].B);
+        if (stops.Length == 0) return (0.5, 0.5, 0.5, 1);
+        if (t <= stops[0].Pos) return (stops[0].R, stops[0].G, stops[0].B, stops[0].A);
         for (var i = 1; i < stops.Length; i++)
         {
             if (t > stops[i].Pos) continue;
             var a = stops[i - 1]; var b = stops[i];
             var f = b.Pos - a.Pos < 1e-9 ? 1 : (t - a.Pos) / (b.Pos - a.Pos);
-            return (a.R + (b.R - a.R) * f, a.G + (b.G - a.G) * f, a.B + (b.B - a.B) * f);
+            switch (mode)
+            {
+                case "constant": return (a.R, a.G, a.B, a.A);
+                case "ease": f = f * f * (3 - 2 * f); break;
+                case "bspline":
+                {
+                    var p0 = stops[Math.Max(0, i - 2)]; var p3 = stops[Math.Min(stops.Length - 1, i + 1)];
+                    double Cr(double v0, double v1, double v2, double v3) => Math.Clamp(0.5 * (2 * v1 + (-v0 + v2) * f + (2 * v0 - 5 * v1 + 4 * v2 - v3) * f * f + (-v0 + 3 * v1 - 3 * v2 + v3) * f * f * f), 0, 1);
+                    return (Cr(p0.R, a.R, b.R, p3.R), Cr(p0.G, a.G, b.G, p3.G), Cr(p0.B, a.B, b.B, p3.B), Cr(p0.A, a.A, b.A, p3.A));
+                }
+            }
+            return (a.R + (b.R - a.R) * f, a.G + (b.G - a.G) * f, a.B + (b.B - a.B) * f, a.A + (b.A - a.A) * f);
         }
         var z = stops[^1];
-        return (z.R, z.G, z.B);
+        return (z.R, z.G, z.B, z.A);
+    }
+
+    /// <summary>A map moved across and down by a part of the tile, wrapping (so it still tiles).</summary>
+    private static T[] Roll<T>(T[] src, int size, double fx, double fy, int channels)
+    {
+        int dx = (int)Math.Round(fx * size) % size, dy = (int)Math.Round(fy * size) % size;
+        if (dx == 0 && dy == 0) return src;
+        var o = new T[src.Length];
+        for (var y = 0; y < size; y++)
+            for (var x = 0; x < size; x++)
+            {
+                int sx = (x - dx + size) % size, sy = (y - dy + size) % size;
+                Array.Copy(src, (sy * size + sx) * channels, o, (y * size + x) * channels, channels);
+            }
+        return o;
     }
 
 }

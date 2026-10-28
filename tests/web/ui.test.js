@@ -4478,6 +4478,54 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the Maps tab and export choices', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 57. Blender-style: more kinds of layers, their options, more blend modes, ramp modes, colours per layer, bump and offset.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await page.click('#tb-new');
+      await waitFn(page, () => NoorTexture._state().recipe.name === 'New material');
+      check('the new kinds can be added: Musgrave, Wave, Gradient, Checker, Magic', (await page.$$eval('[data-addlayer]', (b) => b.map((x) => x.dataset.addlayer))).filter((t) => ['musgrave', 'wave', 'gradient', 'checker', 'magic'].includes(t)).length === 5);
+      await page.click('[data-addlayer="musgrave"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.length === 2);
+      const card = '.sb-layer[data-index="1"]';
+      check('…Musgrave: fBm, multifractal, hybrid, hetero terrain, ridged; dimension, offset, gain', (await page.$$eval(`${card} select[data-key="mode"] option`, (o) => o.map((x) => x.value))).join() === 'fbm,multifractal,hybrid,hetero,ridged'
+        && await page.isVisible(`${card} input[data-key="dimension"]`) && await page.isVisible(`${card} input[data-key="gain"]`));
+      await page.selectOption(`${card} select[data-key="mode"]`, 'ridged');
+      await page.selectOption(`${card} select[data-key="blend"]`, 'softlight');
+      await waitFn(page, () => { const l = window.__mock.state.texture.renders.at(-1).recipe.layers[1]; return l.mode === 'ridged' && l.blend === 'softlight'; });
+      check('…and blend modes from Blender: soft light, linear light, dodge, burn, difference, divide', (await page.$$eval(`${card} select[data-key="blend"] option`, (o) => o.map((x) => x.value))).join().includes('softlight,linearlight,dodge,burn,difference,divide'));
+      await page.click('.sb-layer[data-index="0"] button[aria-label="Remove this layer"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.length === 1);
+      await page.click('[data-addlayer="cells"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.length === 2);
+      const cells = '.sb-layer[data-index="1"]';
+      await page.selectOption(`${cells} select[data-key="metric"]`, 'chebyshev');
+      await page.selectOption(`${cells} select[data-key="mode"]`, 'smooth');
+      await waitFn(page, () => { const l = window.__mock.state.texture.renders.at(-1).recipe.layers[1]; return l.metric === 'chebyshev' && l.mode === 'smooth'; });
+      check('Cells (Voronoi): distance (Euclidean, Manhattan, Chebyshev) and F2 / smooth', true);
+      // Position, relief and colours of its own.
+      await page.click(`${cells} [data-place] summary`);
+      await slide(`${cells} input[data-key="shiftX"]`, 0.25);
+      await slide(`${cells} input[data-key="bump"]`, 0.6);
+      await page.click(`${cells} [data-addramp]`);
+      await waitFn(page, () => { const l = window.__mock.state.texture.renders.at(-1).recipe.layers[1]; return l.shiftX === 0.25 && l.bump === 0.6 && l.ramp && l.ramp.length === 2; });
+      const own = (await last()).recipe.layers[1];
+      check('a layer can be moved, add relief only (bump), and have colours of its own (a ramp with transparency)', own.ramp[0].alpha === 0 && own.ramp[1].alpha === 1 && own.colorAmount === 1);
+      await page.selectOption(`${cells} select[data-key="rampMode"]`, 'constant');
+      await slide(`${cells} .tb-layer-ramp .tb-stop:nth-of-type(2) input[data-key="alpha"]`, 0.5);
+      await waitFn(page, () => { const l = window.__mock.state.texture.renders.at(-1).recipe.layers[1]; return l.rampMode === 'constant' && l.ramp[0].alpha === 0.5; });
+      check('…its ramp: steps or smooth, and how much each colour shows', true);
+      await page.click('#texturebench .sb-tabs button[data-tab="surface"]');
+      await page.selectOption('#tb-rampmode', 'bspline');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.surface.rampMode === 'bspline');
+      check('the surface ramp goes linear, ease, constant or B-spline', (await page.$$eval('#tb-rampmode option', (o) => o.map((x) => x.value))).join() === 'linear,ease,constant,bspline');
+      check('no page errors with the Blender-style layers', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
