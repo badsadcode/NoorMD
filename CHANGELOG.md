@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-preview.45 — Texture Bench: ideas from Blender
+
+Inspired by Blender's texture nodes; every new kind tiles seamlessly like the rest.
+
+- **New layers:**
+  - **Musgrave:** fBm, multifractal, hybrid multifractal, hetero terrain and ridged multifractal (after
+    F. K. Musgrave, as in Blender), with dimension, detail step, offset and gain.
+  - **Wave:** bands (across, down or diagonal) or rings, with a sine, saw or triangle profile and distortion.
+  - **Gradient:** linear, quadratic, diagonal, radial and spherical (made to tile).
+  - **Checker** (with soft edges) and **Magic** (Blender's interference pattern, with depth and distortion).
+- **Cells are Voronoi:** the distance can be Euclidean (round), Manhattan (diamond) or Chebyshev (square), and the
+  cells can be the second-nearest (F2) or smooth (melting into each other).
+- **Blend modes from Blender:** soft light, linear light, dodge, burn, difference and divide (with lighten and
+  darken as before).
+- **Colour ramps:** linear, ease, constant (steps) or B-spline (smooth).
+- **Each layer** can now also be **moved** across or down (it still tiles), add **relief only** (a bump: the normal
+  map, not the height), and have **colours of its own**: its value through its own ramp, with how much each colour
+  shows (transparent parts let what is below show), e.g. moss only on the tops of the cells.
+- **🎲 Random** uses the new kinds, blend modes and bump too. **New preset: Marble** (distorted waves).
+
 ## 2.0.0-preview.44 — Texture Bench: every map under control
 
 - **Maps tab:** a card for each map with its picture (click it to look at that map) and its own controls:

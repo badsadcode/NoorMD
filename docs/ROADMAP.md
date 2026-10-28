@@ -27,8 +27,8 @@ first, and anything that conflicts with it waits.
   the recipe, the Gallery and the Vault: preview.41 (stage 3 complete). Export structures and game projects (also
   for the Sound Bench), pictures from the Gallery, new and random materials: preview.42. Full control of each
   map (the Maps tab) and of what is exported (which maps, normal convention, height bits, packed maps): preview.44.
-  Next: Blender-inspired additions (more noises, ramp modes, colour ramps per layer, more blend modes, per-layer
-  relief, layer offset). Later only if real use asks: a node view,
+  Blender-inspired additions (Musgrave, Voronoi distances, wave, gradient, checker, Magic, Blender's blend modes,
+  ramp modes, colour ramps per layer, bump, offset): preview.45. Later only if real use asks: a node view,
   animated noise, imported meshes for the preview.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.

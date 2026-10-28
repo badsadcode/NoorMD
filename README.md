@@ -130,7 +130,7 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
 - **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
-  ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, cells, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
+  ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, Musgrave fractals, Voronoi cells, waves, gradients, checkers, Magic, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
   rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their
   detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Paint on a material by hand in
   NoorSketch (the material underneath, strokes carrying on across the edges so it still tiles) and apply it
