@@ -408,7 +408,7 @@ window.NoorAssets = (() => {
         slider(recipe, ['vines', 'Vines', 0, 60, 1, 'int', 'Vines hanging from the branches'])),
       section('Bark',
         choice(recipe, 'barkMaterial', 'Material', barkOptions, 'A Texture Bench material for the bark (colour, normal and ORM maps)'),
-        colour(recipe, 'barkColor', 'Colour (plain bark)'),
+        colour(recipe, 'barkColor', 'Colour'),
         slider(recipe, ['barkTile', 'Bark tile', 0.05, 20, 0.05, 'm', 'How much bark one texture covers'])),
     ];
   }
@@ -423,6 +423,8 @@ window.NoorAssets = (() => {
         slider(recipe, ['budget', 'Budget', 200, 60000, 100, 'int', 'Triangles of wood in LOD0 (leaves come on top)']),
         slider(recipe, ['lods', 'Levels of detail', 1, 6, 1, 'int', 'Each next level has about half the triangles']),
         check(recipe, 'flatShading', 'Flat shading (faceted low-poly look)')),
+      section('Shading',
+        slider(recipe, ['shading', 'Painted shading', 0, 1, 0.01, 'pct', 'In the vertex colours: crowns darker inside and below, lighter on top; trunks darker near the ground. Engines multiply it with the textures. Off when the wind data uses the vertex colours'])),
       section('Wind',
         check(recipe, 'wind', 'Wind data in the mesh', 'Trunk sway, branch bend, leaf flutter and phase, for a wind shader', true),
         recipe.wind ? choice(recipe, 'windData', 'Stored in', [['uv', 'UV2 and UV3 (colours stay true)'], ['color', 'Vertex colours (RGBA)']], 'UV channels: TEXCOORD_1 = bend, flutter; TEXCOORD_2 = phase, sway. Vertex colours: R sway, G bend, B flutter, A phase (viewers may show them as a tint)') : null),

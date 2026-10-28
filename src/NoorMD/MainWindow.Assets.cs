@@ -120,7 +120,8 @@ public partial class MainWindow
                     {
                         builtIn = TreePresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, archetype = r.Archetype, group = x.Group }; }),
                         mine = UserTreePresets(),
-                        barks = NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = t.Name }),
+                        barks = new[] { new { id = "bark", name = "Bark in the bark colour (realistic)" }, new { id = "painted", name = "Painted bark (stylized)" }, new { id = "birch", name = "Birch bark" } }
+                            .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = "Texture Bench: " + t.Name })),
                     };
                 case "asset.preset":
                 {

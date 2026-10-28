@@ -102,11 +102,11 @@ window.NoorAssetView = (() => {
   const VS = `#version 300 es
     in vec3 aPos; in vec3 aNorm; in vec4 aTan; in vec2 aUv; in vec2 aUv1; in vec2 aUv2; in vec4 aCol;
     uniform mat4 uModel, uView, uProj; uniform float uTime, uWind, uHeight; uniform int uWindFrom; uniform vec3 uWindDir;
-    out vec3 vPos; out vec3 vNorm; out vec4 vTan; out vec2 vUv; out vec4 vWind;
+    out vec3 vPos; out vec3 vNorm; out vec4 vTan; out vec2 vUv; out vec4 vWind; out vec4 vCol;
     void main() {
       // Wind data: x trunk sway, y branch bend, z leaf flutter, w phase (from the UVs or the vertex colour).
       vec4 wd = uWindFrom == 1 ? vec4(aUv2.y, aUv1.x, aUv1.y, aUv2.x) : uWindFrom == 2 ? aCol : vec4(0.0);
-      vWind = wd;
+      vWind = wd; vCol = aCol;
       vec4 w = uModel * vec4(aPos, 1.0);
       vec3 n = normalize(mat3(uModel) * aNorm);
       if (uWind > 0.0) {
@@ -122,8 +122,8 @@ window.NoorAssetView = (() => {
     }`;
   const FS = `#version 300 es
     precision highp float;
-    in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind;
-    uniform sampler2D tColor, tNormal, tOrm; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode;
+    in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind; in vec4 vCol;
+    uniform sampler2D tColor, tNormal, tOrm; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint;
     uniform vec4 uBase; uniform float uRough, uCutoff; uniform vec3 uEye, uSun, uPart;
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
@@ -141,6 +141,8 @@ window.NoorAssetView = (() => {
       float rough = uRough, ao = 1.0;
       if (uHasOrm == 1) { vec3 o = texture(tOrm, vUv).rgb; ao = o.r; rough *= o.g; }
       vec3 albedo = base.rgb;
+      // Painted shading in the vertex colours (when they don't carry the wind data), as engines multiply it.
+      if (uTint == 1 && uMode != 3) albedo *= vCol.rgb;
       if (uMode == 1) albedo = vec3(0.62);
       if (uMode == 2) albedo = uPart;
       if (uMode == 3) { outColor = vec4(vWind.x, vWind.y, vWind.z, 1.0); return; }
@@ -258,7 +260,7 @@ window.NoorAssetView = (() => {
           gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib);
           gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, prim.indices, gl.STATIC_DRAW);
           gl.bindVertexArray(null);
-          if (prim.uv1 && prim.uv2) windFrom = 1; else if (prim.color && windFrom === 0) windFrom = 2;
+          if (prim.uv1 && prim.uv2) windFrom = 1; else if (prim.color && windFrom === 0 && !prim.uv1) windFrom = 2;
           // Bounds in world space.
           const m = node.matrix, p = prim.position;
           for (let i = 0; i < p.length; i += 3) {
@@ -266,7 +268,7 @@ window.NoorAssetView = (() => {
             if (x < lo[0]) lo[0] = x; if (y < lo[1]) lo[1] = y; if (z < lo[2]) lo[2] = z;
             if (x > hi[0]) hi[0] = x; if (y > hi[1]) hi[1] = y; if (z > hi[2]) hi[2] = z;
           }
-          draws.push({ vao, buffers: [...buffers.filter(Boolean), ib], ib, count: prim.indices.length, type: prim.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, indices: prim.indices, positions: prim.position, matrix: node.matrix, material: glb.materials[prim.material] || null, part: color, node: node.name, lines: null });
+          draws.push({ vao, buffers: [...buffers.filter(Boolean), ib], ib, count: prim.indices.length, type: prim.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, indices: prim.indices, positions: prim.position, matrix: node.matrix, material: glb.materials[prim.material] || null, part: color, node: node.name, lines: null, hasColor: !!prim.color });
         }
       }
       const first = !scene;
@@ -362,6 +364,7 @@ window.NoorAssetView = (() => {
         gl.uniform1i(main.u.uMask, m && m.mask ? 1 : 0);
         gl.uniform1f(main.u.uCutoff, m ? m.cutoff : 0.5);
         gl.uniform3fv(main.u.uPart, d.part);
+        gl.uniform1i(main.u.uTint, d.hasColor && scene.windFrom !== 2 ? 1 : 0);
         gl.uniformMatrix4fv(main.u.uModel, false, d.matrix);
         if (m && m.doubleSided) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
         gl.bindVertexArray(d.vao);

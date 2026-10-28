@@ -50,8 +50,9 @@ public class TreeTests
                 foreach (var node in lod.Root.All().Where(n => n.Mesh != null))
                 {
                     Assert.Empty(node.Mesh!.Problems());
-                    // Wind data within 0–1, in the extra UV sets (vertex colours stay free, so nothing gets tinted).
-                    Assert.Empty(node.Mesh.Colors);
+                    // Wind data within 0–1, in the extra UV sets; the vertex colours carry the painted shading (grey, 0–1).
+                    Assert.Equal(node.Mesh.VertexCount, node.Mesh.Colors.Count);
+                    Assert.All(node.Mesh.Colors, c => Assert.True(c.X is > 0.2f and <= 1 && c.W == 1));
                     Assert.Equal(node.Mesh.VertexCount, node.Mesh.UV1.Count);
                     Assert.All(node.Mesh.UV1.Concat(node.Mesh.UV2), c => Assert.True(c.X is >= 0 and <= 1 && c.Y is >= 0 and <= 1));
                 }
@@ -238,6 +239,7 @@ public class TreeTests
         var (json, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeBuilder.Build(r, NoTextures).Lods[0]));
         Assert.Contains("COLOR_0", json.GetRawText());
         r.Wind = false;
+        r.Shading = 0;
         var still = TreeBuilder.Build(r, NoTextures).Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
         Assert.Empty(still.Colors);
         Assert.Empty(still.UV1);
@@ -379,5 +381,45 @@ public class TreeTests
     {
         Assert.True(TreeSkeleton.ShapeRatio("umbrella", 1) > TreeSkeleton.ShapeRatio("umbrella", 0.5f));
         Assert.True(TreeSkeleton.ShapeRatio("umbrella", 0.5f) > TreeSkeleton.ShapeRatio("umbrella", 0));
+    }
+
+    [Fact]
+    public void Painted_shading_darkens_the_inside_of_the_crown_and_the_foot_of_the_trunk()
+    {
+        var r = Small("stylized-oak");
+        r.Shading = 1;
+        var b = TreeBuilder.Build(r, NoTextures);
+        var leaves = Leaves(b)!;
+        var c = b.Skeleton.CrownCentre;
+        var inner = Enumerable.Range(0, leaves.VertexCount).Where(i => Vector3.Distance(leaves.Positions[i], c) < b.Skeleton.CrownRadius * 0.3f).Select(i => leaves.Colors[i].X).DefaultIfEmpty(0.5f).Average();
+        var outer = Enumerable.Range(0, leaves.VertexCount).Where(i => leaves.Positions[i].Y > c.Y + b.Skeleton.CrownRadius * 0.6f).Select(i => leaves.Colors[i].X).Average();
+        Assert.True(outer > inner + 0.15f, $"outer {outer}, inner {inner}");
+        var wood = Wood(b);
+        var foot = Enumerable.Range(0, wood.VertexCount).Where(i => wood.Positions[i].Y < 0.2f).Select(i => wood.Colors[i].X).Average();
+        var up = Enumerable.Range(0, wood.VertexCount).Where(i => wood.Positions[i].Y > r.Height * 0.3f).Select(i => wood.Colors[i].X).Average();
+        Assert.True(up > foot + 0.1f);
+        // With the wind data in the vertex colours there is no shading (they can't hold both).
+        r.WindData = "color";
+        Assert.All(Leaves(TreeBuilder.Build(r, NoTextures))!.Colors, x => Assert.InRange(x.Z, 0, 1));
+    }
+
+    [Fact]
+    public void Bark_is_made_in_the_tree_colour_painted_or_birch()
+    {
+        foreach (var id in BarkTextures.Ids)
+        {
+            var recipe = BarkTextures.For(id, "#8a4a2c")!;
+            var maps = NoorMD.Media.TextureEngine.Render(recipe, 64);
+            Assert.Equal(64 * 64 * 3, maps.Albedo.Length);
+        }
+        Assert.Null(BarkTextures.For("nothing", "#8a4a2c"));
+        // Red bark comes out red.
+        var red = NoorMD.Media.TextureEngine.Render(BarkTextures.For("bark", "#c04020")!, 64).Albedo;
+        double R = 0, B = 0;
+        for (var i = 0; i < red.Length; i += 3) { R += red[i]; B += red[i + 2]; }
+        Assert.True(R > B * 2);
+        var tree = Small("birch");
+        tree.Lods = 1;
+        Assert.NotNull(TreeBuilder.Build(tree, new TreeBuilder.Options { TextureSize = 64 }).Lods[0].Materials[0].BaseColorPng);
     }
 }

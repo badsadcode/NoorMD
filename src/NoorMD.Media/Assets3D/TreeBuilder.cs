@@ -136,7 +136,8 @@ public static class TreeBuilder
         {
             try
             {
-                var maps = TextureEngine.Render(TexturePresets.Make(recipe.BarkMaterial), options.TextureSize);
+                var barkRecipe = BarkTextures.For(recipe.BarkMaterial, recipe.BarkColor) ?? TexturePresets.Make(recipe.BarkMaterial);
+                var maps = TextureEngine.Render(barkRecipe, options.TextureSize);
                 bark.BaseColor = Vector4.One;
                 bark.BaseColorPng = maps.Png("albedo");
                 bark.NormalPng = maps.Png("normal");
@@ -242,11 +243,14 @@ public static class TreeBuilder
 
                 if (mossy) AddMoss(leaves, sk, recipe, g.Branches, mossIndex, detail, new Random(recipe.Seed * 104729 + g.Index * 17 + lod));
 
+                WindChannel(wood, recipe);
+                WindChannel(leaves, recipe);
+                Shade(wood, sk, recipe, leafy: false);
+                Shade(leaves, sk, recipe, leafy: true);
+
                 // Pivots: a separate limb's node sits where it leaves its parent.
                 Offset(wood, -g.Pivot);
                 Offset(leaves, -g.Pivot);
-                WindChannel(wood, recipe);
-                WindChannel(leaves, recipe);
                 var node = new Node3D { Name = g.Name, Translation = g.Pivot, Mesh = wood.TriangleCount > 0 ? wood : null };
                 if (leaves.TriangleCount > 0) node.Children.Add(new Node3D { Name = leaves.Name, Mesh = leaves });
                 if (g.Index == 0) { trunkNode = node; asset.Root.Children.Add(node); }
@@ -747,6 +751,40 @@ public static class TreeBuilder
     }
 
     // ---- Helpers ----
+
+    /// <summary>
+    /// Painted shading in the vertex colours (what engines and viewers multiply the textures by): leaves darker deep in
+    /// the crown and underneath, lighter on its outer, upper side, with soft patches like brush strokes; wood darker
+    /// near the ground and under the crown. Skipped when the vertex colours carry the wind data.
+    /// </summary>
+    private static void Shade(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, bool leafy)
+    {
+        if (recipe.Shading <= 0 || m.VertexCount == 0 || (recipe.Wind && recipe.WindData == "color")) return;
+        var amount = (float)recipe.Shading;
+        var c = sk.CrownCentre;
+        var r = MathF.Max(0.3f, sk.CrownRadius);
+        var h = MathF.Max(0.5f, sk.Height);
+        m.Colors.Clear();
+        foreach (var p in m.Positions)
+        {
+            float light;
+            var d = Math.Clamp(Vector3.Distance(p, c) / r, 0, 1);
+            if (leafy)
+            {
+                var t = Math.Clamp((p.Y - (c.Y - r)) / (2 * r), 0, 1);
+                var patch = 0.12f * MathF.Sin(p.X * 1.7f + p.Z * 0.9f) * MathF.Sin(p.Y * 1.3f + p.X * 0.5f);
+                light = 0.42f + 0.58f * Math.Clamp(0.55f * d + 0.45f * t + patch, 0, 1);
+            }
+            else
+            {
+                var ground = Math.Clamp(p.Y / MathF.Max(1.5f, 0.25f * h), 0, 1);
+                light = (0.55f + 0.45f * MathF.Sqrt(ground)) * (0.78f + 0.22f * d);
+            }
+            var s = 1 + (light - 1) * amount;
+            // Shade a touch cooler than light, as painters do.
+            m.Colors.Add(new Vector4(s, s, Math.Min(1, s * 1.04f), 1));
+        }
+    }
 
     /// <summary>Moves the wind data from the working vertex colours to where the recipe wants it.</summary>
     private static void WindChannel(Mesh3D m, TreeRecipe recipe)

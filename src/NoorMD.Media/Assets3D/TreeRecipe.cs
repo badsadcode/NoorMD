@@ -129,11 +129,16 @@ public sealed class TreeRecipe
 
     // Bark.
     public string BarkColor { get; set; } = "#5a4636";
-    /// <summary>The Texture Bench material for the bark (a preset id), or empty for a plain colour.</summary>
-    public string BarkMaterial { get; set; } = "wood-bark";
+    /// <summary>
+    /// The bark: "bark" (realistic furrows in the bark colour), "painted" (hand-painted grooves, the stylized look),
+    /// "birch" (pale with dark marks), any Texture Bench preset id, or empty for a plain colour.
+    /// </summary>
+    public string BarkMaterial { get; set; } = "bark";
     /// <summary>How much bark one texture covers (metres).</summary>
     public double BarkTile { get; set; } = 1;
 
+    /// <summary>Painted shading in the vertex colours: crowns darker inside and below, trunks darker near the ground (0 none … 1 strong).</summary>
+    public double Shading { get; set; } = 0.7;
     public bool Wind { get; set; } = true;
     /// <summary>
     /// Where the wind data goes: "uv" (TEXCOORD_1 = branch bend, leaf flutter; TEXCOORD_2 = phase, trunk sway) keeps
@@ -196,6 +201,7 @@ public sealed class TreeRecipe
         }
         Branches = Pick(Branches, BranchModes);
         WindData = Pick(WindData, WindChannels);
+        Shading = C(Shading, 0, 1, 0.7);
         MixedRadius = C(MixedRadius, 0.005, 2, 0.08);
         Quality = Qualities.Contains(Quality) ? Quality : "medium";
         Budget = Math.Clamp(Budget, 200, 500_000);
@@ -249,7 +255,7 @@ public static class TreePresets
             Name = "Birch", Archetype = "birch", Height = 11, TrunkRadius = 0.16, Taper = 0.9, CrownStart = 0.9, Flare = 0.25, Roots = 4, Shape = "flame", Lean = 4,
             Levels = [new() { Count = 22, Start = 0.3, Angle = 40, Length = 0.38, Radius = 0.45, Bend = -25, Wobble = 8 },
                       new() { Count = 10, Start = 0.15, Angle = 35, Length = 0.5, Radius = 0.5, Bend = -40, Wobble = 10 }],
-            LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#d9d4c7", BarkMaterial = "",
+            LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#e2ddd2", BarkMaterial = "birch",
         }),
         new("dead", "Dead tree (realistic)", "Bare, twisted and broken: no leaves.", () => new TreeRecipe
         {
@@ -263,20 +269,20 @@ public static class TreePresets
             Name = "Stylized oak", Archetype = "broadleaf", Style = "stylized", Height = 7, TrunkRadius = 0.45, Taper = 0.6, CrownStart = 0.4, Flare = 0.9, Roots = 5, Shape = "spherical", Twist = 0.6, Wobble = 6, Collar = 0.9,
             Levels = [new() { Count = 5, Start = 0.45, Angle = 50, AngleSpread = 12, Length = 0.6, Radius = 0.65, Bend = 25, Wobble = 10 },
                       new() { Count = 4, Start = 0.3, Angle = 40, Length = 0.5, Radius = 0.55, Bend = 20, Wobble = 10 }],
-            Foliage = "tufts", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#3e7d2a", LeafColor2 = "#b7d14a", BarkColor = "#6e4a2f", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "tufts", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#3e7d2a", LeafColor2 = "#b7d14a", BarkColor = "#6e4a2f", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }),
         new("stylized-pine", "Stylized pine", "Stacked, chunky tiers of foliage on a curving trunk.", () => new TreeRecipe
         {
             Name = "Stylized pine", Archetype = "conifer", Style = "stylized", Height = 9, TrunkRadius = 0.32, Taper = 0.95, CrownStart = 1, Flare = 0.6, Roots = 4, Shape = "conical", Lean = 5, Wobble = 5, Twist = 0.2, Collar = 0.9,
             Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.3, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
-            Foliage = "tufts", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "", Budget = 2500, Quality = "low",
+            Foliage = "tufts", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "painted", Budget = 2500, Quality = "low",
         }),
         new("stylized-dead", "Stylized dead tree", "A gnarled, spiralling spooky tree.", () => new TreeRecipe
         {
             Name = "Stylized dead tree", Archetype = "dead", Style = "stylized", Height = 6, TrunkRadius = 0.4, Taper = 0.75, CrownStart = 0.5, Flare = 1, Roots = 5, Shape = "inverse", Lean = 10, Wobble = 10, Twist = 1.2, Collar = 1,
             Levels = [new() { Count = 5, Start = 0.45, Angle = 55, AngleSpread = 20, Length = 0.6, Radius = 0.6, Bend = -20, Wobble = 20 },
                       new() { Count = 3, Start = 0.3, Angle = 50, AngleSpread = 20, Length = 0.5, Radius = 0.55, Bend = -30, Wobble = 20 }],
-            Foliage = "none", BarkColor = "#5e5148", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "none", BarkColor = "#5e5148", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }),
 
         // ---- Forest, more kinds.
@@ -307,7 +313,7 @@ public static class TreePresets
             Name = "Stylized swamp cypress", Archetype = "broadleaf", Style = "stylized", Height = 10, TrunkRadius = 0.75, Taper = 0.7, CrownStart = 0.5, Flare = 1, Roots = 6, Collar = 0.9,
             Shape = "umbrella", Twist = 0.4, Flute = 0.9, FluteLobes = 7, FluteHeight = 0.3, Knees = 10,
             Levels = [L(7, 0.5, 65, 0.55, 0.55, 5, 10, 15), L(4, 0.3, 45, 0.5, 0.55, 5, 10)],
-            Foliage = "tufts", LeafShape = "needle", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#335c2e", LeafColor2 = "#8fb84a", BarkColor = "#7a5a42", BarkMaterial = "",
+            Foliage = "tufts", LeafShape = "needle", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#335c2e", LeafColor2 = "#8fb84a", BarkColor = "#7a5a42", BarkMaterial = "painted",
             Moss = 0.8, MossColor = "#8fa07a", Budget = 4000, Quality = "low",
         }, "Swamp & marsh"),
         new("mangrove", "Mangrove (realistic)", "Stilt roots arching out of the water, a low dome of glossy leaves.", () => new TreeRecipe
@@ -320,7 +326,7 @@ public static class TreePresets
         {
             Name = "Stylized mangrove", Archetype = "broadleaf", Style = "stylized", Height = 6, TrunkRadius = 0.32, Taper = 0.55, CrownStart = 0.5, RootStyle = "prop", Roots = 7, RootLength = 0.9, Shape = "hemispherical", Twist = 0.3, Collar = 0.9,
             Levels = [L(5, 0.45, 55, 0.6, 0.6, 15, 10), L(3, 0.3, 45, 0.5, 0.55, 10, 10)],
-            Foliage = "tufts", LeafSize = 1.1, LeafDensity = 0.7, LeafColor = "#2e6a2a", LeafColor2 = "#9ccc4a", BarkColor = "#6a5444", BarkMaterial = "", Budget = 3500, Quality = "low",
+            Foliage = "tufts", LeafSize = 1.1, LeafDensity = 0.7, LeafColor = "#2e6a2a", LeafColor2 = "#9ccc4a", BarkColor = "#6a5444", BarkMaterial = "painted", Budget = 3500, Quality = "low",
         }, "Swamp & marsh"),
         new("willow", "Weeping willow (realistic)", "Long curtains of slender leaves hanging nearly to the ground.", () => new TreeRecipe
         {
@@ -332,7 +338,7 @@ public static class TreePresets
         {
             Name = "Stylized willow", Archetype = "broadleaf", Style = "stylized", Height = 8, TrunkRadius = 0.55, Taper = 0.65, CrownStart = 0.4, RootStyle = "surface", Roots = 5, Shape = "hemispherical", Twist = 0.5, Collar = 0.9,
             Levels = [L(6, 0.4, 50, 0.6, 0.6, 25, 8), L(6, 0.25, 40, 0.5, 0.55, -45, 8)],
-            LeafShape = "slender", Arrangement = "hanging", HangLength = 4, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#4f8a2a", LeafColor2 = "#c4dc5a", BarkColor = "#6e5440", BarkMaterial = "", Budget = 3500, Quality = "low",
+            LeafShape = "slender", Arrangement = "hanging", HangLength = 4, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#4f8a2a", LeafColor2 = "#c4dc5a", BarkColor = "#6e5440", BarkMaterial = "painted", Budget = 3500, Quality = "low",
         }, "Swamp & marsh"),
         new("bog-snag", "Bog snag (realistic)", "A dead swamp tree hung with moss and vines.", () => new TreeRecipe
         {
@@ -344,7 +350,7 @@ public static class TreePresets
         {
             Name = "Haunted swamp tree", Archetype = "dead", Style = "stylized", Height = 8, TrunkRadius = 0.55, Taper = 0.75, CrownStart = 0.45, Flare = 1, Roots = 6, Shape = "inverse", Lean = 8, Wobble = 8, Twist = 1.1, Collar = 1, Knees = 8,
             Levels = [L(6, 0.45, 60, 0.6, 0.6, -25, 18, 20), L(3, 0.3, 50, 0.5, 0.55, -35, 18, 20)],
-            Foliage = "none", BarkColor = "#4a4248", BarkMaterial = "", Moss = 1, MossColor = "#6e7a5c", Vines = 10, Budget = 3500, Quality = "low",
+            Foliage = "none", BarkColor = "#4a4248", BarkMaterial = "painted", Moss = 1, MossColor = "#6e7a5c", Vines = 10, Budget = 3500, Quality = "low",
         }, "Swamp & marsh"),
 
         // ---- Giants.
@@ -360,7 +366,7 @@ public static class TreePresets
             Name = "Stylized sequoia", Archetype = "conifer", Style = "stylized", Height = 30, TrunkRadius = 1.6, Taper = 0.85, CrownStart = 1, Flare = 0.9, Roots = 6, Collar = 0.9,
             Flute = 0.9, FluteLobes = 8, FluteHeight = 0.35, Shape = "conical", Wobble = 2,
             Levels = [L(24, 0.45, 80, 0.2, 0.35, -15, 4, 8, 4, 40)],
-            Foliage = "tufts", LeafShape = "needle", LeafSize = 2.4, LeafDensity = 0.75, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#a0502e", BarkMaterial = "", Budget = 5000, Quality = "low",
+            Foliage = "tufts", LeafShape = "needle", LeafSize = 2.4, LeafDensity = 0.75, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#a0502e", BarkMaterial = "painted", Budget = 5000, Quality = "low",
         }, "Giants"),
 
         // ---- Tropical.
@@ -374,7 +380,7 @@ public static class TreePresets
         {
             Name = "Stylized palm", Archetype = "broadleaf", Style = "stylized", Height = 7, TrunkRadius = 0.28, Taper = 0.4, CrownStart = 1, RootStyle = "compact", Lean = 14, SCurve = 0.08, Collar = 0.9,
             Levels = [L(10, 0.97, 65, 0.4, 0.3, -55, 3, 20)],
-            LeafShape = "frond", Arrangement = "fronds", LeafSize = 1.8, LeafColor = "#2f7a2a", LeafColor2 = "#a8d84a", BarkColor = "#8a6a4a", BarkMaterial = "", Budget = 3000, Quality = "low",
+            LeafShape = "frond", Arrangement = "fronds", LeafSize = 1.8, LeafColor = "#2f7a2a", LeafColor2 = "#a8d84a", BarkColor = "#8a6a4a", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Tropical"),
         new("tree-fern", "Tree fern (realistic)", "A short furry trunk with a crown of arching fern fronds.", () => new TreeRecipe
         {
@@ -392,7 +398,7 @@ public static class TreePresets
         {
             Name = "Stylized baobab", Archetype = "broadleaf", Style = "stylized", Height = 9, TrunkRadius = 1.0, Taper = 0.55, CrownStart = 0.75, RootStyle = "compact", Bulge = 1.3, BulgeAt = 0.3, Shape = "umbrella", Twist = 0.2,
             Levels = [L(6, 0.45, 70, 0.45, 0.5, 25, 10, 15), L(3, 0.3, 45, 0.45, 0.5, 15, 10)],
-            Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.55, LeafColor = "#4a7a2a", LeafColor2 = "#b8d050", BarkColor = "#a08870", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.55, LeafColor = "#4a7a2a", LeafColor2 = "#b8d050", BarkColor = "#a08870", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Tropical"),
 
         // ---- Dry and windswept.
@@ -406,7 +412,7 @@ public static class TreePresets
         {
             Name = "Stylized windswept pine", Archetype = "broadleaf", Style = "stylized", Height = 5, TrunkRadius = 0.32, Taper = 0.65, CrownStart = 0.35, Flare = 0.9, Windswept = 0.9, Twist = 0.7, Collar = 0.9, Shape = "hemispherical",
             Levels = [L(5, 0.35, 55, 0.65, 0.6, 5, 10, 15), L(3, 0.3, 45, 0.5, 0.55, 0, 10)],
-            Foliage = "tufts", LeafShape = "needle", LeafSize = 1, LeafDensity = 0.75, LeafColor = "#245a3a", LeafColor2 = "#7ab44f", BarkColor = "#7a5a42", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "tufts", LeafShape = "needle", LeafSize = 1, LeafDensity = 0.75, LeafColor = "#245a3a", LeafColor2 = "#7ab44f", BarkColor = "#7a5a42", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Dry & windswept"),
         new("acacia", "Acacia (realistic)", "A flat-topped umbrella crown on a leaning savanna trunk.", () => new TreeRecipe
         {
@@ -418,7 +424,7 @@ public static class TreePresets
         {
             Name = "Stylized acacia", Archetype = "broadleaf", Style = "stylized", Height = 6, TrunkRadius = 0.35, Taper = 0.55, CrownStart = 0.5, Flare = 0.8, Lean = 8, Twist = 0.3, Collar = 0.9, Shape = "umbrella",
             Levels = [L(5, 0.45, 68, 0.95, 0.6, -5, 8, 12), L(4, 0.35, 60, 0.55, 0.55, -10, 8)],
-            Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#6a7a2a", LeafColor2 = "#d0cc5a", BarkColor = "#7a5a40", BarkMaterial = "", Budget = 3000, Quality = "low",
+            Foliage = "tufts", LeafShape = "round", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#6a7a2a", LeafColor2 = "#d0cc5a", BarkColor = "#7a5a40", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Dry & windswept"),
 
         // ---- Fantasy.
@@ -426,19 +432,19 @@ public static class TreePresets
         {
             Name = "Moonlit elder", Archetype = "broadleaf", Style = "stylized", Height = 9, TrunkRadius = 0.6, Taper = 0.7, CrownStart = 0.4, Flare = 1, Roots = 6, Twist = 1.2, Collar = 1, Shape = "spherical", Lean = 6,
             Levels = [L(5, 0.45, 55, 0.6, 0.6, 25, 10, 15), L(4, 0.3, 45, 0.5, 0.55, 15, 10)],
-            Foliage = "tufts", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#4a2a7a", LeafColor2 = "#c08ae8", BarkColor = "#8a8098", BarkMaterial = "", Budget = 3500, Quality = "low",
+            Foliage = "tufts", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#4a2a7a", LeafColor2 = "#c08ae8", BarkColor = "#8a8098", BarkMaterial = "painted", Budget = 3500, Quality = "low",
         }, "Fantasy"),
         new("ember-oak", "Ember oak", "A fiery autumn oak, flame-red leaves on a dark, twisted trunk.", () => new TreeRecipe
         {
             Name = "Ember oak", Archetype = "broadleaf", Style = "stylized", Height = 8, TrunkRadius = 0.55, Taper = 0.6, CrownStart = 0.4, Flare = 0.9, Roots = 5, Twist = 0.6, Collar = 0.9, Shape = "spherical",
             Levels = [L(5, 0.45, 50, 0.6, 0.65, 25, 10, 12), L(4, 0.3, 40, 0.5, 0.55, 20, 10)],
-            Foliage = "tufts", LeafShape = "maple", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#8a1a10", LeafColor2 = "#ffb030", BarkColor = "#3e2e28", BarkMaterial = "", Budget = 3500, Quality = "low",
+            Foliage = "tufts", LeafShape = "maple", LeafSize = 1.3, LeafDensity = 0.7, LeafColor = "#8a1a10", LeafColor2 = "#ffb030", BarkColor = "#3e2e28", BarkMaterial = "painted", Budget = 3500, Quality = "low",
         }, "Fantasy"),
         new("spirit-willow", "Spirit willow", "Pale bark and glowing teal curtains: the ghostly marsh willow.", () => new TreeRecipe
         {
             Name = "Spirit willow", Archetype = "broadleaf", Style = "stylized", Height = 9, TrunkRadius = 0.5, Taper = 0.65, CrownStart = 0.4, RootStyle = "surface", Roots = 6, Twist = 0.8, Collar = 0.9, Shape = "hemispherical",
             Levels = [L(6, 0.4, 50, 0.6, 0.6, 25, 8), L(6, 0.25, 40, 0.5, 0.55, -45, 8)],
-            LeafShape = "slender", Arrangement = "hanging", HangLength = 5, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#1f7a7a", LeafColor2 = "#a8f0dc", BarkColor = "#c8c4b8", BarkMaterial = "",
+            LeafShape = "slender", Arrangement = "hanging", HangLength = 5, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#1f7a7a", LeafColor2 = "#a8f0dc", BarkColor = "#c8c4b8", BarkMaterial = "painted",
             Moss = 0.3, MossColor = "#8ab8a8", Budget = 3500, Quality = "low",
         }, "Fantasy"),
     ];
