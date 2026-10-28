@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-preview.34 — Sound Bench: convolution reverb
+
+The third part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md).
+
+- **Convolution reverb,** a new effect for any rack (a layer, a bus or the master), which places the sound inside
+  a real space.
+  - **Built-in spaces** that work without any recordings: room, hall, church, cave (dark, with distant echoes),
+    plate (bright and dense) and tunnel (with flutter echoes). Each one is the same every time.
+  - **Your own recording of a space** (*your recording…*): a WAV impulse response, such as a clap, a balloon pop
+    or a sine sweep recorded in a stairwell, a car park or a church and turned into its echoes. The silence
+    before it is skipped. As with samples, only a file you picked (or that a recipe you opened names) is read,
+    and a recipe finds it beside itself after the folder has moved. If it's missing you're told, and the sound
+    passes as if the effect were off.
+  - **Length** keeps only the first part of the space, **damping** darkens its tail as it goes on (air and
+    walls take the highs first), and **pre-delay** moves it away from the sound. Every space passes noise at
+    about the level it came in, so switching spaces doesn't jump in level.
+  - Fast: the sound and the space are combined with partitioned FFT convolution, left and right sharing each
+    FFT, so 30 seconds in a 6-second church takes well under a second.
+- **New preset:** *Church bell, far away*, a bell resonator inside the built-in church. 55 presets in all.
+- **Fix:** the Normalize checkbox and the Loudness target choice no longer run into each other on the Output tab.
+- **Nothing changes for your saved sounds:** a recipe without convolution renders exactly as before.
+
 ## 2.0.0-preview.33 — Sound Bench: resonators
 
 The second part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md).

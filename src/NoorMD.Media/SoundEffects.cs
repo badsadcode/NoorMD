@@ -7,7 +7,7 @@ namespace NoorMD.Media;
 public sealed class SoundEffect
 {
     public const int MaxPerChain = 8;
-    public static readonly string[] Types = ["eq", "compressor", "gate", "saturate", "crush", "delay", "chorus", "flanger", "phaser", "tremolo", "reverb", "width", "resonator"];
+    public static readonly string[] Types = ["eq", "compressor", "gate", "saturate", "crush", "delay", "chorus", "flanger", "phaser", "tremolo", "reverb", "width", "resonator", "convolution"];
 
     public string Type { get; set; } = "eq";
     /// <summary>A stable id ("F1"…) within its chain, for modulation routes.</summary>
@@ -68,6 +68,14 @@ public sealed class SoundEffect
     public double Decay { get; set; } = 1.5;
     public double Detune { get; set; } = 0.2;
 
+    // convolution: Space is a built-in one ("room", "hall", "church", "cave", "plate", "tunnel") or "file", a recorded
+    // impulse response (IrPath, shown as IrName); IrLength keeps that many seconds of it (0 = all, at most 10). Damping
+    // darkens its tail, PreDelay delays it.
+    public string Space { get; set; } = "hall";
+    public string? IrPath { get; set; }
+    public string? IrName { get; set; }
+    public double IrLength { get; set; }
+
     public SoundEffect Clone() => (SoundEffect)MemberwiseClone();
 
     private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
@@ -87,6 +95,10 @@ public sealed class SoundEffect
         Width = C(Width, 0, 2);
         Body = Body is "string" or "tube" or "metal" or "wood" or "glass" or "bell" or "membrane" ? Body : "string";
         Decay = C(Decay, 0.02, 30); Detune = C(Detune, 0, 1);
+        Space = SoundConvolution.Spaces.Contains(Space) ? Space : "hall";
+        if (IrPath != null && (IrPath.Length > 1000 || IrPath.Any(char.IsControl))) IrPath = null;
+        if (IrName != null) IrName = IrName.Length > 120 ? IrName[..120] : IrName;
+        IrLength = IrLength <= 0 || !double.IsFinite(IrLength) ? 0 : Math.Clamp(IrLength, 0.05, SoundConvolution.MaxSeconds);
         return this;
     }
 }
@@ -95,11 +107,15 @@ public sealed class SoundEffect
 public static class SoundEffects
 {
     /// <param name="mod">The modulation of an effect's parameter ("mix", "freq", "gain", "drive"), per block, or null.</param>
-    public static void Apply(IReadOnlyList<SoundEffect> chain, double[] L, double[] R, int sr, Func<SoundEffect, string, double[]?>? mod = null)
+    /// <param name="files">Reads a recorded space (a convolution's impulse response), or null when it can't or may not be used.</param>
+    public static void Apply(IReadOnlyList<SoundEffect> chain, double[] L, double[] R, int sr, Func<SoundEffect, string, double[]?>? mod = null,
+        Func<string, SampleAudio?>? files = null)
     {
         foreach (var fx in chain)
         {
             if (fx.Bypass) continue;
+            (double[] L, double[] R)? ir = null;
+            if (fx.Type == "convolution" && (ir = SoundConvolution.Response(fx, sr, files)) == null) continue; // its recording is missing: as if off
             var mixMod = mod?.Invoke(fx, "mix");
             var mix = fx.Mix;
             var outGain = Math.Pow(10, fx.Out / 20);
@@ -107,7 +123,8 @@ public static class SoundEffects
             // Mixing needs the incoming sound kept aside (only when it isn't fully wet).
             double[]? dl = null, dr = null;
             if (mix < 1 || mixMod != null) { dl = (double[])L.Clone(); dr = (double[])R.Clone(); }
-            Process(fx, L, R, sr, mod == null ? null : p => mod(fx, p));
+            if (ir is { } space) SoundConvolution.Apply(L, R, space);
+            else Process(fx, L, R, sr, mod == null ? null : p => mod(fx, p));
             for (var i = 0; i < L.Length; i++)
             {
                 var m = mixMod == null ? mix : Math.Clamp(mix + ModulationField.At(mixMod, i), 0, 1);

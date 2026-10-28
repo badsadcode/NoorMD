@@ -449,6 +449,7 @@ function mockHostScript(initial) {
         const peaks = []; for (let i = 0; i < 600; i++) { const v = Math.abs(Math.sin(i / 37)) * (i < 300 ? 0.8 : 0.3); peaks.push(-v, v); }
         return { seconds: 1.8, peaks };
       }
+      case 'sound.ir.pick': SND.irPicks = (SND.irPicks || 0) + 1; return SND.irCancel ? { cancelled: true } : { path: 'C:\\IRs\\stairwell.wav', name: 'stairwell', seconds: 2.1 };
       case 'sound.sample.pick': SND.picks = (SND.picks || 0) + 1; return { path: 'C:\\Sounds\\door creak.wav', name: 'door creak.wav', seconds: 1.8 };
       case 'sound.preset': {
         const mine = SND.mine.find((x) => x.id === p.id);

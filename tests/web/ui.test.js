@@ -3795,6 +3795,39 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="layers"]'); await page.evaluate(() => document.querySelector('[data-fx-type="resonator"]').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-resonator.png` }); }
       await page.close();
     }
+
+    // ---- 44. Sound Bench convolution: built-in spaces, a recorded space picked for it, and its settings.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.selectOption('[data-addfx="master"]', 'convolution');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.effects?.[0]?.type === 'convolution');
+      const fx = (await last()).master.effects[0];
+      check('convolution reverb starts in a built-in hall, part-wet', fx.space === 'hall' && fx.mix === 0.3 && fx.irLength === 0 && fx.preDelay === 10);
+      const card = '[data-fx-type="convolution"]';
+      check('…with length, damping and pre-delay', await page.evaluate((c) => ['irLength', 'damping', 'preDelay'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card)
+        && (await page.$$eval(`${card} select[data-fx="space"] option`, (n) => n.map((o) => o.textContent))).join() === 'room,hall,church,cave,plate,tunnel,your recording…');
+      await page.selectOption(`${card} select[data-fx="space"]`, 'cave');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.effects[0].space === 'cave');
+      check('a built-in space can be chosen', !(await page.$(`${card} [data-pickspace]`)));
+      await page.evaluate(() => { window.__mock.state.sound.irCancel = true; });
+      await page.selectOption(`${card} select[data-fx="space"]`, 'file');
+      await waitFn(page, () => window.__mock.state.sound.irPicks === 1);
+      await page.waitForTimeout(150);
+      check('choosing "your recording…" asks for one; cancelling keeps the space it had', (await page.inputValue(`${card} select[data-fx="space"]`)) === 'cave' && (await last()).master.effects[0].space === 'cave');
+      await page.evaluate(() => { window.__mock.state.sound.irCancel = false; });
+      await page.selectOption(`${card} select[data-fx="space"]`, 'file');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.effects[0].space === 'file');
+      const picked = (await last()).master.effects[0];
+      check('…and with a recording picked, it is used and shown', picked.irPath === 'C:\\IRs\\stairwell.wav' && picked.irName === 'stairwell' && /stairwell/.test(await page.textContent(card)) && !!(await page.$(`${card} [data-pickspace]`)));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with convolution', unexpected.length === 0, unexpected);
+      if (shots) { await page.evaluate(() => document.querySelector('[data-fx-type="convolution"]').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-convolution.png` }); }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

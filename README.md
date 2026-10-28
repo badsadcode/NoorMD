@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.33-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.34-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -119,11 +119,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
 - **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
 - **Sound Bench** (Ctrl+Alt+K): sound effects and ambiences for games, made on your computer. 🎲 Generate a
-  pickup, laser, explosion, footstep, impact, whoosh, magic or sci-fi sound and more, start from one of 54
+  pickup, laser, explosion, footstep, impact, whoosh, magic or sci-fi sound and more, start from one of 55
   presets (weather, footsteps, machines, UI, retro, alarms…), or layer your own WAV files (trimmed on their
   waveform, stretched without changing pitch, or scattered into grain clouds). Shape them with plain controls
   (gentle ↔ violent, near ↔ distant, outdoors ↔ indoors…) or layer by layer, with effects racks (including
-  resonators: strings, metal, glass, bells), shared buses,
+  resonators and convolution reverb in real or recorded spaces), shared buses,
   your own named controls (*Motor RPM*) and modulators (LFOs, envelopes, random drift, steps, drawn curves) that
   move any setting over time. Listen as you change things, see the spectrogram and loudness meters (LUFS, true
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
@@ -183,8 +183,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.33-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.33-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-2.0.0-preview.34-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-2.0.0-preview.34-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.

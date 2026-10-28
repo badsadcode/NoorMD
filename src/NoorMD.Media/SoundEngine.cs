@@ -249,21 +249,32 @@ public sealed class SoundRecipe
     /// </summary>
     public SoundRecipe FindSamplesBeside(string folder)
     {
-        foreach (var l in Layers)
+        string? Find(string? path)
         {
-            if (l.Type != "sample" || string.IsNullOrEmpty(l.Path)) continue;
+            if (string.IsNullOrEmpty(path)) return path;
             try
             {
-                if (!System.IO.Path.IsPathFullyQualified(l.Path)) { l.Path = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, l.Path)); continue; }
-                if (File.Exists(l.Path)) continue;
-                var name = System.IO.Path.GetFileName(l.Path.Replace('\\', System.IO.Path.DirectorySeparatorChar));
+                if (!System.IO.Path.IsPathFullyQualified(path)) return System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, path));
+                if (File.Exists(path)) return path;
+                var name = System.IO.Path.GetFileName(path.Replace('\\', System.IO.Path.DirectorySeparatorChar));
                 var beside = System.IO.Path.Combine(folder, name);
-                if (name.Length > 0 && File.Exists(beside)) l.Path = beside;
+                return name.Length > 0 && File.Exists(beside) ? beside : path;
             }
-            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { /* left as it is: reported missing when rendered */ }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return path; /* reported missing when rendered */ }
         }
+        foreach (var l in Layers) if (l.Type == "sample") l.Path = Find(l.Path);
+        foreach (var fx in AllEffects()) if (fx.Type == "convolution") fx.IrPath = Find(fx.IrPath);
         return this;
     }
+
+    /// <summary>Every effect in the recipe: the layers', the buses' and the master's.</summary>
+    public IEnumerable<SoundEffect> AllEffects() =>
+        (Layers ?? []).SelectMany(l => l.Effects ?? []).Concat((Buses ?? []).SelectMany(b => b.Effects ?? [])).Concat(Master?.Effects ?? []);
+
+    /// <summary>Every file the recipe reads: sample layers' WAVs and recorded spaces.</summary>
+    public IEnumerable<string> Files() =>
+        (Layers ?? []).Where(l => l.Type == "sample" && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!)
+            .Concat(AllEffects().Where(fx => fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath)).Select(fx => fx.IrPath!));
 
     private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
 
@@ -487,6 +498,10 @@ public static class SoundEngine
         var soloing = r.Layers.Any(l => l.Solo && !l.Mute);
         var warnings = new List<string>();
         var mods = new ModulationField(r, sampleRate, total, timeline is > 0 and < 3600 ? (int)Math.Round(timeline.Value * sampleRate) : length);
+        // A recorded space that can't be read is reported (the effect then lets the sound through as if it were off).
+        foreach (var fx in r.Layers.Where(l => !l.Mute).SelectMany(l => l.Effects).Concat(r.Buses.Where(b => !b.Mute).SelectMany(b => b.Effects)).Concat(r.Master.Effects))
+            if (fx.Type == "convolution" && !fx.Bypass && fx.Space == "file" && (string.IsNullOrEmpty(fx.IrPath) || samples?.Invoke(fx.IrPath) == null))
+                warnings.Add($"“{fx.IrName ?? "Recorded space"}”: the recording of the space is missing or can't be read");
         var buses = r.Buses.Where(b => !b.Mute).ToDictionary(b => b.Id, _ => (L: new double[total], R: new double[total]), StringComparer.Ordinal);
         for (var k = 0; k < r.Layers.Count; k++)
         {
@@ -521,7 +536,7 @@ public static class SoundEngine
             {
                 PostLayer(layer, tl, tr, sampleRate, total, md);
                 GainPan(tl, tr, gainMod, panMod);
-                SoundEffects.Apply(layer.Effects, tl, tr, sampleRate, (fx, param) => mods.For($"{layer.Id}/{fx.Id}:{param}"));
+                SoundEffects.Apply(layer.Effects, tl, tr, sampleRate, (fx, param) => mods.For($"{layer.Id}/{fx.Id}:{param}"), samples);
                 for (var i = 0; i < total; i++) { L[i] += tl[i]; R[i] += tr[i]; }
                 foreach (var send in sends)
                 {
@@ -535,13 +550,13 @@ public static class SoundEngine
         foreach (var bus in r.Buses)
         {
             if (!buses.TryGetValue(bus.Id, out var b)) continue;
-            SoundEffects.Apply(bus.Effects, b.L, b.R, sampleRate, (fx, param) => mods.For($"{bus.Id}/{fx.Id}:{param}"));
+            SoundEffects.Apply(bus.Effects, b.L, b.R, sampleRate, (fx, param) => mods.For($"{bus.Id}/{fx.Id}:{param}"), samples);
             GainPan(b.L, b.R, mods.For(bus.Id + ":gain"), null);
             var g = Math.Pow(10, bus.Gain / 20);
             for (var i = 0; i < total; i++) { L[i] += b.L[i] * g; R[i] += b.R[i] * g; }
         }
         MasterChain(r.Master, L, R, sampleRate, mods.For("master:lowpass"));
-        SoundEffects.Apply(r.Master.Effects, L, R, sampleRate, (fx, param) => mods.For($"master/{fx.Id}:{param}"));
+        SoundEffects.Apply(r.Master.Effects, L, R, sampleRate, (fx, param) => mods.For($"master/{fx.Id}:{param}"), samples);
         GainPan(L, R, mods.For("master:gain"), null);
         float[] outL = new float[length], outR = new float[length];
         for (var i = 0; i < length; i++)

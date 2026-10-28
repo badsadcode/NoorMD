@@ -37,7 +37,7 @@ public partial class MainWindow
 
     private void AllowSamples(SoundRecipe r)
     {
-        foreach (var l in r.Layers) if (l.Type == "sample" && !string.IsNullOrEmpty(l.Path)) _soundSampleFiles.Add(Path.GetFullPath(l.Path));
+        foreach (var path in r.Files()) { try { _soundSampleFiles.Add(Path.GetFullPath(path)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { } }
     }
 
     private SampleAudio? LoadSample(string path)
@@ -157,6 +157,18 @@ public partial class MainWindow
                     var path = req.GetString("path", 1000) ?? "";
                     var audio = (path.Length > 0 ? await Task.Run(() => LoadSample(path)) : null) ?? throw new BridgeError("That file is missing, can't be read, or isn't one you picked.");
                     return new { seconds = Math.Round(audio.Seconds, 4), peaks = audio.Peaks(600) };
+                }
+                case "sound.ir.pick":
+                {
+                    // A recorded space for convolution: a clap, a balloon pop or a sweep turned into its echoes (a WAV).
+                    var dlg = new OpenFileDialog { Title = "Choose a recorded space (an impulse response, WAV)", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var full = Path.GetFullPath(dlg.FileName);
+                    if (new FileInfo(full).Length > 100 * 1024 * 1024) throw new BridgeError("That file is too big (over 100 MB) for a recorded space.");
+                    _soundSampleFiles.Add(full);
+                    var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
+                    return new { path = full, name = Path.GetFileNameWithoutExtension(full), seconds = Math.Round(Math.Min(audio.Seconds, SoundConvolution.MaxSeconds), 3) };
                 }
                 case "sound.preset":
                 {
@@ -284,6 +296,8 @@ public partial class MainWindow
                     // Only files already allowed are kept, so a preset can't smuggle in another path.
                     foreach (var l in recipe.Layers)
                         if (l.Type == "sample" && !string.IsNullOrEmpty(l.Path) && !_soundSampleFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
+                    foreach (var fx in recipe.AllEffects())
+                        if (fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath) && !_soundSampleFiles.Contains(Path.GetFullPath(fx.IrPath))) fx.IrPath = null;
                     Directory.CreateDirectory(UserSoundFolder);
                     var file = NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name, ".json");
                     var path = Path.Combine(UserSoundFolder, file);
