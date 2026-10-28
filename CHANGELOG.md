@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0-preview.33 — Sound Bench: resonators
+
+The second part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md).
+
+- **Resonator,** a new effect for any rack (a layer, a bus or the master). It rings at a pitch when the sound
+  excites it: a burst of noise becomes a plucked string, a click a struck bar, a glass or a bell. Bodies:
+  - **string**, a plucked string with all its harmonics;
+  - **tube**, a pipe closed at one end, with odd harmonics only (hollow, woody);
+  - **metal**, a free bar, bright and inharmonic;
+  - **wood**, a few low partials that die quickly;
+  - **glass**, a wine glass, few and very pure;
+  - **bell**, a church bell's hum, prime, minor third, fifth and nominal;
+  - **membrane**, a drum skin.
+- Set its **pitch** (exact Hz), how long it **rings** (seconds to fade by 60 dB), **damping** (higher partials
+  die sooner, so darker) and **stereo detune** (the right side tuned up to 25 cents away, for width). Every body
+  passes noise at about the level it came in, so switching bodies or ring times doesn't jump in level.
+- **Its pitch can be modulated** (in octaves), so it can glide, follow a control or play a step pattern.
+- **New presets:** *Plucked string* (in a new *Instruments* family), *Glass tap* and *Singing bowl*. 54 presets
+  in all.
+- **Nothing changes for your saved sounds:** a recipe without resonators renders exactly as before.
+
 ## 2.0.0-preview.32 — Sound Bench: buses, sends and stems
 
 The first part of stage 5 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md), chosen as the

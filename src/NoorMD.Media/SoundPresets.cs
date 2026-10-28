@@ -254,6 +254,19 @@ public static class SoundPresets
             r.Master.Reverb = 0.3;
             return r;
         }),
+        new("magic-bowl", "Magic", "Singing bowl", "A struck metal bowl that sings for seconds (a bell resonator).", () =>
+            OneShot("Magic", "Singing bowl", 6,
+                new SoundLayer { Type = "noise", Name = "Strike", Color = "pink", Filter = "lowpass", Freq = 3000, Gain = -6, Attack = 0.001, Release = 0.012, Width = 0,
+                    Effects = [new SoundEffect { Type = "resonator", Body = "bell", Freq = 220, Decay = 7, Damping = 0.35, Detune = 0.4, Mix = 1 }] })),
+        // Resonators: strike or pluck something, and it rings at a pitch.
+        new("hit-glass", "Impacts", "Glass tap", "A fingernail on a wine glass (a glass resonator).", () =>
+            OneShot("Impacts", "Glass tap", 2,
+                new SoundLayer { Type = "noise", Name = "Tap", Color = "white", Filter = "highpass", Freq = 2000, Gain = -6, Attack = 0.0005, Release = 0.003, Width = 0,
+                    Effects = [new SoundEffect { Type = "resonator", Body = "glass", Freq = 1320, Decay = 1.8, Damping = 0.25, Detune = 0.3, Mix = 1 }] })),
+        new("pluck-string", "Instruments", "Plucked string", "A plucked nylon string (a string resonator): change its pitch, or modulate it.", () =>
+            OneShot("Instruments", "Plucked string", 2.5,
+                new SoundLayer { Type = "noise", Name = "Pluck", Color = "white", Filter = "lowpass", Freq = 6000, Gain = -6, Attack = 0.0005, Release = 0.006, Width = 0,
+                    Effects = [new SoundEffect { Type = "resonator", Body = "string", Freq = 196, Decay = 2.5, Damping = 0.35, Detune = 0.15, Mix = 1 }] })),
         // More interface sounds.
         new("ui-confirm", "UI", "Confirm", "A friendly, rising OK.", () => OneShot("UI", "Confirm", 0.35,
             new SoundLayer { Type = "synth", Name = "Note", Wave = "sine", Pitch = 660, Arp = 7, ArpTime = 0.06, Attack = 0.002, Hold = 0.05, Release = 0.15, Gain = -6, Width = 0 })),

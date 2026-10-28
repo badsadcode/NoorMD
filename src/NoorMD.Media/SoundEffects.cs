@@ -7,7 +7,7 @@ namespace NoorMD.Media;
 public sealed class SoundEffect
 {
     public const int MaxPerChain = 8;
-    public static readonly string[] Types = ["eq", "compressor", "gate", "saturate", "crush", "delay", "chorus", "flanger", "phaser", "tremolo", "reverb", "width"];
+    public static readonly string[] Types = ["eq", "compressor", "gate", "saturate", "crush", "delay", "chorus", "flanger", "phaser", "tremolo", "reverb", "width", "resonator"];
 
     public string Type { get; set; } = "eq";
     /// <summary>A stable id ("F1"…) within its chain, for modulation routes.</summary>
@@ -61,6 +61,13 @@ public sealed class SoundEffect
     // width
     public double Width { get; set; } = 1.5;
 
+    // resonator: Body "string", "tube", "metal", "wood", "glass", "bell" or "membrane"; Freq is its pitch (Hz),
+    // Decay how long it rings (seconds, to −60 dB), Damping how much faster its higher partials die (0–1), Detune
+    // how far the right side is tuned from the left (0–1, up to 25 cents: width).
+    public string Body { get; set; } = "string";
+    public double Decay { get; set; } = 1.5;
+    public double Detune { get; set; } = 0.2;
+
     public SoundEffect Clone() => (SoundEffect)MemberwiseClone();
 
     private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
@@ -78,6 +85,8 @@ public sealed class SoundEffect
         Rate = C(Rate, 0.01, 20); Depth = C(Depth, 0, 1);
         Size = C(Size, 0, 1); Damping = C(Damping, 0, 1); PreDelay = C(PreDelay, 0, 250);
         Width = C(Width, 0, 2);
+        Body = Body is "string" or "tube" or "metal" or "wood" or "glass" or "bell" or "membrane" ? Body : "string";
+        Decay = C(Decay, 0.02, 30); Detune = C(Detune, 0, 1);
         return this;
     }
 }
@@ -134,6 +143,14 @@ public static class SoundEffects
             case "phaser": Phaser(fx, L, sr, 0); Phaser(fx, R, sr, Math.PI / 2); break;
             case "tremolo": Tremolo(fx, L, R, sr); break;
             case "reverb": Reverb(fx, L, R, sr); break;
+            case "resonator":
+            {
+                var fm = mod?.Invoke("freq");
+                var cents = fx.Detune * 25;
+                Resonate(fx, L, sr, 1, fm);
+                Resonate(fx, R, sr, Math.Pow(2, cents / 1200), fm);
+                break;
+            }
             case "width":
                 for (var i = 0; i < L.Length; i++) { var m = (L[i] + R[i]) / 2; var s = (L[i] - R[i]) / 2 * fx.Width; L[i] = m + s; R[i] = m - s; }
                 break;
@@ -354,6 +371,105 @@ public static class SoundEffects
     }
 
     /// <summary>A room: pre-delay, eight damped combs and four all-passes per side (Freeverb-style).</summary>
+    // ------------------------------------------------------------------ resonator
+
+    /// <summary>Partials of each body: (ratio to the pitch, loudness, how long it rings relative to Decay).</summary>
+    private static readonly Dictionary<string, (double Ratio, double Amp, double Ring)[]> Bodies = new()
+    {
+        // A free metal bar: inharmonic, long and bright.
+        ["metal"] = [(1, 1, 1), (2.756, 0.8, 0.9), (5.404, 0.6, 0.75), (8.933, 0.45, 0.6), (13.34, 0.3, 0.5), (18.64, 0.2, 0.4)],
+        // Wood: a few low partials that die quickly.
+        ["wood"] = [(1, 1, 0.35), (2.32, 0.55, 0.22), (4.25, 0.3, 0.14), (6.63, 0.15, 0.1)],
+        // A wine glass: few, very pure, long partials.
+        ["glass"] = [(1, 1, 1), (2.61, 0.5, 0.85), (4.81, 0.28, 0.7), (7.42, 0.14, 0.55)],
+        // A church bell: hum, prime, minor third (tierce), fifth, nominal and above.
+        ["bell"] = [(0.5, 0.7, 1.4), (1, 1, 1), (1.183, 0.8, 0.9), (1.506, 0.5, 0.8), (2, 0.9, 0.7), (2.514, 0.35, 0.55), (2.662, 0.3, 0.5), (3.011, 0.25, 0.45), (4.166, 0.2, 0.35)],
+        // A drum skin (circular membrane): crowded inharmonic partials, short.
+        ["membrane"] = [(1, 1, 1), (1.593, 0.8, 0.8), (2.136, 0.6, 0.65), (2.296, 0.5, 0.6), (2.653, 0.4, 0.5), (2.918, 0.3, 0.45), (3.156, 0.25, 0.4), (3.501, 0.2, 0.35)],
+    };
+
+    /// <summary>
+    /// A resonator rings at its pitch when the sound excites it: a burst of noise becomes a plucked string, a click a
+    /// struck bar or a glass. Each kind is scaled so that noise comes out about as loud as it went in.
+    /// </summary>
+    private static void Resonate(SoundEffect fx, double[] x, int sr, double tune, double[]? freqMod)
+    {
+        double Pitch(int i) => Math.Clamp(fx.Freq * tune * (freqMod == null ? 1 : Math.Pow(2, ModulationField.At(freqMod, i))), 20, sr * 0.45);
+        if (fx.Body is "string" or "tube")
+        {
+            // A delay line one period long, fed back through a gentle low-pass (string) or turned over (tube: a pipe
+            // closed at one end, odd harmonics only, so its delay is half a period).
+            var tubeKind = fx.Body == "tube";
+            var line = new double[(int)(sr / 20.0) + 4];
+            var w = 0; double lp = 0;
+            var damp = 0.05 + fx.Damping * 0.9; // the low-pass in the loop: more damping, darker and shorter highs
+            double period = 0, g = 0, inGain = 0;
+            for (var i = 0; i < x.Length; i++)
+            {
+                if (i % 32 == 0)
+                {
+                    var f = Pitch(i);
+                    period = Math.Clamp(sr / f / (tubeKind ? 2 : 1), 2, line.Length - 2);
+                    g = Math.Pow(10, -3 * (period / sr) / fx.Decay); // −60 dB after Decay seconds
+                    // Noise in comes out about as loud: the loop's noise gain, averaged over frequency, is the mean of
+                    // 1 / (1 − g² |LP(ω)|²); the low-pass in the loop takes energy from the higher harmonics.
+                    var alpha = 1 - damp * 0.5;
+                    var mean = 0.0;
+                    for (var q = 0; q < 64; q++)
+                    {
+                        var wq = Math.PI * (q + 0.5) / 64;
+                        var lp2 = alpha * alpha / (1 - 2 * (1 - alpha) * Math.Cos(wq) + (1 - alpha) * (1 - alpha));
+                        mean += 1 / Math.Max(1e-6, 1 - g * g * lp2);
+                    }
+                    inGain = 1 / Math.Sqrt(mean / 64);
+                }
+                var rp = w - period;
+                while (rp < 0) rp += line.Length;
+                var k = (int)rp; var frac = rp - k;
+                var d = line[k % line.Length] * (1 - frac) + line[(k + 1) % line.Length] * frac;
+                lp += (d - lp) * (1 - damp * 0.5);
+                var fb = (tubeKind ? -lp : lp) * g;
+                var y = x[i] * inGain + fb;
+                line[w] = y;
+                w = (w + 1) % line.Length;
+                x[i] = y;
+            }
+            return;
+        }
+        var modes = Bodies[fx.Body];
+        var norm = 1 / Math.Sqrt(modes.Sum(m => m.Amp * m.Amp));
+        var n = modes.Length;
+        double[] y1 = new double[n], y2 = new double[n], a1 = new double[n], a2 = new double[n], b0 = new double[n];
+        var tilt = 0.2 + fx.Damping * 1.6; // higher partials ring shorter, more so with damping
+        void Tune(int i)
+        {
+            var f0 = Pitch(i);
+            for (var m = 0; m < n; m++)
+            {
+                var f = f0 * modes[m].Ratio;
+                if (f >= sr * 0.45) { b0[m] = 0; a1[m] = 0; a2[m] = 0; continue; }
+                var ring = Math.Max(0.005, fx.Decay * modes[m].Ring * Math.Pow(Math.Max(1, modes[m].Ratio), -tilt));
+                var r = Math.Pow(10, -3 / (ring * sr));
+                var wv = 2 * Math.PI * f / sr;
+                a1[m] = 2 * r * Math.Cos(wv); a2[m] = -r * r;
+                // Noise in comes out about as loud: a two-pole resonator's noise gain is b0² / (4 (1 − r) sin² ω).
+                b0[m] = 2 * Math.Sin(wv) * Math.Sqrt(1 - r) * modes[m].Amp * norm;
+            }
+        }
+        for (var i = 0; i < x.Length; i++)
+        {
+            if (i % 32 == 0 && (i == 0 || freqMod != null)) Tune(i);
+            var input = x[i]; var sum = 0.0;
+            for (var m = 0; m < n; m++)
+            {
+                var y = b0[m] * input + a1[m] * y1[m] + a2[m] * y2[m];
+                y2[m] = y1[m]; y1[m] = y;
+                sum += y;
+            }
+            x[i] = sum;
+        }
+    }
+
     private static void Reverb(SoundEffect fx, double[] L, double[] R, int sr)
     {
         var scale = sr / 44100.0;

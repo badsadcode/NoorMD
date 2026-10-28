@@ -779,9 +779,11 @@ public partial class MainWindow
                     const withBus = await NoorBridge.request('sound.render', { recipe: hall });
                     hall.buses[0].mute = true;
                     const noBus = await NoorBridge.request('sound.render', { recipe: hall });
+                    const pluck = await NoorBridge.request('sound.render', { recipe: await NoorBridge.request('sound.preset', { id: 'pluck-string' }) });
                     window.__sbk = JSON.stringify({ knob: r.knobs[0].name, routes: r.routes.length, idle: idle.rmsDb, revved: revved.rmsDb, same: idle.url === revved.url,
                         lufsIdle: idle.feedback.lufs, lufsRevved: revved.feedback.lufs, tp: revved.feedback.truePeakDb, spec: atob(spec.data).length === spec.columns * spec.rows && spec.rows === 96,
-                        hallSends: hall.layers.filter((l) => (l.sends || []).length).length, hallWet: withBus.feedback.lufs, hallDry: noBus.feedback.lufs });
+                        hallSends: hall.layers.filter((l) => (l.sends || []).length).length, hallWet: withBus.feedback.lufs, hallDry: noBus.feedback.lufs,
+                        pluck: pluck.feedback.lufs, pluckBright: pluck.feedback.centroidHz });
                 } catch (e) { window.__sbk = 'error ' + e.message; } })()");
             var sbk = "null";
             for (var i = 0; i < 80 && sbk == "null"; i++) { await Task.Delay(100); sbk = await Eval("window.__sbk"); }
@@ -794,10 +796,11 @@ public partial class MainWindow
                     && ke.GetProperty("revved").GetDouble() > ke.GetProperty("idle").GetDouble() + 1.5
                     && ke.GetProperty("lufsRevved").GetDouble() > ke.GetProperty("lufsIdle").GetDouble() + 1 && ke.GetProperty("lufsIdle").GetDouble() is > -40 and < -5
                     && ke.GetProperty("tp").GetDouble() <= 0 && ke.GetProperty("spec").GetBoolean()
-                    && ke.GetProperty("hallSends").GetInt32() == 2 && ke.GetProperty("hallWet").GetDouble() > ke.GetProperty("hallDry").GetDouble() + 1;
+                    && ke.GetProperty("hallSends").GetInt32() == 2 && ke.GetProperty("hallWet").GetDouble() > ke.GetProperty("hallDry").GetDouble() + 1
+                    && ke.GetProperty("pluck").GetDouble() is > -30 and < -10 && ke.GetProperty("pluckBright").GetDouble() is > 200 and < 4000;
             }
             catch (Exception) { knobOk = false; }
-            Check("Sound Bench: a control (Motor RPM) moves the sound, the meters and spectrogram show it, and a reverb bus is heard", knobOk, sbk);
+            Check("Sound Bench: a control (Motor RPM) moves the sound, the meters and spectrogram show it, a reverb bus is heard and a string resonator rings", knobOk, sbk);
             // A WAV of your own as a layer: read when it was picked, refused when nobody picked it.
             var wavPath = Path.Combine(SelfTestDir!, "Sound sample.wav");
             await File.WriteAllBytesAsync(wavPath, SoundEngine.Render(SoundPresets.Make("hit-metal"), 44100).ToWav());

@@ -3758,6 +3758,43 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       }
       await page.close();
     }
+
+    // ---- 43. Sound Bench resonators: an effect in any rack, its body and pitch, and its pitch as a modulation target.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('.sb-layer[data-index="0"] .sb-fxgroup summary');
+      await page.selectOption('[data-addfx="layer-0"]', 'resonator');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers[0].effects?.[0]?.type === 'resonator');
+      const fx = (await last()).layers[0].effects[0];
+      check('a resonator can be added to a layer, starting as a metal bar half-wet', fx.body === 'metal' && fx.freq === 220 && fx.decay === 1.5 && fx.mix === 0.5);
+      const card = '.sb-layer[data-index="0"] [data-fx-type="resonator"]';
+      check('…with its pitch, ring time, damping and detune', await page.evaluate((c) => ['freq', 'decay', 'damping', 'detune'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card)
+        && (await page.textContent(`${card} [data-num="decay"] + small`)) === 's');
+      await page.selectOption(`${card} select[data-fx="body"]`, 'glass');
+      await page.fill(`${card} input[data-num="freq"]`, '1320');
+      await page.press(`${card} input[data-num="freq"]`, 'Enter');
+      await page.fill(`${card} input[data-num="decay"]`, '0.05');
+      await page.press(`${card} input[data-num="decay"]`, 'Enter');
+      await waitFn(page, () => { const f = window.__mock.state.sound.renders.at(-1).layers[0].effects[0]; return f.body === 'glass' && f.freq === 1320 && f.decay === 0.05; });
+      check('its body and exact pitch and ring time can be set', (await page.inputValue(`${card} input[data-num="decay"]`)) === '0.05');
+      await page.click('#soundbench .sb-tabs button[data-tab="output"]');
+      await page.selectOption('[data-addfx="master"]', 'resonator');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).master.effects?.[0]?.type === 'resonator');
+      check('…and on the master (or a bus) too', true);
+      await page.click('#soundbench .sb-tabs button[data-tab="mod"]');
+      await page.click('#sb-addknob');
+      await page.waitForSelector('[data-addroute="K1"]');
+      const opts = await page.$$eval('[data-addroute="K1"] option', (n) => n.map((o) => o.textContent));
+      check('a resonator\'s pitch can be modulated (in octaves)', opts.includes('Air › 1. Resonator (string, metal, glass, bell…) › Frequency / pitch') && opts.includes('Master › 1. Resonator (string, metal, glass, bell…) › Frequency / pitch'));
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with resonators', unexpected.length === 0, unexpected);
+      if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="layers"]'); await page.evaluate(() => document.querySelector('[data-fx-type="resonator"]').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-resonator.png` }); }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

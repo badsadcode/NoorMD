@@ -456,20 +456,20 @@ window.NoorSound = (() => {
 
   /** A slider bound to obj[key]; kinds make Hz and times logarithmic and show units. */
   /** The unit a number box is typed in, and the factor from the stored value (percentages are typed 0–100). */
-  const UNIT = { db: ['dB', 1], pct: ['%', 100], hz: ['Hz', 1], hz0: ['Hz', 1], ms: ['ms', 1], s: ['s', 1], pan: ['', 1], count: ['', 1], rate: ['Hz', 1], q: ['', 1], num: ['', 1], st: ['st', 1], oct: ['oct', 1], spct: ['%', 100], x: ['×', 1] };
+  const UNIT = { db: ['dB', 1], pct: ['%', 100], hz: ['Hz', 1], hz0: ['Hz', 1], ms: ['ms', 1], s: ['s', 1], pan: ['', 1], count: ['', 1], rate: ['Hz', 1], q: ['', 1], num: ['', 1], st: ['st', 1], oct: ['oct', 1], spct: ['%', 100], x: ['×', 1], sl: ['s', 1] };
 
   /**
    * A slider bound to obj[key], with a number box beside it for exact values (Hz, dB, ms, semitones…).
    * Kinds make Hz, times and Q logarithmic on the slider; the number box is always linear and exact.
    */
   function slider(obj, [key, label, min, max, step, kind], rebuild) {
-    const log = (kind === 'hz' || kind === 'ms' || kind === 'rate' || kind === 'q' || kind === 'x') && min > 0;
+    const log = (kind === 'hz' || kind === 'ms' || kind === 'rate' || kind === 'q' || kind === 'x' || kind === 'sl') && min > 0;
     const toPos = (v) => (log ? (Math.log(v / min) / Math.log(max / min)) * 1000 : v);
     const fromPos = (p) => (log ? min * Math.pow(max / min, p / 1000) : p);
     const [unit, factor] = UNIT[kind] || ['', 1];
     const clamp = (v) => Math.max(min, Math.min(max, v));
     const value = Number(obj[key]) || 0;
-    const shown = (v) => String(Number((v * factor).toFixed(kind === 'count' ? 0 : log || kind === 'hz0' ? 1 : 3)));
+    const shown = (v) => String(Number((v * factor).toFixed(kind === 'count' ? 0 : kind === 'sl' || kind === 'x' ? 2 : log || kind === 'hz0' ? 1 : 3)));
     const box = el('input', { type: 'number', class: 'sb-num', value: shown(value), step: 'any', 'aria-label': `${label} (${unit || 'value'})`, 'data-num': key });
     const input = el('input', { type: 'range', min: String(log ? 0 : min), max: String(log ? 1000 : max), step: String(log ? 1 : step), value: String(toPos(clamp(value) || min)), 'aria-label': label, 'data-key': key });
     input.addEventListener('input', () => {
@@ -493,7 +493,7 @@ window.NoorSound = (() => {
 
   // ---------------------------------------------------------------- effects racks (per layer and master)
 
-  const FX_LABEL = { eq: 'EQ band', compressor: 'Compressor', gate: 'Gate', saturate: 'Saturation', crush: 'Bit-crusher', delay: 'Delay', chorus: 'Chorus', flanger: 'Flanger', phaser: 'Phaser', tremolo: 'Tremolo / auto-pan', reverb: 'Reverb', width: 'Stereo width' };
+  const FX_LABEL = { eq: 'EQ band', compressor: 'Compressor', gate: 'Gate', saturate: 'Saturation', crush: 'Bit-crusher', delay: 'Delay', chorus: 'Chorus', flanger: 'Flanger', phaser: 'Phaser', tremolo: 'Tremolo / auto-pan', reverb: 'Reverb', width: 'Stereo width', resonator: 'Resonator (string, metal, glass, bell…)' };
   const FX_FIELDS = {
     eq: [['freq', 'Frequency', 20, 20000, 1, 'hz'], ['q', 'Width (Q)', 0.1, 30, 0.1, 'q'], ['gain', 'Boost / cut', -36, 36, 0.5, 'db']],
     compressor: [['threshold', 'Threshold', -80, 0, 0.5, 'db'], ['ratio', 'Ratio', 1, 40, 0.1, 'num'], ['attack', 'Attack', 0.05, 500, 0.05, 'ms'], ['release', 'Release', 1, 5000, 1, 'ms']],
@@ -507,13 +507,15 @@ window.NoorSound = (() => {
     tremolo: [['rate', 'Speed', 0.01, 20, 0.01, 'rate'], ['depth', 'Depth', 0, 1, 0.01, 'pct']],
     reverb: [['size', 'Size', 0, 1, 0.01, 'pct'], ['damping', 'Damping (darker)', 0, 1, 0.01, 'pct'], ['preDelay', 'Pre-delay', 0, 250, 1, 'ms']],
     width: [['width', 'Width (100% = as is)', 0, 2, 0.01, 'pct']],
+    resonator: [['freq', 'Pitch', 20, 8000, 1, 'hz'], ['decay', 'Rings for', 0.02, 30, 0.01, 'sl'], ['damping', 'Damping (higher partials die sooner)', 0, 1, 0.01, 'pct'], ['detune', 'Stereo detune', 0, 1, 0.01, 'pct']],
   };
-  const FX_CHOICES = { eq: [['kind', 'Type', ['peak', 'lowshelf', 'highshelf', 'lowpass', 'highpass', 'bandpass', 'notch']]], saturate: [['shape', 'Shape', ['soft', 'hard', 'fold']]] };
+  const FX_CHOICES = { eq: [['kind', 'Type', ['peak', 'lowshelf', 'highshelf', 'lowpass', 'highpass', 'bandpass', 'notch']]], saturate: [['shape', 'Shape', ['soft', 'hard', 'fold']]], resonator: [['body', 'Body', ['string', 'tube', 'metal', 'wood', 'glass', 'bell', 'membrane']]] };
   const FX_CHECKS = { delay: [['pingPong', 'Ping-pong (left, right)']], tremolo: [['pan', 'Auto-pan (side to side)']] };
   const NEW_FX = {
     eq: { kind: 'peak', freq: 1000, q: 0.7, gain: 3 }, compressor: { threshold: -18, ratio: 4, attack: 10, release: 120 }, gate: { threshold: -40, range: 40, attack: 1, release: 80 },
     saturate: { drive: 0.4, shape: 'soft' }, crush: { bits: 8, downsample: 4 }, delay: { time: 250, feedback: 0.35, tone: 6000, mix: 0.35 }, chorus: { rate: 0.8, depth: 0.5, mix: 0.7 },
     flanger: { rate: 0.3, depth: 0.7, feedback: 0.5 }, phaser: { rate: 0.5, depth: 0.7, feedback: 0.4 }, tremolo: { rate: 5, depth: 0.5 }, reverb: { size: 0.5, damping: 0.5, preDelay: 10, mix: 0.3 }, width: { width: 1.5 },
+    resonator: { body: 'metal', freq: 220, decay: 1.5, damping: 0.4, detune: 0.2, mix: 0.5 },
   };
 
   /** An effects chain: each effect with on/off, ↑ ↓, remove, its settings, wet/dry mix and output level. */
@@ -826,14 +828,14 @@ window.NoorSound = (() => {
 
   // What each target is called, its unit (a slider kind), the amount range and a sensible first amount.
   const LAYER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], pan: ['Pan', 'pan', -2, 2, 0.5], pitch: ['Pitch', 'st', -48, 48, 12], freq: ['Filter', 'oct', -6, 6, 1], density: ['Events per second', 'oct', -6, 6, 1], position: ['Grain position', 'spct', -1, 1, 0.25] };
-  const FX_TARGETS = { mix: ['Mix', 'spct', -1, 1, 0.5], freq: ['Frequency', 'oct', -6, 6, 1], gain: ['Boost / cut', 'db', -36, 36, 6], drive: ['Drive', 'spct', -1, 1, 0.5] };
+  const FX_TARGETS = { mix: ['Mix', 'spct', -1, 1, 0.5], freq: ['Frequency / pitch', 'oct', -6, 6, 1], gain: ['Boost / cut', 'db', -36, 36, 6], drive: ['Drive', 'spct', -1, 1, 0.5] };
   const MASTER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], lowpass: ['High cut', 'oct', -6, 6, -2] };
 
   /** Every target in this recipe: [target, label, spec]. */
   function targets() {
     const out = [];
     const fxTargets = (owner, ownerName, chain) => chain.forEach((fx, j) => {
-      const params = ['mix', ...(fx.type === 'eq' ? ['freq', 'gain'] : fx.type === 'saturate' ? ['drive'] : [])];
+      const params = ['mix', ...(fx.type === 'eq' ? ['freq', 'gain'] : fx.type === 'saturate' ? ['drive'] : fx.type === 'resonator' ? ['freq'] : [])];
       for (const p of params) out.push([`${owner}/${fx.id}:${p}`, `${ownerName} › ${j + 1}. ${FX_LABEL[fx.type] || fx.type} › ${FX_TARGETS[p][0]}`, FX_TARGETS[p]]);
     });
     for (const l of recipe.layers) {
