@@ -6,14 +6,20 @@ window.NoorTexture = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
 
-  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks / tiles', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)' };
+  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
   const NEW_LAYER = {
     noise: { scaleX: 4, scaleY: 4, octaves: 5 }, ridged: { scaleX: 3, scaleY: 3, octaves: 6 }, turbulence: { scaleX: 6, scaleY: 6, octaves: 4 },
     cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3 }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
-    bricks: { scaleX: 4, scaleY: 8, mortar: 0.1, bevel: 0.08, offset: 0.5, variation: 0.3 }, weave: { scaleX: 32, scaleY: 32 },
+    bricks: { scaleX: 4, scaleY: 8, mortar: 0.1, bevel: 0.08, offset: 0.5, variation: 0.3 },
+    tiles: { scaleX: 4, scaleY: 4, mortar: 0.08, bevel: 0.06, roundness: 0.2, tilt: 0.2, variation: 0.1 },
+    hexagons: { scaleX: 7, scaleY: 8, mortar: 0.1, bevel: 0.08, tilt: 0.2, variation: 0.15 },
+    planks: { scaleX: 6, scaleY: 2, mortar: 0.05, bevel: 0.05, offset: 1, tilt: 0.2, variation: 0.2, grain: 0.7 },
+    spots: { scaleX: 8, scaleY: 8, size: 0.5, density: 0.8, jitter: 1, variation: 0.4, profile: 'dome' },
+    weave: { scaleX: 32, scaleY: 32 },
     scratches: { scaleX: 1, scaleY: 1, count: 40, length: 0.2, width: 0.004 },
     current: { scaleX: 1, scaleY: 1, opacity: 0, low: 0.6, high: 0.7, warp: 0.3, warpScale: 8 },
     curvature: { scaleX: 2, scaleY: 1, opacity: 0, low: 0.55, high: 0.65, warp: 0.3, warpScale: 12 },
+    erosion: { scaleX: 1, scaleY: 1, mode: 'rain', amount: 0.6 },
     image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
   };
   // Sliders: [key, label, min, max, step, kind]; 'int' are whole numbers, 'pct' shows 0–100.
@@ -26,6 +32,16 @@ window.NoorTexture = (() => {
     wood: [['scaleX', 'Grain lines across', 1, 64, 1, 'int'], ['scaleY', 'Waviness', 1, 16, 1, 'int'], ['octaves', 'Detail (octaves)', 1, 10, 1, 'int'], ...WARP],
     bricks: [['scaleX', 'Bricks across', 1, 64, 1, 'int'], ['scaleY', 'Rows', 1, 64, 1, 'int'], ['mortar', 'Mortar', 0, 0.5, 0.005, 'pct'], ['bevel', 'Bevel', 0, 0.5, 0.005, 'pct'],
       ['offset', 'Row offset', 0, 1, 0.01, 'pct'], ['variation', 'Bricks differ', 0, 1, 0.01, 'pct'], ...WARP],
+    tiles: [['scaleX', 'Tiles across', 1, 64, 1, 'int'], ['scaleY', 'Tiles down', 1, 64, 1, 'int'], ['mortar', 'Joints', 0, 0.5, 0.005, 'pct'], ['bevel', 'Bevel', 0, 0.5, 0.005, 'pct'],
+      ['roundness', 'Round corners', 0, 1, 0.01, 'pct'], ['tilt', 'Uneven (tilted tiles)', 0, 1, 0.01, 'pct'], ['variation', 'Tiles differ', 0, 1, 0.01, 'pct'], ...WARP],
+    hexagons: [['scaleX', 'Across', 1, 64, 1, 'int'], ['scaleY', 'Rows (≈ 1.15 × across for even ones)', 2, 64, 2, 'int'], ['mortar', 'Joints', 0, 0.5, 0.005, 'pct'], ['bevel', 'Bevel', 0, 0.5, 0.005, 'pct'],
+      ['tilt', 'Uneven (tilted)', 0, 1, 0.01, 'pct'], ['variation', 'They differ', 0, 1, 0.01, 'pct'], ...WARP],
+    planks: [['scaleX', 'Boards across', 1, 64, 1, 'int'], ['scaleY', 'Boards along the tile', 1, 16, 1, 'int'], ['offset', 'Joints staggered', 0, 1, 0.01, 'pct'],
+      ['mortar', 'Gaps', 0, 0.5, 0.005, 'pct'], ['bevel', 'Bevel', 0, 0.5, 0.005, 'pct'], ['grain', 'Wood grain', 0, 1, 0.01, 'pct'],
+      ['tilt', 'Uneven (warped boards)', 0, 1, 0.01, 'pct'], ['variation', 'Boards differ', 0, 1, 0.01, 'pct'], ...WARP],
+    spots: [['scaleX', 'Grid across', 1, 128, 1, 'int'], ['scaleY', 'Grid down', 1, 128, 1, 'int'], ['size', 'Size', 0.05, 1, 0.01, 'pct'], ['density', 'How many', 0, 1, 0.01, 'pct'],
+      ['jitter', 'Scattered (0 = in rows)', 0, 1, 0.01, 'pct'], ['variation', 'Sizes differ', 0, 1, 0.01, 'pct'], ...WARP],
+    erosion: [['amount', 'Amount', 0, 1, 0.01, 'pct']],
     weave: [['scaleX', 'Threads across', 2, 128, 2, 'int'], ['scaleY', 'Threads down', 2, 128, 2, 'int'], ...WARP],
     scratches: [['count', 'How many', 0, 500, 1, 'int'], ['length', 'Length', 0.005, 1, 0.005, 'pct'], ['width', 'Width', 0.0005, 0.05, 0.0005, 'pct']],
     current: [...WARP],
@@ -38,6 +54,8 @@ window.NoorTexture = (() => {
   // Painting the surface, for any layer: where the layer is high.
   const PAINT = [['tintAmount', 'Tint strength', 0, 1, 0.01, 'pct'], ['roughnessShift', 'Roughness change', -1, 1, 0.01, 'spct'], ['metallicShift', 'Metallic change', -1, 1, 0.01, 'spct']];
   const SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Levels: low', 0, 1, 0.01, 'pct'], ['high', 'Levels: high', 0, 1, 0.01, 'pct'], ['gamma', 'Levels: middle (gamma)', 0.1, 5, 0.01, 'num']];
+  // Erosion's height is used as it comes; its levels shape where it paints.
+  const EROSION_SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Paints from (fainter traces)', 0, 1, 0.01, 'pct'], ['high', 'Paints fully at', 0, 1, 0.01, 'pct'], ['gamma', 'Paint: middle (gamma)', 0.1, 5, 0.01, 'num']];
   const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['max', 'Higher of the two'], ['min', 'Lower of the two']];
   const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct'],
     ['roughnessLow', 'Roughness, low parts', 0, 1, 0.01, 'pct'], ['roughnessHigh', 'Roughness, high parts', 0, 1, 0.01, 'pct'], ['roughnessVariation', 'Roughness variation', 0, 1, 0.01, 'pct'],
@@ -380,6 +398,18 @@ window.NoorTexture = (() => {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖼 ' + (l.imageName || 'no picture') }),
           el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { Object.assign(l, { path: f.path, imageName: f.name, ...keepProportions(f) }); changed(true); } } }, 'Change picture…'));
       }
+      if (l.type === 'spots') {
+        const prof = el('select', { 'aria-label': 'Spots as', 'data-key': 'profile' }, ...[['dome', 'domes (pebbles, studs)'], ['flat', 'flat (rivets, coins)'], ['crater', 'craters'], ['cone', 'cones']].map(([v, t]) => el('option', { value: v, text: t })));
+        prof.value = l.profile || 'dome';
+        prof.addEventListener('change', () => { l.profile = prof.value; changed(false); });
+        choices.unshift(el('label', { class: 'sb-inline' }, el('span', { text: 'As' }), prof));
+      }
+      if (l.type === 'erosion') {
+        const kind = el('select', { 'aria-label': 'Erosion by', 'data-key': 'mode' }, ...[['rain', 'rain (gullies down the slopes)'], ['crumble', 'crumbling (steep parts slide down)'], ['wear', 'wear (edges worn round)']].map(([v, t]) => el('option', { value: v, text: t })));
+        kind.value = l.mode || 'rain';
+        kind.addEventListener('change', () => { l.mode = kind.value; changed(false); });
+        choices.unshift(el('label', { class: 'sb-inline' }, el('span', { text: 'By' }), kind));
+      }
       if (l.type === 'cells') {
         const mode = el('select', { 'aria-label': 'Cells as', 'data-key': 'mode' }, ...[['cells', 'round bumps'], ['edges', 'raised edges'], ['cracks', 'cracks'], ['stones', 'flat stones']].map(([v, t]) => el('option', { value: v, text: t })));
         mode.value = l.mode || 'cells';
@@ -396,12 +426,12 @@ window.NoorTexture = (() => {
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), id: '', name: l.name + ' copy' }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...choices),
-        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...SHAPE.map((f) => slider(l, f))),
+        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : SHAPE).map((f) => slider(l, f))),
         ...(l.type === 'image' ? [heightByColour(l)] : []),
         paintGroup(l));
     });
     return [
-      el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. The Surface tab sets the base colour, relief and shine.' }),
+      el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. Erosion reshapes the height made above it: rain cuts gullies, steep parts crumble, edges wear round. The Surface tab sets the base colour, relief and shine.' }),
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-addlayer': t, disabled: recipe.layers.length >= 12 || undefined, onclick: () => {
         const add = (extra) => {
@@ -414,6 +444,8 @@ window.NoorTexture = (() => {
         if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
         // Masks paint rather than build height: they start with a tint to show where they are.
         if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
+        // Erosion reshapes what is already there: it replaces it, and marks where the water ran.
+        if (t === 'erosion') { add({ opacity: 1, blend: 'normal', tint: '#3b2c20', tintAmount: 0.5 }); return; }
         add({});
       } }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
     ];
@@ -443,8 +475,10 @@ window.NoorTexture = (() => {
     color.addEventListener('input', () => { if (l.tint) { l.tint = color.value; changed(false); } });
     const active = !!l.tint || !!l.roughnessShift || !!l.metallicShift;
     return el('details', { class: 'sb-fxgroup', open: active || undefined },
-      el('summary', { text: `Paint the surface where this is high${active ? ' (on)' : ''}` }),
-      el('p', { class: 'pref-hint', text: 'Moss on the tops of stones, wet patches in the dips, rust that is no longer metal. Set Strength to 0 above to paint without changing the height.' }),
+      el('summary', { text: `${l.type === 'erosion' ? 'Paint the surface where it acted' : 'Paint the surface where this is high'}${active ? ' (on)' : ''}` }),
+      el('p', { class: 'pref-hint', text: l.type === 'erosion'
+        ? 'Where the water ran (silt, wet streaks), where the rubble settled, or where the edges wore (lighter, bare). Set Strength to 0 above to paint without changing the height.'
+        : 'Moss on the tops of stones, wet patches in the dips, rust that is no longer metal. Set Strength to 0 above to paint without changing the height.' }),
       el('div', { class: 'sb-choices' }, el('label', { class: 'sb-inline' }, on, el('span', { text: 'Tint' })), color),
       el('div', { class: 'sb-fields' }, ...PAINT.map((f) => slider(l, f))));
   }

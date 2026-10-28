@@ -11,7 +11,9 @@ namespace NoorMD.Media;
 /// <summary>One step of the height stack: a generator, how it is shaped, and how it is blended onto what is below.</summary>
 public sealed class TextureLayer
 {
-    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "weave", "scratches", "image", "current", "curvature"];
+    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "current", "curvature", "erosion"];
+    public static readonly string[] Profiles = ["dome", "flat", "crater", "cone"];
+    public static readonly string[] ErosionModes = ["rain", "crumble", "wear"];
     public static readonly string[] Blends = ["normal", "add", "subtract", "multiply", "screen", "overlay", "max", "min"];
 
     public string Id { get; set; } = "";
@@ -38,6 +40,23 @@ public sealed class TextureLayer
     public double Offset { get; set; } = 0.5;
     /// <summary>Bricks and stones: how much each one's height differs (0–1).</summary>
     public double Variation { get; set; } = 0.3;
+    // tiles, hexagons and planks
+    /// <summary>Tiles: how round the corners are (0 = square, 1 = as round as they can be).</summary>
+    public double Roundness { get; set; } = 0.2;
+    /// <summary>Tiles, hexagons and planks: each piece sloped a little in its own direction (0–1), as if not quite flat.</summary>
+    public double Tilt { get; set; }
+    /// <summary>Planks: how deep the wood grain is (0–1).</summary>
+    public double Grain { get; set; } = 0.5;
+    // spots (rivets, pebbles, bubbles, craters): one per cell of ScaleX × ScaleY, wandering by Jitter
+    /// <summary>Spots: their size (0.05–1 of a cell).</summary>
+    public double Size { get; set; } = 0.35;
+    /// <summary>Spots: how many cells have one (0–1).</summary>
+    public double Density { get; set; } = 1;
+    /// <summary>Spots: "dome", "flat" (rivets, coins), "crater" (a rim and a hollow) or "cone".</summary>
+    public string Profile { get; set; } = "dome";
+    // erosion (works on the height so far; Mode is "rain", "crumble" or "wear")
+    /// <summary>Erosion: how much (0–1).</summary>
+    public double Amount { get; set; } = 0.5;
     // scratches
     public int Count { get; set; } = 40;
     public double Length { get; set; } = 0.2;
@@ -137,7 +156,11 @@ public sealed class TextureRecipe
             l.ScaleX = Math.Clamp(l.ScaleX, 1, 256); l.ScaleY = Math.Clamp(l.ScaleY, 1, 256);
             l.Octaves = Math.Clamp(l.Octaves, 1, 10); l.Persistence = C(l.Persistence, 0, 1); l.Lacunarity = Math.Clamp(l.Lacunarity, 2, 4);
             l.Warp = C(l.Warp, 0, 1); l.WarpScale = Math.Clamp(l.WarpScale, 1, 64);
-            l.Mode = l.Mode is "cells" or "edges" or "cracks" or "stones" ? l.Mode : "cells";
+            l.Mode = l.Type == "erosion" ? (TextureLayer.ErosionModes.Contains(l.Mode) ? l.Mode : "rain") : l.Mode is "cells" or "edges" or "cracks" or "stones" ? l.Mode : "cells";
+            l.Roundness = C(l.Roundness, 0, 1); l.Tilt = C(l.Tilt, 0, 1); l.Grain = C(l.Grain, 0, 1);
+            l.Size = C(l.Size, 0.05, 1); l.Density = C(l.Density, 0, 1);
+            l.Profile = TextureLayer.Profiles.Contains(l.Profile) ? l.Profile : "dome";
+            l.Amount = C(l.Amount, 0, 1);
             l.Jitter = C(l.Jitter, 0, 1);
             l.Mortar = C(l.Mortar, 0, 0.5); l.Bevel = C(l.Bevel, 0, 0.5); l.Offset = C(l.Offset, 0, 1); l.Variation = C(l.Variation, 0, 1);
             l.Count = Math.Clamp(l.Count, 0, 500); l.Length = C(l.Length, 0.005, 1); l.Width = C(l.Width, 0.0005, 0.05);
@@ -157,7 +180,7 @@ public sealed class TextureRecipe
             l.HeightColorTolerance = C(l.HeightColorTolerance, 0.02, 1); l.ColorAmount = C(l.ColorAmount, 0, 1);
             // Patterns that alternate need an even count to meet themselves at the edge.
             if (l.Type == "weave") { l.ScaleX += l.ScaleX & 1; l.ScaleY += l.ScaleY & 1; }
-            if (l.Type == "bricks" && l.Offset > 0) l.ScaleY += l.ScaleY & 1;
+            if (l.Type == "bricks" && l.Offset > 0 || l.Type == "hexagons") l.ScaleY += l.ScaleY & 1;
         }
         // Stable ids, as in the Sound Bench: valid ones kept (the first of repeats), the others the lowest free number.
         var used = new HashSet<string>(StringComparer.Ordinal);
@@ -275,12 +298,17 @@ public static class TextureEngine
                 (values, rgb) = ImageLayer(layer, img, size);
             }
             else if (layer.Type is "current" or "curvature") values = FromStack(layer, h, size, seed);
+            else if (layer.Type == "erosion") (values, rgb) = Erosion(layer, h, size, seed);
             else values = Generate(layer, size, seed);
+            // Erosion paints where it acted (where the water ran, the rubble settled or the edges wore), not by height.
+            var where = layer.Type == "erosion" ? rgb : null;
+            if (where != null) rgb = null;
             var mask = painting ? new float[n] : null;
             for (var i = 0; i < n; i++)
             {
-                var v = Shape(layer, values[i]);
-                if (mask != null) mask[i] = (float)v;
+                // Erosion's height is used as it comes; its levels shape where it paints instead.
+                var v = where != null ? Math.Clamp(values[i], 0, 1) : Shape(layer, values[i]);
+                if (mask != null) mask[i] = where != null ? (float)Shape(layer, where[i]) : (float)v;
                 if (layer.Opacity > 0) h[i] = (float)Math.Clamp(Mix(layer.Blend, h[i], v, layer.Opacity), 0, 1);
             }
             if (mask != null) paints.Add(new Paint(layer, mask, rgb));
@@ -377,6 +405,10 @@ public static class TextureEngine
         "cells" => Cells(u, v, l, seed),
         "wood" => Wood(u, v, l, seed),
         "bricks" => Bricks(u, v, l, seed),
+        "tiles" => Tiles(u, v, l, seed),
+        "hexagons" => Hexagons(u, v, l, seed),
+        "planks" => Planks(u, v, l, seed),
+        "spots" => Spots(u, v, l, seed),
         "weave" => Weave(u, v, l),
         _ => 0,
     };
@@ -516,6 +548,345 @@ public static class TextureEngine
         var edge = SmoothStep(mortar, mortar + l.Bevel * unit * 0.5 + 1e-6, d);
         var each = 1 - l.Variation * Unit(Hash(Wrap(col, cols), Wrap(row, rows), seed));
         return edge * each;
+    }
+
+    /// <summary>
+    /// A piece of a pattern (a tile, a hexagon, a plank): flat on top, sloping down over the bevel to the joint at
+    /// distance d (tile units) from its edge; each piece a little lower or higher (Variation) and, with Tilt, sloped
+    /// in its own direction (lx, ly: where the point is in the piece, −0.5…0.5).
+    /// </summary>
+    private static double Piece(TextureLayer l, double d, double unit, uint id, double lx, double ly)
+    {
+        var mortar = l.Mortar * unit * 0.5;
+        var edge = SmoothStep(mortar, mortar + l.Bevel * unit * 0.5 + 1e-6, d);
+        var each = 1 - l.Variation * Unit(id);
+        if (l.Tilt > 0)
+        {
+            var a = Unit(id * 2654435761u + 97u) * Math.PI * 2;
+            each *= 1 - l.Tilt * 0.35 * (0.5 + Math.Cos(a) * lx + Math.Sin(a) * ly);
+        }
+        return Math.Clamp(edge * each, 0, 1);
+    }
+
+    /// <summary>Square tiles in a grid (ScaleX × ScaleY), with rounded corners, joints, bevels and tilted tiles.</summary>
+    private static double Tiles(double u, double v, TextureLayer l, uint seed)
+    {
+        int cols = l.ScaleX, rows = l.ScaleY;
+        double x = u * cols, y = v * rows;
+        int col = (int)Math.Floor(x), row = (int)Math.Floor(y);
+        double lx = x - col - 0.5, ly = y - row - 0.5;
+        // Distance to the edge of a rounded rectangle, in tile units.
+        double hx = 0.5 / cols, hy = 0.5 / rows;
+        double px = Math.Abs(lx) / cols, py = Math.Abs(ly) / rows;
+        var r = l.Roundness * Math.Min(hx, hy);
+        double qx = px - (hx - r), qy = py - (hy - r);
+        var outside = Math.Sqrt(Math.Max(qx, 0) * Math.Max(qx, 0) + Math.Max(qy, 0) * Math.Max(qy, 0)) + Math.Min(Math.Max(qx, qy), 0) - r;
+        return Piece(l, -outside, 1.0 / Math.Max(cols, rows), Hash(Wrap(col, cols), Wrap(row, rows), seed), lx, ly);
+    }
+
+    /// <summary>
+    /// Hexagons: ScaleX across and ScaleY rows (even), every other row shifted by half; with rows ≈ 1.15 × across they
+    /// are regular. The distance to the edge is exact (to the nearest of the borders with the neighbours).
+    /// </summary>
+    private static double Hexagons(double u, double v, TextureLayer l, uint seed)
+    {
+        int cols = l.ScaleX, rows = l.ScaleY;
+        double x = u, y = v;
+        // Centres on the tile's edges, so its edges run through the middle of cells rather than along joints.
+        int r0 = (int)Math.Round(v * rows), c0 = (int)Math.Round(u * cols);
+        (double X, double Y) Centre(int c, int r) => ((c + ((r & 1) == 1 ? 0.5 : 0)) / cols, (double)r / rows);
+        double best = double.MaxValue; int bc = 0, br = 0;
+        for (var dr = -1; dr <= 1; dr++)
+            for (var dc = -1; dc <= 1; dc++)
+            {
+                var (cx, cy) = Centre(c0 + dc, r0 + dr);
+                var d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                if (d < best) { best = d; bc = c0 + dc; br = r0 + dr; }
+            }
+        var (ax, ay) = Centre(bc, br);
+        var edge = double.MaxValue;
+        for (var dr = -1; dr <= 1; dr++)
+            for (var dc = -1; dc <= 1; dc++)
+            {
+                if (dr == 0 && dc == 0) continue;
+                var (bx, by) = Centre(bc + dc, br + dr);
+                double nx = bx - ax, ny = by - ay, len = Math.Sqrt(nx * nx + ny * ny);
+                edge = Math.Min(edge, ((ax + bx) / 2 - x) * nx / len + ((ay + by) / 2 - y) * ny / len);
+            }
+        return Piece(l, edge, 1.0 / Math.Max(cols, rows), Hash(Wrap(bc, cols), Wrap(br, rows), seed), (x - ax) * cols, (y - ay) * rows);
+    }
+
+    /// <summary>
+    /// Planks (floorboards, a fence, a deck): ScaleX boards across, ScaleY board lengths down the tile, each column's
+    /// joints shifted at random (by up to Offset of a board); wood grain along each board.
+    /// </summary>
+    private static double Planks(double u, double v, TextureLayer l, uint seed)
+    {
+        int cols = l.ScaleX, rows = l.ScaleY;
+        var x = u * cols;
+        var col = (int)Math.Floor(x);
+        var stagger = l.Offset * Unit(Hash(Wrap(col, cols), 0, seed ^ 0x2545F491u));
+        var y = v * rows + stagger;
+        var row = (int)Math.Floor(y);
+        double fx = x - col, fy = y - row;
+        var d = Math.Min(Math.Min(fx, 1 - fx) / cols, Math.Min(fy, 1 - fy) / rows);
+        var id = Hash(Wrap(col, cols), Wrap(row, rows), seed);
+        var height = Piece(l, d, 1.0 / cols, id, fx - 0.5, fy - 0.5);
+        if (l.Grain <= 0) return height;
+        // Grain: long fibres along the board, gently bent; each board cut from a different part of the tree.
+        var boardSeed = seed ^ id;
+        var bend = 0.15 * Gradient(u, v, cols, Math.Max(1, rows), boardSeed);
+        var lines = 0.5 + 0.5 * Math.Cos(2 * Math.PI * (u * cols * (3 + 3 * Unit(id >> 3)) + bend * 6));
+        var fibres = 0.5 + 0.5 * Gradient(u, v, cols * 24, Math.Max(1, rows * 2), boardSeed ^ 0x9E37u);
+        return Math.Clamp(height * (1 - l.Grain * (0.12 * Math.Pow(lines, 4) + 0.1 * (1 - fibres))), 0, 1);
+    }
+
+    /// <summary>Spots: one per cell of ScaleX × ScaleY (by Density), wandering by Jitter, of Size, as domes, flat discs, craters or cones.</summary>
+    private static double Spots(double u, double v, TextureLayer l, uint seed)
+    {
+        int cols = l.ScaleX, rows = l.ScaleY;
+        double x = u * cols, y = v * rows;
+        int ix = (int)Math.Floor(x), iy = (int)Math.Floor(y);
+        var top = 0.0;
+        for (var dy = -1; dy <= 1; dy++)
+            for (var dx = -1; dx <= 1; dx++)
+            {
+                int cx = ix + dx, cy = iy + dy;
+                var h = Hash(Wrap(cx, cols), Wrap(cy, rows), seed);
+                if (Unit(h ^ 0x5bd1e995u) >= l.Density) continue;
+                var px = cx + 0.5 + (Unit(h) - 0.5) * l.Jitter * (1 - l.Size);
+                var py = cy + 0.5 + (Unit(h * 747796405u + 1u) - 0.5) * l.Jitter * (1 - l.Size);
+                var radius = l.Size * 0.5 * (1 - l.Variation * Unit(h >> 5));
+                var t = Math.Sqrt((x - px) * (x - px) + (y - py) * (y - py)) / Math.Max(1e-6, radius);
+                if (t >= 1) continue;
+                var shape = l.Profile switch
+                {
+                    "flat" => 1 - SmoothStep(0.8, 1, t),
+                    "crater" => Math.Max(SmoothStep(1, 0.75, t) * SmoothStep(0.35, 0.75, t), 0.25 * SmoothStep(1, 0.5, t)),
+                    "cone" => 1 - t,
+                    _ => Math.Sqrt(1 - t * t),
+                };
+                top = Math.Max(top, shape * (1 - 0.5 * l.Variation * Unit(h >> 9)));
+            }
+        return top;
+    }
+
+    // ------------------------------------------------------------------ erosion and weathering
+
+    private const int ErosionSize = 512; // worked out at one size, so the preview and every export size agree
+
+    /// <summary>
+    /// Erosion of the height built so far, worked out at 512 × 512 (wrapping, so it stays seamless) and brought back
+    /// to the size. "rain": water drops run downhill, carrying material from the slopes and leaving it in the
+    /// dips (droplet hydraulic erosion, after Beyer 2015); "crumble": what is steeper than it can stand slides down
+    /// (thermal erosion); "wear": raised edges and corners worn round. Returns the eroded height and where it acted (0–1).
+    /// </summary>
+    private static (double[] Values, float[] Where) Erosion(TextureLayer l, float[] h, int size, uint seed)
+    {
+        // The same height and settings give the same result: kept for a few, so changing a later layer or the surface
+        // doesn't wait for the water again (previews only; large exports aren't kept).
+        string? key = null;
+        if (size <= 1024)
+        {
+            ulong fnv = 14695981039346656037UL;
+            foreach (var v in h) { fnv ^= BitConverter.SingleToUInt32Bits(v); fnv *= 1099511628211UL; }
+            key = $"{size}|{l.Mode}|{l.Amount:R}|{seed}|{fnv:x}";
+            lock (ErosionCache) { var hit = ErosionCache.Find(e => e.Key == key); if (hit.Key != null) return (hit.Values, hit.Where); }
+        }
+        var result = ErodeNow(l, h, size, seed);
+        if (key != null)
+            lock (ErosionCache) { ErosionCache.Insert(0, (key, result.Values, result.Where)); if (ErosionCache.Count > 4) ErosionCache.RemoveAt(4); }
+        return result;
+    }
+
+    private static readonly List<(string Key, double[] Values, float[] Where)> ErosionCache = [];
+
+    private static (double[] Values, float[] Where) ErodeNow(TextureLayer l, float[] h, int size, uint seed)
+    {
+        const int W = ErosionSize;
+        var work = Resample(h, size, W);
+        var before = (float[])work.Clone();
+        var where = new float[W * W];
+        if (l.Amount > 0)
+        {
+            if (l.Mode == "crumble") Crumble(work, where, W, l.Amount);
+            else if (l.Mode == "wear") Wear(work, where, W, l.Amount);
+            else Rain(work, where, W, l.Amount, seed);
+        }
+        // Where it acted, on a 0–1 scale (the busiest 1 % count as 1).
+        var sorted = where.Where(x => x > 0).OrderBy(x => x).ToArray();
+        var top = sorted.Length == 0 ? 1 : Math.Max(1e-6f, sorted[(int)(sorted.Length * 0.99)]);
+        for (var i = 0; i < where.Length; i++) where[i] = Math.Min(1, where[i] / top);
+        // Rain runs a little everywhere: the streaks are where most of it went.
+        if (l.Mode == "rain") for (var i = 0; i < where.Length; i++) where[i] *= where[i] * where[i];
+        // Rain: the drops alone wear only shallow paths, so the gullies are cut deeper where most water ran.
+        if (l.Mode == "rain" && l.Amount > 0)
+        {
+            var soft = BlurRect(where, W, W, 1);
+            for (var i = 0; i < work.Length; i++) work[i] = Math.Max(0, work[i] - (float)(l.Amount * 0.12) * soft[i]);
+        }
+        var delta = new float[W * W];
+        for (var i = 0; i < delta.Length; i++) delta[i] = work[i] - before[i];
+        var d = Resample(delta, W, size);
+        var w = Resample(where, W, size);
+        var values = new double[size * size];
+        for (var i = 0; i < values.Length; i++) values[i] = Math.Clamp(h[i] + d[i], 0, 1);
+        return (values, w);
+    }
+
+    /// <summary>A square map at another size: bilinear, wrapping (a box average first when it gets much smaller).</summary>
+    private static float[] Resample(float[] src, int from, int to)
+    {
+        if (from == to) return (float[])src.Clone();
+        var s = src;
+        var f = from;
+        while (f >= to * 2 && f % 2 == 0)
+        {
+            var half = new float[f / 2 * (f / 2)];
+            for (var y = 0; y < f / 2; y++)
+                for (var x = 0; x < f / 2; x++)
+                    half[y * (f / 2) + x] = (s[2 * y * f + 2 * x] + s[2 * y * f + 2 * x + 1] + s[(2 * y + 1) * f + 2 * x] + s[(2 * y + 1) * f + 2 * x + 1]) * 0.25f;
+            s = half; f /= 2;
+        }
+        if (f == to) return s;
+        var o = new float[to * to];
+        var k = (double)f / to;
+        Parallel.For(0, to, y =>
+        {
+            var sy = (y + 0.5) * k - 0.5;
+            var y0 = (int)Math.Floor(sy); var ty = sy - y0;
+            for (var x = 0; x < to; x++)
+            {
+                var sx = (x + 0.5) * k - 0.5;
+                var x0 = (int)Math.Floor(sx); var tx = sx - x0;
+                float At(int xx, int yy) => s[Wrap(yy, f) * f + Wrap(xx, f)];
+                o[y * to + x] = (float)((At(x0, y0) * (1 - tx) + At(x0 + 1, y0) * tx) * (1 - ty) + (At(x0, y0 + 1) * (1 - tx) + At(x0 + 1, y0 + 1) * tx) * ty);
+            }
+        });
+        return o;
+    }
+
+    /// <summary>Droplet hydraulic erosion on a wrapping W × W height map (0–1); counts where the water ran.</summary>
+    private static void Rain(float[] map, float[] where, int w, double amount, uint seed)
+    {
+        const double inertia = 0.05, capacityFactor = 4, minCapacity = 0.01, erodeSpeed = 0.3, depositSpeed = 0.3, evaporate = 0.01, gravity = 4;
+        const int lifetime = 48, radius = 2;
+        var scale = w * 0.3; // heights in pixel units: steep enough for the water to bite
+        for (var i = 0; i < map.Length; i++) map[i] *= (float)scale;
+        // The brush: the cells around a point that erosion takes from, weighted towards the middle.
+        var brush = new List<(int Dx, int Dy, double W)>();
+        for (var dy = -radius; dy <= radius; dy++)
+            for (var dx = -radius; dx <= radius; dx++)
+            {
+                var dist = Math.Sqrt(dx * dx + dy * dy);
+                if (dist <= radius) brush.Add((dx, dy, 1 - dist / radius));
+            }
+        var total = brush.Sum(b => b.W);
+        brush = brush.Select(b => (b.Dx, b.Dy, b.W / total)).ToList();
+        int I(int x, int y) => Wrap(y, w) * w + Wrap(x, w);
+        (double H, double Gx, double Gy) Sample(double px, double py)
+        {
+            int x = (int)Math.Floor(px), y = (int)Math.Floor(py);
+            double u = px - x, v = py - y;
+            double a = map[I(x, y)], b = map[I(x + 1, y)], c = map[I(x, y + 1)], d = map[I(x + 1, y + 1)];
+            return (a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v, (b - a) * (1 - v) + (d - c) * v, (c - a) * (1 - u) + (d - b) * u);
+        }
+        var rng = new SoundRng(seed ^ 0xE7037ED1u);
+        var drops = (int)(amount * w * w * 0.8);
+        for (var k = 0; k < drops; k++)
+        {
+            double px = rng.NextDouble() * w, py = rng.NextDouble() * w, dirX = 0, dirY = 0, speed = 1, water = 1, sediment = 0;
+            for (var step = 0; step < lifetime; step++)
+            {
+                int nx = (int)Math.Floor(px), ny = (int)Math.Floor(py);
+                double ox = px - nx, oy = py - ny;
+                var (height, gx, gy) = Sample(px, py);
+                dirX = dirX * inertia - gx * (1 - inertia); dirY = dirY * inertia - gy * (1 - inertia);
+                var len = Math.Sqrt(dirX * dirX + dirY * dirY);
+                if (len < 1e-9) break; // a flat spot: the drop stays and soaks in
+                dirX /= len; dirY /= len;
+                px += dirX; py += dirY;
+                var dh = Sample(px, py).H - height;
+                var capacity = Math.Max(-dh * speed * water * capacityFactor, minCapacity);
+                if (sediment > capacity || dh > 0)
+                {
+                    var put = dh > 0 ? Math.Min(dh, sediment) : (sediment - capacity) * depositSpeed;
+                    sediment -= put;
+                    map[I(nx, ny)] += (float)(put * (1 - ox) * (1 - oy)); map[I(nx + 1, ny)] += (float)(put * ox * (1 - oy));
+                    map[I(nx, ny + 1)] += (float)(put * (1 - ox) * oy); map[I(nx + 1, ny + 1)] += (float)(put * ox * oy);
+                }
+                else
+                {
+                    var take = Math.Min((capacity - sediment) * erodeSpeed, -dh);
+                    foreach (var (bx, by, bw) in brush)
+                    {
+                        var i = I(nx + bx, ny + by);
+                        var t = Math.Min(map[i], take * bw);
+                        map[i] -= (float)t; sediment += t;
+                    }
+                }
+                where[I(nx, ny)] += (float)water;
+                speed = Math.Sqrt(Math.Max(0, speed * speed + dh * gravity));
+                water *= 1 - evaporate;
+            }
+        }
+        for (var i = 0; i < map.Length; i++) { map[i] = (float)Math.Clamp(map[i] / scale, 0, 1); where[i] = MathF.Log(1 + where[i]); }
+    }
+
+    /// <summary>Thermal erosion: wherever a slope is steeper than it can stand, half the excess slides to the lowest neighbour.</summary>
+    private static void Crumble(float[] map, float[] where, int w, double amount)
+    {
+        var scale = (float)(w * 0.12);
+        for (var i = 0; i < map.Length; i++) map[i] *= scale;
+        var passes = 8 + (int)(amount * 40);
+        int[] ox = [1, -1, 0, 0, 1, 1, -1, -1], oy = [0, 0, 1, -1, 1, -1, 1, -1];
+        float[] reach = [1, 1, 1, 1, 1.414f, 1.414f, 1.414f, 1.414f];
+        // The steepest slope that stands, from the material's own slopes: the steepest part (more with more
+        // Amount) crumbles, whether the relief is gentle or sharp.
+        var slopes = new float[w * w];
+        for (var y = 0; y < w; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = y * w + x; var m = 0f;
+                for (var k = 0; k < 8; k++) m = Math.Max(m, (map[i] - map[Wrap(y + oy[k], w) * w + Wrap(x + ox[k], w)]) / reach[k]);
+                slopes[i] = m;
+            }
+        Array.Sort(slopes);
+        var talus = Math.Max(1e-4f, slopes[(int)((slopes.Length - 1) * (1 - 0.7 * amount))]);
+        for (var pass = 0; pass < passes; pass++)
+            for (var y = 0; y < w; y++)
+                for (var x = 0; x < w; x++)
+                {
+                    var i = y * w + x;
+                    int low = -1; var drop = 0f;
+                    for (var k = 0; k < 8; k++)
+                    {
+                        var j = Wrap(y + oy[k], w) * w + Wrap(x + ox[k], w);
+                        var d = (map[i] - map[j]) / reach[k];
+                        if (d > drop) { drop = d; low = j; }
+                    }
+                    if (low < 0 || drop <= talus) continue;
+                    var move = (drop - talus) * 0.5f;
+                    map[i] -= move; map[low] += move; where[low] += move;
+                }
+        for (var i = 0; i < map.Length; i++) map[i] = Math.Clamp(map[i] / scale, 0, 1);
+    }
+
+    /// <summary>Wear: what stands above its surroundings (edges, corners, ridges) is worn down a little each pass.</summary>
+    private static void Wear(float[] map, float[] where, int w, double amount)
+    {
+        var passes = 4 + (int)(amount * 16);
+        for (var pass = 0; pass < passes; pass++)
+        {
+            var blurred = BlurRect(map, w, w, 2);
+            for (var i = 0; i < map.Length; i++)
+            {
+                var above = map[i] - blurred[i];
+                if (above <= 0) continue;
+                var t = above * (float)(0.25 + 0.5 * amount);
+                map[i] -= t; where[i] += t;
+            }
+        }
     }
 
     /// <summary>Woven fabric: threads over and under (ScaleX × ScaleY), each with a rounded profile.</summary>

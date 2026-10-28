@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.0.0-preview.40 — Texture Bench: shapes and erosion
+
+The first part of stage 3 (docs/TEXTURE_BENCH_PLAN.md).
+
+- **New shapes**, each tiling seamlessly at any size:
+  - **Tiles:** a grid with joints, a bevel, round corners and (Uneven) tiles that don't lie quite flat.
+  - **Hexagons:** a honeycomb with exact joints; with rows ≈ 1.15 × across they are regular.
+  - **Planks:** boards with staggered joints, gaps, warped boards and wood grain of their own.
+  - **Spots:** one per grid cell (as many as you choose), scattered or in rows, as domes (pebbles, studs), flat
+    discs (rivets, coins), craters or cones, in sizes that can differ.
+- **Erosion** reshapes the height built above it, and paints where it acted:
+  - **Rain:** thousands of drops run downhill, carrying material from the slopes into the dips (droplet hydraulic
+    erosion, after Beyer 2015); the gullies are cut deeper where most water ran. Paint silt or wet streaks there.
+  - **Crumbling:** what is steeper than it can stand slides down (thermal erosion), leaving scree slopes.
+  - **Wear:** raised edges and corners worn round; paint them lighter, as bare stone or metal.
+  - Worked out at 512 × 512, so the preview and every export size agree; kept for a moment, so changing a later
+    layer or the surface doesn't wait for it again. Its Levels sliders shape where it paints.
+- **New presets:** Hexagon tiles, Eroded rock, Weathered sandstone, Pebbles and Studded floor plate. Wooden planks
+  and Floor tiles now use the new shapes.
+
 ## 2.0.0-preview.39 — Texture Bench: a better 3D preview
 
 - **Fixed: the material was mirrored on the sphere,** and with it the normal map's up and down, so relief looked

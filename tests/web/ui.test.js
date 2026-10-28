@@ -4129,6 +4129,42 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the 3D preview', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 49. Texture Bench shapes and erosion: tiles, hexagons, planks, spots (as domes, rivets, craters) and erosion.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      // Start from one layer, so the new ones fit under the limit of 12.
+      const add = async (t, count) => { await page.click(`[data-addlayer="${t}"]`); await waitFn(page, (c) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === c, count); return (await last()).recipe.layers[count - 1]; };
+      const n0 = (await last()).recipe.layers.length;
+      const tiles = await add('tiles', n0 + 1);
+      check('＋ Tiles: rounded corners, joints, uneven tiles', tiles.type === 'tiles' && tiles.roundness === 0.2 && tiles.tilt === 0.2 && tiles.mortar === 0.08
+        && await page.isVisible(`.sb-layer[data-index="${n0}"] input[data-key="roundness"]`));
+      const hex = await add('hexagons', n0 + 2);
+      check('＋ Hexagons: rows ≈ 1.15 × across, so they are regular', hex.type === 'hexagons' && hex.scaleX === 7 && hex.scaleY === 8);
+      const planks = await add('planks', n0 + 3);
+      check('＋ Planks: staggered boards with wood grain', planks.type === 'planks' && planks.grain === 0.7 && planks.offset === 1);
+      const spots = await add('spots', n0 + 4);
+      check('＋ Spots start as domes (pebbles, studs)', spots.type === 'spots' && spots.profile === 'dome' && spots.size === 0.5);
+      await page.selectOption(`.sb-layer[data-index="${n0 + 3}"] select[data-key="profile"]`, 'crater');
+      await waitFn(page, (i) => window.__mock.state.texture.renders.at(-1).recipe.layers[i].profile === 'crater', n0 + 3);
+      check('…or flat rivets, craters or cones', (await page.$$eval(`.sb-layer[data-index="${n0 + 3}"] select[data-key="profile"] option`, (o) => o.map((x) => x.value))).join() === 'dome,flat,crater,cone');
+      const ero = await add('erosion', n0 + 5);
+      check('＋ Erosion reshapes the height (replacing it) and marks where the water ran', ero.type === 'erosion' && ero.mode === 'rain' && ero.amount === 0.6 && ero.blend === 'normal' && ero.opacity === 1 && ero.tint === '#3b2c20');
+      const card = `.sb-layer[data-index="${n0 + 4}"]`;
+      check('…its paint is where it acted, and its levels shape that', /where it acted/.test(await page.textContent(`${card} .sb-fxgroup summary`)) && await page.isVisible(`${card} input[data-key="amount"]`)
+        && /Paints from/.test(await page.textContent(card)));
+      await page.selectOption(`${card} select[data-key="mode"]`, 'crumble');
+      await waitFn(page, (i) => window.__mock.state.texture.renders.at(-1).recipe.layers[i].mode === 'crumble', n0 + 4);
+      await page.selectOption(`${card} select[data-key="mode"]`, 'wear');
+      await waitFn(page, (i) => window.__mock.state.texture.renders.at(-1).recipe.layers[i].mode === 'wear', n0 + 4);
+      check('…by rain, crumbling or wear', true);
+      check('no page errors with the new shapes', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

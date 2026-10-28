@@ -22,7 +22,9 @@ first, and anything that conflicts with it waits.
   recipe format that still opens old recipes, and careful design so it stays usable).
 - Texture Bench, stage 1 (procedural tileable materials, PBR maps, 3D preview, engine exports): preview.36.
   Stage 2 (photos as layers, painting from any layer, height and curvature masks, Sobel normals, horizon AO):
-  preview.37. Next in docs/TEXTURE_BENCH_PLAN.md: more shapes, NoorSketch round trips, Gallery and Vault.
+  preview.37. A better 3D preview (lights, clay and map views, parallax, zoom): preview.39. Stage 3, shapes and
+  erosion (tiles, hexagons, planks, spots; rain, crumbling, wear): preview.40. Next in docs/TEXTURE_BENCH_PLAN.md:
+  NoorSketch round trips, Gallery and Vault.
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

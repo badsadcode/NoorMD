@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.39-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.40-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -130,10 +130,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them.
 - **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: stone, ground, wood, metal,
-  walls and fabric. Layers of noise, cells, wood grain, bricks, weave, scratches and your own photos (made
-  seamless, light evened out, height from their detail) build the height. Any layer can paint tint, roughness
+  walls and fabric. Layers of noise, cells, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
+  rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their
+  detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Any layer can paint tint, roughness
   and metal, masked by the material's own height and edges; a colour ramp, dirt and roughness make the surface.
-  See it lit on a sphere, cube or plane, or each map tiled, and export seamless PNG maps (albedo, normal,
+  See it on a sphere, rounded cube, cube or plane under five lights (or as grey clay, or one map at a time), or each map tiled, and export seamless PNG maps (albedo, normal,
   roughness, AO, metallic, 16-bit height) for Godot, Unity or Unreal at up to 4096 pixels, with the recipe
   beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep

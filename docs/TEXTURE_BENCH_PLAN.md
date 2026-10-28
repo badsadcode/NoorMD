@@ -38,7 +38,12 @@ tried before the next.
 
 ## Stage 3: shapes, masks and round trips
 
-- More shapes (tiles with bevels, hexagons, planks, spots), masks between layers, erosion and weathering.
+- Done in preview.40: more shapes (tiles with round corners and tilt, hexagons, planks with grain, spots as
+  domes, rivets, craters or cones) and erosion of the height so far: rain (droplet hydraulic erosion, after
+  Beyer 2015, with the gullies cut deeper where most water ran), crumbling (thermal erosion, its slope limit
+  taken from the material's own slopes) and wear (raised edges worn round). Erosion is worked out at 512 × 512
+  so the preview and every export size agree, and it paints where it acted. (Masks between layers came in
+  preview.37.)
 - Hand-painting in NoorSketch and coming back without losing the recipe.
 - Exports registered in the Gallery; recipes in the Vault.
 
