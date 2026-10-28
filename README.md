@@ -185,7 +185,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   colour (realistic furrows, painted grooves for the stylized look, birch); a painted shading in the vertex colours
   darkens the inside of the crown and the foot of the trunk. Exports can bring wind shaders that read the wind
   data: a Godot 4 shader, and an HLSL function for Unity Shader Graph or an Unreal Custom node. The last level of
-  detail can be a billboard: the tree drawn from its sides onto crossed cards. Rocks come next.
+  detail can be a billboard: the tree drawn from its sides onto crossed cards. Bring your own bark texture or leaf
+  picture (a 2 × 2 atlas or a single twig) if you like. Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

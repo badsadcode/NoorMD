@@ -28,6 +28,8 @@ public static class TreeBuilder
         public int TextureSize { get; init; } = 512;
         /// <summary>Build only the first N levels of detail (the preview needs one).</summary>
         public int? MaxLods { get; init; }
+        /// <summary>Reads a picture of your own (bark, leaves) by its path; null when it can't or may not be read.</summary>
+        public Func<string, RawImage?>? Images { get; init; }
     }
 
     private sealed class Group
@@ -147,13 +149,22 @@ public static class TreeBuilder
             }
             catch (ArgumentException) { build.Notes.Add($"The bark material \"{recipe.BarkMaterial}\" was not found; a plain colour is used."); }
         }
+        // Your own bark picture (colour only) replaces the generated bark.
+        if (recipe.BarkImage != "")
+        {
+            if (options.Images?.Invoke(recipe.BarkImage) is { } own) { bark.BaseColor = Vector4.One; bark.NormalPng = null; bark.OcclusionRoughnessMetallicPng = null; bark.Roughness = 0.9f; Use(bark, own); }
+            else build.Notes.Add("Your bark picture can't be read (moved, deleted, or not chosen here); the bark is generated.");
+        }
         var cards = recipe.Foliage is "cards" or "both" or "tufts" && recipe.Archetype != "dead";
         // Single-sided: every card has a real back face with its own normals (a double-sided material would flip the
         // normals on the back and darken half the crown in every engine).
         var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
         if (cards)
         {
-            if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed));
+            var ownLeaves = recipe.LeafImage != "" ? options.Images?.Invoke(recipe.LeafImage) : null;
+            if (recipe.LeafImage != "" && ownLeaves == null) build.Notes.Add("Your leaf picture can't be read (moved, deleted, or not chosen here); the leaves are generated.");
+            if (ownLeaves != null) Use(leafMat, ownLeaves);
+            else if (options.TextureSize > 0) Use(leafMat, LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed));
             else leafMat.BaseColor = Color(recipe.LeafColor);
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
@@ -631,7 +642,7 @@ public static class TreeBuilder
         if (length < size * 0.4f) { Tuft(m, p, side, size, sk, recipe, b, t, material, rng); return; }
         var outward = side with { Y = 0 };
         outward = outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX;
-        var cell = LeafAtlas.Cell(rng.Next(4));
+        var cell = LeafCell(recipe, rng);
         for (var k = 0; k < 2; k++)
         {
             var across = Vector3.Transform(outward, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2 * k + MathF.PI / 4));
@@ -672,7 +683,7 @@ public static class TreeBuilder
                 across.Add(a);
                 widths.Add((float)recipe.LeafSize * (MathF.Pow(MathF.Max(0, MathF.Sin(MathF.PI * MathF.Min(1, t * 1.1f))), 0.65f) * 0.5f + 0.03f) * MathF.Sqrt(detail));
             }
-            Strip(m, centres, across, widths, LeafAtlas.Cell(rng.Next(4)), hanging: false, sk, recipe, b, 1, material);
+            Strip(m, centres, across, widths, LeafCell(recipe, rng), hanging: false, sk, recipe, b, 1, material);
         }
     }
 
@@ -798,7 +809,7 @@ public static class TreeBuilder
         f = Vector3.Normalize(f);
         f = Vector3.Normalize(Vector3.Transform(f, Quaternion.CreateFromAxisAngle(grow, ((float)rng.NextDouble() - 0.5f) * (face == null ? 0.9f : 0.3f))));
         var across = Vector3.Normalize(Vector3.Cross(grow, f));
-        var cellUv = LeafAtlas.Cell(rng.Next(4));
+        var cellUv = LeafCell(recipe, rng);
         var half = size / 2;
         var fold = f * size * 0.12f;
         var sub = m.Sub(material);
@@ -825,6 +836,13 @@ public static class TreeBuilder
     }
 
     // ---- Helpers ----
+
+    /// <summary>Which part of the leaf picture a card shows: a cell of the 2 × 2 atlas, or all of a picture of your own that isn't one.</summary>
+    private static Vector4 LeafCell(TreeRecipe recipe, Random rng)
+    {
+        var cell = LeafAtlas.Cell(rng.Next(4));
+        return recipe.LeafImage != "" && !recipe.LeafImageAtlas ? new Vector4(0, 0, 1, 1) : cell;
+    }
 
     private static void Use(Material3D m, RawImage pixels)
     {

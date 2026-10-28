@@ -494,6 +494,7 @@ function mockHostScript(initial) {
       case 'asset.reveal': ASSET.opened = p.folder; return null;
       case 'asset.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ASSET.mine.some((x) => x.id === id); ASSET.mine = ASSET.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'asset.delete': ASSET.mine = ASSET.mine.filter((x) => x.id !== p.id); return { mine: mine() };
+      case 'asset.image.pick': ASSET.picks = (ASSET.picks || []).concat([p.kind]); return { path: p.kind === 'leaves' ? 'D:\\Art\\my leaves.png' : 'D:\\Art\\my bark.png', name: p.kind === 'leaves' ? 'my leaves.png' : 'my bark.png', width: 1024, height: 1024 };
       case 'asset.open': return { recipe: { ...JSON.parse(JSON.stringify(ASSET.recipes.oak)), name: 'Opened tree' } };
       default: throw new Error('Unknown command ' + type);
     }

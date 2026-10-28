@@ -336,6 +336,22 @@ window.NoorAssets = (() => {
     return el('label', { class: 'sb-inline ab-colour' }, el('span', { text: label }), c);
   }
 
+  /** A button that picks a picture of your own for the bark or the leaves, with its name and a way back to generated. */
+  function ownPicture(key, kind, label, hint) {
+    const name = recipe[key] ? recipe[key].split(/[\\/]/).pop() : '';
+    return el('div', { class: 'sb-row' },
+      el('button', { class: 'utility-btn', 'data-own': kind, title: hint, onclick: async () => {
+        try {
+          const f = await req('asset.image.pick', { kind });
+          if (!f || f.cancelled) return;
+          recipe[key] = f.path;
+          changed(true);
+        } catch (err) { hooks.showError(err); }
+      } }, '🖼 ' + label),
+      name ? el('span', { class: 'sb-file', title: recipe[key], text: name }) : null,
+      name ? el('button', { class: 'icon-btn', 'data-own-clear': kind, title: 'Back to the generated one', 'aria-label': 'Remove the picture', onclick: () => { recipe[key] = ''; changed(true); } }, '✕') : null);
+  }
+
   const section = (title, ...children) => el('fieldset', { class: 'sb-group' }, el('legend', { text: title }), ...children);
 
   function treePane() {
@@ -401,7 +417,9 @@ window.NoorAssets = (() => {
         slider(recipe, ['leafDensity', 'Density', 0, 1, 0.01, 'pct', 'How full the crown is']),
         slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'One leaf card (or the size of a clump)']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
-        slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards'])),
+        slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards']),
+        ownPicture('leafImage', 'leaves', 'Your own leaf picture…', 'A PNG with transparency, the stem at the bottom middle'),
+        recipe.leafImage ? check(recipe, 'leafImageAtlas', 'It is a 2 × 2 atlas (each card shows one quarter)') : null),
       section('Fantasy',
         slider(recipe, ['capWidth', 'Mushroom cap', 0, 30, 0.1, 'm', 'A mushroom cap on top of the trunk, this wide (0: none)'], true),
         recipe.capWidth > 0 ? slider(recipe, ['branchCaps', 'Caps on the limbs', 0, 1, 0.01, 'pct', 'Smaller caps on the limb tips, this big compared with the main one']) : null,
@@ -415,7 +433,8 @@ window.NoorAssets = (() => {
       section('Bark',
         choice(recipe, 'barkMaterial', 'Material', barkOptions, 'A Texture Bench material for the bark (colour, normal and ORM maps)'),
         colour(recipe, 'barkColor', 'Colour'),
-        slider(recipe, ['barkTile', 'Bark tile', 0.05, 20, 0.05, 'm', 'How much bark one texture covers'])),
+        slider(recipe, ['barkTile', 'Bark tile', 0.05, 20, 0.05, 'm', 'How much bark one texture covers']),
+        ownPicture('barkImage', 'bark', 'Your own bark picture…', 'A tiling bark texture (colour only)')),
     ];
   }
 

@@ -156,7 +156,10 @@ Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh wo
 - **Billboards:** the last level of detail is the tree drawn from 2–4 sides by a small CPU renderer (orthographic,
   depth-tested, textured, alpha-cut, with the painted shading) onto crossed cards: a whole tree in 8–16 triangles.
 
-Still open: bring-your-own bark and leaf textures, the biome catalogue.
+- **Pictures of your own:** a bark texture (colour), and a leaf picture with transparency, a 2 × 2 atlas or one sprite
+  for every card; read only when picked in the bench or named by a recipe you opened (looked for beside it).
+
+Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks
 

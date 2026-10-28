@@ -155,6 +155,14 @@ public sealed class TreeRecipe
     public double Shading { get; set; } = 0.7;
     public bool Wind { get; set; } = true;
     /// <summary>
+    /// Pictures of your own (full paths; empty: generated): a bark texture (tiles round and up the branches), and a leaf
+    /// picture with transparency, either a 2 × 2 atlas (each card shows one cell, its stem at the bottom middle) or one
+    /// sprite for every card.
+    /// </summary>
+    public string BarkImage { get; set; } = "";
+    public string LeafImage { get; set; } = "";
+    public bool LeafImageAtlas { get; set; } = true;
+    /// <summary>
     /// Where the wind data goes: "uv" (TEXCOORD_1 = branch bend, leaf flutter; TEXCOORD_2 = phase, trunk sway) keeps
     /// the colours true in every viewer and engine; "color" (COLOR_0 = sway, bend, flutter, phase) suits shaders that
     /// read vertex colours, but viewers that multiply by vertex colour will show it as a tint.
@@ -170,6 +178,7 @@ public sealed class TreeRecipe
     public const int MaxLevels = 3;
     private static double C(double v, double lo, double hi, double fallback) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : fallback;
     private static string Pick(string? v, string[] allowed) => v != null && allowed.Contains(v) ? v : allowed[0];
+    private static string CleanPath(string? p) => p is { Length: > 0 and <= 1000 } && !p.Any(char.IsControl) ? p : "";
     private static string Hex(string? v, string fallback) => v is { Length: 7 } && v[0] == '#' && v.Skip(1).All(Uri.IsHexDigit) ? v.ToLowerInvariant() : fallback;
 
     public TreeRecipe Clamped()
@@ -216,6 +225,8 @@ public sealed class TreeRecipe
         Branches = Pick(Branches, BranchModes);
         WindData = Pick(WindData, WindChannels);
         Shading = C(Shading, 0, 1, 0.7);
+        BarkImage = CleanPath(BarkImage);
+        LeafImage = CleanPath(LeafImage);
         MixedRadius = C(MixedRadius, 0.005, 2, 0.08);
         Quality = Qualities.Contains(Quality) ? Quality : "medium";
         Budget = Math.Clamp(Budget, 200, 500_000);

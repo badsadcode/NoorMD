@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Win32;
 using NoorMD.Core;
@@ -27,6 +29,59 @@ public partial class MainWindow
     private static readonly SemaphoreSlim AssetGate = new(1);
     private static string UserTreeFolder => Path.Combine(App.Paths.Local, "Assets", "Trees");
     private const int AssetPreviewTexture = 256;
+
+    // Pictures of your own for bark and leaves: read only when you picked them here, or a recipe you opened names them.
+    private readonly HashSet<string> _assetImageFiles = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (DateTime Stamp, RawImage Image)> _assetImageCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private void AllowTreeImages(TreeRecipe r)
+    {
+        foreach (var path in new[] { r.BarkImage, r.LeafImage }.Where(p => p != ""))
+            try { _assetImageFiles.Add(Path.GetFullPath(path)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
+    }
+
+    /// <summary>A recipe opened from a file: pictures it names that aren't where it says are looked for beside it.</summary>
+    private static TreeRecipe FindTreeImagesBeside(TreeRecipe r, string folder)
+    {
+        string Find(string p)
+        {
+            if (p == "" || File.Exists(p)) return p;
+            var beside = Path.Combine(folder, Path.GetFileName(p));
+            return File.Exists(beside) ? beside : p;
+        }
+        r.BarkImage = Find(r.BarkImage);
+        r.LeafImage = Find(r.LeafImage);
+        return r;
+    }
+
+    /// <summary>A picture of your own as RGBA pixels (at most 2048 across), or null when it can't or may not be read.</summary>
+    private RawImage? LoadAssetImage(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            if (!_assetImageFiles.Contains(full) || !File.Exists(full)) return null;
+            var stamp = File.GetLastWriteTimeUtc(full);
+            lock (_assetImageCache)
+                if (_assetImageCache.TryGetValue(full, out var hit) && hit.Stamp == stamp) return hit.Image;
+            if (new FileInfo(full).Length > 200 * 1024 * 1024) return null;
+            var frame = Decode(full, 2048);
+            if (frame == null) return null;
+            var conv = new FormatConvertedBitmap(frame, PixelFormats.Bgra32, null, 0);
+            int w = conv.PixelWidth, h = conv.PixelHeight;
+            var px = new byte[w * h * 4];
+            conv.CopyPixels(px, w * 4, 0);
+            for (var i = 0; i < px.Length; i += 4) (px[i], px[i + 2]) = (px[i + 2], px[i]);     // BGRA to RGBA
+            var image = new RawImage(w, h, px);
+            lock (_assetImageCache)
+            {
+                if (_assetImageCache.Count >= 6) _assetImageCache.Remove(_assetImageCache.Keys.First());
+                _assetImageCache[full] = (stamp, image);
+            }
+            return image;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidOperationException) { return null; }
+    }
 
     /// <summary>Serves /_asset/{key}/lod{n}.glb: preview meshes built moments ago.</summary>
     private bool TryServeAsset(Uri uri, CoreWebView2WebResourceRequestedEventArgs e, CoreWebView2Environment env)
@@ -127,6 +182,7 @@ public partial class MainWindow
                 {
                     var id = req.GetString("id", 300) ?? "";
                     var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? TreeRecipe.FromJson(await File.ReadAllTextAsync(UserTreePath(id))) : TreePresets.Make(id);
+                    AllowTreeImages(recipe);
                     return TreeForPage(recipe);
                 }
                 case "asset.build":
@@ -145,7 +201,7 @@ public partial class MainWindow
                         cancel.Token.ThrowIfCancellationRequested();
                         (build, glbs) = await Task.Run(() =>
                         {
-                            var b = TreeBuilder.Build(recipe, new TreeBuilder.Options { TextureSize = AssetPreviewTexture }, cancel.Token);
+                            var b = TreeBuilder.Build(recipe, new TreeBuilder.Options { TextureSize = AssetPreviewTexture, Images = LoadAssetImage }, cancel.Token);
                             return (b, b.Lods.Select(l => GlbWriter.Write(l)).ToArray());
                         }, cancel.Token);
                     }
@@ -208,7 +264,7 @@ public partial class MainWindow
                         PushEvent("asset.exportProgress", new { stage = variants.Count > 1 ? $"Growing and meshing tree {v + 1} of {variants.Count}…" : "Growing and meshing the tree…", done = v, total = variants.Count });
                         TreeBuild build;
                         await AssetGate.WaitAsync();
-                        try { build = await Task.Run(() => TreeBuilder.Build(variant, new TreeBuilder.Options { TextureSize = size })); }
+                        try { build = await Task.Run(() => TreeBuilder.Build(variant, new TreeBuilder.Options { TextureSize = size, Images = LoadAssetImage })); }
                         finally { AssetGate.Release(); }
                         var names = GlbNames(v);
                         var mine = new List<string>();
@@ -260,6 +316,9 @@ public partial class MainWindow
                 case "asset.save":
                 {
                     var recipe = TreeRecipeFrom(p);
+                    // Only pictures already allowed are kept, so a preset can't smuggle in another path.
+                    if (recipe.BarkImage != "" && !_assetImageFiles.Contains(Path.GetFullPath(recipe.BarkImage))) recipe.BarkImage = "";
+                    if (recipe.LeafImage != "" && !_assetImageFiles.Contains(Path.GetFullPath(recipe.LeafImage))) recipe.LeafImage = "";
                     Directory.CreateDirectory(UserTreeFolder);
                     var file = NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name, ".json");
                     var path = Path.Combine(UserTreeFolder, file);
@@ -276,7 +335,25 @@ public partial class MainWindow
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 100_000) throw new BridgeError("That file is too big for a tree recipe.");
-                    return new { recipe = TreeForPage(TreeRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName))) };
+                    var opened = FindTreeImagesBeside(TreeRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName)), Path.GetDirectoryName(Path.GetFullPath(dlg.FileName))!);
+                    AllowTreeImages(opened);
+                    return new { recipe = TreeForPage(opened) };
+                }
+                case "asset.image.pick":
+                {
+                    var leaves = req.GetString("kind", 10) == "leaves";
+                    var dlg = new OpenFileDialog
+                    {
+                        Title = leaves ? "Choose a leaf picture (PNG with transparency: a 2 × 2 atlas, or one twig)" : "Choose a bark picture (it tiles round and up the branches)",
+                        Filter = "Pictures (*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp)|*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp|All files|*.*",
+                        CheckFileExists = true,
+                    };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var full = Path.GetFullPath(dlg.FileName);
+                    _assetImageFiles.Add(full);
+                    var image = await Task.Run(() => LoadAssetImage(full)) ?? throw new BridgeError("That picture can't be read.");
+                    return new { path = full, name = Path.GetFileName(full), width = image.Width, height = image.Height };
                 }
                 default: throw new BridgeError($"Unknown command \"{req.Type}\".");
             }

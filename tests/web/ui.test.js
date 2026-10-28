@@ -5117,6 +5117,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.$eval('#ab-pane input[data-key="moss"]', (r) => { r.value = '0.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
       await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="mossColor"]'));
       check('hanging moss, with its colour once there is some', (await AS()).recipe.moss === 0.5);
+      await page.click('#ab-pane [data-own="leaves"]');
+      await waitFn(page, () => NoorAssets._state().recipe.leafImage === 'D:\\Art\\my leaves.png');
+      check('your own leaf picture: picked, named, asked whether it is an atlas', /my leaves\.png/.test(await page.textContent('#ab-pane')) && !!(await page.$('#ab-pane input[data-key="leafImageAtlas"]')));
+      await page.click('#ab-pane [data-own-clear="leaves"]');
+      check('…and back to the generated leaves', (await AS()).recipe.leafImage === '');
+      await page.click('#ab-pane [data-own="bark"]');
+      await waitFn(page, () => NoorAssets._state().recipe.barkImage === 'D:\\Art\\my bark.png');
+      check('your own bark picture', /my bark\.png/.test(await page.textContent('#ab-pane')));
       await page.$eval('#ab-pane input[data-key="capWidth"]', (r) => { r.value = '3'; r.dispatchEvent(new Event('input', { bubbles: true })); });
       await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="branchCaps"]'));
       check('fantasy: a mushroom cap brings its size on the limbs, colours and spots', !!(await page.$('#ab-pane input[data-key="capColor"]')) && !!(await page.$('#ab-pane input[data-key="spots"]')) && (await AS()).recipe.capWidth === 3);

@@ -511,4 +511,30 @@ public class TreeTests
         Assert.Empty(bb.Root.Children[0].Mesh!.Problems());
         GlbWriterTests.Parse(GlbWriter.Write(bb));
     }
+
+    [Fact]
+    public void Pictures_of_your_own_dress_the_bark_and_the_leaves()
+    {
+        var leaf = new RawImage(8, 8, Enumerable.Repeat((byte)200, 8 * 8 * 4).ToArray());
+        var barkPic = new RawImage(4, 4, Enumerable.Repeat((byte)90, 4 * 4 * 4).ToArray());
+        var r = Small("oak");
+        r.Lods = 1;
+        r.LeafImage = @"D:\Art\leaves.png";
+        r.LeafImageAtlas = false;
+        r.BarkImage = @"D:\Art\bark.png";
+        var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64, Images = p => p.EndsWith("leaves.png") ? leaf : p.EndsWith("bark.png") ? barkPic : null });
+        var mats = b.Lods[0].Materials;
+        Assert.Same(leaf, mats.First(m => m.Name == "Leaves").BaseColorPixels);
+        Assert.Same(barkPic, mats.First(m => m.Name == "Bark").BaseColorPixels);
+        Assert.Null(mats.First(m => m.Name == "Bark").NormalPng);       // colour only
+        Assert.DoesNotContain(b.Notes, n => n.Contains("picture"));
+        // One picture (not an atlas): every card shows all of it.
+        var leaves = Leaves(b)!;
+        Assert.Equal(0f, leaves.UV0.Min(u => u.X));
+        Assert.Equal(1f, leaves.UV0.Max(u => u.X));
+        // A picture that can't be read: generated instead, and said so.
+        var missing = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64, Images = _ => null });
+        Assert.Equal(2, missing.Notes.Count(n => n.Contains("picture")));
+        Assert.NotNull(missing.Lods[0].Materials.First(m => m.Name == "Leaves").BaseColorPng);
+    }
 }
