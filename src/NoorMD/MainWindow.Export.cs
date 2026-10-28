@@ -155,10 +155,15 @@ public partial class MainWindow
                 {
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), name);
                     var lods = Math.Clamp((int)(Json.OptDouble(p, "lods") ?? 1), 1, 6);
-                    if (lods > 1 && req.GetString("lodFiles", 10) != "one") for (var i = 0; i < lods; i++) files.Add($"{file}_LOD{i}.glb");
-                    else files.Add(file + ".glb");
-                    files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noortree.json");
-                    files.Add(ExportLayouts.FileName(tokens["name"], name) + ".manifest.json");
+                    var variants = Math.Clamp((int)(Json.OptDouble(p, "variants") ?? 1), 1, NoorMD.Media.Assets3D.TreeVariants.MaxCount);
+                    var stem = ExportLayouts.FileName(tokens["name"], name);
+                    // A variety pack lists the first tree's files and says how many more there are.
+                    var first = variants > 1 ? $"{file}_01" : file;
+                    if (lods > 1 && req.GetString("lodFiles", 10) != "one") for (var i = 0; i < lods; i++) files.Add($"{first}_LOD{i}.glb");
+                    else files.Add(first + ".glb");
+                    files.Add((variants > 1 ? stem + "_01" : stem) + ".noortree.json");
+                    if (variants > 1) files.Add($"… and the same for _02 to _{variants:00}");
+                    files.Add(stem + ".manifest.json");
                 }
                 else if (bench == "music")
                 {

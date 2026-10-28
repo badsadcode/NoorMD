@@ -12,6 +12,7 @@ window.NoorAssets = (() => {
   let recipe = null;
   let presets = { builtIn: [], mine: [], barks: [] };
   let selectedPreset = '';
+  let look = (() => { try { return ['all', 'realistic', 'stylized'].includes(localStorage.getItem('noormd.assets.look')) ? localStorage.getItem('noormd.assets.look') : 'all'; } catch { return 'all'; } })();
   let tab = 'tree';
   let viewer = null;
   let build = null;          // the last build: { key, lods, nodes, notes, ms }
@@ -21,17 +22,19 @@ window.NoorAssets = (() => {
   let buildGen = 0, buildTimer = 0, snapTimer = 0;
   let history = [], future = [], lastSnapshot = '';
   let exportWhere = null;
-  let exportPrefs = (() => { try { return { textureSize: 1024, lodFiles: 'separate', ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { textureSize: 1024, lodFiles: 'separate' }; } })();
+  let exportPrefs = (() => { try { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15 }; } })();
   let lastExport = null;
 
   const isOpen = () => document.body.classList.contains('assets-open');
 
   const ARCHETYPES = [['broadleaf', 'Broadleaf (oak, maple…)'], ['conifer', 'Conifer (pine, spruce…)'], ['birch', 'Birch-like (slender, drooping)'], ['dead', 'Dead or twisted (bare)']];
   const STYLES = [['realistic', 'Realistic'], ['stylized', 'Stylized (painted fantasy)']];
-  const SHAPES = [['spherical', 'Round'], ['hemispherical', 'Dome'], ['conical', 'Cone'], ['cylindrical', 'Column'], ['flame', 'Flame'], ['inverse', 'Upside-down cone (vase)'], ['tapered', 'Tapered column']];
+  const SHAPES = [['spherical', 'Round'], ['hemispherical', 'Dome'], ['conical', 'Cone'], ['cylindrical', 'Column'], ['flame', 'Flame'], ['inverse', 'Upside-down cone (vase)'], ['tapered', 'Tapered column'], ['umbrella', 'Umbrella (flat top)']];
+  const ROOTS = [['flare', 'Flared base (buttresses)'], ['surface', 'Surface roots (long, forking, sinking in)'], ['prop', 'Stilt roots (mangrove)'], ['compact', 'Compact (a collar only)']];
+  const ARRANGE = [['scatter', 'Scattered cards'], ['single', 'Single cards'], ['cross', 'Crossed pairs'], ['star', 'Stars of three'], ['fan', 'Fans (spruce tiers, acacia)'], ['dome', 'Domes (full broadleaf)'], ['hanging', 'Hanging curtains (willow)'], ['fronds', 'Fronds along the branches (palm, fern)']];
   const BRANCH_MODES = [['merged', 'Merged: one welded mesh'], ['separate', 'Separate: each limb its own mesh'], ['mixed', 'Mixed: thick limbs welded, thin ones separate']];
   const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['none', 'None (bare)']];
-  const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['needle', 'Needles']];
+  const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
 
@@ -145,8 +148,12 @@ window.NoorAssets = (() => {
   function renderPresets() {
     const nav = $('#ab-presets');
     const item = (p) => el('button', { class: 'gnav-item' + (p.id === selectedPreset ? ' active' : ''), 'data-preset': p.id, title: p.description || '', onclick: () => loadPreset(p.id) }, p.name);
-    const groups = [['Realistic', presets.builtIn.filter((p) => p.style !== 'stylized')], ['Stylized', presets.builtIn.filter((p) => p.style === 'stylized')], ['Mine', presets.mine]];
-    nav.replaceChildren(...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []),
+    const shown = presets.builtIn.filter((p) => look === 'all' || (look === 'stylized') === (p.style === 'stylized'));
+    const groupNames = [...new Set(shown.map((p) => p.group || 'Forest'))];
+    const groups = [...groupNames.map((g) => [g, shown.filter((p) => (p.group || 'Forest') === g)]), ['Mine', presets.mine]];
+    const looks = el('div', { class: 'ab-looks', role: 'group', 'aria-label': 'Show' }, ...[['all', 'All'], ['realistic', 'Realistic'], ['stylized', 'Stylized']].map(([v, t]) =>
+      el('button', { class: 'utility-btn' + (look === v ? ' active' : ''), 'data-look': v, 'aria-pressed': String(look === v), onclick: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } }, t)));
+    nav.replaceChildren(looks, ...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []),
       el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
       selectedPreset.startsWith('user:') ? el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one') : null);
   }
@@ -282,7 +289,7 @@ window.NoorAssets = (() => {
     const keep = pane.scrollTop;
     // Keep the keyboard where it was (a re-render replaces the controls).
     const focused = document.activeElement && pane.contains(document.activeElement) ? document.activeElement.getAttribute('data-key') : null;
-    pane.replaceChildren(...(tab === 'tree' ? treePane() : tab === 'branches' ? branchesPane() : tab === 'leaves' ? leavesPane() : tab === 'mesh' ? meshPane() : exportPane()));
+    pane.replaceChildren(...(tab === 'tree' ? treePane() : tab === 'branches' ? branchesPane() : tab === 'leaves' ? leavesPane() : tab === 'mesh' ? meshPane() : exportPane()).filter(Boolean));
     pane.scrollTop = keep;
     if (focused) { const f = pane.querySelector(`[data-key="${focused}"]`); if (f) f.focus(); }
   }
@@ -336,16 +343,29 @@ window.NoorAssets = (() => {
       section('Kind',
         el('div', { class: 'sb-row' }, choice(recipe, 'style', 'Look', STYLES, 'Realistic: natural proportions, leaf cards, bark textures. Stylized: chunky, twisted, puffy clumps with painted gradients'), choice(recipe, 'archetype', 'Tree', ARCHETYPES, 'How the tree grows: its crown and branching'))),
       section('Trunk',
-        slider(recipe, ['height', 'Height', 0.5, 40, 0.1, 'm', 'The whole tree, ground to top: it is exactly this tall']),
-        slider(recipe, ['trunkRadius', 'Trunk radius', 0.02, 2, 0.01, 'm']),
+        slider(recipe, ['height', 'Height', 0.3, 120, 0.1, 'm', 'The whole tree, ground to top: it is exactly this tall']),
+        slider(recipe, ['trunkRadius', 'Trunk radius', 0.01, 6, 0.01, 'm']),
         slider(recipe, ['taper', 'Taper', 0, 1, 0.01, 'pct', 'How much thinner the trunk gets towards the top']),
         slider(recipe, ['crownStart', 'Crown starts at', 0.05, 1, 0.01, 'pct', 'Where the trunk splits into the crown (100% keeps one leader to the top, as conifers do)']),
         slider(recipe, ['lean', 'Lean', 0, 45, 1, 'deg']),
         slider(recipe, ['wobble', 'Wobble', 0, 30, 0.5, 'deg', 'Random bends along the trunk']),
-        slider(recipe, ['twist', 'Twist', -3, 3, 0.05, 'num', 'Spiral turns over the height: the fantasy look loves it'])),
-      section('Base',
-        slider(recipe, ['flare', 'Root flare', 0, 1, 0.01, 'pct', 'Roots melted into the base: buttresses that grip the ground']),
-        slider(recipe, ['roots', 'Roots', 0, 12, 1, 'int']),
+        slider(recipe, ['twist', 'Twist', -3, 3, 0.05, 'num', 'Spiral turns over the height: the fantasy look loves it']),
+        slider(recipe, ['sCurve', 'S-curve', 0, 0.3, 0.01, 'pct', 'A sideways S in the trunk, as a share of the height']),
+        slider(recipe, ['windswept', 'Windswept', 0, 1, 0.01, 'pct', 'Every branch pulled the same way and the trunk leaning with it: a tree on a windy cliff or coast'])),
+      section('Trunk shape',
+        slider(recipe, ['flute', 'Fluting', 0, 1, 0.01, 'pct', 'Ridges and grooves running up the trunk (sequoia, cypress)']),
+        recipe.flute > 0 ? slider(recipe, ['fluteLobes', 'Ridges', 3, 14, 1, 'int']) : null,
+        recipe.flute > 0 ? slider(recipe, ['fluteHeight', 'Ridges reach', 0.05, 1, 0.01, 'pct', 'How far up the trunk the ridges run']) : null,
+        slider(recipe, ['bulge', 'Bulge', 0, 1.5, 0.01, 'pct', 'A swelling of the trunk (baobab, bottle tree)']),
+        recipe.bulge > 0 ? slider(recipe, ['bulgeAt', 'Bulge at', 0, 1, 0.01, 'pct']) : null),
+      section('Base and roots',
+        choice(recipe, 'rootStyle', 'Roots', ROOTS, 'How the tree meets the ground', true),
+        recipe.rootStyle === 'flare' ? slider(recipe, ['flare', 'Root flare', 0, 1, 0.01, 'pct', 'Roots melted into the base: buttresses that grip the ground']) : null,
+        recipe.rootStyle !== 'compact' ? slider(recipe, ['roots', 'How many', 0, 12, 1, 'int']) : null,
+        recipe.rootStyle === 'surface' || recipe.rootStyle === 'prop' ? slider(recipe, ['rootLength', 'Length', 0.2, 4, 0.05, 'num', 'Times the usual length']) : null,
+        recipe.rootStyle === 'surface' ? slider(recipe, ['rootForks', 'Forks', 0, 3, 1, 'int']) : null,
+        recipe.rootStyle === 'surface' ? slider(recipe, ['rootBurial', 'Sinking in', 0, 1, 0.01, 'pct', 'How deep the tips sink below the ground']) : null,
+        slider(recipe, ['knees', 'Knees', 0, 60, 1, 'int', 'Cypress knees: woody cones rising out of the ground or water around the tree']),
         slider(recipe, ['collar', 'Collars', 0, 1, 0.01, 'pct', 'How smoothly limbs grow out of their parent (the swelling where a branch leaves the trunk)'])),
       section('Crown', choice(recipe, 'shape', 'Shape', SHAPES, 'How long the limbs are from the bottom of the crown to its top')),
     ];
@@ -375,11 +395,17 @@ window.NoorAssets = (() => {
     const barkOptions = [['', 'Plain colour'], ...presets.barks.map((b) => [b.id, b.name])];
     return [
       section('Leaves',
+        el('div', { class: 'sb-row' }, choice(recipe, 'arrangement', 'Set as', ARRANGE, 'How the leaf cards are set where leaves grow', true)),
+        recipe.arrangement === 'hanging' ? slider(recipe, ['hangLength', 'Curtain length', 0.2, 30, 0.1, 'm', 'How far the curtains hang (they stop above the ground)']) : null,
         el('div', { class: 'sb-row' }, choice(recipe, 'foliage', 'Foliage', FOLIAGE, 'Cards: leaf sprites with alpha along the branches (realistic). Tufts: the same cards gathered into chunky clumps (stylized), with no solid mesh. Solid clumps: puffy painted blobs', true), choice(recipe, 'leafShape', 'Leaf', LEAVES)),
         slider(recipe, ['leafDensity', 'Density', 0, 1, 0.01, 'pct', 'How full the crown is']),
         slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'One leaf card (or the size of a clump)']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
         slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards'])),
+      section('Swamp',
+        slider(recipe, ['moss', 'Hanging moss', 0, 1, 0.01, 'pct', 'Grey-green moss hanging from the branches (also on bare and dead trees)'], true),
+        recipe.moss > 0 ? colour(recipe, 'mossColor', 'Moss colour') : null,
+        slider(recipe, ['vines', 'Vines', 0, 60, 1, 'int', 'Vines hanging from the branches'])),
       section('Bark',
         choice(recipe, 'barkMaterial', 'Material', barkOptions, 'A Texture Bench material for the bark (colour, normal and ORM maps)'),
         colour(recipe, 'barkColor', 'Colour (plain bark)'),
@@ -404,15 +430,26 @@ window.NoorAssets = (() => {
   }
 
   function exportPane() {
-    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods, lodFiles: exportPrefs.lodFiles }), hooks.showError);
+    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants }), hooks.showError);
     const size = el('select', { id: 'ab-tex-size', 'aria-label': 'Texture size' }, ...[[0, 'No textures (plain colours)'], [256, '256 px'], [512, '512 px'], [1024, '1024 px'], [2048, '2048 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
     size.value = String(exportPrefs.textureSize);
     size.addEventListener('change', () => { exportPrefs.textureSize = Number(size.value); saveExportPrefs(); exportWhere.refresh(); });
     const files = el('select', { id: 'ab-lod-files', 'aria-label': 'Levels of detail' }, el('option', { value: 'separate', text: 'A file for each (Name_LOD0.glb…)' }), el('option', { value: 'one', text: 'All in one file (nodes Name_LOD0…)' }));
     files.value = exportPrefs.lodFiles;
     files.addEventListener('change', () => { exportPrefs.lodFiles = files.value; saveExportPrefs(); exportWhere.refresh(); });
+    const variants = el('input', { type: 'number', id: 'ab-variants', min: '1', max: '50', step: '1', value: String(exportPrefs.variants), 'aria-label': 'Trees in the pack' });
+    variants.addEventListener('change', () => { exportPrefs.variants = Math.max(1, Math.min(50, Math.round(Number(variants.value) || 1))); variants.value = String(exportPrefs.variants); saveExportPrefs(); exportWhere.refresh(); spreadRow.hidden = exportPrefs.variants < 2; });
+    const spread = el('input', { type: 'range', id: 'ab-spread', min: '0', max: '0.5', step: '0.01', value: String(exportPrefs.spread), 'aria-label': 'Size spread' });
+    const spreadText = el('small', { text: `± ${Math.round(exportPrefs.spread * 100)}%` });
+    spread.addEventListener('input', () => { exportPrefs.spread = Number(spread.value); spreadText.textContent = `± ${Math.round(exportPrefs.spread * 100)}%`; saveExportPrefs(); });
+    const spreadRow = el('label', { class: 'sb-inline', title: 'Each tree is up to this much taller or shorter (the trunk follows)', hidden: exportPrefs.variants < 2 }, el('span', { text: 'Size spread' }), spread, spreadText);
     exportWhere.refresh();
     return [
+      section('Variety pack',
+        el('div', { class: 'sb-row' },
+          el('label', { class: 'sb-inline', title: 'How many trees of this kind: each from its own seed (the first is the one on screen)' }, el('span', { text: 'Trees' }), variants),
+          spreadRow),
+        el('small', { class: 'pref-hint', text: 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
       section('Files',
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
         el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
@@ -420,7 +457,7 @@ window.NoorAssets = (() => {
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn primary', id: 'ab-export', onclick: exportNow }, '⬇ Export'),
         lastExport ? el('button', { class: 'utility-btn', id: 'ab-reveal', onclick: () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError) }, '📁 Show in folder') : null),
-      lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.files.join(', ')} with ${lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
+      lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.variants > 1 ? `${lastExport.variants} trees (${lastExport.files.length} files)` : lastExport.files.join(', ')} with ${lastExport.variants > 1 ? 'their recipes' : lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
     ];
   }
 
@@ -430,10 +467,10 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, ...exportWhere.payload() });
+      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
-      setStatus(`Exported “${recipe.name}”: ${r.files.join(', ')}`);
+      setStatus(r.variants > 1 ? `Exported ${r.variants} × “${recipe.name}”: ${r.files.length} files` : `Exported “${recipe.name}”: ${r.files.join(', ')}`);
       notice(`“${recipe.name}” exported`, 1600);
       renderEditor();
     } catch (err) { hooks.showError(err); }

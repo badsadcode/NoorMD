@@ -29,21 +29,35 @@ public static class LeafAtlas
             var stemBend = (float)(rng.NextDouble() - 0.5) * 0.3f;
             Vector2 StemAt(float t) => new(stemBend * t * t, t * 0.92f);
             // Stylized sprites are fuller: a tuft of leaves, not a twig.
-            var count = shape switch { "needle" => 70, "maple" => 3, "round" => 9, _ => 7 } + (stylized && shape != "needle" ? 5 : 0);
+            var count = shape switch { "needle" => 70, "maple" => 3, "round" => 9, "slender" => 16, "frond" => 60, "moss" => 46, _ => 7 } + (stylized && shape is not ("needle" or "moss" or "frond") ? 5 : 0);
             for (var k = 0; k < count; k++)
             {
-                var t = shape == "needle" ? 0.04f + 0.92f * k / count : 0.18f + 0.8f * (k + 0.5f) / count;
+                if (shape == "moss")
+                {
+                    // Hanging moss: thin strands from the anchor, a little apart, of uneven length (the card hangs them down).
+                    var bx = ((float)rng.NextDouble() - 0.5f) * 0.5f;
+                    var ma = ((float)rng.NextDouble() - 0.5f) * 0.5f;
+                    leaves.Add((new Vector2(bx, (float)rng.NextDouble() * 0.1f), Vector2.Normalize(new Vector2(MathF.Sin(ma), MathF.Cos(ma))), 0.45f + 0.5f * (float)rng.NextDouble(), 0.05f,
+                        Vector3.Lerp(c1, c2, (float)rng.NextDouble())));
+                    continue;
+                }
+                var t = shape is "needle" or "frond" ? 0.04f + 0.92f * k / count : 0.18f + 0.8f * (k + 0.5f) / count;
                 var side = k % 2 == 0 ? 1 : -1;
-                var spread = shape switch { "needle" => 0.75f, "maple" => 0.75f, _ => 0.85f };
+                var spread = shape switch { "needle" => 0.75f, "maple" => 0.75f, "slender" => 0.32f, "frond" => 1.35f, _ => 0.85f };
                 var angle = side * (spread + (float)(rng.NextDouble() - 0.5) * 0.4f) * (1 - 0.5f * t);
                 var dir = Vector2.Normalize(new Vector2(MathF.Sin(angle), MathF.Cos(angle)));
-                var len = shape switch { "needle" => 0.42f, "round" => 0.28f, "maple" => 0.5f, _ => 0.4f } * (1 - 0.35f * t) * (0.85f + 0.3f * (float)rng.NextDouble());
-                var width = shape switch { "needle" => 0.07f, "round" => 0.55f, "maple" => 0.9f, _ => 0.36f };
+                var len = shape switch
+                {
+                    "needle" => 0.42f, "round" => 0.28f, "maple" => 0.5f, "slender" => 0.34f,
+                    "frond" => 0.5f * MathF.Pow(MathF.Max(0, MathF.Sin(MathF.PI * MathF.Min(1, t * 1.05f))), 0.6f) / (1 - 0.35f * t),
+                    _ => 0.4f,
+                } * (1 - 0.35f * t) * (0.85f + 0.3f * (float)rng.NextDouble());
+                var width = shape switch { "needle" => 0.07f, "round" => 0.55f, "maple" => 0.9f, "slender" => 0.17f, "frond" => 0.15f, _ => 0.36f };
                 var col = Vector3.Lerp(c1, c2, (float)rng.NextDouble() * 0.8f + t * 0.2f);
                 leaves.Add((StemAt(t), dir, len, width, col));
             }
             // The top leaf, straight on.
-            if (shape != "needle") leaves.Add((StemAt(0.97f), Vector2.UnitY, shape == "maple" ? 0.5f : 0.36f, shape == "round" ? 0.55f : shape == "maple" ? 0.9f : 0.36f, Vector3.Lerp(c1, c2, 0.6f)));
+            if (shape is not ("needle" or "moss" or "frond")) leaves.Add((StemAt(0.97f), Vector2.UnitY, shape == "maple" ? 0.5f : 0.36f, shape == "round" ? 0.55f : shape == "maple" ? 0.9f : 0.36f, Vector3.Lerp(c1, c2, 0.6f)));
 
             for (var y = 0; y < half; y++)
                 for (var x = 0; x < half; x++)
@@ -60,10 +74,10 @@ public static class LeafAtlas
                     for (var k = 0; k < 6; k++) ds = MathF.Min(ds, SegmentDistance(p, StemAt(k / 6f * 0.97f), StemAt((k + 1) / 6f * 0.97f)));
                     ds -= 0.012f * (1.2f - sy);
                     var stemA = Math.Clamp(0.5f - ds / aa, 0, 1);
-                    if (stemA > 0) { alpha = stemA; rgb = stem; }
+                    if (stemA > 0 && shape != "moss") { alpha = stemA; rgb = stem; }
                     foreach (var (b, dir, len, width, col) in leaves)
                     {
-                        var (d, along, across) = LeafDistance(shape, p - b, dir, len, width);
+                        var (d, along, across) = LeafDistance(shape == "moss" ? "needle" : shape, p - b, dir, len, width);
                         var a = Math.Clamp(0.5f - d / aa, 0, 1);
                         if (a <= 0) continue;
                         Vector3 c;
@@ -142,7 +156,7 @@ public static class LeafAtlas
         {
             "round" => MathF.Sqrt(MathF.Max(0, 1 - MathF.Pow(2 * t - 1, 2))),
             "needle" => 1 - t * 0.5f,
-            _ => MathF.Pow(MathF.Sin(MathF.PI * MathF.Pow(t, 0.75f)), 0.9f),
+            _ => MathF.Pow(MathF.Max(0, MathF.Sin(MathF.PI * MathF.Pow(t, 0.75f))), 0.9f),
         };
         var halfWidth = width * len * 0.5f * profile + 1e-4f;
         var outside = along < 0 ? -along * len : along > 1 ? (along - 1) * len : 0;

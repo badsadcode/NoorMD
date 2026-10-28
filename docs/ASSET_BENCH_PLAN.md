@@ -125,6 +125,26 @@ groups; the Khronos validator in CI). Worth taking from it:
 7. **Biome recipes:** its catalogue of 79 biomes with two recipes each, as starting points once the architectures
    exist.
 
+### Done in preview.54 (variety: swamps, willows, giants, palms, fantasy)
+
+Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh world and a lot of variety:
+
+- **Trunk:** fluting (welded ridges up the lower trunk, the core thinned between them), a bulge (baobab), an S-curve,
+  windswept (trunk and branches streaming one way), an umbrella crown shape.
+- **Roots:** flared base, surface roots (curling, forking, half sunk in the ground, the tips buried), mangrove stilts
+  arching from the trunk into the ground, a compact collar; cypress knees.
+- **Leaves:** cards scattered, single, crossed, as stars, fans or domes; willow curtains (crossed ribbons hanging
+  from the branches, stopping above the ground, swaying more towards the tips); fronds (a strip along every outer
+  branch, for palms and tree ferns); new sprites: slender willow leaves, fronds, moss.
+- **Swamp:** hanging moss (its own material, also on dead trees), hanging vines.
+- **Presets:** 23 new ones in six groups (forest, swamp and marsh, giants, tropical, dry and windswept, fantasy),
+  most in both looks; the list filters by look.
+- **Variety packs:** N trees from consecutive seeds, sizes spread ±%, the first being the tree on screen; each with
+  its recipe, one manifest for the pack.
+
+Still open from the list: the painted bark texture and bring-your-own textures (5), fungal and crystal trees, the
+biome catalogue (7).
+
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to

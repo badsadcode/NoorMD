@@ -89,7 +89,14 @@ public static class TreeBuilder
                 // Roots are short and stubby: welded all the way, their tips kept at least as thick as the grid allows.
                 if (b.Root) end = b.Points.Count;
                 if (end < 2) { g.Tubes.Add((id, 0, true)); tubeCount++; continue; }
-                var collar = (float)recipe.Collar * b.BaseRadius * (b.Root ? 0.6f + 0.8f * (float)recipe.Flare : 1.6f);
+                var collar = (float)recipe.Collar * b.BaseRadius * b.Kind switch
+                {
+                    "root" => 0.6f + 0.8f * (float)recipe.Flare,
+                    "prop" => 0.9f,
+                    "ridge" => 0.5f,
+                    "knee" => 0f,
+                    _ => 1.6f,
+                };
                 // A separate limb starts a little inside its parent, so no gap shows where it meets it.
                 if (attach && b.Parent >= 0)
                 {
@@ -147,6 +154,16 @@ public static class TreeBuilder
             if (options.TextureSize > 0) leafMat.BaseColorPng = LeafAtlas.Rgba(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, Math.Min(1024, options.TextureSize), recipe.Seed);
             else leafMat.BaseColor = Color(recipe.LeafColor);
         }
+        // Hanging moss (also on bare and dead trees: the swamp snag).
+        var mossy = recipe.Moss > 0;
+        var mossMat = new Material3D { Name = "Moss", Alpha = "mask", AlphaCutoff = 0.45f, Roughness = 0.9f };
+        if (mossy)
+        {
+            var light = LeafAtlas.Hex(recipe.MossColor) * 1.35f;
+            var lightHex = $"#{(int)Math.Clamp(light.X * 255, 0, 255):x2}{(int)Math.Clamp(light.Y * 255, 0, 255):x2}{(int)Math.Clamp(light.Z * 255, 0, 255):x2}";
+            if (options.TextureSize > 0) mossMat.BaseColorPng = LeafAtlas.Rgba("moss", recipe.MossColor, lightHex, stylized, Math.Min(512, options.TextureSize), recipe.Seed + 7);
+            else mossMat.BaseColor = Color(recipe.MossColor);
+        }
         var clumpMat = new Material3D { Name = "Leaf clumps", Roughness = 0.85f };
         if (clumps)
         {
@@ -160,9 +177,10 @@ public static class TreeBuilder
             ct.ThrowIfCancellationRequested();
             var asset = new Asset3D { Name = lodCount > 1 || recipe.Lods > 1 ? $"{recipe.Name}_LOD{lod}" : recipe.Name };
             asset.Materials.Add(bark);
-            int leafIndex = -1, clumpIndex = -1;
+            int leafIndex = -1, clumpIndex = -1, mossIndex = -1;
             if (cards) { asset.Materials.Add(leafMat); leafIndex = asset.Materials.Count - 1; }
             if (clumps) { asset.Materials.Add(clumpMat); clumpIndex = asset.Materials.Count - 1; }
+            if (mossy) { asset.Materials.Add(mossMat); mossIndex = asset.Materials.Count - 1; }
             asset.Root = new Node3D { Name = asset.Name };
             var budget = Math.Max(150, recipe.Budget >> lod);
             var detail = 1 << lod;
@@ -221,6 +239,8 @@ public static class TreeBuilder
                     if (recipe.Foliage is "both" or "tufts" && clumpMesh != null) AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng, recipe.Foliage == "tufts");
                     else AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
                 }
+
+                if (mossy) AddMoss(leaves, sk, recipe, g.Branches, mossIndex, detail, new Random(recipe.Seed * 104729 + g.Index * 17 + lod));
 
                 // Pivots: a separate limb's node sits where it leaves its parent.
                 Offset(wood, -g.Pivot);
@@ -383,11 +403,11 @@ public static class TreeBuilder
         // Little blending: the clumps stay distinct lobes (the painted fantasy look), only their joins are rounded.
         var blend = size * 0.3f;
         var conifer = recipe.Archetype == "conifer";
-        var deepest = sk.Branches.Where(b => !b.Root).Max(b => b.Level);
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         foreach (var id in branchIds)
         {
             var b = sk.Branches[id];
-            if (b.Root || b.Level == 0 && deepest > 0) continue;
+            if (b.Root || b.Bare || b.Level == 0 && deepest > 0) continue;
             if (b.Children.Count > 0 && b.Level < deepest) continue;
             // Along the branch (several on long ones, outer ones smaller on conifers for the tiered look).
             var n = conifer ? 4 : Math.Clamp((int)MathF.Round(b.Length / (size * 1.4f)), 1, 4);
@@ -456,25 +476,28 @@ public static class TreeBuilder
     /// <summary>Leaf cards along the outermost branches, growing away from them, facing up and out of the crown.</summary>
     private static void AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
     {
+        if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
-        var deepest = sk.Branches.Where(b => !b.Root).Max(b => b.Level);
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
         var budget = 8000 / detail;
         var placed = 0;
         foreach (var id in branchIds)
         {
             var b = sk.Branches[id];
-            if (b.Root || (b.Level == 0 && deepest > 0)) continue;
+            if (b.Root || b.Bare || (b.Level == 0 && deepest > 0)) continue;
             // The outermost branches, and the outer part of the level below (where twigs would be).
             var outer = b.Children.Count == 0 || b.Level >= deepest;
             if (!outer && b.Level < deepest - 1) continue;
             var from = outer ? (conifer ? 0.1f : 0.25f) : 0.6f;
-            var count = (int)MathF.Round((float)recipe.LeafDensity * 11f * b.Length * (1 - from) / size0);
+            var perTuft = recipe.Arrangement switch { "cross" => 2, "star" or "fan" => 3, "dome" => 5, _ => 1 };
+            var count = (int)MathF.Round((float)recipe.LeafDensity * 11f * b.Length * (1 - from) / size0 / MathF.Pow(perTuft, 0.75f));
             if (count <= 0 && rng.NextDouble() < recipe.LeafDensity) count = 1;
             // Farther levels: fewer, bigger cards covering the same area.
             var n = Math.Max(count > 0 ? 1 : 0, (int)MathF.Ceiling(count / (float)detail));
             var size = n > 0 ? size0 * MathF.Sqrt(Math.Max(1, count) / (float)n) : size0;
-            for (var k = 0; k < n && placed < budget; k++, placed++)
+            // A ceiling on the leaves' triangles too (hanging curtains and tufts cost several cards each).
+            for (var k = 0; k < n && placed < budget && m.TriangleCount < 36000 / detail; k++, placed++)
             {
                 var t = from + (1 - from) * (n == 1 ? 1 : (k + (float)rng.NextDouble() * 0.8f) / n);
                 var (p, _, dir) = b.At(t);
@@ -484,7 +507,13 @@ public static class TreeBuilder
                 var tilt = (conifer ? 0.5f : 0.6f) + (float)rng.NextDouble() * 0.6f;
                 var grow = Vector3.Normalize(dir * MathF.Cos(tilt) + side * MathF.Sin(tilt));
                 if (t >= 0.99f) grow = Vector3.Normalize(dir + side * 0.2f);
-                Card(m, p, grow, size * (0.8f + 0.4f * (float)rng.NextDouble()), sk, recipe, b, t, material, rng);
+                var cardSize = size * (0.8f + 0.4f * (float)rng.NextDouble());
+                switch (recipe.Arrangement)
+                {
+                    case "scatter": Card(m, p, grow, cardSize, sk, recipe, b, t, material, rng); break;
+                    case "hanging": Hanging(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
+                    default: Tuft(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
+                }
             }
         }
     }
@@ -514,20 +543,186 @@ public static class TreeBuilder
     }
 
     /// <summary>
+    /// A tuft of cards set in one of the classic game-art arrangements around a point on a branch: single, cross,
+    /// star (upright, turned round the vertical), fan (nearly level, like spruce tiers), dome (leaning in, with a cap).
+    /// Readable from every side.
+    /// </summary>
+    private static void Tuft(Mesh3D m, Vector3 p, Vector3 side, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng)
+    {
+        var outward = side with { Y = 0 };
+        outward = outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX;
+        var spin = (float)(rng.NextDouble() * MathF.Tau);
+        Vector3 Around(float a) => Vector3.Transform(outward, Quaternion.CreateFromAxisAngle(Vector3.UnitY, a + spin));
+        var centre = p + side * size * 0.12f;
+        switch (recipe.Arrangement)
+        {
+            case "single":
+                Card(m, p, Vector3.Normalize(side * 0.6f + Vector3.UnitY * 0.5f), size, sk, recipe, b, t, material, rng);
+                break;
+            case "cross":
+            case "star":
+            {
+                var n = recipe.Arrangement == "cross" ? 2 : 3;
+                var grow = Vector3.Normalize(Vector3.UnitY + side * 0.3f);
+                for (var k = 0; k < n; k++)
+                    Card(m, centre - grow * size * 0.45f, grow, size, sk, recipe, b, t, material, rng, face: Around(MathF.PI * k / n));
+                break;
+            }
+            case "fan":
+                for (var k = 0; k < 3; k++)
+                {
+                    var h = Around(MathF.Tau * k / 3);
+                    Card(m, centre - h * size * 0.15f, Vector3.Normalize(h + Vector3.UnitY * 0.25f), size, sk, recipe, b, t, material, rng, face: Vector3.UnitY);
+                }
+                break;
+            default:    // dome: four leaning in round a level cap
+                for (var k = 0; k < 4; k++)
+                {
+                    var h = Around(MathF.Tau * k / 4);
+                    Card(m, centre - h * size * 0.35f, Vector3.Normalize(Vector3.UnitY * 0.8f + h * 0.6f), size, sk, recipe, b, t, material, rng);
+                }
+                Card(m, centre + Vector3.UnitY * size * 0.45f - outward * size * 0.5f, outward, size, sk, recipe, b, t, material, rng, face: Vector3.UnitY);
+                break;
+        }
+    }
+
+    /// <summary>Willow: two crossed ribbons hanging from the branch, swaying more towards their tips, stopping above the ground.</summary>
+    private static void Hanging(Mesh3D m, Vector3 p, Vector3 side, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng)
+    {
+        var length = MathF.Min((float)recipe.HangLength * (0.35f + 0.65f * (float)rng.NextDouble()), p.Y - 0.25f);
+        if (length < size * 0.4f) { Tuft(m, p, side, size, sk, recipe, b, t, material, rng); return; }
+        var outward = side with { Y = 0 };
+        outward = outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX;
+        var cell = LeafAtlas.Cell(rng.Next(4));
+        for (var k = 0; k < 2; k++)
+        {
+            var across = Vector3.Transform(outward, Quaternion.CreateFromAxisAngle(Vector3.UnitY, MathF.PI / 2 * k + MathF.PI / 4));
+            const int segs = 6;
+            var centres = new List<Vector3>();
+            for (var j = 0; j <= segs; j++)
+            {
+                var s = j / (float)segs;
+                // Out a little, then down, curving away from the branch.
+                centres.Add(p + outward * size * 0.4f * MathF.Sin(s * MathF.PI * 0.5f) - Vector3.UnitY * length * s);
+            }
+            Strip(m, centres, Enumerable.Repeat(across, segs + 1).ToList(), Enumerable.Range(0, segs + 1).Select(j => size * 0.3f * (1 - 0.3f * j / segs)).ToList(),
+                cell, hanging: true, sk, recipe, b, t, material);
+        }
+    }
+
+    /// <summary>Palms and tree ferns: a frond strip along every outer branch, widest in the middle, folded along its rib.</summary>
+    private static void AddFronds(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    {
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
+        var k = 0;
+        foreach (var id in branchIds)
+        {
+            var b = sk.Branches[id];
+            if (b.Root || b.Bare || b.Level == 0 && deepest > 0 || b.Level < deepest) continue;
+            if (detail > 1 && k++ % detail != 0 && detail > 2) continue;     // far levels keep a share of the fronds
+            var centres = new List<Vector3>();
+            var across = new List<Vector3>();
+            var widths = new List<float>();
+            const int segs = 8;
+            for (var j = 0; j <= segs; j++)
+            {
+                var t = 0.08f + 0.92f * j / segs;
+                var (p, _, dir) = b.At(t);
+                var a = Vector3.Cross(dir, Vector3.UnitY);
+                a = a.LengthSquared() > 1e-6f ? Vector3.Normalize(a) : b.Normals[0];
+                centres.Add(p);
+                across.Add(a);
+                widths.Add((float)recipe.LeafSize * (MathF.Pow(MathF.Max(0, MathF.Sin(MathF.PI * MathF.Min(1, t * 1.1f))), 0.65f) * 0.5f + 0.03f) * MathF.Sqrt(detail));
+            }
+            Strip(m, centres, across, widths, LeafAtlas.Cell(rng.Next(4)), hanging: false, sk, recipe, b, 1, material);
+        }
+    }
+
+    /// <summary>Spanish moss: grey-green ribbons hanging under the branches (the swamp look), crossed, swaying.</summary>
+    private static void AddMoss(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    {
+        var scale = Math.Clamp((float)recipe.Height / 10, 0.4f, 3f);
+        foreach (var id in branchIds)
+        {
+            var b = sk.Branches[id];
+            if (b.Root || b.Bare || b.Level == 0) continue;
+            var count = (int)MathF.Round((float)recipe.Moss * 1.6f * b.Length / scale / detail);
+            if (count == 0 && rng.NextDouble() < recipe.Moss * b.Length / scale) count = 1;
+            for (var c = 0; c < count; c++)
+            {
+                var t = 0.15f + 0.8f * (float)rng.NextDouble();
+                var (p, r, _) = b.At(t);
+                var length = MathF.Min(scale * (0.5f + 1.3f * (float)rng.NextDouble()), p.Y - 0.3f);
+                if (length < 0.15f) continue;
+                var cell = LeafAtlas.Cell(rng.Next(4));
+                var turn = (float)(rng.NextDouble() * MathF.PI);
+                for (var k = 0; k < 2; k++)
+                {
+                    var across = Vector3.Transform(Vector3.UnitX, Quaternion.CreateFromAxisAngle(Vector3.UnitY, turn + MathF.PI / 2 * k));
+                    const int segs = 4;
+                    var centres = Enumerable.Range(0, segs + 1).Select(j => p - Vector3.UnitY * (r * 0.5f + length * j / segs)).ToList();
+                    var widths = Enumerable.Range(0, segs + 1).Select(j => scale * 0.35f * (0.6f + 0.4f * MathF.Sin(MathF.PI * (0.2f + 0.8f * j / segs)))).ToList();
+                    Strip(m, centres, Enumerable.Repeat(across, segs + 1).ToList(), widths, cell, hanging: true, sk, recipe, b, t, material);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// A strip of cards along a line (hanging ribbons, fronds, moss): left, raised middle and right vertices per point,
+    /// one atlas cell over its whole length (from the anchor), front and back faces, flutter rising along it.
+    /// </summary>
+    private static void Strip(Mesh3D m, List<Vector3> centres, List<Vector3> across, List<float> widths, Vector4 cell, bool hanging, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material)
+    {
+        var sub = m.Sub(material);
+        var first = m.VertexCount;
+        var n = centres.Count;
+        var baseWind = Wind(b, t, centres[0], sk, recipe);
+        for (var j = 0; j < n; j++)
+        {
+            var along = centres[Math.Min(n - 1, j + 1)] - centres[Math.Max(0, j - 1)];
+            along = along.LengthSquared() > 1e-8f ? Vector3.Normalize(along) : -Vector3.UnitY;
+            var a = across[j];
+            var face = Vector3.Normalize(Vector3.Cross(a, along));
+            if (!hanging && face.Y < 0) face = -face;
+            var s = j / (float)(n - 1);
+            var v = cell.W + (cell.Y - cell.W) * s;      // from the anchor (bottom of the cell) to its top
+            for (var c = 0; c < 3; c++)
+            {
+                var x = c - 1;
+                var pos = centres[j] + a * widths[j] * x + (c == 1 ? face * widths[j] * 0.25f : Vector3.Zero);
+                var u = cell.X + (cell.Z - cell.X) * (c / 2f);
+                var own = Vector3.Normalize(face - a * x * 0.35f);
+                var wind = recipe.Wind ? baseWind with { Z = s } : Vector4.Zero;
+                m.AddVertex(pos, Vector3.Normalize(Vector3.Lerp(own, CrownOut(pos, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
+                m.AddVertex(pos, Vector3.Normalize(Vector3.Lerp(-own, CrownOut(pos, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
+            }
+        }
+        for (var j = 0; j + 1 < n; j++)
+            for (var c = 0; c < 2; c++)
+            {
+                int F(int jj, int cc) => first + (jj * 3 + cc) * 2;
+                int a0 = F(j, c), a1 = F(j, c + 1), b0 = F(j + 1, c), b1 = F(j + 1, c + 1);
+                sub.Indices.AddRange([a0, a1, b1, a0, b1, b0]);
+                sub.Indices.AddRange([a0 + 1, b1 + 1, a1 + 1, a0 + 1, b0 + 1, b1 + 1]);
+            }
+    }
+
+    /// <summary>
     /// One card: anchored at its bottom middle on the branch, growing along <paramref name="grow"/>, folded slightly along
     /// its middle, facing as close to up-and-out as it can (with a little random roll), from one of the atlas cells.
     /// </summary>
-    private static void Card(Mesh3D m, Vector3 anchor, Vector3 grow, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng, Vector4? windOverride = null)
+    private static void Card(Mesh3D m, Vector3 anchor, Vector3 grow, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng, Vector4? windOverride = null, Vector3? face = null)
     {
-        var want = Vector3.Normalize(Vector3.UnitY * 0.6f + CrownOut(anchor, sk) * 0.4f);
-        var face = want - grow * Vector3.Dot(want, grow);
-        if (face.LengthSquared() < 1e-6f) face = Vector3.Cross(grow, Vector3.UnitX);
-        face = Vector3.Normalize(face);
-        face = Vector3.Normalize(Vector3.Transform(face, Quaternion.CreateFromAxisAngle(grow, ((float)rng.NextDouble() - 0.5f) * 0.9f)));
-        var across = Vector3.Normalize(Vector3.Cross(grow, face));
+        var want = face ?? Vector3.Normalize(Vector3.UnitY * 0.6f + CrownOut(anchor, sk) * 0.4f);
+        var f = want - grow * Vector3.Dot(want, grow);
+        if (f.LengthSquared() < 1e-6f) f = Vector3.Cross(grow, Vector3.UnitX);
+        f = Vector3.Normalize(f);
+        f = Vector3.Normalize(Vector3.Transform(f, Quaternion.CreateFromAxisAngle(grow, ((float)rng.NextDouble() - 0.5f) * (face == null ? 0.9f : 0.3f))));
+        var across = Vector3.Normalize(Vector3.Cross(grow, f));
         var cellUv = LeafAtlas.Cell(rng.Next(4));
         var half = size / 2;
-        var fold = face * size * 0.12f;
+        var fold = f * size * 0.12f;
         var sub = m.Sub(material);
         var first = m.VertexCount;
         var baseWind = windOverride ?? Wind(b, t, anchor, sk, recipe);
@@ -539,7 +734,7 @@ public static class TreeBuilder
                 var p = anchor + grow * size * row + across * half * x + (col == 1 ? fold : Vector3.Zero);
                 var u = cellUv.X + (cellUv.Z - cellUv.X) * (col / 2f);
                 var v = cellUv.W + (cellUv.Y - cellUv.W) * row;   // bottom of the cell is the anchor
-                var own = Vector3.Normalize(face - across * x * 0.35f);
+                var own = Vector3.Normalize(f - across * x * 0.35f);
                 var wind = recipe.Wind ? baseWind with { Z = row } : Vector4.Zero;
                 m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(own, CrownOut(p, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);
                 m.AddVertex(p, Vector3.Normalize(Vector3.Lerp(-own, CrownOut(p, sk), (float)recipe.CrownNormals)), new Vector2(u, v), wind);

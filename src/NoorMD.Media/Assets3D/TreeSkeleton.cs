@@ -11,7 +11,13 @@ public sealed class TreeBranch
     public float ParentT { get; init; }
     /// <summary>0 the trunk and roots, 1 limbs on the trunk, 2 branches on those, ...</summary>
     public int Level { get; init; }
-    public bool Root { get; init; }
+    /// <summary>What it is: "trunk", "branch", "root", "prop" (a mangrove stilt), "ridge" (a flute ridge up the trunk),
+    /// "knee" (a cypress knee) or "vine" (hanging, bare).</summary>
+    public string Kind { get; init; } = "branch";
+    /// <summary>Part of the trunk's base (roots, stilts, ridges, knees): welded to the trunk, never leafy.</summary>
+    public bool Root => Kind is "root" or "prop" or "ridge" or "knee";
+    /// <summary>No leaves and no branches on it (vines).</summary>
+    public bool Bare => Kind == "vine";
     public List<Vector3> Points { get; } = [];
     public List<float> Radii { get; } = [];
     /// <summary>A direction across the branch at each point, carried along without twisting (for UVs and cards).</summary>
@@ -99,18 +105,27 @@ public sealed class TreeSkeleton
 
         // Trunk. A tree with a crown that splits stops its trunk a little above where the limbs begin.
         var trunkLength = (float)(leader ? recipe.Height : recipe.Height * Math.Min(1, recipe.CrownStart + 0.3));
-        var trunkTip = (float)(leader ? 0.02 : Math.Max(0.15, 1 - recipe.Taper));
-        var trunk = new TreeBranch { Id = 0, Level = 0 };
+        var trunkTip = (float)(leader ? Math.Max(0.02, 1 - recipe.Taper) : Math.Max(0.15, 1 - recipe.Taper));
+        var trunk = new TreeBranch { Id = 0, Level = 0, Kind = "trunk" };
         var leanAxis = Vector3.Transform(Vector3.UnitX, Quaternion.CreateFromAxisAngle(Vector3.UnitY, (float)(rng.NextDouble() * Math.Tau)));
+        // The prevailing wind of a windswept tree: the trunk leans with it and the branches stream after it.
+        var windDir = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, leanAxis));
+        var lean = (float)Math.Max(recipe.Lean, recipe.Windswept * 22);
         var trunkSegments = stylized ? 14 : 18;
         GrowCurve(trunk, Vector3.Zero, Vector3.UnitY, trunkLength, (float)recipe.TrunkRadius, trunkTip, trunkSegments,
             bendDegrees: 0, wobbleDegrees: (float)recipe.Wobble, rng,
-            lean: ((float)recipe.Lean, leanAxis), twistTurns: (float)recipe.Twist, twistRadius: (float)recipe.TrunkRadius * 1.2f,
+            lean: (lean, Vector3.Normalize(Vector3.Cross(Vector3.UnitY, windDir))), twistTurns: (float)recipe.Twist, twistRadius: (float)recipe.TrunkRadius * 1.2f,
             taperPower: stylized ? 1.5f : 1f);
+        ShapeTrunk(trunk, recipe, rng);
         sk.Branches.Add(trunk);
 
+        if (recipe.Flute > 0) AddFluteRidges(sk, trunk, recipe);
+        if (recipe.RootStyle == "surface" && recipe.Roots > 0) AddSurfaceRoots(sk, trunk, recipe, rng);
+        if (recipe.RootStyle == "prop" && recipe.Roots > 0) AddPropRoots(sk, trunk, recipe, rng);
+        if (recipe.Knees > 0) AddKnees(sk, recipe, rng);
+
         // Roots: short, thick and sinking, melted into the base for the flare.
-        if (recipe.Flare > 0 && recipe.Roots > 0)
+        if (recipe.RootStyle == "flare" && recipe.Flare > 0 && recipe.Roots > 0)
         {
             var start = (float)(rng.NextDouble() * Math.Tau);
             for (var r = 0; r < recipe.Roots; r++)
@@ -118,7 +133,7 @@ public sealed class TreeSkeleton
                 var az = start + r * MathF.Tau / recipe.Roots + (float)(rng.NextDouble() - 0.5) * 0.6f;
                 var outward = new Vector3(MathF.Cos(az), 0, MathF.Sin(az));
                 var dir = Vector3.Normalize(outward * 0.85f - Vector3.UnitY * 0.5f);
-                var root = new TreeBranch { Id = sk.Branches.Count, Parent = 0, ParentT = 0, Level = 0, Root = true };
+                var root = new TreeBranch { Id = sk.Branches.Count, Parent = 0, ParentT = 0, Level = 0, Kind = "root" };
                 var len = (float)(recipe.TrunkRadius * (1.6 + 2.2 * recipe.Flare) * (0.75 + 0.5 * rng.NextDouble()));
                 var baseR = (float)(recipe.TrunkRadius * (0.38 + 0.25 * recipe.Flare));
                 GrowCurve(root, new Vector3(0, (float)recipe.TrunkRadius * 0.9f, 0) + outward * (float)recipe.TrunkRadius * 0.3f, dir, len, baseR, 0.25f, 5,
@@ -148,7 +163,7 @@ public sealed class TreeSkeleton
                 {
                     var tRing = (float)(L.Start + (1 - L.Start) * (ring + 0.5 + (rng.NextDouble() - 0.5) * 0.6) / rings);
                     // Leave the very tip of the trunk alone on a single-leader tree.
-                    tRing = Math.Clamp(tRing, (float)L.Start, level == 1 && leader ? 0.95f : 0.97f);
+                    tRing = Math.Clamp(tRing, (float)L.Start, MathF.Max((float)L.Start, level == 1 && leader ? 0.95f : 0.97f));
                     for (var w = 0; w < whorl && made < count; w++, made++)
                     {
                         var t = tRing;
@@ -160,10 +175,14 @@ public sealed class TreeSkeleton
                         across = Vector3.Normalize(Vector3.Transform(Vector3.Normalize(across), Quaternion.CreateFromAxisAngle(pdir, az + (float)recipe.Twist * t * MathF.Tau)));
                         var angle = (float)((L.Angle + (rng.NextDouble() * 2 - 1) * L.AngleSpread) * Math.PI / 180);
                         // Limbs near the top of a crown point more upwards.
-                        if (level == 1 && !leader) angle *= 1 - 0.35f * t;
+                        if (level == 1 && !leader && recipe.Shape != "umbrella") angle *= 1 - 0.35f * t;
                         var dir = Vector3.Normalize(pdir * MathF.Cos(angle) + across * MathF.Sin(angle));
+                        // Windswept: every branch streams the same way.
+                        if (recipe.Windswept > 0)
+                            dir = Vector3.Normalize(Vector3.Lerp(dir, Vector3.Normalize(windDir + Vector3.UnitY * 0.2f), (float)recipe.Windswept * 0.75f));
 
-                        var crownT = (t - (float)L.Start) / Math.Max(1e-3f, 1 - (float)L.Start);
+                        // Where in the crown (0 its bottom … 1 its top); a crown all at the very top (palms) counts as its middle.
+                        var crownT = 1 - L.Start < 0.1 ? 0.5f : Math.Clamp((t - (float)L.Start) / (1 - (float)L.Start), 0, 1);
                         var shape = level == 1 ? ShapeRatio(recipe.Shape, crownT) : 1 - 0.5f * t;
                         var length = parent.Length * (float)L.Length * shape * (float)(1 + (rng.NextDouble() * 2 - 1) * L.LengthSpread);
                         if (level == 1 && leader) length = Math.Min(length, (float)recipe.Height * 0.6f);
@@ -191,6 +210,8 @@ public sealed class TreeSkeleton
             }
             parents = next;
         }
+
+        if (recipe.Vines > 0) AddVines(sk, recipe, rng);
 
         // Exactly the asked height: scale the shape (not the thickness) to fit.
         var top = sk.Branches.SelectMany(b => b.Points).Max(p => p.Y);
@@ -222,6 +243,7 @@ public sealed class TreeSkeleton
             "tapered" => 0.5f + 0.5f * x,
             "flame" => x <= 0.7f ? 0.15f + 0.85f * x / 0.7f : 0.15f + 0.85f * (1 - x) / 0.3f,
             "inverse" => 1 - 0.8f * x,
+            "umbrella" => 0.3f + 0.7f * MathF.Pow(1 - x, 0.8f),
             _ => 1,
         };
     }
@@ -278,6 +300,173 @@ public sealed class TreeSkeleton
             b.Radii.Add(baseR * (1 - (1 - tipRatio) * MathF.Pow(s, taperPower)));
         }
         b.Finish();
+    }
+
+    /// <summary>The trunk's own shape: a swelling (baobab), an S-curve, and a little extra girth at the very base.</summary>
+    private static void ShapeTrunk(TreeBranch trunk, TreeRecipe recipe, Random rng)
+    {
+        var n = trunk.Points.Count;
+        var a = Vector3.Transform(Vector3.UnitX, Quaternion.CreateFromAxisAngle(Vector3.UnitY, (float)(rng.NextDouble() * Math.Tau)));
+        var b = Vector3.Cross(Vector3.UnitY, a);
+        var h = (float)recipe.Height;
+        for (var i = 0; i < n; i++)
+        {
+            var s = i / (float)(n - 1);
+            if (recipe.Bulge > 0) trunk.Radii[i] *= 1 + (float)recipe.Bulge * 1.3f * MathF.Exp(-MathF.Pow((s - (float)recipe.BulgeAt) / 0.28f, 2));
+            if (recipe.SCurve > 0) trunk.Points[i] += (a * MathF.Sin(MathF.PI * s) + b * 0.6f * MathF.Sin(MathF.Tau * s)) * (float)recipe.SCurve * h;
+            if (recipe.RootStyle == "compact" && s < 0.08f) trunk.Radii[i] *= 1 + 0.25f * (1 - s / 0.08f);
+            // Fluting: the core thins where the ridges stand proud of it.
+            if (recipe.Flute > 0 && s < recipe.FluteHeight) trunk.Radii[i] *= 1 - 0.3f * (float)recipe.Flute * MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f);
+        }
+        trunk.Finish();
+    }
+
+    /// <summary>Flute ridges: thick welded strands up the lower trunk, so it reads ribbed and grooved (sequoia, cypress).</summary>
+    private static void AddFluteRidges(TreeSkeleton sk, TreeBranch trunk, TreeRecipe recipe)
+    {
+        var lobes = recipe.FluteLobes;
+        var f = (float)recipe.Flute;
+        for (var k = 0; k < lobes; k++)
+        {
+            var ridge = new TreeBranch { Id = sk.Branches.Count, Parent = 0, Level = 0, Kind = "ridge" };
+            const int steps = 9;
+            for (var j = 0; j <= steps; j++)
+            {
+                var s = (float)recipe.FluteHeight * j / steps;
+                var (p, r, dir) = trunk.At(s);
+                var core = r;
+                var full = core / (1 - 0.3f * f * MathF.Pow(1 - j / (float)steps, 0.6f));     // the trunk's radius before thinning
+                var n0 = trunk.Normals[Math.Min(trunk.Normals.Count - 1, (int)(s * (trunk.Points.Count - 1)))];
+                var angle = MathF.Tau * k / lobes + (float)recipe.Twist * s * MathF.Tau;
+                var radial = Vector3.Normalize(Vector3.Transform(n0, Quaternion.CreateFromAxisAngle(dir, angle)));
+                var fade = MathF.Pow(1 - j / (float)steps, 0.6f);
+                ridge.Points.Add(p + radial * full * 0.58f * MathF.Max(0.2f, fade) - (j == 0 ? Vector3.UnitY * full * 0.15f : Vector3.Zero));
+                ridge.Radii.Add(MathF.Max(full * 0.06f, full * (0.3f + 0.16f * f) * fade));
+            }
+            ridge.Finish();
+            sk.Branches.Add(ridge);
+            trunk.Children.Add(ridge.Id);
+        }
+    }
+
+    /// <summary>Surface roots: long, curling over the ground, forking, flattening, their tips sinking into it.</summary>
+    private static void AddSurfaceRoots(TreeSkeleton sk, TreeBranch trunk, TreeRecipe recipe, Random rng)
+    {
+        var R = (float)recipe.TrunkRadius;
+        var start = (float)(rng.NextDouble() * Math.Tau);
+        void Strand(Vector3 origin, float az, float length, float thick, float curl)
+        {
+            var b = new TreeBranch { Id = sk.Branches.Count, Parent = 0, Level = 0, Kind = "root" };
+            const int steps = 10;
+            for (var j = 0; j <= steps; j++)
+            {
+                var t = j / (float)steps;
+                var a = az + curl * t;
+                var r = thick * MathF.Pow(1 - t, 1.2f) + thick * 0.08f;
+                var p = origin + new Vector3(MathF.Cos(a), 0, MathF.Sin(a)) * length * t;
+                // Down from the trunk, along the ground half sunk in it (so it reads flat), the tip under the ground.
+                p.Y = origin.Y * MathF.Pow(1 - t, 3) + r * 0.25f * (1 - MathF.Pow(1 - t, 3)) - (float)recipe.RootBurial * r * 1.6f * t * t;
+                b.Points.Add(p);
+                b.Radii.Add(r);
+            }
+            b.Finish();
+            sk.Branches.Add(b);
+            trunk.Children.Add(b.Id);
+        }
+        for (var i = 0; i < recipe.Roots; i++)
+        {
+            var az = start + i * MathF.Tau / recipe.Roots + (float)(rng.NextDouble() - 0.5) * 0.45f;
+            var outward = new Vector3(MathF.Cos(az), 0, MathF.Sin(az));
+            var origin = outward * R * 0.35f + Vector3.UnitY * MathF.Min(R * 1.3f, (float)recipe.Height * 0.12f);
+            var length = R * 3.5f * (float)recipe.RootLength * (0.8f + 0.4f * (float)rng.NextDouble());
+            var thick = R * 0.45f;
+            var curl = (float)(rng.NextDouble() * 2 - 1) * 0.5f;
+            Strand(origin, az, length, thick, curl);
+            var main = sk.Branches[^1];
+            for (var f = 0; f < recipe.RootForks; f++)
+            {
+                var at = Math.Min(main.Points.Count - 2, 3 + f * 2);
+                Strand(main.Points[at] + Vector3.UnitY * main.Radii[at] * 0.2f, az + curl * at / 10f + ((f + i) % 2 == 0 ? 0.6f : -0.6f), length * (0.5f - f * 0.1f), main.Radii[at] * 0.8f, (float)(rng.NextDouble() - 0.5) * 0.6f);
+            }
+        }
+    }
+
+    /// <summary>Mangrove stilts: roots arching out of the trunk and down into the ground (or water) around it.</summary>
+    private static void AddPropRoots(TreeSkeleton sk, TreeBranch trunk, TreeRecipe recipe, Random rng)
+    {
+        var R = (float)recipe.TrunkRadius;
+        var start = (float)(rng.NextDouble() * Math.Tau);
+        for (var i = 0; i < recipe.Roots; i++)
+        {
+            var az = start + i * MathF.Tau / recipe.Roots + (float)(rng.NextDouble() - 0.5) * 0.5f;
+            var outward = new Vector3(MathF.Cos(az), 0, MathF.Sin(az));
+            var (origin, _, _) = trunk.At(0.12f + 0.25f * (float)rng.NextDouble());
+            var reach = R * 5.5f * (float)recipe.RootLength * (0.75f + 0.5f * (float)rng.NextDouble());
+            var b = new TreeBranch { Id = sk.Branches.Count, Parent = 0, Level = 0, Kind = "prop" };
+            const int steps = 9;
+            for (var j = 0; j <= steps; j++)
+            {
+                var t = j / (float)steps;
+                var p = origin + outward * reach * (0.6f * t + 0.4f * MathF.Sin(t * MathF.PI / 2));
+                p.Y = origin.Y * (1 - MathF.Pow(t, 1.7f)) - 0.08f * R * t;
+                b.Points.Add(p);
+                b.Radii.Add(R * (0.36f - 0.18f * t));
+            }
+            b.Finish();
+            sk.Branches.Add(b);
+            trunk.Children.Add(b.Id);
+        }
+    }
+
+    /// <summary>Cypress knees: woody cones standing up out of the ground or water around the trunk.</summary>
+    private static void AddKnees(TreeSkeleton sk, TreeRecipe recipe, Random rng)
+    {
+        var R = (float)recipe.TrunkRadius;
+        for (var i = 0; i < recipe.Knees; i++)
+        {
+            var az = (float)(rng.NextDouble() * Math.Tau);
+            var dist = R * (1.8f + 4.5f * (float)Math.Sqrt(rng.NextDouble())) * (float)recipe.RootLength;
+            var at = new Vector3(MathF.Cos(az), 0, MathF.Sin(az)) * dist;
+            var h = R * (0.35f + 0.9f * (float)rng.NextDouble());
+            var r = R * (0.12f + 0.1f * (float)rng.NextDouble());
+            var tilt = new Vector3((float)rng.NextDouble() - 0.5f, 0, (float)rng.NextDouble() - 0.5f) * h * 0.3f;
+            var b = new TreeBranch { Id = sk.Branches.Count, Parent = 0, Level = 0, Kind = "knee" };
+            b.Points.AddRange([at - Vector3.UnitY * r, at + Vector3.UnitY * h * 0.5f + tilt * 0.5f, at + Vector3.UnitY * h + tilt]);
+            b.Radii.AddRange([r * 1.3f, r * 0.85f, r * 0.45f]);
+            b.Finish();
+            sk.Branches.Add(b);
+            sk.Trunk.Children.Add(b.Id);
+        }
+    }
+
+    /// <summary>Vines hanging from the branches, swaying a little, ending above the ground.</summary>
+    private static void AddVines(TreeSkeleton sk, TreeRecipe recipe, Random rng)
+    {
+        var hosts = sk.Branches.Where(b => b.Kind == "branch" && b.Level is 1 or 2 && b.Length > 0.3f).ToList();
+        if (hosts.Count == 0) return;
+        var thick = Math.Clamp((float)recipe.Height / 400, 0.008f, 0.05f);
+        for (var i = 0; i < recipe.Vines; i++)
+        {
+            var host = hosts[rng.Next(hosts.Count)];
+            var t = 0.3f + 0.6f * (float)rng.NextDouble();
+            var (p, r, _) = host.At(t);
+            if (p.Y < 1) continue;
+            var length = MathF.Max(0.3f, (p.Y - 0.3f) * (0.35f + 0.6f * (float)rng.NextDouble()));
+            var sway = new Vector3((float)rng.NextDouble() - 0.5f, 0, (float)rng.NextDouble() - 0.5f) * 0.6f;
+            var v = new TreeBranch { Id = sk.Branches.Count, Parent = host.Id, ParentT = t, Level = host.Level + 1, Kind = "vine" };
+            const int steps = 8;
+            for (var j = 0; j <= steps; j++)
+            {
+                var s = j / (float)steps;
+                v.Points.Add(p - Vector3.UnitY * length * s + sway * MathF.Sin(s * MathF.PI) * length * 0.15f + (j == 0 ? Vector3.UnitY * r * 0.5f : Vector3.Zero));
+                v.Radii.Add(thick * (1 - 0.4f * s));
+            }
+            v.Phase = host.Phase;
+            v.BendAtBase = host.BendAtBase;
+            v.Finish();
+            sk.Branches.Add(v);
+            host.Children.Add(v.Id);
+        }
     }
 
     /// <summary>All points of all branches (for bounds and tests).</summary>

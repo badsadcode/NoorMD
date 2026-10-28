@@ -36,14 +36,10 @@ public class TreeTests
         Assert.All(a.Branches.Where(x => x.Parent >= 0 && !x.Root), x => Assert.True(x.BaseRadius <= a.Branches[x.Parent].At(x.ParentT).R + 1e-4f));
     }
 
+    public static IEnumerable<object[]> AllPresets => TreePresets.All.Select(p => new object[] { p.Id });
+
     [Theory]
-    [InlineData("oak")]
-    [InlineData("pine")]
-    [InlineData("birch")]
-    [InlineData("dead")]
-    [InlineData("stylized-oak")]
-    [InlineData("stylized-pine")]
-    [InlineData("stylized-dead")]
+    [MemberData(nameof(AllPresets))]
     public void Every_preset_builds_clean_meshes_in_every_branch_mode(string preset)
     {
         foreach (var mode in TreeRecipe.BranchModes)
@@ -171,10 +167,13 @@ public class TreeTests
             Assert.Equal(0, leaves.UV1[c].Y);
             Assert.Equal(0, leaves.UV1[c + 1].Y);
             Assert.Equal(1, leaves.UV1[c + 6].Y);
-            // Front and back share the corner, not the normal (unless the crown normals take over completely).
+            // Front and back share the corner.
             Assert.Equal(leaves.Positions[c], leaves.Positions[c + 1]);
-            Assert.True(Vector3.Dot(leaves.Normals[c], leaves.Normals[c + 1]) < 0.999f);
         }
+        // …not the normal, except on a card facing straight out of the crown, where the crown normal wins on both sides.
+        var cards = leaves.VertexCount / 12;
+        var distinct = Enumerable.Range(0, cards).Count(k => Vector3.Dot(leaves.Normals[k * 12], leaves.Normals[k * 12 + 1]) < 0.99f);
+        Assert.True(distinct > cards * 0.6, $"{distinct} of {cards}");
         // Card UVs stay inside one atlas cell.
         for (var c = 0; c < leaves.VertexCount; c += 12)
         {
@@ -217,7 +216,7 @@ public class TreeTests
         var back = TreeRecipe.FromJson(r.ToJson());
         Assert.Equal(r.ToJson(), back.ToJson());
         var bad = TreeRecipe.FromJson("""{"height": 9999, "archetype": "palm", "levels": [{"count": 9999}, {}, {}, {}, {}], "leafColor": "red", "barkMaterial": "../x", "budget": 1}""");
-        Assert.Equal(60, bad.Height);
+        Assert.Equal(120, bad.Height);
         Assert.Equal("broadleaf", bad.Archetype);
         Assert.Equal(3, bad.Levels.Count);
         Assert.Equal(80, bad.Levels[0].Count);
@@ -242,5 +241,143 @@ public class TreeTests
         var still = TreeBuilder.Build(r, NoTextures).Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
         Assert.Empty(still.Colors);
         Assert.Empty(still.UV1);
+    }
+
+    private static Mesh3D Wood(TreeBuild b) => b.Lods[0].Root.All().First(n => n.Name == "Trunk").Mesh!;
+    private static Mesh3D? Leaves(TreeBuild b) => b.Lods[0].Root.All().FirstOrDefault(n => n.Name == "Leaves")?.Mesh;
+
+    [Fact]
+    public void Fluting_ribs_the_lower_trunk()
+    {
+        float Ribbing(double flute)
+        {
+            var r = Small("oak");
+            r.Levels.Clear(); r.Foliage = "none"; r.RootStyle = "compact"; r.Wobble = 0; r.Lean = 0; r.Twist = 0; r.Quality = "high"; r.Budget = 20000; r.Lods = 1;
+            r.Flute = flute; r.FluteLobes = 8; r.FluteHeight = 0.5;
+            var w = Wood(TreeBuilder.Build(r, NoTextures));
+            var y = (float)r.Height * 0.12f;
+            var band = w.Positions.Where(p => MathF.Abs(p.Y - y) < 0.15f).Select(p => new Vector2(p.X, p.Z).Length()).ToList();
+            return band.Max() / band.Min();
+        }
+        Assert.True(Ribbing(0) < 1.12f);
+        Assert.True(Ribbing(1) > 1.25f);
+    }
+
+    [Fact]
+    public void Stilt_roots_arch_from_the_trunk_down_to_the_ground_and_knees_stand_around_it()
+    {
+        var r = TreePresets.Make("mangrove");
+        r.Knees = 6;
+        var sk = TreeSkeleton.Grow(r);
+        var props = sk.Branches.Where(b => b.Kind == "prop").ToList();
+        Assert.Equal(r.Roots, props.Count);
+        Assert.All(props, b =>
+        {
+            Assert.True(b.Points[0].Y > r.TrunkRadius * 1.5);                       // they leave the trunk well above the ground
+            Assert.InRange(b.Points[^1].Y, -r.TrunkRadius, 0.05f);                 // and end in it
+            Assert.True(new Vector2(b.Points[^1].X, b.Points[^1].Z).Length() > r.TrunkRadius * 3);
+        });
+        Assert.Equal(6, sk.Branches.Count(b => b.Kind == "knee"));
+        // The knees are woody cones of their own, standing out of the ground apart from the trunk.
+        r.Levels.Clear(); r.Foliage = "none"; r.Quality = "low"; r.Lods = 1; r.Roots = 0; r.RootStyle = "compact";
+        var weld = new Mesh3D();
+        var w = Wood(TreeBuilder.Build(r, NoTextures));
+        weld.Positions.AddRange(w.Positions);
+        var map = new Dictionary<Vector3, int>();
+        var sub = weld.Sub(0);
+        foreach (var x in w.Submeshes) foreach (var i in x.Indices) { if (!map.TryGetValue(w.Positions[i], out var v)) map[w.Positions[i]] = v = i; sub.Indices.Add(v); }
+        Assert.True(ImplicitFieldTests.Components(weld) >= 4);
+    }
+
+    [Fact]
+    public void Surface_roots_fork_and_sink_their_tips()
+    {
+        var r = Small("oak");
+        r.RootStyle = "surface"; r.Roots = 5; r.RootForks = 2; r.RootBurial = 1;
+        var sk = TreeSkeleton.Grow(r);
+        var roots = sk.Branches.Where(b => b.Kind == "root").ToList();
+        Assert.Equal(5 * 3, roots.Count);
+        Assert.All(roots, b => Assert.True(b.Points[^1].Y < 0));
+        Assert.True(roots.Max(b => new Vector2(b.Points[^1].X, b.Points[^1].Z).Length()) > r.TrunkRadius * 2.5);
+    }
+
+    [Fact]
+    public void Willow_curtains_hang_down_and_flutter_more_towards_their_tips()
+    {
+        var r = Small("willow");
+        var b = TreeBuilder.Build(r, NoTextures);
+        var leaves = Leaves(b)!;
+        Assert.Empty(leaves.Problems());
+        // Strips: rows of six vertices (left, middle, right, each front and back); the flutter rises down the ribbon.
+        Assert.True(leaves.UV1.Max(u => u.Y) == 1 && leaves.UV1.Min(u => u.Y) == 0);
+        Assert.True(leaves.Positions.Min(p => p.Y) > 0.2f);
+        var (lo, hi) = leaves.Bounds();
+        Assert.True(hi.Y - lo.Y > r.Height * 0.4f);       // long curtains, not a ball of cards
+    }
+
+    [Fact]
+    public void Palm_fronds_crown_the_trunk()
+    {
+        var b = TreeBuilder.Build(Small("palm"), NoTextures);
+        var leaves = Leaves(b)!;
+        Assert.Empty(leaves.Problems());
+        var (lo, hi) = leaves.Bounds();
+        Assert.True(lo.Y > b.Recipe.Height * 0.5);                 // up at the top
+        Assert.True(hi.X - lo.X > b.Recipe.Height * 0.3);          // spread wide
+    }
+
+    [Fact]
+    public void Moss_hangs_even_from_dead_trees_and_vines_carry_no_leaves()
+    {
+        var r = Small("bog-snag");
+        var b = TreeBuilder.Build(r, NoTextures);
+        var moss = b.Lods[0].Materials.FindIndex(m => m.Name == "Moss");
+        Assert.True(moss >= 0);
+        Assert.Equal("mask", b.Lods[0].Materials[moss].Alpha);
+        Assert.True(Leaves(b)!.Submeshes.Single(x => x.Material == moss).Indices.Count > 300);
+        var vines = b.Skeleton.Branches.Where(x => x.Kind == "vine").ToList();
+        Assert.NotEmpty(vines);
+        Assert.All(vines, v => { Assert.True(v.Bare); Assert.True(v.Points[^1].Y < v.Points[0].Y); Assert.True(v.Points[^1].Y > 0.2f); });
+        r.Moss = 0;
+        Assert.DoesNotContain(TreeBuilder.Build(r, NoTextures).Lods[0].Materials, m => m.Name == "Moss");
+    }
+
+    [Theory]
+    [InlineData("cross")]
+    [InlineData("star")]
+    [InlineData("fan")]
+    [InlineData("dome")]
+    [InlineData("single")]
+    public void Card_arrangements_build_clean_leaves(string arrangement)
+    {
+        var r = Small("oak");
+        r.Arrangement = arrangement;
+        var leaves = Leaves(TreeBuilder.Build(r, NoTextures))!;
+        Assert.Empty(leaves.Problems());
+        Assert.True(leaves.TriangleCount > 200);
+    }
+
+    [Fact]
+    public void Variety_packs_number_their_trees_and_spread_their_sizes()
+    {
+        var r = TreePresets.Make("oak");
+        var pack = TreeVariants.Make(r, 6, 0.2);
+        Assert.Equal(6, pack.Count);
+        Assert.Equal(r.Seed, pack[0].Seed);
+        Assert.Equal(r.Height, pack[0].Height);
+        Assert.Equal(6, pack.Select(x => x.Seed).Distinct().Count());
+        Assert.All(pack, x => Assert.InRange(x.Height, r.Height * 0.8 - 1e-9, r.Height * 1.2 + 1e-9));
+        Assert.Contains(pack, x => Math.Abs(x.Height - r.Height) > 0.05);
+        Assert.Equal(["Oak 01", "Oak 06"], new[] { pack[0].Name, pack[5].Name });
+        Assert.Equal(pack.Select(x => x.ToJson()), TreeVariants.Make(r, 6, 0.2).Select(x => x.ToJson()));     // the same pack every time
+        Assert.Equal("Oak", TreeVariants.Make(r, 1, 0.2)[0].Name);
+        Assert.Equal(TreeVariants.MaxCount, TreeVariants.Make(r, 999, 0.2).Count);
+    }
+
+    [Fact]
+    public void Umbrella_crowns_are_longest_at_the_top()
+    {
+        Assert.True(TreeSkeleton.ShapeRatio("umbrella", 1) > TreeSkeleton.ShapeRatio("umbrella", 0.5f));
+        Assert.True(TreeSkeleton.ShapeRatio("umbrella", 0.5f) > TreeSkeleton.ShapeRatio("umbrella", 0));
     }
 }

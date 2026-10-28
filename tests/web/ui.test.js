@@ -5084,7 +5084,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
       check('Ctrl+Alt+M opens the Asset Bench with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
-      check('presets are grouped by look (realistic, stylized)', /Realistic/i.test(await page.textContent('#ab-presets')) && /Stylized/i.test(await page.textContent('#ab-presets')));
+      check('presets are grouped by where they grow', /Forest/.test(await page.textContent('#ab-presets')) && /Swamp & marsh/.test(await page.textContent('#ab-presets')));
+      await page.click('#ab-presets [data-look="stylized"]');
+      check('…and can show only the stylized ones', !(await page.$('#ab-presets [data-preset="oak"]')) && !!(await page.$('#ab-presets [data-preset="stylized-oak"]')) && !(await page.$('#ab-presets [data-preset="willow"]')));
+      await page.click('#ab-presets [data-look="all"]');
+      check('…or all of them', !!(await page.$('#ab-presets [data-preset="willow"]')));
       const webgl = (await AS()).viewer !== null;
       if (webgl) {
         await waitFn(page, () => NoorAssets._state().viewer.loaded);
@@ -5105,6 +5109,20 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+z');
       await waitFn(page, () => NoorAssets._state().recipe.height === 10);
       check('Ctrl+Z undoes it (and builds again)', (await AM()).builds.at(-1).height === 10);
+      // A willow: hanging curtains have their length; surface roots their forks.
+      await page.click('#ab-presets [data-preset="willow"]');
+      await waitFn(page, () => NoorAssets._state().recipe.name === 'Weeping willow');
+      await page.click('#assetbench [data-tab="leaves"]');
+      check('hanging curtains: their length can be set', (await page.$eval('#ab-pane select[data-key="arrangement"]', (x) => x.value)) === 'hanging' && !!(await page.$('#ab-pane input[data-key="hangLength"]')));
+      await page.$eval('#ab-pane input[data-key="moss"]', (r) => { r.value = '0.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="mossColor"]'));
+      check('hanging moss, with its colour once there is some', (await AS()).recipe.moss === 0.5);
+      await page.click('#assetbench [data-tab="tree"]');
+      check('surface roots: forks and sinking in', !!(await page.$('#ab-pane input[data-key="rootForks"]')) && !!(await page.$('#ab-pane input[data-key="rootBurial"]')));
+      await page.selectOption('#ab-pane select[data-key="rootStyle"]', 'prop');
+      check('stilt roots: no forks, but a length', !(await page.$('#ab-pane input[data-key="rootForks"]')) && !!(await page.$('#ab-pane input[data-key="rootLength"]')));
+      await page.click('#ab-presets [data-preset="oak"]');
+      await waitFn(page, () => NoorAssets._state().recipe.name === 'Oak');
       // Branches: levels and the mesh mode.
       await page.click('#assetbench [data-tab="branches"]');
       const levels = (await AS()).recipe.levels.length;
@@ -5147,10 +5165,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('engine layouts name models their way (Unreal: Content/Broadleaf/…/SM_)', /Content\/Broadleaf\/ForestOak/.test(await page.textContent('#ex-model-preview')));
       await page.selectOption('#ab-lod-files', 'one');
       await page.selectOption('#ab-tex-size', '2048');
+      await page.fill('#ab-variants', '12');
+      await page.$eval('#ab-variants', (x) => x.dispatchEvent(new Event('change')));
+      await waitFn(page, () => /SM_ForestOak_01\.glb/.test((document.querySelector('#ex-model-preview') || {}).textContent || ''));
+      check('a variety pack: the preview names the first tree and how many follow', /_02 to _12/.test(await page.textContent('#ex-model-preview')) && !!(await page.$('#ab-spread')));
       await page.click('#ab-export');
       await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
       const ex = (await AM()).exports[0];
-      check('Export sends the recipe, the texture size and the levels choice', ex.recipe.name === 'Forest oak' && ex.textureSize === 2048 && ex.lodFiles === 'one' && ex.layout === 'unreal');
+      check('Export sends the recipe, the texture size, the levels choice and the pack', ex.recipe.name === 'Forest oak' && ex.textureSize === 2048 && ex.lodFiles === 'one' && ex.layout === 'unreal' && ex.variants === 12 && ex.spread === 0.15);
+      await waitFn(page, () => /12 trees/.test((document.querySelector('#ab-exported') || {}).textContent || ''));
+      check('…and says what was saved', /12 trees \(12 files\) with their recipes/.test(await page.textContent('#ab-exported')));
       await waitFn(page, () => !!document.querySelector('#ab-reveal'));
       await page.click('#ab-reveal');
       check('…and the folder can be shown', (await AM()).opened === 'D:\\Game\\Trees');

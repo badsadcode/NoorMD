@@ -118,7 +118,7 @@ public partial class MainWindow
                 case "asset.presets":
                     return new
                     {
-                        builtIn = TreePresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, archetype = r.Archetype }; }),
+                        builtIn = TreePresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, archetype = r.Archetype, group = x.Group }; }),
                         mine = UserTreePresets(),
                         barks = NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = t.Name }),
                     };
@@ -178,46 +178,65 @@ public partial class MainWindow
                     var size = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "textureSize") ?? 1024);
                     if (size is not (0 or 256 or 512 or 1024 or 2048)) throw new BridgeError("Choose 256, 512, 1024 or 2048 pixels for the textures, or none.");
                     var oneFile = req.GetString("lodFiles", 10) == "one";
+                    // A variety pack: several trees of this kind from consecutive seeds, sizes spread a little.
+                    var variants = TreeVariants.Make(recipe, (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "variants") ?? 1), NoorMD.Core.Bridge.Json.OptDouble(p, "spread") ?? 0.15);
                     var place = ExportPlaceFrom(p, "model");
-                    var root = ExportBase(place, $"Save “{recipe.Name}” in… (you can make a new folder here)");
+                    var root = ExportBase(place, variants.Count > 1 ? $"Save {variants.Count} × “{recipe.Name}” in… (you can make a new folder here)" : $"Save “{recipe.Name}” in… (you can make a new folder here)");
                     if (root == null) return new { cancelled = true };
                     var tokens = ExportTokens(recipe.Name, recipe.Archetype, size, place.Project?.Name);
                     var folder = ExportLayouts.Under(root, ExportLayouts.Folders(ExportLayouts.Expand(place.FolderPattern, tokens)));
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), recipe.Name);
                     var stem = ExportLayouts.FileName(tokens["name"], recipe.Name);
                     var separate = !oneFile && recipe.Lods > 1;
-                    var glbNames = separate ? Enumerable.Range(0, recipe.Lods).Select(i => $"{file}_LOD{i}.glb").ToList() : [file + ".glb"];
-                    var how = AskReplace([.. glbNames.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortree.json"), Path.Combine(folder, stem + ".manifest.json")], $"“{recipe.Name}”");
+                    string Suffix(int v) => variants.Count > 1 ? $"_{v + 1:00}" : "";
+                    List<string> GlbNames(int v) => separate ? Enumerable.Range(0, recipe.Lods).Select(i => $"{file}{Suffix(v)}_LOD{i}.glb").ToList() : [$"{file}{Suffix(v)}.glb"];
+                    var planned = Enumerable.Range(0, variants.Count).SelectMany(v => GlbNames(v).Append($"{stem}{Suffix(v)}.noortree.json")).Append(stem + ".manifest.json").Select(n => Path.Combine(folder, n)).ToList();
+                    var how = AskReplace(planned, $"“{recipe.Name}”");
                     if (how == null) return new { cancelled = true };
                     var keep = how == "keep";
-                    PushEvent("asset.exportProgress", new { stage = "Growing and meshing the tree…" });
-                    TreeBuild build;
-                    await AssetGate.WaitAsync();
-                    try { build = await Task.Run(() => TreeBuilder.Build(recipe, new TreeBuilder.Options { TextureSize = size })); }
-                    finally { AssetGate.Release(); }
                     Directory.CreateDirectory(folder);
                     var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                     var written = new List<string>();
-                    if (separate)
-                        for (var i = 0; i < build.Lods.Count; i++)
-                        {
-                            var path = ExportTarget(folder, glbNames[i], keep, taken);
-                            await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods[i])));
-                            written.Add(path);
-                        }
-                    else
+                    var recipes = new List<string>();
+                    var manifests = new List<object>();
+                    var triangles = new List<int>();
+                    for (var v = 0; v < variants.Count; v++)
                     {
-                        var path = ExportTarget(folder, glbNames[0], keep, taken);
-                        await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods.Count > 1 ? OneFileLods(build) : build.Lods[0])));
-                        written.Add(path);
+                        var variant = variants[v];
+                        PushEvent("asset.exportProgress", new { stage = variants.Count > 1 ? $"Growing and meshing tree {v + 1} of {variants.Count}…" : "Growing and meshing the tree…", done = v, total = variants.Count });
+                        TreeBuild build;
+                        await AssetGate.WaitAsync();
+                        try { build = await Task.Run(() => TreeBuilder.Build(variant, new TreeBuilder.Options { TextureSize = size })); }
+                        finally { AssetGate.Release(); }
+                        var names = GlbNames(v);
+                        var mine = new List<string>();
+                        if (separate)
+                            for (var i = 0; i < build.Lods.Count; i++)
+                            {
+                                var path = ExportTarget(folder, names[i], keep, taken);
+                                await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods[i])));
+                                mine.Add(path);
+                            }
+                        else
+                        {
+                            var path = ExportTarget(folder, names[0], keep, taken);
+                            await File.WriteAllBytesAsync(path, await Task.Run(() => GlbWriter.Write(build.Lods.Count > 1 ? OneFileLods(build) : build.Lods[0])));
+                            mine.Add(path);
+                        }
+                        var recipePath = ExportTarget(folder, $"{stem}{Suffix(v)}.noortree.json", keep, taken);
+                        await File.WriteAllTextAsync(recipePath, variant.ToJson(), new UTF8Encoding(false));
+                        written.AddRange(mine);
+                        recipes.Add(Path.GetFileName(recipePath));
+                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size));
+                        triangles.Add(build.Lods[0].TriangleCount);
                     }
-                    var recipePath = ExportTarget(folder, stem + ".noortree.json", keep, taken);
-                    await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
-                    await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(TreeManifest(build, written.Select(Path.GetFileName).ToList()!, size), new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+                    object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "tree variety pack", name = recipe.Name, variants = manifests };
+                    await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+                    PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                     _assetFolders.Add(folder);
-                    Log.Info($"Asset Bench: exported “{recipe.Name}” ({build.Lods.Count} level(s) of detail, {build.Lods[0].TriangleCount} triangles at LOD0)");
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), manifest = Path.GetFileName(manifestPath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles = build.Lods.Select(l => l.TriangleCount) };
+                    Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
                 }
                 case "asset.reveal":
                 {

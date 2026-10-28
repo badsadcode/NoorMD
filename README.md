@@ -174,7 +174,13 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   phase) in its UVs or vertex colours, and is previewed in 3D exactly as exported, with the wireframe, each part
   in its own colour, the wind data, and the wind playing. Export GLB files (Y up, metres, the pivot at the base,
   textures inside) with the recipe and a manifest beside them, to a folder or a game project (Godot, Unity, Unreal
-  layouts). Rocks come next.
+  layouts). Over thirty presets, realistic and stylized: forest (oak, pine, spruce, birch, autumn maple), swamp and
+  marsh (bald cypress with knees and hanging moss, mangrove on stilt roots, weeping willow, bog snag, a haunted
+  swamp tree), giants (giant sequoia, fluted), tropical (palm, tree fern, baobab), dry and windswept (juniper,
+  acacia) and fantasy (moonlit elder, ember oak, spirit willow). Trunks can be fluted, swollen or S-curved, roots
+  flared, snaking over the ground or on stilts; leaves set as crossed pairs, stars, fans, domes, hanging willow
+  curtains or palm fronds; branches hung with moss and vines. Export variety packs: many trees of one kind at once,
+  each from its own seed and a little taller or shorter. Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
