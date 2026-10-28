@@ -3925,7 +3925,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#tb-views [data-view="normal"]');
       check('a map can be shown flat and tiled', await page.isVisible('#tb-flat') && await page.isHidden('#tb-canvas') && /data:image\/png/.test(await page.$eval('#tb-flat', (n) => n.style.backgroundImage)));
       await page.selectOption('#tb-tiling', '3');
-      check('…as many times across as chosen', (await page.$eval('#tb-flat', (n) => n.style.backgroundSize)).startsWith('33.3'));
+      const fit = await page.$eval('#tb-flat', (n) => ({ size: n.style.backgroundSize, w: n.clientWidth, h: n.clientHeight }));
+      const [tw, th] = fit.size.split(' ').map(parseFloat);
+      check('…as many times across as chosen, in square tiles (not stretched to the box)', fit.w !== fit.h && tw === th && Math.abs(tw * 3 - Math.min(fit.w, fit.h)) < 1, fit);
       await page.click('#tb-thumbs [data-map="albedo"]');
       check('clicking a thumbnail shows that map', (await TS()).view === 'albedo');
       await page.click('#tb-views [data-view="3d"]');
@@ -4058,6 +4060,73 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors with photos, painting and masks', unexpected.length === 0, unexpected);
       if (shots) { await page.evaluate((c) => document.querySelector(c).scrollIntoView(), card); await page.screenshot({ path: `${shots}/texture-photo.png` }); }
+      await page.close();
+    }
+
+    // ---- 48. Texture Bench 3D preview: zoom, lights, what it shows, depth, and the picture the right way round on every shape.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const TS = () => page.evaluate(() => NoorTexture._state());
+      await page.evaluate(() => {
+        try { localStorage.removeItem('noormd.texture.view'); localStorage.removeItem('noormd.texture.lights'); } catch { /* */ }
+        // Maps that show which way is which: red grows to the picture's right, blue downwards.
+        const mk = (f) => { const c = document.createElement('canvas'); c.width = c.height = 64; const g = c.getContext('2d'); const d = g.createImageData(64, 64); for (let y = 0; y < 64; y++) for (let x = 0; x < 64; x++) d.data.set([...f(x, y), 255], (y * 64 + x) * 4); g.putImageData(d, 0, 0); return c.toDataURL(); };
+        const albedo = mk((x, y) => [x * 4, 0, y * 4]);
+        const orig = NoorBridge.request;
+        NoorBridge.request = async (t, p) => { const r = await orig(t, p); if (t === 'texture.render') r.maps = { ...r.maps, albedo }; return r; };
+      });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      if ((await TS()).webgl) {
+        check('the 3D controls show with the 3D view', await page.isVisible('#tb-3dbar') && await page.isVisible('#tb-show') && await page.isVisible('#tb-lights'));
+        await page.click('#tb-views [data-view="normal"]');
+        check('…and hide with a flat map', await page.isHidden('#tb-3dbar'));
+        await page.click('#tb-views [data-view="3d"]');
+        await waitFn(page, () => Number(document.querySelector('#tb-canvas').dataset.loaded || 0) >= 6);
+        const d0 = (await TS()).viewer.dist;
+        await page.click('#tb-zoomin');
+        await waitFn(page, (d) => NoorTexture._state().viewer.dist < d, d0);
+        const box = await page.$eval('#tb-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; });
+        await page.mouse.move(box.x, box.y);
+        await page.mouse.wheel(0, 600);
+        await waitFn(page, (d) => NoorTexture._state().viewer.dist > d, d0);
+        check('zoom with + / − and the mouse wheel', true);
+        await page.click('#tb-reset');
+        await waitFn(page, (d) => NoorTexture._state().viewer.dist === d, d0);
+        check('⟲ goes back to the starting view', true);
+        const az = (await TS()).viewer.lightAz;
+        await page.keyboard.down('Shift');
+        await page.mouse.move(box.x, box.y); await page.mouse.down(); await page.mouse.move(box.x + 80, box.y - 20, { steps: 4 }); await page.mouse.up();
+        await page.keyboard.up('Shift');
+        const after = (await TS()).viewer;
+        check('Shift+drag moves the light, not the shape', after.lightAz > az + 0.5 && after.yaw === 0.6, after);
+        await page.selectOption('#tb-lights', 'side');
+        check('lighting presets (a low side light shows the relief), remembered', (await TS()).lights === 'side' && (await TS()).viewer.lightEl < 0.2 && (await page.evaluate(() => localStorage.getItem('noormd.texture.lights'))) === 'side');
+        await page.click('#tb-orbit');
+        const o0 = (await TS()).viewer.lightAz;
+        await waitFn(page, (a) => NoorTexture._state().viewer.lightAz > a + 0.05, o0);
+        check('⟳ sends the light round the shape', (await page.getAttribute('#tb-orbit', 'aria-pressed')) === 'true');
+        await page.click('#tb-orbit');
+        await page.selectOption('#tb-show', 'clay');
+        check('"Lighting only" shows the relief in grey, without colour', (await TS()).viewer.mode === 'clay');
+        await page.$eval('#tb-depth', (r) => { r.value = '50'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+        check('depth from the height map (parallax), only for the preview', Math.abs((await TS()).viewer.depth - 0.05) < 1e-9 && !('depth' in ((await TS()).recipe.surface || {})));
+        await page.$eval('#tb-depth', (r) => { r.value = '0'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+        await page.selectOption('#tb-show', 'albedo');
+        await page.selectOption('#tb-tiling', '1');
+        const px = (fx, fy) => page.evaluate(([fx, fy]) => { const c = document.querySelector('#tb-canvas'); const g = c.getContext('webgl2'); const o = new Uint8Array(4); g.readPixels(Math.round(c.width * fx), Math.round(c.height * (1 - fy)), 1, 1, g.RGBA, g.UNSIGNED_BYTE, o); return [...o]; }, [fx, fy]);
+        const wrong = [];
+        for (const sh of ['sphere', 'rounded', 'cube', 'plane']) {
+          await page.selectOption('#tb-shape', sh);
+          await page.click('#tb-reset');
+          await page.waitForTimeout(250);
+          const l = await px(0.47, 0.5), r = await px(0.53, 0.5), up = await px(0.5, 0.45), dn = await px(0.5, 0.55);
+          if (!(l[0] < r[0] && up[2] < dn[2])) wrong.push({ sh, l, r, up, dn });
+        }
+        check('the picture is the right way round on every shape (not mirrored, top up), so the normal map lights correctly', wrong.length === 0, wrong);
+      } else check('without WebGL 2 there are no 3D controls', await page.isHidden('#tb-3dbar'));
+      check('no page errors in the 3D preview', errors.length === 0, errors);
       await page.close();
     }
   } finally {

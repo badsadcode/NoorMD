@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.0.0-preview.39 — Texture Bench: a better 3D preview
+
+- **Fixed: the material was mirrored on the sphere,** and with it the normal map's up and down, so relief looked
+  wrong (bumps lit like dents across the slopes). Every shape is now checked by a test: the picture's right is on
+  the right and its top is up.
+- **Fixed: the flat map view was stretched** to the shape of its box. Tiles stay square and the pattern carries on
+  across the wider side. The thumbnails show the map tiled instead of cropped, and the preview grows with the window.
+- **Zoom:** the mouse wheel, + / −, or the − + buttons; ⟲ goes back to the starting view.
+- **Lights:** Studio, Sun, Low side light (best for judging relief), Overcast and Night (rim light). Shift+drag
+  (or right-drag, or Shift+arrow keys) moves the light; **⟳ Light round** sends it round the shape so every slope
+  catches it in turn.
+- **Show:** the whole material, **Lighting only** (grey clay: the normals and AO with no colour to hide behind), or a
+  single map (albedo, normal, roughness, metallic, AO, height) on the shape.
+- **Depth:** parallax occlusion from the height map, so the relief sinks in as you turn the shape (preview only).
+- **Rounded cube** shape: flat faces with soft edges and no pinched poles, how materials are usually judged.
+
 ## 2.0.0-preview.38 — Sound Bench: listening volume and repeat
 
 - **Listening volume** next to ▶: how loud the preview plays here. It is remembered, and it never changes the sound

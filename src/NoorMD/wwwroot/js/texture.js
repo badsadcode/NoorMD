@@ -43,6 +43,20 @@ window.NoorTexture = (() => {
     ['roughnessLow', 'Roughness, low parts', 0, 1, 0.01, 'pct'], ['roughnessHigh', 'Roughness, high parts', 0, 1, 0.01, 'pct'], ['roughnessVariation', 'Roughness variation', 0, 1, 0.01, 'pct'],
     ['metallic', 'Metallic', 0, 1, 0.01, 'pct'], ['normalStrength', 'Relief (normal strength)', 0, 20, 0.1, 'num'], ['aoStrength', 'Ambient occlusion', 0, 1, 0.01, 'pct'], ['aoRadius', 'Occlusion width', 0.002, 0.1, 0.001, 'pct']];
   const VIEWS = [['3d', '3D'], ['albedo', 'Albedo'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['ao', 'AO'], ['height', 'Height'], ['metallic', 'Metallic']];
+  /**
+   * Lights for the preview, relative to the camera (x right, y up, z towards you). The key light can be moved
+   * (Shift+drag or right-drag) or set going round; a low light from the side shows the relief best.
+   */
+  const LIGHTS = {
+    studio: { label: 'Studio', az: 0.58, el: 0.6, key: [3.0, 2.95, 2.85], fill: [-0.8, 0.2, 0.4], fillCol: [0.7, 0.75, 0.9], sky: [0.72, 0.8, 0.95], ground: [0.22, 0.2, 0.17], amb: 0.55 },
+    sun: { label: 'Sun', az: 0.9, el: 0.75, key: [4.4, 4.1, 3.6], fill: [-0.5, 0.6, 0.3], fillCol: [0.12, 0.16, 0.25], sky: [0.5, 0.66, 1.0], ground: [0.26, 0.22, 0.17], amb: 0.45 },
+    side: { label: 'Low side light (shows relief)', az: 1.45, el: 0.12, key: [4.2, 4.1, 3.9], fill: [-0.8, 0.2, 0.4], fillCol: [0.03, 0.03, 0.04], sky: [0.2, 0.22, 0.26], ground: [0.08, 0.075, 0.07], amb: 0.12 },
+    overcast: { label: 'Overcast (soft)', az: 0.2, el: 1.2, key: [0.9, 0.92, 0.95], fill: [-0.6, 0.5, 0.6], fillCol: [0.35, 0.36, 0.38], sky: [0.86, 0.88, 0.92], ground: [0.4, 0.39, 0.37], amb: 0.95 },
+    night: { label: 'Night (rim light)', az: 2.6, el: 0.35, key: [1.6, 2.2, 3.4], fill: [0.7, -0.1, 0.6], fillCol: [0.5, 0.32, 0.18], sky: [0.05, 0.06, 0.1], ground: [0.03, 0.03, 0.03], amb: 0.2 },
+  };
+  /** What the 3D preview shows: the whole material, its lighting alone (grey clay: judge the normals), or one map on the shape. */
+  const SHOW = [['material', 'Material'], ['clay', 'Lighting only (grey)'], ['albedo', 'Albedo'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['metallic', 'Metallic'], ['ao', 'AO'], ['height', 'Height']];
+
   const TARGETS = [['generic', 'Generic (one PNG per map)'], ['godot', 'Godot (StandardMaterial3D)'], ['unity', 'Unity (metallic + smoothness)'], ['unreal', 'Unreal (ORM, DirectX normal)']];
 
   let hooks = { showError: (e) => console.error(e) };
@@ -57,6 +71,9 @@ window.NoorTexture = (() => {
   let lastSnapshot = null, snapTimer = null;
   let view = (() => { try { return localStorage.getItem('noormd.texture.view') || '3d'; } catch { return '3d'; } })();
   let shape = 'sphere', tiling = 2;
+  // How the 3D preview is lit and what it shows (only for looking: never in the recipe or the export).
+  let lightsId = (() => { try { const v = localStorage.getItem('noormd.texture.lights'); return v && v in LIGHTS ? v : 'studio'; } catch { return 'studio'; } })();
+  let show = 'material', depth = 0, orbit = false;
   let gl3d = null; // the 3D preview (null when WebGL2 isn't there)
 
   const isOpen = () => document.body.classList.contains('texture-open');
@@ -85,6 +102,7 @@ window.NoorTexture = (() => {
     if (!built || !isOpen()) return;
     document.body.classList.remove('texture-open');
     $('#texturebench').hidden = true;
+    if (orbit) setOrbit(false);
     if (window.NoorDock) NoorDock.closed('texture');
   }
 
@@ -157,9 +175,23 @@ window.NoorTexture = (() => {
     const flat = $('#tb-flat');
     if (view !== '3d' && render.maps[view]) {
       flat.style.backgroundImage = `url("${render.maps[view]}")`;
-      flat.style.backgroundSize = `${100 / tiling}% ${100 / tiling}%`;
+      fitFlat();
     }
     if (gl3d) gl3d.setMaps(render.maps);
+  }
+
+  /**
+   * The flat view's tiles stay square (the maps are): as many tiles as chosen fit the shorter side, centred, and the
+   * pattern carries on across the longer side, as the material would.
+   */
+  function fitFlat() {
+    const flat = $('#tb-flat');
+    if (!flat || flat.hidden) return;
+    const w = flat.clientWidth, h = flat.clientHeight;
+    if (!w || !h) return;
+    const t = Math.min(w, h) / tiling;
+    flat.style.backgroundSize = `${t}px ${t}px`;
+    flat.style.backgroundPosition = `${(w - t * tiling) / 2}px ${(h - t * tiling) / 2}px`;
   }
 
   function setView(v) {
@@ -169,11 +201,13 @@ window.NoorTexture = (() => {
     $('#tb-canvas').hidden = !threeD;
     $('#tb-flat').hidden = threeD;
     $('#tb-shape').hidden = !threeD;
+    $('#tb-3dbar').hidden = !threeD;
     document.querySelectorAll('#tb-views button').forEach((b) => { b.classList.toggle('active', b.dataset.view === v); b.setAttribute('aria-pressed', String(b.dataset.view === v)); });
     if (v === '3d' && !gl3d) $('#tb-flat').dataset.note = 'The 3D preview needs WebGL 2, which is not available here: showing the albedo.';
     else delete $('#tb-flat').dataset.note;
-    if (v === '3d' && !gl3d && render) { const f = $('#tb-flat'); f.style.backgroundImage = `url("${render.maps.albedo}")`; f.style.backgroundSize = `${100 / tiling}% ${100 / tiling}%`; }
+    if (v === '3d' && !gl3d && render) { $('#tb-flat').style.backgroundImage = `url("${render.maps.albedo}")`; }
     showMaps();
+    fitFlat();
     if (threeD) gl3d.resize();
   }
 
@@ -201,7 +235,7 @@ window.NoorTexture = (() => {
             ...VIEWS.map(([v, label]) => el('button', { class: 'utility-btn', 'data-view': v, onclick: () => setView(v) }, label)),
             el('span', { class: 'sb-fx-space' }),
             (() => {
-              const s = el('select', { id: 'tb-shape', 'aria-label': 'Preview shape' }, ...[['sphere', 'Sphere'], ['cube', 'Cube'], ['plane', 'Plane']].map(([v, t]) => el('option', { value: v, text: t })));
+              const s = el('select', { id: 'tb-shape', 'aria-label': 'Preview shape' }, ...[['sphere', 'Sphere'], ['rounded', 'Rounded cube'], ['cube', 'Cube'], ['plane', 'Plane']].map(([v, t]) => el('option', { value: v, text: t })));
               s.addEventListener('change', () => { shape = s.value; if (gl3d) gl3d.setShape(shape); });
               return s;
             })(),
@@ -211,8 +245,37 @@ window.NoorTexture = (() => {
               s.addEventListener('change', () => { tiling = Number(s.value); if (gl3d) gl3d.setTiling(tiling); showMaps(); setView(view); });
               return s;
             })()),
+          el('div', { class: 'tb-views tb-3dbar', id: 'tb-3dbar', role: 'group', 'aria-label': '3D preview' },
+            (() => {
+              const s = el('select', { id: 'tb-show', 'aria-label': 'Show on the shape', title: 'What the shape shows: the whole material, its lighting alone in grey (to judge the relief and the normals), or one map' }, ...SHOW.map(([v, t]) => el('option', { value: v, text: t })));
+              s.value = show;
+              s.addEventListener('change', () => { show = s.value; if (gl3d) gl3d.setMode(show); });
+              return s;
+            })(),
+            (() => {
+              const s = el('select', { id: 'tb-lights', 'aria-label': 'Lighting', title: 'How the shape is lit. Shift+drag (or right-drag) on the shape moves the light' }, ...Object.entries(LIGHTS).map(([v, l]) => el('option', { value: v, text: '💡 ' + l.label })));
+              s.value = lightsId;
+              s.addEventListener('change', () => {
+                lightsId = s.value;
+                try { localStorage.setItem('noormd.texture.lights', lightsId); } catch { /* private storage off */ }
+                if (gl3d) gl3d.setLights(lightsId);
+              });
+              return s;
+            })(),
+            el('button', { class: 'utility-btn', id: 'tb-orbit', 'aria-pressed': 'false', title: 'Send the light round the shape, so every slope catches it in turn', onclick: () => setOrbit(!orbit) }, '⟳ Light round'),
+            el('label', { class: 'sb-inline tb-depth', title: 'Depth from the height map (parallax): the relief sinks in as you turn the shape. Only for the preview' },
+              el('span', { text: 'Depth' }),
+              (() => {
+                const r = el('input', { type: 'range', id: 'tb-depth', min: '0', max: '100', step: '1', value: '0', 'aria-label': 'Depth from the height map' });
+                r.addEventListener('input', () => { depth = Number(r.value) / 100 * 0.1; if (gl3d) gl3d.setDepth(depth); });
+                return r;
+              })()),
+            el('span', { class: 'sb-fx-space' }),
+            el('button', { class: 'icon-btn', id: 'tb-zoomout', title: 'Zoom out (−, or the mouse wheel)', 'aria-label': 'Zoom out', onclick: () => gl3d && gl3d.zoom(1.2) }, '−'),
+            el('button', { class: 'icon-btn', id: 'tb-zoomin', title: 'Zoom in (+, or the mouse wheel)', 'aria-label': 'Zoom in', onclick: () => gl3d && gl3d.zoom(1 / 1.2) }, '+'),
+            el('button', { class: 'icon-btn', id: 'tb-reset', title: 'Back to the starting view and light', 'aria-label': 'Reset the view', onclick: () => gl3d && gl3d.reset() }, '⟲')),
           el('div', { class: 'tb-stage' },
-            el('canvas', { id: 'tb-canvas', class: 'tb-canvas', 'aria-label': 'The material on a lit shape: drag to turn it', role: 'img' }),
+            el('canvas', { id: 'tb-canvas', class: 'tb-canvas', 'aria-label': 'The material on a lit shape: drag to turn it, wheel to zoom, Shift+drag to move the light', title: 'Drag: turn · wheel: zoom · Shift+drag or right-drag: move the light', role: 'img' }),
             el('div', { id: 'tb-flat', class: 'tb-flat', role: 'img', 'aria-label': 'The map, tiled', hidden: true }),
             el('div', { class: 'tb-thumbs', id: 'tb-thumbs' }, ...VIEWS.slice(1).map(([m, label]) => el('button', { class: 'tb-thumb', 'data-map': m, title: `${label} map`, 'aria-label': `Show the ${label} map`, onclick: () => setView(m) }, el('span', { text: label }))))),
           el('p', { class: 'pref-hint sb-status', id: 'tb-status', 'aria-live': 'polite' }),
@@ -222,7 +285,7 @@ window.NoorTexture = (() => {
     ($('#app') || document.body).append(root);
     $('#tb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
     $('#tb-seed').addEventListener('change', (e) => { recipe.seed = Math.max(0, Math.min(2147483647, Math.round(Number(e.target.value) || 0))); changed(false); });
-    new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); if (gl3d) gl3d.resize(); }).observe(root);
+    new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); fitFlat(); if (gl3d) gl3d.resize(); }).observe(root);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
       if (e.key === 'Escape' && !typing) { e.preventDefault(); e.stopPropagation(); close(); return; }
@@ -232,8 +295,15 @@ window.NoorTexture = (() => {
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
     });
-    try { gl3d = Viewer($('#tb-canvas')); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
+    try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
     setView(view);
+  }
+
+  function setOrbit(on) {
+    orbit = !!on;
+    const b = $('#tb-orbit');
+    b.setAttribute('aria-pressed', String(orbit)); b.classList.toggle('active', orbit);
+    if (gl3d) gl3d.setOrbit(orbit);
   }
 
   function renderPresets() {
@@ -513,8 +583,9 @@ window.NoorTexture = (() => {
   // ---------------------------------------------------------------- 3D preview (WebGL 2)
 
   /**
-   * A lit shape wearing the maps: albedo, normal (tangent space, OpenGL), roughness, metallic and AO, with a key and a
-   * fill light and a soft sky; drag to turn it. Physically based in the usual way (GGX, Schlick, Smith).
+   * A lit shape wearing the maps: albedo, normal (tangent space, OpenGL), roughness, metallic, AO and height (as
+   * parallax depth), with a key and a fill light and a sky; drag to turn it, wheel to zoom, Shift+drag to move the
+   * light. Physically based in the usual way (GGX, Schlick, Smith).
    */
   function Viewer(canvas) {
     const gl = canvas.getContext('webgl2', { antialias: true, premultipliedAlpha: false, preserveDrawingBuffer: true }); // kept, so it can be copied or captured
@@ -527,7 +598,8 @@ window.NoorTexture = (() => {
     const fs = `#version 300 es
       precision highp float;
       in vec3 vPos; in vec3 vNorm; in vec3 vTan; in vec2 vUv;
-      uniform sampler2D tAlbedo, tNormal, tRough, tAo, tMetal; uniform vec3 uEye;
+      uniform sampler2D tAlbedo, tNormal, tRough, tAo, tMetal, tHeight; uniform vec3 uEye;
+      uniform vec3 uKeyDir, uKeyCol, uFillDir, uFillCol, uSky, uGround; uniform float uAmb, uDepth; uniform int uMode;
       out vec4 outColor;
       const float PI = 3.14159265;
       vec3 light(vec3 n, vec3 v, vec3 l, vec3 col, vec3 albedo, float rough, float metal) {
@@ -543,25 +615,44 @@ window.NoorTexture = (() => {
         vec3 diff = (1.0 - f) * (1.0 - metal) * albedo / PI;
         return (diff + spec) * col * nl;
       }
+      // Parallax occlusion: step into the height map along the view, so the relief has depth (not the outline).
+      vec2 parallax(vec2 uv, vec3 vts, vec2 dx, vec2 dy) {
+        if (uDepth <= 0.0) return uv;
+        float n = mix(32.0, 8.0, clamp(vts.z, 0.0, 1.0)), layer = 1.0 / n;
+        vec2 d = vec2(vts.x, -vts.y) / max(vts.z, 0.2) * uDepth / n;
+        vec2 c = uv; float depth = 0.0, h = 1.0 - textureGrad(tHeight, c, dx, dy).r;
+        for (int i = 0; i < 32; i++) { if (depth >= h || float(i) >= n) break; c -= d; depth += layer; h = 1.0 - textureGrad(tHeight, c, dx, dy).r; }
+        float after = h - depth, before = (1.0 - textureGrad(tHeight, c + d, dx, dy).r) - depth + layer;
+        float w = after / (after - before + 1e-5);
+        return mix(c, c + d, clamp(w, 0.0, 1.0));
+      }
       void main() {
-        vec3 albedo = pow(texture(tAlbedo, vUv).rgb, vec3(2.2));
-        float rough = clamp(texture(tRough, vUv).r, 0.04, 1.0), metal = texture(tMetal, vUv).r, ao = texture(tAo, vUv).r;
         vec3 N = normalize(vNorm), T = normalize(vTan - N * dot(N, vTan)), B = cross(N, T);
-        vec3 tn = texture(tNormal, vUv).rgb * 2.0 - 1.0;
-        vec3 n = normalize(T * tn.x + B * tn.y + N * tn.z);
         vec3 v = normalize(uEye - vPos);
-        vec3 c = light(n, v, normalize(vec3(0.6, 0.8, 0.9)), vec3(3.0), albedo, rough, metal)
-               + light(n, v, normalize(vec3(-0.8, 0.2, 0.4)), vec3(0.7, 0.75, 0.9), albedo, rough, metal);
-        // Surroundings: a sky above and warm ground below. Diffuse light from them, and their reflection, blurred
+        vec2 dx = dFdx(vUv), dy = dFdy(vUv);
+        vec2 uv = parallax(vUv, vec3(dot(v, T), dot(v, B), dot(v, N)), dx, dy);
+        vec3 albedoTex = textureGrad(tAlbedo, uv, dx, dy).rgb;
+        float rough = clamp(textureGrad(tRough, uv, dx, dy).r, 0.04, 1.0), metal = textureGrad(tMetal, uv, dx, dy).r, ao = textureGrad(tAo, uv, dx, dy).r;
+        vec3 tnTex = textureGrad(tNormal, uv, dx, dy).rgb;
+        if (uMode >= 2) {
+          vec3 m = uMode == 2 ? albedoTex : uMode == 3 ? tnTex : uMode == 4 ? vec3(rough) : uMode == 5 ? vec3(metal) : uMode == 6 ? vec3(ao) : textureGrad(tHeight, uv, dx, dy).rrr;
+          outColor = vec4(m * (0.82 + 0.18 * max(dot(N, v), 0.0)), 1.0); // the map as it is, with a hint of the shape
+          return;
+        }
+        vec3 albedo = uMode == 1 ? vec3(0.18) : pow(albedoTex, vec3(2.2));
+        if (uMode == 1) metal = 0.0;
+        vec3 tn = tnTex * 2.0 - 1.0;
+        vec3 n = normalize(T * tn.x + B * tn.y + N * tn.z);
+        vec3 c = light(n, v, uKeyDir, uKeyCol, albedo, rough, metal) + light(n, v, uFillDir, uFillCol, albedo, rough, metal);
+        // Surroundings: the sky above and the ground below. Diffuse light from them, and their reflection, blurred
         // towards their average as the surface gets rougher (metals show almost nothing else).
-        vec3 ground = vec3(0.22, 0.2, 0.17), skyCol = vec3(0.72, 0.8, 0.95);
         vec3 f0 = mix(vec3(0.04), albedo, metal);
         float nv = max(dot(n, v), 1e-3);
         vec3 r = reflect(-v, n);
-        vec3 env = mix(mix(ground, skyCol, smoothstep(-0.25, 0.65, r.y)), (ground + skyCol) * 0.5, rough * rough);
+        vec3 env = mix(mix(uGround, uSky, smoothstep(-0.25, 0.65, r.y)), (uGround + uSky) * 0.5, rough * rough);
         vec3 fr = f0 + (max(vec3(1.0 - rough), f0) - f0) * pow(1.0 - nv, 5.0);
-        c += mix(ground, skyCol, n.y * 0.5 + 0.5) * albedo * (1.0 - metal) * ao * 0.55;
-        c += env * fr * ao * (1.0 - rough * 0.5);
+        c += mix(uGround, uSky, n.y * 0.5 + 0.5) * albedo * (1.0 - metal) * ao * uAmb;
+        c += env * fr * ao * (1.0 - rough * 0.5) * (0.4 + uAmb);
         c *= 1.35;
         c = c / (c + 1.0);
         outColor = vec4(pow(c, vec3(1.0 / 2.2)), 1.0);
@@ -574,39 +665,66 @@ window.NoorTexture = (() => {
     gl.useProgram(prog);
     const U = (n) => gl.getUniformLocation(prog, n);
     const textures = {};
-    ['tAlbedo', 'tNormal', 'tRough', 'tAo', 'tMetal'].forEach((name, unit) => {
+    ['tAlbedo', 'tNormal', 'tRough', 'tAo', 'tMetal', 'tHeight'].forEach((name, unit) => {
       const t = gl.createTexture();
       gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(name === 'tNormal' ? [128, 128, 255, 255] : [200, 200, 200, 255]));
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(name === 'tNormal' ? [128, 128, 255, 255] : name === 'tHeight' ? [255, 255, 255, 255] : [200, 200, 200, 255]));
       gl.uniform1i(U(name), unit);
       textures[name] = { tex: t, unit, url: '' };
     });
-    const MAP = { albedo: 'tAlbedo', normal: 'tNormal', roughness: 'tRough', ao: 'tAo', metallic: 'tMetal' };
+    const MAP = { albedo: 'tAlbedo', normal: 'tNormal', roughness: 'tRough', ao: 'tAo', metallic: 'tMetal', height: 'tHeight' };
 
-    // Shapes: positions, normals, tangents (along u) and uvs.
+    // Shapes: positions, normals, tangents (along u, to the right as the texture is seen) and uvs (v down the picture).
     function sphere() {
-      const p = [], idx = [], SEG = 64, RINGS = 32;
+      const p = [], idx = [], SEG = 96, RINGS = 48;
       for (let r = 0; r <= RINGS; r++) {
         const v = r / RINGS, th = v * Math.PI;
         for (let s = 0; s <= SEG; s++) {
           const u = s / SEG, ph = u * Math.PI * 2;
-          const x = Math.sin(th) * Math.cos(ph), y = Math.cos(th), z = Math.sin(th) * Math.sin(ph);
-          p.push(x, y, z, x, y, z, -Math.sin(ph), 0, Math.cos(ph), u * 2, v); // u twice around: square texels at the equator
+          // Going round so that u runs to the right seen from outside: the picture isn't mirrored and the normal
+          // map's up is the shape's up.
+          const x = Math.sin(th) * Math.cos(ph), y = Math.cos(th), z = -Math.sin(th) * Math.sin(ph);
+          p.push(x, y, z, x, y, z, -Math.sin(ph), 0, -Math.cos(ph), u * 2, v); // u twice around: square texels at the equator
         }
       }
       for (let r = 0; r < RINGS; r++) for (let s = 0; s < SEG; s++) { const a = r * (SEG + 1) + s, b = a + SEG + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
       return { p, idx };
     }
+    const FACES = [[[1, 0, 0], [0, 0, -1], [0, 1, 0]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]], [[0, 1, 0], [1, 0, 0], [0, 0, -1]], [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [[0, 0, 1], [1, 0, 0], [0, 1, 0]], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]];
     function cube() {
       const p = [], idx = [];
-      const faces = [[[1, 0, 0], [0, 0, -1], [0, 1, 0]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]], [[0, 1, 0], [1, 0, 0], [0, 0, -1]], [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [[0, 0, 1], [1, 0, 0], [0, 1, 0]], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]];
-      for (const [n, t, b] of faces) {
+      for (const [n, t, b] of FACES) {
         const base = p.length / 11;
         for (const [su, sv] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
           const pos = [0, 1, 2].map((k) => (n[k] + t[k] * su + b[k] * sv) * 0.8);
           p.push(...pos, ...n, ...t, (su + 1) / 2, 1 - (sv + 1) / 2);
         }
         idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+      }
+      return { p, idx };
+    }
+    /** A cube with rounded edges: each face a flat square, no pinched poles (how materials are usually judged). */
+    function roundedCube() {
+      const p = [], idx = [], G = 24, A = 0.55, R = 0.27;
+      for (const [n, t, b] of FACES) {
+        const base = p.length / 11;
+        for (let j = 0; j <= G; j++) {
+          for (let i = 0; i <= G; i++) {
+            const su = (i / G) * 2 - 1, sv = (j / G) * 2 - 1;
+            const c = [0, 1, 2].map((k) => (n[k] + t[k] * su + b[k] * sv) * (A + R));
+            const inner = c.map((x) => Math.max(-A, Math.min(A, x)));
+            let d = c.map((x, k) => x - inner[k]);
+            const len = Math.hypot(...d);
+            d = len > 1e-6 ? d.map((x) => x / len) : n.slice();
+            const pos = inner.map((x, k) => x + d[k] * R);
+            const td = t[0] * d[0] + t[1] * d[1] + t[2] * d[2];
+            let tan = t.map((x, k) => x - d[k] * td);
+            const tl = Math.hypot(...tan) || 1;
+            tan = tan.map((x) => x / tl);
+            p.push(...pos, ...d, ...tan, (su + 1) / 2, 1 - (sv + 1) / 2);
+          }
+        }
+        for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) { const a = base + j * (G + 1) + i, up = a + G + 1; idx.push(a, a + 1, up + 1, a, up + 1, up); }
       }
       return { p, idx };
     }
@@ -618,7 +736,7 @@ window.NoorTexture = (() => {
     const vbo = gl.createBuffer(), ibo = gl.createBuffer();
     let count = 0;
     function setShape(name) {
-      const { p, idx } = name === 'cube' ? cube() : name === 'plane' ? plane() : sphere();
+      const { p, idx } = name === 'cube' ? cube() : name === 'rounded' ? roundedCube() : name === 'plane' ? plane() : sphere();
       gl.bindBuffer(gl.ARRAY_BUFFER, vbo); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(p), gl.STATIC_DRAW);
       gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(idx), gl.STATIC_DRAW);
       [['aPos', 3, 0], ['aNorm', 3, 3], ['aTan', 3, 6], ['aUv', 2, 9]].forEach(([n, size, off]) => {
@@ -630,11 +748,16 @@ window.NoorTexture = (() => {
       if (name === 'plane') { pitch = 0.75; } else if (pitch > 0.6) pitch = 0.25;
       draw();
     }
-    let yaw = 0.6, pitch = 0.25, tile = tiling;
+    const DIST = 2.9;
+    let yaw = 0.6, pitch = 0.25, tile = tiling, dist = DIST, mode = 0, depth = 0;
+    let lights = LIGHTS.studio, lightAz = lights.az, lightEl = lights.el, orbit = false;
     const persp = (fov, aspect, n, f) => { const t = 1 / Math.tan(fov / 2); return [t / aspect, 0, 0, 0, 0, t, 0, 0, 0, 0, (f + n) / (n - f), -1, 0, 0, (2 * f * n) / (n - f), 0]; };
     const rotY = (a) => [Math.cos(a), 0, -Math.sin(a), 0, 0, 1, 0, 0, Math.sin(a), 0, Math.cos(a), 0, 0, 0, 0, 1];
     const rotX = (a) => [1, 0, 0, 0, 0, Math.cos(a), Math.sin(a), 0, 0, -Math.sin(a), Math.cos(a), 0, 0, 0, 0, 1];
     const mul = (a, b) => { const o = new Array(16).fill(0); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k]; return o; };
+    const norm = (v) => { const l = Math.hypot(...v) || 1; return v.map((x) => x / l); };
+    /** The key light's direction: round (azimuth, 0 = from the camera) and up (elevation). */
+    const keyDir = () => [Math.sin(lightAz) * Math.cos(lightEl), Math.sin(lightEl), Math.cos(lightAz) * Math.cos(lightEl)];
     let pending = false;
     function draw() {
       if (pending) return;
@@ -647,10 +770,14 @@ window.NoorTexture = (() => {
         gl.clearColor(0.09, 0.09, 0.11, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
         gl.enable(gl.DEPTH_TEST); gl.enable(gl.CULL_FACE);
         gl.uniformMatrix4fv(U('uModel'), false, mul(rotX(pitch), rotY(yaw)));
-        gl.uniformMatrix4fv(U('uView'), false, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -2.9, 1]);
-        gl.uniformMatrix4fv(U('uProj'), false, persp(0.75, w / h, 0.1, 20));
-        gl.uniform3f(U('uEye'), 0, 0, 2.9);
+        gl.uniformMatrix4fv(U('uView'), false, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -dist, 1]);
+        gl.uniformMatrix4fv(U('uProj'), false, persp(0.75, w / h, 0.05, 20));
+        gl.uniform3f(U('uEye'), 0, 0, dist);
         gl.uniform1f(U('uTile'), tile);
+        gl.uniform3fv(U('uKeyDir'), keyDir()); gl.uniform3fv(U('uKeyCol'), lights.key);
+        gl.uniform3fv(U('uFillDir'), norm(lights.fill)); gl.uniform3fv(U('uFillCol'), lights.fillCol);
+        gl.uniform3fv(U('uSky'), lights.sky); gl.uniform3fv(U('uGround'), lights.ground); gl.uniform1f(U('uAmb'), lights.amb);
+        gl.uniform1i(U('uMode'), mode); gl.uniform1f(U('uDepth'), depth);
         gl.bindVertexArray(vao);
         gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, 0);
       });
@@ -668,6 +795,8 @@ window.NoorTexture = (() => {
           gl.generateMipmap(gl.TEXTURE_2D);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
           gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          const aniso = gl.getExtension('EXT_texture_filter_anisotropic');
+          if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
           canvas.dataset.loaded = String((Number(canvas.dataset.loaded) || 0) + 1);
           draw();
         };
@@ -680,28 +809,56 @@ window.NoorTexture = (() => {
       if (w && h && (canvas.width !== w || canvas.height !== h)) { canvas.width = w; canvas.height = h; }
       draw();
     }
+    const clampPitch = (p) => Math.max(-1.4, Math.min(1.4, p));
+    function zoom(factor) { dist = Math.max(1.25, Math.min(7, dist * factor)); draw(); }
+    function moveLight(dAz, dEl) { lightAz += dAz; lightEl = Math.max(-0.2, Math.min(1.5, lightEl + dEl)); draw(); }
     let drag = null;
-    canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, light: e.shiftKey || e.button === 2 }; canvas.setPointerCapture(e.pointerId); canvas.classList.toggle('lighting', drag.light); });
     canvas.addEventListener('pointermove', (e) => {
       if (!drag) return;
-      yaw += (e.clientX - drag.x) * 0.01; pitch = Math.max(-1.4, Math.min(1.4, pitch + (e.clientY - drag.y) * 0.01));
-      drag = { x: e.clientX, y: e.clientY };
-      draw();
+      const dx = (e.clientX - drag.x) * 0.01, dy = (e.clientY - drag.y) * 0.01;
+      if (drag.light) moveLight(dx, -dy);
+      else { yaw += dx; pitch = clampPitch(pitch + dy); draw(); }
+      drag.x = e.clientX; drag.y = e.clientY;
     });
-    const end = () => { drag = null; };
+    const end = () => { drag = null; canvas.classList.remove('lighting'); };
     canvas.addEventListener('pointerup', end); canvas.addEventListener('pointercancel', end);
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(Math.exp(Math.max(-1, Math.min(1, e.deltaY / 300)))); }, { passive: false });
     canvas.addEventListener('keydown', (e) => {
+      if (e.key === '+' || e.key === '=') { e.preventDefault(); zoom(1 / 1.15); return; }
+      if (e.key === '-' || e.key === '_') { e.preventDefault(); zoom(1.15); return; }
       const step = { ArrowLeft: [-0.15, 0], ArrowRight: [0.15, 0], ArrowUp: [0, -0.15], ArrowDown: [0, 0.15] }[e.key];
       if (!step) return;
-      e.preventDefault(); yaw += step[0]; pitch = Math.max(-1.4, Math.min(1.4, pitch + step[1])); draw();
+      e.preventDefault();
+      if (e.shiftKey) moveLight(step[0], -step[1]);
+      else { yaw += step[0]; pitch = clampPitch(pitch + step[1]); draw(); }
     });
     canvas.tabIndex = 0;
+    // The light going round, so every slope catches it in turn (stops when the preview isn't shown).
+    let last = 0;
+    function spin(t) {
+      if (!orbit) return;
+      if (canvas.isConnected && canvas.offsetParent) { if (last) lightAz += Math.min(0.05, (t - last) / 1000) * 0.9; draw(); }
+      last = t;
+      requestAnimationFrame(spin);
+    }
     setShape('sphere');
-    return { setMaps, setShape, resize, setTiling: (n) => { tile = n; draw(); }, _gl: gl };
+    return {
+      setMaps, setShape, resize, zoom,
+      setTiling: (n) => { tile = n; draw(); },
+      setLights: (id) => { lights = LIGHTS[id] || LIGHTS.studio; lightAz = lights.az; lightEl = lights.el; draw(); },
+      setMode: (id) => { mode = Math.max(0, SHOW.findIndex(([v]) => v === id)); draw(); },
+      setDepth: (d) => { depth = d; draw(); },
+      setOrbit: (on) => { orbit = !!on; last = 0; if (orbit) requestAnimationFrame(spin); },
+      reset: () => { yaw = 0.6; pitch = shape === 'plane' ? 0.75 : 0.25; dist = DIST; lightAz = lights.az; lightEl = lights.el; draw(); },
+      state: () => ({ dist, yaw, pitch, mode: SHOW[mode][0], depth, orbit, lightAz, lightEl }),
+      _gl: gl,
+    };
   }
 
   return {
     init, open, close, toggle, isOpen,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

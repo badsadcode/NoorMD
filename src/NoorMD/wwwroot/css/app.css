@@ -1403,14 +1403,19 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .tb-views .utility-btn.active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .tb-views select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 3px 6px; font: inherit; font-size: 12px; }
 .tb-views select[hidden] { display: none; }
-.tb-stage { display: grid; grid-template-columns: minmax(0, 1fr) 92px; grid-template-rows: minmax(0, 1fr); gap: 8px; margin-top: 8px; height: 280px; }
+.tb-stage { display: grid; grid-template-columns: minmax(0, 1fr) 92px; grid-template-rows: minmax(0, 1fr); gap: 8px; margin-top: 8px; height: clamp(280px, 46vh, 640px); }
 .tb-canvas, .tb-flat { width: 100%; height: 100%; min-height: 0; border-radius: 10px; border: 1px solid var(--border); background-color: #17171c; display: block; min-width: 0; }
 .tb-canvas { cursor: grab; touch-action: none; }
+.tb-canvas.lighting { cursor: crosshair; }
+.tb-3dbar { margin-top: 4px; }
+.tb-3dbar[hidden] { display: none; }
+.tb-3dbar .icon-btn { width: 26px; height: 26px; font-size: 15px; }
+.tb-depth input { width: 80px; accent-color: var(--accent); }
 .tb-canvas[hidden], .tb-flat[hidden] { display: none; }
 .tb-flat { background-repeat: repeat; image-rendering: auto; position: relative; }
 .tb-flat[data-note]::after { content: attr(data-note); position: absolute; left: 8px; bottom: 8px; right: 8px; font-size: 12px; color: #fff; background: rgba(0,0,0,.55); padding: 4px 8px; border-radius: 6px; }
 .tb-thumbs { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; }
-.tb-thumb { flex: 0 0 auto; height: 40px; border-radius: 7px; border: 1px solid var(--border); background-color: var(--surface); background-size: cover; position: relative; cursor: pointer; padding: 0; }
+.tb-thumb { flex: 0 0 auto; height: 40px; background-position: center; border-radius: 7px; border: 1px solid var(--border); background-color: var(--surface); background-size: 40px 40px; background-repeat: repeat; position: relative; cursor: pointer; padding: 0; }
 .tb-thumb span { position: absolute; left: 3px; bottom: 2px; font-size: 10px; color: #fff; text-shadow: 0 1px 2px #000; }
 .tb-ramp { height: 22px; border-radius: 7px; border: 1px solid var(--border); margin: 4px 0 8px; }
 .tb-stop { display: grid; grid-template-columns: 44px minmax(0, 1fr) 28px; align-items: center; gap: 8px; margin-bottom: 4px; }
