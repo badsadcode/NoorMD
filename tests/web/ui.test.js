@@ -3572,6 +3572,69 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="mod"]'); await page.screenshot({ path: `${shots}/sound-modulation.png` }); }
       await page.close();
     }
+
+    // ---- 40. Sound Bench samples: the region editor, Tape / Stretch / Grains, crossfaded loops, grain position as a target.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      const smp = async () => (await last()).layers.find((l) => l.type === 'sample');
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('[data-add="sample"]');
+      const region = '.sb-layer:last-of-type canvas.sb-region';
+      await page.waitForSelector(region);
+      await waitFn(page, () => /of 1\.800 s/.test(document.querySelector('.sb-layer:last-of-type .sb-region-hint')?.textContent || ''));
+      check('a sample layer shows its waveform and the part used', /0\.000 s – 1\.800 s of 1\.800 s/.test(await page.textContent('.sb-layer:last-of-type .sb-region-hint')));
+      await page.$eval(region, (n) => n.scrollIntoView({ block: 'center' }));
+      let box = await (await page.$(region)).boundingBox();
+      await page.mouse.move(box.x + 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await waitFn(page, () => (window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.trimStart || 0) > 0.3);
+      check('dragging its start trims the beginning', Math.abs((await smp()).trimStart - 0.45) < 0.03);
+      await page.$eval(region, (n) => n.scrollIntoView({ block: 'center' }));
+      box = await (await page.$(region)).boundingBox();
+      await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.75, box.y + box.height / 2, { steps: 5 });
+      await page.mouse.up();
+      await waitFn(page, () => (window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.trimEnd || 0) > 0);
+      check('…and its end the end', Math.abs((await smp()).trimEnd - 1.35) < 0.03 && Math.abs(Number(await page.inputValue('.sb-layer:last-of-type input[data-num="trimEnd"]')) - 1.35) < 0.03);
+      await page.selectOption('.sb-layer:last-of-type select[data-key="playMode"]', 'stretch');
+      await page.waitForSelector('.sb-layer:last-of-type input[data-num="speed"]');
+      await page.fill('.sb-layer:last-of-type input[data-num="speed"]', '0.5');
+      await page.press('.sb-layer:last-of-type input[data-num="speed"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.speed === 0.5);
+      check('Stretch sets the speed apart from the pitch', (await smp()).playMode === 'stretch' && !!(await page.$('.sb-layer:last-of-type input[data-num="grainSize"]')));
+      check('…with no loop crossfade until it loops', !(await page.$('.sb-layer:last-of-type input[data-num="loopFade"]')));
+      await page.check('.sb-layer:last-of-type input[data-key="loopSample"]');
+      await page.waitForSelector('.sb-layer:last-of-type input[data-num="loopFade"]');
+      await page.fill('.sb-layer:last-of-type input[data-num="loopFade"]', '0.05');
+      await page.press('.sb-layer:last-of-type input[data-num="loopFade"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.loopFade === 0.05);
+      check('a looped sample gets a crossfade where it wraps', (await smp()).loopSample === true);
+      await page.selectOption('.sb-layer:last-of-type select[data-key="playMode"]', 'grains');
+      await page.waitForSelector('.sb-layer:last-of-type input[data-num="grainDensity"]');
+      check('Grains: size, density, position, spread, scan and pitch spread', await page.evaluate(() => ['grainSize', 'grainDensity', 'rhythm', 'position', 'positionSpread', 'scan', 'grainPitch'].every((k) => document.querySelector(`.sb-layer:last-of-type input[data-num="${k}"]`)))
+        && !(await page.$('.sb-layer:last-of-type input[data-key="loopSample"]')) && !(await page.$('.sb-layer:last-of-type input[data-num="repeat"]')));
+      await page.$eval(region, (n) => n.scrollIntoView({ block: 'center' }));
+      box = await (await page.$(region)).boundingBox();
+      await page.mouse.click(box.x + box.width * 0.6, box.y + box.height / 2);
+      await waitFn(page, () => Math.abs(window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.position - 0.7) < 0.03);
+      check('…clicking inside the part used sets where grains come from', /grains from 7\d%/.test(await page.textContent('.sb-layer:last-of-type .sb-region-hint')));
+      await page.click('#soundbench .sb-tabs button[data-tab="mod"]');
+      await page.click('#sb-addknob');
+      await page.waitForSelector('[data-addroute="K1"]');
+      const opts = await page.$$eval('[data-addroute="K1"] option', (n) => n.map((o) => o.textContent));
+      check('grain position and grains per second can be modulated', opts.includes('door creak › Grain position') && opts.includes('door creak › Grains per second'));
+      check('the waveform was read once for the file', (await page.evaluate(() => window.__mock.state.sound.peaksAsked)) === 1);
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors with sample layers', unexpected.length === 0, unexpected);
+      if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="layers"]'); await page.evaluate(() => document.querySelector('.sb-layer:last-of-type').scrollIntoView()); await page.screenshot({ path: `${shots}/sound-samples.png` }); }
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

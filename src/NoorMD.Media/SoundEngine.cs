@@ -133,6 +133,25 @@ public sealed class SoundLayer
     public double TrimEnd { get; set; }
     public bool Reverse { get; set; }
     public bool LoopSample { get; set; }
+    /// <summary>A looped sample's crossfade where its end flows back into its start (seconds; 0 = back to back, as before).</summary>
+    public double LoopFade { get; set; }
+    /// <summary>
+    /// How the sample is played: "tape" (pitch changes the speed, as before), "stretch" (pitch and speed apart, made of
+    /// small overlapping grains) or "grains" (a cloud of grains from around a position: textures, pads, swarms).
+    /// </summary>
+    public string PlayMode { get; set; } = "tape";
+    /// <summary>Stretch: how fast it plays through the sample (1 = as recorded; 0.5 = twice as long, same pitch).</summary>
+    public double Speed { get; set; } = 1;
+    /// <summary>Stretch and grains: the length of each grain (ms).</summary>
+    public double GrainSize { get; set; } = 80;
+    /// <summary>Grains: grains per second (Rhythm spaces them evenly or at random).</summary>
+    public double GrainDensity { get; set; } = 40;
+    /// <summary>Grains: where in the used part they come from (0–1), how far around it (0–1) and how fast it moves (parts per second, ±).</summary>
+    public double Position { get; set; } = 0.5;
+    public double PositionSpread { get; set; } = 0.2;
+    public double Scan { get; set; }
+    /// <summary>Grains: random pitch of each grain, in semitones either way.</summary>
+    public double GrainPitch { get; set; }
 
     /// <summary>This layer's effects, in order (EQ, compressor, delay…).</summary>
     public List<SoundEffect> Effects { get; set; } = [];
@@ -220,6 +239,9 @@ public sealed class SoundRecipe
             l.Rhythm = C(l.Rhythm, 0, 1); l.Burst = (int)C(l.Burst, 1, 40); l.BurstSpread = C(l.BurstSpread, 0, 1000);
             l.FreqEnd = l.FreqEnd <= 0 ? 0 : C(l.FreqEnd, 20, 20000); l.Drive = C(l.Drive, 0, 1); l.Crush = C(l.Crush, 0, 1);
             l.Semitones = C(l.Semitones, -36, 36); l.TrimStart = C(l.TrimStart, 0, 3600); l.TrimEnd = C(l.TrimEnd, 0, 3600);
+            l.LoopFade = C(l.LoopFade, 0, 10); l.PlayMode = l.PlayMode is "stretch" or "grains" ? l.PlayMode : "tape"; l.Speed = C(l.Speed, 0.05, 8);
+            l.GrainSize = C(l.GrainSize, 5, 1000); l.GrainDensity = C(l.GrainDensity, 0.5, 500); l.Position = C(l.Position, 0, 1); l.PositionSpread = C(l.PositionSpread, 0, 1);
+            l.Scan = double.IsFinite(l.Scan) ? Math.Clamp(l.Scan, -4, 4) : 0; l.GrainPitch = C(l.GrainPitch, 0, 24);
             if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
             if (l.SampleName != null) l.SampleName = l.SampleName.Length > 120 ? l.SampleName[..120] : l.SampleName;
             l.Effects = (l.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
@@ -371,7 +393,7 @@ public static class SoundEngine
             // Each layer has its own random stream: muting one doesn't change the others.
             var rng = new SoundRng((ulong)(uint)r.Seed * 0x100000001B3UL + (ulong)k * 0x9E37UL + 17);
             // Drive, crush and a filter on a synth or a sample work on the layer alone, before it joins the others.
-            var md = new LayerMod(mods.For(layer.Id + ":pitch"), mods.For(layer.Id + ":freq"), mods.For(layer.Id + ":density"));
+            var md = new LayerMod(mods.For(layer.Id + ":pitch"), mods.For(layer.Id + ":freq"), mods.For(layer.Id + ":density"), mods.For(layer.Id + ":position"));
             var gainMod = mods.For(layer.Id + ":gain");
             var panMod = mods.For(layer.Id + ":pan");
             var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass)
@@ -387,7 +409,8 @@ public static class SoundEngine
                 {
                     var audio = string.IsNullOrEmpty(layer.Path) ? null : samples?.Invoke(layer.Path);
                     if (audio == null) { warnings.Add($"“{layer.SampleName ?? layer.Name}”: the file is missing or can't be read"); continue; }
-                    RenderSample(layer, audio, tl, tr, sampleRate, total, md);
+                    if (layer.PlayMode == "tape") RenderSample(layer, audio, tl, tr, sampleRate, total, md);
+                    else RenderGrains(layer, audio, rng, tl, tr, sampleRate, total, md);
                     break;
                 }
             }
@@ -432,8 +455,9 @@ public static class SoundEngine
     }
 
     /// <summary>Modulation a layer's own sound follows: pitch (semitones), filter (octaves) and event density (octaves).</summary>
-    private sealed record LayerMod(double[]? Pitch, double[]? Freq, double[]? Density)
+    private sealed record LayerMod(double[]? Pitch, double[]? Freq, double[]? Density, double[]? Position = null)
     {
+        public double PositionOffset(int i) => Position == null ? 0 : ModulationField.At(Position, i);
         public double PitchFactor(int i) => Pitch == null ? 1 : Math.Pow(2, ModulationField.At(Pitch, i) / 12);
         public double FreqFactor(int block) => Freq == null ? 1 : Math.Pow(2, Freq[Math.Min(block, Freq.Length - 1)]);
         public double DensityFactor(int block) => Density == null ? 1 : Math.Pow(2, Density[Math.Min(block, Density.Length - 1)]);
@@ -779,6 +803,25 @@ public static class SoundEngine
         var gain = Math.Pow(10, l.Gain / 20);
         var (pl, pr) = PanGains(l.Pan);
         var edge = Math.Max(1, (int)(0.002 * sr)); // 2 ms fades at the cut ends: no clicks
+        if (l.LoopSample && l.LoopFade > 0)
+        {
+            // One endless pass through a looped reader: each time round, the end is crossfaded into the start.
+            var src = new SampleReader(a, from, to, l.Reverse, l.LoopFade);
+            var o = (int)(l.Start * sr);
+            var pos = 0.0;
+            for (var i = Math.Max(0, o); i < total; i++)
+            {
+                var j = i - o;
+                var (vl, vr) = src.Looped(pos);
+                pos += step * md.PitchFactor(i);
+                var mid = (vl + vr) / 2;
+                vl = mid + (vl - mid) * l.Width; vr = mid + (vr - mid) * l.Width;
+                var env = Math.Min(1, j / Math.Max(1.0, l.Attack * sr)) * gain;
+                if (j < edge) env *= (double)j / edge;
+                L[i] += vl * env * pl; R[i] += vr * env * pr;
+            }
+            return;
+        }
         var starts = l.LoopSample
             ? Enumerable.Range(0, (int)Math.Ceiling(Math.Max(0, total - l.Start * sr) / Math.Max(1.0, outLen)) + 1).Select(k => l.Start + (double)k * outLen / sr).ToList()
             : Starts(l, (double)total / sr);
@@ -808,6 +851,182 @@ public static class SoundEngine
                 if (left < edge) env *= Math.Max(0, left) / edge;
                 L[i] += vl * env * pl; R[i] += vr * env * pr;
             }
+        }
+    }
+
+    /// <summary>
+    /// A sample played as grains: short, softly windowed pieces. "stretch" lays them end to end at 4× overlap, so the
+    /// speed through the sample and the pitch are set apart; "grains" scatters them around a position (a texture).
+    /// </summary>
+    private static void RenderGrains(SoundLayer l, SampleAudio a, SoundRng rng, double[] L, double[] R, int sr, int total, LayerMod md)
+    {
+        var from = (int)Math.Min(a.Left.Length, l.TrimStart * a.Rate);
+        var to = l.TrimEnd > 0 ? (int)Math.Min(a.Left.Length, l.TrimEnd * a.Rate) : a.Left.Length;
+        if (to - from < 2) return;
+        var src = new SampleReader(a, from, to, l.Reverse, Math.Max(0.01, l.LoopFade));
+        var len = src.Length;
+        var size = Math.Max(16, (int)(l.GrainSize / 1000 * sr)); // output samples per grain
+        var gain = Math.Pow(10, l.Gain / 20);
+        var (pl, pr) = PanGains(l.Pan);
+        var rate = (double)a.Rate / sr;
+        var window = new double[size];
+        for (var n = 0; n < size; n++) window[n] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * (n + 0.5) / size);
+        var o = (int)(l.Start * sr);
+
+        void Grain(int at, double source, double step, double width, double amp, bool loop, int origin)
+        {
+            var (gl, gr) = PanGains(Math.Clamp(l.Pan + width, -1, 1));
+            var pos = source;
+            for (var n = 0; n < size; n++, pos += step)
+            {
+                var i = at + n;
+                if (i >= total) break;
+                if (!loop && (pos < 0 || pos >= len - 1)) break;
+                if (i < 0) continue;
+                var (vl, vr) = loop ? src.Looped(pos) : src.At(pos);
+                var mid = (vl + vr) / 2;
+                vl = mid + (vl - mid) * l.Width; vr = mid + (vr - mid) * l.Width;
+                var e = window[n] * amp * EnvAt(l, (double)(i - origin) / sr, 0);
+                L[i] += vl * e * gl; R[i] += vr * e * gr;
+            }
+        }
+
+        if (l.PlayMode == "stretch")
+        {
+            // Four grains overlap at any moment; a Hann window at that overlap adds up to 2, hence ½. Each grain is read
+            // from near where the speed puts it, nudged (as in WSOLA) to where it best continues the grain before it, so
+            // the overlaps add up in phase: a steady level and a clean pitch instead of a phasey blur.
+            var hop = Math.Max(1, size / 4);
+            var advance = l.Speed * rate; // source samples per output sample
+            var reach = Math.Min(size * rate / 4, 0.012 * a.Rate); // how far a grain may be nudged (source samples)
+            var match = Math.Min(size / 2, 400); // output samples compared
+            var mono = src.Mono(l.LoopSample);
+            foreach (var t0 in l.LoopSample ? [l.Start] : Starts(l, (double)total / sr))
+            {
+                var g0 = (int)(t0 * sr);
+                double? follow = null; // where the previous grain would be reading by now
+                for (var j = -size + hop; ; j += hop)
+                {
+                    var at = g0 + j;
+                    if (at >= total) break;
+                    var source = Math.Max(0, j) * advance;
+                    if (!l.LoopSample && source >= len - 1) break;
+                    var step = Math.Pow(2, l.Semitones / 12) * rate * md.PitchFactor(Math.Max(0, at));
+                    if (follow is { } f && j > 0)
+                    {
+                        var lo = Math.Max(0, source - reach); var hi = source + reach;
+                        if (!l.LoopSample) hi = Math.Max(lo, Math.Min(hi, len - 2 - match * step));
+                        double Score(double c)
+                        {
+                            double score = 0, energy = 1e-9;
+                            for (var n = 0; n < match; n += 4)
+                            {
+                                var x = mono((long)(c + n * step));
+                                score += x * mono((long)(f + n * step)); energy += x * x;
+                            }
+                            return score / Math.Sqrt(energy);
+                        }
+                        // Coarse, then fine around the best.
+                        var best = source; var bestScore = double.NegativeInfinity;
+                        for (var c = lo; c <= hi; c += 3) { var sc = Score(c); if (sc > bestScore) { bestScore = sc; best = c; } }
+                        var centre = best;
+                        for (var c = Math.Max(lo, centre - 2); c <= Math.Min(hi, centre + 2); c += 1) { var sc = Score(c); if (sc > bestScore) { bestScore = sc; best = c; } }
+                        source = best;
+                    }
+                    if (!l.LoopSample) source = Math.Clamp(source, 0, len - 2);
+                    Grain(at, source, step, 0, gain * 0.5, l.LoopSample, g0);
+                    follow = source + hop * step;
+                }
+            }
+            return;
+        }
+
+        // A cloud: grains at random (or, with Rhythm, evenly spaced) moments, from around the position.
+        var end = l.Release > 0 ? Math.Min(total, o + (int)((l.Attack + l.Hold + l.Release * 1.2) * sr)) : total;
+        var overlap = l.GrainDensity * size / sr; // grains sounding at once, on average
+        var level = gain / Math.Sqrt(Math.Max(1, overlap));
+        var t = (double)Math.Max(0, o);
+        while (t < end)
+        {
+            var at = (int)t;
+            var secs = (at - o) / (double)sr;
+            var p = l.Position + l.Scan * secs + md.PositionOffset(at) + l.PositionSpread * 0.5 * rng.Bipolar();
+            p -= Math.Floor(p);
+            var semis = l.Semitones + l.GrainPitch * rng.Bipolar();
+            var step = Math.Pow(2, semis / 12) * rate * md.PitchFactor(at);
+            Grain(at - size / 2, p * len, step, rng.Bipolar() * 0.5 * l.Width, level, true, o);
+            var density = l.GrainDensity * md.DensityFactor(at / Block);
+            var mean = sr / Math.Max(0.5, density);
+            var random = -Math.Log(1 - rng.NextDouble()) * mean;
+            t += Math.Max(1, mean * l.Rhythm + random * (1 - l.Rhythm));
+        }
+    }
+
+    /// <summary>Reads the used part of a sample (forwards or backwards) between samples, and as a seamless loop.</summary>
+    private sealed class SampleReader
+    {
+        private readonly SampleAudio _a;
+        private readonly int _from, _to, _fade, _period;
+        private readonly bool _reverse;
+        public int Length { get; }
+
+        public SampleReader(SampleAudio a, int from, int to, bool reverse, double fadeSeconds)
+        {
+            _a = a; _from = from; _to = to; _reverse = reverse;
+            Length = to - from;
+            _fade = Math.Clamp((int)(fadeSeconds * a.Rate), 1, Math.Max(1, Length / 2));
+            _period = Math.Max(1, Length - _fade);
+        }
+
+        private (double L, double R) Raw(int k)
+        {
+            var s = _reverse ? _to - 1 - k : _from + k;
+            return (_a.Left[s], _a.Right[s]);
+        }
+
+        /// <summary>Position k (0 … Length−1) of the used part, between samples.</summary>
+        public (double L, double R) At(double pos)
+        {
+            var k = Math.Clamp((int)pos, 0, Length - 2);
+            var f = Math.Clamp(pos - k, 0, 1);
+            var (a0, b0) = Raw(k); var (a1, b1) = Raw(k + 1);
+            return (a0 + (a1 - a0) * f, b0 + (b1 - b0) * f);
+        }
+
+        /// <summary>
+        /// The used part as an endless loop: the first time through it plays as it is; every later time round, its last
+        /// part (the fade) is blended into its start with equal power, so the end flows into the start without a seam.
+        /// </summary>
+        public (double L, double R) Looped(double pos)
+        {
+            if (pos < 0) pos = 0;
+            var k = (long)pos;
+            var f = pos - k;
+            var (a0, b0) = LoopedRaw(k); var (a1, b1) = LoopedRaw(k + 1);
+            return (a0 + (a1 - a0) * f, b0 + (b1 - b0) * f);
+        }
+
+        /// <summary>
+        /// A fast mono reading (left + right) by whole sample, for comparing pieces: of the used part as it is, or of the
+        /// loop (which repeats exactly after its first time round).
+        /// </summary>
+        public Func<long, double> Mono(bool loop)
+        {
+            var n = loop ? Length + _period : Length;
+            var m = new double[n];
+            for (var i = 0; i < n; i++) { var (a, b) = loop ? LoopedRaw(i) : Raw(i); m[i] = a + b; }
+            if (!loop) return k => m[Math.Clamp(k, 0, n - 1)];
+            return k => k < 0 ? m[0] : k < n ? m[k] : m[_period + (k - _period) % _period];
+        }
+
+        private (double L, double R) LoopedRaw(long m)
+        {
+            if (m < _period) return Raw((int)m);
+            var q = (int)((m - _period) % _period);
+            if (q >= _fade || _period + q >= Length) return Raw(q);
+            var x = Math.PI / 2 * q / _fade;
+            var (hl, hr) = Raw(q); var (tl, tr) = Raw(_period + q);
+            return (hl * Math.Sin(x) + tl * Math.Cos(x), hr * Math.Sin(x) + tr * Math.Cos(x));
         }
     }
 
@@ -942,6 +1161,22 @@ public sealed class SampleAudio
     public required float[] Right { get; init; }
     public required int Rate { get; init; }
     public double Seconds => (double)Left.Length / Rate;
+
+    /// <summary>The waveform for a picture of it: for each of <paramref name="columns"/> slices, its lowest and highest value (both channels).</summary>
+    public float[] Peaks(int columns)
+    {
+        columns = Math.Clamp(columns, 1, 4000);
+        var peaks = new float[columns * 2];
+        var n = Left.Length;
+        for (var c = 0; c < columns; c++)
+        {
+            int from = (int)((long)c * n / columns), to = Math.Max(from + 1, (int)((long)(c + 1) * n / columns));
+            float lo = 0, hi = 0;
+            for (var i = from; i < Math.Min(to, n); i++) { lo = Math.Min(lo, Math.Min(Left[i], Right[i])); hi = Math.Max(hi, Math.Max(Left[i], Right[i])); }
+            peaks[c * 2] = (float)Math.Round(lo, 3); peaks[c * 2 + 1] = (float)Math.Round(hi, 3);
+        }
+        return peaks;
+    }
 
     /// <summary>Reads a PCM (8/16/24/32-bit) or 32-bit float WAV file, mono or stereo (more channels: the first two).</summary>
     public static SampleAudio ReadWav(byte[] b)

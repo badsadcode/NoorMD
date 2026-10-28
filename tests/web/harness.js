@@ -437,6 +437,12 @@ function mockHostScript(initial) {
         const r = JSON.parse(JSON.stringify(SND.recipes['ui-coin']));
         return { ...r, family: 'Generated', name: `${p.category} ${p.seed % 1000}`, seed: p.seed };
       }
+      case 'sound.sample.peaks': {
+        if (!/door creak/.test(p.path || '')) throw new Error('That file is missing, can\'t be read, or isn\'t one you picked.');
+        SND.peaksAsked = (SND.peaksAsked || 0) + 1;
+        const peaks = []; for (let i = 0; i < 600; i++) { const v = Math.abs(Math.sin(i / 37)) * (i < 300 ? 0.8 : 0.3); peaks.push(-v, v); }
+        return { seconds: 1.8, peaks };
+      }
       case 'sound.sample.pick': SND.picks = (SND.picks || 0) + 1; return { path: 'C:\\Sounds\\door creak.wav', name: 'door creak.wav', seconds: 1.8 };
       case 'sound.preset': {
         const mine = SND.mine.find((x) => x.id === p.id);

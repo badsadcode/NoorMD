@@ -32,7 +32,7 @@ window.NoorSound = (() => {
     noise: { type: 'noise', name: 'Noise bed', gain: -18, color: 'pink', filter: 'lowpass', freq: 1000, q: 0.7, width: 0.8 },
     events: { type: 'events', name: 'Events', gain: -24, density: 30, decay: 10, pitch: 3000, pitchSpread: 0.7, tone: 0.3, gainSpread: 6, width: 0.9 },
     synth: { type: 'synth', name: 'Synth voice', gain: -12, wave: 'sine', pitch: 440, pitchEnd: 0, attack: 0.005, hold: 0, release: 0.3, width: 0 },
-    sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0 },
+    sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0, filter: 'lowpass', freq: 4000, q: 0.7, playMode: 'tape' },
   };
   const MASTER = [['gain', 'Level', -40, 24, 0.5, 'db'], ['highPass', 'Low cut', 10, 5000, 1, 'hz'], ['lowPass', 'High cut', 200, 20000, 1, 'hz'], ['width', 'Stereo width', 0, 2, 0.05, 'pct'],
     ['reverb', 'Room sound', 0, 1, 0.05, 'pct'], ['room', 'Room size', 0, 1, 0.05, 'pct'], ['ceiling', 'Ceiling', -24, 0, 0.5, 'db']];
@@ -306,7 +306,7 @@ window.NoorSound = (() => {
    * Kinds make Hz, times and Q logarithmic on the slider; the number box is always linear and exact.
    */
   function slider(obj, [key, label, min, max, step, kind], rebuild) {
-    const log = (kind === 'hz' || kind === 'ms' || kind === 'rate' || kind === 'q') && min > 0;
+    const log = (kind === 'hz' || kind === 'ms' || kind === 'rate' || kind === 'q' || kind === 'x') && min > 0;
     const toPos = (v) => (log ? (Math.log(v / min) / Math.log(max / min)) * 1000 : v);
     const fromPos = (p) => (log ? min * Math.pow(max / min, p / 1000) : p);
     const [unit, factor] = UNIT[kind] || ['', 1];
@@ -425,10 +425,116 @@ window.NoorSound = (() => {
     ];
   }
 
+  // ---------------------------------------------------------------- sample layers: how they play, and which part
+
+  const PLAY_MODES = [['tape', 'Tape (pitch changes speed)'], ['stretch', 'Stretch (pitch and speed apart)'], ['grains', 'Grains (a texture cloud)']];
+
+  function playMode(l) {
+    const s = el('select', { 'aria-label': 'Play as', 'data-key': 'playMode' }, ...PLAY_MODES.map(([v, t]) => el('option', { value: v, text: t })));
+    s.value = l.playMode || 'tape';
+    s.addEventListener('change', () => {
+      l.playMode = s.value;
+      if (s.value !== 'tape') { l.speed ??= 1; l.grainSize ??= 80; }
+      if (s.value === 'grains') { l.grainDensity ??= 40; l.position ??= 0.5; l.positionSpread ??= 0.2; l.scan ??= 0; l.grainPitch ??= 0; }
+      changed(true);
+    });
+    return el('label', { class: 'sb-inline' }, el('span', { text: 'Play as' }), s);
+  }
+
+  /** The sliders of a sample layer, for the way it plays. */
+  function sampleFields(l) {
+    const mode = l.playMode || 'tape';
+    const keep = (k) => !(mode === 'grains' && k === 'repeat');
+    const base = FIELDS.sample.filter(([k]) => keep(k));
+    const at = base.findIndex(([k]) => k === 'semitones') + 1;
+    const extra = mode === 'stretch' ? [['speed', 'Speed (1 = as recorded)', 0.05, 8, 0.01, 'x'], ['grainSize', 'Grain length', 5, 1000, 1, 'ms']]
+      : mode === 'grains' ? [['grainSize', 'Grain length', 5, 1000, 1, 'ms'], ['grainDensity', 'Grains per second', 0.5, 500, 0.5, 'rate'], ['rhythm', 'Random ↔ evenly spaced', 0, 1, 0.05, 'pct'],
+        ['position', 'Position in the sample', 0, 1, 0.001, 'pct'], ['positionSpread', 'Spread around it', 0, 1, 0.01, 'pct'], ['scan', 'Moves through it (per second)', -4, 4, 0.01, 'spct'],
+        ['grainPitch', 'Random pitch per grain', 0, 24, 0.1, 'st']] : [];
+    const loop = l.loopSample && mode !== 'grains' ? [['loopFade', 'Loop crossfade (0 = back to back)', 0, 10, 0.001, 's']] : [];
+    return [...base.slice(0, at), ...extra, ...loop, ...base.slice(at)];
+  }
+
+  const samplePeaks = new Map(); // path → { seconds, peaks } or a promise of it
+
+  /**
+   * The sample's waveform with the part that is used: drag its edges to trim it. In Grains mode, click or drag
+   * inside it to set where the grains come from (the band shows how far around).
+   */
+  function regionEditor(l) {
+    const c = el('canvas', { class: 'sb-region', role: 'img', 'aria-label': 'The sample: drag the edges to choose the part used' + (l.playMode === 'grains' ? '; click inside to set where grains come from' : ''), 'data-region': l.id });
+    const wrap = el('div', { class: 'sb-regionwrap' }, c, el('small', { class: 'pref-hint sb-region-hint' }));
+    const info = () => samplePeaks.get(l.path);
+    const span = () => { const w = info(); const sec = w && w.seconds ? w.seconds : 0; return [Math.min(sec, l.trimStart || 0), l.trimEnd > 0 ? Math.min(sec, l.trimEnd) : sec, sec]; };
+    const draw = () => {
+      const w = info();
+      const width = c.clientWidth || 300, h = c.clientHeight || 70, d = devicePixelRatio || 1;
+      c.width = width * d; c.height = h * d;
+      const g = c.getContext('2d');
+      g.scale(d, d);
+      const css = getComputedStyle(c);
+      if (!w || !w.peaks) { wrap.querySelector('small').textContent = w && w.error ? w.error : 'Reading the file…'; return; }
+      const [a, b, sec] = span();
+      const x = (t) => (sec > 0 ? (t / sec) * width : 0);
+      g.fillStyle = css.borderColor; g.globalAlpha = 0.35; g.fillRect(0, 0, width, h); g.globalAlpha = 1;
+      g.clearRect(x(a), 0, x(b) - x(a), h);
+      const cols = w.peaks.length / 2;
+      g.fillStyle = css.color;
+      for (let i = 0; i < cols; i++) {
+        const lo = w.peaks[i * 2], hi = w.peaks[i * 2 + 1];
+        const px = (i / cols) * width;
+        g.globalAlpha = px >= x(a) && px <= x(b) ? 1 : 0.35;
+        g.fillRect(px, h / 2 - hi * h / 2, Math.max(1, width / cols), Math.max(1, (hi - lo) * h / 2));
+      }
+      g.globalAlpha = 1;
+      g.fillStyle = css.color;
+      g.fillRect(x(a) - 1, 0, 3, h); g.fillRect(x(b) - 2, 0, 3, h);
+      if (l.playMode === 'grains') {
+        const p = a + (b - a) * (l.position ?? 0.5), spread = (b - a) * (l.positionSpread ?? 0.2) / 2;
+        g.globalAlpha = 0.25; g.fillRect(x(p - spread), 0, x(p + spread) - x(p - spread), h); g.globalAlpha = 1;
+        g.fillRect(x(p) - 1, 0, 2, h);
+      }
+      wrap.querySelector('small').textContent = `${a.toFixed(3)} s – ${b.toFixed(3)} s of ${sec.toFixed(3)} s` + (l.playMode === 'grains' ? ` · grains from ${Math.round((l.position ?? 0.5) * 100)}%` : '');
+    };
+    if (l.path && !samplePeaks.has(l.path)) {
+      samplePeaks.set(l.path, { loading: true });
+      req('sound.sample.peaks', { path: l.path })
+        .then((w) => { samplePeaks.set(l.path, w); }, (err) => { samplePeaks.set(l.path, { error: String(err && err.message || err) }); })
+        .then(() => document.querySelectorAll(`#soundbench canvas[data-region]`).forEach((n) => n.dispatchEvent(new Event('redraw'))));
+    }
+    c.addEventListener('redraw', draw);
+    let drag = null;
+    const timeAt = (e) => { const r = c.getBoundingClientRect(); return Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * span()[2]; };
+    c.addEventListener('pointerdown', (e) => {
+      const [a, b, sec] = span();
+      if (!sec || e.button !== 0) return;
+      const t = timeAt(e), near = (sec / (c.clientWidth || 300)) * 7;
+      drag = Math.abs(t - a) <= near ? 'start' : Math.abs(t - b) <= near ? 'end' : l.playMode === 'grains' && t > a && t < b ? 'position' : 'new';
+      if (drag === 'new') { l.trimStart = Number(t.toFixed(3)); l.trimEnd = Number(Math.min(sec, t + near).toFixed(3)); drag = 'end'; }
+      c.setPointerCapture(e.pointerId);
+      move(e);
+    });
+    const move = (e) => {
+      if (!drag) return;
+      const [a, b, sec] = span();
+      const t = timeAt(e), min = Math.min(0.005, sec / 2);
+      if (drag === 'start') l.trimStart = Number(Math.max(0, Math.min(t, b - min)).toFixed(3));
+      else if (drag === 'end') { const v = Math.min(sec, Math.max(t, a + min)); l.trimEnd = v >= sec - 0.0005 ? 0 : Number(v.toFixed(3)); }
+      else l.position = Number(Math.max(0, Math.min(1, (t - a) / Math.max(1e-6, b - a))).toFixed(4));
+      draw();
+    };
+    c.addEventListener('pointermove', move);
+    const end = () => { if (drag) { drag = null; changed(true); } };
+    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+    requestAnimationFrame(draw);
+    new ResizeObserver(draw).observe(c);
+    return wrap;
+  }
+
   function layersPane() {
     const g = recipe.gust;
     const cards = recipe.layers.map((l, i) => {
-      const fields = FIELDS[l.type] || FIELDS.noise;
+      const fields = l.type === 'sample' ? sampleFields(l) : FIELDS[l.type] || FIELDS.noise;
       const name = el('input', { type: 'text', value: l.name, 'aria-label': 'Layer name', spellcheck: 'false', maxlength: '60' });
       name.addEventListener('input', () => { l.name = name.value; changed(false); });
       const choice = (key) => {
@@ -437,9 +543,9 @@ window.NoorSound = (() => {
         s.addEventListener('change', () => { l[key] = s.value; changed(false); });
         return el('label', { class: 'sb-inline' }, el('span', { text: key === 'color' ? 'Noise' : key === 'filter' ? 'Filter' : 'Wave' }), s);
       };
-      const check = (key, label) => {
+      const check = (key, label, rebuild) => {
         const c = el('input', { type: 'checkbox', checked: l[key] || undefined, 'data-key': key });
-        c.addEventListener('change', () => { l[key] = c.checked; changed(false); });
+        c.addEventListener('change', () => { l[key] = c.checked; changed(!!rebuild); });
         return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
       };
       const toggleBtn = (key, label, title) => el('button', { class: 'icon-btn sb-ms' + (l[key] ? ' on' : ''), title, 'aria-pressed': String(!!l[key]), onclick: () => { l[key] = !l[key]; changed(true); } }, label);
@@ -453,7 +559,8 @@ window.NoorSound = (() => {
           : l.type === 'synth' ? [choice('wave'), check('useFilter', 'Filter'), choice('filter')]
             : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
               el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
-              check('reverse', 'Backwards'), check('loopSample', 'Loop it'), check('useFilter', 'Filter'), choice('filter')] : [])),
+              playMode(l), check('reverse', 'Backwards', true), ...(l.playMode === 'grains' ? [] : [check('loopSample', 'Loop it', true)]), check('useFilter', 'Filter'), choice('filter')] : [])),
+        ...(l.type === 'sample' ? [regionEditor(l)] : []),
         el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))),
         el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i, l.id)));
     });
@@ -498,7 +605,7 @@ window.NoorSound = (() => {
   function dropRoutes(match) { recipe.routes = (recipe.routes || []).filter((r) => !match(r.target)); }
 
   // What each target is called, its unit (a slider kind), the amount range and a sensible first amount.
-  const LAYER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], pan: ['Pan', 'pan', -2, 2, 0.5], pitch: ['Pitch', 'st', -48, 48, 12], freq: ['Filter', 'oct', -6, 6, 1], density: ['Events per second', 'oct', -6, 6, 1] };
+  const LAYER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], pan: ['Pan', 'pan', -2, 2, 0.5], pitch: ['Pitch', 'st', -48, 48, 12], freq: ['Filter', 'oct', -6, 6, 1], density: ['Events per second', 'oct', -6, 6, 1], position: ['Grain position', 'spct', -1, 1, 0.25] };
   const FX_TARGETS = { mix: ['Mix', 'spct', -1, 1, 0.5], freq: ['Frequency', 'oct', -6, 6, 1], gain: ['Boost / cut', 'db', -36, 36, 6], drive: ['Drive', 'spct', -1, 1, 0.5] };
   const MASTER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], lowpass: ['High cut', 'oct', -6, 6, -2] };
 
@@ -510,8 +617,9 @@ window.NoorSound = (() => {
       for (const p of params) out.push([`${owner}/${fx.id}:${p}`, `${ownerName} › ${j + 1}. ${FX_LABEL[fx.type] || fx.type} › ${FX_TARGETS[p][0]}`, FX_TARGETS[p]]);
     });
     for (const l of recipe.layers) {
-      const params = ['gain', 'pan', ...(l.type === 'noise' ? [] : ['pitch']), 'freq', ...(l.type === 'events' ? ['density'] : [])];
-      for (const p of params) out.push([`${l.id}:${p}`, `${l.name || l.id} › ${LAYER_TARGETS[p][0]}`, LAYER_TARGETS[p]]);
+      const grains = l.type === 'sample' && l.playMode === 'grains';
+      const params = ['gain', 'pan', ...(l.type === 'noise' ? [] : ['pitch']), 'freq', ...(l.type === 'events' || grains ? ['density'] : []), ...(grains ? ['position'] : [])];
+      for (const p of params) out.push([`${l.id}:${p}`, `${l.name || l.id} › ${grains && p === 'density' ? 'Grains per second' : LAYER_TARGETS[p][0]}`, LAYER_TARGETS[p]]);
       fxTargets(l.id, l.name || l.id, l.effects || []);
     }
     for (const p of Object.keys(MASTER_TARGETS)) out.push([`master:${p}`, `Master › ${MASTER_TARGETS[p][0]}`, MASTER_TARGETS[p]]);

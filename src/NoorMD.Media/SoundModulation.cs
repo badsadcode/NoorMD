@@ -92,8 +92,8 @@ public sealed class SoundRoute
 /// <summary>What can be modulated, and in which unit an amount is given.</summary>
 public static class SoundTargets
 {
-    /// <summary>Layer targets: level (dB), pan (−1…1), pitch (semitones), filter (octaves), density (octaves).</summary>
-    public static readonly string[] LayerParams = ["gain", "pan", "pitch", "freq", "density"];
+    /// <summary>Layer targets: level (dB), pan (−1…1), pitch (semitones), filter (octaves), density (octaves), grain position (0–1, ±).</summary>
+    public static readonly string[] LayerParams = ["gain", "pan", "pitch", "freq", "density", "position"];
     /// <summary>Effect targets: mix (0–1), EQ frequency (octaves), EQ gain (dB), saturation drive (0–1).</summary>
     public static readonly string[] EffectParams = ["mix", "freq", "gain", "drive"];
     /// <summary>Master targets: level (dB) and high cut (octaves).</summary>
@@ -109,6 +109,7 @@ public static class SoundTargets
         (false, "pan") => (-2, 2),
         (false, "pitch") => (-48, 48),
         (false, "freq" or "density" or "lowpass") => (-6, 6),
+        (false, "position") => (-1, 1),
         (true, "freq") => (-6, 6),
         (true, "gain") => (-36, 36),
         (true, "mix" or "drive") => (-1, 1),

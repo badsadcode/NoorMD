@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.0.0-preview.30 — Sound Bench: samples, stretched and as grains
+
+Stage 3 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): your own recordings become
+much more useful.
+
+- **See the part you use:** a sample layer shows its waveform. Drag the edges to trim it, or drag anywhere else
+  to choose a new part. The exact times are still in the number boxes.
+- **Play as:**
+  - **Tape**, as before: changing the pitch changes the speed.
+  - **Stretch:** speed and pitch are set apart. Make a creak twice as long without it dropping in pitch, or a
+    voice an octave up without it getting shorter. Small overlapping grains are lined up with each other, so
+    the result stays steady and clean rather than phasey.
+  - **Grains:** a cloud of short pieces from around one spot in the sample, for textures, pads, swarms and
+    drones. Set the grain length, grains per second (at random or evenly spaced), where they come from (click
+    inside the waveform), how far around, how fast that spot moves through the sample, and a random pitch per
+    grain.
+- **Seamless sample loops:** a looped sample can crossfade where its end meets its start, instead of starting
+  again back to back. This also works while its pitch is being modulated.
+- **More to modulate:** a grain cloud's position and its grains per second can be connected to controls and
+  modulators. Sweep a "Position" control and the cloud moves through the recording.
+- **Fix:** a new sample layer starts with a sensible filter (low-pass at 4 kHz, off until you tick Filter)
+  instead of showing 0 Hz.
+- **Nothing changes for your existing sounds:** sample layers play as Tape unless you choose otherwise, and
+  render exactly as in preview.29. This is tested against renders made by preview.29 itself.
+
 ## 2.0.0-preview.29 — Sound Bench: controls, modulators and automation
 
 Stage 2 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): sounds that move by

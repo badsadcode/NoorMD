@@ -797,6 +797,24 @@ public partial class MainWindow
             var used = SoundEngine.Render(withSample, 48000, LoadSample);
             Check("Sound Bench: a WAV of your own plays as a layer only once you picked it", notPicked.Warnings.Count == 1 && used.Warnings.Count == 0 && used.RmsDb > -40,
                 $"not picked: {string.Join("; ", notPicked.Warnings)} used: {used.RmsDb} dB");
+            // Grains and stretch through the same file; the region editor's waveform only for a picked file.
+            withSample.Layers[0].PlayMode = "grains"; withSample.Layers[0].Position = 0.1;
+            var grains = SoundEngine.Render(withSample, 48000, LoadSample);
+            withSample.Layers[0].PlayMode = "stretch"; withSample.Layers[0].Speed = 0.5;
+            var stretched = SoundEngine.Render(withSample, 48000, LoadSample);
+            var wavJs = System.Text.Json.JsonSerializer.Serialize(wavPath);
+            var notPickedPath = Path.Combine(SelfTestDir!, "never picked.wav");
+            File.Copy(wavPath, notPickedPath, true); // there, readable, but nobody picked it
+            var otherJs = System.Text.Json.JsonSerializer.Serialize(notPickedPath);
+            await Eval($@"window.__sbp = null; (async () => {{
+                const r = {{}};
+                try {{ const w = await NoorBridge.request('sound.sample.peaks', {{ path: {wavJs} }}); r.seconds = w.seconds; r.peaks = w.peaks.length; }} catch (e) {{ r.error = e.message; }}
+                try {{ await NoorBridge.request('sound.sample.peaks', {{ path: {otherJs} }}); r.other = 'read'; }} catch (e) {{ r.other = 'refused'; }}
+                window.__sbp = JSON.stringify(r); }})()");
+            var sbp = "null";
+            for (var i = 0; i < 40 && sbp == "null"; i++) { await Task.Delay(100); sbp = await Eval("window.__sbp"); }
+            Check("Sound Bench: samples play as grains or stretched, and only a picked file's waveform is shown", grains.RmsDb > -45 && grains.Warnings.Count == 0 && stretched.RmsDb > -45
+                && sbp.Contains("\\\"peaks\\\":1200") && sbp.Contains("refused"), $"grains {grains.RmsDb} dB, stretched {stretched.RmsDb} dB, {sbp}");
         }
 
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.

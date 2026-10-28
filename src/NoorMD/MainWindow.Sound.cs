@@ -131,6 +131,13 @@ public partial class MainWindow
                     var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
                     return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
                 }
+                case "sound.sample.peaks":
+                {
+                    // The waveform of a sample layer's file, for its region editor: only files that may be read anyway.
+                    var path = req.GetString("path", 1000) ?? "";
+                    var audio = (path.Length > 0 ? await Task.Run(() => LoadSample(path)) : null) ?? throw new BridgeError("That file is missing, can't be read, or isn't one you picked.");
+                    return new { seconds = Math.Round(audio.Seconds, 4), peaks = audio.Peaks(600) };
+                }
                 case "sound.preset":
                 {
                     var id = req.GetString("id", 300) ?? "";
