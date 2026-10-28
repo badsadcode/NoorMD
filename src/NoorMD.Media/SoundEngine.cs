@@ -209,6 +209,28 @@ public sealed class SoundRecipe
 
     public SoundRecipe Clone() => FromJson(ToJson());
 
+    /// <summary>
+    /// For a recipe opened from a file: a sample named by a relative path is looked for next to the recipe, and one whose
+    /// full path is gone (the folder was moved or copied elsewhere) is found next to the recipe if a file of that name is there.
+    /// </summary>
+    public SoundRecipe FindSamplesBeside(string folder)
+    {
+        foreach (var l in Layers)
+        {
+            if (l.Type != "sample" || string.IsNullOrEmpty(l.Path)) continue;
+            try
+            {
+                if (!System.IO.Path.IsPathFullyQualified(l.Path)) { l.Path = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, l.Path)); continue; }
+                if (File.Exists(l.Path)) continue;
+                var name = System.IO.Path.GetFileName(l.Path.Replace('\\', System.IO.Path.DirectorySeparatorChar));
+                var beside = System.IO.Path.Combine(folder, name);
+                if (name.Length > 0 && File.Exists(beside)) l.Path = beside;
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { /* left as it is: reported missing when rendered */ }
+        }
+        return this;
+    }
+
     private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
 
     public SoundRecipe Clamped()

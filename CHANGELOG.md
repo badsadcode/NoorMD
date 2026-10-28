@@ -20,6 +20,8 @@ much more useful.
   again back to back. This also works while its pitch is being modulated.
 - **More to modulate:** a grain cloud's position and its grains per second can be connected to controls and
   modulators. Sweep a "Position" control and the cloud moves through the recording.
+- **Recipes travel with their samples:** when you open a recipe, a sample named by a relative path is found next
+  to it, and one whose folder has moved is found next to the recipe if a file of that name is there.
 - **Fix:** a new sample layer starts with a sensible filter (low-pass at 4 kHz, off until you tick Filter)
   instead of showing 0 Hz.
 - **Nothing changes for your existing sounds:** sample layers play as Tape unless you choose otherwise, and

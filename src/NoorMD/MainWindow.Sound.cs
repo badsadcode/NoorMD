@@ -230,7 +230,7 @@ public partial class MainWindow
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 200_000) throw new BridgeError("That file is too big for a sound recipe.");
-                    var opened = SoundRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName));
+                    var opened = SoundRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName)).FindSamplesBeside(Path.GetDirectoryName(Path.GetFullPath(dlg.FileName))!);
                     AllowSamples(opened);
                     return new { recipe = RecipeForPage(opened) };
                 }

@@ -141,6 +141,35 @@ public class SoundSampleTests
     }
 
     [Fact]
+    public void A_Recipe_Finds_Its_Samples_Beside_It()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "noormd-sound-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        try
+        {
+            File.WriteAllBytes(Path.Combine(folder, "creak.wav"), [0]);
+            var gone = Path.Combine(Path.GetTempPath(), "moved-away-" + Guid.NewGuid().ToString("N"), "creak.wav");
+            var r = new SoundRecipe
+            {
+                Layers =
+                [
+                    new SoundLayer { Type = "sample", Path = "creak.wav" },
+                    new SoundLayer { Type = "sample", Path = gone },
+                    new SoundLayer { Type = "sample", Path = Path.Combine(Path.GetTempPath(), "nowhere-" + Guid.NewGuid().ToString("N"), "other.wav") },
+                    new SoundLayer { Type = "noise", Path = "creak.wav" },
+                ],
+            }.FindSamplesBeside(folder);
+            var here = Path.Combine(folder, "creak.wav");
+            Assert.Equal(here, r.Layers[0].Path);
+            Assert.Equal(here, r.Layers[1].Path);
+            Assert.EndsWith("other.wav", r.Layers[2].Path);
+            Assert.NotEqual(Path.Combine(folder, "other.wav"), r.Layers[2].Path); // not there either: left as it was
+            Assert.Equal("creak.wav", r.Layers[3].Path);
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
+    [Fact]
     public void Extreme_Grain_Settings_Stay_Finite_And_Within_Bounds()
     {
         var a = TwoTones(300, 1200, 8000);
