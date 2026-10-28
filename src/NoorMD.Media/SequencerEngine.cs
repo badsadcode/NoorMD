@@ -76,6 +76,13 @@ public sealed class SongInstrument
     public double FmDepth { get; set; }
 }
 
+/// <summary>An adaptive-music layer (exploration, danger, combat…): the tracks that play in it, at the same tempo.</summary>
+public sealed class SongLayer
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Layer";
+}
+
 /// <summary>A point of a track's automation: at this place in the song (in bars, fractional), this value.</summary>
 public sealed class SongPoint
 {
@@ -104,6 +111,8 @@ public sealed class SongTrack
     public List<int> Sequence { get; set; } = [];
     /// <summary>0–1: notes a little early or late and a little softer or harder, as a person plays (seeded).</summary>
     public double Humanize { get; set; }
+    /// <summary>The adaptive layers (ids) the track plays in; empty = all of them (and the whole song).</summary>
+    public List<string> InLayers { get; set; } = [];
     /// <summary>Level over the song (dB added; empty = none), between points a straight line.</summary>
     public List<SongPoint> GainAutomation { get; set; } = [];
     /// <summary>Synth filter over the song (octaves added to the cutoff; empty = none).</summary>
@@ -134,6 +143,9 @@ public sealed class SongRecipe
     public List<SoundEffect> MasterEffects { get; set; } = [];
     public int Seed { get; set; } = 1;
     public List<SongTrack> Tracks { get; set; } = [];
+    /// <summary>Adaptive layers (up to four), each a version of the song with some of its tracks (empty = none).</summary>
+    public List<SongLayer> Layers { get; set; } = [];
+    public const int MaxLayers = 4;
 
     public int StepsPerBar => BeatsPerBar * 4;
     public double StepSeconds => 60.0 / Tempo / 4;
@@ -158,6 +170,14 @@ public sealed class SongRecipe
         MasterEffects = (MasterEffects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         Seed = Math.Clamp(Seed, 0, int.MaxValue);
         Tracks = (Tracks ?? []).Where(t => t != null).Take(MaxTracks).ToList();
+        var layerIds = new HashSet<string>(StringComparer.Ordinal);
+        Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).ToList();
+        foreach (var l in Layers)
+        {
+            l.Name = string.IsNullOrWhiteSpace(l.Name) ? "Layer" : l.Name.Trim()[..Math.Min(l.Name.Trim().Length, 40)];
+            if (l.Id is not { Length: > 1 and <= 6 } || l.Id[0] != 'L' || !l.Id[1..].All(char.IsAsciiDigit) || !layerIds.Add(l.Id)) l.Id = "";
+        }
+        foreach (var l in Layers.Where(l => l.Id == "")) { var n = 1; while (!layerIds.Add("L" + n)) n++; l.Id = "L" + n; }
         var used = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in Tracks)
         {
@@ -180,6 +200,7 @@ public sealed class SongRecipe
             i.LfoRate = C(i.LfoRate, 0.05, 20); i.LfoDepth = C(i.LfoDepth, 0, 1);
             i.FmRatio = C(i.FmRatio, 0.25, 16); i.FmDepth = C(i.FmDepth, 0, 10);
             t.Humanize = C(t.Humanize, 0, 1);
+            t.InLayers = (t.InLayers ?? []).Where(layerIds.Contains).Distinct().ToList();
             List<SongPoint> Points(List<SongPoint>? list, double lo, double hi) =>
                 (list ?? []).Where(p => p != null).Take(256).Select(p => { p.Bar = C(p.Bar, 0, Bars); p.Value = C(p.Value, lo, hi); return p; }).OrderBy(p => p.Bar).ToList();
             t.GainAutomation = Points(t.GainAutomation, -48, 12);
@@ -257,8 +278,77 @@ public static class SequencerEngine
 
     /// <param name="loop">Render only the loop region, its tail folded into its start: it repeats without a gap or a click.</param>
     /// <param name="samples">Reads a sample track's WAV (null when it can't or may not be used).</param>
-    public static SoundRender Render(SongRecipe song, int sampleRate = 48000, bool loop = false, Func<string, SampleAudio?>? samples = null) =>
-        RenderAll(song, sampleRate, loop, samples, stems: false).Mix;
+    /// <param name="layer">An adaptive layer's id: only its tracks (and those in every layer) play.</param>
+    public static SoundRender Render(SongRecipe song, int sampleRate = 48000, bool loop = false, Func<string, SampleAudio?>? samples = null, string? layer = null) =>
+        RenderAll(song, sampleRate, loop, samples, stems: false, layer: layer).Mix;
+
+    /// <summary>
+    /// Every adaptive layer (each with its tracks), at one shared level so they can be crossfaded in a game without
+    /// a jump: the loudest layer sets how far all of them are brought down (if at all).
+    /// </summary>
+    public static List<(SongLayer Layer, SoundRender Render)> RenderLayers(SongRecipe recipe, int sampleRate = 48000, bool loop = true, Func<string, SampleAudio?>? samples = null)
+    {
+        var song = recipe.Clone();
+        var raw = song.Layers.Select(l => (l, RenderAll(song, sampleRate, loop, samples, stems: false, layer: l.Id, limit: false).Mix)).ToList();
+        var peak = raw.Count == 0 ? 0 : raw.Max(r => Math.Max(r.Mix.Left.Max(Math.Abs), r.Mix.Right.Max(Math.Abs)));
+        var g = peak > 0.97 ? (float)(0.97 / peak) : 1f;
+        return raw.Select(r => (r.l, Scaled(r.Mix, g))).ToList();
+    }
+
+    private static SoundRender Scaled(SoundRender r, float g)
+    {
+        if (g == 1f) return r;
+        var (l, rr) = (new float[r.Left.Length], new float[r.Right.Length]);
+        for (var i = 0; i < l.Length; i++) { l[i] = r.Left[i] * g; rr[i] = r.Right[i] * g; }
+        double Db(double x) => x <= 1e-9 ? -120 : Math.Round(20 * Math.Log10(x), 1);
+        return new SoundRender { SampleRate = r.SampleRate, Left = l, Right = rr, PeakDb = Math.Round(r.PeakDb + 20 * Math.Log10(g), 1), RmsDb = Math.Round(r.RmsDb + 20 * Math.Log10(g), 1), Warnings = r.Warnings };
+    }
+
+    /// <summary>
+    /// What a game does when the music changes: the first layer's loop once, then the second fading in over it (in
+    /// time: both loops are the same length) and playing on for one loop.
+    /// </summary>
+    public static SoundRender Transition(SoundRender from, SoundRender to, double fadeSeconds)
+    {
+        var n = Math.Min(from.Left.Length, to.Left.Length);
+        var fade = Math.Clamp((int)(fadeSeconds * from.SampleRate), 1, n);
+        float[] l = new float[2 * n], r = new float[2 * n];
+        for (var i = 0; i < n; i++) { l[i] = from.Left[i]; r[i] = from.Right[i]; }
+        for (var i = 0; i < n; i++)
+        {
+            // Equal power: the two together keep the same loudness through the fade.
+            var x = Math.Min(1, (double)i / fade);
+            float a = (float)Math.Cos(x * Math.PI / 2), b = (float)Math.Sin(x * Math.PI / 2);
+            l[n + i] = from.Left[i] * a + to.Left[i] * b;
+            r[n + i] = from.Right[i] * a + to.Right[i] * b;
+        }
+        return new SoundRender { SampleRate = from.SampleRate, Left = l, Right = r, PeakDb = Math.Max(from.PeakDb, to.PeakDb), RmsDb = Math.Max(from.RmsDb, to.RmsDb) };
+    }
+
+    /// <summary>How well the loop loops: the step at the seam, how much rings over the end (folded into the start), and the level at both ends.</summary>
+    public sealed record LoopReport(double Seconds, double SeamJump, double TailPercent, double StartDb, double EndDb, IReadOnlyList<string> Checks);
+
+    public static LoopReport CheckLoop(SongRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null, string? layer = null)
+    {
+        var song = recipe.Clone();
+        var looped = Render(song, sampleRate, true, samples, layer);
+        var open = RenderAll(song, sampleRate, false, samples, stems: false, song.LoopStart, song.LoopEnd, layer, limit: false).Mix;
+        var n = looped.Left.Length;
+        double Energy(float[] a, float[] b, int from, int to) { double e = 0; for (var i = from; i < Math.Min(to, a.Length); i++) e += a[i] * a[i] + b[i] * b[i]; return e; }
+        var all = Energy(open.Left, open.Right, 0, open.Left.Length);
+        var tail = all > 0 ? 100 * Energy(open.Left, open.Right, n, open.Left.Length) / all : 0;
+        var half = Math.Min(n / 2, sampleRate / 2);
+        double Db(double e, int count) => e <= 1e-12 ? -120 : Math.Round(10 * Math.Log10(e / (2.0 * count)), 1);
+        var start = Db(Energy(looped.Left, looped.Right, 0, half), half);
+        var end = Db(Energy(looped.Left, looped.Right, n - half, n), half);
+        var seam = looped.Measure().SeamJump;
+        var checks = new List<string>();
+        if (seam > 1.5) checks.Add("There is a jump where the loop wraps (a click): an effect or a note may be cut at the end");
+        if (Math.Abs(start - end) > 6 && Math.Max(start, end) > -60) checks.Add($"The start and the end differ by {Math.Abs(start - end):0} dB: the loop may sound like it restarts");
+        if (tail > 15) checks.Add($"{tail:0} % of the sound rings over the end (folded into the start): fine for reverb, but a long tail may blur the start");
+        if (looped.RmsDb < -50) checks.Add("The loop is nearly silent (are its tracks muted, or in another layer?)");
+        return new LoopReport(Math.Round(looped.Seconds, 3), seam, Math.Round(tail, 1), start, end, checks);
+    }
 
     /// <summary>For listening: bars from (included) to (excluded), with the tail of the last one.</summary>
     public static SoundRender RenderBars(SongRecipe song, int fromBar, int toBar, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null) =>
@@ -295,8 +385,19 @@ public static class SequencerEngine
     public static (SoundRender Mix, List<(string Name, SoundRender Render)> Stems) RenderStems(SongRecipe song, int sampleRate = 48000, bool loop = false, Func<string, SampleAudio?>? samples = null) =>
         RenderAll(song, sampleRate, loop, samples, stems: true);
 
+    /// <summary>For listening to one adaptive layer from a bar on (its level shared with the other layers, as exported).</summary>
+    public static SoundRender RenderLayerBars(SongRecipe recipe, string layer, int fromBar, int toBar, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
+    {
+        var song = recipe.Clone();
+        var raw = RenderAll(song, sampleRate, false, samples, stems: false, fromBar, toBar, layer, limit: false).Mix;
+        // The same bringing-down as the loudest layer's, so switching layers while listening keeps their balance.
+        var peak = song.Layers.Select(l => l.Id == layer ? raw : RenderAll(song, sampleRate, false, samples, stems: false, fromBar, toBar, l.Id, limit: false).Mix)
+            .Max(r => Math.Max(r.Left.Length == 0 ? 0 : r.Left.Max(Math.Abs), r.Right.Length == 0 ? 0 : r.Right.Max(Math.Abs)));
+        return Scaled(raw, peak > 0.97 ? (float)(0.97 / peak) : 1f);
+    }
+
     private static (SoundRender Mix, List<(string Name, SoundRender Render)> Stems) RenderAll(SongRecipe recipe, int sr, bool loop, Func<string, SampleAudio?>? samples, bool stems,
-        int? from = null, int? to = null)
+        int? from = null, int? to = null, string? layer = null, bool limit = true)
     {
         var song = recipe.Clone();
         int fromBar = loop ? song.LoopStart : 0, toBar = loop ? song.LoopEnd : song.Bars;
@@ -310,7 +411,8 @@ public static class SequencerEngine
         var trackRenders = new List<(string Name, double[] L, double[] R)>();
         foreach (var track in song.Tracks)
         {
-            if (track.Mute || (anySolo && !track.Solo)) { if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
+            var outOfLayer = layer != null && track.InLayers.Count > 0 && !track.InLayers.Contains(layer);
+            if (track.Mute || (anySolo && !track.Solo) || outOfLayer) { if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
             SampleAudio? sample = null;
             if (track.Kind == "sample")
             {
@@ -363,7 +465,7 @@ public static class SequencerEngine
         var n = loop ? length : LastSound(mixL, mixR, length);
         double peak = 0;
         for (var i = 0; i < n; i++) peak = Math.Max(peak, Math.Max(Math.Abs(mixL[i]), Math.Abs(mixR[i])) * master);
-        var g = master * (peak > 0.97 ? 0.97 / peak : 1);
+        var g = master * (limit && peak > 0.97 ? 0.97 / peak : 1);
         SoundRender Make(double[] a, double[] b, IReadOnlyList<string> w)
         {
             float[] fl = new float[n], fr = new float[n];

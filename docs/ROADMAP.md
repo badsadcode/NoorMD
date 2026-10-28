@@ -34,7 +34,8 @@ first, and anything that conflicts with it waits.
 - NoorSequencer, stage 1 (song grid of numbered patterns, piano roll with scale lock, drum grid, synth, drum kit
   and sample instruments, the Sound Bench's effects, mood templates, seamless loops, stems and MIDI): preview.47.
   Stage 2, help for non-musicians (chords of the key, progressions, rhythms, variations, presets, arpeggiator,
-  humanize, LFO, FM, automation): preview.48. Next: stage 3 (adaptive game music). See [SEQUENCER_PLAN.md](SEQUENCER_PLAN.md).
+  humanize, LFO, FM, automation): preview.48. Stage 3, game music (adaptive layers, transitions, loop check, OGG,
+  samples from the other benches, the Vault): preview.49 — the plan is complete; what comes next depends on use. See [SEQUENCER_PLAN.md](SEQUENCER_PLAN.md).
 - Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
   stations (streams cut into pieces), which NoorMD doesn't play yet.
 

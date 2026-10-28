@@ -4796,6 +4796,87 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the sequencer help', errors.length === 0, errors);
       await page.close();
     }
+
+    // ---- 61. NoorSequencer for games (stage 3): adaptive layers, transitions, the loop check, OGG and layer export, the Vault, samples from other benches.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.evaluate(() => { try { ['noormd.seq.export', 'noormd.seq.loop', 'noormd.seq.lock', 'noormd.seq.progression'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song);
+      check('no layers: the 🎧 layer picker is hidden; ⤓ Export is at the top', !(await page.isVisible('#seq-listenlayer')) && await page.isVisible('#seq-exportbtn'));
+      await page.click('#seq-exportbtn');
+      check('⤓ Export opens Song & export at the Export button', (await SQ()).tab === 'song' && await page.isVisible('#seq-export'));
+      // The adaptive template.
+      await page.selectOption('#seq-template', 'adaptive'); // nothing changed yet: no question
+      await waitFn(page, () => NoorSequencer._state().song.name === 'Adaptive adventure');
+      check('the Adaptive adventure template: three layers in the 🎧 picker', await page.isVisible('#seq-listenlayer') && (await page.$$eval('#seq-listenlayer option', (o) => o.map((x) => x.textContent))).join('|') === '🎧 Whole song|🎧 Exploration|🎧 Danger|🎧 Combat');
+      check('tracks show which layers they play in (D C = Danger, Combat)', (await page.textContent('#seq-grid .seq-row[data-track="1"] .seq-layerbadge')) === 'DC' && !(await page.$('#seq-grid .seq-row[data-track="0"] .seq-layerbadge')));
+      await page.selectOption('#seq-listenlayer', 'L1');
+      check('listening to Exploration dims the tracks not in it', await page.$eval('#seq-grid .seq-row[data-track="2"]', (r) => r.classList.contains('off-layer')) && !(await page.$eval('#seq-grid .seq-row[data-track="0"]', (r) => r.classList.contains('off-layer'))));
+      await page.click('#seq-loop');
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing);
+      check('▶ plays the chosen layer (its loop)', (await M()).renders.at(-1).layer === 'L1' && (await M()).renders.at(-1).loop === true);
+      await page.keyboard.press('Space');
+      // The layer matrix.
+      await page.click('#seqbench .sb-tabs [data-tab="song"]');
+      await page.waitForSelector('#seq-layers');
+      check('the layer matrix: a column per layer, ticked where a track plays', (await page.$$('#seq-layers input[data-layer]')).length === 9 && await page.isChecked('#seq-layers input[data-track="1"][data-layer="L2"]') && !(await page.isChecked('#seq-layers input[data-track="0"][data-layer="L1"]')));
+      await page.check('#seq-layers input[data-track="0"][data-layer="L1"]');
+      check('ticking puts a track in a layer', JSON.stringify((await SQ()).song.tracks[0].inLayers) === '["L1"]');
+      await page.fill('#seq-layers input[data-layername="L3"]', 'Boss fight'); await page.press('#seq-layers input[data-layername="L3"]', 'Enter');
+      check('layers can be renamed', (await SQ()).song.layers[2].name === 'Boss fight' && (await page.$$eval('#seq-listenlayer option', (o) => o.map((x) => x.textContent))).includes('🎧 Boss fight'));
+      await page.click('#seq-addlayer');
+      check('＋ Add a layer (the first free name: Combat, now that it was renamed), four at most', (await SQ()).song.layers.length === 4 && (await SQ()).song.layers[3].name === 'Combat' && await page.isDisabled('#seq-addlayer'));
+      await page.click('#seq-layers .seq-layerhead .seq-layercol:nth-of-type(5) button');
+      check('a layer can be removed (its tracks stay)', (await SQ()).song.layers.length === 3 && (await SQ()).song.tracks.length === 3);
+      // Hear the change.
+      await page.selectOption('#seq-tfrom', 'L1'); await page.selectOption('#seq-tto', 'L3'); await page.selectOption('#seq-tfade', '2');
+      await page.click('#seq-thear');
+      await waitFn(page, () => /for one loop/.test(document.querySelector('#seq-tstatus').textContent));
+      check('▶ Hear the change: exploration, then the fight fading in over two bars', JSON.stringify((await M()).transitions[0]) === '{"from":"L1","to":"L3","fadeBars":2}' && /Exploration for one loop, then Boss fight from 8\.6 s/.test(await page.textContent('#seq-tstatus')) && (await SQ()).audition === '/_media/4');
+      // The loop check, for the layer listened to.
+      await page.click('#seq-loopcheck');
+      await waitFn(page, () => !!document.querySelector('#seq-loopreport [data-check="seam"]'));
+      check('🔎 Check the loop: the seam, the tail, both ends, for the layer listened to', (await M()).loopchecks[0].layer === 'L1' && /no click at the seam/.test(await page.textContent('#seq-loopreport')) && /6\.2 % rings over/.test(await page.textContent('#seq-loopreport')) && !!(await page.$('#seq-hearseam')));
+      await page.selectOption('#seq-listenlayer', '');
+      await page.click('#seq-loopcheck');
+      await waitFn(page, () => !!document.querySelector('#seq-loopreport [data-check="check"]'));
+      check('…and says what to look at', /start and the end differ by 7 dB/.test(await page.textContent('#seq-loopreport')));
+      // Export: OGG, each layer, the Vault.
+      await page.selectOption('#seq-format', 'ogg');
+      await page.waitForSelector('#seq-oggq');
+      check('OGG offers a quality; the parts say OGG', /A seamless loop \(OGG\)/.test(await page.textContent('#seqbench')) && await page.isVisible('#seq-part-layers'));
+      await page.selectOption('#ex-music-layout', 'unity');
+      await waitFn(page, () => /Exploration_loop\.ogg/.test(document.querySelector('#ex-music-preview').textContent));
+      check('Where: each layer\'s loop listed (Unity names)', /AdaptiveAdventure_Exploration_loop\.ogg/.test(await page.textContent('#ex-music-preview')) && /AdaptiveAdventure_Boss_fight_loop\.ogg/.test(await page.textContent('#ex-music-preview')), await page.textContent('#ex-music-preview'));
+      await page.check('#seq-vault');
+      await page.click('#seq-export');
+      await waitFn(page, () => window.__mock.state.seq.exports.length === 1);
+      const ex = (await M()).exports[0];
+      check('Export sends the format, the quality, the layers and the Vault choice', ex.format === 'ogg' && ex.oggQuality === 0.5 && ex.parts.layers === true && ex.vault === true && ex.song.layers.length === 3);
+      // Samples from other benches.
+      await page.selectOption('#seq-addtrack', 'sample');
+      await page.click('#seq-fromsound');
+      await page.waitForSelector('#seq-picklist .seq-pick');
+      await page.click('#seq-picklist .seq-pick[data-id="ui-coin"]');
+      await waitFn(page, () => /Coin pickup/.test(NoorSequencer._state().song.tracks.at(-1).instrument.sampleName || ''));
+      check('🔊 From the Sound Bench: a preset rendered as the instrument', (await M()).fromSound === 'ui-coin' && /Coin pickup/.test(await page.textContent('#seq-samplename')));
+      await page.click('#seq-fromlibrary');
+      await page.waitForSelector('#seq-picklist .seq-pick');
+      await page.fill('#seq-picksearch', 'kalim');
+      await page.click('#seq-picklist .seq-pick[data-id="7"]');
+      await waitFn(page, () => NoorSequencer._state().song.tracks.at(-1).instrument.sampleName === 'Kalimba loop.wav');
+      check('♫ From the Music Bench: a WAV from the library', (await M()).fromLibrary === 7);
+      // A song opened from the Vault.
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'seq.openSong', payload: { song: { ...window.__mock.state.seq.songs.cozy(), name: 'From the Vault' } } }));
+      await waitFn(page, () => NoorSequencer._state().song.name === 'From the Vault');
+      check('a .noorsong.json opened in the Vault opens here', true);
+      check('no page errors in the game-music features', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

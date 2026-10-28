@@ -9,7 +9,7 @@ web services.
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.48-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get `NoorMD-2.0.0-preview.49-win-x64-portable.zip`. Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -149,8 +149,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   WAV of your own played at any pitch, with the Sound Bench's effects. Help for non-musicians: the chords of your
   key with their mood in plain words, whole chord progressions (with a bass line) written for you, drum rhythms,
   variations of a pattern, instrument presets, an arpeggiator, humanize, an LFO and FM, and level and filter
-  automation over the song. Play from any bar or the loop over and over,
-  and export the song, a seamless loop (its tails wrapped into the start), stems and MIDI, arranged for Godot, Unity
+  automation over the song. For games: adaptive layers (exploration, danger, combat…) that a game can crossfade,
+  with the change between them to listen to, and a loop check (click at the seam, tail, level at both ends). Use
+  a Sound Bench sound or a WAV from the Music Bench as an instrument. Play from any bar or the loop over and over,
+  and export (⤓ Export at the top) the song, a seamless loop (its tails wrapped into the start), each layer's
+  loop, stems and MIDI, as WAV or OGG, optionally kept in your Vault, arranged for Godot, Unity
   or Unreal or into a game project, with the song beside them.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station

@@ -463,6 +463,11 @@ function mockHostScript(initial) {
         seqTrack('Melody', 'synth', {}, [{ notes: [{ step: 0, length: 2, pitch: 72, velocity: 0.8 }, { step: 4, length: 4, pitch: 76, velocity: 0.8 }] }, { notes: [{ step: 0, length: 8, pitch: 67, velocity: 0.8 }] }], [1, 2, 1, 2, 1, 2, 1, 2]),
         seqTrack('Drums', 'drums', {}, [{ notes: [{ step: 0, length: 1, pitch: 0, velocity: 0.9 }, { step: 4, length: 1, pitch: 1, velocity: 0.9 }] }], [0, 0, 1, 1, 1, 1, 1, 1]),
       ]),
+      adaptive: () => ({ ...seqSong('Adaptive adventure', [
+        seqTrack('Pad', 'synth', {}, [{ notes: [{ step: 0, length: 16, pitch: 62, velocity: 0.8 }] }], [1, 1, 1, 1], { inLayers: [] }),
+        seqTrack('Bass', 'synth', { octave: -1 }, [{ notes: [{ step: 0, length: 2, pitch: 50, velocity: 0.8 }] }], [1, 1, 1, 1], { inLayers: ['L2', 'L3'] }),
+        seqTrack('Battle drums', 'drums', {}, [{ notes: [{ step: 0, length: 1, pitch: 0, velocity: 0.9 }] }], [1, 1, 1, 1], { inLayers: ['L3'] }),
+      ]), bars: 4, loopEnd: 4, key: 2, scale: 'minor', layers: [{ id: 'L1', name: 'Exploration' }, { id: 'L2', name: 'Danger' }, { id: 'L3', name: 'Combat' }] }),
       empty: () => seqSong('Untitled song', [seqTrack('Drums', 'drums', {}, [{ notes: [] }], [1, 1, 1, 1, 1, 1, 1, 1]), seqTrack('Lead', 'synth', {}, [{ notes: [] }], [1, 1, 1, 1, 1, 1, 1, 1])]),
     },
   };
@@ -470,7 +475,7 @@ function mockHostScript(initial) {
   function seqMock(type, p) {
     const mine = () => SEQ.mine.map((x) => ({ id: x.id, name: x.song.name, family: x.song.family, description: `${x.song.bars} bars · ${x.song.tempo} BPM` }));
     switch (type) {
-      case 'seq.templates': return { templates: [{ id: 'empty', name: 'Empty song', description: '' }, { id: 'cozy', name: 'Cozy exploration', description: '' }], mine: mine(), scales: ['major', 'minor'], kit: ['Kick', 'Snare', 'Clap', 'Closed hat', 'Open hat', 'Low tom', 'High tom', 'Rim'] };
+      case 'seq.templates': return { templates: [{ id: 'empty', name: 'Empty song', description: '' }, { id: 'cozy', name: 'Cozy exploration', description: '' }, { id: 'adaptive', name: 'Adaptive adventure', description: '' }], mine: mine(), scales: ['major', 'minor'], kit: ['Kick', 'Snare', 'Clap', 'Closed hat', 'Open hat', 'Low tom', 'High tom', 'Rim'] };
       case 'seq.template': {
         const own = SEQ.mine.find((x) => x.id === p.id);
         if (own) return JSON.parse(JSON.stringify(own.song));
@@ -481,8 +486,13 @@ function mockHostScript(initial) {
         SEQ.renders.push(JSON.parse(JSON.stringify(p)));
         const barSeconds = 60 / p.song.tempo * p.song.beatsPerBar;
         const from = p.loop ? p.song.loopStart : p.fromBar || 0, to = p.loop ? p.song.loopEnd : p.song.bars;
-        return { url: '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
+        return { url: '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, layer: p.layer || null, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
       }
+      case 'seq.transition': SEQ.transitions = (SEQ.transitions || []).concat([{ from: p.from, to: p.to, fadeBars: p.fadeBars }]); return { url: '/_media/4', seconds: 17.1, switchAt: 8.6, barSeconds: 2.1 };
+      case 'seq.loopcheck': SEQ.loopchecks = (SEQ.loopchecks || []).concat([{ layer: p.layer || null }]); return { seconds: 8.571, seamJump: 0.4, tailPercent: 6.2, startDb: -18.5, endDb: -19.1, checks: p.layer === 'L1' ? [] : ['The start and the end differ by 7 dB: the loop may sound like it restarts'], seamUrl: '/_media/4', seamAt: 2 };
+      case 'seq.sample.fromSound': SEQ.fromSound = p.id; return { path: 'C:\\Local\\Sequencer\\Samples\\Coin pickup 1A2B3C4D.wav', name: 'Coin pickup.wav', seconds: 0.5 };
+      case 'seq.sample.library': return { tracks: [{ id: 7, title: 'Kalimba loop', artist: 'Me', seconds: 4.2 }].filter((x) => !p.search || x.title.toLowerCase().includes(p.search.toLowerCase())) };
+      case 'seq.sample.fromLibrary': SEQ.fromLibrary = p.id; return { path: 'D:\\Music\\Kalimba loop.wav', name: 'Kalimba loop.wav', seconds: 4.2 };
       case 'seq.note': SEQ.notes.push({ track: p.track, pitch: p.pitch, pitches: p.pitches, velocity: p.velocity }); return { url: '/_media/4' };
       case 'seq.sample.pick': SEQ.picks++; return { path: 'C:\\Samples\\kalimba C4.wav', name: 'kalimba C4.wav', seconds: 1.2 };
       case 'seq.export': {
@@ -519,8 +529,10 @@ function mockHostScript(initial) {
         const fill = (s, more) => s.replace(/\{([^}]+)\}/g, (_, k) => ({ ...t, ...more })[k] ?? '');
         const maps = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target] || ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'];
         const codes = { albedo: 'BC', basecolor: 'BC', normal: 'N', orm: 'ORM', height: 'H', roughness: 'R', ao: 'AO', metallic: 'M' };
+        const exts = p.format === 'both' ? ['.wav', '.ogg'] : [p.format === 'ogg' ? '.ogg' : '.wav'];
         const files = p.bench === 'music'
-          ? [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + '.wav']), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop.wav'] : []), ...(p.parts && p.parts.midi ? [fill(pat.file) + '.mid'] : [])]
+          ? [...exts.flatMap((e) => [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + e]), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop' + e] : []),
+              ...(p.parts && p.parts.layers ? (p.layers || []).map((l) => `${fill(pat.file)}_${l.split(/\s+/).join('_')}_loop${e}`) : [])]), ...(p.parts && p.parts.midi ? [fill(pat.file) + '.mid'] : [])]
           : p.bench === 'sound'
           ? Array.from({ length: Math.min(p.variations || 1, 3) }, (_, i) => fill(p.variations > 1 ? pat.file : pat.file.replace(/_\{n\}/, ''), { n: String(i + 1).padStart(2, '0') }) + '.wav')
           : maps.map((m) => fill(pat.file, { map: m, Map: m[0].toUpperCase() + m.slice(1), MAP: codes[m] }) + '.png');

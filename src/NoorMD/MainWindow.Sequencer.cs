@@ -87,6 +87,24 @@ public partial class MainWindow
         return Path.Combine(UserSongFolder, file);
     }
 
+    /// <summary>The song kept in the open Vault (Music folder) with an OGG of it (its loop, or the first minute), to find, link and open again.</summary>
+    private async Task<string> SaveSongToVaultAsync(SongRecipe song, string stem)
+    {
+        var v = _vault ?? throw new BridgeError("Open a Vault first.");
+        var folder = Path.Combine(v.Root, "Music");
+        Directory.CreateDirectory(folder);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var recipePath = PictureConvert.FreePath(folder, stem + ".noorsong", ".json", taken);
+        var listen = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(recipePath)), ".ogg", taken);
+        var looped = song.LoopEnd - song.LoopStart < song.Bars;
+        var render = await Task.Run(() => looped ? SequencerEngine.Render(song, SoundRate, true, LoadSample)
+            : SequencerEngine.RenderBars(song, 0, Math.Min(song.Bars, Math.Max(1, (int)(60 / song.BarSeconds))), SoundRate, LoadSample));
+        await File.WriteAllBytesAsync(listen, await Task.Run(() => SoundOgg.Encode(render, 0.4, song.Name, looped)));
+        await File.WriteAllTextAsync(recipePath, song.ToJson(), new UTF8Encoding(false));
+        ScheduleRescan(0);
+        return Path.GetRelativePath(v.Root, recipePath).Replace('\\', '/');
+    }
+
     private async Task<object?> DispatchSequencerAsync(BridgeRequest req)
     {
         var p = req.Payload;
@@ -116,12 +134,62 @@ public partial class MainWindow
                     var most = Math.Max(1, (int)(SongPreviewSeconds / song.BarSeconds));
                     int to = loop ? song.LoopEnd : Math.Min(song.Bars, from + most);
                     var cut = !loop && to < song.Bars;
+                    // An adaptive layer: only its tracks, at the level shared by all layers (as exported).
+                    var layer = req.GetString("layer", 8) is { Length: > 0 } id && song.Layers.Any(x => x.Id == id) ? id : null;
                     SoundRender render;
                     await SoundGate.WaitAsync();
-                    try { render = await Task.Run(() => loop ? SequencerEngine.Render(song, SoundRate, true, LoadSample) : SequencerEngine.RenderBars(song, from, to, SoundRate, LoadSample)); }
+                    try
+                    {
+                        render = await Task.Run(() => layer != null
+                            ? loop ? SequencerEngine.RenderLayers(song, SoundRate, true, LoadSample).Single(x => x.Layer.Id == layer).Render : SequencerEngine.RenderLayerBars(song, layer, from, to, SoundRate, LoadSample)
+                            : loop ? SequencerEngine.Render(song, SoundRate, true, LoadSample) : SequencerEngine.RenderBars(song, from, to, SoundRate, LoadSample));
+                    }
                     finally { SoundGate.Release(); }
-                    var url = Serve(render, $"{song.ToJson()}|{loop}|{from}|{to}");
-                    return new { url, seconds = render.Seconds, fromBar = from, toBar = to, barSeconds = song.BarSeconds, loop, cut, peakDb = render.PeakDb, warnings = render.Warnings };
+                    var url = Serve(render, $"{song.ToJson()}|{loop}|{from}|{to}|{layer}");
+                    return new { url, seconds = render.Seconds, fromBar = from, toBar = to, barSeconds = song.BarSeconds, loop, cut, layer, peakDb = render.PeakDb, warnings = render.Warnings };
+                }
+                case "seq.transition":
+                {
+                    // How a game's change of music sounds: one layer's loop, then the next fading in over it, in time.
+                    var song = SongFrom(p);
+                    string? from = req.GetString("from", 8), to = req.GetString("to", 8);
+                    if (!song.Layers.Any(x => x.Id == from) || !song.Layers.Any(x => x.Id == to)) throw new BridgeError("Choose two layers of the song.");
+                    var fade = Math.Clamp(Json.OptDouble(p, "fadeBars") ?? 1, 0, 8) * song.BarSeconds;
+                    SoundRender render;
+                    await SoundGate.WaitAsync();
+                    try
+                    {
+                        render = await Task.Run(() =>
+                        {
+                            var layers = SequencerEngine.RenderLayers(song, SoundRate, true, LoadSample);
+                            return SequencerEngine.Transition(layers.Single(x => x.Layer.Id == from).Render, layers.Single(x => x.Layer.Id == to).Render, Math.Max(0.01, fade));
+                        });
+                    }
+                    finally { SoundGate.Release(); }
+                    return new { url = Serve(render, $"{song.ToJson()}|transition|{from}|{to}|{fade}"), seconds = render.Seconds, switchAt = render.Seconds / 2, barSeconds = song.BarSeconds };
+                }
+                case "seq.loopcheck":
+                {
+                    // The loop inspector: how the loop wraps, and the seam to listen to (its last two seconds, then its first two).
+                    var song = SongFrom(p);
+                    var layer = req.GetString("layer", 8) is { Length: > 0 } id && song.Layers.Any(x => x.Id == id) ? id : null;
+                    SequencerEngine.LoopReport report;
+                    SoundRender loop;
+                    await SoundGate.WaitAsync();
+                    try
+                    {
+                        (report, loop) = await Task.Run(() => (SequencerEngine.CheckLoop(song, SoundRate, LoadSample, layer), SequencerEngine.Render(song, SoundRate, true, LoadSample, layer)));
+                    }
+                    finally { SoundGate.Release(); }
+                    var n = loop.Left.Length;
+                    var half = Math.Min(n, 2 * SoundRate);
+                    float[] Seam(float[] x) => [.. x[(n - half)..], .. x[..half]];
+                    var seam = new SoundRender { SampleRate = loop.SampleRate, Left = Seam(loop.Left), Right = Seam(loop.Right) };
+                    return new
+                    {
+                        seconds = report.Seconds, seamJump = report.SeamJump, tailPercent = report.TailPercent, startDb = report.StartDb, endDb = report.EndDb, checks = report.Checks,
+                        seamUrl = Serve(seam, $"{song.ToJson()}|seam|{layer}"), seamAt = (double)half / SoundRate,
+                    };
                 }
                 case "seq.note":
                 {
@@ -147,6 +215,42 @@ public partial class MainWindow
                     var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
                     return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
                 }
+                case "seq.sample.fromSound":
+                {
+                    // A Sound Bench sound (a preset or one of yours) as an instrument: rendered once into the app's own folder.
+                    var id = req.GetString("id", 300) ?? "";
+                    var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? SoundRecipe.FromJson(await File.ReadAllTextAsync(UserPresetPath(id))) : SoundPresets.Make(id);
+                    AllowSamples(recipe);
+                    if (recipe.Duration > 20) recipe.Duration = 20;
+                    var render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample));
+                    var folder = Path.Combine(App.Paths.Local, "Sequencer", "Samples");
+                    Directory.CreateDirectory(folder);
+                    var path = Path.Combine(folder, NoorMD.Core.Documents.DocumentFile.SafeFileName($"{recipe.Name} {Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(recipe.ToJson())))[..8]}", ".wav"));
+                    if (!File.Exists(path)) await File.WriteAllBytesAsync(path, render.ToWav(16));
+                    _soundSampleFiles.Add(Path.GetFullPath(path));
+                    return new { path, name = recipe.Name + ".wav", seconds = Math.Round(render.Seconds, 3) };
+                }
+                case "seq.sample.library":
+                {
+                    // WAV files in the Music Bench's library (other formats can't be played as instruments yet).
+                    var search = req.GetString("search", 200);
+                    var rows = await Task.Run(() => Music.Query(new NoorMD.Media.LibraryQuery(Search: string.IsNullOrWhiteSpace(search) ? null : search, Limit: 2000)).Rows);
+                    return new
+                    {
+                        tracks = rows.Where(r => !r.Missing && r.Path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase)).Take(200)
+                            .Select(r => new { id = r.Id, title = r.DisplayTitle, artist = r.Artist, seconds = Math.Round(r.Duration, 1) }),
+                    };
+                }
+                case "seq.sample.fromLibrary":
+                {
+                    var row = Music.Get((long)(Json.OptDouble(p, "id") ?? -1)) ?? throw new BridgeError("That track is no longer in the Music Bench.");
+                    if (!row.Path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || !File.Exists(row.Path)) throw new BridgeError("Only WAV files can be played as an instrument.");
+                    if (new FileInfo(row.Path).Length > 100 * 1024 * 1024) throw new BridgeError("That file is too big (over 100 MB) for a sample.");
+                    var full = Path.GetFullPath(row.Path);
+                    _soundSampleFiles.Add(full);
+                    var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
+                    return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
+                }
                 case "seq.export":
                 {
                     var song = SongFrom(p);
@@ -154,9 +258,14 @@ public partial class MainWindow
                     var parts = p.TryGetProperty("parts", out var pa) && pa.ValueKind == JsonValueKind.Object ? pa : default;
                     bool Part(string key, bool fallback) => parts.ValueKind == JsonValueKind.Object && parts.TryGetProperty(key, out var v) ? v.ValueKind == JsonValueKind.True : fallback;
                     bool mix = Part("mix", true), loop = Part("loop", false), stems = Part("stems", false), midi = Part("midi", false);
-                    if (!mix && !loop && !stems && !midi) throw new BridgeError("Choose something to export: the song, the loop, stems or MIDI.");
+                    var layers = Part("layers", false) && song.Layers.Count > 0;
+                    if (!mix && !loop && !stems && !midi && !layers) throw new BridgeError("Choose something to export: the song, the loop, the layers, stems or MIDI.");
                     var bits = (int)(Json.OptDouble(p, "bits") ?? 16) == 24 ? 24 : 16;
                     var rate = (int)(Json.OptDouble(p, "sampleRate") ?? SoundRate) == 44100 ? 44100 : 48000;
+                    // WAV, OGG (smaller; what engines stream music from) or both.
+                    var format = req.GetString("format", 8) is "ogg" or "both" ? req.GetString("format", 8)! : "wav";
+                    var quality = Math.Clamp(Json.OptDouble(p, "oggQuality") ?? 0.5, 0.1, 0.9);
+                    string[] exts = format == "both" ? [".wav", ".ogg"] : [format == "ogg" ? ".ogg" : ".wav"];
                     var place = ExportPlaceFrom(p, "music");
                     var root = ExportBase(place, $"Save “{song.Name}” in… (you can make a new folder here)");
                     if (root == null) return new { cancelled = true };
@@ -164,9 +273,14 @@ public partial class MainWindow
                     var folder = ExportLayouts.Under(root, ExportLayouts.Folders(ExportLayouts.Expand(place.FolderPattern, tokens)));
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), song.Name);
                     var stem = ExportLayouts.FileName(tokens["name"], song.Name);
+                    string LayerFile(SongLayer l) => ExportLayouts.FileName($"{file}_{ExportLayouts.NameTokens(l.Name)["name"]}_loop", song.Name);
                     var planned = new List<string>();
-                    if (mix) planned.Add(Path.Combine(folder, file + ".wav"));
-                    if (loop) planned.Add(Path.Combine(folder, file + "_loop.wav"));
+                    foreach (var ext in exts)
+                    {
+                        if (mix) planned.Add(Path.Combine(folder, file + ext));
+                        if (loop) planned.Add(Path.Combine(folder, file + "_loop" + ext));
+                        if (layers) planned.AddRange(song.Layers.Select(l => Path.Combine(folder, LayerFile(l) + ext)));
+                    }
                     if (midi) planned.Add(Path.Combine(folder, file + ".mid"));
                     planned.Add(Path.Combine(folder, stem + ".noorsong.json"));
                     var how = AskReplace(planned, $"“{song.Name}”");
@@ -177,20 +291,24 @@ public partial class MainWindow
                     var files = new List<string>();
                     string? stemDir = null;
                     var warnings = new List<string>();
-                    var steps = (mix || stems ? 1 : 0) + (loop ? 1 : 0) + (midi ? 1 : 0);
+                    var steps = (mix || stems ? 1 : 0) + (loop ? 1 : 0) + (layers ? 1 : 0) + (midi ? 1 : 0);
                     var done = 0;
                     void Progress() => PushEvent("seq.exportProgress", new { done = ++done, total = steps });
+                    async Task Write(SoundRender r, string name, bool isLoop, string title)
+                    {
+                        foreach (var ext in exts)
+                        {
+                            var path = ExportTarget(folder, name + ext, keep, taken);
+                            await File.WriteAllBytesAsync(path, ext == ".ogg" ? await Task.Run(() => SoundOgg.Encode(r, quality, title, isLoop)) : r.ToWav(bits));
+                            files.Add(path);
+                        }
+                    }
                     if (mix || stems)
                     {
                         // The whole song, and beside it a folder with each track on its own (same gain as in the mix).
                         var (whole, parts2) = await Task.Run(() => SequencerEngine.RenderStems(song, rate, false, LoadSample));
                         warnings.AddRange(whole.Warnings);
-                        if (mix)
-                        {
-                            var path = ExportTarget(folder, file + ".wav", keep, taken);
-                            await File.WriteAllBytesAsync(path, whole.ToWav(bits));
-                            files.Add(path);
-                        }
+                        if (mix) await Write(whole, file, false, song.Name);
                         if (stems)
                         {
                             stemDir = keep ? PictureConvert.FreePath(folder, file + " stems", "", taken) : Path.Combine(folder, file + " stems");
@@ -207,10 +325,14 @@ public partial class MainWindow
                     if (loop)
                     {
                         // The loop region with its tails folded into its start: it repeats without a gap or a click.
-                        var looped = await Task.Run(() => SequencerEngine.Render(song, rate, true, LoadSample));
-                        var path = ExportTarget(folder, file + "_loop.wav", keep, taken);
-                        await File.WriteAllBytesAsync(path, looped.ToWav(bits));
-                        files.Add(path);
+                        await Write(await Task.Run(() => SequencerEngine.Render(song, rate, true, LoadSample)), file + "_loop", true, song.Name);
+                        Progress();
+                    }
+                    if (layers)
+                    {
+                        // Each adaptive layer as a loop of the same length and one shared level, for a game to crossfade.
+                        foreach (var (l, r) in await Task.Run(() => SequencerEngine.RenderLayers(song, rate, true, LoadSample)))
+                            await Write(r, LayerFile(l), true, $"{song.Name} ({l.Name})");
                         Progress();
                     }
                     if (midi)
@@ -224,11 +346,20 @@ public partial class MainWindow
                     var recipePath = ExportTarget(folder, stem + ".noorsong.json", keep, taken);
                     await File.WriteAllTextAsync(recipePath, song.ToJson(), new UTF8Encoding(false));
                     _songFolders.Add(folder);
+                    // Optionally kept in the open Vault too, with a small OGG to listen to from there.
+                    string? vault = null; var notes = new List<string>();
+                    if (Json.IsTrue(p, "vault"))
+                    {
+                        if (_vault == null) notes.Add("No Vault is open, so the song wasn't kept there.");
+                        else
+                            try { vault = await SaveSongToVaultAsync(song, stem); }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("The song couldn't be kept in the Vault: " + ex.Message); }
+                    }
                     Log.Info($"NoorSequencer: exported {files.Count} file(s) of “{song.Name}”");
                     return new
                     {
                         folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemDir == null ? null : Path.GetFileName(stemDir),
-                        warnings = warnings.Distinct(), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'),
+                        warnings = warnings.Distinct(), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), vault, notes,
                     };
                 }
                 case "seq.reveal":

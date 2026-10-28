@@ -109,6 +109,17 @@ public partial class MainWindow
                         PushEvent("texture.openRecipe", new { recipe = TextureForPage(recipe) });
                         return new { texture = true };
                     }
+                    if (full.EndsWith(".noorsong.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A song opens in NoorSequencer, with its samples found beside it.
+                        if (new FileInfo(full).Length > 2_000_000) throw new BridgeError("That file is too big for a song.");
+                        NoorMD.Media.SongRecipe song;
+                        try { song = NoorMD.Media.SongRecipe.FromJson(await File.ReadAllTextAsync(full)).FindSamplesBeside(Path.GetDirectoryName(full)!); }
+                        catch (System.Text.Json.JsonException ex) { throw new BridgeError("The song can't be read: " + ex.Message); }
+                        AllowSamples(song);
+                        PushEvent("seq.openSong", new { song = SongForPage(song) });
+                        return new { sequencer = true };
+                    }
                     if (!DocumentFile.IsOpenable(full)) { OpenExternal(full); return new { external = true }; }
                     return await WithDocGate(() => OpenPathAsync(full));
                 }

@@ -135,8 +135,16 @@ public partial class MainWindow
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), name);
                     var parts = p.TryGetProperty("parts", out var pa) && pa.ValueKind == JsonValueKind.Object ? pa : default;
                     bool Part(string key, bool fallback) => parts.ValueKind == JsonValueKind.Object && parts.TryGetProperty(key, out var v) ? v.ValueKind == JsonValueKind.True : fallback;
-                    if (Part("mix", true)) files.Add(file + ".wav");
-                    if (Part("loop", false)) files.Add(file + "_loop.wav");
+                    var fmt = req.GetString("format", 8);
+                    string[] exts = fmt == "both" ? [".wav", ".ogg"] : [fmt == "ogg" ? ".ogg" : ".wav"];
+                    var layerNames = p.TryGetProperty("layers", out var ln) && ln.ValueKind == JsonValueKind.Array
+                        ? ln.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Take(4).Select(x => x.GetString()!).ToList() : [];
+                    foreach (var ext in exts)
+                    {
+                        if (Part("mix", true)) files.Add(file + ext);
+                        if (Part("loop", false)) files.Add(file + "_loop" + ext);
+                        if (Part("layers", false)) files.AddRange(layerNames.Select(l => ExportLayouts.FileName($"{file}_{ExportLayouts.NameTokens(l)["name"]}_loop", name) + ext));
+                    }
                     if (Part("stems", false)) files.Add(file + " stems/01 …wav");
                     if (Part("midi", false)) files.Add(file + ".mid");
                     files.Add(ExportLayouts.FileName(tokens["name"], name) + ".noorsong.json");

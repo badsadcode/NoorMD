@@ -12,6 +12,7 @@ public static class SongTemplates
         new("dungeon", "Tense dungeon", "Low, slow and uneasy, harmonic minor: something is near.", Dungeon),
         new("arcade", "Cheerful arcade", "Fast, bright square waves and a busy beat: a level that wants to be played.", Arcade),
         new("ambient", "Lonely ambient", "Long soft pads, a few notes and a lot of space: a quiet, empty place.", Ambient),
+        new("adaptive", "Adaptive adventure", "One loop in three layers for a game to switch between: exploration, danger and combat.", Adaptive),
     ];
 
     public static SongRecipe? Make(string id) => All.FirstOrDefault(t => t.Id == id)?.Make().Clamped();
@@ -127,6 +128,49 @@ public static class SongTemplates
             D("0=x.....x.x.....", "1=....x.......x...", "3=x.x.x.x.x.x.x...", "4=..............x."),
             D("0=x.....x.x.....", "1=....x.......x.xx", "2=............x...", "6=........x.x.....", "5=............x.x.")));
         s.Tracks[0].Effects.Add(Delay(214, 0.25, 0.2));
+        return s;
+    }
+
+    private static SongRecipe Adaptive()
+    {
+        // D minor, 112 BPM, a four-bar loop. Exploration: pad, a soft melody, light percussion. Danger: the pad, a
+        // pulsing bass and a ticking arpeggio. Combat: everything driving, with full drums and a lead.
+        var s = new SongRecipe { Name = "Adaptive adventure", Family = "Adaptive", Tempo = 112, Key = 2, Scale = "minor", Bars = 4, LoopEnd = 4,
+            Layers = [new SongLayer { Id = "L1", Name = "Exploration" }, new SongLayer { Id = "L2", Name = "Danger" }, new SongLayer { Id = "L3", Name = "Combat" }] };
+        // Dm – B♭ – F – C, a bar each.
+        s.Tracks.Add(Track("Pad", "synth", new SongInstrument { Wave = "saw", Detune = 14, Attack = 0.4, Decay = 0.6, Sustain = 0.8, Release = 0.8, Cutoff = 1300 },
+            -16, -0.15, [1, 2, 3, 4],
+            P("0:16:62 0:16:65 0:16:69"), P("0:16:58 0:16:62 0:16:65"), P("0:16:57 0:16:60 0:16:65"), P("0:16:57 0:16:60 0:16:64")));
+        s.Tracks.Add(Track("Melody", "synth", new SongInstrument { Wave = "triangle", Detune = 4, Attack = 0.01, Decay = 0.4, Sustain = 0.4, Release = 0.3, Vibrato = 8 },
+            -12, 0.15, [1, 2, 1, 3],
+            P("0:4:74 4:2:72 6:2:69 8:8:74"), P("0:4:70 4:4:69 8:8:65"), P("0:2:72 2:2:74 4:4:76 8:8:72")));
+        s.Tracks[^1].InLayers = ["L1"];
+        s.Tracks.Add(Track("Light drums", "drums", new SongInstrument { DrumTone = 0.3 }, -14, 0, [1, 1, 1, 1],
+            D("0=x.......x.......", "7=....o.......o...", "3=..o...o...o...o.")));
+        s.Tracks[^1].InLayers = ["L1"];
+        s.Tracks.Add(Track("Bass", "synth", new SongInstrument { Wave = "saw", Detune = 6, Octave = -1, Attack = 0.003, Decay = 0.2, Sustain = 0.6, Release = 0.08, Cutoff = 700, Resonance = 2, FilterEnvelope = 2 },
+            -10, 0, [1, 2, 3, 4],
+            P("0:2:50 2:2:50 4:2:50 6:2:50 8:2:50 10:2:50 12:2:50 14:2:53"), P("0:2:46 2:2:46 4:2:46 6:2:46 8:2:46 10:2:46 12:2:46 14:2:48"),
+            P("0:2:53 2:2:53 4:2:53 6:2:53 8:2:53 10:2:53 12:2:53 14:2:52"), P("0:2:48 2:2:48 4:2:48 6:2:48 8:2:48 10:2:48 12:2:50 14:2:52")));
+        s.Tracks[^1].InLayers = ["L2", "L3"];
+        s.Tracks.Add(Track("Ticking", "synth", new SongInstrument { Wave = "pulse", PulseWidth = 0.15, Detune = 0, Attack = 0.002, Decay = 0.08, Sustain = 0, Release = 0.05, Cutoff = 4000, Arp = "up", ArpRate = 2 },
+            -18, 0.35, [1, 2, 3, 4],
+            P("0:16:74 0:16:77 0:16:81"), P("0:16:70 0:16:74 0:16:77"), P("0:16:69 0:16:72 0:16:77"), P("0:16:69 0:16:72 0:16:76")));
+        s.Tracks[^1].InLayers = ["L2", "L3"];
+        s.Tracks.Add(Track("Heartbeat", "drums", new SongInstrument { DrumTune = -4, DrumDecay = 1.5, DrumTone = 0.2 }, -10, 0, [1, 1, 1, 1],
+            D("0=x.x.............", "5=........o.......")));
+        s.Tracks[^1].InLayers = ["L2"];
+        s.Tracks.Add(Track("Battle drums", "drums", new SongInstrument { DrumTone = 0.6 }, -8, 0, [1, 1, 1, 2],
+            D("0=x.....x.x.....", "1=....x.......x...", "3=x.x.x.x.x.x.x.x."),
+            D("0=x.....x.x.....", "1=....x.......x.xx", "5=........x.x.x.x.", "6=..........x.x...")));
+        s.Tracks[^1].InLayers = ["L3"];
+        s.Tracks.Add(Track("Lead", "synth", new SongInstrument { Wave = "square", Detune = 5, Attack = 0.005, Decay = 0.2, Sustain = 0.6, Release = 0.15, Cutoff = 5000, Vibrato = 12 },
+            -15, -0.1, [1, 2, 1, 3],
+            P("0:3:74 3:1:76 4:4:77 8:4:76 12:4:74"), P("0:4:77 4:4:74 8:8:70"), P("0:2:76 2:2:77 4:4:79 8:8:81")));
+        s.Tracks[^1].InLayers = ["L3"];
+        s.Tracks[0].Effects.Add(Reverb(0.7, 0.35));
+        s.Tracks[1].Effects.Add(Reverb(0.6, 0.3));
+        s.Tracks[4].Effects.Add(Delay(268, 0.3, 0.25));
         return s;
     }
 

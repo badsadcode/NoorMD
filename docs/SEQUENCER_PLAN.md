@@ -46,10 +46,15 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
   variations, thirteen instrument presets, arpeggiator, humanize, LFO, FM, level and filter automation. Left for
   later: automating effects, unison width, a rhythm generator beyond the presets.
 
-## Stage 3 — game music
+## Stage 3 — game music (preview.49, done)
 
 - Adaptive layers (exploration, danger, combat) sharing tempo, with a transition preview and export per layer.
 - Loop inspector (seam check), OGG export, samples from the Music Bench and Gallery, renders in the Vault.
+- Done in preview.49: up to four layers chosen per track, one shared level and loop length, a transition preview
+  (one loop, then the next layer fading in over 0–4 bars), each layer exported as its own loop; the loop check
+  (seam, tail, both ends, hear the seam); OGG Vorbis (exact length, LOOPSTART/LOOPLENGTH tags); samples from the
+  Sound Bench (rendered) and WAVs in the Music Bench library (the Gallery holds pictures, so it isn't a source); songs
+  kept in the Vault's Music folder with an OGG, opening from the Vault. An ⤓ Export button at the top.
 
 ## Later (only if real use asks)
 

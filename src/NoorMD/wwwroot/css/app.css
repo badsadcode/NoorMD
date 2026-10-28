@@ -1555,3 +1555,13 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .seq-dlgrow { display: flex; justify-content: space-between; margin: 8px 0; }
 .seq-dlgrow select { max-width: 360px; }
 .seq-dlcheck { margin: 8px 0; }
+.seq-row.off-layer .seq-cell.has { opacity: .3; }
+.seq-layerbadge { font-size: 10px; color: var(--accent); font-weight: 700; letter-spacing: .04em; }
+.seq-layers { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; font-size: 12.5px; }
+.seq-layerrow { display: grid; grid-template-columns: 200px repeat(4, minmax(0, 150px)); align-items: center; gap: 8px; }
+.seq-layerhead { color: var(--muted); }
+.seq-layercol { display: inline-flex; align-items: center; gap: 4px; justify-content: center; }
+.seq-layercol input[type=text] { width: 110px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
+.seq-picklist { display: flex; flex-direction: column; gap: 4px; max-height: 360px; overflow-y: auto; margin-top: 8px; }
+.seq-picklist .utility-btn { justify-content: flex-start; text-align: left; }
+#seq-picksearch { width: 100%; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 5px 8px; font: inherit; }

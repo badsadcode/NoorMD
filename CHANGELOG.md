@@ -1,5 +1,27 @@
 # Changelog
 
+## 2.0.0-preview.49 — NoorSequencer, stage 3: music for games
+
+- **Adaptive layers** (Song & export): up to four versions of the loop for a game to switch between (exploration,
+  danger, combat…). Tick which tracks play in each (nothing ticked = every layer). **🎧** at the top listens to one
+  layer; the grid dims the tracks not in it and shows each track's layers.
+  - **▶ Hear the change:** one layer's loop, then the next fading in over it in time (at once, or over half a bar
+    to four bars), as a game would do it.
+  - Layers share one level (the loudest sets how far all are brought down) and one length, so crossfading them
+    never jumps. **Export** writes each layer as its own seamless loop.
+  - **New template: Adaptive adventure** (exploration, danger, combat).
+- **🔎 Loop check:** the loop's exact length, whether there is a click where it wraps, how much rings over its end
+  (folded into its start), the level at both ends, plain advice, and **▶ Hear the seam** (its last two seconds,
+  then its first two).
+- **OGG export** (WAV, OGG or both; four qualities): Ogg Vorbis files of exactly the song's length, loops tagged with
+  LOOPSTART/LOOPLENGTH. Encoded in the app (OggVorbisEncoder, MIT, a port of Xiph's libvorbis).
+- **Instruments from other benches:** 🔊 a Sound Bench sound (a preset or yours, rendered) or ♫ a WAV from the Music
+  Bench library.
+- **The Vault:** "Also keep the song in my Vault" puts the song and an OGG to listen to in its Music folder; a
+  .noorsong.json opened from the Vault opens in NoorSequencer.
+- **⤓ Export** next to Play, straight to the export settings.
+- The app's self-test renders the adaptive layers and an OGG loop.
+
 ## 2.0.0-preview.48 — NoorSequencer, stage 2: help for non-musicians
 
 - **Chords of the key** (Notes tab of a synth or sample track): I ii iii IV V vi vii° (or i ii° III… in minor),

@@ -13,6 +13,7 @@ NoorMD Desktop bundles the following components. Their full license texts are in
 | [JetBrains Mono](https://www.jetbrains.com/lp/mono/) via @fontsource-variable/jetbrains-mono | 5.3.0 | SIL Open Font License 1.1 | Markdown source editor font |
 | [TagLib#](https://github.com/mono/taglib-sharp) (`TagLibSharp`) | 2.3.0 | LGPL-2.1, used unmodified as a separate, replaceable DLL (`TagLibSharp.dll`) | Reading and writing audio tags (Creator's Bench) |
 | [Microsoft.Data.Sqlite](https://github.com/dotnet/efcore) | 10.0.12 | MIT | Music library index |
+| [OggVorbisEncoder](https://github.com/SteveLillis/.NET-Ogg-Vorbis-Encoder) (a C# port of Xiph.Org's libvorbis) | 1.2.2 | MIT; libvorbis BSD-3-Clause | OGG export (NoorSequencer) |
 | [SQLitePCLRaw](https://github.com/ericsink/SQLitePCL.raw) | 2.1.12 | Apache-2.0 | SQLite native binding |
 | [SQLite](https://www.sqlite.org) | bundled with SQLitePCLRaw | Public domain | Database engine |
 | [Microsoft.Web.WebView2](https://www.nuget.org/packages/Microsoft.Web.WebView2) | 1.0.4191.47 | Microsoft BSD-style license (see the NuGet package) | Hosting the editor in WPF |

@@ -56,12 +56,15 @@ window.NoorSequencer = (() => {
   const audio = new Audio(); audio.preload = 'auto';
   const noteAudio = new Audio();
   let roll = null; // the piano roll's state while the Notes tab shows a melodic track
+  let listenLayer = ''; // an adaptive layer to listen to ('' = the whole song)
+  const audition = new Audio(); // a transition or the loop's seam, played on its own
 
   const isOpen = () => document.body.classList.contains('seq-open');
   const track = () => (song && song.tracks[sel.track]) || null;
 
   function init(h) {
     hooks = { ...hooks, ...h };
+    NoorBridge.on('seq.openSong', async (p) => { await open(); setSong(p.song, true); notice(`Opened “${p.song.name}” from the Vault`, 1600); });
     NoorBridge.on('seq.exportProgress', (p) => { const s = $('#seq-export-status'); if (s) s.textContent = `Rendering ${p.done} of ${p.total}…`; });
     audio.addEventListener('play', () => { renderTransport(); tick(); });
     audio.addEventListener('pause', renderTransport);
@@ -156,7 +159,8 @@ window.NoorSequencer = (() => {
     const wasAt = currentBarPosition();
     setStatus('Rendering…');
     try {
-      const out = await req('seq.render', { song, loop: loopMode, fromBar: loopMode ? song.loopStart : playFrom });
+      if (listenLayer && !(song.layers || []).some((l) => l.id === listenLayer)) listenLayer = '';
+      const out = await req('seq.render', { song, loop: loopMode, fromBar: loopMode ? song.loopStart : playFrom, layer: listenLayer || undefined });
       if (gen !== renderGen) return false;
       render = out;
       renderStale = false;
@@ -187,7 +191,8 @@ window.NoorSequencer = (() => {
     if (!audio.paused) { audio.pause(); showPlayhead(-1); return; }
     hooks.onPlay();
     const wanted = loopMode ? song.loopStart : playFrom;
-    if (renderStale || !render || render.loop !== loopMode || render.fromBar !== wanted) { if (!(await preview(false))) return; } else audio.currentTime = 0;
+    audition.pause();
+    if (renderStale || !render || render.loop !== loopMode || render.fromBar !== wanted || (render.layer || '') !== listenLayer) { if (!(await preview(false))) return; } else audio.currentTime = 0;
     audio.play().catch((err) => setStatus(err.message));
   }
 
@@ -270,6 +275,8 @@ window.NoorSequencer = (() => {
         el('input', { type: 'range', class: 'sb-volume', id: 'seq-volume', min: '0', max: '100', step: '1', 'aria-label': 'Listening volume' }),
         el('input', { type: 'text', id: 'seq-name', 'aria-label': 'Name of the song', spellcheck: 'false', maxlength: '80' }),
         el('label', { class: 'sb-inline' }, el('span', { text: 'New' }), el('select', { id: 'seq-template', 'aria-label': 'Start a new song from a template', title: 'Start a new song from a mood template, an empty song or one of yours' })),
+        el('select', { id: 'seq-listenlayer', 'aria-label': 'Listen to', title: 'Listen to the whole song, or one of its adaptive layers (as a game would play it)', hidden: true }),
+        el('button', { class: 'utility-btn', id: 'seq-exportbtn', title: 'Export the song: WAV or OGG, a seamless loop, layers, stems, MIDI', onclick: () => { tab = 'song'; renderPane(); const b = $('#seq-export'); if (b) { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); } } }, '⤓ Export'),
         el('button', { class: 'utility-btn', id: 'seq-undo', title: 'Undo (Ctrl+Z)', onclick: () => undo(false) }, '↶'),
         el('button', { class: 'utility-btn', id: 'seq-redo', title: 'Redo (Ctrl+Y)', onclick: () => undo(true) }, '↷')),
       el('div', { class: 'seq-top seq-settings' },
@@ -293,6 +300,7 @@ window.NoorSequencer = (() => {
     setVolume(volume);
     setLoopMode(loopMode);
     $('#seq-name').addEventListener('input', (e) => { song.name = e.target.value; changed(); });
+    $('#seq-listenlayer').addEventListener('change', (e) => { listenLayer = e.target.value; renderGrid(); stale(); if (!audio.paused) { audio.pause(); playStop(); } });
     $('#seq-template').addEventListener('change', (e) => { const id = e.target.value; e.target.value = ''; if (id) newFrom(id); });
     const bindNum = (id, apply) => $(id).addEventListener('change', (e) => { const v = Math.round(Number(e.target.value)); if (Number.isFinite(v)) apply(v); renderHeader(); });
     bindNum('#seq-tempo', (v) => { song.tempo = Math.max(30, Math.min(300, v)); changed(); });
@@ -353,6 +361,13 @@ window.NoorSequencer = (() => {
     set('#seq-loopstart', song.loopStart + 1);
     set('#seq-loopend', song.loopEnd);
     $('#seq-family').textContent = `${song.family || 'Custom'} · ${NOTE_NAMES[song.key]} ${(SCALE_LABEL[song.scale] || song.scale).split(' (')[0].toLowerCase()} · ${Math.round(song.tempo)} BPM`;
+    const lp = $('#seq-listenlayer');
+    const layers = song.layers || [];
+    if (listenLayer && !layers.some((l) => l.id === listenLayer)) listenLayer = '';
+    lp.hidden = !layers.length;
+    const want = ['', ...layers.map((l) => l.id)].join('|') + layers.map((l) => l.name).join('|');
+    if (lp.dataset.list !== want) { lp.dataset.list = want; lp.replaceChildren(el('option', { value: '', text: '🎧 Whole song' }), ...layers.map((l) => el('option', { value: l.id, text: `🎧 ${l.name}` }))); }
+    lp.value = listenLayer;
     $('#seq-undo').disabled = !history.length && lastSnapshot === JSON.stringify(song);
     $('#seq-redo').disabled = !future.length;
   }
@@ -389,9 +404,12 @@ window.NoorSequencer = (() => {
           title: `Bar ${b + 1}${inLoop ? ' (in the loop)' : ''}: play from here. Shift+click: make the loop end here; Alt+click: start here.`,
           onclick: (e) => barClick(b, e) }, String(b + 1));
       }));
-    const rows = song.tracks.map((t, i) => el('div', { class: 'seq-row' + (i === sel.track ? ' selected' : '') + (t.mute ? ' muted' : ''), role: 'row', 'data-track': String(i) },
+    const layerName = (id) => ((song.layers || []).find((l) => l.id === id) || {}).name || id;
+    const offLayer = (t) => !!listenLayer && (t.inLayers || []).length > 0 && !(t.inLayers || []).includes(listenLayer);
+    const rows = song.tracks.map((t, i) => el('div', { class: 'seq-row' + (i === sel.track ? ' selected' : '') + (t.mute ? ' muted' : '') + (offLayer(t) ? ' off-layer' : ''), role: 'row', 'data-track': String(i) },
       el('div', { class: 'seq-trackhead', role: 'rowheader' },
         el('button', { class: 'seq-trackname', title: `${KIND_LABEL[t.kind]}: show its notes and instrument`, onclick: () => select(i, sel.bar) }, `${KIND_ICON[t.kind]} ${t.name}`),
+        (t.inLayers || []).length ? el('small', { class: 'seq-layerbadge', title: 'Plays in: ' + t.inLayers.map(layerName).join(', '), text: t.inLayers.map((id) => layerName(id)[0]).join('') }) : null,
         el('button', { class: 'icon-btn seq-ms' + (t.mute ? ' on' : ''), 'aria-pressed': String(!!t.mute), title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => { t.mute = !t.mute; changed('grid'); } }, 'M'),
         el('button', { class: 'icon-btn seq-ms' + (t.solo ? ' on' : ''), 'aria-pressed': String(!!t.solo), title: 'Solo (only the soloed tracks play)', 'aria-label': `Solo ${t.name}`, onclick: () => { t.solo = !t.solo; changed('grid'); } }, 'S')),
       ...t.sequence.map((n, b) => el('button', {
@@ -953,6 +971,8 @@ window.NoorSequencer = (() => {
         el('div', { class: 'sb-row' },
           el('span', { class: 'sb-file', id: 'seq-samplename', title: ins.path || '', text: '🎙 ' + (ins.sampleName || 'no sound chosen yet') }),
           el('button', { class: 'utility-btn', id: 'seq-pick', onclick: pickSample }, ins.path ? 'Choose another…' : 'Choose a WAV…'),
+          el('button', { class: 'utility-btn', id: 'seq-fromsound', title: 'A sound from the Sound Bench (a preset or one of yours), rendered as this instrument', onclick: () => sampleFromBench('sound') }, '🔊 From the Sound Bench…'),
+          el('button', { class: 'utility-btn', id: 'seq-fromlibrary', title: 'A WAV file from your Music Bench library', onclick: () => sampleFromBench('library') }, '♫ From the Music Bench…'),
           el('label', { class: 'sb-inline', title: 'The note the sample sounds as played as is: other notes play it faster or slower' }, el('span', { text: 'Recorded as' }), root, rootName),
           el('label', { class: 'sb-inline', title: 'Loop the sample for as long as the note is held (for pads and drones)' }, loop, el('span', { text: 'Loop while held' }))),
         el('div', { class: 'sb-fields' }, ...SAMPLE.map((f) => slider(ins, f))));
@@ -1045,6 +1065,41 @@ window.NoorSequencer = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
+  /** A sample from another bench: a Sound Bench sound (rendered) or a WAV in the Music Bench's library. */
+  function sampleFromBench(source) {
+    NoorUI.modal({ label: source === 'sound' ? 'A sound from the Sound Bench' : 'A WAV from the Music Bench', width: 560 }, (s, close) => {
+      const list = el('div', { class: 'seq-picklist', id: 'seq-picklist' }, el('p', { class: 'pref-hint', text: 'Loading…' }));
+      const choose = async (payload, type) => {
+        try {
+          const f = await req(type, payload);
+          const ins = track().instrument;
+          ins.path = f.path; ins.sampleName = f.name;
+          close();
+          changed('pane');
+          hear(sel.track, ins.rootNote ?? 60, newVelocity);
+        } catch (err) { hooks.showError(err); }
+      };
+      const search = el('input', { type: 'search', id: 'seq-picksearch', placeholder: 'Search', 'aria-label': 'Search', hidden: source === 'sound' || undefined });
+      const fill = async () => {
+        try {
+          if (source === 'sound') {
+            const p = await req('sound.presets');
+            const items = [...p.mine.map((x) => ({ ...x, family: 'Mine' })), ...p.builtIn];
+            list.replaceChildren(...items.map((x) => el('button', { class: 'utility-btn seq-pick', 'data-id': x.id, title: x.description || '', onclick: () => choose({ id: x.id }, 'seq.sample.fromSound') }, `${x.family} · ${x.name}`)));
+          } else {
+            const r = await req('seq.sample.library', { search: search.value });
+            list.replaceChildren(...(r.tracks.length ? r.tracks.map((x) => el('button', { class: 'utility-btn seq-pick', 'data-id': String(x.id), onclick: () => choose({ id: x.id }, 'seq.sample.fromLibrary') }, `${x.title}${x.artist ? ' — ' + x.artist : ''} (${x.seconds} s)`))
+              : [el('p', { class: 'pref-hint', text: 'No WAV files in the Music Bench’s library' + (search.value ? ' match.' : ' (only WAV files can be played as an instrument).') })]));
+          }
+        } catch (err) { list.replaceChildren(el('p', { class: 'pref-hint', text: err && err.message ? err.message : String(err) })); }
+      };
+      let t = 0;
+      search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(fill, 200); });
+      s.append(NoorUI.head(source === 'sound' ? '🔊 A sound from the Sound Bench' : '♫ A WAV from the Music Bench', close), el('div', { class: 'modal-body' }, search, list));
+      fill();
+    });
+  }
+
   /** An effects chain with the Sound Bench's effects (built-in spaces only for convolution here). */
   function effectsRack(chain, where) {
     const F = NoorSound.fx;
@@ -1087,7 +1142,8 @@ window.NoorSequencer = (() => {
 
   // ---------------------------------------------------------------- song & export
 
-  function exportPrefs() { try { return { sampleRate: 48000, bits: 16, mix: true, loop: true, stems: false, midi: false, ...JSON.parse(localStorage.getItem('noormd.seq.export') || '{}') }; } catch { return { sampleRate: 48000, bits: 16, mix: true, loop: true, stems: false, midi: false }; } }
+  const EXPORT_DEFAULTS = { sampleRate: 48000, bits: 16, mix: true, loop: true, layers: true, stems: false, midi: false, format: 'wav', oggQuality: 0.5, vault: false };
+  function exportPrefs() { try { return { ...EXPORT_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.seq.export') || '{}') }; } catch { return { ...EXPORT_DEFAULTS }; } }
   function saveExportPrefs(p) { try { localStorage.setItem('noormd.seq.export', JSON.stringify(p)); } catch { /* private storage off */ } }
 
   function songPane() {
@@ -1095,7 +1151,7 @@ window.NoorSequencer = (() => {
     const sel2 = (id, label, options, value, key) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, tx]) => el('option', { value: String(v), text: tx })));
       s.value = String(value);
-      s.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: Number(s.value) }));
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: Number.isFinite(Number(s.value)) ? Number(s.value) : s.value }); where.refresh(); if (key === 'format') renderPane(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
     const part = (key, label, title) => {
@@ -1103,12 +1159,16 @@ window.NoorSequencer = (() => {
       c.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: c.checked }); where.refresh(); });
       return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
     };
-    const parts = () => { const p = exportPrefs(); return { mix: !!p.mix, loop: !!p.loop, stems: !!p.stems, midi: !!p.midi }; };
+    const hasLayers = (song.layers || []).length > 0;
+    const parts = () => { const p = exportPrefs(); return { mix: !!p.mix, loop: !!p.loop, layers: !!p.layers && hasLayers, stems: !!p.stems, midi: !!p.midi }; };
+    const fmtName = { wav: 'WAV', ogg: 'OGG', both: 'WAV + OGG' }[prefs.format] || 'WAV';
+    const vault = el('input', { type: 'checkbox', id: 'seq-vault', checked: prefs.vault || undefined });
+    vault.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), vault: vault.checked }));
     const family = el('input', { type: 'text', id: 'seq-familyname', value: song.family || '', maxlength: '40', spellcheck: 'false', 'aria-label': 'Kind of music (for folders)', placeholder: 'e.g. Exploration' });
     family.addEventListener('input', () => { song.family = family.value; changed(); where.refresh(); });
     const seed = el('input', { type: 'number', id: 'seq-seed', min: '0', max: '2147483647', step: '1', value: String(song.seed ?? 1), class: 'seq-num' });
     seed.addEventListener('change', () => { song.seed = Math.max(0, Math.min(2147483647, Math.round(Number(seed.value) || 0))); changed(); });
-    where = NoorExportWhere.panel('music', () => ({ name: song.name, family: song.family || '', parts: parts() }), hooks.showError);
+    where = NoorExportWhere.panel('music', () => ({ name: song.name, family: song.family || '', parts: parts(), format: exportPrefs().format, layers: (song.layers || []).map((l) => l.name) }), hooks.showError);
     const mine = lists.mine.map((m) => el('div', { class: 'seq-mine' },
       el('button', { class: 'utility-btn', 'data-song': m.id, title: m.description, onclick: () => newFrom(m.id) }, `🎼 ${m.name}`),
       el('small', { text: m.description }),
@@ -1120,15 +1180,21 @@ window.NoorSequencer = (() => {
       el('div', { class: 'sb-fields' }, slider(song, ['masterGain', 'Master level', -24, 12, 0.5, 'db'])),
       el('h4', { class: 'music-subhead', text: 'Master effects (on the whole mix)' }),
       effectsRack(song.masterEffects ||= [], 'master'),
+      ...layersSection(),
+      ...loopSection(),
       el('h4', { class: 'music-subhead', text: 'Export' }),
       el('div', { class: 'sb-row' },
-        part('mix', 'The song (WAV)', 'The whole song with its last notes ringing out'),
-        part('loop', 'A seamless loop (WAV)', 'The loop bars, with what rings over the end folded into the start: it repeats without a gap or a click (for game music)'),
+        part('mix', `The song (${fmtName})`, 'The whole song with its last notes ringing out'),
+        part('loop', `A seamless loop (${fmtName})`, 'The loop bars, with what rings over the end folded into the start: it repeats without a gap or a click (for game music)'),
+        ...(hasLayers ? [part('layers', `Each layer as a loop (${fmtName})`, 'Every adaptive layer as its own seamless loop, all the same length and at one shared level, for a game to crossfade')] : []),
         part('stems', 'Stems', 'Each track on its own in a folder, at the same level as in the mix, so they line up'),
         part('midi', 'MIDI', 'The notes, one track per track, drums on channel 10: to continue in another music program')),
       el('div', { class: 'sb-row' },
         sel2('seq-rate', 'Sample rate', [[48000, '48 kHz'], [44100, '44.1 kHz']], prefs.sampleRate, 'sampleRate'),
-        sel2('seq-bits', 'Bits', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits')),
+        sel2('seq-bits', 'Bits (WAV)', [[16, '16-bit'], [24, '24-bit']], prefs.bits, 'bits'),
+        sel2('seq-format', 'Format', [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']], prefs.format, 'format'),
+        ...(prefs.format !== 'wav' ? [sel2('seq-oggq', 'OGG quality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']], prefs.oggQuality, 'oggQuality')] : [])),
+      el('label', { class: 'sb-inline', title: 'The song (.noorsong.json) and an OGG to listen to, in the Music folder of the Vault that is open: find it, link it from notes, open it again' }, vault, el('span', { text: 'Also keep the song in my Vault' })),
       where.node,
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'seq-export', onclick: exportSong }, '⤓ Export…'),
@@ -1139,15 +1205,95 @@ window.NoorSequencer = (() => {
     ];
   }
 
+  /**
+   * Adaptive layers: versions of the song for a game to switch between (exploration, danger, combat…), each a choice
+   * of the song's tracks, all the same tempo and loop. Tracks with no layer ticked play in every layer.
+   */
+  function layersSection() {
+    const layers = (song.layers ||= []);
+    const add = el('button', { class: 'utility-btn', id: 'seq-addlayer', disabled: layers.length >= 4 || undefined, title: 'A new layer (up to four)',
+      onclick: () => {
+        const names = ['Exploration', 'Danger', 'Combat', 'Victory'];
+        const name = names.find((n) => !layers.some((l) => l.name === n)) || `Layer ${layers.length + 1}`;
+        let k = 1; while (layers.some((l) => l.id === `L${k}`)) k++;
+        layers.push({ id: `L${k}`, name });
+        changed('all');
+      } }, '＋ Add a layer');
+    const out = [el('h4', { class: 'music-subhead', text: 'Adaptive layers (game music that changes with the action)' })];
+    if (!layers.length) {
+      out.push(el('div', { class: 'sb-row' }, add, el('small', { class: 'pref-hint', text: 'Make versions of the loop for a game to switch between, such as exploration, danger and combat: each plays some of the tracks, all in time. Try the “Adaptive adventure” template.' })));
+      return out;
+    }
+    const head = el('div', { class: 'seq-layerrow seq-layerhead' }, el('span', { text: 'Track plays in →' }),
+      ...layers.map((l, k) => {
+        const name = el('input', { type: 'text', value: l.name, maxlength: '40', spellcheck: 'false', 'data-layername': l.id, 'aria-label': 'Layer name' });
+        name.addEventListener('change', () => { l.name = name.value.trim() || 'Layer'; changed('grid'); renderHeader(); });
+        return el('span', { class: 'seq-layercol' }, name,
+          el('button', { class: 'icon-btn', title: 'Remove this layer (its tracks stay in the song)', 'aria-label': `Remove the layer ${l.name}`,
+            onclick: () => { layers.splice(k, 1); song.tracks.forEach((t) => { t.inLayers = (t.inLayers || []).filter((x) => x !== l.id); }); if (listenLayer === l.id) listenLayer = ''; changed('all'); } }, '✕'));
+      }));
+    const rows = song.tracks.map((t, i) => el('div', { class: 'seq-layerrow' }, el('span', { text: `${KIND_ICON[t.kind]} ${t.name}`, title: (t.inLayers || []).length ? '' : 'In every layer (nothing ticked)' }),
+      ...layers.map((l) => {
+        const c = el('input', { type: 'checkbox', 'data-track': String(i), 'data-layer': l.id, checked: (t.inLayers || []).includes(l.id) || undefined, 'aria-label': `${t.name} plays in ${l.name}` });
+        c.addEventListener('change', () => { const set = new Set(t.inLayers || []); if (c.checked) set.add(l.id); else set.delete(l.id); t.inLayers = layers.map((x) => x.id).filter((x) => set.has(x)); changed('grid'); });
+        return el('span', { class: 'seq-layercol' }, c);
+      })));
+    const pick = (id, value) => { const s = el('select', { id, 'aria-label': id === 'seq-tfrom' ? 'From layer' : 'To layer' }, ...layers.map((l) => el('option', { value: l.id, text: l.name }))); s.value = value; return s; };
+    const from = pick('seq-tfrom', layers[0].id), to = pick('seq-tto', (layers[1] || layers[0]).id);
+    const fade = el('select', { id: 'seq-tfade', 'aria-label': 'Fade length' }, ...[[0, 'at once'], [0.5, 'over half a bar'], [1, 'over a bar'], [2, 'over two bars'], [4, 'over four bars']].map(([v, tx]) => el('option', { value: String(v), text: tx })));
+    fade.value = '1';
+    const status = el('small', { class: 'pref-hint', id: 'seq-tstatus' });
+    const hearChange = async () => {
+      try {
+        status.textContent = 'Rendering…';
+        const r = await req('seq.transition', { song, from: from.value, to: to.value, fadeBars: Number(fade.value) });
+        audio.pause();
+        hooks.onPlay();
+        audition.src = r.url; audition.volume = volume; audition.currentTime = 0;
+        audition.play().catch(() => {});
+        status.textContent = `${layers.find((l) => l.id === from.value).name} for one loop, then ${layers.find((l) => l.id === to.value).name} from ${r.switchAt.toFixed(1)} s (${r.seconds.toFixed(1)} s in all).`;
+      } catch (err) { status.textContent = ''; hooks.showError(err); }
+    };
+    out.push(el('div', { class: 'seq-layers', id: 'seq-layers' }, head, ...rows),
+      el('div', { class: 'sb-row' }, add, el('small', { class: 'pref-hint', text: 'A track with nothing ticked plays in every layer. 🎧 at the top listens to one layer.' })),
+      el('div', { class: 'sb-row' }, el('span', { class: 'sb-inline', text: 'Hear the change from' }), from, el('span', { class: 'sb-inline', text: 'to' }), to, fade,
+        el('button', { class: 'utility-btn', id: 'seq-thear', onclick: hearChange }, '▶ Hear the change'), el('button', { class: 'icon-btn', title: 'Stop', 'aria-label': 'Stop', onclick: () => audition.pause() }, '■')),
+      status);
+    return out;
+  }
+
+  /** The loop inspector: how the loop wraps (a click? how much rings over? the same level at both ends?) and the seam to listen to. */
+  function loopSection() {
+    const box = el('div', { class: 'sb-meters', id: 'seq-loopreport' });
+    const check = async () => {
+      try {
+        box.replaceChildren(el('span', { class: 'pref-hint', text: 'Checking…' }));
+        const r = await req('seq.loopcheck', { song, layer: listenLayer || undefined });
+        const chip = (key, text, title, warn) => el('span', { class: 'sb-meter' + (warn ? ' warn' : ''), 'data-check': key, title }, text);
+        box.replaceChildren(
+          chip('length', `${r.seconds.toFixed(2)} s (bars ${song.loopStart + 1}–${song.loopEnd})`, 'The loop\'s exact length'),
+          chip('seam', r.seamJump > 1.5 ? '⚠ a jump at the seam' : '✓ no click at the seam', `The step where it wraps, against the largest anywhere else: ${r.seamJump}`, r.seamJump > 1.5),
+          chip('tail', `${r.tailPercent.toFixed(1)} % rings over (folded in)`, 'Releases and echoes past the loop\'s end, added to its start so nothing is cut'),
+          chip('ends', `start ${r.startDb} dB · end ${r.endDb} dB`, 'The level of the first and last half second'),
+          ...r.checks.map((c) => chip('check', '⚠ ' + c, c, true)),
+          el('button', { class: 'utility-btn', id: 'seq-hearseam', title: 'The loop\'s last two seconds, then its first two: the moment it wraps, at ' + r.seamAt.toFixed(1) + ' s',
+            onclick: () => { audio.pause(); hooks.onPlay(); audition.src = r.seamUrl; audition.volume = volume; audition.currentTime = 0; audition.play().catch(() => {}); } }, '▶ Hear the seam'));
+      } catch (err) { box.replaceChildren(); hooks.showError(err); }
+    };
+    return [el('h4', { class: 'music-subhead', text: 'Loop check' }),
+      el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'seq-loopcheck', title: 'How well the loop repeats' + (listenLayer ? ' (the layer you are listening to)' : ''), onclick: check }, '🔎 Check the loop'),
+        el('small', { class: 'pref-hint', text: `Bars ${song.loopStart + 1} to ${song.loopEnd}${listenLayer ? `, layer ${(song.layers.find((l) => l.id === listenLayer) || {}).name}` : ''}.` })), box];
+  }
+
   async function exportSong() {
     const p = exportPrefs();
     const status = $('#seq-export-status');
     try {
       status.textContent = 'Rendering…';
-      const r = await req('seq.export', { song, parts: { mix: !!p.mix, loop: !!p.loop, stems: !!p.stems, midi: !!p.midi }, sampleRate: p.sampleRate, bits: p.bits, ...where.payload() });
+      const r = await req('seq.export', { song, parts: { mix: !!p.mix, loop: !!p.loop, layers: !!p.layers && (song.layers || []).length > 0, stems: !!p.stems, midi: !!p.midi }, sampleRate: p.sampleRate, bits: p.bits, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, ...where.payload() });
       if (!r || r.cancelled) { status.textContent = 'Export cancelled.'; return; }
       const files = [...r.files, ...(r.stems ? [r.stems + '/'] : []), r.recipe];
-      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.warnings && r.warnings.length ? ' · ⚠ ' + r.warnings.join('; ') : ''} `,
+      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
         el('button', { class: 'utility-btn', id: 'seq-reveal', onclick: () => req('seq.reveal', { folder: r.folder }).catch(hooks.showError) }, 'Show in folder'));
     } catch (err) { status.textContent = ''; hooks.showError(err); }
   }
@@ -1179,7 +1325,7 @@ window.NoorSequencer = (() => {
   return {
     init, open, close, toggle, isOpen,
     /** Another player started: the song stops. */
-    stopForOther: () => { if (!audio.paused) audio.pause(); noteAudio.pause(); },
-    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
+    stopForOther: () => { if (!audio.paused) audio.pause(); noteAudio.pause(); audition.pause(); },
+    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
   };
 })();

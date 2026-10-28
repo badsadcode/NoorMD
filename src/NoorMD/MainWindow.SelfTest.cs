@@ -852,6 +852,12 @@ public partial class MainWindow
                 && double.TryParse(seqDuration, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var seqSeconds) && Math.Abs(seqSeconds - loopSeconds) < 0.05, seq);
             var midi = SequencerEngine.ToMidi(arcade);
             Check("NoorSequencer: MIDI is a type 1 file with a track for each track", midi.Length > 200 && midi[0] == (byte)'M' && midi[9] == 1 && midi[11] == arcade.Tracks.Count + 1);
+            // Adaptive layers render at one shared level and length, and OGG encodes (smaller than WAV).
+            var adaptive = SongTemplates.Make("adaptive")!;
+            var layerRenders = SequencerEngine.RenderLayers(adaptive, 44100);
+            var ogg = SoundOgg.Encode(layerRenders[0].Render, 0.5, adaptive.Name, loop: true);
+            Check("NoorSequencer: adaptive layers and an OGG loop", layerRenders.Count == 3 && layerRenders.All(l => l.Render.Left.Length == layerRenders[0].Render.Left.Length)
+                && ogg.Length > 1000 && ogg[0] == (byte)'O' && ogg[1] == (byte)'g' && ogg.Length < layerRenders[0].Render.Left.Length * 2, $"{ogg.Length} bytes");
         }
 
         // Texture Bench: a material renders in the app, its maps are served to the page and load as pictures.
