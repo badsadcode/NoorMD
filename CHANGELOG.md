@@ -1,5 +1,32 @@
 # Changelog
 
+## 2.0.0-preview.29 — Sound Bench: controls, modulators and automation
+
+Stage 2 of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): sounds that move by
+themselves, and one control that moves many things at once.
+
+- **Controls of your own:** name a slider (*Motor RPM*, *Rain amount*) and connect it to as many settings as you
+  like, each with its own amount and response. It appears first in the Quick tab. The *Engine idle* preset has
+  a Motor RPM control: turned up, the motor goes higher, brighter and louder, and the rumble opens up with it.
+- **Modulators** move settings over time, in a new **Modulation** tab:
+  - **LFO** (sine, triangle, square, saw or random steps) at any speed, with a start phase;
+  - **Envelope**: starts at a time you choose, rises, holds, falls and then stays;
+  - **Random drift** that jumps or glides;
+  - **Steps**: a pattern of up to 16 steps, each with its own slider;
+  - **Drawn curve** over the whole sound: click to add a point, drag it, double-click to remove it, or start from
+    Rise, Fall, Up and down, or Swell at the end.
+- **What can be moved:** a layer's level, pan, pitch, filter and events per second; an effect's mix, an EQ
+  band's frequency and boost/cut, and saturation drive; the master level and high cut. Amounts are typed in
+  the setting's own unit (dB, semitones, octaves, %) and kept in range. Each connection can be switched off.
+- **Tidy by design:** removing a layer, effect, control or modulator removes its connections too, so a new
+  layer never inherits old ones. Copied layers get their own id. Undo brings everything back together.
+- **The preview hears automation where the export will:** a long sound's preview renders only its first 30
+  seconds, but drawn curves still follow the full length.
+- **New presets:** *Engine rev* (a drawn throttle curve) and *Rain that comes and goes* (showers that build and
+  ease by themselves, with a Rain amount control). 50 presets in all.
+- **Nothing changes for your existing sounds:** recipes from earlier previews have no connections and render
+  exactly as in preview.28. This is tested against renders made by preview.28 itself.
+
 ## 2.0.0-preview.28 — Sound Bench: effects racks and exact values
 
 The first stage of Noor's Sound Bench proposal (docs/concepts/SOUND_BENCH_EVOLUTION.md): effects that work for

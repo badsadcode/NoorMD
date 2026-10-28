@@ -57,6 +57,18 @@ public static class SoundPresets
             Noise("Wash", "pink", "lowpass", 1200, 0.7, -30, gust: 0.3),
             Events("Near drops", 220, 6, 3000, 1, 0.3, -30, gust: 0.4),
             Events("Splashes", 15, 25, 1200, 0.8, 0.6, -28, gust: 0.4))),
+        new("rain-changing", "Rain", "Rain that comes and goes", "Showers that build and ease by themselves, with a Rain amount control.", () =>
+        {
+            var r = Ambience("Rain", "Rain that comes and goes", 3, 0.3, 0.45,
+                Noise("Rain bed", "white", "bandpass", 3500, 0.4, -22, gust: 0.4),
+                Noise("Wash", "pink", "lowpass", 1200, 0.7, -30, gust: 0.3),
+                Events("Near drops", 220, 6, 3000, 1, 0.3, -30, gust: 0.4),
+                Events("Splashes", 15, 25, 1200, 0.8, 0.6, -28, gust: 0.4));
+            r.Duration = 30;
+            r.Modulators.Add(new SoundModulator { Name = "Showers", Type = "random", Rate = 0.15, Smooth = 1 });
+            r.Routes.AddRange([new() { Source = "M1", Target = "L1:gain", Amount = 6 }, new() { Source = "M1", Target = "L3:density", Amount = 1 }, new() { Source = "M1", Target = "L4:density", Amount = 1 }]);
+            return Control(r, "Rain amount", 0.5, ("L1:gain", 12, 1), ("L2:gain", 10, 1), ("L3:density", 2.5, 1), ("L4:density", 2, 1), ("L1:freq", -0.8, 1));
+        }),
         new("rain-downpour", "Rain", "Downpour", "Heavy, dense rain with a low roar underneath.", () => Ambience("Rain", "Downpour", 4, 0.4, 0.5,
             Noise("Rain bed", "white", "bandpass", 3000, 0.4, -14, gust: 0.4),
             Noise("Roar", "brown", "lowpass", 200, 0.7, -24, gust: 0.4),
@@ -166,6 +178,17 @@ public static class SoundPresets
                 new SoundLayer { Type = "synth", Name = "Motor", Wave = "saw", Pitch = 45, Hold = 600, Attack = 0.01, Release = 0.1, Gain = -10, Drive = 0.5, UseFilter = true, Filter = "lowpass", Freq = 400, Vibrato = 0.1, VibratoRate = 6, Width = 0 },
                 new SoundLayer { Type = "noise", Name = "Rumble", Color = "brown", Filter = "lowpass", Freq = 180, Gain = -12, Wobble = 0.4, WobbleRate = 7, Width = 0.4 });
             r.Duration = 4;
+            // At 0 the engine idles exactly as before; turned up it revs: higher, brighter, louder.
+            return Control(r, "Motor RPM", 0, ("L1:pitch", 14, 0.8), ("L1:freq", 1.6, 1), ("L1:gain", 3, 1), ("L2:freq", 1.2, 1), ("L2:gain", 4, 1));
+        }),
+        new("machine-rev", "Machines", "Engine rev", "Revs up, holds and drops back (automation over the length).", () =>
+        {
+            var r = OneShot("Machines", "Engine rev", 3,
+                new SoundLayer { Type = "synth", Name = "Motor", Wave = "saw", Pitch = 45, Hold = 2.8, Attack = 0.02, Release = 0.2, Gain = -10, Drive = 0.5, UseFilter = true, Filter = "lowpass", Freq = 400, Vibrato = 0.1, VibratoRate = 6, Width = 0 },
+                new SoundLayer { Type = "noise", Name = "Rumble", Color = "brown", Filter = "lowpass", Freq = 180, Gain = -12, Wobble = 0.4, WobbleRate = 7, Width = 0.4, Hold = 2.8, Release = 0.2 });
+            r.Modulators.Add(new SoundModulator { Name = "Throttle", Type = "curve", Points = [[0, 0], [0.12, 0.05], [0.5, 1], [0.7, 0.92], [0.92, 0.1], [1, 0]] });
+            r.Routes.AddRange([new() { Source = "M1", Target = "L1:pitch", Amount = 16, Curve = 0.8 }, new() { Source = "M1", Target = "L1:freq", Amount = 2 },
+                new() { Source = "M1", Target = "L2:freq", Amount = 1.5 }, new() { Source = "M1", Target = "L2:gain", Amount = 5 }]);
             return r;
         }),
         new("machine-fan", "Machines", "Computer fan hum", "A quiet room with a PC running (loops).", () =>
@@ -279,10 +302,21 @@ public static class SoundPresets
     private static readonly Dictionary<string, double> Level = new()
     {
         ["wind-forest"] = 14, ["wind-field"] = 14.5, ["wind-storm"] = 11.5, ["wind-ruins"] = 14.5, ["wind-window"] = 19,
-        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-downpour"] = 12, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
+        ["rain-drizzle"] = 21.5, ["rain-steady"] = 15.5, ["rain-changing"] = 9, ["rain-downpour"] = 12, ["rain-tent"] = 6, ["rain-roof"] = 20.5,
         ["fire-camp"] = 11, ["water-stream"] = 15, ["water-falls"] = 6,
         ["walk-gravel"] = 8, ["machine-engine"] = -8, ["machine-buzz"] = -2, ["scifi-computer"] = 12, ["water-drips"] = 18,
     };
+
+    /// <summary>Adds a named control (shown in Quick) and its connections; layers are L1, L2… in the order given.</summary>
+    private static SoundRecipe Control(SoundRecipe r, string name, double value, params (string Target, double Amount, double Curve)[] routes)
+    {
+        r.Clamped();
+        var k = new SoundKnob { Name = name, Value = value };
+        r.Knobs.Add(k);
+        r.Clamped();
+        foreach (var (target, amount, curve) in routes) r.Routes.Add(new SoundRoute { Source = k.Id, Target = target, Amount = amount, Curve = curve });
+        return r;
+    }
 
     public static SoundRecipe Make(string id)
     {

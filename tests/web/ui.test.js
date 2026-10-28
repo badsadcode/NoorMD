@@ -3219,7 +3219,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await open(browser, url, { musicTracks: 300, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       await page.keyboard.press('Control+Shift+M');
       await page.waitForSelector('#music-list .track[data-index]');
-      check('in a side dock the library keeps two-line rows', !(await page.$('#music.wide')) && (await page.$eval('#music-list .track[data-index]', (n) => n.offsetHeight)) === 50);
+      const twoLine = await waitFn(page, () => !document.querySelector('#music.wide') && document.querySelector('#music-list .track[data-index]')?.offsetHeight === 50).then(() => true, () => false);
+      check('in a side dock the library keeps two-line rows', twoLine, await page.$eval('#music-list .track[data-index]', (n) => n.offsetHeight));
       await page.evaluate(() => NoorDock.place('music', 'center'));
       await page.waitForSelector('#music.wide #music-list .track.wide-row');
       const g = await page.evaluate(() => {
@@ -3350,7 +3351,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
       await waitFn(page, () => NoorSound._state().render !== null);
       check('Ctrl+Alt+K opens the Sound Bench in the middle with a preset ready', (await page.evaluate(() => NoorDock._state().center.active)) === 'sound' && (await page.inputValue('#sb-name')) === 'Gentle forest breeze');
-      check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Generate,Wind,Rain,UI,My presets');
+      check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Generate,Wind,Rain,UI,Machines,My presets');
       check('the preview shows its waveform and levels', /peak .* dB · RMS/.test(await page.textContent('#sb-status')));
       const before = (await SM()).renders.length;
       await slide('[data-macro="intensity"]', 1);
@@ -3476,6 +3477,99 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors in the Sound Bench', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/sound-bench.png` });
+      await page.close();
+    }
+
+    // ---- 39. Sound Bench modulation: controls in Quick, modulators, connections to any setting, ids and tidy-up.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.keyboard.press('Control+Alt+k');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      check('recipes from before modulation get ids for their layers and effects', (await last()).layers.map((l) => l.id).join() === 'L1,L2,L3' && (await last()).routes.length === 0);
+      await page.click('#sb-presets [data-preset="machine-engine"]');
+      await page.waitForSelector('#sb-knobs [data-knob="K1"]');
+      check('a preset with a control shows it first in Quick', (await page.textContent('#sb-knobs .sb-knob span')) === 'Motor RPM' && (await page.$$('#sb-pane h4')).length === 2);
+      await slide('#sb-knobs [data-knob="K1"]', 0.8);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).knobs?.[0]?.value === 0.8);
+      check('…and moving it renders again, with all its connections', (await last()).routes.filter((r) => r.source === 'K1').length === 5 && (await page.textContent('#sb-knobs .sb-knob span:last-child')) === '80%');
+      await page.click('#soundbench .sb-tabs button[data-tab="mod"]');
+      await page.waitForSelector('[data-knob-card="K1"]');
+      const targets = await page.$$eval('[data-knob-card="K1"] .sb-route select', (n) => n.map((s) => s.selectedOptions[0].textContent));
+      check('the Modulation tab lists what the control moves, by layer name', targets[0] === 'Motor › Pitch' && targets[3] === 'Rumble › Filter' && targets.length === 5);
+      await page.click('[data-addmod="lfo"]');
+      await page.waitForSelector('[data-mod-card="M1"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators?.[0]?.type === 'lfo');
+      check('＋ LFO adds a modulator with an id', (await last()).modulators[0].id === 'M1' && (await last()).modulators[0].rate === 1);
+      await page.selectOption('[data-addroute="M1"]', 'L2:gain');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).routes.some((r) => r.source === 'M1'));
+      check('connecting it to a layer setting starts with a sensible amount', (await last()).routes.find((r) => r.source === 'M1').amount === 6);
+      await page.fill('[data-mod-card="M1"] .sb-route [data-num="amount"]', '-12');
+      await page.press('[data-mod-card="M1"] .sb-route [data-num="amount"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).routes.find((r) => r.source === 'M1').amount === -12);
+      check('the amount is typed in the target\'s unit (dB)', (await page.textContent('[data-mod-card="M1"] .sb-route .sb-numwrap small')) === 'dB');
+      await page.fill('[data-mod-card="M1"] .sb-route [data-num="amount"]', '400');
+      await page.press('[data-mod-card="M1"] .sb-route [data-num="amount"]', 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).routes.find((r) => r.source === 'M1').amount === 48);
+      check('…and kept within its range', true);
+      await page.selectOption('[data-mod-card="M1"] [data-modtype]', 'curve');
+      await page.waitForSelector('[data-mod-card="M1"] canvas.sb-curve');
+      const box = await (await page.$('[data-mod-card="M1"] canvas.sb-curve')).boundingBox();
+      await page.mouse.click(box.x + box.width * 0.25, box.y + box.height * 0.2);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators[0].points?.length === 4);
+      const pts = (await last()).modulators[0].points;
+      check('a drawn curve: clicking adds a point where you click', Math.abs(pts[1][0] - 0.25) < 0.03 && Math.abs(pts[1][1] - 0.8) < 0.05);
+      await page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.2);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width * 0.3, box.y + box.height * 0.9, { steps: 4 });
+      await page.mouse.up();
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators[0].points[1][1] < 0.2);
+      check('…dragging moves it', true);
+      await page.mouse.dblclick(box.x + box.width * 0.3, box.y + box.height * 0.9);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators[0].points.length === 3);
+      check('…and double-clicking removes it', true);
+      await page.selectOption('[data-mod-card="M1"] [data-modtype]', 'steps');
+      await page.waitForSelector('[data-mod-card="M1"] [data-step="3"]');
+      await page.click('[data-mod-card="M1"] button[aria-label="More steps"]');
+      await slide('[data-mod-card="M1"] [data-step="4"]', 0.1);
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators[0].steps?.join() === '1,0.25,0.5,0.25,0.1');
+      check('steps: a slider per step, and more steps', true);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.waitForTimeout(700);
+      await page.click('.sb-layer[data-index="1"] button[aria-label="Remove this layer"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.length === 1);
+      check('removing a layer removes the connections to it', (await last()).routes.every((r) => !r.target.startsWith('L2')) && (await last()).routes.length === 3);
+      await page.click('[data-add="noise"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.length === 2);
+      check('…so a new layer can take its id without inheriting them', (await last()).layers[1].id === 'L2' && (await last()).routes.length === 3);
+      await page.click('.sb-layer[data-index="0"] button[aria-label="Copy this layer"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.length === 3);
+      check('a copied layer gets an id of its own', (await last()).layers.map((l) => l.id).join() === 'L1,L3,L2');
+      await page.waitForTimeout(700);
+      await page.click('#sb-play');
+      await page.focus('#sb-play');
+      for (let k = 0; k < 4 && (await page.evaluate(() => NoorSound._state().recipe.layers.map((l) => l.name).join())) !== 'Motor,Rumble'; k++) {
+        await page.keyboard.press('Control+z');
+        await page.waitForTimeout(80);
+      }
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.map((l) => l.name).join() === 'Motor,Rumble');
+      check('undo brings a removed layer back with its connections', (await last()).routes.length === 5 + 1 && (await last()).layers[1].id === 'L2');
+      await page.click('#soundbench .sb-tabs button[data-tab="mod"]');
+      await page.click('[data-mod-card="M1"] button[aria-label="Remove this modulator"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).modulators.length === 0);
+      check('removing a modulator removes its connections', (await last()).routes.every((r) => r.source === 'K1'));
+      await page.click('[data-knob-card="K1"] .sb-route button[aria-label="Route on"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).routes[0].off === true);
+      check('a connection can be switched off', (await page.$$('[data-knob-card="K1"] .sb-route.off')).length === 1);
+      await page.click('#sb-addknob');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).knobs.length === 2);
+      check('＋ Control adds another named control', (await last()).knobs[1].id === 'K2' && (await last()).knobs[1].name === 'Control 2');
+      await page.click('#soundbench .sb-tabs button[data-tab="quick"]');
+      check('…and it shows up in Quick', (await page.$$('#sb-knobs .sb-knob')).length === 2);
+      const unexpected = errors.filter((e) => !/status of 404/.test(e));
+      check('no page errors in the modulation editor', unexpected.length === 0, unexpected);
+      if (shots) { await page.click('#soundbench .sb-tabs button[data-tab="mod"]'); await page.screenshot({ path: `${shots}/sound-modulation.png` }); }
       await page.close();
     }
   } finally {

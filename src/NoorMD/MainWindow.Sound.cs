@@ -142,13 +142,14 @@ public partial class MainWindow
                 {
                     // A preview: at most the first 30 seconds (a long ambience is exported in full).
                     var recipe = RecipeFrom(p);
+                    var fullLength = recipe.Duration;
                     var cut = recipe.Duration > PreviewSeconds;
                     if (cut) { recipe.Duration = PreviewSeconds; }
-                    var json = recipe.ToJson();
+                    var json = recipe.ToJson() + "|" + fullLength.ToString(System.Globalization.CultureInfo.InvariantCulture);
                     var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(json)))[..20].ToLowerInvariant();
                     SoundRender render;
                     await SoundGate.WaitAsync();
-                    try { render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample)); } finally { SoundGate.Release(); }
+                    try { render = await Task.Run(() => SoundEngine.Render(recipe, SoundRate, LoadSample, fullLength)); } finally { SoundGate.Release(); }
                     var wav = render.ToWav(16);
                     lock (_soundPreviews)
                     {

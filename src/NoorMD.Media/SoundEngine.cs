@@ -227,23 +227,29 @@ public sealed class SoundRecipe
         Master.Gain = C(Master.Gain, -40, 24); Master.HighPass = C(Master.HighPass, 10, 5000); Master.LowPass = C(Master.LowPass, 200, 20000);
         Master.Width = C(Master.Width, 0, 2); Master.Reverb = C(Master.Reverb, 0, 1); Master.Room = C(Master.Room, 0, 1); Master.Ceiling = C(Master.Ceiling, -24, 0);
         Master.Effects = (Master.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
-        // Stable ids: missing or repeated ones get the next free number (routes find layers and effects by them).
-        string Fresh(string prefix, HashSet<string> used) { for (var n = 1; ; n++) { var id = prefix + n; if (used.Add(id)) return id; } }
-        bool Valid(string? id, string prefix) => id != null && id.Length is > 1 and <= 8 && id.StartsWith(prefix, StringComparison.Ordinal) && id[1..].All(char.IsAsciiDigit);
-        var layerIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var l in Layers)
+        // Stable ids: an item keeps a valid id (the first of repeats keeps it); the others get the lowest free number.
+        // Two passes, so a copy placed before the original never takes an id a later item already has.
+        static bool Valid(string? id, string prefix) => id != null && id.Length is > 1 and <= 8 && id.StartsWith(prefix, StringComparison.Ordinal) && id[1..].All(char.IsAsciiDigit);
+        static void Assign<T>(IReadOnlyList<T> items, string prefix, Func<T, string> get, Action<T, string> set, HashSet<string>? used = null)
         {
-            if (!Valid(l.Id, "L") || !layerIds.Add(l.Id)) l.Id = Fresh("L", layerIds);
-            var fxIds = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var e in l.Effects) if (!Valid(e.Id, "F") || !fxIds.Add(e.Id)) e.Id = Fresh("F", fxIds);
+            used ??= new HashSet<string>(StringComparer.Ordinal);
+            var keep = items.Select(it => Valid(get(it), prefix) && used.Add(get(it))).ToList();
+            for (var i = 0; i < items.Count; i++)
+            {
+                if (keep[i]) continue;
+                var n = 1;
+                while (!used.Add(prefix + n)) n++;
+                set(items[i], prefix + n);
+            }
         }
-        var masterFx = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var e in Master.Effects) if (!Valid(e.Id, "F") || !masterFx.Add(e.Id)) e.Id = Fresh("F", masterFx);
+        Assign(Layers, "L", l => l.Id, (l, v) => l.Id = v);
+        foreach (var l in Layers) Assign(l.Effects, "F", e => e.Id, (e, v) => e.Id = v);
+        Assign(Master.Effects, "F", e => e.Id, (e, v) => e.Id = v);
         Modulators = (Modulators ?? []).Where(m => m != null).Take(SoundModulator.Max).Select(m => m.Clamped()).ToList();
         Knobs = (Knobs ?? []).Where(k => k != null).Take(SoundKnob.Max).Select(k => k.Clamped()).ToList();
-        var srcIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var m in Modulators) if (!Valid(m.Id, "M") || !srcIds.Add(m.Id)) m.Id = Fresh("M", srcIds);
-        foreach (var k in Knobs) if (!Valid(k.Id, "K") || !srcIds.Add(k.Id)) k.Id = Fresh("K", srcIds);
+        var sources = new HashSet<string>(StringComparer.Ordinal);
+        Assign(Modulators, "M", m => m.Id, (m, v) => m.Id = v, sources);
+        Assign(Knobs, "K", k => k.Id, (k, v) => k.Id = v, sources);
         Routes = (Routes ?? []).Where(x => x != null).Take(SoundRoute.Max).Select(x => x.Clamped()).ToList();
         return this;
     }
@@ -342,7 +348,9 @@ public static class SoundEngine
     private const int Block = 32; // filter settings and movement are updated every 32 samples
 
     /// <param name="samples">Reads a sample layer's file (null when it can't or may not be used).</param>
-    public static SoundRender Render(SoundRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null)
+    /// <param name="timeline">The length (seconds) drawn curves span; by default the recipe's. A preview that renders only
+    /// the start of a long sound passes the full length, so its automation is heard where it will be in the export.</param>
+    public static SoundRender Render(SoundRecipe recipe, int sampleRate = 48000, Func<string, SampleAudio?>? samples = null, double? timeline = null)
     {
         if (sampleRate is < 8000 or > 192000) throw new ArgumentException("Sample rate out of range.");
         var r = recipe.Clone().Clamped().WithMacrosApplied();
@@ -355,7 +363,7 @@ public static class SoundEngine
         var gust = GustCurve(r, total, sampleRate);
         var soloing = r.Layers.Any(l => l.Solo && !l.Mute);
         var warnings = new List<string>();
-        var mods = new ModulationField(r, sampleRate, total, length);
+        var mods = new ModulationField(r, sampleRate, total, timeline is > 0 and < 3600 ? (int)Math.Round(timeline.Value * sampleRate) : length);
         for (var k = 0; k < r.Layers.Count; k++)
         {
             var layer = r.Layers[k];

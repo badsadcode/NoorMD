@@ -142,6 +142,10 @@ public class SoundModulationTests
         Assert.Equal(ids.AsEnumerable().Reverse(), back.Clamped().Layers.Select(l => l.Id)); // reordering keeps them
         back.Layers[1].Id = back.Layers[0].Id; // a duplicate gets a new one
         Assert.Equal(4, back.Clamped().Layers.Select(l => l.Id).Distinct().Count());
+        // A copy put before a later layer takes a free id, not the later layer's.
+        var copy = SoundRecipe.FromJson(r.ToJson());
+        copy.Layers.Insert(1, SoundRecipe.FromJson(r.ToJson()).Layers[0]);
+        Assert.Equal(["L1", "L5", "L2", "L3", "L4"], copy.Clamped().Layers.Select(l => l.Id));
         back.Knobs.Add(new SoundKnob { Value = 1 });
         back.Clamped();
         back.Routes.Add(new SoundRoute { Source = back.Knobs[0].Id, Target = "L99:gain", Amount = 12 });
@@ -150,6 +154,23 @@ public class SoundModulationTests
         Assert.Equal(48, back.Clamped().Routes[2].Amount);
         back.Duration = 1;
         Assert.All(SoundEngine.Render(back, Sr).Left, v => Assert.True(float.IsFinite(v)));
+    }
+
+    [Fact]
+    public void A_Preview_Of_The_Start_Hears_Automation_Where_The_Full_Sound_Has_It()
+    {
+        var full = Tone(4).Clamped();
+        full.Modulators.Add(new SoundModulator { Type = "curve", Points = [[0, 0], [1, 1]] });
+        full.Clamped();
+        full.Routes.Add(new SoundRoute { Source = "M1", Target = "L1:gain", Amount = 12 });
+        var whole = SoundEngine.Render(full, Sr).Left;
+        var start = full.Clone();
+        start.Duration = 2;
+        var preview = SoundEngine.Render(start, Sr, null, 4).Left;
+        var squeezed = SoundEngine.Render(start, Sr).Left;
+        var at = Sr * 3 / 2;
+        Assert.InRange(Rms(preview, at - 2000, at) - Rms(whole, at - 2000, at), -0.05, 0.05);
+        Assert.True(Rms(squeezed, at - 2000, at) > Rms(whole, at - 2000, at) + 3, "without the timeline, the curve would run twice as fast");
     }
 
     [Fact]

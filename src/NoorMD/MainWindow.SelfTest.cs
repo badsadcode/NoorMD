@@ -767,6 +767,27 @@ public partial class MainWindow
             for (var i = 0; i < 40 && dur == "null"; i++) { await Task.Delay(100); dur = await Eval("window.__sbd"); }
             Check("Sound Bench: a preset renders and the page can play its preview", sb.Contains("_sound") && double.TryParse(dur, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sbSeconds) && Math.Abs(sbSeconds - 20) < 0.1, $"{sb} duration {dur}");
             await Eval("NoorSound.close()");
+            // Modulation through the app: the engine preset's Motor RPM control, at idle and turned up.
+            await Eval(@"window.__sbk = null; (async () => {
+                try {
+                    const r = await NoorBridge.request('sound.preset', { id: 'machine-engine' });
+                    const idle = await NoorBridge.request('sound.render', { recipe: r });
+                    r.knobs[0].value = 1;
+                    const revved = await NoorBridge.request('sound.render', { recipe: r });
+                    window.__sbk = JSON.stringify({ knob: r.knobs[0].name, routes: r.routes.length, idle: idle.rmsDb, revved: revved.rmsDb, same: idle.url === revved.url });
+                } catch (e) { window.__sbk = 'error ' + e.message; } })()");
+            var sbk = "null";
+            for (var i = 0; i < 80 && sbk == "null"; i++) { await Task.Delay(100); sbk = await Eval("window.__sbk"); }
+            var knobOk = false;
+            try
+            {
+                using var kd = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Deserialize<string>(sbk) ?? "{}");
+                var ke = kd.RootElement;
+                knobOk = ke.GetProperty("knob").GetString() == "Motor RPM" && ke.GetProperty("routes").GetInt32() == 5 && !ke.GetProperty("same").GetBoolean()
+                    && ke.GetProperty("revved").GetDouble() > ke.GetProperty("idle").GetDouble() + 1.5;
+            }
+            catch (Exception) { knobOk = false; }
+            Check("Sound Bench: a control (Motor RPM) moves the sound it is connected to", knobOk, sbk);
             // A WAV of your own as a layer: read when it was picked, refused when nobody picked it.
             var wavPath = Path.Combine(SelfTestDir!, "Sound sample.wav");
             await File.WriteAllBytesAsync(wavPath, SoundEngine.Render(SoundPresets.Make("hit-metal"), 44100).ToWav());

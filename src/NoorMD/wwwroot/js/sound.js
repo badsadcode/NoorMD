@@ -103,6 +103,7 @@ window.NoorSound = (() => {
   function setRecipe(r, fresh) {
     if (!fresh && recipe) pushHistory();
     recipe = r;
+    ensureIds(recipe);
     if (fresh) { history.length = 0; future = []; pinned = null; listening = 'B'; }
     lastSnapshot = JSON.stringify(recipe);
     renderEditor();
@@ -111,6 +112,7 @@ window.NoorSound = (() => {
 
   /** Something changed: keep the step for undo (once the change settles) and render again shortly. */
   function changed(rebuild) {
+    ensureIds(recipe);
     if (rebuild) renderEditor(); else renderHeader();
     clearTimeout(snapTimer);
     snapTimer = setTimeout(pushHistory, 600);
@@ -132,6 +134,7 @@ window.NoorSound = (() => {
     if (!from.length) { notice(redo ? 'Nothing to redo' : 'Nothing to undo', 900); return; }
     to.push(JSON.stringify(recipe));
     recipe = JSON.parse(from.pop());
+    ensureIds(recipe);
     lastSnapshot = JSON.stringify(recipe);
     renderEditor();
     schedule(0);
@@ -225,7 +228,7 @@ window.NoorSound = (() => {
             el('button', { class: 'utility-btn', id: 'sb-ab', title: 'Listen to A (pinned) or B (now) (B)', hidden: true, onclick: flipAB }, 'A/B: B')),
           el('canvas', { class: 'sb-wave', id: 'sb-wave', 'aria-label': 'Waveform (click to jump)', role: 'img' }),
           el('p', { class: 'pref-hint sb-status', id: 'sb-status', 'aria-live': 'polite' }),
-          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['quick', 'Quick'], ['layers', 'Layers'], ['output', 'Output & export']].map(([id, label]) =>
+          el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['quick', 'Quick'], ['layers', 'Layers'], ['mod', 'Modulation'], ['output', 'Output & export']].map(([id, label]) =>
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
@@ -290,13 +293,13 @@ window.NoorSound = (() => {
     document.querySelectorAll('#soundbench .sb-tabs button').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#sb-pane');
     const keep = pane.scrollTop;
-    pane.replaceChildren(...(tab === 'quick' ? quickPane() : tab === 'layers' ? layersPane() : outputPane()));
+    pane.replaceChildren(...(tab === 'quick' ? quickPane() : tab === 'layers' ? layersPane() : tab === 'mod' ? modPane() : outputPane()));
     pane.scrollTop = keep;
   }
 
   /** A slider bound to obj[key]; kinds make Hz and times logarithmic and show units. */
   /** The unit a number box is typed in, and the factor from the stored value (percentages are typed 0–100). */
-  const UNIT = { db: ['dB', 1], pct: ['%', 100], hz: ['Hz', 1], hz0: ['Hz', 1], ms: ['ms', 1], s: ['s', 1], pan: ['', 1], count: ['', 1], rate: ['Hz', 1], q: ['', 1], num: ['', 1] };
+  const UNIT = { db: ['dB', 1], pct: ['%', 100], hz: ['Hz', 1], hz0: ['Hz', 1], ms: ['ms', 1], s: ['s', 1], pan: ['', 1], count: ['', 1], rate: ['Hz', 1], q: ['', 1], num: ['', 1], st: ['st', 1], oct: ['oct', 1], spct: ['%', 100], x: ['×', 1] };
 
   /**
    * A slider bound to obj[key], with a number box beside it for exact values (Hz, dB, ms, semitones…).
@@ -357,7 +360,7 @@ window.NoorSound = (() => {
   };
 
   /** An effects chain: each effect with on/off, ↑ ↓, remove, its settings, wet/dry mix and output level. */
-  function effectsRack(chain, where) {
+  function effectsRack(chain, where, owner) {
     const cards = chain.map((fx, i) => {
       const choices = (FX_CHOICES[fx.type] || []).map(([key, label, opts]) => {
         const sel = el('select', { 'aria-label': label, 'data-fx': key }, ...opts.map((o) => el('option', { value: o, text: o })));
@@ -378,7 +381,7 @@ window.NoorSound = (() => {
           el('span', { class: 'sb-fx-space' }),
           el('button', { class: 'icon-btn', title: 'Earlier in the chain', 'aria-label': 'Move up', disabled: i === 0 || undefined, onclick: () => move(-1) }, '↑'),
           el('button', { class: 'icon-btn', title: 'Later in the chain', 'aria-label': 'Move down', disabled: i === chain.length - 1 || undefined, onclick: () => move(1) }, '↓'),
-          el('button', { class: 'icon-btn', title: 'Remove this effect', 'aria-label': 'Remove this effect', onclick: () => { chain.splice(i, 1); changed(true); } }, '✕')),
+          el('button', { class: 'icon-btn', title: 'Remove this effect', 'aria-label': 'Remove this effect', onclick: () => { dropRoutes((t) => t.startsWith(`${owner}/${fx.id}:`)); chain.splice(i, 1); changed(true); } }, '✕')),
         ...(choices.length || checks.length ? [el('div', { class: 'sb-choices' }, ...choices, ...checks)] : []),
         el('div', { class: 'sb-fields' }, ...(FX_FIELDS[fx.type] || []).map((f) => slider(fx, f, false)),
           slider(fx, ['mix', 'Mix (dry ↔ wet)', 0, 1, 0.01, 'pct'], false), slider(fx, ['out', 'Output', -40, 24, 0.5, 'db'], false)));
@@ -405,7 +408,14 @@ window.NoorSound = (() => {
     dur.addEventListener('change', () => { recipe.duration = Math.max(0.05, Math.min(600, Number(dur.value) || 1)); changed(false); });
     const loop = el('input', { type: 'checkbox', id: 'sb-loop', checked: recipe.loop || undefined });
     loop.addEventListener('change', () => { recipe.loop = loop.checked; changed(false); });
+    const knobs = (recipe.knobs || []).map((k) => {
+      const input = el('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(k.value), 'aria-label': k.name, 'data-knob': k.id });
+      const shown = el('span', { text: `${Math.round(k.value * 100)}%` });
+      input.addEventListener('input', () => { k.value = Number(input.value); shown.textContent = `${Math.round(k.value * 100)}%`; changed(false); });
+      return el('div', { class: 'sb-macro sb-knob' }, el('span', { text: k.name, title: routesFrom(k.id).map((r) => targetLabel(r.target)).join(', ') || 'Not connected yet (Modulation tab)' }), input, shown);
+    });
     return [
+      ...(knobs.length ? [el('h4', { class: 'music-subhead', text: 'Controls of this sound' }), el('div', { class: 'sb-macros', id: 'sb-knobs' }, ...knobs), el('h4', { class: 'music-subhead', text: 'Character' })] : []),
       el('div', { class: 'sb-macros' }, ...MACROS.map(macro)),
       el('div', { class: 'sb-row' },
         el('label', { class: 'sb-inline' }, el('span', { text: 'Length (s)' }), dur),
@@ -438,14 +448,14 @@ window.NoorSound = (() => {
           el('span', { class: 'sb-type', text: TYPE_LABEL[l.type] || l.type }), name,
           toggleBtn('mute', 'M', 'Mute this layer'), toggleBtn('solo', 'S', 'Solo: hear only the soloed layers'),
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), name: l.name + ' copy', solo: false }); changed(true); } }, '⧉'),
-          el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
+          el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { dropRoutes((t) => t.startsWith(l.id + ':') || t.startsWith(l.id + '/')); recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...(l.type === 'noise' ? [choice('color'), choice('filter')]
           : l.type === 'synth' ? [choice('wave'), check('useFilter', 'Filter'), choice('filter')]
             : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
               el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
               check('reverse', 'Backwards'), check('loopSample', 'Loop it'), check('useFilter', 'Filter'), choice('filter')] : [])),
         el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))),
-        el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i)));
+        el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i, l.id)));
     });
     return [
       el('details', { class: 'sb-group', open: true }, el('summary', { text: 'Gusts (the slow movement layers can follow)' }), el('div', { class: 'sb-fields' }, ...GUST.map((f) => slider(g, f, false)))),
@@ -458,6 +468,202 @@ window.NoorSound = (() => {
         }
         recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
       } }, '＋ ' + TYPE_LABEL[t]))),
+    ];
+  }
+
+
+  // ---------------------------------------------------------------- modulation (knobs, modulators and routes)
+
+  /**
+   * Gives layers, effects, modulators and knobs the ids routes refer to, the same way the app does: an item keeps a
+   * valid id (the first of repeats keeps it); the others get the lowest free number ("L3", "F1", "M2", "K1").
+   */
+  function ensureIds(r) {
+    if (!r) return;
+    const valid = (id, p) => typeof id === 'string' && id.length > 1 && id.length <= 8 && id[0] === p && /^\d+$/.test(id.slice(1));
+    const assign = (items, p, used = new Set()) => {
+      // Two passes, so a copy placed before its original never takes an id a later item already has.
+      const keep = items.map((it) => valid(it.id, p) && !used.has(it.id) && !!used.add(it.id));
+      items.forEach((it, i) => { if (keep[i]) return; let n = 1; while (used.has(p + n)) n++; it.id = p + n; used.add(it.id); });
+      return used;
+    };
+    r.layers ||= []; r.master ||= {}; r.modulators ||= []; r.knobs ||= []; r.routes ||= [];
+    assign(r.layers, 'L');
+    for (const l of r.layers) assign(l.effects ||= [], 'F');
+    assign(r.master.effects ||= [], 'F');
+    assign(r.knobs, 'K', assign(r.modulators, 'M'));
+  }
+
+  const routesFrom = (source) => (recipe.routes || []).filter((r) => r.source === source);
+  function dropRoutes(match) { recipe.routes = (recipe.routes || []).filter((r) => !match(r.target)); }
+
+  // What each target is called, its unit (a slider kind), the amount range and a sensible first amount.
+  const LAYER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], pan: ['Pan', 'pan', -2, 2, 0.5], pitch: ['Pitch', 'st', -48, 48, 12], freq: ['Filter', 'oct', -6, 6, 1], density: ['Events per second', 'oct', -6, 6, 1] };
+  const FX_TARGETS = { mix: ['Mix', 'spct', -1, 1, 0.5], freq: ['Frequency', 'oct', -6, 6, 1], gain: ['Boost / cut', 'db', -36, 36, 6], drive: ['Drive', 'spct', -1, 1, 0.5] };
+  const MASTER_TARGETS = { gain: ['Level', 'db', -48, 48, 6], lowpass: ['High cut', 'oct', -6, 6, -2] };
+
+  /** Every target in this recipe: [target, label, spec]. */
+  function targets() {
+    const out = [];
+    const fxTargets = (owner, ownerName, chain) => chain.forEach((fx, j) => {
+      const params = ['mix', ...(fx.type === 'eq' ? ['freq', 'gain'] : fx.type === 'saturate' ? ['drive'] : [])];
+      for (const p of params) out.push([`${owner}/${fx.id}:${p}`, `${ownerName} › ${j + 1}. ${FX_LABEL[fx.type] || fx.type} › ${FX_TARGETS[p][0]}`, FX_TARGETS[p]]);
+    });
+    for (const l of recipe.layers) {
+      const params = ['gain', 'pan', ...(l.type === 'noise' ? [] : ['pitch']), 'freq', ...(l.type === 'events' ? ['density'] : [])];
+      for (const p of params) out.push([`${l.id}:${p}`, `${l.name || l.id} › ${LAYER_TARGETS[p][0]}`, LAYER_TARGETS[p]]);
+      fxTargets(l.id, l.name || l.id, l.effects || []);
+    }
+    for (const p of Object.keys(MASTER_TARGETS)) out.push([`master:${p}`, `Master › ${MASTER_TARGETS[p][0]}`, MASTER_TARGETS[p]]);
+    fxTargets('master', 'Master', recipe.master.effects || []);
+    return out;
+  }
+  const targetLabel = (t) => (targets().find(([id]) => id === t) || [t, `${t} (missing)`])[1];
+  function targetSpec(t) {
+    const param = t.slice(t.lastIndexOf(':') + 1);
+    return (t.includes('/') ? FX_TARGETS[param] : t.startsWith('master:') ? MASTER_TARGETS[param] : LAYER_TARGETS[param]) || ['Amount', 'num', -1, 1, 0.5];
+  }
+
+  /** The routes from one source, and a picker to add another. */
+  function routeList(source) {
+    const all = targets();
+    const rows = routesFrom(source).map((r) => {
+      const [, kind, lo, hi] = targetSpec(r.target);
+      const known = all.some(([id]) => id === r.target);
+      const sel = el('select', { 'aria-label': 'Target', 'data-route-target': '' }, ...(known ? [] : [el('option', { value: r.target, text: `${r.target} (missing)` })]),
+        ...all.map(([id, label]) => el('option', { value: id, text: label })));
+      sel.value = r.target;
+      sel.addEventListener('change', () => { r.target = sel.value; const spec = targetSpec(r.target); r.amount = Math.max(spec[2], Math.min(spec[3], r.amount)); changed(true); });
+      const off = el('button', { class: 'icon-btn sb-ms' + (r.off ? '' : ' on'), title: r.off ? 'Off (click to switch it on)' : 'On (click to switch it off)', 'aria-pressed': String(!r.off), 'aria-label': 'Route on', onclick: () => { r.off = !r.off; changed(true); } }, '⏻');
+      const remove = el('button', { class: 'icon-btn', title: 'Remove this connection', 'aria-label': 'Remove this connection', onclick: () => { recipe.routes.splice(recipe.routes.indexOf(r), 1); changed(true); } }, '✕');
+      return el('div', { class: 'sb-route' + (r.off ? ' off' : '') + (known ? '' : ' missing'), 'data-route': r.target },
+        el('div', { class: 'sb-route-head' }, off, el('span', { text: '→' }), sel, remove),
+        el('div', { class: 'sb-fields' }, slider(r, ['amount', 'Amount', lo, hi, kind === 'db' || kind === 'st' ? 0.5 : 0.01, kind], false),
+          slider(r, ['curve', 'Response (1 = straight, >1 slow start)', 0.25, 4, 0.05, 'x'], false)));
+    });
+    const used = new Set(routesFrom(source).map((r) => r.target));
+    const add = el('select', { class: 'sb-addroute', 'aria-label': 'Connect to', 'data-addroute': source },
+      el('option', { value: '', text: (recipe.routes || []).length >= 48 ? 'Forty-eight connections is the most' : '＋ Connect to…' }),
+      ...((recipe.routes || []).length >= 48 ? [] : all.filter(([id]) => !used.has(id)).map(([id, label]) => el('option', { value: id, text: label }))));
+    add.addEventListener('change', () => {
+      if (!add.value) return;
+      recipe.routes.push({ source, target: add.value, amount: targetSpec(add.value)[4], curve: 1, off: false });
+      changed(true);
+    });
+    return el('div', { class: 'sb-routes' }, ...rows, add);
+  }
+
+  const MOD_LABEL = { lfo: 'LFO (repeats)', envelope: 'Envelope (rises and falls once)', random: 'Random drift', steps: 'Steps (a pattern)', curve: 'Drawn curve (over the length)' };
+  const MOD_FIELDS = {
+    lfo: [['rate', 'Speed', 0.01, 50, 0.01, 'rate'], ['phase', 'Start phase', 0, 1, 0.01, 'pct']],
+    envelope: [['start', 'Starts at', 0, 60, 0.01, 's'], ['attack', 'Attack', 0, 30, 0.01, 's'], ['hold', 'Hold', 0, 30, 0.01, 's'], ['decay', 'Decay', 0, 30, 0.01, 's'], ['sustain', 'Then stays at', 0, 1, 0.01, 'pct']],
+    random: [['rate', 'Changes per second', 0.01, 50, 0.01, 'rate'], ['smooth', 'Jumps ↔ glides', 0, 1, 0.01, 'pct']],
+    steps: [['rate', 'Steps per second', 0.01, 50, 0.01, 'rate'], ['smooth', 'Jumps ↔ glides', 0, 1, 0.01, 'pct']],
+    curve: [],
+  };
+  const NEW_MOD = {
+    lfo: { shape: 'sine', rate: 1, phase: 0 }, envelope: { start: 0, attack: 0.5, hold: 0, decay: 1, sustain: 0.3 }, random: { rate: 1, smooth: 1 },
+    steps: { rate: 4, smooth: 0, steps: [1, 0.25, 0.5, 0.25] }, curve: { points: [[0, 0], [0.5, 1], [1, 0]] },
+  };
+  const CURVE_SHAPES = { 'Rise': [[0, 0], [1, 1]], 'Fall': [[0, 1], [1, 0]], 'Up and down': [[0, 0], [0.5, 1], [1, 0]], 'Swell at the end': [[0, 0], [0.7, 0.1], [1, 1]] };
+
+  /** A drawn curve: click to add a point, drag to move one, double-click (or right-click) a point to remove it. */
+  function curveEditor(m) {
+    const c = el('canvas', { class: 'sb-curve', role: 'img', 'aria-label': 'Drawn curve: click to add a point, drag to move, double-click to remove' });
+    const pts = () => m.points;
+    const draw = () => {
+      const w = c.clientWidth || 300, h = c.clientHeight || 90, d = devicePixelRatio || 1;
+      c.width = w * d; c.height = h * d;
+      const g = c.getContext('2d');
+      g.scale(d, d);
+      const css = getComputedStyle(c);
+      g.strokeStyle = css.borderColor; g.lineWidth = 1;
+      g.beginPath(); g.moveTo(0, h / 2); g.lineTo(w, h / 2); g.stroke();
+      g.strokeStyle = css.color; g.lineWidth = 2; g.beginPath();
+      const p = pts();
+      g.moveTo(0, (1 - p[0][1]) * h);
+      for (const [x, y] of p) g.lineTo(x * w, (1 - y) * h);
+      g.lineTo(w, (1 - p[p.length - 1][1]) * h); g.stroke();
+      g.fillStyle = css.color;
+      for (const [x, y] of p) { g.beginPath(); g.arc(x * w, (1 - y) * h, 4, 0, Math.PI * 2); g.fill(); }
+    };
+    const at = (e) => { const r = c.getBoundingClientRect(); return [Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), Math.max(0, Math.min(1, 1 - (e.clientY - r.top) / r.height)), r]; };
+    const near = (e) => { const [x, y, r] = at(e); return pts().findIndex(([px, py]) => Math.hypot((px - x) * r.width, (py - y) * r.height) < 9); };
+    let drag = -1;
+    c.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      drag = near(e);
+      if (drag < 0) { if (pts().length >= 64) return; const [x, y] = at(e); pts().push([x, y]); pts().sort((a, b) => a[0] - b[0]); drag = near(e); }
+      c.setPointerCapture(e.pointerId); draw();
+    });
+    c.addEventListener('pointermove', (e) => {
+      if (drag < 0) return;
+      const [x, y] = at(e);
+      const p = pts();
+      const lo = drag > 0 ? p[drag - 1][0] : 0, hi = drag < p.length - 1 ? p[drag + 1][0] : 1;
+      p[drag] = [Number(Math.max(lo, Math.min(hi, x)).toFixed(4)), Number(y.toFixed(4))];
+      draw();
+    });
+    const end = () => { if (drag >= 0) { drag = -1; changed(false); } };
+    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end);
+    const removeAt = (e) => { const i = near(e); if (i >= 0 && pts().length > 1) { e.preventDefault(); pts().splice(i, 1); draw(); changed(false); } };
+    c.addEventListener('dblclick', removeAt); c.addEventListener('contextmenu', removeAt);
+    requestAnimationFrame(draw);
+    new ResizeObserver(draw).observe(c);
+    const shapes = el('div', { class: 'sb-choices' }, ...Object.entries(CURVE_SHAPES).map(([name, p]) => el('button', { class: 'utility-btn', onclick: () => { m.points = clone(p); changed(true); } }, name)));
+    return el('div', { class: 'sb-curvewrap' }, c, shapes);
+  }
+
+  /** Steps: one small vertical slider per step, and buttons to add or remove steps. */
+  function stepsEditor(m) {
+    const bars = m.steps.map((v, i) => {
+      const s = el('input', { type: 'range', class: 'sb-step', min: '0', max: '1', step: '0.01', value: String(v), 'aria-label': `Step ${i + 1}`, 'data-step': String(i) });
+      s.addEventListener('input', () => { m.steps[i] = Number(s.value); changed(false); });
+      return s;
+    });
+    return el('div', { class: 'sb-steps' }, ...bars,
+      el('button', { class: 'icon-btn', title: 'Remove the last step', 'aria-label': 'Fewer steps', disabled: m.steps.length <= 1 || undefined, onclick: () => { m.steps.pop(); changed(true); } }, '−'),
+      el('button', { class: 'icon-btn', title: 'Add a step', 'aria-label': 'More steps', disabled: m.steps.length >= 16 || undefined, onclick: () => { m.steps.push(m.steps[m.steps.length - 1] ?? 0.5); changed(true); } }, '＋'));
+  }
+
+  function modPane() {
+    const name = (obj, label) => {
+      const n = el('input', { type: 'text', value: obj.name, 'aria-label': label, spellcheck: 'false', maxlength: '40' });
+      n.addEventListener('input', () => { obj.name = n.value; changed(false); });
+      return n;
+    };
+    const removeSource = (list, obj) => { recipe.routes = recipe.routes.filter((r) => r.source !== obj.id); list.splice(list.indexOf(obj), 1); changed(true); };
+    const knobCards = recipe.knobs.map((k) => el('section', { class: 'sb-layer sb-modcard', 'data-knob-card': k.id },
+      el('div', { class: 'sb-layer-head' }, el('span', { class: 'sb-type', text: '🎚 Control' }), name(k, 'Control name'),
+        el('button', { class: 'icon-btn', title: 'Remove this control and its connections', 'aria-label': 'Remove this control', onclick: () => removeSource(recipe.knobs, k) }, '✕')),
+      el('div', { class: 'sb-fields' }, slider(k, ['value', 'Position', 0, 1, 0.01, 'pct'], false)),
+      routeList(k.id)));
+    const modCards = recipe.modulators.map((m) => {
+      const type = el('select', { 'aria-label': 'Kind of modulator', 'data-modtype': '' }, ...Object.entries(MOD_LABEL).map(([v, t]) => el('option', { value: v, text: t })));
+      type.value = m.type;
+      type.addEventListener('change', () => { Object.assign(m, clone(NEW_MOD[type.value]), { type: type.value }); changed(true); });
+      const shape = el('select', { 'aria-label': 'Shape' }, ...['sine', 'triangle', 'square', 'saw', 'hold'].map((v) => el('option', { value: v, text: v === 'hold' ? 'random steps' : v })));
+      shape.value = m.shape || 'sine';
+      shape.addEventListener('change', () => { m.shape = shape.value; changed(false); });
+      return el('section', { class: 'sb-layer sb-modcard', 'data-mod-card': m.id },
+        el('div', { class: 'sb-layer-head' }, el('span', { class: 'sb-type', text: '〰 ' + m.id }), name(m, 'Modulator name'),
+          el('button', { class: 'icon-btn', title: 'Remove this modulator and its connections', 'aria-label': 'Remove this modulator', onclick: () => removeSource(recipe.modulators, m) }, '✕')),
+        el('div', { class: 'sb-choices' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Kind' }), type),
+          ...(m.type === 'lfo' ? [el('label', { class: 'sb-inline' }, el('span', { text: 'Shape' }), shape)] : [])),
+        ...(m.type === 'curve' ? [curveEditor(m)] : m.type === 'steps' ? [stepsEditor(m)] : []),
+        el('div', { class: 'sb-fields' }, ...MOD_FIELDS[m.type].map((f) => slider(m, f, false))),
+        routeList(m.id));
+    });
+    return [
+      el('p', { class: 'pref-hint', text: 'Controls are your own sliders for the Quick tab ("Motor RPM", "Rain amount"); modulators move things by themselves over time. Connect either to as many settings as you like, each with its own amount and response.' }),
+      el('h4', { class: 'music-subhead', text: 'Controls' }),
+      ...knobCards,
+      el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sb-addknob', disabled: recipe.knobs.length >= 8 || undefined, onclick: () => { recipe.knobs.push({ name: `Control ${recipe.knobs.length + 1}`, value: 0.5 }); changed(true); } }, '＋ Control')),
+      el('h4', { class: 'music-subhead', text: 'Modulators' }),
+      ...modCards,
+      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(MOD_LABEL).map((t) => el('button', { class: 'utility-btn', 'data-addmod': t, disabled: recipe.modulators.length >= 8 || undefined, onclick: () => {
+        recipe.modulators.push({ name: MOD_LABEL[t].replace(/ \(.*/, ''), type: t, ...clone(NEW_MOD[t]) }); changed(true);
+      } }, '＋ ' + MOD_LABEL[t].replace(/ \(.*/, '')))),
     ];
   }
 
@@ -476,7 +682,7 @@ window.NoorSound = (() => {
       el('div', { class: 'sb-fields' }, ...MASTER.map((f) => slider(m, f, false))),
       el('label', { class: 'sb-inline' }, norm, el('span', { text: 'Bring the loudest peak to the ceiling (good for one-shots)' })),
       el('h4', { class: 'music-subhead', text: 'Master effects (on the whole sound)' }),
-      effectsRack(m.effects ||= [], 'master'),
+      effectsRack(m.effects ||= [], 'master', 'master'),
       el('h4', { class: 'music-subhead', text: 'Export' }),
       el('div', { class: 'sb-row' },
         sel('sb-variations', 'Files', [1, 2, 3, 4, 5, 8, 10].map((n) => [n, n === 1 ? 'Just this one' : `${n} variations`]), prefs.variations, 'variations'),
