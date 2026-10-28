@@ -165,6 +165,19 @@ public static class TreeBuilder
             if (options.TextureSize > 0) mossMat.BaseColorPng = LeafAtlas.Rgba("moss", recipe.MossColor, lightHex, stylized, Math.Min(512, options.TextureSize), recipe.Seed + 7);
             else mossMat.BaseColor = Color(recipe.MossColor);
         }
+        // Mushroom caps and crystals (fantasy trees), and the glow.
+        var glow = (float)recipe.Glow;
+        Vector3 Lin(string hex) { var c = Color(hex); return new Vector3(c.X, c.Y, c.Z); }
+        var capped = recipe.CapWidth > 0;
+        var capMat = new Material3D { Name = "Cap", Roughness = 0.6f, Emissive = Lin(recipe.CapColor) * glow * 0.6f };
+        if (capped)
+        {
+            if (options.TextureSize > 0) capMat.BaseColorPng = FantasyParts.CapTexture(recipe.CapColor, recipe.SpotColor, recipe.Spots, recipe.Seed, Math.Min(512, options.TextureSize));
+            else capMat.BaseColor = Color(recipe.CapColor);
+        }
+        var crystals = recipe.Foliage == "crystals";
+        var crystalMat = new Material3D { Name = "Crystal", BaseColor = Color(recipe.LeafColor), Roughness = 0.15f, Emissive = Lin(recipe.LeafColor2) * glow };
+        if (glow > 0) leafMat.Emissive = Lin(recipe.LeafColor2) * glow * 0.45f;
         var clumpMat = new Material3D { Name = "Leaf clumps", Roughness = 0.85f };
         if (clumps)
         {
@@ -178,10 +191,12 @@ public static class TreeBuilder
             ct.ThrowIfCancellationRequested();
             var asset = new Asset3D { Name = lodCount > 1 || recipe.Lods > 1 ? $"{recipe.Name}_LOD{lod}" : recipe.Name };
             asset.Materials.Add(bark);
-            int leafIndex = -1, clumpIndex = -1, mossIndex = -1;
+            int leafIndex = -1, clumpIndex = -1, mossIndex = -1, capIndex = -1, crystalIndex = -1;
             if (cards) { asset.Materials.Add(leafMat); leafIndex = asset.Materials.Count - 1; }
             if (clumps) { asset.Materials.Add(clumpMat); clumpIndex = asset.Materials.Count - 1; }
             if (mossy) { asset.Materials.Add(mossMat); mossIndex = asset.Materials.Count - 1; }
+            if (capped) { asset.Materials.Add(capMat); capIndex = asset.Materials.Count - 1; }
+            if (crystals) { asset.Materials.Add(crystalMat); crystalIndex = asset.Materials.Count - 1; }
             asset.Root = new Node3D { Name = asset.Name };
             var budget = Math.Max(150, recipe.Budget >> lod);
             var detail = 1 << lod;
@@ -218,6 +233,7 @@ public static class TreeBuilder
                 }
                 else wood = new Mesh3D { Name = g.Name };
                 Append(wood, tubes[g.Index]);
+                if (capped) AddCaps(wood, sk, recipe, g, capIndex, detail);
                 if (recipe.FlatShading) wood = Flatten(wood);
                 if (bark.NormalPng != null && wood.VertexCount > 0) wood.ComputeTangents();
                 wood.Name = g.Name;
@@ -241,6 +257,7 @@ public static class TreeBuilder
                     else AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
                 }
 
+                if (crystals) AddCrystals(leaves, sk, recipe, g.Branches, crystalIndex, detail, new Random(recipe.Seed * 31337 + g.Index * 7 + lod));
                 if (mossy) AddMoss(leaves, sk, recipe, g.Branches, mossIndex, detail, new Random(recipe.Seed * 104729 + g.Index * 17 + lod));
 
                 WindChannel(wood, recipe);
@@ -639,6 +656,46 @@ public static class TreeBuilder
                 widths.Add((float)recipe.LeafSize * (MathF.Pow(MathF.Max(0, MathF.Sin(MathF.PI * MathF.Min(1, t * 1.1f))), 0.65f) * 0.5f + 0.03f) * MathF.Sqrt(detail));
             }
             Strip(m, centres, across, widths, LeafAtlas.Cell(rng.Next(4)), hanging: false, sk, recipe, b, 1, material);
+        }
+    }
+
+    /// <summary>Mushroom caps: the big one on top of the trunk, smaller ones on the limb tips.</summary>
+    private static void AddCaps(Mesh3D wood, TreeSkeleton sk, TreeRecipe recipe, Group g, int material, int detail)
+    {
+        var sides = Math.Max(8, 28 / detail);
+        if (g.Index == 0)
+        {
+            var (top, _, dir) = sk.Trunk.At(1);
+            FantasyParts.Cap(wood, material, top, dir, (float)recipe.CapWidth, sides, p => Wind(sk.Trunk, 1, p, sk, recipe));
+        }
+        if (recipe.BranchCaps <= 0) return;
+        var limbs = g.Branches.Select(id => sk.Branches[id]).Where(b => b.Kind == "branch" && b.Children.All(c => sk.Branches[c].Bare)).ToList();
+        var longest = limbs.Select(b => b.Length).DefaultIfEmpty(1).Max();
+        foreach (var b in limbs)
+        {
+            var (tip, _, dir) = b.At(1);
+            var w = (float)(recipe.CapWidth * recipe.BranchCaps) * (0.6f + 0.4f * b.Length / longest);
+            FantasyParts.Cap(wood, material, tip, dir, w, Math.Max(6, sides * 2 / 3), p => Wind(b, 1, p, sk, recipe));
+        }
+    }
+
+    /// <summary>Crystal clusters on the outer branch tips (instead of leaves): a few pointed shards fanning out of each.</summary>
+    private static void AddCrystals(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    {
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
+        foreach (var id in branchIds)
+        {
+            var b = sk.Branches[id];
+            if (b.Root || b.Bare || b.Level < deepest) continue;
+            var (tip, _, dir) = b.At(1);
+            var n = Math.Max(1, (2 + (int)MathF.Round(4 * (float)recipe.LeafDensity)) / detail);
+            for (var k = 0; k < n; k++)
+            {
+                var spread = new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() * 0.4f, (float)rng.NextDouble() - 0.5f) * 1.2f;
+                var axis = Vector3.Normalize(dir + Vector3.UnitY * 0.4f + spread);
+                var length = (float)recipe.LeafSize * (0.6f + 0.7f * (float)rng.NextDouble()) * (k == 0 ? 1.3f : 1);
+                FantasyParts.Shard(m, material, tip - axis * length * 0.12f, axis, length, Wind(b, 1, tip, sk, recipe) with { Z = 0 });
+            }
         }
     }
 

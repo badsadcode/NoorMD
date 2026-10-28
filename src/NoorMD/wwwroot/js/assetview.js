@@ -47,7 +47,7 @@ window.NoorAssetView = (() => {
       return {
         name: m.name || '', color: pbr.baseColorFactor || [1, 1, 1, 1], roughness: pbr.roughnessFactor ?? 1, metallic: pbr.metallicFactor ?? 1,
         colorImage: tex(pbr.baseColorTexture), ormImage: tex(pbr.metallicRoughnessTexture), normalImage: tex(m.normalTexture),
-        mask: m.alphaMode === 'MASK', cutoff: m.alphaCutoff ?? 0.5, doubleSided: !!m.doubleSided,
+        mask: m.alphaMode === 'MASK', cutoff: m.alphaCutoff ?? 0.5, doubleSided: !!m.doubleSided, emissive: m.emissiveFactor || [0, 0, 0],
       };
     });
     // Node world matrices (translation and rotation only: that is all the Asset Bench writes).
@@ -124,7 +124,7 @@ window.NoorAssetView = (() => {
     precision highp float;
     in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind; in vec4 vCol;
     uniform sampler2D tColor, tNormal, tOrm; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint;
-    uniform vec4 uBase; uniform float uRough, uCutoff; uniform vec3 uEye, uSun, uPart;
+    uniform vec4 uBase; uniform float uRough, uCutoff; uniform vec3 uEye, uSun, uPart, uEmissive;
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
     void main() {
@@ -153,6 +153,7 @@ window.NoorAssetView = (() => {
       vec3 sky = mix(vec3(0.28, 0.25, 0.2), vec3(0.62, 0.72, 0.85), N.y * 0.5 + 0.5);
       float spec = pow(max(dot(N, H), 0.0), mix(64.0, 4.0, rough)) * (1.0 - rough) * 0.5;
       vec3 col = albedo * (sky * 0.75 * ao + vec3(1.0, 0.95, 0.85) * (nl + back) * 1.35) + vec3(spec) * nl;
+      if (uMode == 0) col += uEmissive * 1.4;          // glowing crystals and caps
       col = col / (col + vec3(0.9)) * 1.6;           // gentle tone mapping
       outColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
     }`;
@@ -363,6 +364,7 @@ window.NoorAssetView = (() => {
         gl.uniform1f(main.u.uRough, m ? m.roughness : 0.9);
         gl.uniform1i(main.u.uMask, m && m.mask ? 1 : 0);
         gl.uniform1f(main.u.uCutoff, m ? m.cutoff : 0.5);
+        gl.uniform3fv(main.u.uEmissive, m ? m.emissive : [0, 0, 0]);
         gl.uniform3fv(main.u.uPart, d.part);
         gl.uniform1i(main.u.uTint, d.hasColor && scene.windFrom !== 2 ? 1 : 0);
         gl.uniformMatrix4fv(main.u.uModel, false, d.matrix);

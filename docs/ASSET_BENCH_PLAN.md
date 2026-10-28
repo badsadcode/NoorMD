@@ -142,8 +142,18 @@ Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh wo
 - **Variety packs:** N trees from consecutive seeds, sizes spread ±%, the first being the tree on screen; each with
   its recipe, one manifest for the pack.
 
-Still open from the list: the painted bark texture and bring-your-own textures (5), fungal and crystal trees, the
-biome catalogue (7).
+### Done in preview.55
+
+- **Bark in the tree's colour:** "bark" (realistic furrows), "painted" (broad plates and dark grooves, the stylized
+  default), "birch" (pale with dark marks), as Texture Bench recipes, so they tile and bring normal and ORM maps.
+- **Painted shading** in COLOR_0 (free now that wind is in the UVs): crowns darker inside and below with soft
+  patches, trunks darker at the foot; engines and viewers multiply it with the textures.
+- **Fantasy forms:** mushroom caps (a turned profile with spots on top and gills under, on the trunk and the limb
+  tips), crystal shards instead of leaves, and glow (emissive) for caps, crystals and leaves. Five presets.
+- **Wind shaders** written with an export: NoorTreeWind.gdshader (Godot 4) and NoorTreeWind.hlsl (Unity Shader
+  Graph Custom Function, Unreal Custom node).
+
+Still open: bring-your-own bark and leaf textures, billboards (crossed-card impostors), the biome catalogue.
 
 ## Stage 2 — rocks
 

@@ -80,6 +80,7 @@ public static class GlbWriter
             if (m.Alpha == "mask") { mat["alphaMode"] = "MASK"; mat["alphaCutoff"] = m.AlphaCutoff; }
             else if (m.Alpha == "blend") mat["alphaMode"] = "BLEND";
             if (m.DoubleSided) mat["doubleSided"] = true;
+            if (m.Emissive != Vector3.Zero) mat["emissiveFactor"] = new[] { Math.Clamp(m.Emissive.X, 0, 1), Math.Clamp(m.Emissive.Y, 0, 1), Math.Clamp(m.Emissive.Z, 0, 1) };
             return (object)mat;
         }).ToList();
 

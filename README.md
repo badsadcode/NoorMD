@@ -180,7 +180,11 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   acacia) and fantasy (moonlit elder, ember oak, spirit willow). Trunks can be fluted, swollen or S-curved, roots
   flared, snaking over the ground or on stilts; leaves set as crossed pairs, stars, fans, domes, hanging willow
   curtains or palm fronds; branches hung with moss and vines. Export variety packs: many trees of one kind at once,
-  each from its own seed and a little taller or shorter. Rocks come next.
+  each from its own seed and a little taller or shorter. Fantasy trees too: mushroom trees (fly agaric, a
+  glowing swamp glowcap, a giant toadstool) and crystal trees with glowing shards. Bark is made in each tree's
+  colour (realistic furrows, painted grooves for the stylized look, birch); a painted shading in the vertex colours
+  darkens the inside of the crown and the foot of the trunk. Exports can bring wind shaders that read the wind
+  data: a Godot 4 shader, and an HLSL function for Unity Shader Graph or an Unreal Custom node. Rocks come next.
 - **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when

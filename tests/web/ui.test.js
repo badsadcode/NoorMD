@@ -5117,6 +5117,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.$eval('#ab-pane input[data-key="moss"]', (r) => { r.value = '0.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
       await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="mossColor"]'));
       check('hanging moss, with its colour once there is some', (await AS()).recipe.moss === 0.5);
+      await page.$eval('#ab-pane input[data-key="capWidth"]', (r) => { r.value = '3'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await waitFn(page, () => !!document.querySelector('#ab-pane input[data-key="branchCaps"]'));
+      check('fantasy: a mushroom cap brings its size on the limbs, colours and spots', !!(await page.$('#ab-pane input[data-key="capColor"]')) && !!(await page.$('#ab-pane input[data-key="spots"]')) && (await AS()).recipe.capWidth === 3);
       await page.click('#assetbench [data-tab="tree"]');
       check('surface roots: forks and sinking in', !!(await page.$('#ab-pane input[data-key="rootForks"]')) && !!(await page.$('#ab-pane input[data-key="rootBurial"]')));
       await page.selectOption('#ab-pane select[data-key="rootStyle"]', 'prop');
@@ -5173,6 +5176,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
       const ex = (await AM()).exports[0];
       check('Export sends the recipe, the texture size, the levels choice and the pack', ex.recipe.name === 'Forest oak' && ex.textureSize === 2048 && ex.lodFiles === 'one' && ex.layout === 'unreal' && ex.variants === 12 && ex.spread === 0.15);
+      check('…and asks for the wind shaders (on unless turned off)', ex.shaders === true);
       await waitFn(page, () => /12 trees/.test((document.querySelector('#ab-exported') || {}).textContent || ''));
       check('…and says what was saved', /12 trees \(12 files\) with their recipes/.test(await page.textContent('#ab-exported')));
       await waitFn(page, () => !!document.querySelector('#ab-reveal'));

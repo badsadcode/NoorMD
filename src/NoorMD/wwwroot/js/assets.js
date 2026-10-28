@@ -22,7 +22,7 @@ window.NoorAssets = (() => {
   let buildGen = 0, buildTimer = 0, snapTimer = 0;
   let history = [], future = [], lastSnapshot = '';
   let exportWhere = null;
-  let exportPrefs = (() => { try { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15 }; } })();
+  let exportPrefs = (() => { try { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, shaders: true, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, shaders: true }; } })();
   let lastExport = null;
 
   const isOpen = () => document.body.classList.contains('assets-open');
@@ -33,7 +33,7 @@ window.NoorAssets = (() => {
   const ROOTS = [['flare', 'Flared base (buttresses)'], ['surface', 'Surface roots (long, forking, sinking in)'], ['prop', 'Stilt roots (mangrove)'], ['compact', 'Compact (a collar only)']];
   const ARRANGE = [['scatter', 'Scattered cards'], ['single', 'Single cards'], ['cross', 'Crossed pairs'], ['star', 'Stars of three'], ['fan', 'Fans (spruce tiers, acacia)'], ['dome', 'Domes (full broadleaf)'], ['hanging', 'Hanging curtains (willow)'], ['fronds', 'Fronds along the branches (palm, fern)']];
   const BRANCH_MODES = [['merged', 'Merged: one welded mesh'], ['separate', 'Separate: each limb its own mesh'], ['mixed', 'Mixed: thick limbs welded, thin ones separate']];
-  const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['none', 'None (bare)']];
+  const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['crystals', 'Crystals (glowing shards)'], ['none', 'None (bare)']];
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
@@ -402,6 +402,12 @@ window.NoorAssets = (() => {
         slider(recipe, ['leafSize', 'Size', 0.05, 5, 0.05, 'm', 'One leaf card (or the size of a clump)']),
         el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Colour'), colour(recipe, 'leafColor2', 'Light colour')),
         slider(recipe, ['crownNormals', 'Soft crown light', 0, 1, 0.01, 'pct', 'Leaf normals bent to point out of the crown: soft, even lighting instead of flat cards'])),
+      section('Fantasy',
+        slider(recipe, ['capWidth', 'Mushroom cap', 0, 30, 0.1, 'm', 'A mushroom cap on top of the trunk, this wide (0: none)'], true),
+        recipe.capWidth > 0 ? slider(recipe, ['branchCaps', 'Caps on the limbs', 0, 1, 0.01, 'pct', 'Smaller caps on the limb tips, this big compared with the main one']) : null,
+        recipe.capWidth > 0 ? el('div', { class: 'sb-row' }, colour(recipe, 'capColor', 'Cap colour'), colour(recipe, 'spotColor', 'Spots')) : null,
+        recipe.capWidth > 0 ? slider(recipe, ['spots', 'How many spots', 0, 1, 0.01, 'pct']) : null,
+        slider(recipe, ['glow', 'Glow', 0, 1, 0.01, 'pct', 'Crystals, caps and leaves glow in the light colour (the emissive colour of their materials)'])),
       section('Swamp',
         slider(recipe, ['moss', 'Hanging moss', 0, 1, 0.01, 'pct', 'Grey-green moss hanging from the branches (also on bare and dead trees)'], true),
         recipe.moss > 0 ? colour(recipe, 'mossColor', 'Moss colour') : null,
@@ -454,6 +460,11 @@ window.NoorAssets = (() => {
         el('small', { class: 'pref-hint', text: 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
       section('Files',
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
+        (() => {
+          const c = el('input', { type: 'checkbox', id: 'ab-shaders', checked: exportPrefs.shaders || undefined });
+          c.addEventListener('change', () => { exportPrefs.shaders = c.checked; saveExportPrefs(); });
+          return el('label', { class: 'sb-inline', title: 'NoorTreeWind.gdshader (Godot 4) and NoorTreeWind.hlsl (Unity Shader Graph, Unreal Custom node), reading the wind data in the files. Written once: ones already in the folder are kept' }, c, el('span', { text: 'Wind shaders for Godot, Unity and Unreal' }));
+        })(),
         el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
       section('Where', exportWhere.node),
       el('div', { class: 'sb-row' },
@@ -469,7 +480,7 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, ...exportWhere.payload() });
+      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
       setStatus(r.variants > 1 ? `Exported ${r.variants} × “${recipe.name}”: ${r.files.length} files` : `Exported “${recipe.name}”: ${r.files.join(', ')}`);

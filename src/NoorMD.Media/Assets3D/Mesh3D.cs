@@ -16,6 +16,8 @@ public sealed class Material3D
     public string Alpha { get; set; } = "opaque";
     public float AlphaCutoff { get; set; } = 0.5f;
     public bool DoubleSided { get; set; }
+    /// <summary>Light the surface gives off itself (linear RGB, 0–1 each): glowing crystals, mushrooms.</summary>
+    public Vector3 Emissive { get; set; }
     /// <summary>PNG bytes for the colour (with alpha for cards) and the normal map, or null.</summary>
     public byte[]? BaseColorPng { get; set; }
     public byte[]? NormalPng { get; set; }

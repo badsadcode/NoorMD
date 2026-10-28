@@ -40,7 +40,7 @@ public sealed class TreeRecipe
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
     public static readonly string[] Arrangements = ["scatter", "single", "cross", "star", "fan", "dome", "hanging", "fronds"];
     public static readonly string[] BranchModes = ["merged", "separate", "mixed"];
-    public static readonly string[] FoliageKinds = ["cards", "tufts", "clumps", "both", "none"];
+    public static readonly string[] FoliageKinds = ["cards", "tufts", "clumps", "both", "crystals", "none"];
     public static readonly string[] LeafShapes = ["broad", "round", "needle", "maple", "slender", "frond"];
     public static readonly string[] Qualities = ["low", "medium", "high"];
 
@@ -117,6 +117,17 @@ public sealed class TreeRecipe
     /// <summary>Hanging moss on the branches (0 none … 1 heavy, the swamp look), its colour, and hanging vines (count).</summary>
     public double Moss { get; set; }
     public string MossColor { get; set; } = "#7d8a6a";
+    /// <summary>
+    /// A mushroom cap on top of the trunk (its width in metres; 0 none), and smaller ones on the limb tips (0–1, their
+    /// size as a share of the main one). Its colour, the spots on it (0 none … 1 many) and their colour.
+    /// </summary>
+    public double CapWidth { get; set; }
+    public double BranchCaps { get; set; }
+    public string CapColor { get; set; } = "#b8321e";
+    public double Spots { get; set; } = 0.6;
+    public string SpotColor { get; set; } = "#f2ead6";
+    /// <summary>How brightly crystals, caps and leaves of a fantasy tree glow (0 none … 1 bright), in the light colour.</summary>
+    public double Glow { get; set; }
     public int Vines { get; set; }
     public string LeafShape { get; set; } = "broad";
     /// <summary>How full the crown is (0–1) and the size of each leaf card (metres).</summary>
@@ -212,6 +223,12 @@ public sealed class TreeRecipe
         Moss = C(Moss, 0, 1, 0);
         MossColor = Hex(MossColor, "#7d8a6a");
         Vines = Math.Clamp(Vines, 0, 60);
+        CapWidth = C(CapWidth, 0, 30, 0);
+        BranchCaps = C(BranchCaps, 0, 1, 0);
+        CapColor = Hex(CapColor, "#b8321e");
+        Spots = C(Spots, 0, 1, 0.6);
+        SpotColor = Hex(SpotColor, "#f2ead6");
+        Glow = C(Glow, 0, 1, 0);
         LeafShape = Pick(LeafShape, LeafShapes);
         LeafDensity = C(LeafDensity, 0, 1, 0.6);
         LeafSize = C(LeafSize, 0.05, 5, 0.6);
@@ -446,6 +463,39 @@ public static class TreePresets
             Levels = [L(6, 0.4, 50, 0.6, 0.6, 25, 8), L(6, 0.25, 40, 0.5, 0.55, -45, 8)],
             LeafShape = "slender", Arrangement = "hanging", HangLength = 5, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#1f7a7a", LeafColor2 = "#a8f0dc", BarkColor = "#c8c4b8", BarkMaterial = "painted",
             Moss = 0.3, MossColor = "#8ab8a8", Budget = 3500, Quality = "low",
+        }, "Fantasy"),
+        new("fly-agaric", "Fly agaric tree", "A giant red toadstool with white spots on a pale, swollen stem.", () => new TreeRecipe
+        {
+            Name = "Fly agaric tree", Archetype = "broadleaf", Style = "stylized", Height = 6, TrunkRadius = 0.45, Taper = 0.25, CrownStart = 1, RootStyle = "compact", Bulge = 0.45, BulgeAt = 0.05,
+            SCurve = 0.05, Lean = 6, Collar = 0.9, Levels = [], Foliage = "none",
+            CapWidth = 3.2, CapColor = "#c0281a", Spots = 0.75, SpotColor = "#f4ecd8", BarkColor = "#ece4d0", BarkMaterial = "painted", Budget = 2500, Quality = "low",
+        }, "Fantasy"),
+        new("glowcap", "Glowcap swamp tree", "A crooked mushroom tree whose teal caps glow in the marsh at night.", () => new TreeRecipe
+        {
+            Name = "Glowcap swamp tree", Archetype = "broadleaf", Style = "stylized", Height = 7, TrunkRadius = 0.4, Taper = 0.45, CrownStart = 1, RootStyle = "surface", Roots = 5, RootLength = 0.8,
+            SCurve = 0.08, Lean = 8, Twist = 0.4, Collar = 0.9,
+            Levels = [L(5, 0.5, 60, 0.32, 0.5, 35, 10, 15)], Foliage = "none",
+            CapWidth = 2.6, BranchCaps = 0.45, CapColor = "#1f6a78", Spots = 0.5, SpotColor = "#a8f4e4", Glow = 0.6,
+            Moss = 0.35, MossColor = "#7a9a84", BarkColor = "#8a7a68", BarkMaterial = "painted", Budget = 3000, Quality = "low",
+        }, "Fantasy"),
+        new("toadstool", "Giant toadstool (realistic)", "A tall brown-capped mushroom, the size of a small tree.", () => new TreeRecipe
+        {
+            Name = "Giant toadstool", Archetype = "broadleaf", Height = 4, TrunkRadius = 0.32, Taper = 0.2, CrownStart = 1, RootStyle = "compact", Bulge = 0.3, BulgeAt = 0.05, Lean = 4, SCurve = 0.03,
+            Levels = [], Foliage = "none", CapWidth = 2.4, CapColor = "#7a4a28", Spots = 0.1, SpotColor = "#d8c8a8", BarkColor = "#ddd2bc", BarkMaterial = "",
+        }, "Fantasy"),
+        new("crystal-tree", "Crystal tree", "A faceted tree of grey stone, its branches tipped with glowing cyan crystals.", () => new TreeRecipe
+        {
+            Name = "Crystal tree", Archetype = "broadleaf", Style = "stylized", Height = 7, TrunkRadius = 0.4, Taper = 0.7, CrownStart = 0.4, Flare = 0.8, Roots = 5, Twist = 0.8, Collar = 0.8, Shape = "spherical",
+            Levels = [L(5, 0.4, 50, 0.6, 0.6, 20, 8, 12), L(3, 0.3, 45, 0.5, 0.55, 15, 8)],
+            Foliage = "crystals", LeafSize = 0.9, LeafDensity = 0.7, LeafColor = "#3fb8d8", LeafColor2 = "#9ff0ff", Glow = 0.7,
+            BarkColor = "#6a6a80", BarkMaterial = "painted", FlatShading = true, Budget = 2500, Quality = "low",
+        }, "Fantasy"),
+        new("amethyst-tree", "Amethyst tree", "Dark, twisted wood bearing clusters of glowing violet crystals.", () => new TreeRecipe
+        {
+            Name = "Amethyst tree", Archetype = "dead", Style = "stylized", Height = 6, TrunkRadius = 0.45, Taper = 0.75, CrownStart = 0.45, Flare = 1, Roots = 6, Twist = 1.2, Collar = 1, Shape = "inverse", Lean = 6,
+            Levels = [L(5, 0.45, 55, 0.6, 0.6, 10, 15, 20), L(3, 0.3, 50, 0.5, 0.55, 5, 15, 20)],
+            Foliage = "crystals", LeafSize = 0.8, LeafDensity = 0.8, LeafColor = "#7a3ad8", LeafColor2 = "#d8a8ff", Glow = 0.55,
+            BarkColor = "#3a2e4a", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Fantasy"),
     ];
 

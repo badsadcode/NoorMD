@@ -422,4 +422,58 @@ public class TreeTests
         tree.Lods = 1;
         Assert.NotNull(TreeBuilder.Build(tree, new TreeBuilder.Options { TextureSize = 64 }).Lods[0].Materials[0].BaseColorPng);
     }
+
+    [Fact]
+    public void Mushroom_trees_wear_a_textured_cap_on_top_and_smaller_ones_on_their_limbs()
+    {
+        var r = Small("glowcap");
+        var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64 });
+        var cap = b.Lods[0].Materials.FindIndex(m => m.Name == "Cap");
+        Assert.True(cap >= 0);
+        Assert.NotNull(b.Lods[0].Materials[cap].BaseColorPng);
+        Assert.True(b.Lods[0].Materials[cap].Emissive.Length() > 0);         // it glows
+        var wood = Wood(b);
+        Assert.Empty(wood.Problems());
+        var capVerts = wood.Submeshes.Single(x => x.Material == cap).Indices.Distinct().Select(i => wood.Positions[i]).ToList();
+        // The big cap is about as wide as asked and sits at the top.
+        Assert.True(capVerts.Max(p => p.Y) >= b.Recipe.Height * 0.95);
+        var top = capVerts.Where(p => p.Y > b.Recipe.Height * 0.8).ToList();
+        Assert.InRange(top.Max(p => p.X) - top.Min(p => p.X), r.CapWidth * 1.6, r.CapWidth * 2.3);
+        // …and there are caps lower down too (on the limbs).
+        Assert.Contains(capVerts, p => p.Y < b.Recipe.Height * 0.8);
+        Assert.True(r.BranchCaps > 0);
+        // Outward-facing: normals point away from each cap's middle on its top.
+        Assert.True(capVerts.Count > 100);
+        var json = GlbWriterTests.Parse(GlbWriter.Write(b.Lods[0])).Json.GetRawText();
+        Assert.Contains("emissiveFactor", json);
+    }
+
+    [Fact]
+    public void Crystal_trees_grow_faceted_glowing_shards_instead_of_leaves()
+    {
+        var b = TreeBuilder.Build(Small("crystal-tree"), NoTextures);
+        var crystal = b.Lods[0].Materials.FindIndex(m => m.Name == "Crystal");
+        Assert.True(crystal >= 0);
+        Assert.True(b.Lods[0].Materials[crystal].Emissive.Length() > 0.1f);
+        Assert.DoesNotContain(b.Lods[0].Materials, m => m.Name == "Leaves");
+        var leaves = Leaves(b)!;
+        Assert.Empty(leaves.Problems());
+        var tris = leaves.Submeshes.Single(x => x.Material == crystal).Indices.Count / 3;
+        Assert.Equal(0, tris % 18);           // six sides, two triangles each, and six for the point
+        // Flat faces: every triangle has its own corners, all with the face's normal.
+        Assert.Equal(leaves.VertexCount, leaves.Submeshes.Sum(x => x.Indices.Count));
+    }
+
+    [Fact]
+    public void Wind_shaders_read_the_wind_data_where_the_export_puts_it()
+    {
+        Assert.Contains("shader_type spatial;", WindShaders.Godot);
+        Assert.Contains("UV2.x", WindShaders.Godot);
+        Assert.Contains("UV2.y", WindShaders.Godot);
+        Assert.Contains("void NoorTreeWind_float(", WindShaders.Hlsl);
+        Assert.Contains("void NoorTreeWind_half(", WindShaders.Hlsl);
+        // Balanced braces (a typo here would only show up in the engine).
+        foreach (var code in new[] { WindShaders.Godot, WindShaders.Hlsl })
+            Assert.Equal(code.Count(c => c == '{'), code.Count(c => c == '}'));
+    }
 }

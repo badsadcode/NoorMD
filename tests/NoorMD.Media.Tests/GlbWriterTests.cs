@@ -169,7 +169,7 @@ internal static class AssetSamples
     public static IEnumerable<(string Name, Asset3D Asset)> All()
     {
         foreach (var (preset, mode) in new[] { ("oak", "merged"), ("pine", "separate"), ("stylized-oak", "mixed"), ("stylized-dead", "merged"),
-                     ("cypress", "merged"), ("mangrove", "separate"), ("willow", "merged"), ("palm", "merged"), ("stylized-horror", "merged"), ("baobab", "merged") })
+                     ("cypress", "merged"), ("mangrove", "separate"), ("willow", "merged"), ("palm", "merged"), ("stylized-horror", "merged"), ("baobab", "merged"), ("glowcap", "separate"), ("crystal-tree", "merged"), ("fly-agaric", "merged") })
         {
             var r = TreePresets.Make(preset);
             r.Branches = mode;

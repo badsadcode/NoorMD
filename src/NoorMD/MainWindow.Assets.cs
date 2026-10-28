@@ -234,10 +234,20 @@ public partial class MainWindow
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
                     object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "tree variety pack", name = recipe.Name, variants = manifests };
                     await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+                    // Wind shaders beside the trees (once: one already there may have been changed by you, so it is kept).
+                    var shaders = new List<string>();
+                    if (recipe.Wind && recipe.WindData == "uv" && NoorMD.Core.Bridge.Json.IsTrue(p, "shaders"))
+                        foreach (var (name, text) in new[] { (WindShaders.GodotFile, WindShaders.Godot), (WindShaders.HlslFile, WindShaders.Hlsl) })
+                        {
+                            var path = Path.Combine(folder, name);
+                            if (File.Exists(path)) continue;
+                            await File.WriteAllTextAsync(path, text.Replace("\r\n", "\n"), new UTF8Encoding(false));
+                            shaders.Add(name);
+                        }
                     PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                     _assetFolders.Add(folder);
                     Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), shaders, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
                 }
                 case "asset.reveal":
                 {
