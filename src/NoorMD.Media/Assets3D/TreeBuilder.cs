@@ -228,7 +228,9 @@ public static class TreeBuilder
             var budget = Math.Max(150, recipe.Budget >> lod);
             var detail = 1 << lod;
 
-            // Tubes first: what they cost comes off the budget of the implicit surfaces.
+            // Tubes first: what they cost comes off the budget of the implicit surfaces. Branches left out of this
+            // level's wood are noted: leaves meant for them go on the nearest branch that is there.
+            missingWood = [];
             var tubes = new Dictionary<int, Mesh3D>();
             var tubeTris = 0;
             // Low-poly wood when the whole tree is (a small budget), and on any farther level whose share is small: a
@@ -246,7 +248,11 @@ public static class TreeBuilder
                 {
                     var b = sk.Branches[id];
                     // Distant levels drop the finest twigs; so does a small wood budget (they are inside the leaves).
-                    if ((lod >= 2 || (recipe.Budget < 2500 && cards)) && b.Level >= recipe.Levels.Count && b.Level >= 2) continue;
+                    if ((lod >= 2 || (recipe.Budget < 2500 && cards)) && b.Level >= recipe.Levels.Count && b.Level >= 2)
+                    {
+                        if (start == 0) missingWood!.Add(id);     // all of it was this tube: it is not in the wood
+                        continue;
+                    }
                     AddTube(m, sk, b, start, attach && b.Parent >= 0 && (id == g.RootBranch || start == 0), cell * 1.6f * detail, tile, recipe);
                 }
                 tubes[g.Index] = m;
@@ -353,6 +359,7 @@ public static class TreeBuilder
         }
         cardShapes = null;
         measureLeaves = null;
+        missingWood = null;
         build.Seconds = watch.Elapsed.TotalSeconds;
         return build;
     }
@@ -397,6 +404,7 @@ public static class TreeBuilder
             return girth * (1 + 0.22f * flute * fade * (lobe - 0.3f));
         };
         var order = sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Points.Count >= 2 && b.Kind != "ridge").OrderBy(Rank).ThenByDescending(b => b.BaseRadius).ToList();
+        foreach (var b in sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Points.Count < 2)) missingWood?.Add(b.Id);
         foreach (var g in groups) into[g.Index] = new Mesh3D { Name = g.Name };
         int used = 0, kept = 0;
         foreach (var b in order)
@@ -405,7 +413,7 @@ public static class TreeBuilder
             if (b.Id == 0 && flute > 0 && lod == 0) sides = Math.Max(sides, Math.Min(24, lobes * 2));     // enough sides to show the flutes up close
             var rings = (b.Points.Count - 1) / Step(b) + 2;
             var cost = sides * 2 * (rings - 1) + sides;
-            if (b.Id != 0 && used + cost > budget) continue;
+            if (b.Id != 0 && used + cost > budget) { missingWood?.Add(b.Id); continue; }
             var g = groupOf[b.Id];
             AddTube(into[g.Index], sk, b, 0, b.Parent >= 0, edge, tile, recipe, sides, Step(b), b.Id == 0 ? Flutes(sides) : null);
             used += cost;
@@ -697,11 +705,19 @@ public static class TreeBuilder
                 var growDir = Vector3.Normalize(dir * MathF.Cos(tilt) + side * MathF.Sin(tilt));
                 if (t >= 0.99f) growDir = Vector3.Normalize(dir + side * 0.2f);
                 var cardSize = size * PlaneScale(recipe) * (0.8f + 0.4f * (float)rng.NextDouble());
+                // On a twig this level's wood left out, the card hangs from the nearest branch that is there, growing
+                // towards where the twig's leaves were.
+                var (anchor, toward, _, _) = Attach(sk, b, p);
+                if (toward is { } tw)
+                {
+                    growDir = Vector3.Normalize(growDir * 0.4f + tw * 0.6f);
+                    side = Vector3.Normalize(side * 0.4f + tw * 0.6f);
+                }
                 switch (recipe.Arrangement)
                 {
-                    case "scatter": Card(m, p, growDir, cardSize, sk, recipe, b, t, material, rng); break;
-                    case "hanging": Hanging(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
-                    default: Tuft(m, p, side, cardSize, sk, recipe, b, t, material, rng); break;
+                    case "scatter": Card(m, anchor, growDir, cardSize, sk, recipe, b, t, material, rng); break;
+                    case "hanging": Hanging(m, anchor, side, cardSize, sk, recipe, b, t, material, rng); break;
+                    default: Tuft(m, anchor, side, cardSize, sk, recipe, b, t, material, rng); break;
                 }
             }
         }
@@ -1040,6 +1056,34 @@ public static class TreeBuilder
     /// <summary>A small copy of the leaf picture while a tree is built: what the crown's fullness is measured with.</summary>
     [ThreadStatic] private static RawImage? measureLeaves;
 
+    /// <summary>Branches left out of the wood of the level being built (twigs a small budget drops).</summary>
+    [ThreadStatic] private static HashSet<int>? missingWood;
+
+    /// <summary>
+    /// Where a leaf meant for point <paramref name="p"/> of branch <paramref name="b"/> really hangs: there, if the branch is
+    /// in this level's wood; else on the nearest point of its nearest ancestor that is (no leaves floating where a dropped
+    /// twig would have been), with the way out towards the twig's spot, so the card still covers it.
+    /// </summary>
+    private static (Vector3 Anchor, Vector3? Toward, TreeBranch On, float T) Attach(TreeSkeleton sk, TreeBranch b, Vector3 p)
+    {
+        if (missingWood == null || !missingWood.Contains(b.Id)) return (p, null, b, -1);
+        var a = b;
+        while (a.Parent >= 0 && missingWood.Contains(a.Id)) a = sk.Branches[a.Parent];
+        var best = a.Points[0];
+        var bestT = 0f;
+        var bestD = float.MaxValue;
+        for (var i = 0; i + 1 < a.Points.Count; i++)
+        {
+            var ab = a.Points[i + 1] - a.Points[i];
+            var u = Math.Clamp(Vector3.Dot(p - a.Points[i], ab) / MathF.Max(1e-8f, ab.LengthSquared()), 0, 1);
+            var q = a.Points[i] + ab * u;
+            var d = Vector3.DistanceSquared(p, q);
+            if (d < bestD) { bestD = d; best = q; bestT = (i + u) / (a.Points.Count - 1); }
+        }
+        var away = p - best;
+        return (best, away.LengthSquared() > 1e-8f ? Vector3.Normalize(away) : null, a, bestT);
+    }
+
     /// <summary>
     /// Fills the crown where it is see-through. The crown is drawn from four sides (the leaves cut out by their alpha);
     /// spots a little out from every leafy branch are scored by how many gaps a card there would cover, and the best,
@@ -1090,11 +1134,13 @@ public static class TreeBuilder
                     var t = 0.2f + 0.8f * (k + 0.5f) / steps;
                     var (p, _, dir) = b.At(t);
                     var n0 = b.Normals[Math.Min(b.Normals.Count - 1, (int)(t * (b.Points.Count - 1)))];
+                    // A twig left out of the wood: the spot is on the nearest branch that is there.
+                    var (anchor, toward, _, _) = Attach(sk, b, p);
                     for (var d = 0; d < 6; d++)
                     {
                         var side = Vector3.Normalize(Vector3.Transform(n0, Quaternion.CreateFromAxisAngle(dir, MathF.Tau * d / 6)));
-                        var outward = Vector3.Normalize(side + dir * 0.3f + Vector3.UnitY * 0.2f);
-                        spots.Add((gi, b, t, p, outward, p + outward * size * 0.5f));
+                        var outward = Vector3.Normalize(side + dir * 0.3f + Vector3.UnitY * 0.2f + (toward ?? Vector3.Zero) * 0.8f);
+                        spots.Add((gi, b, t, anchor, outward, anchor + outward * size * 0.5f));
                     }
                 }
             }

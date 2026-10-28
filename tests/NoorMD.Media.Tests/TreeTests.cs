@@ -944,4 +944,49 @@ public class TreeTests
         var radii = ring.Select(v => Vector3.Distance(new Vector3(v.X, 0, v.Z), new Vector3(c.X, 0, c.Z))).ToList();
         Assert.True(radii.Max() > radii.Min() * 1.15f, $"radii {radii.Min():0.000}–{radii.Max():0.000}");
     }
+
+    /// <summary>Share of leaf-card anchors (no flutter) farther than <paramref name="gap"/> metres from any wood vertex.</summary>
+    private static double Floating(TreeBuild b, int level, float gap)
+    {
+        var lod = b.Lods[level];
+        // Points all over the wood's surface (its triangles sampled), not only its corners.
+        var wood = new List<Vector3>();
+        foreach (var n in lod.Root.All().Where(n => n.Mesh != null && !n.Name.EndsWith("Leaves")))
+            foreach (var sub in n.Mesh!.Submeshes)
+                for (var i = 0; i + 2 < sub.Indices.Count; i += 3)
+                {
+                    Vector3 a = n.Mesh.Positions[sub.Indices[i]] + n.Translation, bb = n.Mesh.Positions[sub.Indices[i + 1]] + n.Translation, c = n.Mesh.Positions[sub.Indices[i + 2]] + n.Translation;
+                    for (var u = 0; u <= 4; u++)
+                        for (var w = 0; u + w <= 4; w++) wood.Add(a + (bb - a) * (u / 4f) + (c - a) * (w / 4f));
+                }
+        var leaves = lod.Root.All().Where(n => n.Mesh != null && n.Name.EndsWith("Leaves")).ToList();
+        int far = 0, all = 0;
+        foreach (var n in leaves)
+            for (var v = 0; v < n.Mesh!.VertexCount; v++)
+            {
+                if (n.Mesh.UV1.Count <= v || n.Mesh.UV1[v].Y > 0.01f) continue;
+                all++;
+                var p = n.Mesh.Positions[v] + n.Translation;
+                if (!wood.Any(w => Vector3.DistanceSquared(w, p) < gap * gap)) far++;
+            }
+        return all == 0 ? 0 : far / (double)all;
+    }
+
+    [Fact]
+    public void Leaves_hang_from_wood_that_is_there_not_from_twigs_a_level_left_out()
+    {
+        foreach (var (preset, target) in new[] { ("oak", 2000), ("oak", 4000), ("maple", 4000), ("pine", 4000) })
+        {
+            var r = TreePresets.Make(preset);
+            r.Billboard = false; r.Lods = 3; r.TriangleTarget = target; r.Arrangement = "scatter";
+            var b = TreeBuilder.Build(r, NoTextures);
+            for (var level = 0; level < 3; level++)
+            {
+                // A card's bottom edge is as wide as the card: its corners are up to half a card from the branch it hangs on.
+                var halfCard = (float)r.LeafSize * 1.65f * MathF.Sqrt(1 << level) * 2f * 0.6f;
+                var floating = Floating(b, level, 0.5f + halfCard);
+                Assert.True(floating < 0.05, $"{preset} {target} LOD{level}: {floating:P0} of the leaves hang in the air");
+            }
+        }
+    }
 }

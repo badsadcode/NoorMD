@@ -277,6 +277,12 @@ or curves. The trunk's rings now carry the flutes as lobes (turning with the twi
 the girth they stood for; far levels too simple for lobes keep the girth only). Flare and surface roots start from
 where the trunk is at their height.
 
+Fix (preview.66): leaves floated in the air where a level's wood had left out the finest twigs (small budgets,
+far levels): they were still placed on the missing twigs. Each level now knows which branches are in its wood; a
+card meant for a missing twig hangs from the nearest point of the nearest branch that is there, growing towards
+where the twig's leaves were, and the canopy fill does the same. A test measures it (on the old code 30 % of the
+oak's leaf cards at 2,000 hung in the air).
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of
