@@ -246,6 +246,17 @@ want a few thousand triangles, not fifty.
   second or third ring), the rest for the leaves.
 - The oak: 11,300 triangles 77 % full before; at the 3,000 target about 3,300 triangles, 78 % full.
 
+### Low-poly wood (preview.62)
+
+A welded trunk simplified to a few hundred triangles was crushed out of shape (the 2,000 target). Below 1,600 wood
+triangles the wood is now clean tubes from the skeleton: the trunk with 7 sides (more for thick trunks, up to 12:
+baobab, sequoia) and rings enough to follow its curve, roots 4, main limbs 4–5, the rest 3, added most important
+first (trunk, roots, main limbs, then each finer level, thick before thin) while the budget lasts; the finest twigs
+left out are inside the leaves. A note says how many branches made it. Also: moss shares the leaf budget (at most
+30 %, strands thinned evenly, shorter ribbons when it is small); willow curtains are wider with fewer segments on
+small budgets and the canopy fill also fills a willow's crown; cards grown by the budget stop at twice the leaf size
+(beyond that a spruce turns into a bush; the crown is thinner instead).
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

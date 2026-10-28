@@ -100,10 +100,10 @@ public class TreeTests
         r.Roots = 5;
         r.Foliage = "none";
         r.Taper = 0.4;      // a thick top, so no part of it is too thin for the grid
-        r.Budget = 1500;
+        r.Budget = 1800;    // above the low-poly tubes of small budgets (their own test)
         var build = TreeBuilder.Build(r, NoTextures);
         var trunk = build.Lods[0].Root.Children[0].Mesh!;
-        Assert.InRange(trunk.TriangleCount, 1000, 1500);
+        Assert.InRange(trunk.TriangleCount, 1200, 1800);
         // Welded: once the UV seams are joined again, the trunk and its roots are a single closed piece.
         var weld = new Mesh3D();
         var map = new Dictionary<Vector3, int>();
@@ -796,5 +796,41 @@ public class TreeTests
         Assert.Equal(3000, dead.Budgets().Wood);
         Assert.Equal(0, TreeRecipe.FromJson("{}").TriangleTarget);
         Assert.Equal(1000, TreeRecipe.FromJson("{\"triangleTarget\":5}").TriangleTarget);
+    }
+
+    [Fact]
+    public void A_small_wood_budget_makes_clean_low_poly_tubes_not_a_crushed_surface()
+    {
+        foreach (var preset in new[] { "oak", "baobab", "mangrove", "spruce" })
+        {
+            var r = TreePresets.Make(preset);
+            r.Billboard = false; r.Lods = 2;
+            r.TriangleTarget = 2000;
+            var b = TreeBuilder.Build(r, NoTextures);
+            var wood = Wood(b);
+            Assert.Empty(wood.Problems());
+            Assert.InRange(wood.TriangleCount, 150, r.Budgets().Wood * 1.15);
+            Assert.Contains(b.Notes, n => n.StartsWith("Low-poly wood"));
+            // The trunk keeps its height and its base: no part of it pulled out of shape.
+            var (lo, hi) = wood.Bounds();
+            Assert.True(hi.Y > r.Height * 0.6, $"{preset}: wood up to {hi.Y:0.0} m of {r.Height}");
+            Assert.True(lo.Y < 0.3, $"{preset}: wood starts at {lo.Y:0.00} m");
+            // The next level is lighter still.
+            Assert.True(Wood(b) != null && b.Lods[1].Root.All().First(n => n.Name == "Trunk").Mesh!.TriangleCount <= wood.TriangleCount);
+        }
+        // A bigger budget keeps the welded surface.
+        var big = TreePresets.Make("oak");
+        big.Billboard = false; big.Lods = 1; big.TriangleTarget = 20000;
+        Assert.DoesNotContain(TreeBuilder.Build(big, NoTextures).Notes, n => n.StartsWith("Low-poly wood"));
+    }
+
+    [Fact]
+    public void Moss_shares_the_leaf_budget()
+    {
+        var r = TreePresets.Make("cypress");
+        r.Billboard = false; r.Lods = 1;
+        r.TriangleTarget = 2000;
+        var b = TreeBuilder.Build(r, NoTextures);
+        Assert.True(Leaves(b)!.TriangleCount <= r.Budgets().Leaves * 1.15, $"{Leaves(b)!.TriangleCount} leaf and moss triangles");
     }
 }
