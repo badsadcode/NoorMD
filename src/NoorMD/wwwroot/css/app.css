@@ -1335,6 +1335,8 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sb-none { margin: 4px 10px; }
 .sb-editor { min-width: 0; min-height: 0; display: flex; flex-direction: column; padding: 8px 12px 0; }
 .sb-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sb-top .sb-volume { width: 90px; accent-color: var(--accent); }
+.sb-top .sb-repeat.active { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
 .sb-top #sb-name { flex: 1; min-width: 140px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px; font: inherit; font-size: 14px; font-weight: 650; }
 .sb-seed { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
 .sb-seed input { width: 112px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 4px 6px; font: inherit; font-size: 12px; }

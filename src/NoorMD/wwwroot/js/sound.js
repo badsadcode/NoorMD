@@ -58,6 +58,11 @@ window.NoorSound = (() => {
   let lastSnapshot = null, snapTimer = null;
   const audio = new Audio();
   audio.preload = 'auto';
+  // How loud the preview plays here (only for listening: never in the recipe or the export), and whether it plays
+  // over and over. Repeat follows the recipe's "Seamless loop" until it is switched by hand.
+  let listenVolume = (() => { try { const v = Number(localStorage.getItem('noormd.sound.volume')); return localStorage.getItem('noormd.sound.volume') != null && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 1; } catch { return 1; } })();
+  let matchGain = 1;
+  let repeat = false;
 
   const isOpen = () => document.body.classList.contains('sound-open');
   const clone = (o) => JSON.parse(JSON.stringify(o));
@@ -108,7 +113,7 @@ window.NoorSound = (() => {
     if (!fresh && recipe) pushHistory();
     recipe = r;
     ensureIds(recipe);
-    if (fresh) { history.length = 0; future = []; pinned = null; listening = 'B'; }
+    if (fresh) { history.length = 0; future = []; pinned = null; listening = 'B'; setRepeat(!!recipe.loop); }
     lastSnapshot = JSON.stringify(recipe);
     renderEditor();
     schedule(0);
@@ -157,7 +162,7 @@ window.NoorSound = (() => {
       if (listening === 'A' && pinned) pinned.lufs = lufs; else lastB = lufs;
       const wasPlaying = !audio.paused;
       const at = audio.currentTime || 0;
-      audio.loop = !!r.loop;
+      audio.loop = repeat;
       audio.src = out.url;
       // Keep listening from the same spot (wrapped into the new length).
       audio.addEventListener('loadedmetadata', () => {
@@ -192,9 +197,25 @@ window.NoorSound = (() => {
     const all = loudnessOf();
     const now = all[listening];
     const comparing = Object.keys(all).length > 1 && (pinned || reference);
-    if (!matchLoudness || !comparing || now == null) { audio.volume = 1; return; }
-    const quietest = Math.min(...Object.values(all));
-    audio.volume = Math.max(0, Math.min(1, Math.pow(10, (quietest - now) / 20)));
+    if (!matchLoudness || !comparing || now == null) matchGain = 1;
+    else matchGain = Math.max(0, Math.min(1, Math.pow(10, (Math.min(...Object.values(all)) - now) / 20)));
+    audio.volume = Math.max(0, Math.min(1, matchGain * listenVolume));
+  }
+
+  function setListenVolume(v) {
+    listenVolume = Math.max(0, Math.min(1, v));
+    try { localStorage.setItem('noormd.sound.volume', String(listenVolume)); } catch { /* private storage off */ }
+    const s = $('#sb-volume');
+    if (s) { s.value = String(Math.round(listenVolume * 100)); s.title = `Listening volume: ${Math.round(listenVolume * 100)}% (only here; the sound itself and its export are not changed)`; }
+    applyVolume();
+  }
+
+  /** Play once, or over and over (only how the preview plays). */
+  function setRepeat(on) {
+    repeat = !!on;
+    audio.loop = repeat;
+    const b = $('#sb-repeat');
+    if (b) { b.setAttribute('aria-pressed', String(repeat)); b.classList.toggle('active', repeat); b.title = repeat ? 'Playing over and over: click to play once (L)' : 'Playing once: click to play over and over (L)'; }
   }
 
   const fmt = (v, d = 1) => (v <= -120 ? '−∞' : (v < 0 ? '−' : '') + Math.abs(v).toFixed(d));
@@ -208,7 +229,7 @@ window.NoorSound = (() => {
     const stereo = f.correlation < -0.2 ? 'out of phase' : f.width < 0.05 ? 'mono' : f.width < 0.4 ? 'narrow' : f.width < 0.9 ? 'wide' : 'very wide';
     const bright = f.centroidHz >= 1000 ? `${(f.centroidHz / 1000).toFixed(1)} kHz` : `${Math.round(f.centroidHz)} Hz`;
     const chip = (key, text, title, warn) => el('span', { class: 'sb-meter' + (warn ? ' warn' : ''), 'data-meter': key, title }, text);
-    const vol = audio.volume < 0.999 ? chip('matched', `▼ ${fmt(20 * Math.log10(Math.max(1e-6, audio.volume)))} dB to match`, 'Played quieter so A, B and the reference sound equally loud (Match loudness)') : null;
+    const vol = matchGain < 0.999 ? chip('matched', `▼ ${fmt(20 * Math.log10(Math.max(1e-6, matchGain)))} dB to match`, 'Played quieter so A, B and the reference sound equally loud (Match loudness)') : null;
     box.replaceChildren(
       chip('lufs', `${fmt(f.lufs)} LUFS`, `Loudness, integrated (ITU-R BS.1770). Loudest 3 s: ${fmt(f.shortTermMax)} LUFS; loudest 0.4 s: ${fmt(f.momentaryMax)} LUFS.`),
       chip('truepeak', `peak ${fmt(f.truePeakDb)} dBTP`, `True peak (between samples, 4× oversampled). Sample peak: ${fmt(f.samplePeakDb)} dB.`, f.clipped > 0),
@@ -274,7 +295,7 @@ window.NoorSound = (() => {
     render = reference;
     const wasPlaying = !audio.paused;
     const at = audio.currentTime || 0;
-    audio.loop = !!(recipe && recipe.loop);
+    audio.loop = repeat;
     audio.src = reference.url;
     audio.addEventListener('loadedmetadata', () => {
       if (at > 0 && Number.isFinite(audio.duration) && audio.duration > 0) audio.currentTime = audio.loop ? at % audio.duration : Math.min(at, audio.duration);
@@ -289,7 +310,7 @@ window.NoorSound = (() => {
 
   function playStop() {
     if (!render) return;
-    if (audio.paused) { hooks.onPlay(); if (!recipe.loop && audio.ended) audio.currentTime = 0; audio.play().catch((err) => setStatus(err.message)); } else audio.pause();
+    if (audio.paused) { hooks.onPlay(); if (audio.ended) audio.currentTime = 0; audio.play().catch((err) => setStatus(err.message)); } else audio.pause();
   }
 
   function renderTransport() {
@@ -359,6 +380,8 @@ window.NoorSound = (() => {
         el('div', { class: 'sb-editor' },
           el('div', { class: 'sb-top' },
             el('button', { class: 'radio-play', id: 'sb-play', title: 'Play / stop (Space)', 'aria-label': 'Play', onclick: playStop }, '▶'),
+            el('button', { class: 'icon-btn sb-repeat', id: 'sb-repeat', 'aria-label': 'Play over and over', 'aria-pressed': 'false', onclick: () => setRepeat(!repeat) }, '🔁'),
+            el('input', { type: 'range', class: 'sb-volume', id: 'sb-volume', min: '0', max: '100', step: '1', 'aria-label': 'Listening volume' }),
             el('input', { type: 'text', id: 'sb-name', 'aria-label': 'Name of the sound', spellcheck: 'false', maxlength: '80' }),
             el('label', { class: 'sb-seed', title: 'The random seed: the same seed gives the same sound' }, el('span', { text: 'Seed' }), el('input', { type: 'number', id: 'sb-seed', min: '0', max: '2147483647', step: '1' })),
             el('button', { class: 'utility-btn', id: 'sb-vary', title: 'A new variation: same recipe, another seed (V)', onclick: newVariation }, '🎲 Variation'),
@@ -379,6 +402,9 @@ window.NoorSound = (() => {
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
     $('#sb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
+    $('#sb-volume').addEventListener('input', (e) => setListenVolume(Number(e.target.value) / 100));
+    setListenVolume(listenVolume);
+    setRepeat(repeat);
     $('#sb-match').checked = matchLoudness;
     $('#sb-match').addEventListener('change', (e) => {
       matchLoudness = e.target.checked;
@@ -397,6 +423,7 @@ window.NoorSound = (() => {
       else if (e.key.toLowerCase() === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (e.key.toLowerCase() === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
+      else if (e.key.toLowerCase() === 'l' && !e.ctrlKey && !e.altKey) { e.preventDefault(); setRepeat(!repeat); }
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && (pinned || reference)) { e.preventDefault(); flipAB(); }
     });
   }
@@ -579,7 +606,7 @@ window.NoorSound = (() => {
     const dur = el('input', { type: 'number', id: 'sb-duration', min: '0.05', max: '600', step: '0.05', value: String(recipe.duration), 'aria-label': 'Length in seconds' });
     dur.addEventListener('change', () => { recipe.duration = Math.max(0.05, Math.min(600, Number(dur.value) || 1)); changed(false); });
     const loop = el('input', { type: 'checkbox', id: 'sb-loop', checked: recipe.loop || undefined });
-    loop.addEventListener('change', () => { recipe.loop = loop.checked; changed(false); });
+    loop.addEventListener('change', () => { recipe.loop = loop.checked; setRepeat(loop.checked); changed(false); });
     const knobs = (recipe.knobs || []).map((k) => {
       const input = el('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(k.value), 'aria-label': k.name, 'data-knob': k.id });
       const shown = el('span', { text: `${Math.round(k.value * 100)}%` });
@@ -1314,6 +1341,6 @@ window.NoorSound = (() => {
     init, open, close, toggle, isOpen,
     /** Another player started: the preview stops. */
     stopForOther: () => { if (!audio.paused) audio.pause(); },
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: audio.volume, reference: reference ? reference.name : null, match: matchLoudness }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render, peaks: render.peaks.length } : null, playing: !audio.paused, src: audio.getAttribute('src'), history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, volume: matchGain, listenVolume, outVolume: audio.volume, repeat, loop: audio.loop, reference: reference ? reference.name : null, match: matchLoudness }),
   };
 })();

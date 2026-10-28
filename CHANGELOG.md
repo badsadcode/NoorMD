@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.0.0-preview.38 — Sound Bench: listening volume and repeat
+
+- **Listening volume** next to ▶: how loud the preview plays here. It is remembered, and it never changes the sound
+  itself, its recipe or what is exported. Matched loudness (A/B) still works on top of it.
+- **🔁 Play over and over** (L): repeat the preview while you change things, or play it once. It follows
+  "Seamless loop" by itself (a loop repeats, a one-shot plays once) until you switch it.
+- **Seam blending in the Texture Bench** now shifts the copy to where the photo matches itself best, so regular
+  patterns (bricks, tiles, planks) line up instead of showing doubled lines; a photo also repeats in its own
+  proportions (a 4:3 photo: 3 across and 4 down).
+
 ## 2.0.0-preview.37 — Texture Bench: photos, painting and masks
 
 The second stage of the Texture Bench (docs/TEXTURE_BENCH_PLAN.md). It is built around creative freedom rather than
