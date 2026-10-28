@@ -119,7 +119,8 @@ public class GameProfileTests
         var sharp = TreePresets.Make("birch");
         sharp.SharpPixels = true;
         var (crisp, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(TreeBuilder.Build(sharp, new TreeBuilder.Options { TextureSize = 256 }), 0)));
-        Assert.All(crisp.GetProperty("samplers").EnumerateArray(), x => Assert.Equal(9728, x.GetProperty("magFilter").GetInt32()));
+        var crispSamplers = crisp.GetProperty("samplers").EnumerateArray().ToList();
+        Assert.All(crisp.GetProperty("textures").EnumerateArray(), t => Assert.Equal(9728, crispSamplers[t.GetProperty("sampler").GetInt32()].GetProperty("magFilter").GetInt32()));
     }
 
     [Fact]

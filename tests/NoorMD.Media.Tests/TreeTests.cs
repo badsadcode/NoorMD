@@ -898,7 +898,31 @@ public class TreeTests
     }
 
     [Fact]
-    public void Conifers_are_slim_cones_three_times_taller_than_wide()
+    public void A_small_budget_keeps_every_limb_so_the_crown_does_not_collapse_onto_the_trunk()
+    {
+        // The bug: at 4,000 triangles the low-poly wood could pay for only a few limbs; the leaves of the others moved
+        // to the nearest wood left (the trunk) and a conifer became a bare pole with tufts.
+        foreach (var preset in new[] { "pine", "spruce", "sequoia" })
+        {
+            float Reach(int target)
+            {
+                var r = TreePresets.Make(preset);
+                r.Billboard = false; r.Lods = 1; r.TriangleTarget = target;
+                var b = TreeBuilder.Build(r, NoTextures);
+                var leaves = b.Lods[0].Root.All().First(n => n.Name == "Leaves").Mesh!;
+                var h = b.Skeleton.Height;
+                // How far the upper crown's leaves reach out from the trunk, on average.
+                return leaves.Positions.Where(p => p.Y > h * 0.5f && p.Y < h * 0.85f).Average(p => MathF.Sqrt(p.X * p.X + p.Z * p.Z));
+            }
+            var full = Reach(0);
+            var small = Reach(4000);
+            // On the old code: spruce 75 %, sequoia 55 % of the full reach.
+            Assert.True(small > full * 0.8f, $"{preset}: the upper crown reaches {small:0.00} m out at 4,000 triangles, {full:0.00} m at full detail");
+        }
+    }
+
+    [Fact]
+    public void Conifers_are_slim_full_cones()
     {
         foreach (var preset in new[] { "pine", "spruce", "sequoia" })
         {
@@ -906,7 +930,7 @@ public class TreeTests
             r.Billboard = false; r.Lods = 1; r.TriangleTarget = 8000;
             var (lo, hi) = TreeExport.Bounds(TreeBuilder.Build(r, NoTextures).Lods[0]);
             var ratio = hi.Y / MathF.Max(hi.X - lo.X, hi.Z - lo.Z);
-            Assert.InRange(ratio, 2.6, 5);
+            Assert.InRange(ratio, 2, 5);
         }
     }
 

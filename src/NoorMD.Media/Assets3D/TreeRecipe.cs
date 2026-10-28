@@ -369,7 +369,7 @@ public static class TreePresets
         new("pine", "Pine (realistic)", "A tall conifer with whorls of near-level branches and needle cards.", () => new TreeRecipe
         {
             Name = "Pine", Archetype = "conifer", Height = 16, TrunkRadius = 0.25, Taper = 0.95, CrownStart = 1, Flare = 0.35, Roots = 4, Shape = "conical", Lean = 1, Wobble = 2,
-            Levels = [new() { Count = 42, Start = 0.25, Angle = 85, AngleSpread = 8, Length = 0.1, Radius = 0.35, Bend = -10, Wobble = 5, Whorl = 6, Spiral = 36 },
+            Levels = [new() { Count = 42, Start = 0.25, Angle = 85, AngleSpread = 8, Length = 0.16, Radius = 0.35, Bend = -10, Wobble = 5, Whorl = 6, Spiral = 36 },
                       new() { Count = 10, Start = 0.1, Angle = 55, Length = 0.45, Radius = 0.5, Bend = 5, Wobble = 6 }],
             LeafCluster = "spray", LeafShape = "needle", LeafSize = 0.7, LeafDensity = 0.85, LeafColor = "#2c4a26", LeafColor2 = "#4d6b30", BarkColor = "#5b4130",
         }),
@@ -397,7 +397,7 @@ public static class TreePresets
         new("stylized-pine", "Stylized pine", "Stacked, chunky tiers of foliage on a curving trunk.", () => new TreeRecipe
         {
             Name = "Stylized pine", Archetype = "conifer", Style = "stylized", Height = 9, TrunkRadius = 0.32, Taper = 0.95, CrownStart = 1, Flare = 0.6, Roots = 4, Shape = "conical", Lean = 5, Wobble = 5, Twist = 0.2, Collar = 0.9,
-            Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.15, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
+            Levels = [new() { Count = 42, Start = 0.22, Angle = 80, Length = 0.25, Radius = 0.4, Bend = -15, Wobble = 4, Whorl = 6, Spiral = 30 }],
             Foliage = "tufts", LeafShape = "needle", LeafSize = 1.1, LeafDensity = 0.8, LeafColor = "#245a3a", LeafColor2 = "#6fae4f", BarkColor = "#6b4630", BarkMaterial = "painted", Budget = 2500, Quality = "low",
         }),
         new("stylized-dead", "Stylized dead tree", "A gnarled, spiralling spooky tree.", () => new TreeRecipe
@@ -412,7 +412,7 @@ public static class TreePresets
         new("spruce", "Spruce (realistic)", "A dense, narrow cone of drooping branches in tiers of fanned needle cards.", () => new TreeRecipe
         {
             Name = "Spruce", Archetype = "conifer", Height = 18, TrunkRadius = 0.28, Taper = 0.95, CrownStart = 1, Flare = 0.4, Roots = 5, Shape = "conical", Lean = 1, Wobble = 2,
-            Levels = [L(50, 0.15, 95, 0.09, 0.32, -20, 4, 8, 5, 45), L(8, 0.15, 55, 0.45, 0.5, 0, 5)],
+            Levels = [L(50, 0.15, 95, 0.15, 0.32, -20, 4, 8, 5, 45), L(8, 0.15, 55, 0.45, 0.5, 0, 5)],
             LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.75, LeafDensity = 0.7, LeafColor = "#1f3d24", LeafColor2 = "#3e5f2c", BarkColor = "#4d3a2e",
         }),
         new("maple", "Autumn maple (realistic)", "A round crown of maple leaves in autumn reds and oranges.", () => new TreeRecipe
@@ -442,7 +442,7 @@ public static class TreePresets
             Flute = 0.8, FluteLobes = 9, FluteHeight = 0.25, Knees = 14,
             Levels = [L(12, 0.45, 70, 0.45, 0.45, -10, 12, 15), L(7, 0.15, 50, 0.5, 0.5, 0, 10)],
             LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 0.8, LeafDensity = 0.55, LeafColor = "#3d5a2a", LeafColor2 = "#6f8a3c", BarkColor = "#6b5848",
-            Moss = 0.7, Budget = 12000,
+            Moss = 0.7, Budget = 12000, TriangleTarget = 8000,
         }, "Swamp & marsh"),
         new("stylized-cypress", "Stylized swamp cypress", "Chunky, fluted and twisted, knees all round, moss dripping from the boughs.", () => new TreeRecipe
         {
@@ -495,8 +495,8 @@ public static class TreePresets
         {
             Name = "Giant sequoia", Archetype = "conifer", Height = 75, TrunkRadius = 3.2, Taper = 0.9, CrownStart = 1, Flare = 0.8, Roots = 8, Lean = 1, Wobble = 1.5,
             Flute = 0.7, FluteLobes = 11, FluteHeight = 0.3, Shape = "conical",
-            Levels = [L(55, 0.45, 80, 0.11, 0.22, -20, 8), L(7, 0.15, 50, 0.55, 0.5, 10, 8)],
-            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 2.6, LeafDensity = 0.8, LeafColor = "#2c4a26", LeafColor2 = "#55702f", BarkColor = "#8a4a2c", BarkTile = 3, Budget = 20000,
+            Levels = [L(55, 0.45, 80, 0.15, 0.22, -20, 8), L(7, 0.15, 50, 0.55, 0.5, 10, 8)],
+            LeafCluster = "spray", LeafShape = "needle", Arrangement = "fan", LeafSize = 2.6, LeafDensity = 0.8, LeafColor = "#2c4a26", LeafColor2 = "#55702f", BarkColor = "#8a4a2c", BarkTile = 3, Budget = 20000, TriangleTarget = 8000,
         }, "Giants"),
         new("stylized-sequoia", "Stylized sequoia", "A towering chunky red trunk, ribbed, under tiered tufts.", () => new TreeRecipe
         {

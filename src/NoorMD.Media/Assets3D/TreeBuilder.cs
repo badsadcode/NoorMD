@@ -379,7 +379,7 @@ public static class TreeBuilder
             ct.ThrowIfCancellationRequested();
             var views = Math.Clamp(recipe.BillboardViews, 2, 4);
             var (atlas, halfWidth, height) = Billboard.Render(build.Lods[0], views, options.TextureSize > 0 ? Math.Clamp(options.TextureSize, 128, 1024) : 256);
-            var mat = new Material3D { Name = "Billboard", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.9f };
+            var mat = new Material3D { Name = "Billboard", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.9f, Nearest = recipe.Pixels > 0 || recipe.SharpPixels };
             Use(mat, atlas);
             // The same material list as the other levels, the billboard's added at the end: every level's material
             // indices mean the same thing, so the levels can share one file (the GLB writer drops what a file doesn't use).
@@ -417,15 +417,33 @@ public static class TreeBuilder
         // The trunk follows the level: round and detailed up close (at least the recipe's trunk sides; a thick trunk,
         // baobab or sequoia, more), a simple 6- then 5-sided one farther away, where the leaves hide it.
         var cactus = recipe.Archetype == "cactus";
+        // The limbs off the trunk: as round as the level allows, but every one of them kept before any twig. The crown
+        // hangs on them (leaves of twigs left out go on the nearest limb), so when the budget can't pay for all of them
+        // at full detail, they get fewer sides and rings instead of some going missing (the crown would fall onto the
+        // trunk: a bare pole with tufts).
+        var limbSides = Math.Max(3, 5 - lod);
+        var limbRings = cactus ? (lod == 0 ? 8 : lod == 1 ? 4 : 2) : lod == 0 ? 5 : lod == 1 ? 3 : 2;
         int Sides(TreeBranch b) => cactus && !b.Root ? (lod == 0 ? Math.Min(24, recipe.FluteLobes * 2) : lod == 1 ? Math.Max(6, recipe.FluteLobes) : 5)
             : b.Id == 0
             ? lod == 0 ? Math.Max(recipe.TrunkSides, Math.Clamp((int)MathF.Round(10 * MathF.Sqrt(b.BaseRadius / 0.35f)), 10, 16)) : lod == 1 ? 6 : 5
-            : b.Root ? Math.Max(3, 5 - lod) : b.Level == 1 ? Math.Max(3, 5 - lod) : 3;
+            : b.Root ? Math.Max(3, 5 - lod) : b.Level == 1 ? limbSides : 3;
         int Step(TreeBranch b)
         {
             // Rings: the trunk enough to follow its curve up close and a few far away, limbs a few, twigs two.
-            var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? (lod == 0 ? (cactus ? 8 : 5) : lod == 1 ? (cactus ? 4 : 3) : 2) : 2;
+            var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? limbRings : 2;
             return Math.Max(1, (int)MathF.Ceiling((b.Points.Count - 1) / (float)rings));
+        }
+        int Cost(TreeBranch b) => Sides(b) * 2 * ((b.Points.Count - 1) / Step(b) + 1) + Sides(b);
+        if (!cactus)
+        {
+            var limbs = sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Level == 1 && !b.Root && !b.Bare && b.Points.Count >= 2).ToList();
+            var left = budget - sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && (b.Id == 0 || b.Root) && b.Points.Count >= 2 && b.Kind != "ridge").Sum(Cost);
+            foreach (var (s, r) in new[] { (limbSides, limbRings), (4, 4), (4, 3), (3, 3), (3, 2) })
+            {
+                if (s > limbSides || r > limbRings) continue;
+                (limbSides, limbRings) = (s, r);
+                if (limbs.Sum(Cost) <= left) break;
+            }
         }
         // Flute ridges are not tubes of their own here (they would cross the trunk where it twists): the trunk's rings
         // get the lobes instead, turning with the twist as the ridges did, and the girth the ridges stood for.
@@ -795,7 +813,7 @@ public static class TreeBuilder
         (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, _ => 1 });
 
     /// <summary>How much bigger the budget may make a card: conifers less (big cards would stick out past their short branches and widen the slim cone).</summary>
-    private static float GrowCap(TreeRecipe recipe) => recipe.Archetype == "conifer" || recipe.LeafShape == "needle" ? 1.4f : 2f;
+    private static float GrowCap(TreeRecipe recipe) => 2f;
 
     /// <summary>The share of the leaf budget the first placement may use: with a canopy fullness, a part is kept for filling the gaps.</summary>
     private static float BaseLeafBudget(TreeRecipe recipe) => recipe.LeafBudget * (recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging") ? 0.7f : 1f);

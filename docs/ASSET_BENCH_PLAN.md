@@ -329,6 +329,27 @@ More kinds and better looks (preview.69):
 * Tests: a cactus is ribbed (a ring round its trunk is lobed), leafless and still, with arms that rise and start
   below its top; willow curtains come from a crown about as wide as tall and fall low without touching the ground.
 
+Fix (preview.70): the conifers (pine, spruce, giant sequoia, bald cypress) had become bare poles with tufts. Found by
+rendering every built-in tree from preview.60, preview.61 and the current code side by side: the broadleaf trees
+were unchanged, and preview.61 still had full cones at 4,000 triangles, so the triangle target wasn't it. Two of my
+changes together were: preview.64 cut the conifers' limbs to a third of their length and capped how much their leaf
+cards may grow, and since preview.66 the leaves of branches the low-poly wood leaves out go on the nearest wood
+left. At 4,000 triangles the wood could pay for only the thickest few limbs (11 of a pine's 42), so the crown fell
+onto the trunk. Now:
+* Every limb off the trunk is kept before any twig: when the budget can't pay for them all at full detail, they get
+  fewer sides and rings (down to 3-sided tubes of two rings) instead of going missing. The pine keeps 44 branches
+  at 4,000 triangles instead of 11, and the leaves hang out on them.
+* Conifer limbs between the old full shape and the slim one (pine 0.16, spruce 0.15, sequoia 0.15): about two to
+  two and a half times taller than wide, full cones. The cards' growth cap is the same for every tree again.
+* The giants (sequoia, bald cypress) start at 8,000 triangles ("Feature tree"), the forest trees at 4,000.
+* A test builds pine, spruce and sequoia at 4,000 triangles and at full detail and checks the upper crown reaches at
+  least 80 % as far out (it fails on the old code: spruce 75 %, sequoia 55 %).
+
+Textures (in the same version): every map keeps full colour and PBR at small sizes; leaves get normal and ORM maps
+made from their shape; "Sharp pixels" (nearest-neighbour sampling) for any tree, honoured by the preview and by the
+Godot plugin (v2: sharp_pixels with nearest-filtered copies of the textures); the Thornwake trees are 64 px with the
+full PBR set, sampled sharp (a palette only when asked for).
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of
