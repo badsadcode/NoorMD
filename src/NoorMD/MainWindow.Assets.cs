@@ -282,20 +282,39 @@ public partial class MainWindow
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
                     object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "tree variety pack", name = recipe.Name, variants = manifests };
                     await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
-                    // Wind shaders beside the trees (once: one already there may have been changed by you, so it is kept).
+                    // Engine helpers. Godot: the import plugin (levels switched by distance, the wind material), in the
+                    // project's addons folder when the trees go into a Godot project, else beside them. Unity and Unreal: the
+                    // HLSL wind function. Other: both shader files. Shaders already there may have been changed by you, so
+                    // they are kept; the plugin's own files are updated only from an older version of it.
+                    var engine = req.GetString("engine", 10) is "unity" or "unreal" or "other" ? req.GetString("engine", 10)! : "godot";
+                    var helpers = NoorMD.Core.Bridge.Json.IsTrue(p, "shaders");
                     var shaders = new List<string>();
-                    if (recipe.Wind && recipe.WindData == "uv" && NoorMD.Core.Bridge.Json.IsTrue(p, "shaders"))
-                        foreach (var (name, text) in new[] { (WindShaders.GodotFile, WindShaders.Godot), (WindShaders.HlslFile, WindShaders.Hlsl) })
-                        {
-                            var path = Path.Combine(folder, name);
-                            if (File.Exists(path)) continue;
-                            await File.WriteAllTextAsync(path, text.Replace("\r\n", "\n"), new UTF8Encoding(false));
-                            shaders.Add(name);
-                        }
+                    object? godot = null;
+                    if (helpers && engine == "godot")
+                    {
+                        var project = GodotAddon.ProjectOf(folder);
+                        var addons = Path.Combine(project ?? folder, "addons");
+                        var addonFiles = await Task.Run(() => GodotAddon.WriteTo(addons));
+                        var addonFolder = Path.Combine(addons, GodotAddon.Folder);
+                        godot = new { folder = addonFolder, inProject = project != null, resPath = project != null ? "res://" + Path.GetRelativePath(project, addonFolder).Replace('\\', '/') : null, written = addonFiles.Count };
+                    }
+                    var shaderFiles = !helpers || !recipe.Wind || recipe.WindData != "uv" ? [] : engine switch
+                    {
+                        "godot" => Array.Empty<(string, string)>(),
+                        "other" => new[] { (WindShaders.GodotFile, WindShaders.Godot), (WindShaders.HlslFile, WindShaders.Hlsl) },
+                        _ => new[] { (WindShaders.HlslFile, WindShaders.Hlsl) },
+                    };
+                    foreach (var (name, text) in shaderFiles)
+                    {
+                        var path = Path.Combine(folder, name);
+                        if (File.Exists(path)) continue;
+                        await File.WriteAllTextAsync(path, text.Replace("\r\n", "\n"), new UTF8Encoding(false));
+                        shaders.Add(name);
+                    }
                     PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                     _assetFolders.Add(folder);
                     Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), shaders, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), shaders, engine, godot, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
                 }
                 case "asset.reveal":
                 {

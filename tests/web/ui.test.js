@@ -5170,6 +5170,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Export: where, which files, and the call.
       await page.click('#assetbench [data-tab="export"]');
       await waitFn(page, () => /noortree/.test((document.querySelector('#ex-model-preview') || {}).textContent || ''));
+      check('Godot first: one file with every level (the plugin switches them), the plugin offered', await page.inputValue('#ab-engine') === 'godot' && await page.inputValue('#ab-lod-files') === 'one'
+        && /Forest_oak\.glb/.test(await page.textContent('#ex-model-preview')) && !/LOD0/.test(await page.textContent('#ex-model-preview')) && /Godot import plugin/.test(await page.textContent('#ab-helper-text')));
+      await page.selectOption('#ab-engine', 'unreal');
+      await waitFn(page, () => /LOD0/.test(document.querySelector('#ex-model-preview').textContent));
+      check('Unreal: a file per level, and the wind function for a Custom node', await page.inputValue('#ab-lod-files') === 'separate' && /Custom node/.test(await page.textContent('#ab-helper-text')));
       check('the export preview lists a GLB per level, the recipe and the manifest', /Forest_oak_LOD0\.glb[\s\S]*Forest_oak_LOD1\.glb[\s\S]*Forest_oak\.noortree\.json[\s\S]*Forest_oak\.manifest\.json/.test(await page.textContent('#ex-model-preview')));
       await page.selectOption('#ex-model-layout', 'unreal');
       await waitFn(page, () => /SM_ForestOak/.test(document.querySelector('#ex-model-preview').textContent));
@@ -5184,12 +5189,20 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
       const ex = (await AM()).exports[0];
       check('Export sends the recipe, the texture size, the levels choice and the pack', ex.recipe.name === 'Forest oak' && ex.textureSize === 2048 && ex.lodFiles === 'one' && ex.layout === 'unreal' && ex.variants === 12 && ex.spread === 0.15);
-      check('…and asks for the wind shaders (on unless turned off)', ex.shaders === true);
+      check('…and asks for the engine helpers (on unless turned off) for the engine chosen', ex.shaders === true && ex.engine === 'unreal');
       await waitFn(page, () => /12 trees/.test((document.querySelector('#ab-exported') || {}).textContent || ''));
       check('…and says what was saved', /12 trees \(12 files\) with their recipes/.test(await page.textContent('#ab-exported')));
       await waitFn(page, () => !!document.querySelector('#ab-reveal'));
       await page.click('#ab-reveal');
       check('…and the folder can be shown', (await AM()).opened === 'D:\\Game\\Trees');
+      check('no Godot note for an Unreal export', !(await page.$('#ab-godot-note')));
+      await page.selectOption('#ab-engine', 'godot');
+      await page.click('#ab-export');
+      await waitFn(page, () => window.__mock.state.assets.exports.length === 2);
+      const exGodot = (await AM()).exports[1];
+      check('Godot export: one file, the plugin asked for', exGodot.engine === 'godot' && exGodot.lodFiles === 'one' && exGodot.shaders === true);
+      await waitFn(page, () => !!document.querySelector('#ab-godot-note'));
+      check('…and it says where the plugin went and how to turn it on', /res:\/\/addons\/noor_trees[\s\S]*Project Settings → Plugins/.test(await page.textContent('#ab-godot-note')));
       if (shots) {
         await page.click('#assetbench [data-tab="tree"]');
         await page.selectOption('#ab-view', 'shaded');

@@ -489,7 +489,8 @@ function mockHostScript(initial) {
         const sfx = (v) => (n > 1 ? '_' + String(v + 1).padStart(2, '0') : '');
         const files = Array.from({ length: n }, (_, v) => p.lodFiles === 'one' || p.recipe.lods < 2 ? [stem + sfx(v) + '.glb'] : Array.from({ length: p.recipe.lods }, (_, i) => `${stem}${sfx(v)}_LOD${i}.glb`)).flat();
         const recipes = Array.from({ length: n }, (_, v) => stem + sfx(v) + '.noortree.json');
-        return { folder: 'D:\\Game\\Trees', files, recipe: recipes[0], recipes, variants: n, manifest: stem + '.manifest.json', project: null, relative: '.', triangles: Array(n).fill(2454) };
+        const godot = p.engine === 'godot' && p.shaders ? { folder: 'D:\\Game\\addons\\noor_trees', inProject: true, resPath: 'res://addons/noor_trees', written: 5 } : null;
+        return { folder: 'D:\\Game\\Trees', files, recipe: recipes[0], recipes, variants: n, manifest: stem + '.manifest.json', engine: p.engine, godot, project: null, relative: '.', triangles: Array(n).fill(2454) };
       }
       case 'asset.reveal': ASSET.opened = p.folder; return null;
       case 'asset.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ASSET.mine.some((x) => x.id === id); ASSET.mine = ASSET.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }

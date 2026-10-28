@@ -76,7 +76,7 @@ func _init() -> void:
 	# The wind data arrived: UV2 (TEXCOORD_1) and the colours.
 	var trunk: MeshInstance3D = named(levels[0], "Trunk") if levels[0] != null else null
 	if trunk != null:
-		var format := trunk.mesh.surface_get_format(0)
+		var format: int = (trunk.mesh as ArrayMesh).surface_get_format(0)
 		check(format & Mesh.ARRAY_FORMAT_TEX_UV2 != 0, "the trunk has UV2 (branch bend, leaf flutter)")
 		check(format & Mesh.ARRAY_FORMAT_COLOR != 0, "the trunk has vertex colours (shading)")
 		print("INFO TEXCOORD_2 as custom data: ", format & Mesh.ARRAY_FORMAT_CUSTOM0 != 0)

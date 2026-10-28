@@ -22,7 +22,16 @@ window.NoorAssets = (() => {
   let buildGen = 0, buildTimer = 0, snapTimer = 0;
   let history = [], future = [], lastSnapshot = '';
   let exportWhere = null;
-  let exportPrefs = (() => { try { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, shaders: true, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { textureSize: 1024, lodFiles: 'separate', variants: 1, spread: 0.15, shaders: true }; } })();
+  // Godot first (one file: the NoorMD plugin switches its levels), then Unity (one file: a LOD Group from the names), Unreal.
+  const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true };
+  let exportPrefs = (() => { try { return { ...exportDefaults, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { ...exportDefaults }; } })();
+  const ENGINES = {
+    godot: { name: 'Godot 4', lodFiles: 'one', helper: 'Godot import plugin: levels switched by distance, wind', title: 'addons/noor_trees: written into your Godot project’s addons folder when you export into a Godot project (otherwise beside the trees, to copy there). Turn it on once in Project Settings → Plugins; every NoorMD tree you import then gets its levels of detail switched by distance and the wind shader with its own textures. Other scenes are left alone.' },
+    unity: { name: 'Unity', lodFiles: 'one', helper: 'Wind function for Shader Graph (NoorTreeWind.hlsl)', title: 'Unity makes a LOD Group from the _LOD0, _LOD1… names in one file. NoorTreeWind.hlsl goes in a Custom Function node (it reads UV1 and UV2). Written once: one already in the folder is kept' },
+    unreal: { name: 'Unreal Engine', lodFiles: 'separate', helper: 'Wind function for a Custom node (NoorTreeWind.hlsl)', title: 'A file per level, to set as the static mesh’s LODs. NoorTreeWind.hlsl goes in a Custom node feeding World Position Offset (TexCoord 1 and 2). Written once: one already in the folder is kept' },
+    other: { name: 'Other (glTF)', lodFiles: 'separate', helper: 'Wind shaders (NoorTreeWind.gdshader and .hlsl)', title: 'Godot 4 and HLSL versions of the wind, reading the wind data in the files. Written once: ones already in the folder are kept' },
+  };
+  if (!ENGINES[exportPrefs.engine]) exportPrefs.engine = 'godot';
   let lastExport = null;
 
   const isOpen = () => document.body.classList.contains('assets-open');
@@ -466,6 +475,23 @@ window.NoorAssets = (() => {
     const files = el('select', { id: 'ab-lod-files', 'aria-label': 'Levels of detail' }, el('option', { value: 'separate', text: 'A file for each (Name_LOD0.glb…)' }), el('option', { value: 'one', text: 'All in one file (nodes Name_LOD0…)' }));
     files.value = exportPrefs.lodFiles;
     files.addEventListener('change', () => { exportPrefs.lodFiles = files.value; saveExportPrefs(); exportWhere.refresh(); });
+    const engine = el('select', { id: 'ab-engine', 'aria-label': 'Engine' }, ...Object.entries(ENGINES).map(([v, e]) => el('option', { value: v, text: e.name })));
+    engine.value = exportPrefs.engine;
+    const helperBox = el('input', { type: 'checkbox', id: 'ab-shaders', checked: exportPrefs.shaders || undefined });
+    helperBox.addEventListener('change', () => { exportPrefs.shaders = helperBox.checked; saveExportPrefs(); });
+    const helperText = el('span', { id: 'ab-helper-text', text: ENGINES[exportPrefs.engine].helper });
+    const helper = el('label', { class: 'sb-inline', title: ENGINES[exportPrefs.engine].title }, helperBox, helperText);
+    // Picking an engine sets how the levels are filed for it (still yours to change) and which helper comes along.
+    engine.addEventListener('change', () => {
+      const e = ENGINES[engine.value];
+      exportPrefs.engine = engine.value;
+      exportPrefs.lodFiles = e.lodFiles;
+      files.value = e.lodFiles;
+      helperText.textContent = e.helper;
+      helper.title = e.title;
+      saveExportPrefs();
+      exportWhere.refresh();
+    });
     const variants = el('input', { type: 'number', id: 'ab-variants', min: '1', max: '50', step: '1', value: String(exportPrefs.variants), 'aria-label': 'Trees in the pack' });
     variants.addEventListener('change', () => { exportPrefs.variants = Math.max(1, Math.min(50, Math.round(Number(variants.value) || 1))); variants.value = String(exportPrefs.variants); saveExportPrefs(); exportWhere.refresh(); spreadRow.hidden = exportPrefs.variants < 2; });
     const spread = el('input', { type: 'range', id: 'ab-spread', min: '0', max: '0.5', step: '0.01', value: String(exportPrefs.spread), 'aria-label': 'Size spread' });
@@ -480,18 +506,17 @@ window.NoorAssets = (() => {
           spreadRow),
         el('small', { class: 'pref-hint', text: 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
       section('Files',
-        el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
-        (() => {
-          const c = el('input', { type: 'checkbox', id: 'ab-shaders', checked: exportPrefs.shaders || undefined });
-          c.addEventListener('change', () => { exportPrefs.shaders = c.checked; saveExportPrefs(); });
-          return el('label', { class: 'sb-inline', title: 'NoorTreeWind.gdshader (Godot 4) and NoorTreeWind.hlsl (Unity Shader Graph, Unreal Custom node), reading the wind data in the files. Written once: ones already in the folder are kept' }, c, el('span', { text: 'Wind shaders for Godot, Unity and Unreal' }));
-        })(),
+        el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'For' }), engine), el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
+        helper,
         el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
       section('Where', exportWhere.node),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn primary', id: 'ab-export', onclick: exportNow }, '⬇ Export'),
         lastExport ? el('button', { class: 'utility-btn', id: 'ab-reveal', onclick: () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError) }, '📁 Show in folder') : null),
       lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.variants > 1 ? `${lastExport.variants} trees (${lastExport.files.length} files)` : lastExport.files.join(', ')} with ${lastExport.variants > 1 ? 'their recipes' : lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
+      lastExport?.godot ? el('p', { class: 'pref-hint', id: 'ab-godot-note', text: lastExport.godot.inProject
+        ? `The NoorMD trees plugin is in ${lastExport.godot.resPath}${lastExport.godot.written ? '' : ' (already there)'}. In Godot, turn it on once in Project → Project Settings → Plugins; trees imported after that switch their levels by distance and move in the wind.`
+        : 'The NoorMD trees plugin is beside the trees, in addons/noor_trees: copy that folder into your Godot project’s addons folder and turn it on once in Project → Project Settings → Plugins. (Export into a Godot project and it goes there by itself.)' }) : null,
     ];
   }
 
@@ -501,7 +526,7 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, ...exportWhere.payload() });
+      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
       setStatus(r.variants > 1 ? `Exported ${r.variants} × “${recipe.name}”: ${r.files.length} files` : `Exported “${recipe.name}”: ${r.files.join(', ')}`);
