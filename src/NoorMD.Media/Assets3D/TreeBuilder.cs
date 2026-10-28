@@ -198,6 +198,7 @@ public static class TreeBuilder
         }
 
         var lodCount = Math.Min(recipe.Lods, options.MaxLods ?? recipe.Lods);
+        var leafGrow = 1f;      // how much the leaf budget made the finest level's cards fewer and bigger
         for (var lod = 0; lod < lodCount; lod++)
         {
             ct.ThrowIfCancellationRequested();
@@ -265,8 +266,10 @@ public static class TreeBuilder
                 if (cards)
                 {
                     var cardRng = new Random(recipe.Seed * 7919 + g.Index * 131 + lod);
-                    if (recipe.Foliage is "both" or "tufts" && clumpMesh != null) AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng, recipe.Foliage == "tufts");
-                    else AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
+                    var grew = recipe.Foliage is "both" or "tufts" && clumpMesh != null
+                        ? AddCardsOnClumps(leaves, clumpMesh, sk, recipe, leafIndex, detail, cardRng, recipe.Foliage == "tufts")
+                        : AddCards(leaves, sk, recipe, g.Branches, leafIndex, detail, cardRng);
+                    if (lod == 0) leafGrow = MathF.Max(leafGrow, grew);
                 }
 
                 if (crystals) AddCrystals(leaves, sk, recipe, g.Branches, crystalIndex, detail, new Random(recipe.Seed * 31337 + g.Index * 7 + lod));
@@ -287,6 +290,9 @@ public static class TreeBuilder
             }
             build.Lods.Add(asset);
         }
+        if (leafGrow > 1.05f)
+            build.Notes.Add($"The leaf budget ({recipe.LeafBudget:N0} triangles) is less than the density asks for: {leafGrow:0.#}× fewer cards, each bigger, keep the crown as full. Raise the budget for smaller leaves, or lower the density.");
+
         // The farthest level: the tree drawn from its sides onto crossed cards (from the finest level, so it looks its best).
         if (recipe.Billboard && build.Lods.Count > 0 && (options.MaxLods == null || options.MaxLods > lodCount))
         {
@@ -531,9 +537,9 @@ public static class TreeBuilder
     /// in the crown to those near its surface; the leaf budget caps the triangles, the cards growing instead so the
     /// crown stays as full; the card scale makes each plane bigger without changing their number.
     /// </summary>
-    private static void AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
+    private static float AddCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, int detail, Random rng)
     {
-        if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return; }
+        if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
@@ -559,7 +565,7 @@ public static class TreeBuilder
         }
         var asked = plan.Sum(x => x.Cover);
         var weighted = plan.Sum(x => x.Weighted);
-        if (asked <= 0) return;
+        if (asked <= 0) return 1;
         // Over the budget: fewer, bigger cards covering the same.
         var grow = MathF.Max(1, asked * trisPer / recipe.LeafBudget);
         var start = m.TriangleCount;
@@ -593,6 +599,7 @@ public static class TreeBuilder
                 }
             }
         }
+        return grow;
     }
 
     /// <summary>
@@ -609,9 +616,9 @@ public static class TreeBuilder
     /// Cards over the clump shapes, growing outwards: a leafy edge round solid clumps, or (tufts) the whole canopy, with
     /// cards also deeper inside so it looks full through the gaps and there is no solid mesh behind them.
     /// </summary>
-    private static void AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, int detail, Random rng, bool tufts = false)
+    private static float AddCardsOnClumps(Mesh3D m, Mesh3D clumps, TreeSkeleton sk, TreeRecipe recipe, int material, int detail, Random rng, bool tufts = false)
     {
-        if (clumps.VertexCount == 0) return;
+        if (clumps.VertexCount == 0) return 1;
         var size = (float)recipe.LeafSize * (tufts ? 0.6f : 0.8f) * MathF.Sqrt(detail);
         double area = 0;
         foreach (var s in clumps.Submeshes)
@@ -633,6 +640,7 @@ public static class TreeBuilder
             var grow = Vector3.Normalize(n + Vector3.UnitY * 0.3f + jitter);
             Card(m, p, grow, size * PlaneScale(recipe) * (0.8f + 0.4f * (float)rng.NextDouble()), sk, recipe, sk.Trunk, 1, material, rng, clumps.Colors.Count > v ? clumps.Colors[v] : null);
         }
+        return (float)Math.Max(1, asked / cardsAllowed);
     }
 
     /// <summary>

@@ -206,6 +206,20 @@ Godot is the main engine, then Unity, then Unreal.
 - **Outer leaves**: cover moved from branches deep in the crown to those near its surface, and along a branch towards
   its end (and, for tufts, cards sunk less deep), where they are seen.
 
+### What a tree costs (preview.59)
+
+Optimise for how the canopy looks per rendering cost, not for triangles alone. Under the preview, for each level:
+wood and leaf triangles, how full the crown looks (its outline, row by row between the outermost leaves, drawn
+from four sides with the cards cut out by their alpha), overdraw (leaf pixels drawn per leaf pixel seen, cut-out ones
+included) and the share of the card area that is see-through, and draw calls. A note says when the leaf budget made
+the cards grow. First measurements (oak): twig cards 57 % full, clusters 77 % for the same triangles; about 80 % of
+every card's area is see-through, so cards cut to the leaves' shape come next.
+
+Next, from Noor's foliage notes: filling the crown by measured coverage (a Canopy Fullness target, gaps found from
+several sides, a note when the budget can't reach it); cards cut to their leaves; a stem point and growth direction
+for your own leaf pictures; one total triangle target split between wood and leaves; levels of detail checked to
+keep the crown's outline, and camera-facing impostors.
+
 Still open: the biome catalogue (and rocks, stage 2).
 
 ## Stage 2 — rocks

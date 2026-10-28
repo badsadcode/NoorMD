@@ -186,14 +186,16 @@ public partial class MainWindow
                     var watch = Stopwatch.StartNew();
                     TreeBuild build;
                     byte[][] glbs;
+                    List<TreeStats> stats;
                     await AssetGate.WaitAsync();
                     try
                     {
                         cancel.Token.ThrowIfCancellationRequested();
-                        (build, glbs) = await Task.Run(() =>
+                        (build, glbs, stats) = await Task.Run(() =>
                         {
                             var b = TreeBuilder.Build(recipe, new TreeBuilder.Options { TextureSize = AssetPreviewTexture, Images = LoadAssetImage }, cancel.Token);
-                            return (b, b.Lods.Select(l => GlbWriter.Write(l)).ToArray());
+                            // What each level costs and how full it looks (drawn from four sides, cut out by the leaves' alpha).
+                            return (b, b.Lods.Select(l => GlbWriter.Write(l)).ToArray(), b.Lods.Select(TreeStatsMeter.Measure).ToList());
                         }, cancel.Token);
                     }
                     catch (OperationCanceledException) { return new { cancelled = true }; }
@@ -214,6 +216,12 @@ public partial class MainWindow
                             triangles = l.TriangleCount,
                             vertices = l.Root.All().Sum(n => n.Mesh?.VertexCount ?? 0),
                             bytes = glbs[i].Length,
+                            wood = stats[i].WoodTriangles,
+                            leaves = stats[i].LeafTriangles,
+                            drawCalls = stats[i].DrawCalls,
+                            fullness = stats[i].Fullness,
+                            overdraw = stats[i].Overdraw,
+                            emptyCards = stats[i].EmptyCardArea,
                         }),
                         branches = build.Skeleton.Branches.Count(b => !b.Root && b.Level > 0),
                         nodes = lod0.Root.All().Where(n => n.Mesh != null).Select(n => new { name = n.Name, triangles = n.Mesh!.TriangleCount }),

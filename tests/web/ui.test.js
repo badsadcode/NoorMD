@@ -5135,6 +5135,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         check('the preview reads the GLB: meshes drawn, wind data found in the UV channels', v.draws >= 2 && v.windFrom === 'uv' && v.nodes.includes('Trunk'), v);
       }
       check('the stats say triangles, vertices and size', /LOD0: 2,454 triangles · 4,800 vertices · 115 KB/.test(await page.textContent('#ab-stats')));
+      check('…and where the triangles go and what they buy: wood and leaves, crown fullness, overdraw, see-through card area, draw calls',
+        /Wood 1,200 · leaves 1,254 triangles · crown 77 % full · overdraw ×2\.5 \(79 % of the card area see-through\) · 2 draw calls/.test(await page.textContent('#ab-cost')));
       check('levels of detail to choose from', (await page.$$eval('#ab-lod option', (o) => o.map((x) => x.textContent))).join('|') === 'LOD0 · 2,454 triangles|LOD1 · 1,524 triangles');
       await page.selectOption('#ab-lod', '1');
       await waitFn(page, () => /LOD1:/.test(document.querySelector('#ab-stats').textContent));

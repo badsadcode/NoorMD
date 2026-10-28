@@ -113,7 +113,8 @@ window.NoorAssets = (() => {
               el('div', { class: 'tb-stage' },
                 el('canvas', { id: 'ab-canvas', class: 'tb-canvas', role: 'img', 'aria-label': 'The tree: drag to turn it, wheel to zoom, right-drag or Shift+drag to move', title: 'Drag: turn · wheel: zoom · right-drag or Shift+drag: move' })),
               el('p', { class: 'pref-hint sb-status', id: 'ab-status', 'aria-live': 'polite' }),
-              el('p', { class: 'pref-hint ab-stats', id: 'ab-stats' })),
+              el('p', { class: 'pref-hint ab-stats', id: 'ab-stats' }),
+              el('p', { class: 'pref-hint ab-stats', id: 'ab-cost', title: 'Measured from four sides as a game draws it. Crown full: how much of the crown’s outline the leaves cover (sky through the crown lowers it). Overdraw: leaf pixels drawn per leaf pixel seen. See-through: the share of the cards’ area cut away by the alpha, which the GPU still pays for' })),
             el('div', { class: 'tb-splitter', id: 'ab-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to change how much room the tree and the settings get (double-click: back to normal)' }),
             el('div', { class: 'tb-edit-col', id: 'ab-edit-col' },
               el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']].map(([id, label]) =>
@@ -291,6 +292,16 @@ window.NoorAssets = (() => {
     const parts = build.nodes.length;
     s.textContent = `LOD${lod}: ${l.triangles.toLocaleString()} triangles · ${l.vertices.toLocaleString()} vertices · ${(l.bytes / 1024).toFixed(0)} KB · ${parts} mesh${parts === 1 ? '' : 'es'}` +
       (parts > 1 ? ` (${build.nodes.slice(0, 4).map((n) => n.name).join(', ')}${parts > 4 ? '…' : ''})` : '');
+    // Where the triangles go and what they buy: wood against leaves, how full the crown looks, what the leaves cost to draw.
+    const c = $('#ab-cost');
+    if (!c) return;
+    const pct = (v) => `${Math.round(v * 100)} %`;
+    c.textContent = l.wood === undefined ? '' : [
+      `Wood ${l.wood.toLocaleString()} · leaves ${l.leaves.toLocaleString()} triangles`,
+      l.fullness != null ? `crown ${pct(l.fullness)} full` : null,
+      l.overdraw != null ? `overdraw ×${l.overdraw.toFixed(1)}${l.emptyCards != null ? ` (${pct(l.emptyCards)} of the card area see-through)` : ''}` : null,
+      `${l.drawCalls} draw call${l.drawCalls === 1 ? '' : 's'}`,
+    ].filter(Boolean).join(' · ');
   }
 
   // ---------------------------------------------------------------- editor

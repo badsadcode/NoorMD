@@ -479,7 +479,7 @@ function mockHostScript(initial) {
         const lods = Math.max(1, Math.min(p.recipe.lods, 2));
         const separate = p.recipe.branches === 'separate';
         return { key, ms: 840, branches: 26, notes: ['3 thin branch ends are tubes (thinner than the low quality grid).'],
-          lods: Array.from({ length: lods }, (_, i) => ({ url: `/_asset/${key}/lod${i}.glb`, triangles: i ? 1524 : 2454, vertices: i ? 2900 : 4800, bytes: i ? 75384 : 117984 })),
+          lods: Array.from({ length: lods }, (_, i) => ({ url: `/_asset/${key}/lod${i}.glb`, triangles: i ? 1524 : 2454, vertices: i ? 2900 : 4800, bytes: i ? 75384 : 117984, wood: i ? 700 : 1200, leaves: i ? 824 : 1254, drawCalls: 2, fullness: i ? 0.71 : 0.77, overdraw: 2.5, emptyCards: 0.79 })),
           nodes: separate ? ['Trunk', 'Branch_01', 'Branch_01_Leaves'].map((name) => ({ name, triangles: 300 })) : [{ name: 'Trunk', triangles: 1200 }, { name: 'Leaves', triangles: 1254 }] };
       }
       case 'asset.export': {

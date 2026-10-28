@@ -644,4 +644,42 @@ public class TreeTests
         Assert.Equal(16000, TreeRecipe.FromJson("{\"name\":\"Old\"}").LeafBudget);
         Assert.Equal(4, TreeRecipe.FromJson("{\"cardScale\":9}").CardScale);
     }
+
+    [Fact]
+    public void Stats_say_what_a_level_costs_and_how_full_its_crown_looks()
+    {
+        var r = Small();
+        r.Quality = "medium";
+        r.LeafCluster = "twig";
+        var twig = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
+        var t = TreeStatsMeter.Measure(twig.Lods[0]);
+        Assert.Equal(twig.Lods[0].TriangleCount, t.Triangles);
+        Assert.Equal(t.Triangles, t.WoodTriangles + t.LeafTriangles);
+        Assert.Equal(Leaves(twig)!.TriangleCount, t.LeafTriangles);
+        Assert.Equal(2, t.DrawCalls);                      // bark and leaves
+        Assert.InRange(t.Fullness!.Value, 0.2, 1);
+        Assert.InRange(t.Overdraw!.Value, 1, 30);
+        Assert.InRange(t.EmptyCardArea!.Value, 0.2, 0.95);  // cards are rectangles round their leaves
+        // Clusters: a fuller crown for the same leaf triangles.
+        r.LeafCluster = "cluster";
+        var c = TreeStatsMeter.Measure(TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 }).Lods[0]);
+        Assert.Equal(t.LeafTriangles, c.LeafTriangles);
+        Assert.True(c.Fullness > t.Fullness + 0.03, $"twig {t.Fullness:0.000} (overdraw {t.Overdraw:0.0}, empty {t.EmptyCardArea:0.00}), cluster {c.Fullness:0.000} (overdraw {c.Overdraw:0.0}, empty {c.EmptyCardArea:0.00})");
+        // A tree without leaves has no crown to measure.
+        var dead = TreeStatsMeter.Measure(TreeBuilder.Build(Small("dead"), NoTextures).Lods[0]);
+        Assert.Null(dead.Fullness);
+        Assert.Equal(0, dead.LeafTriangles);
+    }
+
+    [Fact]
+    public void A_budget_that_makes_the_cards_grow_says_so()
+    {
+        var r = Small();
+        r.LeafDensity = 1;
+        r.LeafSize = 0.3;
+        r.LeafBudget = 800;
+        Assert.Contains(TreeBuilder.Build(r, NoTextures).Notes, n => n.Contains("leaf budget"));
+        r.LeafBudget = 200_000;
+        Assert.DoesNotContain(TreeBuilder.Build(r, NoTextures).Notes, n => n.Contains("leaf budget"));
+    }
 }

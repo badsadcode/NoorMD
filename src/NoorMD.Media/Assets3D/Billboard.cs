@@ -12,28 +12,7 @@ public static class Billboard
     /// <summary>Renders <paramref name="views"/> sides of the asset into one atlas, one cell each, side by side.</summary>
     public static (RawImage Atlas, float HalfWidth, float Height) Render(Asset3D asset, int views, int cellHeight)
     {
-        // World-space triangles of every mesh (nodes carry only translation and rotation).
-        var tris = new List<(Vector3 A, Vector3 B, Vector3 C, Vector2 Ua, Vector2 Ub, Vector2 Uc, Vector3 Na, Vector3 Nb, Vector3 Nc, Vector4 Ca, Vector4 Cb, Vector4 Cc, Material3D Mat)>();
-        void Walk(Node3D n, Matrix4x4 parent)
-        {
-            var world = Matrix4x4.CreateFromQuaternion(n.Rotation) * Matrix4x4.CreateTranslation(n.Translation) * parent;
-            if (n.Mesh is { } m)
-                foreach (var s in m.Submeshes)
-                {
-                    var mat = s.Material >= 0 && s.Material < asset.Materials.Count ? asset.Materials[s.Material] : new Material3D();
-                    for (var i = 0; i + 2 < s.Indices.Count; i += 3)
-                    {
-                        int a = s.Indices[i], b = s.Indices[i + 1], c = s.Indices[i + 2];
-                        Vector3 P(int v) => Vector3.Transform(m.Positions[v], world);
-                        Vector3 N(int v) => m.Normals.Count > v ? Vector3.Normalize(Vector3.TransformNormal(m.Normals[v], world)) : Vector3.UnitY;
-                        Vector2 U(int v) => m.UV0.Count > v ? m.UV0[v] : Vector2.Zero;
-                        Vector4 C(int v) => m.Colors.Count > v ? m.Colors[v] : Vector4.One;
-                        tris.Add((P(a), P(b), P(c), U(a), U(b), U(c), N(a), N(b), N(c), C(a), C(b), C(c), mat));
-                    }
-                }
-            foreach (var c in n.Children) Walk(c, world);
-        }
-        Walk(asset.Root, Matrix4x4.Identity);
+        var tris = Triangles(asset);
         var halfWidth = 0.1f;
         var height = 0.1f;
         foreach (var t in tris)
@@ -131,7 +110,37 @@ public static class Billboard
         return m;
     }
 
-    private static Vector4 Sample(RawImage? img, Vector2 uv)
+    /// <summary>A triangle in world space with what drawing it needs.</summary>
+    internal readonly record struct Tri(Vector3 A, Vector3 B, Vector3 C, Vector2 Ua, Vector2 Ub, Vector2 Uc, Vector3 Na, Vector3 Nb, Vector3 Nc, Vector4 Ca, Vector4 Cb, Vector4 Cc, Material3D Mat);
+
+    /// <summary>Every mesh's triangles in world space (nodes carry only translation and rotation).</summary>
+    internal static List<Tri> Triangles(Asset3D asset)
+    {
+        var tris = new List<Tri>();
+        void Walk(Node3D n, Matrix4x4 parent)
+        {
+            var world = Matrix4x4.CreateFromQuaternion(n.Rotation) * Matrix4x4.CreateTranslation(n.Translation) * parent;
+            if (n.Mesh is { } m)
+                foreach (var s in m.Submeshes)
+                {
+                    var mat = s.Material >= 0 && s.Material < asset.Materials.Count ? asset.Materials[s.Material] : new Material3D();
+                    for (var i = 0; i + 2 < s.Indices.Count; i += 3)
+                    {
+                        int a = s.Indices[i], b = s.Indices[i + 1], c = s.Indices[i + 2];
+                        Vector3 P(int v) => Vector3.Transform(m.Positions[v], world);
+                        Vector3 N(int v) => m.Normals.Count > v ? Vector3.Normalize(Vector3.TransformNormal(m.Normals[v], world)) : Vector3.UnitY;
+                        Vector2 U(int v) => m.UV0.Count > v ? m.UV0[v] : Vector2.Zero;
+                        Vector4 C(int v) => m.Colors.Count > v ? m.Colors[v] : Vector4.One;
+                        tris.Add(new Tri(P(a), P(b), P(c), U(a), U(b), U(c), N(a), N(b), N(c), C(a), C(b), C(c), mat));
+                    }
+                }
+            foreach (var c in n.Children) Walk(c, world);
+        }
+        Walk(asset.Root, Matrix4x4.Identity);
+        return tris;
+    }
+
+    internal static Vector4 Sample(RawImage? img, Vector2 uv)
     {
         if (img == null) return Vector4.One;
         var u = uv.X - MathF.Floor(uv.X);
