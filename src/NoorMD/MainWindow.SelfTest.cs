@@ -541,7 +541,8 @@ public partial class MainWindow
                 } catch (e) { window.__tree = 'error ' + e.message; } })()");
             var tree = "null";
             for (var i = 0; i < 300 && tree == "null"; i++) { await Task.Delay(100); tree = await Eval("window.__tree"); }
-            Check("Asset Bench: a tree builds in the app and its GLB loads in the page", tree.Contains("\\\"lods\\\":2") && tree.Contains("Trunk") && tree.Contains("Leaves") && !tree.Contains("error"), tree);
+            // Two levels and the billboard (two crossed cards, front and back: 8 triangles).
+            Check("Asset Bench: a tree builds in the app (two levels and a billboard) and its GLB loads in the page", tree.Contains("\\\"lods\\\":3") && tree.Contains(",8]") && tree.Contains("Trunk") && tree.Contains("Leaves") && !tree.Contains("error"), tree);
             var sep = NoorMD.Media.Assets3D.TreePresets.Make("oak");
             sep.Branches = "separate"; sep.Quality = "low"; sep.Lods = 1; sep.Budget = 2000;
             var built = NoorMD.Media.Assets3D.TreeBuilder.Build(sep, new NoorMD.Media.Assets3D.TreeBuilder.Options { TextureSize = 64 });
