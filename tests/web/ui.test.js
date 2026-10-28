@@ -4013,6 +4013,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === n + 1, before);
       const photo = (await last()).layers.at(-1);
       check('…a picked photo becomes a layer that replaces what is below, colours and all', photo.type === 'image' && photo.path === 'C:\\Photos\\old wall.jpg' && photo.name === 'old wall' && photo.blend === 'normal' && photo.opacity === 1 && photo.colorAmount === 1);
+      check('…repeated so its proportions are kept (1600 × 1200: 3 across, 4 down)', photo.scaleX === 3 && photo.scaleY === 4);
       const card = `.sb-layer[data-index="${before}"]`;
       check('…with its seam blend, light evening and height from detail', await page.evaluate((c) => ['seamBlend', 'delight', 'delightRadius', 'detailFine', 'detailMedium', 'detailLarge', 'colorAmount', 'scaleX'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card)
         && /old wall\.jpg/.test(await page.textContent(card)) && !/⚠/.test(await page.textContent('#tb-status')));

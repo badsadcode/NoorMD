@@ -308,7 +308,7 @@ window.NoorTexture = (() => {
       const choices = [el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend), el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Invert' }))];
       if (l.type === 'image') {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖼 ' + (l.imageName || 'no picture') }),
-          el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { l.path = f.path; l.imageName = f.name; changed(true); } } }, 'Change picture…'));
+          el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { Object.assign(l, { path: f.path, imageName: f.name, ...keepProportions(f) }); changed(true); } } }, 'Change picture…'));
       }
       if (l.type === 'cells') {
         const mode = el('select', { 'aria-label': 'Cells as', 'data-key': 'mode' }, ...[['cells', 'round bumps'], ['edges', 'raised edges'], ['cracks', 'cracks'], ['stones', 'flat stones']].map(([v, t]) => el('option', { value: v, text: t })));
@@ -341,7 +341,7 @@ window.NoorTexture = (() => {
           changed(true);
         };
         // A picture is asked for first; it then replaces what is below it (its own colours and height).
-        if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1 }); }); return; }
+        if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
         // Masks paint rather than build height: they start with a tint to show where they are.
         if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
         add({});
@@ -482,6 +482,20 @@ window.NoorTexture = (() => {
   async function deletePreset(p) {
     if (!await NoorUI.confirm(`Delete “${p.name}”?`, 'Only the preset is deleted; maps you exported stay.', 'Delete')) return;
     try { presets.mine = (await req('texture.delete', { id: p.id })).mine; renderPresets(); } catch (err) { hooks.showError(err); }
+  }
+
+  /**
+   * Whole-number repeats (to tile) that keep a picture's proportions as near as they can: a 900 × 640 photo becomes
+   * 2 across × 3 down (its pieces 1.5 times as wide as tall, against 1.41). Changed by hand afterwards as you like.
+   */
+  function keepProportions(f) {
+    const aspect = f.width && f.height ? f.width / f.height : 1;
+    let best = { scaleX: 1, scaleY: 1 }, err = Infinity;
+    for (let x = 1; x <= 6; x++) for (let y = 1; y <= 6; y++) {
+      const e = Math.abs(Math.log((y / x) / aspect)) + (x + y) * 0.01; // prefer few repeats when it's close either way
+      if (e < err) { err = e; best = { scaleX: x, scaleY: y }; }
+    }
+    return best;
   }
 
   async function pickImage() {

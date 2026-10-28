@@ -734,9 +734,12 @@ public static class TextureEngine
                 }
             }
         }
-        // Seamless: near the edges, blend with the picture shifted by half its size (which meets itself there).
+        // Seamless: near the edges, blend with a shifted copy of the picture (any shift meets itself across the edges).
+        // The shift is the one where the picture looks most like itself, so a regular pattern (bricks, tiles, planks)
+        // lines up with its copy instead of showing doubled lines where they overlap.
         if (l.SeamBlend > 0)
         {
+            var (sx, sy) = BestShift(ch, w, h);
             var means = ch.Select(a => a.Average()).ToArray();
             var outp = ch.Select(_ => new float[n]).ToArray();
             for (var y = 0; y < h; y++)
@@ -745,7 +748,7 @@ public static class TextureEngine
                     var edge = Math.Min(Math.Min(x + 0.5, w - x - 0.5) / w, Math.Min(y + 0.5, h - y - 0.5) / h);
                     var w2 = 1 - SmoothStep(0, l.SeamBlend, edge); var w1 = 1 - w2;
                     var norm = Math.Sqrt(w1 * w1 + w2 * w2);
-                    var j = ((y + h / 2) % h) * w + (x + w / 2) % w;
+                    var j = ((y + sy) % h) * w + (x + sx) % w;
                     var i = y * w + x;
                     for (var c = 0; c < 3; c++)
                         outp[c][i] = (float)Math.Clamp(means[c] + ((ch[c][i] - means[c]) * w1 + (ch[c][j] - means[c]) * w2) / norm, 0, 1);
@@ -780,6 +783,45 @@ public static class TextureEngine
         var rgb = new float[n * 3];
         for (var i = 0; i < n; i++) { rgb[i * 3] = ch[0][i]; rgb[i * 3 + 1] = ch[1][i]; rgb[i * 3 + 2] = ch[2][i]; }
         return new Prepared(w, h, rgb, height);
+    }
+
+    /// <summary>
+    /// The shift (between a quarter and three quarters of the picture each way) at which the picture differs least
+    /// from itself, measured on a small copy of its brightness; the middle when nothing is better.
+    /// </summary>
+    private static (int X, int Y) BestShift(float[][] ch, int w, int h)
+    {
+        var scale = Math.Max(1, Math.Max(w, h) / 128);
+        int sw = w / scale, sh = h / scale;
+        if (sw < 8 || sh < 8) return (w / 2, h / 2);
+        var small = new float[sw * sh];
+        for (var y = 0; y < sh; y++)
+            for (var x = 0; x < sw; x++)
+            {
+                double sum = 0;
+                for (var yy = 0; yy < scale; yy++)
+                    for (var xx = 0; xx < scale; xx++) { var i = (y * scale + yy) * w + x * scale + xx; sum += 0.2126 * ch[0][i] + 0.7152 * ch[1][i] + 0.0722 * ch[2][i]; }
+                small[y * sw + x] = (float)(sum / (scale * scale));
+            }
+        double Diff(int dx, int dy)
+        {
+            double d = 0;
+            for (var y = 0; y < sh; y += 2)
+                for (var x = 0; x < sw; x += 2) { var a = small[y * sw + x] - small[((y + dy) % sh) * sw + (x + dx) % sw]; d += a * a; }
+            return d;
+        }
+        var best = (X: sw / 2, Y: sh / 2);
+        var bestDiff = Diff(best.X, best.Y) * 0.98; // keep the middle unless something is clearly better
+        var lock_ = new object();
+        Parallel.For(sh / 4, 3 * sh / 4 + 1, dy =>
+        {
+            for (var dx = sw / 4; dx <= 3 * sw / 4; dx++)
+            {
+                var d = Diff(dx, dy);
+                lock (lock_) if (d < bestDiff) { bestDiff = d; best = (dx, dy); }
+            }
+        });
+        return (best.X * scale % w, best.Y * scale % h);
     }
 
     /// <summary>A box blur of radius r over a w × h picture, wrapping (or mirroring) at the edges; three passes: close to a Gaussian.</summary>
