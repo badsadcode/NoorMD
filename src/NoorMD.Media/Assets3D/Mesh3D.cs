@@ -36,8 +36,13 @@ public sealed class Mesh3D
     public List<Vector3> Positions { get; } = [];
     public List<Vector3> Normals { get; } = [];
     public List<Vector2> UV0 { get; } = [];
+    /// <summary>Extra UV sets (TEXCOORD_1 and _2), used for wind data so it doesn't tint the model like vertex colours would.</summary>
+    public List<Vector2> UV1 { get; } = [];
+    public List<Vector2> UV2 { get; } = [];
     /// <summary>Vertex colours: in trees the wind data (R trunk sway, G branch bend, B leaf flutter, A phase), in stylized assets a painted gradient.</summary>
     public List<Vector4> Colors { get; } = [];
+    /// <summary>Tangents for normal maps (xyz along +U, w the handedness ±1); made by ComputeTangents when needed.</summary>
+    public List<Vector4> Tangents { get; } = [];
     public List<Submesh> Submeshes { get; } = [];
 
     public int VertexCount => Positions.Count;
@@ -84,6 +89,41 @@ public sealed class Mesh3D
         foreach (var n in acc) Normals.Add(n.LengthSquared() > 1e-20f ? Vector3.Normalize(n) : Vector3.UnitY);
     }
 
+    /// <summary>Per-vertex tangents from the UVs (Lengyel's method), orthogonal to the normals, with handedness in w.</summary>
+    public void ComputeTangents()
+    {
+        var tan = new Vector3[VertexCount];
+        var bit = new Vector3[VertexCount];
+        foreach (var s in Submeshes)
+            for (var i = 0; i + 2 < s.Indices.Count; i += 3)
+            {
+                int a = s.Indices[i], b = s.Indices[i + 1], c = s.Indices[i + 2];
+                Vector3 e1 = Positions[b] - Positions[a], e2 = Positions[c] - Positions[a];
+                Vector2 d1 = UV0[b] - UV0[a], d2 = UV0[c] - UV0[a];
+                var det = d1.X * d2.Y - d2.X * d1.Y;
+                if (MathF.Abs(det) < 1e-12f) continue;
+                var r = 1 / det;
+                var t = (e1 * d2.Y - e2 * d1.Y) * r;
+                var bt = (e2 * d1.X - e1 * d2.X) * r;
+                tan[a] += t; tan[b] += t; tan[c] += t;
+                bit[a] += bt; bit[b] += bt; bit[c] += bt;
+            }
+        Tangents.Clear();
+        for (var v = 0; v < VertexCount; v++)
+        {
+            var n = Normals[v];
+            var t = tan[v] - n * Vector3.Dot(n, tan[v]);
+            if (t.LengthSquared() < 1e-20f || !float.IsFinite(t.X))
+            {
+                // No usable UV direction here: any direction across the normal.
+                t = Vector3.Cross(n, MathF.Abs(n.Y) < 0.9f ? Vector3.UnitY : Vector3.UnitX);
+            }
+            t = Vector3.Normalize(t);
+            var w = Vector3.Dot(Vector3.Cross(n, t), bit[v]) < 0 ? -1f : 1f;
+            Tangents.Add(new Vector4(t, w));
+        }
+    }
+
     /// <summary>Checks that would make an exporter or an engine choke: indices in range, finite values, unit normals, UVs present.</summary>
     public List<string> Problems()
     {
@@ -91,9 +131,11 @@ public sealed class Mesh3D
         if (Normals.Count != Positions.Count) p.Add("normals missing");
         if (UV0.Count != Positions.Count) p.Add("UVs missing");
         if (Colors.Count != 0 && Colors.Count != Positions.Count) p.Add("colours for some vertices only");
+        if ((UV1.Count != 0 && UV1.Count != Positions.Count) || (UV2.Count != 0 && UV2.Count != Positions.Count)) p.Add("extra UVs for some vertices only");
         if (Positions.Any(v => !float.IsFinite(v.X) || !float.IsFinite(v.Y) || !float.IsFinite(v.Z))) p.Add("a position is not a number");
         if (Normals.Any(n => !float.IsFinite(n.X) || MathF.Abs(n.Length() - 1) > 0.01f)) p.Add("a normal is not unit length");
         if (UV0.Any(u => !float.IsFinite(u.X) || !float.IsFinite(u.Y))) p.Add("a UV is not a number");
+        if (Tangents.Count != 0 && (Tangents.Count != Positions.Count || Tangents.Any(t => MathF.Abs(new Vector3(t.X, t.Y, t.Z).Length() - 1) > 0.01f || MathF.Abs(MathF.Abs(t.W) - 1) > 1e-6f))) p.Add("a tangent is not unit length with a handedness of ±1");
         foreach (var s in Submeshes)
         {
             if (s.Indices.Count % 3 != 0) p.Add("a submesh's index count is not a multiple of 3");

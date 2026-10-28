@@ -99,7 +99,10 @@ public static class GlbWriter
                     ["POSITION"] = Accessor(View(Floats(m.Positions.SelectMany(p => new[] { p.X, p.Y, p.Z })), ArrayBuffer), Float, m.VertexCount, "VEC3", [lo.X, lo.Y, lo.Z], [hi.X, hi.Y, hi.Z]),
                 };
                 if (m.Normals.Count == m.VertexCount) attrs["NORMAL"] = Accessor(View(Floats(m.Normals.SelectMany(p => new[] { p.X, p.Y, p.Z })), ArrayBuffer), Float, m.VertexCount, "VEC3");
+                if (m.Tangents.Count == m.VertexCount && m.Normals.Count == m.VertexCount) attrs["TANGENT"] = Accessor(View(Floats(m.Tangents.SelectMany(t => new[] { t.X, t.Y, t.Z, t.W })), ArrayBuffer), Float, m.VertexCount, "VEC4");
                 if (m.UV0.Count == m.VertexCount) attrs["TEXCOORD_0"] = Accessor(View(Floats(m.UV0.SelectMany(p => new[] { p.X, p.Y })), ArrayBuffer), Float, m.VertexCount, "VEC2");
+                if (m.UV1.Count == m.VertexCount) attrs["TEXCOORD_1"] = Accessor(View(Floats(m.UV1.SelectMany(p => new[] { p.X, p.Y })), ArrayBuffer), Float, m.VertexCount, "VEC2");
+                if (m.UV2.Count == m.VertexCount) attrs["TEXCOORD_2"] = Accessor(View(Floats(m.UV2.SelectMany(p => new[] { p.X, p.Y })), ArrayBuffer), Float, m.VertexCount, "VEC2");
                 if (m.Colors.Count == m.VertexCount) attrs["COLOR_0"] = Accessor(View(Floats(m.Colors.SelectMany(p => new[] { Clamp01(p.X), Clamp01(p.Y), Clamp01(p.Z), Clamp01(p.W) })), ArrayBuffer), Float, m.VertexCount, "VEC4");
                 var small = m.VertexCount <= ushort.MaxValue;
                 var prims = new List<object>();
