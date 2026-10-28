@@ -29,3 +29,9 @@ body.sketch { display: flex; flex-direction: column; height: 100vh; margin: 0; o
 .sk-brush { position: absolute; pointer-events: none; border: 1px solid rgba(0,0,0,.7); border-radius: 50%; box-shadow: 0 0 0 1px rgba(255,255,255,.8); }
 .sk-brush.erase { border-style: dashed; }
 .sk-status { display: flex; justify-content: space-between; gap: 12px; padding: 5px 12px; font-size: 11.5px; color: var(--muted); border-top: 1px solid var(--border); background: var(--panel); }
+/* Painting for a material: the material under the painting (not part of it), stretched over the canvas. */
+.sk-texture .sk-canvas { background-size: 100% 100%; background-position: 0 0; }
+.sk-texture.sk-hide-material .sk-canvas { background-image: linear-gradient(45deg, #ccc 25%, transparent 25%), linear-gradient(-45deg, #ccc 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #ccc 75%), linear-gradient(-45deg, transparent 75%, #ccc 75%) !important;
+  background-size: 16px 16px; background-position: 0 0, 0 8px, 8px -8px, -8px 0; }
+#sketch-material { font-weight: 600; color: var(--text); }
+.sketch [hidden] { display: none !important; }

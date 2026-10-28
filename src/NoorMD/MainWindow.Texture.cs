@@ -26,6 +26,9 @@ public partial class MainWindow
     private readonly HashSet<string> _textureFolders = new(StringComparer.OrdinalIgnoreCase);
     private static readonly SemaphoreSlim TextureGate = new(1);
     private static string UserTextureFolder => Path.Combine(App.Paths.Local, "Texture", "Presets");
+    /// <summary>Paintings made for materials in NoorSketch (a layer of the material refers to them by path).</summary>
+    private static string TexturePaintingsFolder => Path.Combine(App.Paths.Local, "Texture", "Paintings");
+    private const int TexturePaintingSize = 1024;
 
     // Image layers read only pictures you picked, or that a recipe or preset you opened names (as with Sound Bench samples).
     private readonly HashSet<string> _textureImageFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -48,15 +51,25 @@ public partial class MainWindow
             lock (_textureImageCache)
                 if (_textureImageCache.TryGetValue(full, out var hit) && hit.Stamp == stamp) return hit.Image;
             if (new FileInfo(full).Length > 200 * 1024 * 1024) return null;
-            var frame = Decode(full, TextureImageMax);
+            // A NoorSketch painting keeps its transparency (where it isn't painted); other pictures are opaque.
+            var painting = full.EndsWith(".noorsketch", StringComparison.OrdinalIgnoreCase);
+            BitmapSource? frame;
+            if (painting)
+            {
+                var (sketchPng, _) = NoorMD.Core.Sketch.SketchFile.Load(full);
+                frame = BitmapDecoder.Create(new MemoryStream(sketchPng), BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad).Frames[0];
+            }
+            else frame = Decode(full, TextureImageMax);
             if (frame == null) return null;
-            var bgr = new FormatConvertedBitmap(frame, PixelFormats.Bgr32, null, 0);
-            int w = bgr.PixelWidth, h = bgr.PixelHeight;
+            var conv = new FormatConvertedBitmap(frame, painting ? PixelFormats.Bgra32 : PixelFormats.Bgr32, null, 0);
+            int w = conv.PixelWidth, h = conv.PixelHeight;
             var px = new byte[w * h * 4];
-            bgr.CopyPixels(px, w * 4, 0);
+            conv.CopyPixels(px, w * 4, 0);
             var rgb = new float[w * h * 3];
             for (var i = 0; i < w * h; i++) { rgb[i * 3] = px[i * 4 + 2] / 255f; rgb[i * 3 + 1] = px[i * 4 + 1] / 255f; rgb[i * 3 + 2] = px[i * 4] / 255f; }
-            var image = new TextureImage { Width = w, Height = h, Rgb = rgb, Id = $"{full}|{stamp.Ticks}" };
+            float[]? alpha = null;
+            if (painting) { alpha = new float[w * h]; for (var i = 0; i < w * h; i++) alpha[i] = px[i * 4 + 3] / 255f; }
+            var image = new TextureImage { Width = w, Height = h, Rgb = rgb, Alpha = alpha, Id = $"{full}|{stamp.Ticks}" };
             lock (_textureImageCache)
             {
                 if (_textureImageCache.Count >= 6) _textureImageCache.Remove(_textureImageCache.Keys.First());
@@ -64,7 +77,74 @@ public partial class MainWindow
             }
             return image;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidDataException or InvalidOperationException) { return null; }
+    }
+
+    /// <summary>
+    /// Opens a painting for a material in NoorSketch, with the material (as it is without the painting) shown under
+    /// it; one window per painting. Each save there goes straight back to the material.
+    /// </summary>
+    private async Task OpenTexturePaintingAsync(TextureRecipe under, string path)
+    {
+        var (_, manifest) = await Task.Run(() => NoorMD.Core.Sketch.SketchFile.Load(path));
+        var size = Math.Clamp(Math.Max(manifest.Width, manifest.Height), TextureEngine.MinSize, 2048);
+        var underlay = await Task.Run(() => TextureEngine.Render(under, size, LoadTextureImage).Png("albedo", fast: true));
+        var open = _sketches.FirstOrDefault(w => string.Equals(w.TexturePath, path, StringComparison.OrdinalIgnoreCase));
+        if (open != null) { open.UpdateUnderlay(underlay, under.Name); open.Activate(); return; }
+        if (WebEnvironment == null) throw new BridgeError("The editor is still starting. Try again in a moment.");
+        var w = new SketchWindow(this, path, new TexturePaint(path, under.Name, underlay)) { Owner = null };
+        _sketches.Add(w);
+        w.Show();
+    }
+
+    /// <summary>A painting was saved in NoorSketch: the Texture Bench renders the material with it again.</summary>
+    internal void TexturePaintingSaved(string path) => PushEvent("texture.paintingChanged", new { path });
+
+    /// <summary>
+    /// After an export: the maps shown in the Gallery (their folder added if no Gallery folder holds it yet), tagged
+    /// "material" and with the material's name.
+    /// </summary>
+    private async Task<int> AddTextureExportToGalleryAsync(string folder, IEnumerable<string> files, string material)
+    {
+        var holders = Gallery.Folders().Where(f => IsUnder(folder, f.Path)).Select(f => f.Id).ToList();
+        if (holders.Count == 0) holders.Add(Gallery.AddFolder(folder));
+        await ScanGalleryAsync(holders);
+        var ids = files.Select(f => Gallery.FindByPath(f)?.Id).OfType<long>().ToList();
+        if (ids.Count > 0) Gallery.AddTags(ids, ["material", material]);
+        return ids.Count;
+    }
+
+    /// <summary>
+    /// After an export: the recipe kept in the open Vault (Materials folder) with its paintings and a small albedo
+    /// picture, so it can be found, linked from notes and opened again from the Vault.
+    /// </summary>
+    private async Task<string> SaveTextureToVaultAsync(TextureRecipe recipe, TextureMaps maps, string stem)
+    {
+        var v = _vault ?? throw new BridgeError("Open a Vault first.");
+        var folder = Path.Combine(v.Root, "Materials");
+        Directory.CreateDirectory(folder);
+        var taken = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var copy = await CopyPaintingsBesideAsync(recipe, folder, taken);
+        var recipePath = PictureConvert.FreePath(folder, stem + ".noortex", ".json", taken);
+        var picture = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(Path.GetFileNameWithoutExtension(recipePath)), ".png", taken);
+        var albedo = await Task.Run(() => (maps.Size > 512 ? TextureEngine.Render(recipe, 512, LoadTextureImage) : maps).Png("albedo"));
+        await File.WriteAllBytesAsync(picture, albedo);
+        await File.WriteAllTextAsync(recipePath, copy.ToJson(), new UTF8Encoding(false));
+        ScheduleRescan(0);
+        return Path.GetRelativePath(v.Root, recipePath).Replace('\\', '/');
+    }
+
+    /// <summary>A copy of the recipe whose paintings are copied into the folder and named relative to it (a recipe that travels with its paintings).</summary>
+    private static async Task<TextureRecipe> CopyPaintingsBesideAsync(TextureRecipe recipe, string folder, HashSet<string> taken)
+    {
+        var copy = recipe.Clone();
+        foreach (var l in copy.Layers.Where(l => l.Type == "painted" && !string.IsNullOrEmpty(l.Path) && File.Exists(l.Path)))
+        {
+            var dest = PictureConvert.FreePath(folder, Path.GetFileNameWithoutExtension(l.Path!), ".noorsketch", taken);
+            await Task.Run(() => File.Copy(l.Path!, dest, overwrite: false));
+            l.Path = Path.GetFileName(dest);
+        }
+        return copy;
     }
 
     /// <summary>What each export target writes: (file suffix, what goes in it).</summary>
@@ -204,11 +284,24 @@ public partial class MainWindow
                         written.Add(path);
                         PushEvent("texture.exportProgress", new { done = written.Count, total = files.Length });
                     }
+                    // Paintings go along, so the recipe beside the maps opens complete anywhere.
+                    var travelling = await CopyPaintingsBesideAsync(recipe, folder, taken);
                     var recipePath = PictureConvert.FreePath(folder, stem + ".noortex", ".json", taken);
-                    await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
+                    await File.WriteAllTextAsync(recipePath, travelling.ToJson(), new UTF8Encoding(false));
                     _textureFolders.Add(folder);
                     Log.Info($"Texture Bench: exported {written.Count} maps of “{recipe.Name}” at {size}");
-                    return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath) };
+                    int? gallery = null; string? vault = null; var notes = new List<string>();
+                    if (NoorMD.Core.Bridge.Json.IsTrue(p, "gallery"))
+                        try { gallery = await AddTextureExportToGalleryAsync(folder, written, recipe.Name); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("Not added to the Gallery: " + ex.Message); }
+                    if (NoorMD.Core.Bridge.Json.IsTrue(p, "vault"))
+                    {
+                        if (_vault == null) notes.Add("No Vault is open, so the recipe wasn't kept there.");
+                        else
+                            try { vault = await SaveTextureToVaultAsync(recipe, maps, stem); }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("Not kept in the Vault: " + ex.Message); }
+                    }
+                    return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), paintings = travelling.Layers.Count(l => l.Type == "painted" && l.Path != null), gallery, vault, notes };
                 }
                 case "texture.reveal":
                 {
@@ -222,7 +315,7 @@ public partial class MainWindow
                     var recipe = TextureRecipeFrom(p);
                     // Only pictures already allowed are kept, so a preset can't smuggle in another path.
                     foreach (var l in recipe.Layers)
-                        if (l.Type == "image" && !string.IsNullOrEmpty(l.Path) && !_textureImageFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
+                        if (l.Type is "image" or "painted" && !string.IsNullOrEmpty(l.Path) && !_textureImageFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
                     Directory.CreateDirectory(UserTextureFolder);
                     var file = NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name, ".json");
                     var path = Path.Combine(UserTextureFolder, file);
@@ -242,6 +335,30 @@ public partial class MainWindow
                     var opened = TextureRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName)).FindImagesBeside(Path.GetDirectoryName(Path.GetFullPath(dlg.FileName))!);
                     AllowTextureImages(opened);
                     return new { recipe = TextureForPage(opened) };
+                }
+                case "texture.paint.new":
+                {
+                    // A new, empty painting for the material (transparent), kept with the app's data, and opened in NoorSketch.
+                    var recipe = TextureRecipeFrom(p);
+                    Directory.CreateDirectory(TexturePaintingsFolder);
+                    var stem = Path.GetFileNameWithoutExtension(NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name + " painting", ".noorsketch"));
+                    var path = PictureConvert.FreePath(TexturePaintingsFolder, stem, ".noorsketch", new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+                    var blank = PngWriter.Rgba(TexturePaintingSize, TexturePaintingSize, new byte[TexturePaintingSize * TexturePaintingSize * 4]);
+                    await Task.Run(() => NoorMD.Core.Sketch.SketchFile.Save(path, blank, "transparent"));
+                    _textureImageFiles.Add(path);
+                    await OpenTexturePaintingAsync(recipe, path);
+                    return new { path, name = Path.GetFileName(path) };
+                }
+                case "texture.paint.edit":
+                {
+                    // The page sends the material without this painting, to show under it while you paint.
+                    var recipe = TextureRecipeFrom(p);
+                    var path = Path.GetFullPath(req.GetString("path", 4000) ?? "");
+                    if (!path.EndsWith(".noorsketch", StringComparison.OrdinalIgnoreCase)) throw new BridgeError("Only NoorSketch paintings (.noorsketch) can be painted on here.");
+                    if (!_textureImageFiles.Contains(path) || !File.Exists(path)) throw new BridgeError("That painting can't be found. It may have been moved or deleted.");
+                    try { await OpenTexturePaintingAsync(recipe, path); }
+                    catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+                    return null;
                 }
                 case "texture.image.pick":
                 {

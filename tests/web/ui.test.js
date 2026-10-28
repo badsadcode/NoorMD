@@ -36,6 +36,18 @@ async function waitFn(page, fn, arg, opts = {}) {
   }
 }
 
+/** A PNG (8-bit RGBA) as base64, for host replies that carry pictures. */
+function pngB64(w, h, pixel) {
+  const zlib = require('zlib');
+  const table = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (buf) => { let c = 0xffffffff; for (const b of buf) c = table[(c ^ b) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const chunk = (type, data) => { const len = Buffer.alloc(4); len.writeUInt32BE(data.length); const td = Buffer.concat([Buffer.from(type), data]); const c = Buffer.alloc(4); c.writeUInt32BE(crc(td)); return Buffer.concat([len, td, c]); };
+  const raw = Buffer.alloc(h * (w * 4 + 1));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) Buffer.from(pixel(x, y)).copy(raw, y * (w * 4 + 1) + 1 + x * 4);
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 6;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0))]).toString('base64');
+}
+
 const results = [];
 function check(name, cond, detail) {
   results.push({ name, ok: !!cond, detail });
@@ -4163,6 +4175,100 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, (i) => window.__mock.state.texture.renders.at(-1).recipe.layers[i].mode === 'wear', n0 + 4);
       check('…by rain, crumbling or wear', true);
       check('no page errors with the new shapes', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 50. Texture Bench painting: a hand-painted layer made and opened in NoorSketch, applied back, exported with the material.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const T = () => page.evaluate(() => window.__mock.state.texture);
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.export'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      const n0 = (await last()).recipe.layers.length;
+      await page.click('[data-addlayer="painted"]');
+      await waitFn(page, (c) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === c, n0 + 1);
+      const painted = (await last()).recipe.layers[n0];
+      check('＋ Hand-painted makes a new painting for the material and opens it in NoorSketch', (await T()).paintNew === 1 && painted.type === 'painted'
+        && /Red bricks painting\.noorsketch$/.test(painted.path) && painted.colorAmount === 1 && painted.opacity === 0);
+      const card = `.sb-layer[data-index="${n0}"]`;
+      check('…its card: the painting, ✏ Paint in NoorSketch, colour and relief (no blend or invert)', /Red bricks painting/.test(await page.textContent(`${card} .sb-file`))
+        && await page.isVisible(`${card} [data-paint]`) && await page.isVisible(`${card} input[data-key="colorAmount"]`) && /white up, black down/.test(await page.textContent(card))
+        && (await page.$$(`${card} select[data-key="blend"]`)).length === 0);
+      await page.click(`${card} [data-paint]`);
+      await waitFn(page, () => (window.__mock.state.texture.paintEdits || []).length === 1);
+      const edit = (await T()).paintEdits[0];
+      check('✏ opens it again, with the material shown under it as it is without the painting', edit.path === painted.path && edit.recipe.layers[n0].mute === true && (await last()).recipe.layers[n0].mute === false);
+      const before = (await T()).renders.length;
+      await page.evaluate((path) => window.__mock.emit({ v: 2, event: 'texture.paintingChanged', payload: { path } }), painted.path);
+      await waitFn(page, (b) => window.__mock.state.texture.renders.length > b, before);
+      check('applying it in NoorSketch renders the material again at once', true);
+      const after = (await T()).renders.length;
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'texture.paintingChanged', payload: { path: 'C:\\other.noorsketch' } }));
+      await page.waitForTimeout(300);
+      check('…but not for a painting this material doesn\'t use', (await T()).renders.length === after);
+      // Export with the Gallery and the Vault.
+      await page.click('#texturebench .sb-tabs button[data-tab="export"]');
+      check('Export can show the maps in the Gallery and keep the recipe in the Vault (both off at first)', !(await page.isChecked('#tb-to-gallery')) && !(await page.isChecked('#tb-to-vault')));
+      await page.check('#tb-to-gallery'); await page.check('#tb-to-vault');
+      await page.click('#tb-export');
+      await page.waitForSelector('#tb-reveal');
+      const status = await page.textContent('#tb-export-status');
+      check('…the painting goes along, the maps go to the Gallery and the recipe to the Vault', /Its painting went along/.test(status) && /In the Gallery/.test(status) && /Materials\/Red_bricks\.noortex\.json/.test(status), status);
+      check('…and the choices are remembered', (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')))).gallery === true);
+      // A recipe opened from the Vault comes into the bench.
+      await page.evaluate(() => window.__mock.emit({ v: 2, event: 'texture.openRecipe', payload: { recipe: { ...JSON.parse(JSON.stringify(window.__mock.state.texture.recipes['stone-cobbles'])), name: 'From the Vault' } } }));
+      await waitFn(page, () => NoorTexture._state().recipe?.name === 'From the Vault');
+      check('a material recipe opened from the Vault opens in the Texture Bench', (await page.inputValue('#tb-name')) === 'From the Vault');
+      check('no page errors while painting materials', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 51. NoorSketch painting for a material: the material underneath, strokes across the edges, Apply, colour pick.
+    {
+      const page = await browser.newPage({ viewport: { width: 1280, height: 820 } });
+      const errors = [];
+      page.on('pageerror', (e) => errors.push(e.message));
+      page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+      const ready = {
+        file: { png: pngB64(256, 256, () => [0, 0, 0, 0]), background: 'transparent', path: 'C:\\Paintings\\Red bricks painting.noorsketch', name: 'Red bricks painting' },
+        texture: { underlay: pngB64(64, 64, (x) => (x < 32 ? [180, 60, 40, 255] : [40, 60, 180, 255])), material: 'Red bricks' },
+      };
+      await page.addInitScript(sketchHostScript, { ready });
+      await page.goto(url + '_noormd/sketch.html');
+      await waitFn(page, () => window.NoorSketch && window.NoorSketch._state().texture && window.NoorSketch._state().texture.under);
+      const S = () => page.evaluate(() => window.NoorSketch._state());
+      const px = (x, y) => page.evaluate(([a, b]) => window.NoorSketch._pixel(a, b), [x, y]);
+      const at = (x, y) => page.evaluate(([a, b]) => window.NoorSketch._toClient(a, b), [x, y]);
+      check('a material\'s painting opens transparent, the material shown under it (not part of it)', (await S()).background === 'transparent' && (await px(10, 10))[3] === 0
+        && /data:image\/png/.test(await page.$eval('#sketch-canvas', (c) => c.style.backgroundImage)) && /Painting for “Red bricks”/.test(await page.textContent('#sketch-material')));
+      check('…with Apply to material instead of New, Open and Insert', /Apply to material/.test(await page.textContent('#sketch-save'))
+        && await page.isHidden('#sketch-new') && await page.isHidden('#sketch-open') && await page.isHidden('#sketch-insert'));
+      // A stroke off the right edge carries on at the left: the painting tiles.
+      await page.click('.sk-swatch[data-color="#5fbf8a"]');
+      await page.fill('#sketch-brush-num', '20'); await page.press('#sketch-brush-num', 'Enter');
+      let a = await at(200, 128), b = await at(255, 128);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 6 }); await page.mouse.up();
+      await page.waitForTimeout(80);
+      check('a stroke over an edge carries on at the other side (the painting tiles)', (await px(250, 128))[3] === 255 && (await px(4, 128))[3] > 0 && (await px(40, 128))[3] === 0, [await px(4, 128), await px(40, 128)]);
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => window.__sk.state.saveCount === 1);
+      check('Ctrl+S applies it to the material (kept transparent)', (await page.evaluate(() => window.__sk.state.saved.background)) === 'transparent' && (await S()).dirty === false);
+      // Alt+click picks the colour: the painting where painted, the material elsewhere.
+      a = await at(16, 200);
+      await page.keyboard.down('Alt'); await page.mouse.click(a.x, a.y); await page.keyboard.up('Alt');
+      check('Alt+click picks a colour from the material under the painting', (await S()).color.join() === '180,60,40');
+      a = await at(240, 128);
+      await page.keyboard.down('Alt'); await page.mouse.click(a.x, a.y); await page.keyboard.up('Alt');
+      check('…or from the painting where it is painted', (await S()).color.join() === '95,191,138');
+      await page.uncheck('#sketch-show-material');
+      check('the material can be hidden, to see the painting alone', (await S()).texture.show === false && await page.evaluate(() => document.body.classList.contains('sk-hide-material')));
+      await page.evaluate(() => window.__sk.emit({ v: 2, event: 'sketch.underlay', payload: { underlay: '', material: 'Red bricks v2' } }));
+      await waitFn(page, () => /v2/.test(document.querySelector('#sketch-material').textContent));
+      check('the material underneath follows changes made in the Texture Bench', true);
+      check('no page errors painting for a material', errors.length === 0, errors);
       await page.close();
     }
   } finally {

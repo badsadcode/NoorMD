@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.0.0-preview.41 — Texture Bench: paint in NoorSketch, the Gallery and the Vault
+
+Stage 3 of the Texture Bench is complete (docs/TEXTURE_BENCH_PLAN.md).
+
+- **＋ Hand-painted:** paint on a material by hand, as a layer of its recipe, and keep changing the recipe.
+  - It opens in **NoorSketch** with the material shown underneath (as it is without the painting; hide it to see
+    the painting alone). The painting itself is transparent where you haven't painted.
+  - **Strokes carry on across the edges** (a stroke off the right edge comes in at the left), so the material
+    still tiles.
+  - **Ctrl+S (Apply to material)** puts it straight on the material: the Texture Bench renders again at once.
+    **✏ Paint in NoorSketch** on the layer opens it again, with the material as it is now.
+  - **Alt+click** picks a colour from the painting or the material under it (in every NoorSketch window).
+  - On the material: its colours where it is painted (by how much you choose), its brightness can raise (white)
+    or lower (black) the relief, and like any layer it can tint, roughen or make metal where it is painted.
+  - Paintings are kept with NoorMD's data, travel with exported recipes (copied beside them), and are found again
+    beside a recipe you open.
+- **Export:** optionally **show the maps in the Gallery** (the folder is added if no Gallery folder holds it, and
+  the maps are tagged "material" and with the material's name), and **keep the recipe in the Vault** (the open
+  Vault's Materials folder, with its paintings and a small picture). Both choices are remembered.
+- **Vault:** a material recipe (🧱 .noortex.json) opens in the Texture Bench.
+
 ## 2.0.0-preview.40 — Texture Bench: shapes and erosion
 
 The first part of stage 3 (docs/TEXTURE_BENCH_PLAN.md).

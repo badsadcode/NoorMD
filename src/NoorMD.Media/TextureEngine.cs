@@ -11,7 +11,7 @@ namespace NoorMD.Media;
 /// <summary>One step of the height stack: a generator, how it is shaped, and how it is blended onto what is below.</summary>
 public sealed class TextureLayer
 {
-    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "current", "curvature", "erosion"];
+    public static readonly string[] Types = ["noise", "ridged", "turbulence", "cells", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "painted", "current", "curvature", "erosion"];
     public static readonly string[] Profiles = ["dome", "flat", "crater", "cone"];
     public static readonly string[] ErosionModes = ["rain", "crumble", "wear"];
     public static readonly string[] Blends = ["normal", "add", "subtract", "multiply", "screen", "overlay", "max", "min"];
@@ -79,6 +79,9 @@ public sealed class TextureLayer
     public double MetallicShift { get; set; }
 
     // image: a picture you picked (Path, shown as ImageName), repeated ScaleX × ScaleY times across the tile.
+    // painted: a painting made for this material in NoorSketch (Path to its .noorsketch, with transparency): its
+    // colours go on the surface where it is painted (by ColorAmount), and with Opacity its brightness raises (white)
+    // or lowers (black) the relief there; mid-grey leaves it as it is.
     public string? Path { get; set; }
     public string? ImageName { get; set; }
     /// <summary>How wide (0–0.5 of the picture) its edges are blended with a half-shifted copy, so it tiles.</summary>
@@ -199,14 +202,14 @@ public sealed class TextureRecipe
     private static string? HexOrNull(string c) => c is { Length: 7 } && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : null;
 
     /// <summary>Pictures the recipe reads (image layers).</summary>
-    public IEnumerable<string> Files() => (Layers ?? []).Where(l => l.Type == "image" && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!);
+    public IEnumerable<string> Files() => (Layers ?? []).Where(l => l.Type is "image" or "painted" && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!);
 
     /// <summary>For a recipe opened from a file: pictures named by a relative path, or whose folder moved, are found next to it.</summary>
     public TextureRecipe FindImagesBeside(string folder)
     {
         foreach (var l in Layers ?? [])
         {
-            if (l.Type != "image" || string.IsNullOrEmpty(l.Path)) continue;
+            if (l.Type is not ("image" or "painted") || string.IsNullOrEmpty(l.Path)) continue;
             try
             {
                 if (!System.IO.Path.IsPathFullyQualified(l.Path)) { l.Path = System.IO.Path.GetFullPath(System.IO.Path.Combine(folder, l.Path)); continue; }
@@ -272,7 +275,7 @@ public static class TextureEngine
     public const int MinSize = 64, MaxSize = 4096;
 
     /// <summary>A layer's own values (after its levels), kept when it paints the surface; an image layer's colours too.</summary>
-    private sealed record Paint(TextureLayer Layer, float[] Mask, float[]? Rgb);
+    private sealed record Paint(TextureLayer Layer, float[] Mask, float[]? Rgb, float[]? Alpha = null);
 
     /// <param name="images">Reads a picture an image layer uses (null when it can't or may not be used).</param>
     public static TextureMaps Render(TextureRecipe recipe, int size, Func<string, TextureImage?>? images = null)
@@ -286,6 +289,20 @@ public static class TextureEngine
         foreach (var layer in r.Layers)
         {
             if (layer.Mute) continue;
+            if (layer.Type == "painted")
+            {
+                var art = string.IsNullOrEmpty(layer.Path) ? null : images?.Invoke(layer.Path);
+                if (art == null) { warnings.Add($"“{layer.ImageName ?? layer.Name}”: the painting is missing or can't be read"); continue; }
+                var (prgb, alpha) = PaintedLayer(art, size);
+                if (layer.Opacity > 0)
+                    for (var i = 0; i < n; i++)
+                    {
+                        var lum = 0.2126 * prgb[i * 3] + 0.7152 * prgb[i * 3 + 1] + 0.0722 * prgb[i * 3 + 2];
+                        h[i] = (float)Math.Clamp(h[i] + layer.Opacity * alpha[i] * (lum - 0.5), 0, 1);
+                    }
+                paints.Add(new Paint(layer, alpha, prgb, alpha));
+                continue;
+            }
             var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0);
             if (layer.Opacity <= 0 && !painting) continue;
             var seed = (uint)(r.Seed + layer.SeedShift) * 2654435761u + 0x9E3779B9u;
@@ -971,7 +988,7 @@ public static class TextureEngine
                     var p = paints[k]; var m = p.Mask[i]; var l = p.Layer;
                     if (p.Rgb != null && l.ColorAmount > 0)
                     {
-                        var a = l.ColorAmount;
+                        var a = l.ColorAmount * (p.Alpha?[i] ?? 1);
                         cr += (p.Rgb[i * 3] - cr) * a; cg += (p.Rgb[i * 3 + 1] - cg) * a; cb += (p.Rgb[i * 3 + 2] - cb) * a;
                     }
                     if (l.Tint != null && l.TintAmount > 0)
@@ -1049,6 +1066,41 @@ public static class TextureEngine
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, Prepared> PreparedCache = new();
 
     /// <summary>An image layer at the tile's size: its height (0–1) and its colours, repeated ScaleX × ScaleY times.</summary>
+    /// <summary>
+    /// A painting at the material's size: bilinear and wrapping (it was painted wrapping, so it tiles). Colour is
+    /// weighted by coverage when scaled, so unpainted (transparent) pixels don't darken the edges of strokes.
+    /// </summary>
+    private static (float[] Rgb, float[] Alpha) PaintedLayer(TextureImage img, int size)
+    {
+        var n = size * size;
+        var rgb = new float[n * 3];
+        var alpha = new float[n];
+        int w = img.Width, ih = img.Height;
+        Parallel.For(0, size, y =>
+        {
+            var sy = (y + 0.5) * ih / size - 0.5;
+            var y0 = (int)Math.Floor(sy); var ty = sy - y0;
+            for (var x = 0; x < size; x++)
+            {
+                var sx = (x + 0.5) * w / size - 0.5;
+                var x0 = (int)Math.Floor(sx); var tx = sx - x0;
+                double ar = 0, ag = 0, ab = 0, aa = 0;
+                for (var k = 0; k < 4; k++)
+                {
+                    int xx = Wrap(x0 + (k & 1), w), yy = Wrap(y0 + (k >> 1), ih);
+                    var wgt = ((k & 1) == 1 ? tx : 1 - tx) * ((k >> 1) == 1 ? ty : 1 - ty);
+                    var j = yy * w + xx;
+                    var a = (img.Alpha?[j] ?? 1) * wgt;
+                    aa += a; ar += img.Rgb[j * 3] * a; ag += img.Rgb[j * 3 + 1] * a; ab += img.Rgb[j * 3 + 2] * a;
+                }
+                var i = y * size + x;
+                alpha[i] = (float)Math.Clamp(aa, 0, 1);
+                if (aa > 1e-6) { rgb[i * 3] = (float)(ar / aa); rgb[i * 3 + 1] = (float)(ag / aa); rgb[i * 3 + 2] = (float)(ab / aa); }
+            }
+        });
+        return (rgb, alpha);
+    }
+
     private static (double[] Values, float[] Rgb) ImageLayer(TextureLayer l, TextureImage img, int size)
     {
         var key = string.Join('|', img.Id, l.SeamBlend, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
@@ -1254,5 +1306,7 @@ public sealed class TextureImage
     public required int Height { get; init; }
     /// <summary>RGB, 3 floats a pixel, 0–1.</summary>
     public required float[] Rgb { get; init; }
+    /// <summary>Coverage, 1 float a pixel, 0–1 (null: fully opaque).</summary>
+    public float[]? Alpha { get; init; }
     public required string Id { get; init; }
 }

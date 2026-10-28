@@ -313,6 +313,7 @@ public sealed class GalleryLibrary
     }
 
     public GalleryImage? Get(long id) => Rows($"SELECT {Cols} FROM images i WHERE i.id = $id", ("$id", id)).FirstOrDefault();
+    public GalleryImage? FindByPath(string path) => Rows($"SELECT {Cols} FROM images i WHERE i.path_key = $k", ("$k", MusicLibrary.PathKey(System.IO.Path.GetFullPath(path)))).FirstOrDefault();
 
     public int Count()
     {

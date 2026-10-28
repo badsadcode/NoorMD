@@ -98,6 +98,17 @@ public partial class MainWindow
                     var full = VaultFull(req.GetString("path", 1000));
                     if (!File.Exists(full)) throw new BridgeError("That file no longer exists.");
                     if (full.EndsWith(".noorsketch", StringComparison.OrdinalIgnoreCase)) { OpenSketch(full); return new { sketch = true }; }
+                    if (full.EndsWith(".noortex.json", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // A material recipe opens in the Texture Bench, with the paintings and pictures beside it.
+                        if (new FileInfo(full).Length > 200_000) throw new BridgeError("That file is too big for a material recipe.");
+                        NoorMD.Media.TextureRecipe recipe;
+                        try { recipe = NoorMD.Media.TextureRecipe.FromJson(await File.ReadAllTextAsync(full)).FindImagesBeside(Path.GetDirectoryName(full)!); }
+                        catch (System.Text.Json.JsonException ex) { throw new BridgeError("The recipe can't be read: " + ex.Message); }
+                        AllowTextureImages(recipe);
+                        PushEvent("texture.openRecipe", new { recipe = TextureForPage(recipe) });
+                        return new { texture = true };
+                    }
                     if (!DocumentFile.IsOpenable(full)) { OpenExternal(full); return new { external = true }; }
                     return await WithDocGate(() => OpenPathAsync(full));
                 }

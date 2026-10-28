@@ -19,6 +19,9 @@ window.NoorSketch = (() => {
   let zoom = 1, panX = 0, panY = 0;
   let undo = [], redo = [], undoBytes = 0, savedMarker = null, docPath = null, docName = 'Untitled sketch';
   let stroke = null, panning = null, spaceDown = false, dirtyRect = null, rafPending = false;
+  // Painting for a material (opened from the Texture Bench): the material shows underneath, strokes wrap around the
+  // edges (so the painting tiles), and saving applies it to the material.
+  let texture = null; // { material, under: { width, height, rgba } | null, show }
 
   // ---------------------------------------------------------------- canvas model
 
@@ -65,7 +68,7 @@ window.NoorSketch = (() => {
 
   function beginStroke(p) {
     stroke = { tiles: new Map(), last: p, erase: tool === 'eraser', color: color.slice(), r: size / 2 };
-    stamp(p.x, p.y);
+    stampWrapped(p.x, p.y);
   }
 
   function tileFor(i) {
@@ -116,6 +119,18 @@ window.NoorSketch = (() => {
     markDirty(x0, y0, x1, y1);
   }
 
+  /** A stamp, and for a material's painting its copies across the edges too, so strokes carry on at the other side. */
+  function stampWrapped(cx, cy) {
+    stamp(cx, cy);
+    if (!texture) return;
+    const r = stroke.r + 1;
+    for (const ox of [-W, 0, W]) for (const oy of [-H, 0, H]) {
+      if (!ox && !oy) continue;
+      const x = cx + ox, y = cy + oy;
+      if (x + r > 0 && x - r < W && y + r > 0 && y - r < H) stamp(x, y);
+    }
+  }
+
   /** Stamps along the segment, spaced well under the radius, so fast strokes have no gaps. */
   function strokeTo(p) {
     const { last, r } = stroke;
@@ -123,8 +138,8 @@ window.NoorSketch = (() => {
     const dist = Math.hypot(dx, dy);
     const step = Math.max(0.5, r * 0.3);
     const n = Math.floor(dist / step);
-    for (let k = 1; k <= n; k++) stamp(last.x + (dx * k * step) / dist, last.y + (dy * k * step) / dist);
-    if (n === 0 || dist - n * step > 0.01) stamp(p.x, p.y);
+    for (let k = 1; k <= n; k++) stampWrapped(last.x + (dx * k * step) / dist, last.y + (dy * k * step) / dist);
+    if (n === 0 || dist - n * step > 0.01) stampWrapped(p.x, p.y);
     stroke.last = p;
   }
 
@@ -256,6 +271,7 @@ window.NoorSketch = (() => {
       }
       if (e.button !== 0 || NoorUI.hasOpenModal()) return;
       e.preventDefault();
+      if (e.altKey) { pickColor(toCanvas(e)); return; }
       vp.setPointerCapture(e.pointerId);
       beginStroke(toCanvas(e));
     });
@@ -280,6 +296,54 @@ window.NoorSketch = (() => {
     }, { passive: false });
     vp.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('resize', () => applyView());
+  }
+
+  /** Alt+click: the colour under the pointer (for a material's painting, the painting over the material). */
+  function pickColor(p) {
+    const x = Math.floor(p.x), y = Math.floor(p.y);
+    if (x < 0 || y < 0 || x >= W || y >= H) return;
+    const o = (y * W + x) * 4, a = buf[o + 3] / 255;
+    let base = background === 'white' ? [255, 255, 255] : [0, 0, 0];
+    if (texture && texture.under && texture.show) {
+      const u = texture.under, ux = Math.floor((x / W) * u.width), uy = Math.floor((y / H) * u.height), q = (uy * u.width + ux) * 4;
+      base = [u.rgba[q], u.rgba[q + 1], u.rgba[q + 2]];
+    } else if (background === 'transparent' && a === 0) return;
+    const c = [0, 1, 2].map((k) => Math.round(buf[o + k] * a + base[k] * (1 - a)));
+    setColor('#' + c.map((v) => v.toString(16).padStart(2, '0')).join(''));
+    notice('Colour picked', 700);
+  }
+
+  // ---------------------------------------------------------------- material painting
+
+  async function setUnderlay(b64, material) {
+    texture.material = material || texture.material;
+    const c = $('#sketch-canvas');
+    c.style.backgroundImage = `url("data:image/png;base64,${b64}")`;
+    try { texture.under = await NoorPng.decode(NoorPng.fromBase64(b64)); } catch { texture.under = null; }
+    $('#sketch-material').textContent = `Painting for “${texture.material}”`;
+  }
+
+  function showUnderlay(on) {
+    texture.show = on;
+    document.body.classList.toggle('sk-hide-material', !on);
+  }
+
+  async function enterTextureMode(t) {
+    texture = { material: t.material, under: null, show: true };
+    document.body.classList.add('sk-texture');
+    for (const id of ['sketch-new', 'sketch-open', 'sketch-insert', 'sketch-resize']) $('#' + id).hidden = true;
+    $('#sketch-with-source').closest('label').hidden = true;
+    const apply = $('#sketch-save');
+    apply.textContent = 'Apply to material';
+    apply.classList.add('primary');
+    apply.title = 'Apply to the material (Ctrl+S): the Texture Bench shows it at once';
+    apply.setAttribute('aria-label', apply.title);
+    const show = el('input', { type: 'checkbox', id: 'sketch-show-material', checked: true });
+    show.addEventListener('change', () => showUnderlay(show.checked));
+    $('#sketch-file').append(el('span', { class: 'sk-label', id: 'sketch-material' }),
+      el('label', { class: 'inline sk-small', title: 'Show the material under your painting (it is not part of the painting)' }, show, 'show the material'));
+    $('#sketch-hint').textContent = 'Strokes carry on across the edges, so the painting tiles · Alt+click picks a colour · Wheel zooms · [ ] brush size';
+    await setUnderlay(t.underlay, t.material);
   }
 
   // ---------------------------------------------------------------- toolbar
@@ -325,7 +389,7 @@ window.NoorSketch = (() => {
       savedMarker = undo.length ? undo[undo.length - 1] : null;
       lastPostedDirty = null;
       changed();
-      notice('Saved ✓ ' + docName, 1600);
+      notice(r.applied ? `Applied to “${texture ? texture.material : 'the material'}” ✓` : 'Saved ✓ ' + docName, 1600);
       return true;
     } catch (err) { showError(err); return false; }
   }
@@ -433,11 +497,11 @@ window.NoorSketch = (() => {
     else if (k === ' ' && !ctrl) { spaceDown = true; $('#sketch-viewport').classList.add('can-pan'); updateCursor(); }
     else if (ctrl && k === 'z' && !e.shiftKey) doUndo();
     else if (ctrl && (k === 'y' || (k === 'z' && e.shiftKey))) doRedo();
-    else if (ctrl && k === 's') save(e.shiftKey);
-    else if (ctrl && k === 'o') open();
-    else if (ctrl && k === 'n') showNew();
+    else if (ctrl && k === 's') save(e.shiftKey && !texture);
+    else if (ctrl && k === 'o') { if (!texture) open(); }
+    else if (ctrl && k === 'n') { if (!texture) showNew(); }
     else if (ctrl && k === 'e') exportPng();
-    else if (ctrl && k === 'Enter') insertIntoDocument();
+    else if (ctrl && k === 'Enter') { if (!texture) insertIntoDocument(); }
     else if (ctrl && k === '0') fit();
     else if (ctrl && k === '1') actualSize();
     else if (ctrl && (k === '=' || k === '+')) { const v = $('#sketch-viewport').getBoundingClientRect(); zoomAt(zoom * 1.25, v.width / 2, v.height / 2); }
@@ -488,6 +552,7 @@ window.NoorSketch = (() => {
     window.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceDown = false; $('#sketch-viewport').classList.remove('can-pan'); updateCursor(); } });
     bridge.on('sketch.saveAndClose', async () => { if (await save(false)) bridge.post('sketch.closeNow'); });
     bridge.on('sketch.load', (p) => load(p).catch(showError));
+    bridge.on('sketch.underlay', (p) => { if (texture) setUnderlay(p.underlay, p.material); });
     setupPointer();
     setTool('brush');
     setColor('#1d1b26');
@@ -495,6 +560,7 @@ window.NoorSketch = (() => {
     let ready = {};
     try { ready = bridge.available ? (await bridge.request('sketch.ready')) || {} : {}; } catch (err) { showError(err); }
     if (ready.file) await load(ready.file).catch((err) => { newCanvas(1920, 1080, 'white'); showError(err); });
+    if (ready.texture) await enterTextureMode(ready.texture);
     else newCanvas(ready.width || 1920, ready.height || 1080, ready.background || 'white');
   }
 
@@ -503,7 +569,7 @@ window.NoorSketch = (() => {
   return {
     isDirty, save,
     // test hooks
-    _state: () => ({ W, H, background, zoom, tool, size, color, undo: undo.length, redo: redo.length, dirty: isDirty(), path: docPath, name: docName }),
+    _state: () => ({ W, H, background, zoom, tool, size, color, undo: undo.length, redo: redo.length, dirty: isDirty(), path: docPath, name: docName, texture: texture ? { material: texture.material, show: texture.show, under: !!texture.under } : null }),
     _pixel: (x, y) => Array.from(buf.subarray((y * W + x) * 4, (y * W + x) * 4 + 4)),
     _toClient: (x, y) => { const v = document.querySelector('#sketch-viewport').getBoundingClientRect(); return { x: v.left + panX + x * zoom, y: v.top + panY + y * zoom }; },
     _encode: pngBase64,

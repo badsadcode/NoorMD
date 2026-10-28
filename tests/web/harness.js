@@ -462,9 +462,17 @@ function mockHostScript(initial) {
         TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target });
         const stem = p.recipe.name.replace(/ /g, '_');
         const names = { generic: ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height'], godot: ['albedo', 'normal', 'roughness', 'metallic', 'ao', 'height'], unity: ['albedo', 'normal', 'metallic_smoothness', 'ao', 'height'], unreal: ['basecolor', 'normal', 'orm', 'height'] }[p.target];
-        return { folder: 'D:\\Game\\Materials', files: names.map((n) => `${stem}_${n}.png`), recipe: stem + '.noortex.json' };
+        const paintings = (p.recipe.layers || []).filter((l) => l.type === 'painted' && l.path).length;
+        return { folder: 'D:\\Game\\Materials', files: names.map((n) => `${stem}_${n}.png`), recipe: stem + '.noortex.json', paintings,
+          gallery: p.gallery ? names.length : null, vault: p.vault ? `Materials/${stem}.noortex.json` : null, notes: [] };
       }
       case 'texture.reveal': TEX.opened = p.folder; return null;
+      case 'texture.paint.new': {
+        TEX.paintNew = (TEX.paintNew || 0) + 1;
+        const name = `${p.recipe.name} painting.noorsketch`;
+        return { path: 'C:\\Users\\me\\AppData\\Local\\NoorMD\\Texture\\Paintings\\' + name, name };
+      }
+      case 'texture.paint.edit': TEX.paintEdits = (TEX.paintEdits || []).concat([{ path: p.path, recipe: JSON.parse(JSON.stringify(p.recipe)) }]); return null;
       case 'texture.image.pick': TEX.imagePicks = (TEX.imagePicks || 0) + 1; return TEX.imageCancel ? { cancelled: true } : { path: 'C:\\Photos\\old wall.jpg', name: 'old wall.jpg', width: 1600, height: 1200 };
       case 'texture.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = TEX.mine.some((x) => x.id === id); TEX.mine = TEX.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'texture.delete': TEX.mine = TEX.mine.filter((x) => x.id !== p.id); return { mine: mine() };
@@ -950,7 +958,9 @@ function sketchHostScript(initial) {
       switch (m.type) {
         case 'sketch.ready': return reply(m.id, true, initial.ready || { width: 400, height: 300, background: 'white' });
         case 'sketch.dirty': state.dirty.push(p.dirty); return;
-        case 'sketch.save': state.saved = p; state.saveCount++; return reply(m.id, true, { path: 'C:\\Sketches\\idea.noorsketch', name: 'idea' });
+        case 'sketch.save': state.saved = p; state.saveCount++;
+          if (initial.ready && initial.ready.texture) return reply(m.id, true, { path: initial.ready.file.path, name: initial.ready.file.name, applied: true });
+          return reply(m.id, true, { path: 'C:\\Sketches\\idea.noorsketch', name: 'idea' });
         case 'sketch.open': return reply(m.id, true, state.openFile || { cancelled: true });
         case 'sketch.exportPng': state.exported = p; return reply(m.id, true, { path: 'C:\\Sketches\\idea.png' });
         case 'sketch.insert': state.inserted = p; return reply(m.id, true, { inserted: true, link: 'assets/idea.png', document: 'Plan.md' });

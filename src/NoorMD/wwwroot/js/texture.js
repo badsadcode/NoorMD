@@ -6,7 +6,7 @@ window.NoorTexture = (() => {
   const { $, el, notice } = NoorUI;
   const req = (type, payload) => NoorBridge.request(type, payload);
 
-  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
+  const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', cells: 'Cells (stones, cracks)', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', painted: 'Hand-painted (NoorSketch)', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
   const NEW_LAYER = {
     noise: { scaleX: 4, scaleY: 4, octaves: 5 }, ridged: { scaleX: 3, scaleY: 3, octaves: 6 }, turbulence: { scaleX: 6, scaleY: 6, octaves: 4 },
     cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3 }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
@@ -20,6 +20,7 @@ window.NoorTexture = (() => {
     current: { scaleX: 1, scaleY: 1, opacity: 0, low: 0.6, high: 0.7, warp: 0.3, warpScale: 8 },
     curvature: { scaleX: 2, scaleY: 1, opacity: 0, low: 0.55, high: 0.65, warp: 0.3, warpScale: 12 },
     erosion: { scaleX: 1, scaleY: 1, mode: 'rain', amount: 0.6 },
+    painted: { scaleX: 1, scaleY: 1, colorAmount: 1, opacity: 0, blend: 'normal' },
     image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
   };
   // Sliders: [key, label, min, max, step, kind]; 'int' are whole numbers, 'pct' shows 0–100.
@@ -42,6 +43,7 @@ window.NoorTexture = (() => {
     spots: [['scaleX', 'Grid across', 1, 128, 1, 'int'], ['scaleY', 'Grid down', 1, 128, 1, 'int'], ['size', 'Size', 0.05, 1, 0.01, 'pct'], ['density', 'How many', 0, 1, 0.01, 'pct'],
       ['jitter', 'Scattered (0 = in rows)', 0, 1, 0.01, 'pct'], ['variation', 'Sizes differ', 0, 1, 0.01, 'pct'], ...WARP],
     erosion: [['amount', 'Amount', 0, 1, 0.01, 'pct']],
+    painted: [['colorAmount', 'Its colours on the surface', 0, 1, 0.01, 'pct']],
     weave: [['scaleX', 'Threads across', 2, 128, 2, 'int'], ['scaleY', 'Threads down', 2, 128, 2, 'int'], ...WARP],
     scratches: [['count', 'How many', 0, 500, 1, 'int'], ['length', 'Length', 0.005, 1, 0.005, 'pct'], ['width', 'Width', 0.0005, 0.05, 0.0005, 'pct']],
     current: [...WARP],
@@ -56,6 +58,8 @@ window.NoorTexture = (() => {
   const SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Levels: low', 0, 1, 0.01, 'pct'], ['high', 'Levels: high', 0, 1, 0.01, 'pct'], ['gamma', 'Levels: middle (gamma)', 0.1, 5, 0.01, 'num']];
   // Erosion's height is used as it comes; its levels shape where it paints.
   const EROSION_SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Paints from (fainter traces)', 0, 1, 0.01, 'pct'], ['high', 'Paints fully at', 0, 1, 0.01, 'pct'], ['gamma', 'Paint: middle (gamma)', 0.1, 5, 0.01, 'num']];
+  // A painting raises the relief where it is light and lowers it where it is dark (mid-grey: no change).
+  const PAINTED_SHAPE = [['opacity', 'Relief from its brightness (white up, black down)', 0, 1, 0.01, 'pct']];
   const BLENDS = [['normal', 'Replace'], ['add', 'Add'], ['subtract', 'Subtract'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['max', 'Higher of the two'], ['min', 'Lower of the two']];
   const SURFACE = [['colorVariation', 'Colour variation', 0, 1, 0.01, 'pct'], ['dirt', 'Dirt in the cavities', 0, 1, 0.01, 'pct'],
     ['roughnessLow', 'Roughness, low parts', 0, 1, 0.01, 'pct'], ['roughnessHigh', 'Roughness, high parts', 0, 1, 0.01, 'pct'], ['roughnessVariation', 'Roughness variation', 0, 1, 0.01, 'pct'],
@@ -99,6 +103,8 @@ window.NoorTexture = (() => {
 
   function init(h) {
     hooks = { ...hooks, ...h };
+    NoorBridge.on('texture.paintingChanged', paintingChanged);
+    NoorBridge.on('texture.openRecipe', async (p) => { await open(); setRecipe(p.recipe, true); notice(`Opened “${p.recipe.name}” from the Vault`, 1600); });
     NoorBridge.on('texture.exportProgress', (p) => { const s = $('#tb-export-status'); if (s) s.textContent = `Writing map ${p.done} of ${p.total}…`; });
   }
 
@@ -393,10 +399,15 @@ window.NoorTexture = (() => {
       const invert = el('input', { type: 'checkbox', checked: l.invert || undefined, 'data-key': 'invert' });
       invert.addEventListener('change', () => { l.invert = invert.checked; changed(false); });
       const move = (d) => { const j = i + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[i], recipe.layers[j]] = [recipe.layers[j], recipe.layers[i]]; changed(true); };
-      const choices = [el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend), el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Invert' }))];
+      // A painting goes on as painted: no blend mode or invert.
+      const choices = l.type === 'painted' ? [] : [el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend), el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Invert' }))];
       if (l.type === 'image') {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖼 ' + (l.imageName || 'no picture') }),
           el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { Object.assign(l, { path: f.path, imageName: f.name, ...keepProportions(f) }); changed(true); } } }, 'Change picture…'));
+      }
+      if (l.type === 'painted') {
+        choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖌 ' + (l.imageName || 'no painting') }),
+          el('button', { class: 'utility-btn', 'data-paint': '', title: 'Open it in NoorSketch with the material underneath; Ctrl+S there applies it here', onclick: () => paintIn(l) }, '✏ Paint in NoorSketch'));
       }
       if (l.type === 'spots') {
         const prof = el('select', { 'aria-label': 'Spots as', 'data-key': 'profile' }, ...[['dome', 'domes (pebbles, studs)'], ['flat', 'flat (rivets, coins)'], ['crater', 'craters'], ['cone', 'cones']].map(([v, t]) => el('option', { value: v, text: t })));
@@ -426,7 +437,7 @@ window.NoorTexture = (() => {
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), id: '', name: l.name + ' copy' }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...choices),
-        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : SHAPE).map((f) => slider(l, f))),
+        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : l.type === 'painted' ? PAINTED_SHAPE : SHAPE).map((f) => slider(l, f))),
         ...(l.type === 'image' ? [heightByColour(l)] : []),
         paintGroup(l));
     });
@@ -446,6 +457,11 @@ window.NoorTexture = (() => {
         if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
         // Erosion reshapes what is already there: it replaces it, and marks where the water ran.
         if (t === 'erosion') { add({ opacity: 1, blend: 'normal', tint: '#3b2c20', tintAmount: 0.5 }); return; }
+        // A painting starts empty and opens in NoorSketch, the material underneath.
+        if (t === 'painted') {
+          req('texture.paint.new', { recipe }).then((r) => { if (r && r.path) add({ path: r.path, imageName: r.name, name: 'Painting' }); }).catch(hooks.showError);
+          return;
+        }
         add({});
       } }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
     ];
@@ -475,7 +491,7 @@ window.NoorTexture = (() => {
     color.addEventListener('input', () => { if (l.tint) { l.tint = color.value; changed(false); } });
     const active = !!l.tint || !!l.roughnessShift || !!l.metallicShift;
     return el('details', { class: 'sb-fxgroup', open: active || undefined },
-      el('summary', { text: `${l.type === 'erosion' ? 'Paint the surface where it acted' : 'Paint the surface where this is high'}${active ? ' (on)' : ''}` }),
+      el('summary', { text: `${l.type === 'erosion' ? 'Paint the surface where it acted' : l.type === 'painted' ? 'Tint, roughness and metal where it is painted' : 'Paint the surface where this is high'}${active ? ' (on)' : ''}` }),
       el('p', { class: 'pref-hint', text: l.type === 'erosion'
         ? 'Where the water ran (silt, wet streaks), where the rubble settled, or where the edges wore (lighter, bare). Set Strength to 0 above to paint without changing the height.'
         : 'Moss on the tops of stones, wet patches in the dips, rust that is no longer metal. Set Strength to 0 above to paint without changing the height.' }),
@@ -514,6 +530,24 @@ window.NoorTexture = (() => {
     ];
   }
 
+  // ---------------------------------------------------------------- painting in NoorSketch
+
+  /** Opens a painting layer in NoorSketch, with the material as it is without it shown underneath. */
+  async function paintIn(l) {
+    const under = clone(recipe);
+    const mine = under.layers.find((x) => x.id === l.id && x.path === l.path);
+    if (mine) mine.mute = true;
+    try { await req('texture.paint.edit', { recipe: under, path: l.path }); notice('Opening NoorSketch… Ctrl+S there applies the painting here.', 2200); }
+    catch (err) { hooks.showError(err); }
+  }
+
+  /** A painting was applied in NoorSketch: the material renders again with it (its file's time is part of the render). */
+  function paintingChanged(p) {
+    if (!recipe || !recipe.layers.some((l) => l.type === 'painted' && l.path === p.path)) return;
+    notice('Painting applied', 1000);
+    preview(512);
+  }
+
   // ---------------------------------------------------------------- export
 
   function exportPrefs() { try { return { size: 1024, target: 'generic', ...JSON.parse(localStorage.getItem('noormd.texture.export') || '{}') }; } catch { return { size: 1024, target: 'generic' }; } }
@@ -527,10 +561,18 @@ window.NoorTexture = (() => {
       s.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }));
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
+    const check = (id, label, title, key) => {
+      const c = el('input', { type: 'checkbox', id, checked: prefs[key] ? true : undefined });
+      c.addEventListener('change', () => saveExportPrefs({ ...exportPrefs(), [key]: c.checked }));
+      return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
+    };
     return [
       el('div', { class: 'sb-row' },
         sel('tb-size', 'Size', [512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), prefs.size, 'size', true),
         sel('tb-target', 'For', TARGETS, prefs.target, 'target', false)),
+      el('div', { class: 'sb-row' },
+        check('tb-to-gallery', 'Show them in the Gallery', 'Adds the folder to the Gallery (if no Gallery folder holds it yet) and tags the maps “material” and with its name', 'gallery'),
+        check('tb-to-vault', 'Keep the recipe in the Vault', 'Copies the recipe (with its paintings) and a small picture to the open Vault’s Materials folder; open it from there later', 'vault')),
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'tb-export', onclick: exportMaps }, '⤓ Export PNG maps…'),
         el('button', { class: 'action', id: 'tb-save', onclick: savePreset }, '★ Save as my preset…')),
@@ -561,10 +603,12 @@ window.NoorTexture = (() => {
     const p = exportPrefs();
     const status = $('#tb-export-status');
     try {
-      const r = await req('texture.export', { recipe, size: p.size, target: p.target });
+      const r = await req('texture.export', { recipe, size: p.size, target: p.target, gallery: !!p.gallery, vault: !!p.vault });
       if (!r || r.cancelled) return;
       if (status) {
-        status.replaceChildren(el('span', { text: `Saved ${r.files.length} maps and the recipe in ${r.folder}. ` }),
+        const more = [r.paintings ? `${r.paintings === 1 ? 'Its painting went' : `Its ${r.paintings} paintings went`} along.` : '',
+          r.gallery != null ? `In the Gallery, tagged “material”.` : '', r.vault ? `Recipe kept in the Vault: ${r.vault}.` : '', ...(r.notes || [])].filter(Boolean).join(' ');
+        status.replaceChildren(el('span', { text: `Saved ${r.files.length} maps and the recipe in ${r.folder}. ${more} ` }),
           el('button', { class: 'utility-btn', id: 'tb-reveal', onclick: () => req('texture.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
       notice(`Exported ${r.files.join(', ')}`, 2600);

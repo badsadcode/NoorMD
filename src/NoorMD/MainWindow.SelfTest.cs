@@ -859,6 +859,20 @@ public partial class MainWindow
             var photoRefused = WithPhoto(photoNotPicked);
             Check("Texture Bench: a picked photo becomes a layer, one nobody picked is refused", photoUsed.Warnings.Count == 0 && photoUsed.Height.Max() - photoUsed.Height.Min() > 0.3 && photoRefused.Warnings.Count == 1,
                 $"used: {string.Join("; ", photoUsed.Warnings)} range {photoUsed.Height.Max() - photoUsed.Height.Min():0.00}; refused: {photoRefused.Warnings.Count}");
+            // A painting made in NoorSketch (a .noorsketch with transparency) goes on the material only where it is painted.
+            var paintingPath = Path.Combine(SelfTestDir!, "Texture painting.noorsketch");
+            var art = new byte[64 * 64 * 4];
+            for (var y = 0; y < 32; y++) for (var x = 0; x < 32; x++) { var i = (y * 64 + x) * 4; art[i] = 230; art[i + 1] = 20; art[i + 2] = 20; art[i + 3] = 255; }
+            NoorMD.Core.Sketch.SketchFile.Save(paintingPath, PngWriter.Rgba(64, 64, art), "transparent");
+            _textureImageFiles.Add(paintingPath);
+            var painted = TextureEngine.Render(new TextureRecipe
+            {
+                Layers = [new TextureLayer { Type = "painted", Path = paintingPath, ColorAmount = 1, Opacity = 0 }],
+                Surface = new TextureSurface { Ramp = [new() { Pos = 0, Color = "#808080" }, new() { Pos = 1, Color = "#808080" }], ColorVariation = 0, Dirt = 0 },
+            }.Clamped(), 128, LoadTextureImage);
+            int Red(int x, int y) => painted.Albedo[(y * 128 + x) * 3];
+            Check("Texture Bench: a NoorSketch painting goes on the material where it is painted (transparent elsewhere)", painted.Warnings.Count == 0 && Red(20, 20) > 200 && Red(100, 100) is > 110 and < 145,
+                $"{string.Join("; ", painted.Warnings)} painted {Red(20, 20)}, elsewhere {Red(100, 100)}");
         }
 
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.

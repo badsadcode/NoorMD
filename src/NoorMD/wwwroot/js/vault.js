@@ -141,6 +141,7 @@ window.NoorVault = (() => {
     if (/\.(mp3|flac|wav|ogg|opus|m4a)$/i.test(e.p)) return '♫';
     if (/\.pdf$/i.test(e.p)) return '📄';
     if (/\.noorsketch$/i.test(e.p)) return '✎';
+    if (/\.noortex\.json$/i.test(e.p)) return '🧱';
     return '·';
   }
 

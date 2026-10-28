@@ -15,6 +15,9 @@ using NoorMD.Ui;
 
 namespace NoorMD;
 
+/// <summary>A painting for a material: where it is kept, the material's name, and the material's albedo to paint over.</summary>
+internal sealed record TexturePaint(string Path, string Material, byte[] Underlay);
+
 /// <summary>
 /// NoorSketch: a modeless drawing window. It has its own page (wwwroot/sketch.html) and its own bridge; it never
 /// touches a document except through "Insert into document", which goes through the main window's rules.
@@ -31,15 +34,18 @@ public sealed class SketchWindow : Window
     private bool _dirty;
     private string _name = "Untitled sketch";
     private bool _closeConfirmed;
+    private readonly TexturePaint? _texture; // painting for a material: saves go to its file and back to the Texture Bench
 
     internal bool IsDirty => _dirty;
+    internal string? TexturePath => _texture?.Path;
     internal string SketchName => _name;
 
-    public SketchWindow(MainWindow main, string? openPath)
+    internal SketchWindow(MainWindow main, string? openPath, TexturePaint? texture = null)
     {
         _main = main;
         _openPath = openPath;
-        Title = "NoorSketch";
+        _texture = texture;
+        Title = texture == null ? "NoorSketch" : $"Painting for “{texture.Material}” — NoorSketch";
         Width = 1240; Height = 820; MinWidth = 700; MinHeight = 460;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = new Grid { Children = { _web } };
@@ -140,6 +146,11 @@ public sealed class SketchWindow : Window
         switch (req.Type)
         {
             case "sketch.ready":
+                if (_texture is { } t)
+                {
+                    _openPath = null;
+                    return new { file = LoadPayload(t.Path), texture = new { underlay = Convert.ToBase64String(t.Underlay), material = t.Material } };
+                }
                 if (_openPath is { } open)
                 {
                     _openPath = null;
@@ -149,11 +160,18 @@ public sealed class SketchWindow : Window
             case "sketch.dirty":
                 _dirty = Json.IsTrue(req.Payload, "dirty");
                 _name = req.GetString("name", 200) ?? _name;
-                Title = (_dirty ? "● " : "") + _name + " — NoorSketch";
+                Title = (_dirty ? "● " : "") + _name + (_texture != null ? $" · painting for “{_texture.Material}”" : "") + " — NoorSketch";
                 return null;
             case "sketch.save":
                 {
                     var png = PngFrom(req);
+                    if (_texture is { } paint)
+                    {
+                        // A material's painting: always its own file, always transparent; the material renders with it.
+                        await Task.Run(() => SketchFile.Save(paint.Path, png, "transparent"));
+                        _main.TexturePaintingSaved(paint.Path);
+                        return new { path = paint.Path, name = _name, applied = true };
+                    }
                     var path = _path;
                     if (path == null || Json.IsTrue(req.Payload, "saveAs"))
                     {
@@ -170,6 +188,7 @@ public sealed class SketchWindow : Window
                 }
             case "sketch.open":
                 {
+                    if (_texture != null) throw new InvalidOperationException("This window paints a material. Open other sketches in a new NoorSketch window.");
                     var dlg = new OpenFileDialog { Title = "Open sketch", Filter = SketchFilter, CheckFileExists = true, InitialDirectory = DefaultFolder() };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
@@ -185,6 +204,7 @@ public sealed class SketchWindow : Window
                     return new { path = dlg.FileName };
                 }
             case "sketch.insert":
+                if (_texture != null) throw new InvalidOperationException("This window paints a material: Ctrl+S applies it there.");
                 return await _main.InsertSketchAsync(PngFrom(req), req.GetString("background", 20) ?? "white", Json.IsTrue(req.Payload, "withSource"), req.GetString("name", 200) ?? _name, this);
             case "sketch.closeNow":
                 _closeConfirmed = true;
@@ -210,8 +230,11 @@ public sealed class SketchWindow : Window
     {
         if (_closeConfirmed || !_dirty || App.SessionIsEnding) return;
         e.Cancel = true;
-        var choice = ThemedDialog.Show(this, $"Save changes to “{_name}”?", "Your drawing will be lost if you close without saving.",
-            [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Don't save", "discard"), new DialogButton("Save", "save", Primary: true)]);
+        var choice = _texture != null
+            ? ThemedDialog.Show(this, $"Apply your painting to “{_texture.Material}”?", "What you painted since the last time you applied it will be lost if you close without applying.",
+                [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Don't apply", "discard"), new DialogButton("Apply", "save", Primary: true)])
+            : ThemedDialog.Show(this, $"Save changes to “{_name}”?", "Your drawing will be lost if you close without saving.",
+                [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Don't save", "discard"), new DialogButton("Save", "save", Primary: true)]);
         if (choice == "discard") { _closeConfirmed = true; Dispatcher.BeginInvoke(Close); }
         else if (choice == "save") Post(BridgeProtocol.Event("sketch.saveAndClose", new { }));
     }
@@ -220,6 +243,10 @@ public sealed class SketchWindow : Window
     internal async Task<string> EvalAsync(string script) => await _web.CoreWebView2.ExecuteScriptAsync(script);
 
     internal void CloseWithoutPrompt() { _closeConfirmed = true; Close(); }
+
+    /// <summary>The material changed while its painting is open: show the new one underneath.</summary>
+    internal void UpdateUnderlay(byte[] png, string material) =>
+        Post(BridgeProtocol.Event("sketch.underlay", new { underlay = Convert.ToBase64String(png), material }));
 
     /// <summary>
     /// Makes WebView2 pick up the window's real size once the page is there (otherwise it can stay blank until the

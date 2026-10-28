@@ -44,8 +44,14 @@ tried before the next.
   taken from the material's own slopes) and wear (raised edges worn round). Erosion is worked out at 512 × 512
   so the preview and every export size agree, and it paints where it acted. (Masks between layers came in
   preview.37.)
-- Hand-painting in NoorSketch and coming back without losing the recipe.
-- Exports registered in the Gallery; recipes in the Vault.
+- Done in preview.41: hand-painting in NoorSketch without losing the recipe. A "Hand-painted" layer is a
+  .noorsketch painting (kept with the app's data, copied beside exported recipes); NoorSketch opens it with the
+  material (without the painting) underneath, strokes wrap across the edges so it tiles, Alt+click picks colours
+  from the material, and Ctrl+S applies it: the Texture Bench renders again. Its colours go on where it is painted;
+  its brightness can raise or lower the relief; it can tint, roughen or make metal where painted.
+- Done in preview.41: exports optionally shown in the Gallery (folder added, maps tagged "material" and with the
+  material's name) and the recipe kept in the open Vault's Materials folder with its paintings and a picture;
+  a recipe opened from the Vault opens in the Texture Bench.
 
 ## Later (only if real use asks)
 

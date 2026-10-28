@@ -140,3 +140,5 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | New / open / save / save as | Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S |
 | Export PNG | Ctrl+E |
 | Insert into document | Ctrl+Enter |
+| Pick a colour from the picture (and, painting for a material, from the material under it) | Alt+click |
+| Painting for a material: apply it to the material | Ctrl+S |
