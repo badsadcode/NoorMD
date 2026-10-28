@@ -272,6 +272,11 @@ test checks every wood triangle against its normals.
   1.9, measured across its needle cards about 1.3): shorter branches, more of them to a whorl for clear tiers, and
   needle cards the budget may grow at most 1.4 times (bigger ones stuck out past the short branches).
 
+Fix (preview.65): in low-poly wood the flute ridges were tubes of their own, which crossed the trunk where it twists
+or curves. The trunk's rings now carry the flutes as lobes (turning with the twist, as the ridges did, and keeping
+the girth they stood for; far levels too simple for lobes keep the girth only). Flare and surface roots start from
+where the trunk is at their height.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

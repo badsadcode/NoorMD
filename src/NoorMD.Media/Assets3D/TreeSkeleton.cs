@@ -136,7 +136,9 @@ public sealed class TreeSkeleton
                 var root = new TreeBranch { Id = sk.Branches.Count, Parent = 0, ParentT = 0, Level = 0, Kind = "root" };
                 var len = (float)(recipe.TrunkRadius * (1.6 + 2.2 * recipe.Flare) * (0.75 + 0.5 * rng.NextDouble()));
                 var baseR = (float)(recipe.TrunkRadius * (0.38 + 0.25 * recipe.Flare));
-                GrowCurve(root, new Vector3(0, (float)recipe.TrunkRadius * 0.9f, 0) + outward * (float)recipe.TrunkRadius * 0.3f, dir, len, baseR, 0.25f, 5,
+                // From where the trunk is at that height (an S-curve or lean moves it off the origin).
+                var (at, _, _) = trunk.At(MathF.Min(0.2f, (float)(recipe.TrunkRadius * 0.9 / recipe.Height)));
+                GrowCurve(root, at + outward * (float)recipe.TrunkRadius * 0.3f, dir, len, baseR, 0.25f, 5,
                     bendDegrees: -15, wobbleDegrees: 10, rng);
                 sk.Branches.Add(root);
                 trunk.Children.Add(root.Id);
@@ -377,7 +379,8 @@ public sealed class TreeSkeleton
         {
             var az = start + i * MathF.Tau / recipe.Roots + (float)(rng.NextDouble() - 0.5) * 0.45f;
             var outward = new Vector3(MathF.Cos(az), 0, MathF.Sin(az));
-            var origin = outward * R * 0.35f + Vector3.UnitY * MathF.Min(R * 1.3f, (float)recipe.Height * 0.12f);
+            var (centre, _, _) = trunk.At(MathF.Min(R * 1.3f, (float)recipe.Height * 0.12f) / (float)recipe.Height);
+            var origin = centre + outward * R * 0.35f;
             var length = R * 3.5f * (float)recipe.RootLength * (0.8f + 0.4f * (float)rng.NextDouble());
             var thick = R * 0.45f;
             var curl = (float)(rng.NextDouble() * 2 - 1) * 0.5f;

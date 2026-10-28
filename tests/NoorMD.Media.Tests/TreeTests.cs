@@ -908,4 +908,40 @@ public class TreeTests
             Assert.InRange(ratio, 2.6, 5);
         }
     }
+
+    [Fact]
+    public void Roots_and_flutes_follow_a_twisted_curving_trunk()
+    {
+        var r = TreePresets.Make("pine");
+        r.Billboard = false; r.Lods = 1;
+        r.Twist = 0.6; r.Lean = 16; r.SCurve = 0.12; r.Flute = 0.6; r.FluteLobes = 7; r.FluteHeight = 0.35;
+        foreach (var style in new[] { "flare", "surface" })
+        {
+            r.RootStyle = style; r.Roots = 5;
+            var sk = TreeSkeleton.Grow(r);
+            // Every root starts at the trunk, wherever the curve and twist have moved it.
+            // (Forks of surface roots start along their root, on the ground; the roots themselves start up on the trunk.)
+            foreach (var root in sk.Branches.Where(b => b.Kind == "root" && b.Parent == 0 && b.Points[0].Y > r.TrunkRadius))
+            {
+                var p = root.Points[0];
+                var (centre, radius, _) = sk.Trunk.At(Math.Clamp(p.Y / (float)r.Height, 0, 1));
+                Assert.True(Vector3.Distance(new Vector3(p.X, 0, p.Z), new Vector3(centre.X, 0, centre.Z)) < radius * 1.6f + 0.05f, $"{style} root starts {Vector3.Distance(p, centre):0.00} m from the trunk");
+            }
+        }
+        // Low-poly: the flutes are the trunk's own lobes, not ridge tubes crossing it; everything faces outwards.
+        r.RootStyle = "surface";
+        r.TriangleTarget = 4000;
+        var b = TreeBuilder.Build(r, NoTextures);
+        var wood = Wood(b);
+        Assert.Empty(wood.Problems());
+        Assert.True(InsideOut(wood) < 0.01);
+        var ridgeCount = b.Skeleton.Branches.Count(x => x.Kind == "ridge");
+        Assert.True(ridgeCount > 0);
+        Assert.Contains(b.Notes, n => n.StartsWith("Low-poly wood"));
+        // The trunk's first ring is lobed: its radius varies round it.
+        var ring = wood.Positions.Take(16).ToList();
+        var c = ring.Aggregate(Vector3.Zero, (a, v) => a + v) / ring.Count;
+        var radii = ring.Select(v => Vector3.Distance(new Vector3(v.X, 0, v.Z), new Vector3(c.X, 0, c.Z))).ToList();
+        Assert.True(radii.Max() > radii.Min() * 1.15f, $"radii {radii.Min():0.000}–{radii.Max():0.000}");
+    }
 }

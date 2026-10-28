@@ -383,17 +383,31 @@ public static class TreeBuilder
             var rings = b.Id == 0 ? (lod == 0 ? 12 : lod == 1 ? 5 : 3) : b.Root ? (lod == 0 ? 3 : 2) : b.Level == 1 ? (lod == 0 ? 5 : lod == 1 ? 3 : 2) : 2;
             return Math.Max(1, (int)MathF.Ceiling((b.Points.Count - 1) / (float)rings));
         }
-        var order = sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Points.Count >= 2).OrderBy(Rank).ThenByDescending(b => b.BaseRadius).ToList();
+        // Flute ridges are not tubes of their own here (they would cross the trunk where it twists): the trunk's rings
+        // get the lobes instead, turning with the twist as the ridges did, and the girth the ridges stood for.
+        var lobes = recipe.FluteLobes;
+        var flute = (float)recipe.Flute;
+        Func<float, float, float>? Flutes(int sides) => flute <= 0 ? null : (s, a) =>
+        {
+            if (s >= recipe.FluteHeight) return 1;
+            var fade = MathF.Pow(1 - s / (float)recipe.FluteHeight, 0.6f);
+            var girth = 1 / (1 - 0.3f * flute * fade);
+            if (sides < lobes * 2) return girth;
+            var lobe = MathF.Cos(lobes * (a - (float)recipe.Twist * s * MathF.Tau));
+            return girth * (1 + 0.22f * flute * fade * (lobe - 0.3f));
+        };
+        var order = sk.Branches.Where(b => groupOf.ContainsKey(b.Id) && b.Points.Count >= 2 && b.Kind != "ridge").OrderBy(Rank).ThenByDescending(b => b.BaseRadius).ToList();
         foreach (var g in groups) into[g.Index] = new Mesh3D { Name = g.Name };
         int used = 0, kept = 0;
         foreach (var b in order)
         {
             var sides = Sides(b);
+            if (b.Id == 0 && flute > 0 && lod == 0) sides = Math.Max(sides, Math.Min(24, lobes * 2));     // enough sides to show the flutes up close
             var rings = (b.Points.Count - 1) / Step(b) + 2;
             var cost = sides * 2 * (rings - 1) + sides;
             if (b.Id != 0 && used + cost > budget) continue;
             var g = groupOf[b.Id];
-            AddTube(into[g.Index], sk, b, 0, b.Parent >= 0, edge, tile, recipe, sides, Step(b));
+            AddTube(into[g.Index], sk, b, 0, b.Parent >= 0, edge, tile, recipe, sides, Step(b), b.Id == 0 ? Flutes(sides) : null);
             used += cost;
             kept++;
         }
@@ -489,7 +503,8 @@ public static class TreeBuilder
     }
 
     /// <summary>A swept tube along a thin branch (from point <paramref name="start"/>), its sides fitting the radius.</summary>
-    private static void AddTube(Mesh3D m, TreeSkeleton sk, TreeBranch b, int start, bool attach, float edge, float tile, TreeRecipe recipe, int sidesOverride = 0, int stepOverride = 0)
+    private static void AddTube(Mesh3D m, TreeSkeleton sk, TreeBranch b, int start, bool attach, float edge, float tile, TreeRecipe recipe, int sidesOverride = 0, int stepOverride = 0,
+        Func<float, float, float>? shape = null)
     {
         // A small wood budget: rings on every second or third point, and three or four sides.
         var step = stepOverride > 0 ? stepOverride : recipe.Budget < 1200 ? 3 : recipe.Budget < 2500 ? 2 : 1;
@@ -521,7 +536,9 @@ public static class TreeBuilder
             {
                 var a = j / (float)sides * MathF.Tau;
                 var radial = n * MathF.Cos(a) + bn * MathF.Sin(a);
-                m.AddVertex(p + radial * r, radial, new Vector2(j / (float)sides * period, d / tile), wind);
+                // A shape round the ring (the trunk's flutes), as a share of the radius at this height and angle.
+                var rr = shape == null ? r : r * shape(s, a);
+                m.AddVertex(p + radial * rr, radial, new Vector2(j / (float)sides * period, d / tile), wind);
             }
         }
         for (var i = 0; i + 1 < pts.Count; i++)
