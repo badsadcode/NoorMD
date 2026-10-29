@@ -5355,6 +5355,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorAssets._state().recipe.kind === 'outcrop');
       await page.waitForTimeout(500);
       check('changing the kind rebuilds the rock', (await RM()).builds.at(-1).kind === 'outcrop');
+      await page.$eval('#ab-pane input[data-key="edgeWear"]', (i) => { i.value = '0.8'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      check('edges can be worn', (await AS()).recipe.edgeWear === 0.8);
       check('a formation has its blocks and fallen stones (and no broken-face slider)', !!(await page.$('#ab-pane [data-key="pieces"]')) && !!(await page.$('#ab-pane [data-key="debris"]')) && !(await page.$('#ab-pane [data-key="fractures"]')));
       await page.selectOption('#ab-pane [data-key="kind"]', 'layered');
       await waitFn(page, () => !!document.querySelector('#ab-pane [data-key="dip"]'));

@@ -45,6 +45,17 @@ public static class RockTextures
         ],
     }.Clamped();
 
+    /// <summary>A rock surface in the rock's colour, its raised edges rubbed lighter and its hollows dirtier by <paramref name="wear"/> (0–1).</summary>
+    public static TextureRecipe? For(string id, string hex, double wear)
+    {
+        var t = For(id, hex);
+        if (t == null || wear <= 0) return t;
+        // Tints only (the height, and so the rock's own colours, stay as they are): ridges rubbed lighter, hollows dirtier.
+        t.Layers.Add(new TextureLayer { Name = "Worn edges", Type = "curvature", ScaleX = 10, ScaleY = 10, Low = 0.55, High = 0.85, Opacity = 0, Tint = BarkTextures.Scale(hex, 1.35), TintAmount = 0.4 * wear });
+        t.Layers.Add(new TextureLayer { Name = "Dirty hollows", Type = "curvature", ScaleX = 20, ScaleY = 20, Invert = true, Low = 0.5, High = 0.9, Opacity = 0, Tint = BarkTextures.Scale(hex, 0.55), TintAmount = 0.25 * wear });
+        return t.Clamped();
+    }
+
     public static TextureRecipe? For(string id, string hex) => id switch
     {
         "rock" => Weathered("Weathered rock", hex),

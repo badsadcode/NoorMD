@@ -38,6 +38,11 @@ public sealed class RockRecipe
     public double Roughness { get; set; } = 0.5;
     /// <summary>Flat broken faces cut into it (0–12).</summary>
     public int Fractures { get; set; } = 7;
+    /// <summary>
+    /// Worn edges (0 sharp … 1 well worn): in the mesh, edges rounded off and chipped; in the textures, worn ridges and
+    /// dirty hollows; in the vertex colours, lighter worn edges (and the wear in the alpha, as a mask for shaders).
+    /// </summary>
+    public double EdgeWear { get; set; } = 0.4;
     /// <summary>Sedimentary layers: ledges round it (0 none … 1 strong).</summary>
     public double Strata { get; set; }
     /// <summary>A flat underside where it meets the ground.</summary>
@@ -101,6 +106,7 @@ public sealed class RockRecipe
         Roughness = C(Roughness, 0, 1, 0.5);
         Fractures = Math.Clamp(Fractures, 0, 12);
         Strata = C(Strata, 0, 1, 0);
+        EdgeWear = C(EdgeWear, 0, 1, 0.4);
         Sink = C(Sink, 0, 0.5, 0.15);
         Material = Material is { Length: <= 60 } && Material.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? Material : "";
         TileMetres = C(TileMetres, 0.05, 50, 1.5);

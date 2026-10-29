@@ -48,6 +48,26 @@ public static partial class RockBuilder
             return d;
         }
 
+        /// <summary>
+        /// How far a point is from the block's nearest edge: its distance to the second-nearest of its faces (the box's
+        /// sides, or the ball's surface, and the cuts). Small along an edge, large in the middle of a face.
+        /// </summary>
+        public float Edge(Vector3 p)
+        {
+            var q = Vector3.Transform(p - C, _inv);
+            float first = float.MaxValue, second = float.MaxValue;
+            void Face(float m)
+            {
+                m = MathF.Abs(m);
+                if (m < first) { second = first; first = m; }
+                else if (m < second) second = m;
+            }
+            if (Round < 0.4f) { Face(H.X - MathF.Abs(q.X)); Face(H.Y - MathF.Abs(q.Y)); Face(H.Z - MathF.Abs(q.Z)); }
+            else Face(Ellipsoid(q, H));
+            foreach (var (n, o) in Cuts) Face(o - Vector3.Dot(q, n));
+            return second;
+        }
+
         /// <summary>Chips corners off: <paramref name="count"/> cuts in random directions (more up than down), each keeping
         /// <paramref name="keepLo"/>–<paramref name="keepHi"/> of how far the block reaches that way.</summary>
         public Chunk Chip(Random rng, int count, float keepLo, float keepHi, float up = 0.2f)
@@ -85,7 +105,7 @@ public static partial class RockBuilder
     {
         public readonly List<Chunk> Chunks = [];
         private readonly Noise _noise;
-        private readonly float _small, _rough, _warp, _join;
+        private readonly float _small, _rough, _warp, _join, _wear;
         private readonly bool _stylized;
         public Vector3 Lo { get; private set; }
         public Vector3 Hi { get; private set; }
@@ -95,6 +115,7 @@ public static partial class RockBuilder
             _noise = new Noise(r.Seed + 101);
             _stylized = r.Style == "stylized";
             _rough = (float)r.Roughness;
+            _wear = (float)r.EdgeWear;
             Layout(r, new Random(r.Seed * 7919 + 29), Chunks);
             foreach (var c in Chunks) c.Ready();
             _small = Chunks.Count == 0 ? 0.1f : Chunks.Select(c => MathF.Min(c.H.X, MathF.Min(c.H.Y, c.H.Z))).OrderBy(v => v).ElementAt(Chunks.Count / 2);
@@ -117,7 +138,10 @@ public static partial class RockBuilder
             {
                 // A block further away than the nearest surface found so far can't be nearer.
                 if (Vector3.Distance(w, c.C) - c.Reach > d + _join) continue;
-                d = SmoothMin(d, c.Eval(w), _join);
+                var e = c.Eval(w);
+                // Each block's own edges worn before they are joined (so the field stays smooth across the seams).
+                if (_wear > 0 && e < c.Reach * 0.25f) e += Worn(c.Edge(w), MathF.Min(c.H.X, MathF.Min(c.H.Y, c.H.Z)) * 0.5f * _wear, w, _noise, _stylized);
+                d = SmoothMin(d, e, _join);
             }
             if (!_stylized)
             {
@@ -139,6 +163,20 @@ public static partial class RockBuilder
             }
             return best;
         }
+    }
+
+    /// <summary>
+    /// Edge wear, added to a distance: within <paramref name="width"/> of an edge the edge is rounded off and chipped,
+    /// bites taken out where a noise says (big and few when stylized, smaller and many when realistic).
+    /// </summary>
+    internal static float Worn(float edge, float width, Vector3 p, Noise noise, bool stylized)
+    {
+        if (width <= 1e-6f || edge >= width) return 0;
+        var t = 1 - edge / width;
+        t *= t;
+        var bite = noise.At(p / (width * (stylized ? 2.4f : 1.8f)) + new Vector3(23, 41, 7)) * 0.5f + 0.5f;
+        var chip = Math.Clamp((bite - (stylized ? 0.52f : 0.45f)) / 0.25f, 0, 1);
+        return width * t * (0.3f + (stylized ? 0.8f : 0.6f) * chip);
     }
 
     private static float R(Random rng, float lo, float hi) => lo + (hi - lo) * (float)rng.NextDouble();

@@ -324,4 +324,30 @@ public class RockTests
         }
         Assert.Null(RockTextures.For("stone-rock", "#806040"));
     }
+
+    [Fact]
+    public void Edge_wear_rounds_and_chips_the_edges_and_lightens_them()
+    {
+        RockBuild B(double wear) => Build("angular-boulder", r => { r.Debris = 0; r.EdgeWear = wear; });
+        var sharp = Surface(B(0).Lods[0]);
+        var worn = Surface(B(1).Lods[0]);
+        // Worn edges take stone away: the worn rock is smaller inside the same blocks.
+        static float Volume(Mesh3D m)
+        {
+            var v = 0f;
+            foreach (var s in m.Submeshes)
+                for (var t = 0; t < s.Indices.Count; t += 3)
+                    v += Vector3.Dot(m.Positions[s.Indices[t]], Vector3.Cross(m.Positions[s.Indices[t + 1]], m.Positions[s.Indices[t + 2]])) / 6;
+            return MathF.Abs(v);
+        }
+        Assert.True(Volume(worn) < Volume(sharp) * 0.97f, $"{Volume(worn)} vs {Volume(sharp)}");
+        // The wear is in the colours' alpha (a mask for shaders), more of it when worn.
+        Assert.True(worn.Colors.Average(c => c.W) > sharp.Colors.Average(c => c.W) + 0.02f);
+        Assert.All(worn.Colors, c => Assert.InRange(c.W, 0, 1));
+        // The texture keeps its colours, only tinted at ridges and hollows.
+        var plain = TextureEngine.Render(RockTextures.For("rock", "#8a8580", 0)!, 64);
+        var rubbed = TextureEngine.Render(RockTextures.For("rock", "#8a8580", 1)!, 64);
+        Assert.InRange(rubbed.Albedo.Average(b => (double)b), plain.Albedo.Average(b => (double)b) - 12, plain.Albedo.Average(b => (double)b) + 12);
+        Assert.NotEqual(plain.Albedo, rubbed.Albedo);
+    }
 }

@@ -593,6 +593,7 @@ window.NoorAssets = (() => {
         scree ? null : slider(recipe, ['elongation', 'Stretch', 0, 1, 0.01, 'pct', 'Longer one way than the other']),
         slider(recipe, ['roughness', 'Roughness', 0, 1, 0.01, 'pct', 'Lumps and pits on the surface (not used by the stylized look)']),
         scree || formation ? null : slider(recipe, ['fractures', 'Broken faces', 0, 12, 1, 'int', 'Flat faces where the rock split off']),
+        scree ? null : slider(recipe, ['edgeWear', 'Edge wear', 0, 1, 0.01, 'pct', 'Worn edges: rounded off and chipped in the mesh, ridges rubbed lighter and hollows dirtier in the texture and colours (the wear is also in the vertex colours’ alpha, for shaders of your own)']),
         scree || formation ? null : slider(recipe, ['strata', 'Ledges', 0, 1, 0.01, 'pct', 'Ledges round it, as in layered sandstone or slate'])),
       formation ? section('Blocks',
         slider(recipe, ['pieces', PIECES[recipe.kind] || 'Pieces', 0, 24, 1, 'int', 'How many (0: as this kind likes, a few different each seed)']),

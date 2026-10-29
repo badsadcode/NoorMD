@@ -91,7 +91,8 @@ public partial class MainWindow
                 naming = "Godot makes a convex collision shape of each node whose name ends in -convcolonly (and drops its mesh). Other engines: use these meshes as convex colliders (Unreal: rename to UCX_<mesh>_00…).",
             },
             materials = build.Lods.SelectMany(l => l.Materials).Distinct().Select(m => new { name = m.Name, alpha = m.Alpha, embedded = textureSize > 0, maps = TreeExport.Maps(m, textureSize) }),
-            vertexColors = build.Recipe.Moss > 0 ? "COLOR_0: moss on the upward faces and a darker foot, to multiply with the base colour" : "COLOR_0: a darker foot, to multiply with the base colour",
+            vertexColors = "COLOR_0 RGB: painted light (lighter tops and worn edges, darker cracks and foot" + (build.Recipe.Moss > 0 ? ", a green fringe round the moss" : "") + "), to multiply with the base colour. A: how worn the edge is (0–1), a mask for a shader of your own (opaque materials ignore it).",
+            edgeWear = build.Recipe.EdgeWear,
         };
     }
 

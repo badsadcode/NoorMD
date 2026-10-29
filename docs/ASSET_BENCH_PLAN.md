@@ -454,6 +454,17 @@ tilted layers breaking out of a hillside, jagged, half buried):
 Trees: **wood only** on the Export tab — the trunk and branches without leaves, clumps, crystals or moss (the same
 wood as the full tree), files ending in `_Wood`, for your own leaves or a bare tree.
 
+### Edge wear (preview.78)
+
+`edgeWear` (0 sharp … 1 well worn), on every rock:
+
+- **Mesh:** within a band along each edge (where a block's two nearest faces meet, or a broken face meets the rounded
+  body) the edge is rounded off and chipped, bites taken where a noise says — big and few when stylized, smaller and
+  many when realistic. Each block is worn before the blocks are joined, so the surface stays smooth across seams.
+- **Texture:** the rock materials tint their own ridges lighter and their hollows dirtier (curvature masks only, so
+  the rock keeps its colours).
+- **Vertex colours:** worn edges lighter, in patches; the wear in the alpha as a mask for a shader of your own.
+
 Next for rocks: baked normal and AO maps from the dense form, dual contouring for crisper stylized edges, landform
 pieces (≤ 8,000), arches with several collision pieces placed by shape rather than slices.
 

@@ -113,7 +113,7 @@ public static partial class RockBuilder
         {
             try
             {
-                var maps = TextureEngine.Render(RockTextures.For(recipe.Material, recipe.Color) ?? TexturePresets.Make(recipe.Material), options.TextureSize);
+                var maps = TextureEngine.Render(RockTextures.For(recipe.Material, recipe.Color, recipe.EdgeWear) ?? TexturePresets.Make(recipe.Material), options.TextureSize);
                 rock.BaseColor = Vector4.One;
                 rock.BaseColorPng = maps.Png("albedo");
                 rock.NormalPng = maps.Png("normal");
@@ -213,7 +213,7 @@ public static partial class RockBuilder
         private readonly List<(Vector3 C, Vector3 R)> _blobs = [];
         private readonly List<(Vector3 N, float D)> _cuts = [];
         private readonly Noise _noise;
-        private readonly float _rough, _strata, _layer, _base, _small, _blend, _edge;
+        private readonly float _rough, _strata, _layer, _base, _small, _blend, _edge, _wear;
         private readonly bool _flat, _stylized;
         public Vector3 Lo { get; }
         public Vector3 Hi { get; }
@@ -252,6 +252,7 @@ public static partial class RockBuilder
                 _cuts.Add((n, Vector3.Dot(new Vector3(0, ay, 0), n) + e * depth));
             }
             _rough = (float)r.Roughness;
+            _wear = (float)r.EdgeWear;
             _strata = (float)r.Strata;
             _layer = MathF.Max(ay * 2 / (5 + rng.Next(5)), 0.02f);
             _flat = r.FlatBase;
@@ -267,9 +268,22 @@ public static partial class RockBuilder
             var w = p + new Vector3(_noise.At(p / _small * 0.7f), _noise.At(p / _small * 0.7f + new Vector3(31, 7, 3)), _noise.At(p / _small * 0.7f + new Vector3(5, 19, 47))) * _small * 0.3f;
             var d = float.MaxValue;
             foreach (var (c, r) in _blobs) d = SmoothMin(d, Ellipsoid(w - c, r), _blend);
+            var body = d;
             // Big lumps, then fine grit (both scaled by roughness).
             if (!_stylized) d += _noise.Fbm(p / _small * 1.6f, 4) * _small * 0.13f * (0.25f + _rough);
             foreach (var (n, o) in _cuts) d = SmoothMax(d, Vector3.Dot(w, n) - o, _edge);
+            // Worn edges where the broken faces meet each other or the rounded body.
+            if (_wear > 0 && _cuts.Count > 0)
+            {
+                float first = MathF.Abs(body), second = float.MaxValue;
+                foreach (var (n, o) in _cuts)
+                {
+                    var m = MathF.Abs(o - Vector3.Dot(w, n));
+                    if (m < first) { second = first; first = m; }
+                    else if (m < second) second = m;
+                }
+                d += Worn(second, _small * 0.6f * _wear, w, _noise, _stylized);
+            }
             if (_strata > 0)
             {
                 // Ledges: each layer sticks out or steps in by its own amount, with a sharp lip.
@@ -484,7 +498,7 @@ public static partial class RockBuilder
                             1 => new Vector2(p.X, p.Z * MathF.Sign(unit.Y)),
                             _ => new Vector2(-p.X * MathF.Sign(unit.Z), -p.Y),
                         } / tile;
-                        id = outMesh.AddVertex(p, n, uv, new Vector4(Paint(p, n, bend[v], lo.Y, height, mossTint), 1));
+                        id = outMesh.AddVertex(p, n, uv, Paint(p, n, bend[v], lo.Y, height, mossTint, size));
                         made[key] = id;
                     }
                     target.Indices.Add(id);
@@ -494,22 +508,28 @@ public static partial class RockBuilder
             return outMesh;
         }
 
-        /// <summary>The painted light of a corner (never above 1: engines multiply it with the texture).</summary>
-        private Vector3 Paint(Vector3 p, Vector3 n, float bend, float bottom, float height, Vector3 mossTint)
+        /// <summary>
+        /// The painted light of a corner (never above 1: engines multiply it with the texture), and in alpha how worn
+        /// it is (for shaders that blend in a worn texture of their own; opaque materials ignore it).
+        /// </summary>
+        private Vector4 Paint(Vector3 p, Vector3 n, float bend, float bottom, float height, Vector3 mossTint, float size)
         {
             var up = Math.Clamp((p.Y - bottom) / height, 0, 1);
             var edge = Math.Clamp(-bend * 3.5f, 0, 1);
             var crack = Math.Clamp(bend * 3f, 0, 1);
+            // Worn edges: lighter where the stone is rubbed fresh, in patches (not a line along every edge).
+            var patchy = Math.Clamp(0.55f + 0.9f * _noise.At(p / size * 9f + new Vector3(3, 17, 29)), 0, 1);
+            var wear = Math.Clamp(edge * patchy * (0.35f + 1.3f * (float)r.EdgeWear), 0, 1);
             var light = stylized
-                ? 0.74f + 0.16f * up + 0.1f * Math.Clamp(n.Y, 0, 1) + 0.22f * edge - 0.4f * crack
-                : 0.86f + 0.06f * up + 0.06f * edge - 0.32f * crack;
+                ? 0.74f + 0.16f * up + 0.1f * Math.Clamp(n.Y, 0, 1) + 0.1f * edge + 0.22f * wear - 0.4f * crack
+                : 0.84f + 0.06f * up + 0.04f * edge + 0.14f * wear - 0.32f * crack;
             // The foot darker (dirt, shade).
             light *= 0.75f + 0.25f * Math.Clamp(up / 0.3f, 0, 1);
             light = Math.Clamp(light, 0.3f, 1);
             // A green fringe where the moss thins out.
             var facing = Math.Clamp((n.Y - 0.25f) / 0.5f, 0, 1);
             var cover = (float)r.Moss * facing * facing * Math.Clamp(up * 2.5f, 0, 1) * 0.7f;
-            return Vector3.Lerp(Vector3.One, Vector3.Min(mossTint, Vector3.One), cover) * light;
+            return new Vector4(Vector3.Lerp(Vector3.One, Vector3.Min(mossTint, Vector3.One), cover) * light, wear);
         }
     }
 
@@ -700,7 +720,7 @@ public static partial class RockBuilder
     }
 
     /// <summary>Smooth 3D value noise (−1 … 1) with a seed.</summary>
-    private sealed class Noise(int seed)
+    internal sealed class Noise(int seed)
     {
         private readonly uint _seed = (uint)seed * 2654435761u + 0x9e3779b9u;
 

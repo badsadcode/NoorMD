@@ -463,8 +463,8 @@ function mockHostScript(initial) {
   state.assets = ASSET;
   // Rocks: two real presets (from RockPresets), builds that point at a real rock GLB, exports recorded.
   const ROCK = { recipes: {
-    rock: {"version": 1,"name": "Rock","seed": 1,"kind": "rock","style": "realistic","size": 1,"height": 0.7,"elongation": 0.3,"roughness": 0.5,"fractures": 7,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"pieces": 0,"debris": 0,"dip": 0,"taper": 0.5,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
-    boulder: {"version": 1,"name": "Boulder","seed": 1,"kind": "boulder","style": "realistic","size": 2.8,"height": 0.75,"elongation": 0.3,"roughness": 0.55,"fractures": 8,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"pieces": 0,"debris": 0,"dip": 0,"taper": 0.5,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
+    rock: {"version": 1,"name": "Rock","seed": 1,"kind": "rock","style": "realistic","size": 1,"height": 0.7,"elongation": 0.3,"roughness": 0.5,"fractures": 7,"edgeWear": 0.4,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"pieces": 0,"debris": 0,"dip": 0,"taper": 0.5,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
+    boulder: {"version": 1,"name": "Boulder","seed": 1,"kind": "boulder","style": "realistic","size": 2.8,"height": 0.75,"elongation": 0.3,"roughness": 0.55,"fractures": 8,"edgeWear": 0.4,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"pieces": 0,"debris": 0,"dip": 0,"taper": 0.5,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
   }, builds: [], exports: [], mine: [] };
   state.rocks = ROCK;
   function rockMock(type, p) {
