@@ -1791,3 +1791,8 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sp-menu .utility-btn { text-align: left; }
 .sp-menu hr { border: 0; border-top: 1px solid var(--border); margin: 2px 0; width: 100%; }
 .sp-colourdlg { display: flex; flex-direction: column; gap: 8px; }
+.spritebench .sp-layername.ref { font-style: italic; opacity: .8; }
+.spritebench .sp-slicepanel { display: flex; flex-direction: column; gap: 4px; }
+.spritebench .sp-slicepanel[hidden] { display: none; }
+.spritebench .sp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; }
+.spritebench .sp-grid2 .sb-num { width: 56px; }

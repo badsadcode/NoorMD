@@ -21,7 +21,7 @@ public static class SpriteFile
         doc.Checked();
         var manifest = new SpriteDoc
         {
-            Version = doc.Version, Width = doc.Width, Height = doc.Height, Palette = doc.Palette, Layers = doc.Layers, Frames = doc.Frames, Tags = doc.Tags,
+            Version = doc.Version, Width = doc.Width, Height = doc.Height, Palette = doc.Palette, Layers = doc.Layers, Frames = doc.Frames, Tags = doc.Tags, Slices = doc.Slices,
             GridWidth = doc.GridWidth, GridHeight = doc.GridHeight,
             Cels = doc.Cels.Select(c => new SpriteCel { Layer = c.Layer, Frame = c.Frame, X = c.X, Y = c.Y, Width = c.Width, Height = c.Height, Opacity = c.Opacity, Link = c.Link }).ToList(),
         };

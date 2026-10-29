@@ -20,7 +20,7 @@ window.NoorSprite = (() => {
     ['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['fill', '🪣', 'Fill (G)', 'g'], ['line', '╱', 'Line (L)', 'l'],
     ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'],
     ['select', '⬚', 'Select a rectangle (M)', 'm'], ['eselect', '◌', 'Select an ellipse', null], ['lasso', '➰', 'Lasso (Q)', 'q'], ['wand', '🪄', 'Magic wand (W)', 'w'],
-    ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
+    ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
   ];
 
   let hooks = { showError: (e) => console.error(e) };
@@ -35,7 +35,7 @@ window.NoorSprite = (() => {
   // Ordered dithering (a 4 × 4 Bayer matrix): a pixel is drawn when its cell is under the level (of 16).
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35 };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -57,7 +57,7 @@ window.NoorSprite = (() => {
   // ---------------------------------------------------------------- the sprite
 
   function blank(width, height, background) {
-    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], gridWidth: 16, gridHeight: 16, cels: new Map() };
+    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], slices: [], gridWidth: 16, gridHeight: 16, cels: new Map() };
     const id = newId();
     d.layers.push({ id, name: background ? 'Background' : 'Layer 1', visible: true, locked: false, opacity: 255, blend: 'normal' });
     if (background) {
@@ -69,7 +69,7 @@ window.NoorSprite = (() => {
   }
 
   /** A new snapshot of the sprite: the pictures are shared until something replaces one. */
-  const snapshot = (d) => ({ ...d, palette: [...d.palette], layers: d.layers.map((l) => ({ ...l })), frames: d.frames.map((f) => ({ ...f })), tags: d.tags.map((t) => ({ ...t })), cels: new Map(d.cels) });
+  const snapshot = (d) => ({ ...d, palette: [...d.palette], layers: d.layers.map((l) => ({ ...l })), frames: d.frames.map((f) => ({ ...f })), tags: d.tags.map((t) => ({ ...t })), slices: (d.slices || []).map((x) => ({ ...x })), cels: new Map(d.cels) });
 
   /** A change: the sprite before it kept for undo (with where we were), then the change made to a fresh snapshot. */
   function change(label, fn) {
@@ -148,10 +148,12 @@ window.NoorSprite = (() => {
   }
 
   /** A frame composed from its visible layers (straight alpha, 0–255); `only` limits it to some layers. */
-  function compose(f, d = doc, only = null) {
+  /** forExport: without reference layers (shown while drawing, never exported). */
+  function compose(f, d = doc, only = null, forExport = false) {
     const n = d.width * d.height, out = new Uint8ClampedArray(n * 4);
     d.layers.forEach((l, li) => {
       if (only ? !only.includes(li) : !l.visible) return;
+      if (forExport && l.reference) return;
       const c = d.cels.get(key(l.id, f));
       if (!c) return;
       const k = (l.opacity / 255) * (c.opacity / 255);
@@ -266,7 +268,7 @@ window.NoorSprite = (() => {
   function renderAll() {
     if (!built || !doc) return;
     $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}`;
-    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline();
+    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel();
     fitCanvas(); draw(); drawPreview(); status();
     keepFocus();
   }
@@ -275,7 +277,7 @@ window.NoorSprite = (() => {
     $('#sp-tools').replaceChildren(...TOOLS.map(([id, icon, title]) => el('button', { class: 'icon-btn sp-tool' + (tool === id ? ' on' : ''), 'data-tool': id, title, 'aria-label': title, 'aria-pressed': String(tool === id), onclick: () => setTool(id) }, icon)));
   }
 
-  function setTool(t) { if (t !== 'move') commitFloating(); tool = t; renderTools(); renderOptions(); setCursor(); keepFocus(); }
+  function setTool(t) { if (t !== 'move') commitFloating(); tool = t; renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
 
   function renderColours() {
     $('#sp-fg').style.setProperty('--c', `rgba(${fg[0]},${fg[1]},${fg[2]},${fg[3] / 255})`);
@@ -375,6 +377,7 @@ window.NoorSprite = (() => {
       el('h4', { class: 'music-subhead', text: `Layer “${l.name}”` }),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
+      (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-reference', checked: l.reference || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A reference layer' : 'Not a reference layer', (d) => { d.layers[layer].reference = c2.checked; })); return el('label', { class: 'sb-inline', title: 'A picture to draw over or trace: shown here, never exported' }, c2, el('span', { text: 'reference (not exported)' })); })(),
       el('label', { class: 'sb-inline', title: 'This frame\'s picture on the layer' }, el('span', { text: 'Cel opacity' }), cop),
       c && c.link ? el('div', { class: 'sb-row', id: 'sp-linkinfo' }, el('span', { class: 'pref-hint', text: `🔗 on ${linkCount()} frames` }), el('button', { class: 'utility-btn', id: 'sp-unlink', title: 'This frame gets a picture of its own', onclick: unlinkCel }, 'Unlink')) : null,
       el('h4', { class: 'music-subhead', text: `Frame ${frame + 1}` }),
@@ -396,6 +399,7 @@ window.NoorSprite = (() => {
     box.replaceChildren(
       el('h4', { class: 'music-subhead', text: 'View' }),
       check('pixelGrid', 'pixel grid', 'Lines between the pixels when zoomed in'),
+      check('slices', 'slices', 'The slices\' outlines (always shown with the slice tool)'),
       el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
       el('div', { class: 'sb-row' },
@@ -432,7 +436,7 @@ window.NoorSprite = (() => {
         el('div', { class: 'sp-tl-name', onclick: () => { layer = li; renderAll(); keepFocus(); }, ondblclick: () => renameLayer(li) },
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.visible ? 'Hide a layer' : 'Show a layer', (d) => { d.layers[li].visible = !l.visible; }); } }, l.visible ? '👁' : '◌'),
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.locked), title: l.locked ? 'Locked (click to unlock)' : 'Unlocked', 'aria-label': `Lock ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.locked ? 'Unlock a layer' : 'Lock a layer', (d) => { d.layers[li].locked = !l.locked; }); } }, l.locked ? '🔒' : '🔓'),
-          el('span', { class: 'sp-layername', text: l.name })),
+          el('span', { class: 'sp-layername' + (l.reference ? ' ref' : ''), text: (l.reference ? '📌 ' : '') + l.name })),
         ...doc.frames.map((_, fi) => {
           const c = doc.cels.get(key(l.id, fi));
           return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (c && c.link ? ' linked' : '') + (fi === frame && li === layer ? ' on' : ''), 'data-cel': `${li}:${fi}`, title: c ? (c.link ? 'A picture linked to other frames (drawn once for all)' : 'A picture on this frame') : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } });
@@ -722,6 +726,7 @@ window.NoorSprite = (() => {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(o.x - 0.5, o.y - 0.5, W + 1, H + 1);
     // The selection's edge (marching ants).
     if (selection) drawSelection(ctx, o, z);
+    drawSlices(ctx, o, z);
     // The brush under the cursor.
     if (hover && ['pencil', 'eraser'].includes(tool) && !spaceHeld && !altHeld) {
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
@@ -904,6 +909,7 @@ window.NoorSprite = (() => {
     const colour = e.button === 2 ? bg : fg;
     if (t === 'picker') { pick(p, e.button === 2); drag = { kind: 'picker', right: e.button === 2 }; return; }
     if (['select', 'eselect', 'lasso', 'wand'].includes(t)) { startSelect(t, p, e); return; }
+    if (t === 'slice') { startSlice(p); return; }
     if (t === 'move') { startMove(p); return; }
     if (!canDraw()) return;
     if (t === 'fill') {
@@ -1024,6 +1030,7 @@ window.NoorSprite = (() => {
     }
     if (drag.kind === 'shape') { drag.to = [p.x, p.y]; drag.preview = shapePreview(e); draw(); return; }
     if (drag.kind === 'select') { moveSelect(p, e); return; }
+    if (drag.kind === 'slice') { drag.to = [p.x, p.y]; draw(); return; }
     if (drag.kind === 'move') { floating.x = drag.fx + (p.x - drag.px); floating.y = drag.fy + (p.y - drag.py); draw(); }
   }
 
@@ -1034,6 +1041,7 @@ window.NoorSprite = (() => {
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'select') endSelect(d);
+    else if (d.kind === 'slice') endSlice(d);
     else draw();
   }
 
@@ -1331,6 +1339,7 @@ window.NoorSprite = (() => {
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['A picture to trace (a reference layer)…', () => importPicture('reference')],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
       ['Save as…', () => save(true)],
     ];
@@ -1383,6 +1392,70 @@ window.NoorSprite = (() => {
     if (layer < 0) layer = 0;
     history = []; future = []; savedAt = null; selection = null; floating = null;
     fitZoom(); renderAll();
+  }
+
+  // ---------------------------------------------------------------- stage 3: slices
+
+  let sliceSel = -1;
+
+  function startSlice(p) {
+    const list = doc.slices || [];
+    // A click inside a slice picks it; a drag elsewhere makes one.
+    const hit = list.findIndex((sl) => p.x >= sl.x && p.y >= sl.y && p.x < sl.x + sl.width && p.y < sl.y + sl.height);
+    if (hit >= 0) { sliceSel = hit; renderSlicePanel(); draw(); return; }
+    drag = { kind: 'slice', from: [p.x, p.y], to: [p.x, p.y] };
+  }
+
+  function endSlice(d) {
+    const x0 = Math.max(0, Math.min(d.from[0], d.to[0])), y0 = Math.max(0, Math.min(d.from[1], d.to[1]));
+    const x1 = Math.min(doc.width - 1, Math.max(d.from[0], d.to[0])), y1 = Math.min(doc.height - 1, Math.max(d.from[1], d.to[1]));
+    if (x1 < x0 || y1 < y0) { draw(); return; }
+    const n = (doc.slices || []).length + 1;
+    change('New slice', (dd) => { dd.slices = dd.slices || []; dd.slices.push({ name: `Slice ${n}`, x: x0, y: y0, width: x1 - x0 + 1, height: y1 - y0 + 1, color: '#0000ffff', nine: false, centerX: 0, centerY: 0, centerWidth: 1, centerHeight: 1, hasPivot: false, pivotX: 0, pivotY: 0 }); });
+    sliceSel = doc.slices.length - 1;
+    renderSlicePanel();
+  }
+
+  function drawSlices(ctx, o, z) {
+    const list = [...(doc.slices || [])];
+    if (drag && drag.kind === 'slice') { const [a, b] = drag.from, [c, d2] = drag.to; list.push({ name: '', x: Math.min(a, c), y: Math.min(b, d2), width: Math.abs(c - a) + 1, height: Math.abs(d2 - b) + 1, color: '#0000ffff', drawing: true }); }
+    if (!list.length || (tool !== 'slice' && !view.slices)) return;
+    ctx.save();
+    list.forEach((sl, i) => {
+      const col = sl.color ? sl.color.slice(0, 7) : '#0000ff', X = o.x + sl.x * z, Y = o.y + sl.y * z, W = sl.width * z, H = sl.height * z;
+      ctx.setLineDash([]); ctx.lineWidth = i === sliceSel && tool === 'slice' ? 3 : 1.5; ctx.strokeStyle = col;
+      ctx.strokeRect(X + 0.5, Y + 0.5, W - 1, H - 1);
+      if (sl.nine) { ctx.setLineDash([4, 3]); ctx.lineWidth = 1; ctx.strokeRect(X + sl.centerX * z + 0.5, Y + sl.centerY * z + 0.5, sl.centerWidth * z - 1, sl.centerHeight * z - 1); }
+      if (sl.hasPivot) { const px2 = X + (sl.pivotX + 0.5) * z, py2 = Y + (sl.pivotY + 0.5) * z; ctx.setLineDash([]); ctx.beginPath(); ctx.moveTo(px2 - 6, py2); ctx.lineTo(px2 + 6, py2); ctx.moveTo(px2, py2 - 6); ctx.lineTo(px2, py2 + 6); ctx.stroke(); }
+      if (sl.name) { ctx.font = '11px sans-serif'; ctx.fillStyle = col; const tw = ctx.measureText(sl.name).width + 6; ctx.fillRect(X, Y - 15, tw, 14); ctx.fillStyle = '#fff'; ctx.fillText(sl.name, X + 3, Y - 4); }
+    });
+    ctx.restore();
+  }
+
+  /** The chosen slice's settings, in the right-hand column while the slice tool is on. */
+  function renderSlicePanel() {
+    let box = $('#sp-slicepanel');
+    if (!box) { box = el('div', { class: 'sp-slicepanel', id: 'sp-slicepanel' }); $('#sp-layerprops').before(box); }
+    const sl = (doc.slices || [])[sliceSel];
+    box.hidden = tool !== 'slice';
+    if (box.hidden) return;
+    if (!sl) { box.replaceChildren(el('h4', { class: 'music-subhead', text: 'Slices' }), el('p', { class: 'pref-hint', text: 'Drag a rectangle to make a slice; click one to choose it.' })); return; }
+    const num = (k, label, min, max) => {
+      const i = el('input', { type: 'number', class: 'sb-num', value: String(sl[k]), min: String(min), max: String(max), 'data-slice': k, 'aria-label': label });
+      i.addEventListener('change', () => change('Slice', (d) => { d.slices[sliceSel][k] = Math.round(Number(i.value) || 0); }));
+      return el('label', { class: 'sb-inline' }, el('span', { text: label }), i);
+    };
+    const flag = (k, label) => { const c = el('input', { type: 'checkbox', checked: sl[k] || undefined, 'data-slice': k }); c.addEventListener('change', () => change('Slice', (d) => { const x = d.slices[sliceSel]; x[k] = c.checked; if (k === 'nine' && c.checked && x.centerWidth <= 1) { x.centerX = Math.floor(x.width / 3); x.centerY = Math.floor(x.height / 3); x.centerWidth = Math.max(1, x.width - 2 * x.centerX); x.centerHeight = Math.max(1, x.height - 2 * x.centerY); } if (k === 'hasPivot' && c.checked) { x.pivotX = Math.floor(x.width / 2); x.pivotY = x.height - 1; } })); return el('label', { class: 'sb-inline' }, c, el('span', { text: label })); };
+    const name = el('input', { type: 'text', value: sl.name, maxlength: '64', id: 'sp-slice-name', 'aria-label': 'Slice name' });
+    name.addEventListener('change', () => change('Rename a slice', (d) => { d.slices[sliceSel].name = name.value.trim() || 'Slice'; }));
+    box.replaceChildren(...[
+      el('h4', { class: 'music-subhead', text: 'Slice' }), name,
+      el('div', { class: 'sp-grid2' }, num('x', 'x', -2048, 2048), num('y', 'y', -2048, 2048), num('width', 'w', 1, 4096), num('height', 'h', 1, 4096)),
+      flag('nine', '9-slice centre (stretched part)'),
+      sl.nine ? el('div', { class: 'sp-grid2' }, num('centerX', 'x', 0, 4096), num('centerY', 'y', 0, 4096), num('centerWidth', 'w', 1, 4096), num('centerHeight', 'h', 1, 4096)) : null,
+      flag('hasPivot', 'pivot (origin)'),
+      sl.hasPivot ? el('div', { class: 'sp-grid2' }, num('pivotX', 'x', -2048, 2048), num('pivotY', 'y', -2048, 2048)) : null,
+      el('button', { class: 'utility-btn', id: 'sp-slice-del', onclick: () => { change('Remove a slice', (d) => { d.slices.splice(sliceSel, 1); }); sliceSel = -1; renderSlicePanel(); } }, '🗑 Remove the slice')].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- stage 2: colours, outlines, rotation, upscaling
@@ -1658,11 +1731,11 @@ window.NoorSprite = (() => {
       for (let y = 0; y < h; y++) px.set(c.px.subarray(((y0 + y) * d.width + x0) * 4, ((y0 + y) * d.width + x0 + w) * 4), y * w * 4);
       cels.push({ layer: id, frame: f, x: x0, y: y0, width: w, height: h, opacity: c.opacity, data: b64(px), ...(c.link ? { link: c.link } : {}) });
     }
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers: d.layers, frames: d.frames, tags: d.tags, gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers: d.layers, frames: d.frames, tags: d.tags, slices: d.slices || [], gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
   }
 
   function fromWire(w) {
-    const d = { width: w.width, height: w.height, palette: w.palette || [], layers: w.layers.map((l) => ({ ...l })), frames: w.frames.map((f) => ({ ...f })), tags: (w.tags || []).map((t) => ({ ...t })), gridWidth: w.gridWidth || 16, gridHeight: w.gridHeight || 16, cels: new Map() };
+    const d = { width: w.width, height: w.height, palette: w.palette || [], layers: w.layers.map((l) => ({ ...l })), frames: w.frames.map((f) => ({ ...f })), tags: (w.tags || []).map((t) => ({ ...t })), slices: (w.slices || []).map((x) => ({ ...x })), gridWidth: w.gridWidth || 16, gridHeight: w.gridHeight || 16, cels: new Map() };
     for (const c of w.cels || []) {
       const px = new Uint8ClampedArray(d.width * d.height * 4), src = unb64(c.data);
       for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
@@ -1713,6 +1786,19 @@ window.NoorSprite = (() => {
       const r = await req('sprite.picture.pick');
       if (!r || r.cancelled) return;
       const im = r.image, src = unb64(im.data);
+      if (as === 'reference') {
+        // Fitted into the sprite (nearest: it is to look at), half see-through, locked, never exported.
+        change('A reference picture', (d) => {
+          const id = newId(), k2 = Math.min(d.width / im.width, d.height / im.height);
+          const w2 = Math.max(1, Math.round(im.width * k2)), h2 = Math.max(1, Math.round(im.height * k2)), ox = Math.floor((d.width - w2) / 2), oy = Math.floor((d.height - h2) / 2);
+          const px = new Uint8ClampedArray(d.width * d.height * 4);
+          for (let y = 0; y < h2; y++) for (let x = 0; x < w2; x++) { const sx = Math.min(im.width - 1, Math.floor(x / k2)), sy = Math.min(im.height - 1, Math.floor(y / k2)); px.set(src.subarray((sy * im.width + sx) * 4, (sy * im.width + sx) * 4 + 4), ((oy + y) * d.width + ox + x) * 4); }
+          d.layers.splice(0, 0, { id, name: r.name || 'Reference', visible: true, locked: true, opacity: 128, blend: 'normal', reference: true });
+          for (let f = 0; f < d.frames.length; f++) d.cels.set(key(id, f), { px, opacity: 255, ...(d.frames.length > 1 ? { link: 'ref' + id } : {}) });
+          layer++;
+        });
+        return;
+      }
       if (as === 'layer') {
         change('Import a picture', (d) => {
           const id = newId();
@@ -1766,24 +1852,27 @@ window.NoorSprite = (() => {
     NoorUI.modal({ label: 'Export', width: 420 }, (s, closeIt) => {
       const kind = el('select', { id: 'sp-ex-kind', 'aria-label': 'What' },
         el('option', { value: 'sheet', text: 'A sprite sheet (PNG and JSON)' }), el('option', { value: 'gif', text: 'An animated GIF' }),
+        el('option', { value: 'godot', text: 'Godot: SpriteFrames (an animation per tag) and an AnimatedSprite2D scene' }),
         el('option', { value: 'frame', text: 'This frame (PNG)' }), el('option', { value: 'frames', text: 'Every frame (PNG files)' }));
+      const form = el('select', { id: 'sp-ex-form', 'aria-label': 'JSON' }, el('option', { value: 'hash', text: 'frames by name (hash)' }), el('option', { value: 'array', text: 'a list of frames (array)' }));
       const scale = el('select', { id: 'sp-ex-scale', 'aria-label': 'Scale' }, ...[1, 2, 3, 4, 5, 6, 8, 10].map((n) => el('option', { value: String(n), text: `${n}×` })));
-      const layout = el('select', { id: 'sp-ex-layout', 'aria-label': 'Layout' }, el('option', { value: 'row', text: 'a row' }), el('option', { value: 'column', text: 'a column' }), el('option', { value: 'grid', text: 'a grid' }));
+      const layout = el('select', { id: 'sp-ex-layout', 'aria-label': 'Layout' }, el('option', { value: 'row', text: 'a row' }), el('option', { value: 'column', text: 'a column' }), el('option', { value: 'grid', text: 'a grid' }), el('option', { value: 'packed', text: 'packed (trimmed, the same frames once)' }));
       const spacing = el('input', { type: 'number', min: '0', max: '64', value: '0', id: 'sp-ex-spacing', 'aria-label': 'Space between frames' });
       const tag = el('select', { id: 'sp-ex-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
       const ok = async () => {
         const t = tag.value === '' ? null : doc.tags[Number(tag.value)];
         const which = kind.value === 'frame' ? [frame] : Array.from({ length: t ? t.to - t.from + 1 : doc.frames.length }, (_, i) => (t ? t.from : 0) + i);
-        const frames = which.map((f) => ({ width: doc.width, height: doc.height, duration: doc.frames[f].duration, data: b64(new Uint8Array(compose(f).buffer)) }));
+        const frames = which.map((f) => ({ width: doc.width, height: doc.height, duration: doc.frames[f].duration, data: b64(new Uint8Array(compose(f, doc, null, true).buffer)) }));
         const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
         closeIt();
         try {
-          const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags, layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend })) });
+          const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags, slices: doc.slices || [],
+            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference })) });
           if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
         } catch (err) { hooks.showError(err); }
       };
       s.append(NoorUI.head('Export', closeIt),
-        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'What ', kind), el('label', {}, 'Frames ', tag), el('label', {}, 'Scale ', scale), el('label', {}, 'Sheet as ', layout), el('label', {}, 'Space between (px) ', spacing),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'What ', kind), el('label', {}, 'Frames ', tag), el('label', {}, 'Scale ', scale), el('label', {}, 'Sheet as ', layout), el('label', {}, 'Space between (px) ', spacing), el('label', {}, 'JSON ', form),
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
     });

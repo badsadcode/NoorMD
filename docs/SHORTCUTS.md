@@ -93,7 +93,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorForge painting: brush on/off · eraser · stamp a decal · brush size · turn while painting · straight line · put the brush down | B · E · T · [ / ] · Alt+drag · Shift+click · Escape |
 | NoorForge stencil: move · size · turn | hold S and drag · hold S and wheel · hold S and Shift+wheel |
 | NoorSprite (pixel art) | Ctrl+Alt+P |
-| NoorSprite tools: pencil · eraser · fill · line · rectangle · ellipse · eyedropper (or hold Alt) · select · lasso · magic wand · move · hand (or hold Space) | B · E · G · L · U · O · I · M · Q · W · V · H |
+| NoorSprite tools: pencil · eraser · fill · line · rectangle · ellipse · eyedropper (or hold Alt) · select · lasso · magic wand · move · slices · hand (or hold Space) | B · E · G · L · U · O · I · M · Q · W · V · C · H |
 | NoorSprite: swap colours · brush size · zoom · fit · play / stop · previous / next frame · layer up / down · new frame · new linked frame · new layer · a brush from the selection | X · [ / ] · + / − (or the wheel) · 0 · Enter · , / . (or ← / →) · ↑ / ↓ · Alt+N · Alt+Shift+N · Shift+N · Ctrl+B |
 | NoorSprite: undo / redo · new · open · save / save as · export · select all / none / turn round · copy · cut · paste · delete · nudge a selection · put it down | Ctrl+Z / Ctrl+Y · Ctrl+N · Ctrl+O · Ctrl+S / Ctrl+Shift+S · Ctrl+E · Ctrl+A / Ctrl+D / Ctrl+Shift+I · Ctrl+C · Ctrl+X · Ctrl+V · Delete · arrow keys (Shift: 10 px) · Enter |
 | Calendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |

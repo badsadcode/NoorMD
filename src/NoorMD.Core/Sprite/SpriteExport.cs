@@ -9,7 +9,6 @@ public sealed record SpriteImage(int Width, int Height, byte[] Rgba, int Duratio
 /// <summary>Exports of composed frames: scaled up by whole numbers, sprite sheets (with an Aseprite-style JSON), GIF.</summary>
 public static class SpriteExport
 {
-    public static readonly string[] Layouts = ["row", "column", "grid"];
 
     /// <summary>Each pixel made a square of scale × scale (nearest neighbour: pixel art stays crisp).</summary>
     public static SpriteImage Scale(SpriteImage im, int scale)
@@ -23,45 +22,196 @@ public static class SpriteExport
         return im with { Width = w, Height = h, Rgba = o };
     }
 
+    public static readonly string[] Layouts = ["row", "column", "grid", "packed"];
+
+    /// <summary>Where a frame went on a sheet: its rectangle, and (trimmed) where that sits in the full frame.</summary>
+    public sealed record SheetFrame(int X, int Y, int W, int H, int OffX, int OffY, int SrcW, int SrcH, int Duration, bool Trimmed);
+
     /// <summary>
-    /// Frames laid out in one picture (a row, a column, or a grid nearly square), with spacing between them, and a
-    /// JSON engines and libraries read as they read Aseprite's ("hash" form): each frame's place and duration, the tags.
+    /// Frames laid out in one picture: a row, a column, a grid nearly square — or packed: each frame trimmed to what
+    /// it shows, frames that are the same stored once, packed in rows (smallest sheet, for engines that read the JSON).
     /// </summary>
-    public static (SpriteImage Sheet, string Json) Sheet(IReadOnlyList<SpriteImage> frames, string layout, int spacing, string name, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteLayer> layers, int scale = 1)
+    public static (SpriteImage Sheet, List<SheetFrame> Frames) Pack(IReadOnlyList<SpriteImage> frames, string layout, int spacing)
     {
         if (frames.Count == 0) throw new ArgumentException("No frames.");
         int fw = frames[0].Width, fh = frames[0].Height, n = frames.Count;
         spacing = Math.Clamp(spacing, 0, 64);
-        var columns = layout switch { "column" => 1, "grid" => (int)Math.Ceiling(Math.Sqrt(n)), _ => n };
-        var rows = (n + columns - 1) / columns;
-        int w = columns * fw + (columns - 1) * spacing, h = rows * fh + (rows - 1) * spacing;
-        if ((long)w * h > 16384L * 16384) throw new InvalidOperationException("That sheet would be too large: try a grid, or a smaller scale.");
-        var px = new byte[w * h * 4];
-        var json = new JsonObject();
-        var jframes = new JsonObject();
+        if (layout != "packed")
+        {
+            var columns = layout switch { "column" => 1, "grid" => (int)Math.Ceiling(Math.Sqrt(n)), _ => n };
+            var rows = (n + columns - 1) / columns;
+            int w = columns * fw + (columns - 1) * spacing, h = rows * fh + (rows - 1) * spacing;
+            if ((long)w * h > 16384L * 16384) throw new InvalidOperationException("That sheet would be too large: try a grid, or a smaller scale.");
+            var px = new byte[w * h * 4];
+            var placed = new List<SheetFrame>();
+            for (var i = 0; i < n; i++)
+            {
+                int cx = i % columns * (fw + spacing), cy = i / columns * (fh + spacing);
+                for (var y = 0; y < fh; y++) Array.Copy(frames[i].Rgba, y * fw * 4, px, ((cy + y) * w + cx) * 4, fw * 4);
+                placed.Add(new SheetFrame(cx, cy, fw, fh, 0, 0, fw, fh, frames[i].Duration, false));
+            }
+            return (new SpriteImage(w, h, px, 0), placed);
+        }
+        // Packed: trim, find the same pictures, place the different ones tallest first in rows.
+        var trims = frames.Select(f => Trim(f)).ToList();
+        var unique = new List<int>();          // index of the first frame of each different picture
+        var sameAs = new int[n];
+        var seen = new Dictionary<string, int>();
         for (var i = 0; i < n; i++)
         {
-            int cx = i % columns * (fw + spacing), cy = i / columns * (fh + spacing);
-            for (var y = 0; y < fh; y++) Array.Copy(frames[i].Rgba, y * fw * 4, px, ((cy + y) * w + cx) * 4, fw * 4);
-            jframes[$"{name} {i}.png"] = new JsonObject
-            {
-                ["frame"] = new JsonObject { ["x"] = cx, ["y"] = cy, ["w"] = fw, ["h"] = fh },
-                ["rotated"] = false, ["trimmed"] = false,
-                ["spriteSourceSize"] = new JsonObject { ["x"] = 0, ["y"] = 0, ["w"] = fw, ["h"] = fh },
-                ["sourceSize"] = new JsonObject { ["w"] = fw, ["h"] = fh },
-                ["duration"] = frames[i].Duration,
-            };
+            var t = trims[i];
+            var keyText = $"{t.W}x{t.H}:{Convert.ToHexString(System.Security.Cryptography.SHA1.HashData(t.Px))}";
+            if (seen.TryGetValue(keyText, out var first)) { sameAs[i] = first; continue; }
+            seen[keyText] = i; sameAs[i] = i; unique.Add(i);
         }
-        json["frames"] = jframes;
+        var area = unique.Sum(i => (long)(trims[i].W + spacing) * (trims[i].H + spacing));
+        var width = Math.Max(unique.Max(i => trims[i].W), (int)Math.Ceiling(Math.Sqrt(area) * 1.1));
+        var spots = new Dictionary<int, (int X, int Y)>();
+        int x0 = 0, y0 = 0, rowH = 0, usedW = 0;
+        foreach (var i in unique.OrderByDescending(i => trims[i].H).ThenByDescending(i => trims[i].W))
+        {
+            var t = trims[i];
+            if (x0 > 0 && x0 + t.W > width) { x0 = 0; y0 += rowH + spacing; rowH = 0; }
+            spots[i] = (x0, y0);
+            x0 += t.W + spacing; rowH = Math.Max(rowH, t.H); usedW = Math.Max(usedW, x0 - spacing);
+        }
+        int sw = Math.Max(1, usedW), sh = Math.Max(1, y0 + rowH);
+        var sheet = new byte[sw * sh * 4];
+        foreach (var i in unique)
+        {
+            var t = trims[i]; var (sx, sy) = spots[i];
+            for (var y = 0; y < t.H; y++) Array.Copy(t.Px, y * t.W * 4, sheet, ((sy + y) * sw + sx) * 4, t.W * 4);
+        }
+        var result = new List<SheetFrame>();
+        for (var i = 0; i < n; i++)
+        {
+            var t = trims[sameAs[i]]; var (sx, sy) = spots[sameAs[i]];
+            result.Add(new SheetFrame(sx, sy, t.W, t.H, t.X, t.Y, fw, fh, frames[i].Duration, t.W != fw || t.H != fh));
+        }
+        return (new SpriteImage(sw, sh, sheet, 0), result);
+    }
+
+    /// <summary>A frame cut down to its visible pixels (an empty frame: one clear pixel).</summary>
+    private static (int X, int Y, int W, int H, byte[] Px) Trim(SpriteImage f)
+    {
+        int x0 = f.Width, y0 = f.Height, x1 = -1, y1 = -1;
+        for (var y = 0; y < f.Height; y++) for (var x = 0; x < f.Width; x++) if (f.Rgba[(y * f.Width + x) * 4 + 3] != 0) { x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y); }
+        if (x1 < 0) return (0, 0, 1, 1, new byte[4]);
+        int w = x1 - x0 + 1, h = y1 - y0 + 1;
+        var px = new byte[w * h * 4];
+        for (var y = 0; y < h; y++) Array.Copy(f.Rgba, ((y0 + y) * f.Width + x0) * 4, px, y * w * 4, w * 4);
+        return (x0, y0, w, h, px);
+    }
+
+    /// <summary>
+    /// The sheet's JSON as Aseprite writes it (engines and libraries read it): "hash" (frames by name) or "array" (a
+    /// list), each frame's place, trimming and duration; the tags, layers and slices.
+    /// </summary>
+    public static string Json(string name, SpriteImage sheet, IReadOnlyList<SheetFrame> frames, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteLayer> layers, IReadOnlyList<SpriteSlice> slices, int scale, string form = "hash")
+    {
+        JsonObject Frame(SheetFrame f) => new()
+        {
+            ["frame"] = new JsonObject { ["x"] = f.X, ["y"] = f.Y, ["w"] = f.W, ["h"] = f.H },
+            ["rotated"] = false, ["trimmed"] = f.Trimmed,
+            ["spriteSourceSize"] = new JsonObject { ["x"] = f.OffX, ["y"] = f.OffY, ["w"] = f.W, ["h"] = f.H },
+            ["sourceSize"] = new JsonObject { ["w"] = f.SrcW, ["h"] = f.SrcH },
+            ["duration"] = f.Duration,
+        };
+        var json = new JsonObject();
+        if (form == "array")
+            json["frames"] = new JsonArray(frames.Select((f, i) => { var o = Frame(f); o.Insert(0, "filename", $"{name} {i}.png"); return (JsonNode)o; }).ToArray());
+        else
+        {
+            var jframes = new JsonObject();
+            for (var i = 0; i < frames.Count; i++) jframes[$"{name} {i}.png"] = Frame(frames[i]);
+            json["frames"] = jframes;
+        }
         json["meta"] = new JsonObject
         {
             ["app"] = "NoorMD NoorSprite", ["version"] = "1", ["image"] = $"{name}.png", ["format"] = "RGBA8888",
-            ["size"] = new JsonObject { ["w"] = w, ["h"] = h }, ["scale"] = scale.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            ["size"] = new JsonObject { ["w"] = sheet.Width, ["h"] = sheet.Height }, ["scale"] = scale.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["frameTags"] = new JsonArray(tags.Select(t => (JsonNode)new JsonObject { ["name"] = t.Name, ["from"] = t.From, ["to"] = t.To, ["direction"] = t.Direction, ["color"] = t.Color }).ToArray()),
-            ["layers"] = new JsonArray(layers.Select(l => (JsonNode)new JsonObject { ["name"] = l.Name, ["opacity"] = l.Opacity, ["blendMode"] = l.Blend }).ToArray()),
-            ["slices"] = new JsonArray(),
+            ["layers"] = new JsonArray(layers.Where(l => !l.Reference).Select(l => (JsonNode)new JsonObject { ["name"] = l.Name, ["opacity"] = l.Opacity, ["blendMode"] = l.Blend }).ToArray()),
+            ["slices"] = new JsonArray(slices.Select(sl =>
+            {
+                var key = new JsonObject { ["frame"] = 0, ["bounds"] = new JsonObject { ["x"] = sl.X * scale, ["y"] = sl.Y * scale, ["w"] = sl.Width * scale, ["h"] = sl.Height * scale } };
+                if (sl.Nine) key["center"] = new JsonObject { ["x"] = sl.CenterX * scale, ["y"] = sl.CenterY * scale, ["w"] = sl.CenterWidth * scale, ["h"] = sl.CenterHeight * scale };
+                if (sl.HasPivot) key["pivot"] = new JsonObject { ["x"] = sl.PivotX * scale, ["y"] = sl.PivotY * scale };
+                return (JsonNode)new JsonObject { ["name"] = sl.Name, ["color"] = sl.Color, ["keys"] = new JsonArray(key) };
+            }).ToArray()),
         };
-        return (new SpriteImage(w, h, px, 0), json.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+        return json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>A sheet and its JSON in one go (the hash form; tags and layers).</summary>
+    public static (SpriteImage Sheet, string Json) Sheet(IReadOnlyList<SpriteImage> frames, string layout, int spacing, string name, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteLayer> layers, int scale = 1, IReadOnlyList<SpriteSlice>? slices = null, string form = "hash")
+    {
+        var (sheet, placed) = Pack(frames, layout, spacing);
+        return (sheet, Json(name, sheet, placed, tags, layers, slices ?? [], scale, form));
+    }
+}
+
+/// <summary>
+/// Godot 4 files for a sprite: SpriteFrames (.tres) with an animation per tag (or one of every frame), each frame an
+/// AtlasTexture of the sheet beside it (trimmed frames put back in place by its margin), each frame's own duration; and
+/// an AnimatedSprite2D scene (.tscn) using them, drawn with sharp pixels, playing the first animation.
+/// </summary>
+public static class GodotSprite
+{
+    private static string Q(string v) => "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    private static string F(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The frames each animation plays, in order (reverse turned round, ping-pong there and back).</summary>
+    public static List<(string Name, List<int> Frames)> Animations(int frameCount, IReadOnlyList<SpriteTag> tags)
+    {
+        if (tags.Count == 0) return [("default", Enumerable.Range(0, frameCount).ToList())];
+        var names = new HashSet<string>();
+        return tags.Select(t =>
+        {
+            var run = Enumerable.Range(t.From, t.To - t.From + 1).ToList();
+            if (t.Direction == "reverse") run.Reverse();
+            else if (t.Direction == "pingpong" && run.Count > 2) run.AddRange(run.Skip(1).Take(run.Count - 2).Reverse());
+            var name = t.Name; var k = 2;
+            while (!names.Add(name)) name = $"{t.Name} {k++}";
+            return (name, run);
+        }).ToList();
+    }
+
+    /// <summary>SpriteFrames using the sheet (its file name beside the .tres), each frame's duration kept (at 10 fps, × its length).</summary>
+    public static string SpriteFrames(string sheetFile, IReadOnlyList<SpriteExport.SheetFrame> frames, IReadOnlyList<SpriteTag> tags)
+    {
+        var anims = Animations(frames.Count, tags);
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"[gd_resource type=\"SpriteFrames\" load_steps={frames.Count + 2} format=3]\n\n");
+        sb.Append($"[ext_resource type=\"Texture2D\" path={Q(sheetFile)} id=\"1_sheet\"]\n\n");
+        for (var i = 0; i < frames.Count; i++)
+        {
+            var f = frames[i];
+            sb.Append($"[sub_resource type=\"AtlasTexture\" id=\"AtlasTexture_{i}\"]\n");
+            sb.Append("atlas = ExtResource(\"1_sheet\")\n");
+            sb.Append($"region = Rect2({f.X}, {f.Y}, {f.W}, {f.H})\n");
+            if (f.Trimmed) sb.Append($"margin = Rect2({f.OffX}, {f.OffY}, {f.SrcW - f.W}, {f.SrcH - f.H})\n");
+            sb.Append('\n');
+        }
+        sb.Append("[resource]\nanimations = [");
+        sb.Append(string.Join(", ", anims.Select(a =>
+            "{\n\"frames\": [" + string.Join(", ", a.Frames.Select(fi => $"{{\n\"duration\": {F(frames[fi].Duration / 100.0)},\n\"texture\": SubResource(\"AtlasTexture_{fi}\")\n}}")) + "],\n" +
+            $"\"loop\": true,\n\"name\": &{Q(a.Name)},\n\"speed\": 10.0\n}}")));
+        sb.Append("]\n");
+        return sb.ToString();
+    }
+
+    /// <summary>A scene with an AnimatedSprite2D of the SpriteFrames, sharp pixels, the first animation playing.</summary>
+    public static string Scene(string nodeName, string framesFile, string firstAnimation)
+    {
+        var node = new string(nodeName.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
+        return "[gd_scene load_steps=2 format=3]\n\n" +
+            $"[ext_resource type=\"SpriteFrames\" path={Q(framesFile)} id=\"1_frames\"]\n\n" +
+            $"[node name={Q(node.Length > 0 ? node : "Sprite")} type=\"AnimatedSprite2D\"]\n" +
+            "texture_filter = 1\n" +
+            "sprite_frames = ExtResource(\"1_frames\")\n" +
+            $"animation = &{Q(firstAnimation)}\n" +
+            $"autoplay = {Q(firstAnimation)}\n";
     }
 }
 

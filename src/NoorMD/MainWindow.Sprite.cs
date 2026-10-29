@@ -126,10 +126,13 @@ public partial class MainWindow
                     frames.Add(SpriteExport.Scale(new SpriteImage(w, h, data, f.TryGetProperty("duration", out var d) ? Math.Clamp(d.GetInt32(), 1, 65535) : 100), scale));
                 }
                 var tags = p.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<List<SpriteTag>>(tg.GetRawText(), SpriteDoc.Json) ?? [] : [];
+                var slices = p.TryGetProperty("slices", out var sl) && sl.ValueKind == JsonValueKind.Array ? (JsonSerializer.Deserialize<List<SpriteSlice>>(sl.GetRawText(), SpriteDoc.Json) ?? []).Select(x => x.Checked(SpriteDoc.MaxSide, SpriteDoc.MaxSide)).ToList() : [];
+                var form = req.GetString("form", 10) == "array" ? "array" : "hash";
                 var layers = p.TryGetProperty("layers", out var ly) && ly.ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<List<SpriteLayer>>(ly.GetRawText(), SpriteDoc.Json) ?? [] : [];
                 var (ext, filter, title) = kind switch
                 {
                     "gif" => (".gif", "GIF (*.gif)|*.gif", "Export an animated GIF"),
+                    "godot" => (".tres", "Godot SpriteFrames (*.tres)|*.tres", "Export for Godot (the sheet, SpriteFrames and a scene go side by side)"),
                     "frames" => (".png", "PNG (*.png)|*.png", "Export every frame (named …_0.png, …_1.png …)"),
                     "frame" => (".png", "PNG (*.png)|*.png", "Export the frame"),
                     _ => (".png", "PNG (*.png)|*.png", "Export a sprite sheet (its JSON goes beside it)"),
@@ -161,8 +164,20 @@ public partial class MainWindow
                                 files.Add(file);
                             }
                             break;
+                        case "godot":
+                        {
+                            // The sheet (packed unless a layout was chosen), the SpriteFrames, and a scene to drop in.
+                            var (gs, placed) = SpriteExport.Pack(frames, layout == "row" ? "packed" : layout, spacing);
+                            var png = Path.Combine(dir, baseName + ".png");
+                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.Encode(gs.Width, gs.Height, gs.Rgba));
+                            File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags));
+                            var scene = Path.Combine(dir, baseName + ".tscn");
+                            File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
+                            files.Add(png); files.Add(target); files.Add(scene);
+                            break;
+                        }
                         default:
-                            var (sheet, json) = SpriteExport.Sheet(frames, layout, spacing, baseName, tags, layers, scale);
+                            var (sheet, json) = SpriteExport.Sheet(frames, layout, spacing, baseName, tags, layers, scale, slices.Select(x => x).ToList(), form);
                             NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.Encode(sheet.Width, sheet.Height, sheet.Rgba));
                             var jsonPath = Path.Combine(dir, baseName + ".json");
                             File.WriteAllText(jsonPath, json);

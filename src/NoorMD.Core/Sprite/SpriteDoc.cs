@@ -25,6 +25,8 @@ public sealed class SpriteDoc
     public List<SpriteFrame> Frames { get; set; } = [];
     public List<SpriteCel> Cels { get; set; } = [];
     public List<SpriteTag> Tags { get; set; } = [];
+    /// <summary>Named rectangles on the sprite (a 9-slice centre, a pivot): for UI panels, hit boxes, origins.</summary>
+    public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>The grid drawn over the sprite (tiles), in pixels.</summary>
     public int GridWidth { get; set; } = 16;
     public int GridHeight { get; set; } = 16;
@@ -73,6 +75,7 @@ public sealed class SpriteDoc
             return t;
         }).ToList();
         GridWidth = Math.Clamp(GridWidth, 1, MaxSide); GridHeight = Math.Clamp(GridHeight, 1, MaxSide);
+        Slices = (Slices ?? []).Where(s => s != null).Take(256).Select(s => s.Checked(Width, Height)).ToList();
         return this;
     }
 
@@ -91,6 +94,40 @@ public sealed class SpriteLayer
     /// <summary>0–255.</summary>
     public int Opacity { get; set; } = 255;
     public string Blend { get; set; } = "normal";
+    /// <summary>A picture to draw over or trace: shown, never exported.</summary>
+    public bool Reference { get; set; }
+}
+
+public sealed class SpriteSlice
+{
+    public string Name { get; set; } = "Slice";
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; } = 1;
+    public int Height { get; set; } = 1;
+    public string Color { get; set; } = "#0000ffff";
+    /// <summary>A 9-slice: the centre (stretched) inside the slice, relative to it; the rest are the corners and sides.</summary>
+    public bool Nine { get; set; }
+    public int CenterX { get; set; }
+    public int CenterY { get; set; }
+    public int CenterWidth { get; set; }
+    public int CenterHeight { get; set; }
+    /// <summary>A pivot (origin), relative to the slice.</summary>
+    public bool HasPivot { get; set; }
+    public int PivotX { get; set; }
+    public int PivotY { get; set; }
+
+    public SpriteSlice Checked(int spriteW, int spriteH)
+    {
+        Name = string.IsNullOrWhiteSpace(Name) ? "Slice" : Name.Trim()[..Math.Min(Name.Trim().Length, 64)];
+        Width = Math.Clamp(Width, 1, SpriteDoc.MaxSide * 2); Height = Math.Clamp(Height, 1, SpriteDoc.MaxSide * 2);
+        X = Math.Clamp(X, -SpriteDoc.MaxSide, spriteW); Y = Math.Clamp(Y, -SpriteDoc.MaxSide, spriteH);
+        Color = SpriteDoc.IsColour(Color) ? Color : "#0000ffff";
+        CenterX = Math.Clamp(CenterX, 0, Width - 1); CenterY = Math.Clamp(CenterY, 0, Height - 1);
+        CenterWidth = Math.Clamp(CenterWidth, 1, Width - CenterX); CenterHeight = Math.Clamp(CenterHeight, 1, Height - CenterY);
+        PivotX = Math.Clamp(PivotX, -SpriteDoc.MaxSide, SpriteDoc.MaxSide); PivotY = Math.Clamp(PivotY, -SpriteDoc.MaxSide, SpriteDoc.MaxSide);
+        return this;
+    }
 }
 
 public sealed class SpriteFrame

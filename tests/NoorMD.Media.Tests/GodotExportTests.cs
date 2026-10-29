@@ -203,6 +203,19 @@ public class GodotExportTests
             foreach (var (file, data) in ForgeExport.SetFiles(s == 0 ? "Boulder" : $"Boulder_{s}", forgeSets[s]))
                 File.WriteAllBytes(Path.Combine(dir, "forge", file), data);
         File.WriteAllBytes(Path.Combine(dir, "forge", "Boulder.glb"), ForgeExport.Glb(forgeRock, forgeSets));
+        // NoorSprite: a packed sheet, its SpriteFrames (an animation per tag) and an AnimatedSprite2D scene.
+        Directory.CreateDirectory(Path.Combine(dir, "sprite"));
+        var spriteFrames = Enumerable.Range(0, 4).Select(i =>
+        {
+            var px = new byte[16 * 16 * 4];
+            for (var y = 4; y < 12; y++) for (var x = 2 + i; x < 8 + i; x++) { var o = (y * 16 + x) * 4; px[o] = (byte)(60 * i); px[o + 1] = 200; px[o + 2] = 90; px[o + 3] = 255; }
+            return new NoorMD.Core.Sprite.SpriteImage(16, 16, px, 100 + i * 50);
+        }).ToList();
+        var (spriteSheet, placed) = NoorMD.Core.Sprite.SpriteExport.Pack(spriteFrames, "packed", 1);
+        File.WriteAllBytes(Path.Combine(dir, "sprite", "hero.png"), NoorMD.Core.Sprite.SpritePng.Encode(spriteSheet.Width, spriteSheet.Height, spriteSheet.Rgba));
+        List<NoorMD.Core.Sprite.SpriteTag> spriteTags = [new() { Name = "walk", From = 0, To = 3, Direction = "pingpong" }, new() { Name = "idle", From = 0, To = 0 }];
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero.tres"), NoorMD.Core.Sprite.GodotSprite.SpriteFrames("hero.png", placed, spriteTags));
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero.tscn"), NoorMD.Core.Sprite.GodotSprite.Scene("Hero", "hero.tres", "walk"));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

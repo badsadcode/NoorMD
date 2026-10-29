@@ -145,6 +145,20 @@ func _init() -> void:
 		check(forge_surface is BaseMaterial3D and forge_surface.albedo_texture is Texture2D and forge_surface.normal_enabled, "…with its textures on its material", forge_surface)
 	forge_scene.free()
 
+	# NoorSprite: SpriteFrames with an animation per tag (ping-pong there and back), each frame's duration, trimmed
+	# frames put back in place; an AnimatedSprite2D scene with sharp pixels.
+	var sf = load("res://sprite/hero.tres")
+	check(sf is SpriteFrames, "a NoorSprite export's .tres loads as SpriteFrames", sf)
+	if sf is SpriteFrames:
+		check(sf.has_animation("walk") and sf.has_animation("idle"), "…an animation per tag", sf.get_animation_names())
+		check(sf.get_frame_count("walk") == 6 and sf.get_frame_count("idle") == 1, "…walk plays there and back (6 frames), idle 1", [sf.get_frame_count("walk"), sf.get_frame_count("idle")])
+		check(is_equal_approx(sf.get_frame_duration("walk", 1), 1.5) and is_equal_approx(sf.get_animation_speed("walk"), 10.0), "…each frame's own duration", sf.get_frame_duration("walk", 1))
+		var tex: Texture2D = sf.get_frame_texture("walk", 1)
+		check(tex is AtlasTexture and tex.get_width() == 16 and tex.get_height() == 16, "…frames are parts of the sheet, trimmed ones the full size again", [tex, tex.get_width() if tex else 0])
+	var hero: Node = load("res://sprite/hero.tscn").instantiate()
+	check(hero is AnimatedSprite2D and hero.sprite_frames is SpriteFrames and hero.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and hero.autoplay == "walk", "…and the scene is an AnimatedSprite2D with sharp pixels, playing walk", hero)
+	hero.free()
+
 	# The shader itself: its code loads and declares what the plugin sets.
 	var shader: Shader = load("res://addons/noor_trees/noor_tree_wind.gdshader")
 	check(shader != null and shader.code.contains("shader_type spatial"), "the wind shader loads")

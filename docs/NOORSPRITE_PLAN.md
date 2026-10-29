@@ -106,6 +106,21 @@ NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and p
   metadata; packed sheets (trimmed, deduplicated), JSON in hash or array form.
 - Animation helpers: frame interpolation of a moved cel (tweening position), a timeline that scales durations.
 
+### Done in preview.96 (stage 3, first part)
+
+- **Slices** (C): named rectangles dragged on the sprite — a **9-slice** centre (the part that stretches) and a
+  **pivot** (an origin), typed exactly in the panel; drawn with their names; kept in .noorsprite and .aseprite files
+  (both ways) and in the sheet's JSON (scaled with the export).
+- **Reference layers:** any layer can be one (shown while drawing, never exported); "A picture to trace" brings a
+  picture in as one, fitted, half see-through and locked, on every frame.
+- **Packed sheets:** each frame trimmed to what it shows, frames that are the same stored once, packed in rows —
+  the JSON says where each frame sits in its full size (spriteSourceSize, sourceSize), as engines expect; the JSON
+  in Aseprite's either form: frames by name (hash) or a list (array).
+- **Godot:** SpriteFrames (.tres) with an animation per tag — reverse turned round, ping-pong there and back — each
+  frame its own duration (at 10 fps × its length), trimmed frames put back in place; and an AnimatedSprite2D scene
+  (.tscn) with sharp pixels, playing the first animation. Checked in headless Godot 4.4 on CI.
+- Still to come for stage 3: tilemap layers and tilesets (and Godot TileSets), animation helpers.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

@@ -13,7 +13,7 @@ namespace NoorMD.Core.Sprite;
 public static class AsepriteFile
 {
     private const ushort HeaderMagic = 0xA5E0, FrameMagic = 0xF1FA;
-    private const ushort ChunkOldPalette = 0x0004, ChunkLayer = 0x2004, ChunkCel = 0x2005, ChunkColorProfile = 0x2007, ChunkTags = 0x2018, ChunkPalette = 0x2019;
+    private const ushort ChunkOldPalette = 0x0004, ChunkLayer = 0x2004, ChunkCel = 0x2005, ChunkColorProfile = 0x2007, ChunkTags = 0x2018, ChunkPalette = 0x2019, ChunkSlice = 0x2022;
 
     private static readonly string[] BlendNames = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "color-dodge", "color-burn", "hard-light", "soft-light", "difference", "exclusion", "hue", "saturation", "color", "luminosity", "add", "subtract", "divide"];
 
@@ -61,7 +61,7 @@ public static class AsepriteFile
                         if (kind != 0) { layers.Add(null); skipped.Add($"{(kind == 1 ? "group" : "tilemap")} “{name}”"); break; }
                         var layer = new SpriteLayer
                         {
-                            Id = $"L{layers.Count + 1}", Name = name, Visible = (flags & 1) != 0, Locked = (flags & 2) == 0,
+                            Id = $"L{layers.Count + 1}", Name = name, Visible = (flags & 1) != 0, Locked = (flags & 2) == 0, Reference = (flags & 64) != 0,
                             Opacity = (headerFlags & 1) != 0 ? opacity : 255,
                             Blend = blend < BlendNames.Length && SpriteLayer.Blends.Contains(BlendNames[blend]) ? BlendNames[blend] : "normal",
                         };
@@ -97,6 +97,22 @@ public static class AsepriteFile
                             cel = new SpriteCel { Layer = layer.Id, Frame = f, X = x, Y = y, Width = w, Height = h, Opacity = opacity }.WithPixels(ToRgba(raw, w * h, depth, palette, transparentIndex));
                         }
                         if (cel != null) { doc.Cels.RemoveAll(e => e.Layer == cel.Layer && e.Frame == f); doc.Cels.Add(cel); }
+                        break;
+                    }
+                    case ChunkSlice:
+                    {
+                        int keys = (int)U32(d, 0), sflags = (int)U32(d, 4);
+                        var (name, q) = Str(d, 12);
+                        // NoorSprite keeps a slice's first key (where it is on the first frame it is on).
+                        if (keys > 0 && q + 20 <= d.Length)
+                        {
+                            var sl = new SpriteSlice { Name = name, X = (int)U32(d, q + 4), Y = (int)U32(d, q + 8), Width = (int)U32(d, q + 12), Height = (int)U32(d, q + 16) };
+                            var r = q + 20;
+                            if ((sflags & 1) != 0 && r + 16 <= d.Length) { sl.Nine = true; sl.CenterX = (int)U32(d, r); sl.CenterY = (int)U32(d, r + 4); sl.CenterWidth = (int)U32(d, r + 8); sl.CenterHeight = (int)U32(d, r + 12); r += 16; }
+                            if ((sflags & 2) != 0 && r + 8 <= d.Length) { sl.HasPivot = true; sl.PivotX = (int)U32(d, r); sl.PivotY = (int)U32(d, r + 4); }
+                            doc.Slices.Add(sl);
+                            if (keys > 1) notes.Add($"Slice “{name}” moves over the frames: NoorSprite keeps where it is first.");
+                        }
                         break;
                     }
                     case ChunkTags:
@@ -180,6 +196,7 @@ public static class AsepriteFile
                 if (doc.Palette.Count > 0) chunks.Add((ChunkPalette, PaletteChunk(doc.Palette)));
                 foreach (var l in doc.Layers) chunks.Add((ChunkLayer, LayerChunk(l)));
                 if (doc.Tags.Count > 0) chunks.Add((ChunkTags, TagsChunk(doc.Tags)));
+                foreach (var sl in doc.Slices) chunks.Add((ChunkSlice, SliceChunk(sl)));
             }
             for (var li = 0; li < doc.Layers.Count; li++)
             {
@@ -213,7 +230,7 @@ public static class AsepriteFile
     {
         var name = Encoding.UTF8.GetBytes(l.Name);
         var d = new byte[18 + name.Length];
-        BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)((l.Visible ? 1 : 0) | (l.Locked ? 0 : 2)));
+        BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)((l.Visible ? 1 : 0) | (l.Locked ? 0 : 2) | (l.Reference ? 64 : 0)));
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(10), (ushort)Math.Max(0, Array.IndexOf(BlendNames, l.Blend)));
         d[12] = (byte)l.Opacity;
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(16), (ushort)name.Length);
@@ -246,6 +263,30 @@ public static class AsepriteFile
         d[6] = (byte)c.Opacity;
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(7), 1); // linked
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(16), (ushort)frame);
+        return d;
+    }
+
+    private static byte[] SliceChunk(SpriteSlice s)
+    {
+        var name = Encoding.UTF8.GetBytes(s.Name);
+        var size = 12 + 2 + name.Length + 20 + (s.Nine ? 16 : 0) + (s.HasPivot ? 8 : 0);
+        var d = new byte[size];
+        BinaryPrimitives.WriteUInt32LittleEndian(d, 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(4), (uint)((s.Nine ? 1 : 0) | (s.HasPivot ? 2 : 0)));
+        BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(12), (ushort)name.Length);
+        name.CopyTo(d, 14);
+        var q = 14 + name.Length;
+        BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q), 0); // from frame 0
+        BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.X); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 8), s.Y);
+        BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 12), (uint)s.Width); BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 16), (uint)s.Height);
+        q += 20;
+        if (s.Nine)
+        {
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.CenterX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.CenterY);
+            BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 8), (uint)s.CenterWidth); BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 12), (uint)s.CenterHeight);
+            q += 16;
+        }
+        if (s.HasPivot) { BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.PivotX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.PivotY); }
         return d;
     }
 

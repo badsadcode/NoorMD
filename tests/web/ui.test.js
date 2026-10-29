@@ -5815,6 +5815,66 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66d. NoorSprite stage 3: slices, reference layers, packed sheets, JSON forms, Godot.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      await strokeTo([[4, 4], [8, 8]]);
+      // Slices: C, drag a rectangle; name it; a 9-slice centre and a pivot.
+      await page.keyboard.press('c');
+      await strokeTo([[2, 3], [9, 12]]);
+      let st = await page.evaluate(() => NoorSprite._wire());
+      check('C: dragging makes a slice', st.slices.length === 1 && st.slices[0].x === 2 && st.slices[0].y === 3 && st.slices[0].width === 8 && st.slices[0].height === 10 && !(await page.isHidden('#sp-slicepanel')));
+      await page.fill('#sp-slice-name', 'button'); await page.press('#sp-slice-name', 'Enter');
+      await page.click('#sp-slicepanel [data-slice="nine"]');
+      await page.click('#sp-slicepanel [data-slice="hasPivot"]');
+      st = await page.evaluate(() => NoorSprite._wire());
+      check('…named, with a 9-slice centre and a pivot (sensible to start)', st.slices[0].name === 'button' && st.slices[0].nine && st.slices[0].centerWidth >= 1 && st.slices[0].centerX > 0 && st.slices[0].hasPivot && st.slices[0].pivotY === 9);
+      await page.fill('#sp-slicepanel [data-slice="pivotX"]', '1'); await page.press('#sp-slicepanel [data-slice="pivotX"]', 'Enter');
+      check('…its numbers can be typed', (await page.evaluate(() => NoorSprite._wire())).slices[0].pivotX === 1);
+      await strokeTo([[12, 12], [14, 14]]);
+      check('a second slice', (await page.evaluate(() => NoorSprite._wire())).slices.length === 2);
+      await page.click('#sp-slice-del');
+      check('a slice can be removed', (await page.evaluate(() => NoorSprite._wire())).slices.map((x) => x.name).join() === 'button');
+      // A reference picture: shown, locked, never exported.
+      await page.keyboard.press('b');
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("A picture to trace")');
+      await waitFn(page, () => NoorSprite._state().layers.some((l) => l.reference));
+      st = await SS();
+      const ref = st.layers.find((l) => l.reference);
+      check('a picture to trace becomes a reference layer: locked, half see-through, at the bottom', ref && ref.locked && ref.opacity === 128 && st.layers[0].reference && !!(await page.$('#sp-timeline .sp-layername.ref')));
+      check('…shown while drawing (fitted in the middle)', (await page.evaluate(() => NoorSprite._pixel(0, 6, null, 0)))[3] > 0 && (await page.evaluate(() => NoorSprite._pixel(0, 1, null, 0)))[3] === 0);
+      // Export: a packed sheet with array JSON — the reference layer left out, the slices sent along.
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-layout', 'packed'); await page.selectOption('#sp-ex-form', 'array');
+      await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      let ex = (await SM()).exports[0];
+      const data = atob(ex.frames[0].data);
+      check('a packed sheet with JSON as a list, the slices with it, the reference layer not in the pictures', ex.layout === 'packed' && ex.form === 'array' && ex.slices[0].name === 'button' && data.charCodeAt(3) === 0 && data.charCodeAt((5 * 16 + 5) * 4 + 3) === 255 && ex.layers.some((l) => l.reference));
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'godot');
+      await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 2);
+      check('Godot: SpriteFrames and a scene', (await SM()).exports[1].kind === 'godot');
+      // Saved with the slices and the reference layer.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.sprite.saves || []).length >= 1);
+      const saved = (await SM()).saves.at(-1).sprite;
+      check('saved with the slices and which layer is a reference', saved.slices[0].nine && saved.layers.some((l) => l.reference));
+      if (shots) await page.screenshot({ path: `${shots}/66d-noorsprite-stage3.png` });
+      check('no page errors in NoorSprite stage 3', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
