@@ -370,6 +370,13 @@ the card's edge cut them straight (up to 386 leaf pixels on the cell edges of on
 measured whole (blades at full width, stems) and shrunk round its anchor, or lifted with a short stalk down to it,
 to fit its cell. A test checks every leaf shape, cluster and look: no leaf pixel on a cell's edge but the stalk.
 
+Willows (preview.73): they looked like ropes hung on sticks: thin curtains, one slender twig sprite each, hanging
+from the twigs below bare arching limbs. A willow is now a leafy dome (cards over the top of the leaf masses, about
+40 % of the leaf budget, hiding the limbs) with curtains leaving from round its sides, wide enough to overlap their
+neighbours about twice round the crown, some deeper in for depth; each curtain segment a cluster of drooping twigs
+(the willow presets use the cluster sprite). A test: the leaves reach above the wood (on the old code the bare limb
+tips stood above them) and the crown is over 60 % full from the side.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

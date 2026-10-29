@@ -644,7 +644,8 @@ public class TreeTests
         Assert.Equal("cluster", TreePresets.Make("oak").LeafCluster);
         Assert.Equal("cluster", TreePresets.Make("maple").LeafCluster);
         Assert.Equal("spray", TreePresets.Make("spruce").LeafCluster);
-        Assert.Equal("twig", TreePresets.Make("willow").LeafCluster);
+        // Willows too: each curtain segment a cluster of drooping twigs (a single twig made thin ropes).
+        Assert.Equal("cluster", TreePresets.Make("willow").LeafCluster);
         // A recipe saved before keeps its twigs.
         Assert.Equal("twig", TreeRecipe.FromJson("{\"name\":\"Old\"}").LeafCluster);
         Assert.Equal(16000, TreeRecipe.FromJson("{\"name\":\"Old\"}").LeafBudget);
@@ -1000,6 +1001,27 @@ public class TreeTests
         var reach = (float)(r.LeafSize * 1.3 * 1.2 * 1.7) + (float)r.LeafSize * 2.5f;
         Assert.Equal(0, Floating(b, 0, reach));
         Assert.True(Floating(b, 0, reach * 0.5f) < 0.5);
+    }
+
+    [Fact]
+    public void A_willow_is_a_leafy_dome_with_curtains_not_ropes_on_bare_branches()
+    {
+        // The bug: thin curtains hanging from the twigs left the arching limbs bare above them. Now a dome covers the
+        // crown's top and the curtains round its sides overlap: seen from the side, it is mostly leaves.
+        foreach (var preset in new[] { "willow", "thornwake-willow" })
+        {
+            var r = TreePresets.Make(preset);
+            if (r.TriangleTarget == 0 && r.LodTriangles.Count == 0) r.TriangleTarget = 4000;
+            r.Lods = 1; r.Billboard = false;
+            var lod = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 }).Lods[0];
+            var full = TreeStatsMeter.Measure(lod).Fullness ?? 0;
+            Assert.True(full > 0.6, $"{preset}: crown {full:P0} full");
+            // Leaves over the top of the crown, not only hanging below the limbs.
+            var leaves = lod.Root.All().First(n => n.Name == "Leaves").Mesh!;
+            var top = leaves.Positions.Max(p => p.Y);
+            var wood = lod.Root.All().First(n => n.Name == "Trunk").Mesh!.Positions.Max(p => p.Y);
+            Assert.True(top > wood, $"{preset}: leaves reach {top:0.0} m, the wood {wood:0.0} m");
+        }
     }
 
     [Fact]

@@ -469,13 +469,13 @@ public static class TreePresets
             Name = "Weeping willow", Archetype = "broadleaf", Height = 11, TrunkRadius = 0.5, Taper = 0.7, CrownStart = 0.35, RootStyle = "surface", Roots = 6, RootLength = 0.8, Shape = "hemispherical", Lean = 4,
             // Limbs arching up and out, twigs drooping from them: the broad dome the curtains fall from.
             Levels = [L(8, 0.4, 50, 0.75, 0.6, -25, 10), L(10, 0.25, 55, 0.45, 0.5, -60, 8, 15)],
-            LeafShape = "slender", Arrangement = "hanging", HangLength = 7, LeafSize = 0.7, LeafDensity = 0.5, LeafColor = "#6d8a2c", LeafColor2 = "#b2c24a", BarkColor = "#5a4c3e",
+            LeafShape = "slender", LeafCluster = "cluster", Arrangement = "hanging", HangLength = 7, LeafSize = 0.7, LeafDensity = 0.5, LeafColor = "#6d8a2c", LeafColor2 = "#b2c24a", BarkColor = "#5a4c3e",
         }, "Swamp & marsh"),
         new("stylized-willow", "Stylized willow", "A chunky twisted willow under swaying curtains.", () => new TreeRecipe
         {
             Name = "Stylized willow", Archetype = "broadleaf", Style = "stylized", Height = 8, TrunkRadius = 0.55, Taper = 0.65, CrownStart = 0.4, RootStyle = "surface", Roots = 5, Shape = "hemispherical", Twist = 0.5, Collar = 0.9,
             Levels = [L(6, 0.4, 50, 0.6, 0.6, 25, 8), L(6, 0.25, 40, 0.5, 0.55, -45, 8)],
-            LeafShape = "slender", Arrangement = "hanging", HangLength = 4, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#4f8a2a", LeafColor2 = "#c4dc5a", BarkColor = "#6e5440", BarkMaterial = "painted", Budget = 3500, Quality = "low",
+            LeafShape = "slender", LeafCluster = "cluster", Arrangement = "hanging", HangLength = 4, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#4f8a2a", LeafColor2 = "#c4dc5a", BarkColor = "#6e5440", BarkMaterial = "painted", Budget = 3500, Quality = "low",
         }, "Swamp & marsh"),
         new("bog-snag", "Bog snag (realistic)", "A dead swamp tree hung with moss and vines.", () => new TreeRecipe
         {
@@ -626,7 +626,7 @@ public static class TreePresets
         {
             Name = "Spirit willow", Archetype = "broadleaf", Style = "stylized", Height = 9, TrunkRadius = 0.5, Taper = 0.65, CrownStart = 0.4, RootStyle = "surface", Roots = 6, Twist = 0.8, Collar = 0.9, Shape = "hemispherical",
             Levels = [L(6, 0.4, 50, 0.6, 0.6, 25, 8), L(6, 0.25, 40, 0.5, 0.55, -45, 8)],
-            LeafShape = "slender", Arrangement = "hanging", HangLength = 5, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#1f7a7a", LeafColor2 = "#a8f0dc", BarkColor = "#c8c4b8", BarkMaterial = "painted",
+            LeafShape = "slender", LeafCluster = "cluster", Arrangement = "hanging", HangLength = 5, LeafSize = 0.9, LeafDensity = 0.75, LeafColor = "#1f7a7a", LeafColor2 = "#a8f0dc", BarkColor = "#c8c4b8", BarkMaterial = "painted",
             Moss = 0.3, MossColor = "#8ab8a8", Budget = 3500, Quality = "low",
         }, "Fantasy"),
         new("fly-agaric", "Fly agaric tree", "A giant red toadstool with white spots on a pale, swollen stem.", () => new TreeRecipe

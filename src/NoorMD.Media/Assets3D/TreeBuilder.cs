@@ -736,6 +736,7 @@ public static class TreeBuilder
         if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         if (recipe.Arrangement == "boughs") { AddBoughs(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         if (recipe.Foliage == "masses" && recipe.Arrangement != "hanging") return AddMassCards(m, sk, recipe, branchIds, material, detail);
+        if (recipe.Arrangement == "hanging") { AddWillow(m, sk, recipe, branchIds, material, detail); return 1; }
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
@@ -867,18 +868,64 @@ public static class TreeBuilder
     private static Vector3 Scaled(Vector3 d, float flat) => d with { Y = d.Y * flat };
 
     /// <summary>
+    /// A weeping willow: a leafy dome (cards over the top of the leaf masses, hiding the arching limbs) and, from round
+    /// its sides, wide curtains falling nearly to the ground, overlapping their neighbours, some deeper in for depth.
+    /// About 40 % of the leaf budget for the dome, the rest for the curtains.
+    /// </summary>
+    private static void AddWillow(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail)
+    {
+        var masses = leafMasses ??= LeafMasses(sk, recipe);
+        if (masses.Count == 0) return;
+        AddMassCards(m, sk, recipe, branchIds, material, detail, share: 0.4f, lowest: -0.15f);
+        var rng = new Random(recipe.Seed * 53 + branchIds.FirstOrDefault() * 11 + (int)detail);
+        var segs = HangSegments(recipe);
+        var curtains = recipe.LeafBudget * 0.6f / (4 * segs) / detail;
+        // Wide enough that the curtains round the crown overlap about twice.
+        var round = MathF.Tau * MathF.Max(0.5f, sk.CrownRadius) * 0.9f;
+        var width = MathF.Max((float)recipe.LeafSize * PlaneScale(recipe) * 0.6f, round * 1.6f / MathF.Max(1, curtains));
+        var size = width * 1.6f;
+        float Side(LeafMass a) => a.R * a.R * MathF.Max(0.02f, a.Exposed);
+        var total = masses.Sum(Side);
+        var mine = branchIds.ToHashSet();
+        var neighbours = masses.Select(a => masses.Where(o => o != a && Vector3.Distance(o.C, a.C) < o.R + a.R).ToList()).ToList();
+        for (var i = 0; i < masses.Count; i++)
+        {
+            var a = masses[i];
+            if (!mine.Contains(a.B.Id)) continue;
+            var want = curtains * Side(a) / total;
+            var k = (int)want + (rng.NextDouble() < want - (int)want ? 1 : 0);
+            var turn = (float)(rng.NextDouble() * MathF.Tau);
+            var tries = k * 4 + 4;
+            for (var j = 0; j < tries && k > 0; j++)
+            {
+                // Round the mass's sides, a little below its middle: where a willow's curtains leave the dome.
+                var ang = turn + j * 2.399963f;
+                var y = -0.1f - 0.4f * (float)rng.NextDouble();
+                var dir = new Vector3(MathF.Cos(ang) * MathF.Sqrt(1 - y * y), y, MathF.Sin(ang) * MathF.Sqrt(1 - y * y));
+                var deep = rng.NextDouble() < 0.3;
+                var q = a.C + Scaled(dir, a.Flat) * a.R * (deep ? 0.5f : 0.9f);
+                if (!deep && neighbours[i].Any(o => o.Holds(q))) continue;
+                Hanging(m, q, Vector3.Normalize(dir with { Y = 0 }), size, sk, recipe, a.B, a.T, material, rng, width * (0.8f + 0.4f * (float)rng.NextDouble()));
+                k--;
+            }
+        }
+    }
+
+    /// <summary>
     /// Leaf masses: the cards spread evenly over the crown's outer surface (the masses' surfaces, less what lies inside
     /// a neighbour), a few deeper for depth, each facing out of its mass. The leaf budget sets how many; their size is
     /// what covers the surface. The outline is the crown's shape, not wherever the twigs happen to be.
     /// </summary>
-    private static float AddMassCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail)
+    private static float AddMassCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail, float share = 1, float lowest = -1)
     {
         var masses = leafMasses ??= LeafMasses(sk, recipe);
         if (masses.Count == 0) return 1;
         var rng = new Random(recipe.Seed * 31 + branchIds.FirstOrDefault() * 7 + (int)detail);
-        float Area(LeafMass a) => 4 * MathF.PI * a.R * a.R * (0.4f + 0.6f * a.Flat) * MathF.Max(0.02f, a.Exposed);
+        // Only the part of each mass above "lowest" (−1 all of it; a willow's dome: its top).
+        var part = (1 - lowest) / 2;
+        float Area(LeafMass a) => 4 * MathF.PI * a.R * a.R * (0.4f + 0.6f * a.Flat) * MathF.Max(0.02f, a.Exposed) * part;
         var area = masses.Sum(Area);
-        var cards = recipe.LeafBudget / (float)CardTriangles("scatter") / detail;
+        var cards = recipe.LeafBudget * share / (float)CardTriangles("scatter") / detail;
         // Each card about the size that covers the surface with some overlap; never smaller than a leaf spray.
         var size = MathF.Max(MathF.Sqrt(area * 2.4f / cards), (float)recipe.LeafSize * PlaneScale(recipe) * 0.7f);
         cards = MathF.Min(cards, area * 2.4f / (size * size));
@@ -892,12 +939,13 @@ public static class TreeBuilder
             var want = cards * Area(a) / area;
             var k = (int)want + (rng.NextDouble() < want - (int)want ? 1 : 0);
             if (k == 0) continue;
-            var tries = (int)MathF.Ceiling(k / MathF.Max(0.05f, a.Exposed)) + 2;
+            var tries = (int)MathF.Ceiling(k / MathF.Max(0.05f, a.Exposed) / part) + 2;
             var turn = (float)(rng.NextDouble() * MathF.Tau);
             var placed = 0;
             for (var j = 0; j < tries && placed < k; j++)
             {
                 var dir = Fibonacci(j, tries, turn);
+                if (dir.Y < lowest) continue;
                 var deep = rng.NextDouble() < 0.25 * (1 - outer) + 0.05;
                 var q = a.C + Scaled(dir, a.Flat) * a.R * (deep ? 0.45f + 0.25f * (float)rng.NextDouble() : 0.82f + 0.18f * (float)rng.NextDouble());
                 if (!deep && neighbours[i].Any(o => o.Holds(q))) continue;
@@ -1013,7 +1061,7 @@ public static class TreeBuilder
     /// its own sprite, stem at the top), arching out a little and then down, narrowing towards its tip and stopping
     /// above the ground. Many of them at different depths make the curtain; one stretched leaf would read as a plank.
     /// </summary>
-    private static void Hanging(Mesh3D m, Vector3 p, Vector3 side, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng)
+    private static void Hanging(Mesh3D m, Vector3 p, Vector3 side, float size, TreeSkeleton sk, TreeRecipe recipe, TreeBranch b, float t, int material, Random rng, float width = 0)
     {
         var length = MathF.Min((float)recipe.HangLength * (0.5f + 0.5f * (float)rng.NextDouble()), p.Y - 0.4f);
         // Too near the ground for a curtain: none (a twig that low is inside the curtains of the others).
@@ -1025,7 +1073,7 @@ public static class TreeBuilder
         outward = outward.LengthSquared() > 1e-6f ? Vector3.Normalize(outward) : Vector3.UnitX;
         var across = Vector3.Transform(Vector3.Normalize(Vector3.Cross(Vector3.UnitY, outward)), Quaternion.CreateFromAxisAngle(Vector3.UnitY, ((float)rng.NextDouble() - 0.5f) * 0.9f));
         var segs = HangSegments(recipe);
-        var width = size * (recipe.LeafBudget < 6000 ? 0.7f : 0.5f);
+        if (width <= 0) width = size * (recipe.LeafBudget < 6000 ? 0.7f : 0.5f);
         var arch = size * (0.4f + 0.5f * (float)rng.NextDouble());
         Vector3 Centre(float s) => p + outward * arch * MathF.Sin(s * MathF.PI * 0.5f) - Vector3.UnitY * length * s;
         var sub = m.Sub(material);
