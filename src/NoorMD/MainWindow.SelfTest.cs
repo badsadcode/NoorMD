@@ -921,6 +921,9 @@ public partial class MainWindow
             var maps = TextureEngine.Render(TexturePresets.Make("metal-rusty"), 512);
             var orm = maps.Packed("ao", "roughness", "metallic");
             Check("Texture Bench: maps are written as PNG files", orm.Length > 1000 && orm[1] == (byte)'P' && maps.Png("height").Length > 1000 && maps.Png("normal", directX: true).Length > 1000);
+            var manifest = JsonSerializer.Serialize(TextureManifest(new TextureRecipe { Name = "Rust", TileMetres = 3, HeightCm = 8 }.Clamped(), maps, ["rust_albedo.png", "rust_height.png"], [("albedo", "albedo"), ("height", "height")], "rust.noortex.json"));
+            Check("Texture Bench: the manifest gives the real-world size, the height's range and the albedo brightness",
+                manifest.Contains("\"tileMetres\":3") && manifest.Contains("\"heightRangeCm\":8") && manifest.Contains("\"albedoLuminance\":") && manifest.Contains("\"pixelsPerMetre\":170.6667"), manifest);
             // A photo as a layer: decoded by Windows, read only once picked; an unpicked one (there, readable) is refused.
             var photoPath = Path.Combine(SelfTestDir!, "Texture photo.png");
             var photoNotPicked = Path.Combine(SelfTestDir!, "Texture photo, not picked.png");

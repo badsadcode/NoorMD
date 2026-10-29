@@ -23,6 +23,7 @@ public partial class MainWindow
 {
     private readonly Dictionary<string, Dictionary<string, byte[]>> _texturePreviews = new(StringComparer.Ordinal);
     private readonly Queue<string> _texturePreviewOrder = new();
+    private readonly Dictionary<string, (float R, float G, float B, float Luminance)> _textureMeans = new(StringComparer.Ordinal);
     private readonly HashSet<string> _textureFolders = new(StringComparer.OrdinalIgnoreCase);
     private static readonly SemaphoreSlim TextureGate = new(1);
     private static string UserTextureFolder => Path.Combine(App.Paths.Local, "Texture", "Presets");
@@ -161,7 +162,7 @@ public partial class MainWindow
             var t = new Dictionary<string, string>(tokens); foreach (var kv in NoorMD.Core.Export.ExportLayouts.MapTokens(f.Suffix)) t[kv.Key] = kv.Value;
             return NoorMD.Core.Export.ExportLayouts.FileName(NoorMD.Core.Export.ExportLayouts.Expand(place.FilePattern, t), recipe.Name) + ".png";
         }).ToList();
-        return new TextureSetPlan(folder, stem, names, [.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortex.json")]);
+        return new TextureSetPlan(folder, stem, names, [.. names.Select(n => Path.Combine(folder, n)), Path.Combine(folder, stem + ".noortex.json"), Path.Combine(folder, stem + ".material.json")]);
     }
 
     /// <summary>Writes one material's maps, its paintings and its recipe where the plan says.</summary>
@@ -183,8 +184,44 @@ public partial class MainWindow
         var travelling = await CopyPaintingsBesideAsync(recipe, plan.Folder, taken, replace: !keep);
         var recipePath = ExportTarget(plan.Folder, plan.Stem + ".noortex.json", keep, taken);
         await File.WriteAllTextAsync(recipePath, travelling.ToJson(), new UTF8Encoding(false));
+        // What a game needs to place it at its real size and keep a set even: the scale, the height's range, the
+        // brightness, and what each map holds.
+        var manifestPath = ExportTarget(plan.Folder, plan.Stem + ".material.json", keep, taken);
+        await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(TextureManifest(recipe, maps, written.Select(Path.GetFileName).ToList()!, files, Path.GetFileName(recipePath)),
+            new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
         _textureFolders.Add(plan.Folder);
         return (plan.Folder, written, recipePath, travelling);
+    }
+
+    /// <summary>A material's manifest: its real-world scale, the height map's range, its brightness and its maps.</summary>
+    internal static object TextureManifest(TextureRecipe recipe, TextureMaps maps, IReadOnlyList<string> fileNames, List<(string Suffix, string What)> files, string recipeFile)
+    {
+        var mean = maps.AlbedoMean();
+        float R(double v) => (float)Math.Round(v, 4);
+        return new
+        {
+            generator = "NoorMD Texture Bench",
+            kind = "material",
+            name = recipe.Name,
+            family = recipe.Family,
+            recipe = recipeFile,
+            size = maps.Size,
+            tileMetres = R(recipe.TileMetres),
+            pixelsPerMetre = R(maps.Size / recipe.TileMetres),
+            heightRangeCm = R(recipe.HeightCm),
+            albedoMeanLinear = new[] { R(mean.R), R(mean.G), R(mean.B) },
+            albedoLuminance = R(mean.Luminance),
+            maps = files.Select((f, i) => new
+            {
+                file = i < fileNames.Count ? fileNames[i] : null,
+                map = f.What,
+                colorSpace = f.What is "albedo" ? "sRGB" : "linear",
+                convention = f.What switch { "normal" => "OpenGL (green +Y)", "normal-dx" => "DirectX (green −Y)", _ => null },
+                bits = f.What is "height" ? 16 : 8,
+                range = f.What is "height" or "height8" ? $"black 0 cm … white {recipe.HeightCm.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)} cm (low is where water collects)" : null,
+                channels = f.What switch { "orm" => "R occlusion, G roughness, B metallic", "unity-ms" => "RGB metallic, A smoothness", _ when f.What.StartsWith("pack:", StringComparison.Ordinal) => "RGBA: " + f.What[5..], _ => null },
+            }),
+        };
     }
 
     private volatile bool _textureBatchCancel;
@@ -362,6 +399,13 @@ public partial class MainWindow
         _ => maps.Png(what),
     };
 
+    /// <summary>A preview's average albedo (linear) and luminance, for the page.</summary>
+    private object? Mean(string key)
+    {
+        lock (_texturePreviews)
+            return _textureMeans.TryGetValue(key, out var m) ? new { r = Math.Round(m.R, 3), g = Math.Round(m.G, 3), b = Math.Round(m.B, 3), luminance = Math.Round(m.Luminance, 3) } : null;
+    }
+
     private async Task<object?> DispatchTextureAsync(BridgeRequest req)
     {
         var p = req.Payload;
@@ -389,25 +433,26 @@ public partial class MainWindow
                     var stamps = string.Join("|", recipe.Files().Select(f => { try { return File.GetLastWriteTimeUtc(f).Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture); } catch (Exception) { return "0"; } }));
                     key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key + "|" + stamps)))[..20].ToLowerInvariant();
                     lock (_texturePreviews)
-                        if (_texturePreviews.ContainsKey(key)) return new { key, size, maps = TextureMaps.Names.ToDictionary(m => m, m => $"/_texture/{key}/{m}.png"), ms = 0L, warnings = Array.Empty<string>() };
+                        if (_texturePreviews.ContainsKey(key)) return new { key, size, maps = TextureMaps.Names.ToDictionary(m => m, m => $"/_texture/{key}/{m}.png"), ms = 0L, warnings = Array.Empty<string>(), albedo = Mean(key) };
                     Dictionary<string, byte[]> pngs;
                     IReadOnlyList<string> warnings;
+                    (float R, float G, float B, float Luminance) mean;
                     await TextureGate.WaitAsync();
                     try
                     {
-                        (pngs, warnings) = await Task.Run(() =>
+                        (pngs, warnings, mean) = await Task.Run(() =>
                         {
                             var maps = TextureEngine.Render(recipe, size, LoadTextureImage);
-                            return (TextureMaps.Names.AsParallel().Select(m => (m, png: maps.Png(m, fast: true))).ToDictionary(x => x.m, x => x.png), maps.Warnings);
+                            return (TextureMaps.Names.AsParallel().Select(m => (m, png: maps.Png(m, fast: true))).ToDictionary(x => x.m, x => x.png), maps.Warnings, maps.AlbedoMean());
                         });
                     }
                     finally { TextureGate.Release(); }
                     lock (_texturePreviews)
                     {
-                        if (!_texturePreviews.ContainsKey(key)) { _texturePreviews[key] = pngs; _texturePreviewOrder.Enqueue(key); }
-                        while (_texturePreviewOrder.Count > 4) _texturePreviews.Remove(_texturePreviewOrder.Dequeue());
+                        if (!_texturePreviews.ContainsKey(key)) { _texturePreviews[key] = pngs; _textureMeans[key] = mean; _texturePreviewOrder.Enqueue(key); }
+                        while (_texturePreviewOrder.Count > 4) { var old = _texturePreviewOrder.Dequeue(); _texturePreviews.Remove(old); _textureMeans.Remove(old); }
                     }
-                    return new { key, size, maps = TextureMaps.Names.ToDictionary(m => m, m => $"/_texture/{key}/{m}.png"), ms = watch.ElapsedMilliseconds, warnings };
+                    return new { key, size, maps = TextureMaps.Names.ToDictionary(m => m, m => $"/_texture/{key}/{m}.png"), ms = watch.ElapsedMilliseconds, warnings, albedo = Mean(key) };
                 }
                 case "texture.export":
                 {

@@ -684,7 +684,7 @@ function mockHostScript(initial) {
         const key = 'k' + TEX.renders.length;
         const maps = {}; for (const m of ['albedo', 'normal', 'roughness', 'ao', 'metallic', 'height']) maps[m] = texPng(m, p.recipe.seed);
         const warnings = (p.recipe.layers || []).filter((l) => l.type === 'image' && !/old wall/.test(l.path || '')).map((l) => `“${l.imageName || l.name}”: the picture is missing or can't be read`);
-        return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42, warnings };
+        return { key, size: p.size <= 256 ? 256 : 512, maps, ms: 42, warnings, albedo: { r: 0.3, g: 0.27, b: 0.2, luminance: 0.27 } };
       }
       case 'texture.export': {
         TEX.exports.push({ recipe: JSON.parse(JSON.stringify(p.recipe)), size: p.size, target: p.target, project: p.project || null, layout: p.layout, folderPattern: p.folderPattern, filePattern: p.filePattern,

@@ -3997,8 +3997,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#texturebench .sb-tabs button[data-tab="export"]');
       await page.selectOption('#tb-size', '2048');
       await page.selectOption('#tb-target', 'unreal');
+      // Real-world size: what a tile covers and the height's range, with the texel density and the brightness.
+      await page.fill('#tb-tile-metres', '4'); await page.press('#tb-tile-metres', 'Enter');
+      await page.fill('#tb-height-cm', '6'); await page.press('#tb-height-cm', 'Enter');
+      await waitFn(page, () => /512 px per metre at 2048/.test(document.querySelector('#tb-scale-info').textContent) && /albedo 0\.27 linear/.test(document.querySelector('#tb-scale-info').textContent));
+      check('the real-world size shows its texel density and the albedo brightness', true);
       await page.click('#tb-export');
       await waitFn(page, () => window.__mock.state.texture.exports.length === 1);
+      check('…and goes with the recipe to the export', (await page.evaluate(() => window.__mock.state.texture.exports[0].recipe)).tileMetres === 4 && (await page.evaluate(() => window.__mock.state.texture.exports[0].recipe)).heightCm === 6);
       await page.waitForSelector('#tb-reveal');
       const ex = await page.evaluate(() => window.__mock.state.texture.exports[0]);
       check('Export writes the maps for the chosen engine and size', ex.size === 2048 && ex.target === 'unreal' && /Saved 4 maps/.test(await page.textContent('#tb-export-status')));

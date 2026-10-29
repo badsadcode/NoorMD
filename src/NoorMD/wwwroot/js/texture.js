@@ -244,6 +244,7 @@ window.NoorTexture = (() => {
   /** The rendered maps: the thumbnails, the flat tiled view and the 3D preview. */
   function showMaps() {
     if (!render) return;
+    scaleInfo();
     document.querySelectorAll('#tb-thumbs [data-map]').forEach((b) => { b.style.backgroundImage = `url("${render.maps[b.dataset.map]}")`; });
     document.querySelectorAll('#tb-pane [data-showmap]').forEach((b) => { b.style.backgroundImage = `url("${render.maps[b.dataset.showmap]}")`; });
     const flat = $('#tb-flat');
@@ -489,6 +490,7 @@ el('span', { class: 'tb-zoom' },
     const pane = $('#tb-pane');
     const keep = pane.scrollTop;
     pane.replaceChildren(...(tab === 'layers' ? layersPane() : tab === 'surface' ? surfacePane() : tab === 'maps' ? mapsPane() : exportPane()));
+    if (tab === 'export') scaleInfo();
     pane.scrollTop = keep;
     document.querySelectorAll('#tb-presets .gnav-item').forEach((b) => b.classList.toggle('active', b.textContent.startsWith(recipe.name)));
   }
@@ -785,12 +787,45 @@ el('span', { class: 'tb-zoom' },
   function exportPrefs() { try { return { size: 1024, target: 'generic', ...JSON.parse(localStorage.getItem('noormd.texture.export') || '{}') }; } catch { return { size: 1024, target: 'generic' }; } }
   function saveExportPrefs(p) { try { localStorage.setItem('noormd.texture.export', JSON.stringify(p)); } catch { /* private storage off */ } }
 
+  /** Real-world size: what one tile covers and what the height's range stands for (both in the manifest). */
+  function scaleRow() {
+    const num = (id, label, key, min, max, step, unit, title) => {
+      const box = el('input', { type: 'number', id, class: 'sb-num', min: String(min), max: String(max), step: String(step), value: String(recipe[key] ?? ''), 'aria-label': label, title });
+      box.addEventListener('change', () => {
+        const v = Number(box.value);
+        if (!Number.isFinite(v) || v <= 0) { box.value = String(recipe[key]); return; }
+        recipe[key] = Math.max(min, Math.min(max, v));
+        box.value = String(recipe[key]);
+        changed(false);
+        scaleInfo();
+      });
+      return el('label', { class: 'sb-inline', title }, el('span', { text: label }), box, el('small', { text: unit }));
+    };
+    return el('div', { class: 'tb-scale' },
+      el('div', { class: 'sb-row' },
+        num('tb-tile-metres', 'One tile covers', 'tileMetres', 0.05, 100, 0.05, 'm', 'How much ground (or wall) one tile covers in the game: the material’s real size'),
+        num('tb-height-cm', 'Height range', 'heightCm', 0.1, 500, 0.1, 'cm', 'What the height map’s full range (black to white) stands for: about 2–8 cm for soil and grass, up to 20 for scree and rock')),
+      el('small', { class: 'pref-hint', id: 'tb-scale-info' }));
+  }
+
+  /** Texel density at the export size, and the albedo's average brightness (linear) from the preview. */
+  function scaleInfo() {
+    const box = $('#tb-scale-info');
+    if (!box || !recipe) return;
+    const size = exportPrefs().size || 1024;
+    const tile = Number(recipe.tileMetres) || 2;
+    const a = render && render.albedo;
+    const lum = a ? a.luminance : null;
+    const verdict = lum == null ? '' : lum < 0.05 ? ' (very dark)' : lum > 0.6 ? ' (very bright)' : '';
+    box.textContent = `${Math.round(size / tile)} px per metre at ${size} × ${size}` + (a ? ` · average albedo ${lum.toFixed(2)} linear${verdict} — grass and soil look natural about 0.15–0.35` : '') + '. Both go in the manifest (.material.json) beside the maps.';
+  }
+
   function exportPane() {
     const prefs = exportPrefs();
     const sel = (id, label, options, value, key, num) => {
       const s = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t })));
       s.value = String(value);
-      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }); if (key === 'target') { const w = $('#tb-write'); if (w) w.replaceWith(mapsToWrite(exportPrefs())); } where.refresh(); });
+      s.addEventListener('change', () => { saveExportPrefs({ ...exportPrefs(), [key]: num ? Number(s.value) : s.value }); if (key === 'target') { const w = $('#tb-write'); if (w) w.replaceWith(mapsToWrite(exportPrefs())); } where.refresh(); scaleInfo(); });
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
     };
     where = NoorExportWhere.panel('texture', () => ({ name: recipe.name, family: recipe.family || '', size: exportPrefs().size, target: exportPrefs().target, ...writeOptions() }), hooks.showError);
@@ -803,6 +838,7 @@ el('span', { class: 'tb-zoom' },
       el('div', { class: 'sb-row' },
         sel('tb-size', 'Size', [512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), prefs.size, 'size', true),
         sel('tb-target', 'For', TARGETS, prefs.target, 'target', false)),
+      scaleRow(),
       mapsToWrite(prefs),
       where.node,
       el('div', { class: 'sb-row' },

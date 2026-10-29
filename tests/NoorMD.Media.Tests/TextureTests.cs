@@ -174,3 +174,33 @@ public class TexturePreviewSpeedTests
         Assert.True(sw.ElapsedMilliseconds < 20000, $"{sw.ElapsedMilliseconds} ms for all presets at 256");
     }
 }
+
+public class TextureScaleTests
+{
+    [Fact]
+    public void A_material_knows_its_real_size_and_height_range_and_keeps_them_sensible()
+    {
+        var r = new TextureRecipe();
+        Assert.Equal((2.0, 4.0), (r.TileMetres, r.HeightCm));      // Thornwake's ground: one tile per 2 m
+        var odd = TextureRecipe.FromJson("{\"tileMetres\":-3,\"heightCm\":99999}");
+        Assert.Equal((2.0, 500.0), (odd.TileMetres, odd.HeightCm));
+        var kept = TextureRecipe.FromJson(new TextureRecipe { TileMetres = 3.5, HeightCm = 12 }.ToJson());
+        Assert.Equal((3.5, 12.0), (kept.TileMetres, kept.HeightCm));
+    }
+
+    [Fact]
+    public void The_albedo_brightness_is_measured_in_linear_light()
+    {
+        // A flat sRGB 128 grey is about 0.216 in linear light; pure white 1.
+        TextureMaps Flat(byte v) => new()
+        {
+            Size = 4, Height = new float[16], Albedo = Enumerable.Repeat(v, 48).ToArray(), Normal = new byte[48],
+            Roughness = new byte[16], Ao = new byte[16], Metallic = new byte[16],
+        };
+        Assert.InRange(Flat(128).AlbedoMean().Luminance, 0.21f, 0.22f);
+        Assert.InRange(Flat(255).AlbedoMean().Luminance, 0.999f, 1.001f);
+        // A real ground preset lands where ground materials do.
+        var soil = TextureEngine.Render(TexturePresets.Make("ground-soil"), 128);
+        Assert.InRange(soil.AlbedoMean().Luminance, 0.02f, 0.5f);
+    }
+}

@@ -190,6 +190,10 @@ public sealed class TextureRecipe
     public int Seed { get; set; } = 1;
     public List<TextureLayer> Layers { get; set; } = [];
     public TextureSurface Surface { get; set; } = new();
+    /// <summary>How much ground (or wall) one tile of the texture covers, in metres: its real-world scale.</summary>
+    public double TileMetres { get; set; } = 2;
+    /// <summary>What the height map's full range (black to white) stands for, in centimetres.</summary>
+    public double HeightCm { get; set; } = 4;
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
     public string ToJson() => JsonSerializer.Serialize(this, Options);
@@ -204,6 +208,8 @@ public sealed class TextureRecipe
         Name = string.IsNullOrWhiteSpace(Name) ? "Untitled material" : Name.Trim()[..Math.Min(Name.Trim().Length, 80)];
         Family = string.IsNullOrWhiteSpace(Family) ? "Custom" : Family.Trim()[..Math.Min(Family.Trim().Length, 40)];
         Seed = Math.Clamp(Seed, 0, int.MaxValue);
+        TileMetres = double.IsFinite(TileMetres) && TileMetres > 0 ? Math.Clamp(TileMetres, 0.05, 100) : 2;
+        HeightCm = double.IsFinite(HeightCm) && HeightCm > 0 ? Math.Clamp(HeightCm, 0.1, 500) : 4;
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).ToList();
         foreach (var l in Layers)
         {
@@ -328,6 +334,20 @@ public sealed class TextureMaps
         "height" => PngWriter.Gray16(Size, Size, HeightOut ?? Height, fast),
         _ => throw new ArgumentException("Unknown map."),
     };
+
+    /// <summary>
+    /// The albedo's average colour in linear light (each channel 0–1) and its luminance: what a game reads to keep a
+    /// set of materials at the same brightness (grass and soil about 0.15–0.35).
+    /// </summary>
+    public (float R, float G, float B, float Luminance) AlbedoMean()
+    {
+        double r = 0, g = 0, b = 0;
+        var n = Size * Size;
+        for (var i = 0; i < n; i++) { r += Lin(Albedo[i * 3]); g += Lin(Albedo[i * 3 + 1]); b += Lin(Albedo[i * 3 + 2]); }
+        float R = (float)(r / n), G = (float)(g / n), B = (float)(b / n);
+        return (R, G, B, 0.2126f * R + 0.7152f * G + 0.0722f * B);
+        static double Lin(byte v) { var c = v / 255.0; return c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4); }
+    }
 
     /// <summary>The height map in 8 bits (smaller; 16 keeps smooth slopes).</summary>
     public byte[] Height8() { var h = HeightOut ?? Height; var px = new byte[h.Length]; for (var i = 0; i < h.Length; i++) px[i] = (byte)Math.Round(Math.Clamp(h[i], 0, 1) * 255); return px; }
