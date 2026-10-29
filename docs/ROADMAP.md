@@ -49,8 +49,9 @@ first, and anything that conflicts with it waits.
   or mixed branches, leaf cards, clumps, wind data, levels of detail, GLB export checked by the Khronos validator,
   the 3D preview): preview.53. Next: stage 2 (rocks, realistic to hyper-realistic and stylized). See
   [ASSET_BENCH_PLAN.md](ASSET_BENCH_PLAN.md).
-- Radio Bench: preview.25. Still open from its idea: one shared EQ and loudness with the Music Bench, and HLS
-  stations (streams cut into pieces), which NoorMD doesn't play yet.
+- Radio Bench: preview.25. HLS stations (streams cut into pieces: MPEG-TS, AAC, MP3 or fragmented MP4, live
+  playlists followed, AES-128 decrypted, song titles from their tags) and the Music Bench's equalizer, limiter and
+  even loudness shared with the radio (evened out live, as a station can't be measured ahead): preview.84.
 
 ## Indie developer benches (concept)
 

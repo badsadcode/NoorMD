@@ -33,7 +33,7 @@ public partial class MainWindow
         get
         {
             if (_radioRelay != null) return _radioRelay;
-            _radioRelay = new RadioRelay();
+            _radioRelay = new RadioRelay { AllowedOrigin = NoorMD.Core.Security.AssetResolver.Origin };
             _radioRelay.Title += (token, title) => Dispatcher.BeginInvoke(() => PushEvent("radio.title", new { token, title }));
             _radioRelay.Failed += (token, message) => Dispatcher.BeginInvoke(() => PushEvent("radio.failed", new { token, message }));
             return _radioRelay;

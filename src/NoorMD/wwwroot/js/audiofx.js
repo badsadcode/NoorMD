@@ -1,6 +1,7 @@
-// NoorMD sound processing for the Music Bench: 10-band equalizer with presets, loudness normalisation and a
-// limiter so nothing clips. Files are never modified: loudness is measured here (ITU-R BS.1770 integrated loudness)
-// or taken from ReplayGain tags, and applied as playback gain.
+// NoorMD sound processing for the Music Bench and the Radio Bench: 10-band equalizer with presets, loudness
+// normalisation and a limiter so nothing clips. Files are never modified: loudness is measured here (ITU-R BS.1770
+// integrated loudness) or taken from ReplayGain tags, and applied as playback gain. The radio can't be measured ahead,
+// so it is evened out live: a slow leveller that moves its gain towards the same target as it plays.
 //
 // The Web Audio graph is created only when an effect is first turned on (an <audio> element can't be detached from
 // a graph again), and it is bypassed transparently while everything is flat.
@@ -19,11 +20,13 @@ window.NoorFx = (() => {
     night: { label: 'Late night (soft)', gains: [-3, -2, -1, 0, 1, 1, 1, 0, -1, -2] },
   };
   const TARGETS = [[-14, 'Streaming (−14 LUFS)'], [-16, 'Balanced (−16 LUFS)'], [-18, 'ReplayGain (−18 LUFS)'], [-23, 'Quiet (−23 LUFS)']];
-  const DEFAULTS = { eqOn: false, preset: 'flat', gains: PRESETS.flat.gains.slice(), preventClipping: true, normalize: false, target: -14 };
+  const DEFAULTS = { eqOn: false, preset: 'flat', gains: PRESETS.flat.gains.slice(), preventClipping: true, normalize: false, target: -14, radio: true };
 
   let settings = { ...DEFAULTS, gains: DEFAULTS.gains.slice() };
   let ctx = null, source = null, norm = null, filters = [], preamp = null, limiter = null;
   let audioEl = null, trackGainDb = 0, trackGainSource = 'none';
+  // The radio: its own source, a level the leveller sets, and an analyser it listens with.
+  let radioEl = null, radioSource = null, radioLevel = null, radioMeter = null, radioTimer = null, radioMs = 0, radioGainDb = 0;
 
   function clampGain(v) { return Math.max(-12, Math.min(12, Number(v) || 0)); }
 
@@ -34,6 +37,7 @@ window.NoorFx = (() => {
       gains: Array.isArray(s.gains) && s.gains.length === BANDS.length ? s.gains.map(clampGain) : DEFAULTS.gains.slice(),
       preventClipping: s.preventClipping !== false, normalize: !!s.normalize,
       target: TARGETS.some(([t]) => t === s.target) ? s.target : -14,
+      radio: s.radio !== false,
     };
     if (needsGraph()) ensureGraph();
     apply();
@@ -42,6 +46,57 @@ window.NoorFx = (() => {
   function needsGraph() { return settings.normalize || (settings.eqOn && settings.gains.some((g) => g !== 0)); }
 
   function attach(audio) { audioEl = audio; }
+
+  /** The radio's player: with "Use for the Radio too", it goes through the same equalizer and limiter. */
+  function attachRadio(audio) {
+    radioEl = audio;
+    // The stream comes from NoorMD's own relay (another origin): it is read with its permission, or Web Audio is silent.
+    audio.crossOrigin = 'anonymous';
+    audio.addEventListener('play', () => { if (settings.radio && needsGraph()) ensureGraph(); connectRadio(); resumeCtx(); startLeveller(); });
+    audio.addEventListener('pause', stopLeveller);
+  }
+
+  function resumeCtx() { if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {}); }
+
+  /** Routes the radio into the graph once there is one: into the equalizer, or (not shared) straight out. */
+  function connectRadio() {
+    if (!ctx || !radioEl) return;
+    try {
+      if (!radioSource) {
+        radioSource = ctx.createMediaElementSource(radioEl);
+        radioLevel = ctx.createGain();
+        radioMeter = ctx.createAnalyser();
+        radioMeter.fftSize = 2048;
+        radioSource.connect(radioMeter);
+        radioSource.connect(radioLevel);
+      }
+      radioLevel.disconnect();
+      radioLevel.connect(settings.radio ? filters[0] : ctx.destination);
+    } catch (err) { console.warn('The radio can\'t use the sound settings:', err); }
+  }
+
+  /** Even out the radio live: about the loudness of the last ten seconds, moved slowly towards the target. */
+  function startLeveller() {
+    stopLeveller();
+    if (!radioMeter) return;
+    const data = new Float32Array(radioMeter.fftSize);
+    radioTimer = setInterval(() => {
+      if (!radioEl || radioEl.paused || !radioLevel) return;
+      const on = settings.radio && settings.normalize;
+      if (on) {
+        radioMeter.getFloatTimeDomainData(data);
+        let ms = 0;
+        for (let i = 0; i < data.length; i++) ms += data[i] * data[i];
+        ms /= data.length;
+        // Quiet moments (a pause between songs, talk fading out) don't pull the level up.
+        if (ms > 1e-6) radioMs = radioMs ? radioMs * 0.97 + ms * 0.03 : ms;
+        if (radioMs > 0) radioGainDb = Math.max(-12, Math.min(9, settings.target - (10 * Math.log10(radioMs) - 0.691)));
+      } else radioGainDb = 0;
+      radioLevel.gain.setTargetAtTime(dbToGain(radioGainDb), ctx.currentTime, 1.5);
+    }, 300);
+  }
+
+  function stopLeveller() { if (radioTimer) { clearInterval(radioTimer); radioTimer = null; } }
 
   /** Builds the graph once. Returns false when Web Audio isn't available (playback then simply has no effects). */
   function ensureGraph() {
@@ -64,10 +119,12 @@ window.NoorFx = (() => {
       let node = source.connect(norm);
       for (const f of filters) node = node.connect(f);
       node.connect(preamp).connect(limiter).connect(ctx.destination);
+      if (radioEl && !radioEl.paused) { connectRadio(); startLeveller(); }
       // Browsers start an AudioContext suspended until the user interacts; resume on the next interaction.
       const resume = () => { if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {}); };
       ['pointerdown', 'keydown'].forEach((t) => window.addEventListener(t, resume, true));
       audioEl.addEventListener('play', resume);
+      if (radioEl) radioEl.addEventListener('play', resume);
       resume();
       return true;
     } catch (err) {
@@ -124,6 +181,7 @@ window.NoorFx = (() => {
     if (patch.gains) settings.gains = patch.gains.map(clampGain);
     if (needsGraph() && !ensureGraph()) return false;
     apply();
+    if ('radio' in patch || 'normalize' in patch) { connectRadio(); if (radioEl && !radioEl.paused) startLeveller(); }
     return true;
   }
 
@@ -195,7 +253,9 @@ window.NoorFx = (() => {
   }
 
   return {
-    BANDS, PRESETS, TARGETS, attach, load, update, setTrack, gainFor, measure, analyze,
+    BANDS, PRESETS, TARGETS, attach, attachRadio, load, update, setTrack, gainFor, measure, analyze,
+    /** The radio: whether it uses these settings now, and the leveller's gain (dB). */
+    get radio() { return { shared: settings.radio, routed: !!radioSource, gainDb: radioGainDb, leveling: !!radioTimer && settings.normalize }; },
     get settings() { return { ...settings, gains: settings.gains.slice() }; },
     get active() { return !!ctx; },
     get trackGain() { return { db: trackGainDb, from: trackGainSource }; },

@@ -3290,6 +3290,20 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => window.__mock.state.radio.push('radio.title', { token: 'old', title: 'Not this one' }));
       await page.waitForTimeout(100);
       check('…titles from an older stream are ignored', (await page.textContent('#radio-now-title')) === 'Kult – Arahja');
+      // The Music Bench's sound for the radio too: the same equalizer, and even loudness followed live.
+      check('the radio\'s stream is read with the relay\'s permission (so the equalizer can work on it)', (await RS()).crossOrigin === 'anonymous');
+      await page.evaluate(() => NoorFx.update({ eqOn: true, preset: 'bass', normalize: true }));
+      await waitFn(page, () => NoorFx.radio.routed);
+      check('with the equalizer on, the playing station goes through it (shared with the Music Bench)', await page.evaluate(() => NoorFx.radio.shared && NoorFx.radio.routed && NoorFx.radio.leveling));
+      await page.evaluate(() => NoorMusic.openSound());
+      await page.waitForSelector('#fx-radio');
+      check('the Music Bench\'s sound settings say they are for the Radio too', await page.isChecked('#fx-radio'));
+      await page.uncheck('#fx-radio');
+      check('…and that can be turned off', await page.evaluate(() => !NoorFx.radio.shared && !NoorFx.settings.radio));
+      await page.check('#fx-radio');
+      await page.evaluate(() => NoorFx.update({ eqOn: false, normalize: false }));
+      await page.evaluate(() => NoorRadio.open());
+      await page.waitForSelector('#radio-play', { state: 'visible' });
       await page.evaluate(() => NoorMusic._testPlay([1], 0, true));
       await waitFn(page, () => NoorRadio._state().on === null);
       check('music starting stops the radio (one sound at a time)', (await RS()).paused && (await RM()).stops >= 1);

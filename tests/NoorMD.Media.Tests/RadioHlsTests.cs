@@ -273,13 +273,15 @@ public class RadioHlsTests
         srv.Files["https://radio.example/live/master.m3u8"] = () => "#EXTM3U\n#EXT-X-TARGETDURATION:4\n#EXTINF:4,\na.ts\n#EXTINF:4,\nb.ts\n#EXT-X-ENDLIST\n"u8.ToArray();
         srv.Files["https://radio.example/live/a.ts"] = () => Ts(a);
         srv.Files["https://radio.example/live/b.ts"] = () => Ts(b, Id3(("TIT2", "Hello"), ("TPE1", "World")));
-        await using var relay = new RadioRelay(new HttpClient(srv));
+        await using var relay = new RadioRelay(new HttpClient(srv)) { AllowedOrigin = "https://noormd.local" };
         var titles = new List<string>();
         relay.Title += (_, t) => { lock (titles) titles.Add(t); };
         var (_, url) = relay.Open(Base.ToString());
         using var http = new HttpClient();
         using var resp = await http.GetAsync(url);
         Assert.Equal("audio/aac", resp.Content.Headers.ContentType!.MediaType);
+        // The page may read it (for its equalizer), and only that page.
+        Assert.Equal("https://noormd.local", resp.Headers.GetValues("Access-Control-Allow-Origin").Single());
         var body = await resp.Content.ReadAsByteArrayAsync();
         Assert.Equal(a.Concat(b).ToArray(), body);
         Assert.Equal(["World - Hello"], titles);

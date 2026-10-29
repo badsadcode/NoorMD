@@ -1161,6 +1161,8 @@ window.NoorMusic = (() => {
     const target = el('select', { id: 'fx-target', 'aria-label': 'Loudness target' }, ...NoorFx.TARGETS.map(([v, l]) => el('option', { value: String(v), text: l })));
     target.value = String(s.target);
     target.addEventListener('change', () => fxChanged({ target: Number(target.value) }));
+    const radio = el('input', { type: 'checkbox', id: 'fx-radio' }); radio.checked = s.radio !== false;
+    radio.addEventListener('change', () => fxChanged({ radio: radio.checked }));
     const auto = el('input', { type: 'checkbox', id: 'fx-auto' }); auto.checked = s.autoMeasure !== false;
     auto.addEventListener('change', () => fxChanged({ autoMeasure: auto.checked }));
     box.replaceChildren(
@@ -1177,7 +1179,10 @@ window.NoorMusic = (() => {
           el('button', { class: 'utility-btn', onclick: () => withSelection((ids) => req('music.loudness.unmeasured', { ids }).then((u) => measure(u, { label: 'the selection' }))) }, 'Measure selected'),
           el('button', { class: 'utility-btn', onclick: measureView }, 'Measure this view'),
           el('button', { class: 'utility-btn', onclick: measureAll }, 'Measure whole library')),
-        el('div', { id: 'sound-status', class: 'sound-status', 'aria-live': 'polite' })));
+        el('div', { id: 'sound-status', class: 'sound-status', 'aria-live': 'polite' })),
+      el('section', { class: 'sound-section' },
+        el('div', { class: 'sound-head' }, el('label', { class: 'inline' }, radio, el('strong', { text: 'Use it for the Radio too' }))),
+        el('p', { class: 'pref-hint', text: 'Stations play through the same equalizer and limiter. A station can’t be measured ahead, so “Even out loudness” follows it as it plays, slowly, towards the same target.' })));
     renderSoundStatus();
   }
 

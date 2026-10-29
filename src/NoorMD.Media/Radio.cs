@@ -310,6 +310,11 @@ public sealed class RadioRelay : IAsyncDisposable
 
     public int Port { get; private set; }
 
+    /// <summary>The page allowed to read the sound (for its equalizer: Web Audio needs the stream's permission), or null.</summary>
+    public string? AllowedOrigin { get; set; }
+
+    private string Cors => AllowedOrigin is { Length: > 0 } o ? $"Access-Control-Allow-Origin: {o}\r\nVary: Origin\r\n" : "";
+
     private void EnsureStarted()
     {
         if (_listener != null) return;
@@ -399,7 +404,7 @@ public sealed class RadioRelay : IAsyncDisposable
                     await ServeHls(net, method, token, resp.RequestMessage?.RequestUri ?? session.Upstream, text, ct);
                     return;
                 }
-                var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n{Cors}\r\n";
                 await net.WriteAsync(Encoding.ASCII.GetBytes(head), ct);
                 if (method == "HEAD") return;
                 var icy = new IcyReader(metaInt);
@@ -433,7 +438,7 @@ public sealed class RadioRelay : IAsyncDisposable
             if (!started)
             {
                 started = true;
-                var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n{Cors}\r\n";
                 await net.WriteAsync(Encoding.ASCII.GetBytes(head), ct);
                 if (method == "HEAD") throw new OperationCanceledException();
             }

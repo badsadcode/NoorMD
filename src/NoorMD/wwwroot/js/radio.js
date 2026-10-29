@@ -25,6 +25,8 @@ window.NoorRadio = (() => {
   function init(h) {
     hooks = { ...hooks, ...h };
     audio.volume = volume();
+    // The Music Bench's sound (equalizer, even loudness, limiter) for the radio too, unless that is turned off there.
+    if (window.NoorFx) NoorFx.attachRadio(audio);
     NoorBridge.on('radio.title', (p) => { if (on && p.token === on.token) { on.title = p.title; renderNow(); emit(); } });
     NoorBridge.on('radio.failed', (p) => { if (on && p.token === on.token) fail(p.message); });
     audio.addEventListener('playing', () => { if (on) { on.state = 'playing'; on.message = null; renderNow(); renderList(); emit(); } });
@@ -277,6 +279,7 @@ window.NoorRadio = (() => {
       '-',
       { label: 'Import stations (.m3u, .pls)…', run: importStations },
       { label: 'Export stations (.m3u8)…', disabled: !stations.length, run: exportStations },
+      { label: 'Sound: equalizer and even loudness (shared with the Music Bench)…', run: () => window.NoorMusic && NoorMusic.openSound() },
     ]);
   }
 
@@ -378,6 +381,6 @@ window.NoorRadio = (() => {
     stop: () => stop(),
     /** Self-test: play an address muted (autoplay rules allow muted sound without a click). */
     _testPlay: (stationUrl) => { audio.muted = true; return play({ id: null, name: 'Self-test', url: stationUrl }); },
-    _state: () => ({ on: on ? { ...on } : null, src: audio.getAttribute('src'), paused: audio.paused, view, count: stations.length, sleepUntil }),
+    _state: () => ({ on: on ? { ...on } : null, src: audio.getAttribute('src'), crossOrigin: audio.crossOrigin, paused: audio.paused, view, count: stations.length, sleepUntil }),
   };
 })();
