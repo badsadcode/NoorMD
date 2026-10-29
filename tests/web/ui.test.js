@@ -3636,8 +3636,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.mouse.down();
       await page.mouse.move(box.x + box.width * 0.25, box.y + box.height / 2, { steps: 5 });
       await page.mouse.up();
-      await waitFn(page, () => (window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.trimStart || 0) > 0.3);
-      check('dragging its start trims the beginning', Math.abs((await smp()).trimStart - 0.45) < 0.03);
+      // A render may be asked mid-drag: wait for the one after the drag ended.
+      await waitFn(page, () => Math.abs((window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'sample')?.trimStart || 0) - 0.45) < 0.03, null, { timeout: 8000 }).catch(() => {});
+      check('dragging its start trims the beginning', Math.abs((await smp()).trimStart - 0.45) < 0.03, (await smp()).trimStart);
       await page.$eval(region, (n) => n.scrollIntoView({ block: 'center' }));
       box = await (await page.$(region)).boundingBox();
       await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2);
@@ -5483,6 +5484,67 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !document.querySelector('.cal-day.off'));
       check('“Not off” over them all makes every day a work day again', (await CM()).deletes.length === 3);
       check('no page errors with days off', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      const FM = () => page.evaluate(() => window.__mock.state.forge);
+      await page.keyboard.press('Control+Alt+f');
+      await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
+      check('Ctrl+Alt+F opens NoorForge with a smart material ready, asking for a model', (await FS()).recipe.layers.length === 2 && /no model yet/.test(await page.textContent('#fg-model')) && /Open a model/.test(await page.textContent('#fg-status')));
+      check('smart materials are listed', (await page.$$('#fg-nav [data-smart]')).length === 2);
+      await page.click('#fg-pick');
+      await waitFn(page, () => window.__mock.state.forge.renders.length >= 1);
+      let st = await FS();
+      check('a model is opened and textured (the recipe names it)', st.recipe.model === 'C:\\Models\\Crate.glb' && st.recipe.name === 'Crate' && /1,200 triangles · 2 texture sets/.test(await page.textContent('#fg-model')));
+      await waitFn(page, () => document.querySelectorAll('#fg-maps .fg-map').length === 5);
+      check('…and its maps are shown, with a choice of texture set', !!(await page.$('#fg-set')) && /2 texture sets · preview 512 px \(export 1024 px\)/.test(await page.textContent('#fg-status')));
+      check('the layers are listed top first', (await page.$$eval('#fg-layers .fg-layername', (n) => n.map((x) => x.textContent))).join() === 'Moss,Stone');
+      // A colour layer of worn edges.
+      await page.click('#fg-addplain');
+      await page.waitForSelector('#fg-maskkind');
+      await page.selectOption('#fg-maskkind', 'edges');
+      await page.waitForSelector('#fg-layeredit input[data-key="amount"]');
+      await page.$eval('#fg-layeredit input[data-key="amount"]', (i) => { i.value = '0.3'; i.dispatchEvent(new Event('input')); });
+      st = await FS();
+      const top = st.recipe.layers.at(-1);
+      check('＋ Colour layer goes on top, its mask set to worn edges with an amount', st.recipe.layers.length === 3 && top.mask.kind === 'edges' && top.mask.amount === 0.3 && top.material === '');
+      const n0 = (await FM()).renders.length;
+      await waitFn(page, (n) => window.__mock.state.forge.renders.length > n, n0);
+      check('changes are textured again', (await FM()).renders.at(-1).layers.at(-1).mask.kind === 'edges');
+      // A mask by part names the model's parts.
+      await page.selectOption('#fg-maskkind', 'part');
+      await page.waitForSelector('#fg-maskindex');
+      check('“One part” offers the model\'s parts', (await page.$$eval('#fg-maskindex option', (o) => o.map((x) => x.textContent))).join() === 'Body,Lid');
+      await page.selectOption('#fg-material', 'metal-rusty');
+      check('a layer can take a Texture Bench material (named after it)', (await FS()).recipe.layers.at(-1).material === 'metal-rusty' && (await FS()).recipe.layers.at(-1).name === 'Rusty metal');
+      await page.waitForTimeout(700); // the delete its own undo step
+      await page.click('#fg-dellayer');
+      check('a layer can be removed', (await FS()).recipe.layers.length === 2);
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorForge._state().recipe.layers.length === 3);
+      check('…and Ctrl+Z brings it back', true);
+      await page.click('#fg-nav [data-smart="clay"]');
+      check('a smart material replaces the layers', (await FS()).recipe.layers.map((l) => l.name).join() === 'Clay');
+      await page.click('#fg-tabs [data-tab="bake"]');
+      await page.waitForSelector('#fg-modelinfo');
+      check('the model tab tells its sets and parts, and which UVs NoorForge laid out', /Metal: 200 triangles · UVs laid out by NoorForge/.test(await page.textContent('#fg-modelinfo')));
+      await page.selectOption('#fg-size', '2048');
+      await page.click('#fg-export');
+      await waitFn(page, () => window.__mock.state.forge.exports.length === 1);
+      check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && /Exported 4 files/.test(await page.textContent('#fg-status')));
+      if (shots) await page.screenshot({ path: `${shots}/65b-noorforge.png` });
+      // From the Asset Bench: its rock straight in.
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      await page.click('#ab-forge');
+      await waitFn(page, () => NoorForge.isOpen() && (window.__mock.state.forge.fromAsset || '').length > 0);
+      await waitFn(page, () => NoorForge._state().model && NoorForge._state().model.name === NoorAssets._state().recipe.name);
+      check('“Texture in NoorForge” on the Asset Bench brings its model here', (await FS()).recipe.model.endsWith('.glb'));
+      check('no page errors in NoorForge', errors.length === 0, errors);
       await page.close();
     }
 

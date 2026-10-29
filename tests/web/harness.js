@@ -180,6 +180,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('texture.')) { try { return reply(m.id, true, textureMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('forge.')) { try { return reply(m.id, true, forgeMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -510,6 +511,32 @@ function mockHostScript(initial) {
       default: throw new Error('Unknown command ' + type);
     }
   }
+  // NoorForge: the app bakes and composes; here a rock GLB stands in for the textured model, a photo for each map.
+  const FORGE = { renders: [], exports: [], picks: 0 };
+  function forgeMock(type, p) {
+    state.forge = FORGE;
+    const layer = (name, extra) => ({ name, visible: true, opacity: 1, material: '', scale: 1, color: '#808080', roughness: 0.7, metallic: 0, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, normalStrength: 1,
+      mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, ...extra });
+    switch (type) {
+      case 'forge.presets': return {
+        smart: [{ id: 'mossy-stone', name: 'Mossy stone', description: 'Rock with moss on top.', layers: [layer('Stone', { material: 'stone-rock', scale: 1.5 }), layer('Moss', { material: 'stone-mossy', mask: { kind: 'top', amount: 0.3, softness: 0.3, invert: false, noise: 0.6, noiseScale: 0.4, index: 0 } })] },
+          { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }],
+        materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone' }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
+        masks: ['all', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
+      };
+      case 'forge.model.pick': FORGE.picks++; return { path: 'C:\\Models\\Crate.glb', name: 'Crate', triangles: 1200, parts: ['Body', 'Lid'], size: [1, 0.8, 1], sets: [{ name: 'Wood', triangles: 1000, unwrapped: false }, { name: 'Metal', triangles: 200, unwrapped: true }] };
+      case 'forge.render': {
+        FORGE.renders.push(JSON.parse(JSON.stringify(p.recipe)));
+        const maps = (i) => Object.fromEntries(['basecolor', 'normal', 'orm', 'ao', 'curvature'].map((m) => [m, `/_img/${i + 1}`]));
+        return { url: '/_asset/r1/lod0.glb', key: 'f1', size: Math.min(512, p.recipe.size), ms: 640, sets: [{ name: 'Wood', maps: maps(0) }, { name: 'Metal', maps: maps(1) }] };
+      }
+      case 'forge.export': FORGE.exports.push(JSON.parse(JSON.stringify(p.recipe))); return { folder: 'C:\\Export', files: ['Crate_Wood_BaseColor.png', 'Crate_Wood_Normal.png', 'Crate.glb', 'Crate.noorforge.json'] };
+      case 'forge.recipe.open': return { cancelled: true };
+      case 'forge.fromAsset': FORGE.fromAsset = p.key; return { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] };
+      default: throw new Error('Unknown forge command ' + type);
+    }
+  }
+
   function assetMock(type, p) {
     if (type.startsWith('asset.rock.')) return rockMock(type, p);
     const builtIn = [{ id: 'oak', name: 'Oak (realistic)', description: 'A broad crown.', style: 'realistic', archetype: 'broadleaf', group: 'Forest' }, { id: 'stylized-oak', name: 'Stylized oak', description: 'Chunky and puffy.', style: 'stylized', archetype: 'broadleaf', group: 'Forest' },

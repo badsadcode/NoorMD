@@ -54,6 +54,9 @@ first, and anything that conflicts with it waits.
   playlists followed, AES-128 decrypted, song titles from their tags) and the Music Bench's equalizer, limiter and
   even loudness shared with the radio (evened out live, as a station can't be measured ahead): preview.84.
 
+- NoorForge (texturing a model with layers and smart masks, after Substance Painter's idea), stage 1 first cut:
+  preview.87. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
+
 ## Indie developer benches (concept)
 
 See [concepts/INDIE_DEV_BENCHES.md](concepts/INDIE_DEV_BENCHES.md): Sound Bench (procedural SFX and

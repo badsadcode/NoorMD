@@ -89,6 +89,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Texture Bench (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light · room for the preview (on the bar between preview and controls) | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) · drag, arrow keys, double-click resets |
 | NoorSequencer (compose music) · in it: play / stop · play the loop · undo / redo · on a song-grid cell: pattern number · next / previous pattern · rest · new pattern · move · on the piano roll: play notes (white / black keys) · octave down / up | Ctrl+Alt+Q · Space · L · Ctrl+Z / Ctrl+Y · 0–9 · + / − (or the wheel) · Delete · N · arrow keys · A S D F G H J K ; / W E T Y U O P · Z / X |
 | Asset Bench (trees for games) · in it: variation · wireframe · play the wind · undo / redo · turn · zoom · move | Ctrl+Alt+M · V · W · Space · Ctrl+Z / Ctrl+Y · drag · wheel or + / − · right-drag or Shift+drag |
+| NoorForge (texture a model) · in it: undo / redo · turn · zoom · move | Ctrl+Alt+F · Ctrl+Z / Ctrl+Y · drag · wheel · right-drag |
 | Calendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |
 | Gallery (your pictures) | Ctrl+Alt+G |
 | Voice note: record / stop (opens the recorder) | Ctrl+Alt+D |

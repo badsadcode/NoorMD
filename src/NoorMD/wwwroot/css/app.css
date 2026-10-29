@@ -1530,6 +1530,20 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .assetbench .ab-subjects .utility-btn { flex: 1; font-size: 12.5px; padding: 4px 8px; }
 .assetbench #ab-variants { width: 64px; }
 .assetbench label[hidden] { display: none; }
+/* NoorForge */
+.forgebench .fg-maps { display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-start; margin-top: 4px; }
+.forgebench .fg-map { margin: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.forgebench .fg-map img { width: 76px; height: 76px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); image-rendering: auto; }
+.forgebench .fg-map figcaption { font-size: 10.5px; color: var(--muted); }
+.forgebench .fg-layers { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 10px; }
+.forgebench .fg-layer { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; }
+.forgebench .fg-layer.sel { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, var(--surface)); }
+.forgebench .fg-layer.off { opacity: .5; }
+.forgebench .fg-layer small { margin-left: auto; color: var(--muted); }
+.forgebench .fg-swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); flex: none; }
+.forgebench .fg-layername { font-weight: 600; }
+.forgebench .fg-pickbig { width: calc(100% - 8px); margin: 4px; text-align: left; }
+.forgebench #fg-color { width: 40px; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .assetbench .sb-presets .sb-save { margin: 14px 4px 4px; width: calc(100% - 8px); }
 .seqbench { padding: 0 12px; }
 .seqbench .music-head { margin: 0 -12px; }

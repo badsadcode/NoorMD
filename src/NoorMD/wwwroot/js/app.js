@@ -1333,6 +1333,7 @@
     ['cal.toggle', 'Calendar (important days, birthdays, reminders)', 'Tools', 'Ctrl+Alt+C', () => NoorCalendar.toggle()],
     ['cal.fromText', 'Add to calendar (the date in the selected text or this line)…', 'Insert', '', () => NoorCalendar.addFromText(selectionOrLine())],
     ['assets.toggle', 'Asset Bench (trees for games, realistic or stylized)', 'Tools', 'Ctrl+Alt+M', () => NoorAssets.toggle()],
+    ['forge.toggle', 'NoorForge (texture a model with layers and smart masks)', 'Tools', 'Ctrl+Alt+F', () => NoorForge.toggle()],
     ['radio.find', 'Radio: find stations online…', 'Tools', '', () => { NoorRadio.open(); NoorRadio.findOnline(); }],
     ['voice.toggle', 'Voice notes (recorder)', 'Tools', '', () => NoorVoice.toggle()],
     ['gallery.toggle', 'Gallery (your pictures)', 'Tools', 'Ctrl+Alt+G', () => NoorGallery.toggle()],
@@ -1413,7 +1414,7 @@
     const hasEditor = !!(t && t.editor);
     const checked = {
       'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'), 'view.sidebarRight': document.body.classList.contains('sidebar-right'),
-      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'radio.toggle': !!(window.NoorRadio && NoorRadio.isOpen()), 'sound.toggle': !!(window.NoorSound && NoorSound.isOpen()), 'texture.toggle': !!(window.NoorTexture && NoorTexture.isOpen()), 'seq.toggle': !!(window.NoorSequencer && NoorSequencer.isOpen()), 'cal.toggle': !!(window.NoorCalendar && NoorCalendar.isOpen()), 'assets.toggle': !!(window.NoorAssets && NoorAssets.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'radio.toggle': !!(window.NoorRadio && NoorRadio.isOpen()), 'sound.toggle': !!(window.NoorSound && NoorSound.isOpen()), 'texture.toggle': !!(window.NoorTexture && NoorTexture.isOpen()), 'seq.toggle': !!(window.NoorSequencer && NoorSequencer.isOpen()), 'cal.toggle': !!(window.NoorCalendar && NoorCalendar.isOpen()), 'assets.toggle': !!(window.NoorAssets && NoorAssets.isOpen()), 'forge.toggle': !!(window.NoorForge && NoorForge.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
       'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
@@ -2086,6 +2087,7 @@
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyQ') cmd = 'seq.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyC') cmd = 'cal.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyM') cmd = 'assets.toggle';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyF') cmd = 'forge.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyD') cmd = 'voice.record';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
@@ -2222,6 +2224,7 @@
         texture: { label: 'Texture Bench', el: () => $('#texturebench'), open: () => NoorTexture.open(), close: () => NoorTexture.close(), isOpen: () => NoorTexture.isOpen() },
         calendar: { label: 'Calendar', el: () => $('#calendar'), open: () => NoorCalendar.open(), close: () => NoorCalendar.close(), isOpen: () => NoorCalendar.isOpen() },
         assets: { label: 'Asset Bench', el: () => $('#assetbench'), open: () => NoorAssets.open(), close: () => NoorAssets.close(), isOpen: () => NoorAssets.isOpen() },
+        forge: { label: 'NoorForge', el: () => $('#forgebench'), open: () => NoorForge.open(), close: () => NoorForge.close(), isOpen: () => NoorForge.isOpen() },
         sequencer: { label: 'NoorSequencer', el: () => $('#seqbench'), open: () => NoorSequencer.open(), close: () => NoorSequencer.close(), isOpen: () => NoorSequencer.isOpen() },
         apps: { label: 'Apps Hub', el: () => $('#appshub'), open: () => NoorApps.open(), close: () => NoorApps.close(), isOpen: () => NoorApps.isOpen() },
         stream: { label: 'Stream Desk', el: () => $('#streamdesk'), open: () => NoorStream.open(), close: () => NoorStream.close(), isOpen: () => document.body.classList.contains('stream-open') },
@@ -2236,6 +2239,7 @@
     NoorTexture.init({ showError });
     NoorCalendar.init({ showError, insertMarkdown: (md) => { if (!editor) return false; editor.focus(); return insertMarkdown(md); }, hasDocument: () => !!editor });
     NoorAssets.init({ showError });
+    NoorForge.init({ showError });
     NoorStream.init({ showError });
     NoorApps.init({ showError });
     NoorGallery.init({ showError, hasDocument: () => !!editor });

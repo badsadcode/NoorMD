@@ -49,6 +49,24 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
   layer, the bakes.
 - **Export:** the texture set at 512–4096 px per material, the GLB with them, a Godot material; the recipe.
 
+### Done in preview.87 (stage 1, first cut)
+
+- **NoorForge** (Tools, or Ctrl+Alt+F), or **🔥 Texture in NoorForge** on the Asset Bench (its tree or rock, the
+  closest level). Opens GLB and OBJ; collision meshes are left out; models whose UVs are missing or overlap (as the
+  Asset Bench's rocks) are unwrapped.
+- Bakes per texture set: AO (rays through a BVH), curvature (smooth curvature and sharp edges / creases near each
+  texel), world normal and position, part. Kept in memory while only the layers change.
+- Layers: a Texture Bench material (any preset, triplanar at a tile size in metres, with a tint and its relief) or a
+  plain colour / roughness / metal; opacity; which channels it paints. Smart masks: everywhere, worn edges, cracks and
+  corners, on top, underneath, low down, one part, one material — amount, softness, noise break-up and its size,
+  invert. Smart materials: mossy stone, snowy rock, painted metal (worn), rusty iron, dusty wood, weathered
+  sandstone, clay.
+- The preview is the textured GLB (512 px textures) with its maps beside it (colour, normal, ORM, baked AO,
+  curvature); the export writes each texture set's base colour, normal (OpenGL), ORM, roughness, metallic and AO at
+  256–4096 px, the textured GLB and the recipe, which opens again (finding the model beside it if it moved).
+- Still to come for stage 1: a Godot material, saving smart materials of your own, height output, viewing one channel
+  in the 3D view.
+
 ## Stage 2 — painting on the model
 
 - A brush on the 3D view: painted into the layer's mask (or as paint of its own), projected from the screen onto
