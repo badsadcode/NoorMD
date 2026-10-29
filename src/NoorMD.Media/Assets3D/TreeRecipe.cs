@@ -141,7 +141,10 @@ public sealed class TreeRecipe
     public string LeafColor2 { get; set; } = "#8aa83a";
     /// <summary>Leaf normals bent to point out of the crown (0 the card's own … 1 fully outwards): soft, even lighting.</summary>
     public double CrownNormals { get; set; } = 0.6;
-    /// <summary>What one card shows: a twig, a spray of three twigs or a dense cluster (LeafAtlas.Clusters).</summary>
+    /// <summary>
+    /// What one card shows: a twig, a spray of three twigs, a dense cluster, or a whole branch (a main stem with side
+    /// twigs and many small leaves, darker at the back: the baked branch card of game foliage) (LeafAtlas.Clusters).
+    /// </summary>
     public string LeafCluster { get; set; } = "twig";
     /// <summary>
     /// The size of each card's plane, as a share of the leaf size (0.3–4). Unlike the leaf size it doesn't change how many

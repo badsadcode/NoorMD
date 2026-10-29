@@ -377,6 +377,14 @@ neighbours about twice round the crown, some deeper in for depth; each curtain s
 (the willow presets use the cluster sprite). A test: the leaves reach above the wood (on the old code the bare limb
 tips stood above them) and the crown is over 60 % full from the side.
 
+Branch cards (preview.74): a fourth thing a card can show, "a whole branch": a main stem with side twigs leaving it
+in turn and many small leaves (40–80 per card), back ones darker and front ones lighter, drawn back to front, on a
+plane 2.3 times the leaf size: the baked branch card of game foliage, painted in 2D. Tried as the default for the oak,
+birch and pine and measured: the crowns came out a little less full (oak 77 % against 81 % with clusters), the pine
+wider (the big cards stand out past its short limbs), the maple coarser; finer leaves on the oak and birch, a fuller
+pine body. Not a clear win, so it stays a choice (Leaves & bark → what one card shows), the defaults unchanged. The
+bigger step is a real branch picture (a photographed or 3D-rendered leaf atlas) as your own leaf picture.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

@@ -44,7 +44,7 @@ window.NoorAssets = (() => {
   const ARRANGE = [['scatter', 'Scattered cards'], ['single', 'Single cards'], ['cross', 'Crossed pairs'], ['star', 'Stars of three'], ['fan', 'Fans (spruce tiers, acacia)'], ['dome', 'Domes (full broadleaf)'], ['hanging', 'Hanging curtains (willow)'], ['fronds', 'Fronds along the branches (palm, fern)'], ['boughs', 'Needle boughs on the limbs (low-poly conifer tiers)']];
   const BRANCH_MODES = [['merged', 'Merged: one welded mesh'], ['separate', 'Separate: each limb its own mesh'], ['mixed', 'Mixed: thick limbs welded, thin ones separate']];
   const FOLIAGE = [['cards', 'Leaf cards on the branches'], ['masses', 'Leaf masses (cards spread over the crown’s shape)'], ['tufts', 'Leaf tufts (cards shaped into clumps, no solid mesh)'], ['clumps', 'Solid clumps (puffy, painted)'], ['both', 'Solid clumps with a leafy edge'], ['crystals', 'Crystals (glowing shards)'], ['none', 'None (bare)']];
-  const CLUSTERS = [['twig', 'A twig'], ['spray', 'A spray (3 twigs)'], ['cluster', 'A cluster (dense)']];
+  const CLUSTERS = [['twig', 'A twig'], ['spray', 'A spray (3 twigs)'], ['cluster', 'A cluster (dense)'], ['branch', 'A whole branch (many small leaves)']];
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];

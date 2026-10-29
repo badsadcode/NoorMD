@@ -17,10 +17,11 @@ public static class LeafAtlas
 
     /// <summary>
     /// What one card shows: "twig" (one stem with its leaves), "spray" (three stems fanning out: about three times the
-    /// leaves) or "cluster" (five stems, small leaves filling the card). More leaves per card means a full crown from
-    /// fewer cards, so fewer triangles.
+    /// leaves), "cluster" (five stems, small leaves filling the card) or "branch" (a main stem with side twigs and many
+    /// small leaves, back ones darker: a whole branch on one card). More leaves per card means a full crown from fewer
+    /// cards, so fewer triangles.
     /// </summary>
-    public static readonly string[] Clusters = ["twig", "spray", "cluster"];
+    public static readonly string[] Clusters = ["twig", "spray", "cluster", "branch"];
 
     public static RawImage Pixels(string shape, string color, string color2, bool stylized, int size, int seed, string cluster = "twig")
     {
@@ -43,18 +44,34 @@ public static class LeafAtlas
                 "cluster" => new[] { (-1f, 0.5f), (-0.5f, 0.72f), (0f, 0.9f), (0.5f, 0.72f), (1f, 0.5f) },
                 _ => new[] { (0f, 0.92f) },
             };
-            var stems = fan.Select(f => (Angle: f.Item1 + (float)(rng.NextDouble() - 0.5) * 0.2f, Length: f.Item2 * (0.92f + 0.12f * (float)rng.NextDouble()), Bend: (float)(rng.NextDouble() - 0.5) * 0.3f)).ToList();
-            Vector2 StemAt((float Angle, float Length, float Bend) st, float t)
+            var stems = fan.Select(f => (Origin: Vector2.Zero, Angle: f.Item1 + (float)(rng.NextDouble() - 0.5) * 0.2f, Length: f.Item2 * (0.92f + 0.12f * (float)rng.NextDouble()), Bend: (float)(rng.NextDouble() - 0.5) * 0.3f, Thick: 1f)).ToList();
+            Vector2 StemAt((Vector2 Origin, float Angle, float Length, float Bend, float Thick) st, float t)
             {
                 var local = new Vector2(st.Bend * t * t, t * st.Length);
-                // Side stems leave the anchor at their angle and curve up a little, as twigs do.
+                // Side stems leave their origin at their angle and curve up a little, as twigs do.
                 var a = st.Angle * (1 - 0.35f * t);
-                return new Vector2(local.X * MathF.Cos(a) + local.Y * MathF.Sin(a), -local.X * MathF.Sin(a) + local.Y * MathF.Cos(a));
+                return st.Origin + new Vector2(local.X * MathF.Cos(a) + local.Y * MathF.Sin(a), -local.X * MathF.Sin(a) + local.Y * MathF.Cos(a));
+            }
+            // A whole branchlet (the baked branch card of game foliage): a main stem with side twigs leaving it in
+            // turn, each with many small leaves, front ones lighter, back ones darker. One card shows what a dozen
+            // twig cards would, for the same triangles.
+            if (cluster == "branch")
+            {
+                var main = (Origin: Vector2.Zero, Angle: (float)(rng.NextDouble() - 0.5) * 0.15f, Length: 0.95f, Bend: (float)(rng.NextDouble() - 0.5) * 0.15f, Thick: 1.6f);
+                stems = [main];
+                var sides = shape is "needle" ? 9 : 7;
+                for (var k = 0; k < sides; k++)
+                {
+                    var t = 0.12f + 0.78f * (k + 0.3f * (float)rng.NextDouble()) / sides;
+                    var side = k % 2 == 0 ? 1 : -1;
+                    stems.Add((StemAt(main, t), main.Angle + side * (1.05f + 0.3f * (float)rng.NextDouble()) * (1 - 0.25f * t), 0.62f * (1 - 0.5f * t) * (0.85f + 0.3f * (float)rng.NextDouble()), side * -0.18f, 1f));
+                }
             }
             // Stylized sprites are fuller: a tuft of leaves, not a twig. Sprays and clusters share them out among
             // their stems, smaller.
             var count = shape switch { "needle" => 70, "maple" => 3, "round" => 9, "slender" => 16, "frond" => 60, "moss" => 46, _ => 7 } + (stylized && shape is not ("needle" or "moss" or "frond") ? 5 : 0);
-            var (perStem, scale) = cluster switch { "spray" => (0.85f, 0.72f), "cluster" => (0.8f, 0.56f), _ => (1f, 1f) };
+            var (perStem, scale) = cluster switch { "spray" => (0.85f, 0.72f), "cluster" => (0.8f, 0.56f), "branch" => (1.9f, 0.4f), _ => (1f, 1f) };
+            if (cluster == "branch") count = Math.Max(count, 6);
             foreach (var st in stems)
             {
                 var n = Math.Max(2, (int)MathF.Round(count * perStem * (st.Length / 0.92f)));
@@ -93,6 +110,10 @@ public static class LeafAtlas
                     leaves.Add((at, dir, Fit(at, dir, (shape == "maple" ? 0.5f : 0.36f) * scale), shape == "round" ? 0.55f : shape == "maple" ? 0.9f : 0.36f, Vector3.Lerp(c1, c2, 0.6f)));
                 }
             }
+            // A branch has depth: leaves at the back darker, at the front lighter, drawn back to front.
+            if (cluster == "branch")
+                leaves = leaves.Select(l => (l, Depth: (float)rng.NextDouble())).OrderBy(x => x.Depth)
+                    .Select(x => x.l with { Col = x.l.Col * (0.68f + 0.42f * x.Depth) }).ToList();
             // Each blade's bounding circle, so a pixel only measures the blades that can reach it.
             var reach = leaves.Select(l => (Centre: l.Base + l.Dir * l.Len * 0.5f, Radius: l.Len * (0.5f + l.Width * 0.6f) + 0.02f)).ToArray();
 
@@ -128,7 +149,7 @@ public static class LeafAtlas
                     var ds = float.MaxValue;
                     if (shape != "moss")
                         foreach (var st in stems)
-                            for (var k = 0; k < 6; k++) ds = MathF.Min(ds, SegmentDistance(p, StemAt(st, k / 6f * 0.97f), StemAt(st, (k + 1) / 6f * 0.97f)));
+                            for (var k = 0; k < 6; k++) ds = MathF.Min(ds, SegmentDistance(p, StemAt(st, k / 6f * 0.97f), StemAt(st, (k + 1) / 6f * 0.97f)) - 0.006f * (st.Thick - 1));
                     // The stalk from the cell's bottom (the card's anchor) up to a lifted sprite.
                     if (lift > 0 && shape != "moss") ds = MathF.Min(ds, SegmentDistance(p, new Vector2(0, -lift / fit), Vector2.Zero));
                     ds -= 0.012f * (1.2f - sy);

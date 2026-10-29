@@ -967,7 +967,7 @@ public static class TreeBuilder
     /// are drawn smaller, so the plane grows to keep each leaf about the size it is on a twig: a fuller crown for free).
     /// </summary>
     internal static float PlaneScale(TreeRecipe recipe) =>
-        (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, _ => 1 });
+        (float)recipe.CardScale * (recipe.LeafImage != "" || recipe.LeafShape is "frond" or "moss" ? 1 : recipe.LeafCluster switch { "spray" => 1.3f, "cluster" => 1.65f, "branch" => 2.3f, _ => 1 });
 
     /// <summary>How much bigger the budget may make a card: conifers less (big cards would stick out past their short branches and widen the slim cone).</summary>
     private static float GrowCap(TreeRecipe recipe) => 2f;
