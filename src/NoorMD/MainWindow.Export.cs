@@ -161,7 +161,7 @@ public partial class MainWindow
                     var first = variants > 1 ? $"{file}_01" : file;
                     if (lods > 1 && req.GetString("lodFiles", 10) != "one") for (var i = 0; i < lods; i++) files.Add($"{first}_LOD{i}.glb");
                     else files.Add(first + ".glb");
-                    files.Add((variants > 1 ? stem + "_01" : stem) + ".noortree.json");
+                    files.Add((variants > 1 ? stem + "_01" : stem) + (req.GetString("recipeKind", 10) == "rock" ? ".noorrock.json" : ".noortree.json"));
                     if (variants > 1) files.Add($"… and the same for _02 to _{variants:00}");
                     files.Add(stem + ".manifest.json");
                 }

@@ -43,6 +43,7 @@ function serve() {
     if (/^\/_sub\/\d+\/0$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'text/vtt; charset=utf-8' }); res.end('WEBVTT\n\n00:00:00.500 --> 00:00:05.000\nHello from the subtitles\n'); return; }
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
     // Asset Bench previews: real GLBs made by the C# tree builder ("s" keys: separate branches).
+    if (/^\/_asset\/r\d+\/lod\d\.glb$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'model/gltf-binary' }); res.end(fs.readFileSync(path.join(FIXTURES, 'rock-lod0.glb'))); return; }
     const glb = /^\/_asset\/(k\d+)(s?)\/lod(\d)\.glb$/.exec(url.pathname);
     if (glb) { const f = glb[2] ? 'tree-separate.glb' : `tree-lod${Math.min(1, Number(glb[3]))}.glb`; res.writeHead(200, { 'Content-Type': 'model/gltf-binary' }); res.end(fs.readFileSync(path.join(FIXTURES, f))); return; }
     const pic = /^\/_(img|thumb)\/(\d+)$/.exec(url.pathname); // Gallery: every picture id under 900 is the same small photo
@@ -460,7 +461,46 @@ function mockHostScript(initial) {
   // Asset Bench: two real presets (from TreePresets), builds that point at the fixture GLBs, exports recorded.
   const ASSET = { recipes: {"oak":{"version":1,"name":"Oak","seed":1,"archetype":"broadleaf","style":"realistic","height":10,"trunkRadius":0.35,"taper":0.7,"crownStart":0.35,"lean":3,"wobble":4,"twist":0,"flare":0.6,"roots":6,"collar":0.6,"shape":"hemispherical","levels":[{"count":7,"start":0.35,"angle":55,"angleSpread":15,"length":0.62,"lengthSpread":0.15,"radius":0.6,"bend":12,"wobble":10,"spiral":137.5,"whorl":1},{"count":9,"start":0.15,"angle":45,"angleSpread":12,"length":0.5,"lengthSpread":0.15,"radius":0.5,"bend":8,"wobble":12,"spiral":137.5,"whorl":1},{"count":6,"start":0.2,"angle":50,"angleSpread":12,"length":0.4,"lengthSpread":0.15,"radius":0.5,"bend":0,"wobble":15,"spiral":137.5,"whorl":1}],"branches":"merged","mixedRadius":0.08,"quality":"medium","budget":8000,"lods":3,"flatShading":false,"foliage":"cards","leafShape":"broad","leafCluster":"cluster","leafDensity":0.65,"leafSize":0.9,"cardScale":1,"outerLeaves":0.5,"leafBudget":16000,"trimCards":true,"leafColor":"#3f6b26","leafColor2":"#7a9a33","crownNormals":0.6,"barkColor":"#5a4636","barkMaterial":"wood-bark","barkTile":1,"wind":true,"windData":"uv"},"stylized":{"version":1,"name":"Stylized oak","seed":1,"archetype":"broadleaf","style":"stylized","height":7,"trunkRadius":0.45,"taper":0.6,"crownStart":0.4,"lean":3,"wobble":6,"twist":0.6,"flare":0.9,"roots":5,"collar":0.9,"shape":"spherical","levels":[{"count":5,"start":0.45,"angle":50,"angleSpread":12,"length":0.6,"lengthSpread":0.15,"radius":0.65,"bend":25,"wobble":10,"spiral":137.5,"whorl":1},{"count":4,"start":0.3,"angle":40,"angleSpread":12,"length":0.5,"lengthSpread":0.15,"radius":0.55,"bend":20,"wobble":10,"spiral":137.5,"whorl":1}],"branches":"merged","mixedRadius":0.08,"quality":"low","budget":3000,"lods":3,"flatShading":false,"foliage":"both","leafShape":"broad","leafDensity":0.7,"leafSize":1.3,"leafColor":"#3e7d2a","leafColor2":"#b7d14a","crownNormals":0.6,"barkColor":"#6e4a2f","barkMaterial":"","barkTile":1,"wind":true,"windData":"uv"}}, builds: [], exports: [], mine: [], opened: null };
   state.assets = ASSET;
+  // Rocks: two real presets (from RockPresets), builds that point at a real rock GLB, exports recorded.
+  const ROCK = { recipes: {
+    rock: {"version": 1,"name": "Rock","seed": 1,"kind": "rock","style": "realistic","size": 1,"height": 0.7,"elongation": 0.3,"roughness": 0.5,"fractures": 7,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
+    boulder: {"version": 1,"name": "Boulder","seed": 1,"kind": "boulder","style": "realistic","size": 2.8,"height": 0.75,"elongation": 0.3,"roughness": 0.55,"fractures": 8,"strata": 0,"flatBase": true,"sink": 0.15,"material": "rock","tileMetres": 1.5,"color": "#8a8580","moss": 0,"mossColor": "#5e7a3a","snow": 0,"snowColor": "#eef2f6","stones": 40,"lods": 3,"lodTriangles": [],"collisionPieces": 1},
+  }, builds: [], exports: [], mine: [] };
+  state.rocks = ROCK;
+  function rockMock(type, p) {
+    const mine = () => ROCK.mine.map((x) => ({ id: x.id, name: x.recipe.name, style: x.recipe.style, kind: x.recipe.kind, description: 'Your preset' }));
+    switch (type) {
+      case 'asset.rock.presets': return { builtIn: [{ id: 'rock', name: 'Rock', description: 'Knee-high.', style: 'realistic', kind: 'rock' }, { id: 'boulder', name: 'Boulder', description: 'Big.', style: 'realistic', kind: 'boulder' }], mine: mine(), materials: [{ id: 'rock', name: 'Weathered rock' }, { id: 'mossy', name: 'Mossy rock' }] };
+      case 'asset.rock.preset': {
+        const own = ROCK.mine.find((x) => x.id === p.id);
+        const r = own ? own.recipe : ROCK.recipes[p.id];
+        if (!r) throw new Error('Unknown preset.');
+        return JSON.parse(JSON.stringify(r));
+      }
+      case 'asset.rock.build': {
+        ROCK.builds.push(JSON.parse(JSON.stringify(p.recipe)));
+        const key = 'r' + ROCK.builds.length;
+        const budget = { stone: 150, rock: 400, boulder: 1200, outcrop: 2500, scree: 1500 }[p.recipe.kind];
+        return { key, ms: 120, notes: [], height: 0.54, width: 0.76, collision: p.recipe.collisionPieces > 0 ? Array(p.recipe.collisionPieces).fill(54) : [],
+          lods: Array.from({ length: p.recipe.lods }, (_, i) => ({ url: `/_asset/${key}/lod${i}.glb`, triangles: p.recipe.lodTriangles[i] || [budget, budget * 0.4, budget * 0.15][i], vertices: 300, bytes: 108848 })),
+          nodes: [{ name: 'Rock', triangles: budget }, { name: 'Collision-convcolonly', triangles: 54 }] };
+      }
+      case 'asset.rock.export': {
+        ROCK.exports.push(JSON.parse(JSON.stringify(p)));
+        const stem = p.recipe.name.replace(/ /g, '_');
+        const n = p.variants || 1;
+        const sfx = (v) => (n > 1 ? '_' + String(v + 1).padStart(2, '0') : '');
+        const files = Array.from({ length: n }, (_, v) => p.lodFiles === 'one' || p.recipe.lods < 2 ? [stem + sfx(v) + '.glb'] : Array.from({ length: p.recipe.lods }, (_, i) => `${stem}${sfx(v)}_LOD${i}.glb`)).flat();
+        const recipes = Array.from({ length: n }, (_, v) => stem + sfx(v) + '.noorrock.json');
+        return { folder: 'D:\\Game\\Rocks', files, recipe: recipes[0], recipes, variants: n, manifest: stem + '.manifest.json', shaders: [], godot: null, project: null, relative: '.', triangles: Array(n).fill(400) };
+      }
+      case 'asset.rock.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ROCK.mine.some((x) => x.id === id); ROCK.mine = ROCK.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
+      case 'asset.rock.delete': ROCK.mine = ROCK.mine.filter((x) => x.id !== p.id); return { mine: mine() };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
   function assetMock(type, p) {
+    if (type.startsWith('asset.rock.')) return rockMock(type, p);
     const builtIn = [{ id: 'oak', name: 'Oak (realistic)', description: 'A broad crown.', style: 'realistic', archetype: 'broadleaf', group: 'Forest' }, { id: 'stylized-oak', name: 'Stylized oak', description: 'Chunky and puffy.', style: 'stylized', archetype: 'broadleaf', group: 'Forest' },
       { id: 'willow', name: 'Weeping willow (realistic)', description: 'Curtains.', style: 'realistic', archetype: 'broadleaf', group: 'Swamp & marsh' },
       { id: 'thornwake-pine', name: 'Pine', description: 'Tiers.', style: 'realistic', archetype: 'conifer', group: 'Thornwake', profile: 'thornwake' }];
@@ -498,7 +538,7 @@ function mockHostScript(initial) {
       case 'asset.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ASSET.mine.some((x) => x.id === id); ASSET.mine = ASSET.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'asset.delete': ASSET.mine = ASSET.mine.filter((x) => x.id !== p.id); return { mine: mine() };
       case 'asset.image.pick': ASSET.picks = (ASSET.picks || []).concat([p.kind]); return { path: p.kind === 'leaves' ? 'D:\\Art\\my leaves.png' : 'D:\\Art\\my bark.png', name: p.kind === 'leaves' ? 'my leaves.png' : 'my bark.png', width: 1024, height: 1024 };
-      case 'asset.open': return { recipe: { ...JSON.parse(JSON.stringify(ASSET.recipes.oak)), name: 'Opened tree' } };
+      case 'asset.open': return ASSET.openRock ? { subject: 'rock', recipe: { ...JSON.parse(JSON.stringify(ROCK.recipes.boulder)), name: 'Opened rock' } } : { subject: 'tree', recipe: { ...JSON.parse(JSON.stringify(ASSET.recipes.oak)), name: 'Opened tree' } };
       default: throw new Error('Unknown command ' + type);
     }
   }
@@ -654,7 +694,7 @@ function mockHostScript(initial) {
         const exts = p.format === 'both' ? ['.wav', '.ogg'] : [p.format === 'ogg' ? '.ogg' : '.wav'];
         const files = p.bench === 'model'
           ? (() => { const v = p.variants || 1, first = fill(pat.file) + (v > 1 ? '_01' : '');
-              return [...(p.lods > 1 && p.lodFiles !== 'one' ? Array.from({ length: p.lods }, (_, i) => `${first}_LOD${i}.glb`) : [first + '.glb']), t.name + (v > 1 ? '_01' : '') + '.noortree.json',
+              return [...(p.lods > 1 && p.lodFiles !== 'one' ? Array.from({ length: p.lods }, (_, i) => `${first}_LOD${i}.glb`) : [first + '.glb']), t.name + (v > 1 ? '_01' : '') + (p.recipeKind === 'rock' ? '.noorrock.json' : '.noortree.json'),
                 ...(v > 1 ? [`… and the same for _02 to _${String(v).padStart(2, '0')}`] : []), t.name + '.manifest.json']; })()
           : p.bench === 'music'
           ? [...exts.flatMap((e) => [...(p.parts && p.parts.mix === false ? [] : [fill(pat.file) + e]), ...(p.parts && p.parts.loop ? [fill(pat.file) + '_loop' + e] : []),

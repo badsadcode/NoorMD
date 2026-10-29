@@ -186,6 +186,9 @@ public class GodotExportTests
         File.WriteAllBytes(Path.Combine(dir, "trees", "pine_small_LOD0.glb"), GlbWriter.Write(TreeExport.Level(small, 0)));
         // Not a NoorMD tree: must come through untouched.
         File.WriteAllBytes(Path.Combine(dir, "trees", "plain.glb"), GlbWriter.Write(GlbWriterTests.Sample()));
-        File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()) }));
+        // A rock: three levels in one file, three convex collision pieces in the closest.
+        var outcrop = RockBuilder.Build(RockPresets.Make("outcrop"), new RockBuilder.Options { TextureSize = 64 });
+        File.WriteAllBytes(Path.Combine(dir, "trees", "outcrop.glb"), GlbWriter.Write(RockExport.OneFile(outcrop)));
+        File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

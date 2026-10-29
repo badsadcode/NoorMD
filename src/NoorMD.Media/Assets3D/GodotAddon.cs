@@ -1,15 +1,16 @@
 namespace NoorMD.Media.Assets3D;
 
 /// <summary>
-/// The Godot 4 import plugin for Asset Bench trees (addons/noor_trees): once it is on (Project Settings → Plugins), every
-/// imported GLB that NoorMD made gets its levels of detail switched by distance (visibility ranges from the file's own
-/// extras) and its materials swapped for the wind shader, keeping their textures. Other scenes are left alone. Each
+/// The Godot 4 import plugin for Asset Bench trees and rocks (addons/noor_trees): once it is on (Project Settings →
+/// Plugins), every imported GLB that NoorMD made gets its levels of detail switched by distance (visibility ranges from
+/// the file's own extras), and a tree's materials are swapped for the wind shader, keeping their textures. (A rock's
+/// collision comes from Godot itself: its "-convcolonly" nodes.) Other scenes are left alone. Each
 /// option can be turned off per file in the Import dock.
 /// </summary>
 public static class GodotAddon
 {
     public const string Folder = "noor_trees";
-    public const int Version = 3;
+    public const int Version = 4;
     /// <summary>The first line of every file, so a later export can tell our files (and how old they are) from yours.</summary>
     public static string Header => $"NoorMD Asset Bench, Godot tree import v{Version}";
 
@@ -91,7 +92,8 @@ public static class GodotAddon
         # {{Header}}
         # Trees exported by the NoorMD Asset Bench carry glTF extras, which Godot keeps as each node's "extras" metadata:
         # the tree's root has noor_tree, noor_height and noor_wind ("uv", "color" or "none"); each level's root has
-        # noor_lod, noor_visible_from and noor_visible_to (metres; 0 = no limit). Scenes without them are left alone.
+        # noor_lod, noor_visible_from and noor_visible_to (metres; 0 = no limit). A rock's root has noor_rock instead (its
+        # levels are switched the same way; it has no wind). Scenes without them are left alone.
         @tool
         extends EditorScenePostImportPlugin
 
@@ -110,18 +112,17 @@ public static class GodotAddon
         		return
         	var trees: Array[Node] = []
         	_find(scene, "noor_tree", trees)
-        	if trees.is_empty():
+        	var rocks: Array[Node] = []
+        	_find(scene, "noor_rock", rocks)
+        	if trees.is_empty() and rocks.is_empty():
         		return
+        	for rock in rocks:
+        		_ranges(rock)
         	var shader: Shader = load(get_script().resource_path.get_base_dir().path_join(SHADER))
         	var made := {}
         	for tree in trees:
         		var about: Dictionary = tree.get_meta("extras")
-        		var levels: Array[Node] = []
-        		_find(tree, "noor_lod", levels)
-        		if levels.size() > 1 and _option("noormd_trees/lod_ranges", true):
-        			var scale := float(_option("noormd_trees/lod_distance_scale", 1.0))
-        			for level in levels:
-        				_set_range(level, level.get_meta("extras"), scale)
+        		_ranges(tree)
         		if shader != null and _option("noormd_trees/wind_material", true):
         			for node in _meshes(tree):
         				for s in node.mesh.get_surface_count():
@@ -130,6 +131,15 @@ public static class GodotAddon
         						if not made.has(source):
         							made[source] = _wind_material(source, shader, about)
         						node.set_surface_override_material(s, made[source])
+
+
+        func _ranges(root: Node) -> void:
+        	var levels: Array[Node] = []
+        	_find(root, "noor_lod", levels)
+        	if levels.size() > 1 and _option("noormd_trees/lod_ranges", true):
+        		var scale := float(_option("noormd_trees/lod_distance_scale", 1.0))
+        		for level in levels:
+        			_set_range(level, level.get_meta("extras"), scale)
 
 
         func _option(name: String, fallback: Variant) -> Variant:
@@ -222,6 +232,9 @@ public static class GodotAddon
           billboard, has no far limit). Change the distances for a file in the Import dock: NoorMD Trees → Lod Distance Scale.
         - moves in the wind: its materials become the wind shader (noor_tree_wind.gdshader) with the same textures. Set the
           wind on those materials (wind_direction, wind_strength, wind_speed), or turn Wind Material off in the Import dock.
+
+        Rocks switch their levels the same way (they keep their own materials). Their collision is Godot's own: the
+        "-convcolonly" nodes in the file become convex collision shapes.
 
         Scenes not made by NoorMD are not changed.
 

@@ -15,7 +15,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Asset Bench: game-ready trees (and, later, rocks) made from a recipe. The page edits the recipe; the app grows and
+/// Asset Bench: game-ready trees (and rocks, MainWindow.Rocks.cs) made from a recipe. The page edits the recipe; the app grows and
 /// meshes the tree (the same recipe and seed always give the same mesh), serves the preview's GLB files from memory at
 /// /_asset/{key}/lod{n}.glb, and exports GLB files with the recipe and a manifest beside them. Your own presets are
 /// recipes kept in the local data folder.
@@ -194,6 +194,7 @@ public partial class MainWindow
         var p = req.Payload;
         try
         {
+            if (req.Type.StartsWith("asset.rock.", StringComparison.Ordinal)) return await DispatchRockAsync(req);
             switch (req.Type)
             {
                 case "asset.presets":
@@ -407,13 +408,15 @@ public partial class MainWindow
                     return new { mine = UserTreePresets() };
                 case "asset.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a tree recipe", Filter = "Tree recipes (*.noortree.json;*.json)|*.noortree.json;*.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = "Open a tree or rock recipe", Filter = "Asset Bench recipes (*.noortree.json;*.noorrock.json;*.json)|*.noortree.json;*.noorrock.json;*.json|Tree recipes (*.noortree.json)|*.noortree.json|Rock recipes (*.noorrock.json)|*.noorrock.json", CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
-                    if (new FileInfo(dlg.FileName).Length > 100_000) throw new BridgeError("That file is too big for a tree recipe.");
+                    if (new FileInfo(dlg.FileName).Length > 100_000) throw new BridgeError("That file is too big for a recipe.");
+                    if (dlg.FileName.EndsWith(".noorrock.json", StringComparison.OrdinalIgnoreCase))
+                        return new { subject = "rock", recipe = RockForPage(RockRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName))) };
                     var opened = FindTreeImagesBeside(TreeRecipe.FromJson(await File.ReadAllTextAsync(dlg.FileName)), Path.GetDirectoryName(Path.GetFullPath(dlg.FileName))!);
                     AllowTreeImages(opened);
-                    return new { recipe = TreeForPage(opened) };
+                    return new { subject = "tree", recipe = TreeForPage(opened) };
                 }
                 case "asset.image.pick":
                 {

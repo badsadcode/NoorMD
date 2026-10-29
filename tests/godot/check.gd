@@ -1,7 +1,7 @@
 # The Godot import check: run in the project NOORMD_GODOT_OUT wrote (see GodotExportTests), after an import:
 #   godot --headless --path <project> --import
 #   godot --headless --path <project> --script res://check.gd
-# Checks what the NoorMD trees plugin did to each imported tree, and that other scenes were left alone.
+# Checks what the NoorMD trees plugin did to each imported tree and rock, and that other scenes were left alone.
 extends SceneTree
 
 var failures := 0
@@ -103,6 +103,26 @@ func _init() -> void:
 	check(sm.size() > 0 and sm.all(func(m): return m.get_shader_parameter("sharp_pixels") == true and m.get_shader_parameter("albedo_sharp") is Texture2D), "small textures are sampled sharp (nearest)")
 	check(sm.any(func(m): return m.get_shader_parameter("use_normal_texture") == true and m.get_shader_parameter("normal_sharp") is Texture2D), "…and keep their normal maps")
 	small.free()
+
+	# A rock: its levels switched by distance, its own materials kept (no wind), and Godot's convex collision from
+	# the "-convcolonly" nodes.
+	var rock_at: Array = expected["outcrop"]
+	var rock: Node = load("res://trees/outcrop.glb").instantiate()
+	var rock_levels := [named(rock, "Outcrop_LOD0"), named(rock, "Outcrop_LOD1"), named(rock, "Outcrop_LOD2")]
+	check(rock_levels.all(func(n): return n != null), "a rock's levels come in as nodes Outcrop_LOD0…2")
+	if rock_levels.all(func(n): return n != null):
+		var rock_spans := []
+		for level in rock_levels:
+			var m: MeshInstance3D = meshes(level)[0]
+			rock_spans.append([snappedf(m.visibility_range_begin, 0.01), snappedf(m.visibility_range_end, 0.01)])
+		var rock_want := [[0.0, snappedf(rock_at[0], 0.01)], [snappedf(rock_at[0], 0.01), snappedf(rock_at[1], 0.01)], [snappedf(rock_at[1], 0.01), 0.0]]
+		check(str(rock_spans) == str(rock_want), "each rock level has its visibility range", str(rock_spans) + " want " + str(rock_want))
+	check(wind_materials(rock).all(func(m): return m == null), "a rock keeps its own materials (no wind shader)")
+	var shapes := rock.find_children("*", "CollisionShape3D", true, false)
+	check(shapes.size() == 3 and shapes.all(func(c): return c.shape is ConvexPolygonShape3D and c.get_parent() is StaticBody3D), "the rock's three -convcolonly pieces became convex collision shapes", shapes.size())
+	check(shapes.all(func(c): return (c.shape as ConvexPolygonShape3D).points.size() <= 34), "…each with at most 34 points")
+	check(meshes(rock).all(func(m): return not str(m.name).begins_with("Collision")), "…and are not drawn")
+	rock.free()
 
 	# Not ours: untouched.
 	var plain: Node = load("res://trees/plain.glb").instantiate()

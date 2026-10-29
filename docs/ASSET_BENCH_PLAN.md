@@ -406,6 +406,33 @@ Still open: the biome catalogue (and rocks, stage 2).
 - **Families:** boulders, fractured stones, river stones, slabs, rubble and scree packs. The ground contact is
   flattened if wanted, and the pivot is at the base.
 
+### Done in preview.76 (rocks, first cut)
+
+- **Trees | Rocks** at the top of the Asset Bench list. Each keeps its own recipe, undo steps and tab while the other
+  is shown; opening a `.noorrock.json` switches to rocks. Rock tabs: Rock (kind, look, size, height, stretch,
+  roughness, broken faces, layers, flat underside, sink), Surface (material, colour, texture tile in metres, moss,
+  snow), Mesh (levels, triangles per level, convex collision pieces), Export.
+- **Shape** (`RockBuilder`): a signed distance field — a warped ellipsoid (several melted together for boulders and
+  outcrops), big lumps and fine grit by roughness, fracture planes cut in with a little rounding, ledges for layers,
+  a flat base — sampled on a grid and extracted with surface nets (closed, welded), then simplified to each level.
+- **Kinds and budgets** (Thornwake's spec): stone ≤ 150, rock ≤ 400, boulder ≤ 1,200, outcrop ≤ 2,500 triangles in
+  LOD0, then about 40 % and 15 %; scree packs many stones (one mesh, ≤ 1,500), the far levels dropping the small ones.
+  Stylized rocks take a third of the budget, every face flat shaded: big facets.
+- **Surface:** normals smooth within a face and split at hard edges (48°); UVs projected from the side each face looks
+  to, in metres (one tile = `tileMetres`), so every rock shares one texel density. Rock materials made in the rock's
+  colour (`RockTextures`: weathered, granite, sandstone, mossy, snowy, painted) or any Texture Bench preset. Moss and
+  a darker foot in the vertex colours; snow on upward faces as its own material (it stays white).
+- **Pivot:** the middle of the ground contact, the base `sink` × height below it (no gaps on uneven ground).
+- **Collision:** convex hulls of the closest level (≤ 34 points, ≤ 64 triangles each; outcrops in slices along the
+  long side, slightly overlapping), named `Collision-convcolonly` — Godot makes them convex collision shapes by itself
+  (checked in headless Godot 4.4 in CI). Listed in the manifest for other engines.
+- **Export:** a file per level or one file with tagged levels (the Godot plugin, now v4, switches a rock's levels by
+  distance and leaves its materials alone), a variety pack (sizes spread), the recipe and a manifest (pivot, sink,
+  levels, triangles, collision pieces, materials, texel density).
+
+Next for rocks: baked normal and AO maps from the dense form, dual contouring for crisper stylized edges, landform
+pieces (≤ 8,000), arches with several collision pieces placed by shape rather than slices.
+
 ## Stage 3 — deeper trees and formations
 
 - A hotpoint card editor for your own leaf and twig textures (the metadata from the concept).

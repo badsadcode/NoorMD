@@ -75,7 +75,7 @@ public static class BarkTextures
         _ => null,
     };
 
-    private static List<RampStop> Ramp(params (double Pos, string Color)[] stops) => stops.Select(s => new RampStop { Pos = s.Pos, Color = s.Color }).ToList();
+    internal static List<RampStop> Ramp(params (double Pos, string Color)[] stops) => stops.Select(s => new RampStop { Pos = s.Pos, Color = s.Color }).ToList();
 
     /// <summary>A colour made lighter or darker (factor above or below 1).</summary>
     internal static string Scale(string hex, double f)

@@ -1,4 +1,4 @@
-// Asset Bench: game-ready trees, realistic or stylized. The page edits a recipe; the app grows the tree, meshes it
+// Asset Bench: game-ready trees and rocks, realistic or stylized. The page edits a recipe; the app grows the tree, meshes it
 // (welded limbs, real collars and root flare, not scaled cylinders) and builds every level of detail; the preview shows
 // the very GLB an export writes. Exports go to a folder or a game project, with the recipe and a manifest beside them.
 window.NoorAssets = (() => {
@@ -11,7 +11,14 @@ window.NoorAssets = (() => {
   let built = false;
   let recipe = null;
   let presets = { builtIn: [], mine: [], barks: [] };
+  let rockPresets = { builtIn: [], mine: [], materials: [] };
   let selectedPreset = '';
+  // What the bench makes: trees or rocks. Each keeps its own recipe, undo steps and tab while the other is shown.
+  let subject = (() => { try { return localStorage.getItem('noormd.assets.subject') === 'rock' ? 'rock' : 'tree'; } catch { return 'tree'; } })();
+  const stash = { tree: null, rock: null };
+  const isRock = () => subject === 'rock';
+  /** The bridge command for what is on the bench (asset.build or asset.rock.build…). */
+  const cmd = (name) => (isRock() ? 'asset.rock.' : 'asset.') + name;
   // All, a look, or one game's trees ("game:thornwake").
   let look = (() => { try { const v = localStorage.getItem('noormd.assets.look'); return ['all', 'realistic', 'stylized'].includes(v) || /^game:[a-z0-9-]+$/.test(v || '') ? v : 'all'; } catch { return 'all'; } })();
   let tab = 'tree';
@@ -48,6 +55,10 @@ window.NoorAssets = (() => {
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
+  const ROCK_KINDS = [['stone', 'Stone (0.2–0.5 m)'], ['rock', 'Rock (0.5–1.5 m)'], ['boulder', 'Boulder (1.5–4 m)'], ['outcrop', 'Outcrop (2–6 m, flat underside)'], ['scree', 'Scree patch (many small stones)']];
+  const ROCK_STYLES = [['realistic', 'Realistic (rough, smooth shading)'], ['stylized', 'Stylized (big facets, flat shaded)']];
+  const ROCK_BUDGET = { stone: 150, rock: 400, boulder: 1200, outcrop: 2500, scree: 1500 };
+  const TABS = { tree: [['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']], rock: [['rock', 'Rock'], ['surface', 'Surface'], ['rmesh', 'Mesh'], ['export', 'Export']] };
 
   function init(h) {
     hooks = { ...hooks, ...h };
@@ -60,7 +71,9 @@ window.NoorAssets = (() => {
     document.body.classList.add('assets-open');
     $('#assetbench').hidden = false;
     if (!presets.builtIn.length) await loadPresets();
-    if (!recipe && presets.builtIn.length) await loadPreset(presets.builtIn[0].id);
+    renderTabs();
+    const list = isRock() ? rockPresets.builtIn : presets.builtIn;
+    if (!recipe && list.length) await loadPreset(list[0].id);
     $('#assetbench').focus({ preventScroll: true });
   }
 
@@ -82,12 +95,12 @@ window.NoorAssets = (() => {
       el('header', { class: 'music-head' },
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🌳' }), el('strong', { text: 'Asset Bench' }), el('small', { id: 'ab-kind' })),
         el('span', { class: 'panel-head-buttons' },
-          el('button', { class: 'icon-btn', id: 'ab-open', title: 'Open a recipe (.noortree.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
+          el('button', { class: 'icon-btn', id: 'ab-open', title: 'Open a recipe (.noortree.json or .noorrock.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
           NoorDock.fullButton('Asset Bench'),
           el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move the Asset Bench', onclick: (e) => NoorDock.showMenu('assets', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+M)', 'aria-label': 'Close the Asset Bench', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
-        el('nav', { class: 'sb-presets', id: 'ab-presets', 'aria-label': 'Trees' }),
+        el('nav', { class: 'sb-presets', id: 'ab-presets', 'aria-label': 'Trees and rocks' }),
         el('div', { class: 'sb-editor' },
           el('div', { class: 'sb-top', id: 'ab-top' },
             el('input', { type: 'text', id: 'ab-name', class: 'tb-name', 'aria-label': 'Name of the tree', spellcheck: 'false', maxlength: '80' }),
@@ -118,8 +131,7 @@ window.NoorAssets = (() => {
               el('p', { class: 'pref-hint ab-stats', id: 'ab-cost', title: 'Measured from four sides as a game draws it. Crown full: how much of the crown’s outline the leaves cover (sky through the crown lowers it). Overdraw: leaf pixels drawn per leaf pixel seen. See-through: the share of the cards’ area cut away by the alpha, which the GPU still pays for' })),
             el('div', { class: 'tb-splitter', id: 'ab-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to change how much room the tree and the settings get (double-click: back to normal)' }),
             el('div', { class: 'tb-edit-col', id: 'ab-edit-col' },
-              el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']].map(([id, label]) =>
-                el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
+              el('div', { class: 'music-tabs sb-tabs', id: 'ab-tabs', role: 'tablist' }),
               el('div', { class: 'sb-pane', id: 'ab-pane' }))))));
     ($('#app') || document.body).append(root);
     $('#ab-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false, true); });
@@ -149,6 +161,41 @@ window.NoorAssets = (() => {
   /** How the bench is arranged (NoorBenchLayout, remembered). */
   let layout = { prefs: {}, set() {}, apply() {} };
 
+  /** The tabs for what is on the bench. */
+  function renderTabs() {
+    const bar = $('#ab-tabs');
+    if (!bar) return;
+    if (!TABS[subject].some(([id]) => id === tab)) tab = TABS[subject][0][0];
+    bar.replaceChildren(...TABS[subject].map(([id, label]) => el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label)));
+    // Rocks have no wind.
+    const w = $('#ab-wind');
+    if (w) w.hidden = isRock();
+    if (isRock() && wind) setWind(false);
+    const canvas = $('#ab-canvas');
+    if (canvas) canvas.setAttribute('aria-label', `The ${isRock() ? 'rock' : 'tree'}: drag to turn it, wheel to zoom, right-drag or Shift+drag to move`);
+  }
+
+  /** Trees or rocks: what was on the bench is kept (recipe, undo steps, tab) for when you come back to it. */
+  async function setSubject(next, keepRecipe) {
+    if (next === subject) return;
+    clearTimeout(snapTimer); clearTimeout(buildTimer);
+    if (recipe) pushHistory();
+    stash[subject] = { recipe, selectedPreset, history, future, lastSnapshot, tab, lod, lastExport };
+    subject = next;
+    try { localStorage.setItem('noormd.assets.subject', subject); } catch { /* private storage off */ }
+    const back = stash[subject];
+    recipe = null; build = null; lod = 0; history = []; future = []; lastSnapshot = ''; selectedPreset = ''; lastExport = null;
+    if (back) ({ recipe, selectedPreset, history, future, lastSnapshot, tab, lod, lastExport } = back);
+    renderTabs();
+    renderPresets();
+    if (keepRecipe) return;
+    if (recipe) { renderEditor(); rebuild(); }
+    else {
+      const list = isRock() ? rockPresets.builtIn : presets.builtIn;
+      if (list.length) await loadPreset(list[0].id);
+    }
+  }
+
   function setStatus(text) { const s = $('#ab-status'); if (s) s.textContent = text; }
 
   function setWire(on) {
@@ -166,58 +213,72 @@ window.NoorAssets = (() => {
   // ---------------------------------------------------------------- presets
 
   async function loadPresets() {
-    try { presets = await req('asset.presets'); renderPresets(); } catch (err) { hooks.showError(err); }
+    try {
+      const [trees, rocks] = await Promise.all([req('asset.presets'), req('asset.rock.presets')]);
+      presets = trees; rockPresets = rocks;
+      renderPresets();
+    } catch (err) { hooks.showError(err); }
   }
 
   function renderPresets() {
     const nav = $('#ab-presets');
     const item = (p) => el('button', { class: 'gnav-item' + (p.id === selectedPreset ? ' active' : ''), 'data-preset': p.id, title: p.description || '', onclick: () => loadPreset(p.id) }, p.name);
+    const subjects = el('div', { class: 'ab-subjects', role: 'group', 'aria-label': 'Make' }, ...[['tree', '🌳 Trees'], ['rock', '🪨 Rocks']].map(([v, t]) =>
+      el('button', { class: 'utility-btn' + (subject === v ? ' active' : ''), 'data-subject': v, 'aria-pressed': String(subject === v), onclick: () => setSubject(v) }, t)));
+    const saveRow = [
+      el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
+      ...(selectedPreset.startsWith('user:') ? [el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one')] : [])];
+    if (isRock()) {
+      const kinds = ROCK_KINDS.map(([k, t]) => [t.replace(/ \(.*$/, ''), rockPresets.builtIn.filter((p) => p.kind === k)]);
+      nav.replaceChildren(subjects, ...[...kinds, ['Mine', rockPresets.mine]].flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []), ...saveRow);
+      return;
+    }
     // A game's trees show under All and under the game; the looks are the general trees.
     const shown = presets.builtIn.filter((p) => look === 'all' || (look.startsWith('game:') ? p.profile === look.slice(5) : !p.profile && (look === 'stylized') === (p.style === 'stylized')));
     const groupNames = [...new Set(shown.map((p) => p.group || 'Forest'))];
     const groups = [...groupNames.map((g) => [g, shown.filter((p) => (p.group || 'Forest') === g)]), ['Mine', presets.mine]];
     const looks = el('div', { class: 'ab-looks', role: 'group', 'aria-label': 'Show' }, ...[['all', 'All'], ['realistic', 'Realistic'], ['stylized', 'Stylized'], ...(presets.profiles || []).map((g) => [`game:${g.id}`, `🎮 ${g.name}`, g.description])].map(([v, t, d]) =>
       el('button', { class: 'utility-btn' + (look === v ? ' active' : ''), 'data-look': v, title: d || '', 'aria-pressed': String(look === v), onclick: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } }, t)));
-    nav.replaceChildren(looks, ...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []),
-      el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
-      ...(selectedPreset.startsWith('user:') ? [el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one')] : []));
+    nav.replaceChildren(subjects, looks, ...groups.flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []), ...saveRow);
   }
 
   async function loadPreset(id) {
     try {
       selectedPreset = id;
-      setRecipe(await req('asset.preset', { id }), true);
-      useProfileExport();
+      setRecipe(await req(cmd('preset'), { id }), true);
+      if (!isRock()) useProfileExport();
       renderPresets();
     } catch (err) { hooks.showError(err); }
   }
 
   /** A tree made for a game exports the way that game takes it (still yours to change on the Export tab). */
   function useProfileExport() {
+    if (isRock()) return;
     const g = (presets.profiles || []).find((x) => x.id === recipe.profile);
     if (!g || !ENGINES[g.engine]) return;
     Object.assign(exportPrefs, { engine: g.engine, lodFiles: g.lodFiles, shaders: g.helpers });
     saveExportPrefs();
   }
-  const profileOf = () => (presets.profiles || []).find((x) => x.id === recipe.profile);
+  const profileOf = () => (isRock() ? null : (presets.profiles || []).find((x) => x.id === recipe.profile));
 
   async function savePreset() {
     try {
-      const r = await req('asset.save', { recipe });
-      presets.mine = r.mine; selectedPreset = r.id; renderPresets();
+      const r = await req(cmd('save'), { recipe });
+      (isRock() ? rockPresets : presets).mine = r.mine; selectedPreset = r.id; renderPresets();
       notice(r.replaced ? `“${recipe.name}” updated in Mine` : `“${recipe.name}” saved in Mine`, 1600);
     } catch (err) { hooks.showError(err); }
   }
 
   async function deletePreset() {
     if (!selectedPreset.startsWith('user:')) return;
-    try { presets.mine = (await req('asset.delete', { id: selectedPreset })).mine; selectedPreset = ''; renderPresets(); } catch (err) { hooks.showError(err); }
+    try { (isRock() ? rockPresets : presets).mine = (await req(cmd('delete'), { id: selectedPreset })).mine; selectedPreset = ''; renderPresets(); } catch (err) { hooks.showError(err); }
   }
 
   async function openRecipe() {
     try {
       const r = await req('asset.open');
       if (!r || r.cancelled) return;
+      await setSubject(r.subject === 'rock' ? 'rock' : 'tree', true);
       selectedPreset = ''; renderPresets();
       setRecipe(r.recipe, true);
     } catch (err) { hooks.showError(err); }
@@ -274,9 +335,11 @@ window.NoorAssets = (() => {
     clearTimeout(buildTimer);
     if (!recipe) return;
     const gen = ++buildGen;
-    setStatus('Growing the tree…');
+    const forSubject = subject;
+    setStatus(isRock() ? 'Shaping the rock…' : 'Growing the tree…');
     try {
-      const out = await req('asset.build', { recipe });
+      const out = await req(cmd('build'), { recipe });
+      if (forSubject !== subject) return;
       if (gen !== buildGen || !out || out.cancelled) return;
       build = out;
       if (lod >= out.lods.length) lod = 0;
@@ -284,7 +347,11 @@ window.NoorAssets = (() => {
       $('#ab-lod').value = String(lod);
       await showLod();
       if (gen !== buildGen) return;
-      setStatus(`Built in ${out.ms < 1000 ? out.ms + ' ms' : (out.ms / 1000).toFixed(1) + ' s'} · ${out.branches} branches${out.notes && out.notes.length ? ' · ' + out.notes.join(' ') : ''}`);
+      const took = out.ms < 1000 ? out.ms + ' ms' : (out.ms / 1000).toFixed(1) + ' s';
+      const what = isRock()
+        ? `${out.height} m tall, ${out.width} m wide · ${out.collision.length ? `collision: ${out.collision.length} convex piece${out.collision.length === 1 ? '' : 's'} (${out.collision.join(', ')} triangles)` : 'no collision'}`
+        : `${out.branches} branches`;
+      setStatus(`Built in ${took} · ${what}${out.notes && out.notes.length ? ' · ' + out.notes.join(' ') : ''}`);
       renderStats();
     } catch (err) { if (gen === buildGen) setStatus(err && err.message ? err.message : String(err)); }
   }
@@ -327,6 +394,8 @@ window.NoorAssets = (() => {
     const name = $('#ab-name'), seed = $('#ab-seed');
     if (document.activeElement !== name) name.value = recipe.name;
     if (document.activeElement !== seed) seed.value = String(recipe.seed);
+    name.setAttribute('aria-label', isRock() ? 'Name of the rock' : 'Name of the tree');
+    if (isRock()) { $('#ab-kind').textContent = `${(ROCK_STYLES.find((s) => s[0] === recipe.style) || ['', ''])[1].replace(/ \(.*$/, '')} · ${(ROCK_KINDS.find((k) => k[0] === recipe.kind) || ['', ''])[1]}`; return; }
     $('#ab-kind').textContent = `${(STYLES.find((s) => s[0] === recipe.style) || ['', ''])[1]} · ${(ARCHETYPES.find((a) => a[0] === recipe.archetype) || ['', ''])[1]}`;
   }
 
@@ -338,7 +407,8 @@ window.NoorAssets = (() => {
     const keep = pane.scrollTop;
     // Keep the keyboard where it was (a re-render replaces the controls).
     const focused = document.activeElement && pane.contains(document.activeElement) ? document.activeElement.getAttribute('data-key') : null;
-    pane.replaceChildren(...(tab === 'tree' ? treePane() : tab === 'branches' ? branchesPane() : tab === 'leaves' ? leavesPane() : tab === 'mesh' ? meshPane() : exportPane()).filter(Boolean));
+    const panes = { tree: treePane, branches: branchesPane, leaves: leavesPane, mesh: meshPane, rock: rockPane, surface: surfacePane, rmesh: rockMeshPane };
+    pane.replaceChildren(...(panes[tab] || exportPane)().filter(Boolean));
     pane.scrollTop = keep;
     if (focused) { const f = pane.querySelector(`[data-key="${focused}"]`); if (f) f.focus(); }
   }
@@ -493,6 +563,69 @@ window.NoorAssets = (() => {
     ];
   }
 
+  // ---------------------------------------------------------------- rocks
+
+  function rockPane() {
+    const scree = recipe.kind === 'scree';
+    return [
+      section('Kind',
+        el('div', { class: 'sb-row' }, choice(recipe, 'kind', 'Kind', ROCK_KINDS, 'What it is: sizes and triangle budgets follow (a scree patch is many small stones as one mesh)', true), choice(recipe, 'style', 'Look', ROCK_STYLES, 'Realistic: rough surface, smooth shading with hard edges where it broke. Stylized: a few big flat facets', true))),
+      section('Shape',
+        slider(recipe, ['size', scree ? 'Patch size' : 'Size', 0.05, 20, 0.01, 'm', scree ? 'How wide the patch of stones is' : 'Its widest side']),
+        scree ? slider(recipe, ['stones', 'Stones', 3, 200, 1, 'int', 'How many stones in the patch (the far levels leave out the smallest)']) : null,
+        scree ? null : slider(recipe, ['height', 'Height', 0.1, 3, 0.01, 'pct', 'Height against the width: low for a slab, over 100% for a standing stone']),
+        scree ? null : slider(recipe, ['elongation', 'Stretch', 0, 1, 0.01, 'pct', 'Longer one way than the other']),
+        slider(recipe, ['roughness', 'Roughness', 0, 1, 0.01, 'pct', 'Lumps and pits on the surface (not used by the stylized look)']),
+        scree ? null : slider(recipe, ['fractures', 'Broken faces', 0, 12, 1, 'int', 'Flat faces where the rock split off']),
+        scree ? null : slider(recipe, ['strata', 'Layers', 0, 1, 0.01, 'pct', 'Ledges round it, as in layered sandstone or slate'])),
+      scree ? null : section('Ground',
+        check(recipe, 'flatBase', 'Flat underside', 'Cut flat where it meets the ground, so it sits without rocking'),
+        slider(recipe, ['sink', 'Sinks in', 0, 0.5, 0.01, 'pct', 'How far the base reaches below the pivot, as a share of the height: no gaps on uneven ground'])),
+    ];
+  }
+
+  function surfacePane() {
+    const materials = [['', 'Plain colour'], ...rockPresets.materials.map((m) => [m.id, m.name])];
+    return [
+      section('Material',
+        choice(recipe, 'material', 'Material', materials, 'The rock’s surface (colour, normal and ORM maps), made in its colour; or a Texture Bench material'),
+        colour(recipe, 'color', 'Colour'),
+        slider(recipe, ['tileMetres', 'Texture tile', 0.05, 20, 0.05, 'm', 'How much rock one texture covers: the same for every rock, so they all share one texel density'])),
+      section('Moss and snow',
+        slider(recipe, ['moss', 'Moss', 0, 1, 0.01, 'pct', 'Moss on the faces that look up, in the vertex colours (engines multiply them with the texture)'], true),
+        recipe.moss > 0 ? colour(recipe, 'mossColor', 'Moss colour') : null,
+        slider(recipe, ['snow', 'Snow', 0, 1, 0.01, 'pct', 'Snow lying on the faces that look up: its own material, so it stays white'], true),
+        recipe.snow > 0 ? colour(recipe, 'snowColor', 'Snow colour') : null),
+    ];
+  }
+
+  function rockMeshPane() {
+    const budget = ROCK_BUDGET[recipe.kind] || 400;
+    const own = recipe.lodTriangles && recipe.lodTriangles.length;
+    const boxes = Array.from({ length: recipe.lods }, (_, i) => {
+      const auto = i === 0 ? budget : Math.max(recipe.kind === 'stone' ? 24 : 40, Math.floor(budget * (i === 1 ? 0.4 : 0.15)));
+      const box = el('input', { type: 'number', class: 'sb-num', min: '8', max: '100000', step: '10', value: String(own && recipe.lodTriangles[i] ? recipe.lodTriangles[i] : auto), 'aria-label': `LOD${i} triangles`, 'data-level': String(i) });
+      box.addEventListener('change', () => {
+        const v = Math.round(Number(box.value));
+        if (!Number.isFinite(v)) return;
+        const list = Array.from({ length: recipe.lods }, (_, j) => Number(document.querySelector(`#ab-pane [data-level="${j}"]`)?.value) || budget);
+        list[i] = Math.max(8, Math.min(100000, v));
+        recipe.lodTriangles = list;
+        changed(true);
+      });
+      return el('label', { class: 'sb-inline' }, el('span', { text: `LOD${i}` }), box);
+    });
+    return [
+      section('Detail',
+        slider(recipe, ['lods', 'Levels of detail', 1, 3, 1, 'int', 'Rocks over about a metre want three; small stones one'], true),
+        el('div', { class: 'sb-row', id: 'ab-rock-levels', title: 'Triangles drawn on each level (collision not counted)' }, el('span', { text: 'Triangles' }), ...boxes),
+        own ? el('button', { class: 'utility-btn', id: 'ab-rock-auto', onclick: () => { recipe.lodTriangles = []; changed(true); } }, `Back to the ${recipe.kind}’s budget`) : el('small', { class: 'pref-hint', text: `The ${recipe.kind}’s budget: ${budget.toLocaleString()} triangles up close, then about 40% and 15%${recipe.style === 'stylized' ? ' — a third of that for the stylized look' : ''}.` })),
+      section('Collision',
+        slider(recipe, ['collisionPieces', 'Convex pieces', 0, 8, 1, 'int', 'Convex collision shapes in the closest level (64 triangles at most each), named “-convcolonly” for Godot. Wide or arched rocks want several; 0: none']),
+        el('small', { class: 'pref-hint', text: recipe.kind === 'scree' ? 'A scree patch has no collision: players walk over loose stones.' : 'Shown in the manifest too, for other engines.' })),
+    ];
+  }
+
   /** The whole tree's triangles in LOD0, by what it is for; or the wood and leaf budgets set by hand. */
   const TARGETS = [[0, 'Set the wood and leaf budgets yourself'], [2000, 'Far forest filler · 2,000'], [4000, 'Forest tree · 4,000'], [8000, 'Feature tree · 8,000'], [20000, 'Hero tree · 20,000']];
   function targetChoice() {
@@ -576,7 +709,7 @@ window.NoorAssets = (() => {
   }
 
   function exportPane() {
-    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods + (recipe.billboard ? 1 : 0), lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants }), hooks.showError);
+    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: isRock() ? recipe.kind : recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods + (recipe.billboard ? 1 : 0), lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, recipeKind: subject }), hooks.showError);
     const size = el('select', { id: 'ab-tex-size', 'aria-label': 'Texture size' }, ...[[0, 'No textures (plain colours)'], [256, '256 px'], [512, '512 px'], [1024, '1024 px'], [2048, '2048 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
     size.value = String(exportPrefs.textureSize);
     size.addEventListener('change', () => { exportPrefs.textureSize = Number(size.value); saveExportPrefs(); exportWhere.refresh(); });
@@ -587,8 +720,10 @@ window.NoorAssets = (() => {
     engine.value = exportPrefs.engine;
     const helperBox = el('input', { type: 'checkbox', id: 'ab-shaders', checked: exportPrefs.shaders || undefined });
     helperBox.addEventListener('change', () => { exportPrefs.shaders = helperBox.checked; saveExportPrefs(); });
-    const helperText = el('span', { id: 'ab-helper-text', text: ENGINES[exportPrefs.engine].helper });
-    const helper = el('label', { class: 'sb-inline', title: ENGINES[exportPrefs.engine].title }, helperBox, helperText);
+    // Rocks have no wind: the only helper is the Godot plugin that switches the levels of a one-file rock.
+    const helperFor = (e) => (isRock() ? (e === 'godot' ? 'Godot import plugin: levels switched by distance' : '') : ENGINES[e].helper);
+    const helperText = el('span', { id: 'ab-helper-text', text: helperFor(exportPrefs.engine) });
+    const helper = el('label', { class: 'sb-inline', title: ENGINES[exportPrefs.engine].title, hidden: !helperFor(exportPrefs.engine) }, helperBox, helperText);
     // Godot: the plugin goes into the project the trees go into, unless its addons are left alone (then beside the trees).
     const inProjectBox = el('input', { type: 'checkbox', id: 'ab-godot-in-project', checked: exportPrefs.godotInProject !== false || undefined });
     inProjectBox.addEventListener('change', () => { exportPrefs.godotInProject = inProjectBox.checked; saveExportPrefs(); });
@@ -599,7 +734,8 @@ window.NoorAssets = (() => {
       exportPrefs.engine = engine.value;
       exportPrefs.lodFiles = e.lodFiles;
       files.value = e.lodFiles;
-      helperText.textContent = e.helper;
+      helperText.textContent = helperFor(engine.value);
+      helper.hidden = !helperFor(engine.value);
       helper.title = e.title;
       inProject.hidden = engine.value !== 'godot';
       saveExportPrefs();
@@ -610,25 +746,28 @@ window.NoorAssets = (() => {
     const spread = el('input', { type: 'range', id: 'ab-spread', min: '0', max: '0.5', step: '0.01', value: String(exportPrefs.spread), 'aria-label': 'Size spread' });
     const spreadText = el('small', { text: `± ${Math.round(exportPrefs.spread * 100)}%` });
     spread.addEventListener('input', () => { exportPrefs.spread = Number(spread.value); spreadText.textContent = `± ${Math.round(exportPrefs.spread * 100)}%`; saveExportPrefs(); });
-    const spreadRow = el('label', { class: 'sb-inline', title: 'Each tree is up to this much taller or shorter (the trunk follows)', hidden: exportPrefs.variants < 2 }, el('span', { text: 'Size spread' }), spread, spreadText);
+    const spreadRow = el('label', { class: 'sb-inline', title: isRock() ? 'Each rock is up to this much bigger or smaller' : 'Each tree is up to this much taller or shorter (the trunk follows)', hidden: exportPrefs.variants < 2 }, el('span', { text: 'Size spread' }), spread, spreadText);
+    const things = isRock() ? 'rocks' : 'trees';
     exportWhere.refresh();
     return [
       section('Variety pack',
         el('div', { class: 'sb-row' },
-          el('label', { class: 'sb-inline', title: 'How many trees of this kind: each from its own seed (the first is the one on screen)' }, el('span', { text: 'Trees' }), variants),
+          el('label', { class: 'sb-inline', title: `How many ${things} of this kind: each from its own seed (the first is the one on screen)` }, el('span', { text: isRock() ? 'Rocks' : 'Trees' }), variants),
           spreadRow),
-        el('small', { class: 'pref-hint', text: 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
+        el('small', { class: 'pref-hint', text: isRock() ? 'A world needs a few of each: a pack gives each rock its own shape from the same recipe (3 to 5 is usual), numbered _01, _02…, each with its recipe.' : 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
       section('Files',
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'For' }), engine), el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
         helper,
         inProject,
-        el('small', { class: 'pref-hint', text: 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
+        el('small', { class: 'pref-hint', text: isRock()
+          ? 'GLB (glTF 2.0): Y up, metres, the pivot in the middle of where it meets the ground (the base a little below), textures inside the file, the collision pieces in the closest level. The recipe (.noorrock.json) and a manifest (levels, collision, materials) go beside it.'
+          : 'GLB (glTF 2.0): Y up, metres, the pivot at the base of the trunk, textures inside the file. The recipe (to open and change it later) and a manifest (wind data layout, levels, materials) go beside it.' })),
       profileOf() ? el('p', { class: 'pref-hint', id: 'ab-profile-note', text: `Made for ${profileOf().name}: lettered ${recipe.name}_A, _B…, plain glTF files, the manifest with the names ${profileOf().name} knows them by, and a hand-off note (${recipe.name}.handoff.md) for whoever brings them into the game.` }) : null,
       section('Where', exportWhere.node),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn primary', id: 'ab-export', onclick: exportNow }, '⬇ Export'),
         lastExport ? el('button', { class: 'utility-btn', id: 'ab-reveal', onclick: () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError) }, '📁 Show in folder') : null),
-      lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.variants > 1 ? `${lastExport.variants} trees (${lastExport.files.length} files)` : lastExport.files.join(', ')} with ${lastExport.variants > 1 ? 'their recipes' : lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
+      lastExport ? el('p', { class: 'pref-hint', id: 'ab-exported', text: `Saved ${lastExport.variants > 1 ? `${lastExport.variants} ${things} (${lastExport.files.length} files)` : lastExport.files.join(', ')} with ${lastExport.variants > 1 ? 'their recipes' : lastExport.recipe}${lastExport.project ? ` in 🎮 ${lastExport.project}` : ''}${lastExport.relative && lastExport.relative !== '.' ? ' / ' + lastExport.relative : ''}.` }) : null,
       lastExport?.handoff ? el('p', { class: 'pref-hint', id: 'ab-handoff-note', text: `For ${lastExport.profile}: give ${lastExport.handoff} with the files to whoever brings them in.` }) : null,
       lastExport?.godot ? el('p', { class: 'pref-hint', id: 'ab-godot-note', text: lastExport.godot.inProject
         ? `The NoorMD trees plugin is in ${lastExport.godot.resPath}${lastExport.godot.written ? '' : ' (already there)'}. In Godot, turn it on once in Project → Project Settings → Plugins; trees imported after that switch their levels by distance and move in the wind.`
@@ -642,9 +781,10 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req('asset.export', { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, godotInProject: exportPrefs.godotInProject !== false, ...exportWhere.payload() });
+      const r = await req(cmd('export'), { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, godotInProject: exportPrefs.godotInProject !== false, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
+      lastExport.subject = subject;
       setStatus(r.variants > 1 ? `Exported ${r.variants} × “${recipe.name}”: ${r.files.length} files` : `Exported “${recipe.name}”: ${r.files.join(', ')}`);
       notice(`“${recipe.name}” exported`, 1600);
       renderEditor();
@@ -654,6 +794,6 @@ window.NoorAssets = (() => {
 
   return {
     init, open, close, toggle, isOpen,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, tab, lod, build: build ? { lods: build.lods.length, nodes: build.nodes.map((n) => n.name) } : null, viewer: viewer ? viewer.state() : null, history: history.length, future: future.length, wind, wireframe, viewMode, selectedPreset, layout: layout.prefs }),
+    _state: () => ({ subject, recipe: recipe ? clone(recipe) : null, tab, lod, build: build ? { lods: build.lods.length, nodes: build.nodes.map((n) => n.name) } : null, viewer: viewer ? viewer.state() : null, history: history.length, future: future.length, wind, wireframe, viewMode, selectedPreset, layout: layout.prefs }),
   };
 })();

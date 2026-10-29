@@ -552,6 +552,19 @@ public partial class MainWindow
                 meshes.Count(n => n.Name.StartsWith("Branch_") && !n.Name.EndsWith("_Leaves")) == built.Skeleton.Branches.Count(b => b.Level == 1)
                 && meshes.All(n => n.Mesh!.Problems().Count == 0) && glbBytes.Length > 10000 && BitConverter.ToUInt32(glbBytes, 0) == 0x46546C67,
                 $"{meshes.Count} meshes, {glbBytes.Length} bytes, {built.Seconds:0.0} s");
+
+            // A rock in the app: its levels, its collision pieces named for Godot, its GLB read back in the page.
+            await Eval(@"window.__rock = null; (async () => {
+                try {
+                    const r = await NoorBridge.request('asset.rock.preset', { id: 'boulder' });
+                    const out = await NoorBridge.request('asset.rock.build', { recipe: r });
+                    const glb = NoorAssetView.parseGlb(await (await fetch(out.lods[0].url)).arrayBuffer());
+                    window.__rock = JSON.stringify({ lods: out.lods.length, tris: out.lods.map((l) => l.triangles), collision: out.collision, nodes: glb.nodes.filter((n) => n.mesh >= 0).map((n) => n.name) });
+                } catch (e) { window.__rock = 'error ' + e.message; } })()");
+            var rock = "null";
+            for (var i = 0; i < 300 && rock == "null"; i++) { await Task.Delay(100); rock = await Eval("window.__rock"); }
+            Check("Asset Bench: a rock builds in the app (three levels, convex collision) and its GLB loads in the page",
+                rock.Contains("\\\"lods\\\":3") && rock.Contains("Collision-convcolonly") && !rock.Contains("\\\"collision\\\":[]") && !rock.Contains("error"), rock);
         }
 
         // NoorCalendar: the engine and .ics on this computer's time zone (your own calendar is not touched), and the

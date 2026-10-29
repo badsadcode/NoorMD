@@ -260,7 +260,8 @@ window.NoorAssetView = (() => {
       let lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
       let windFrom = 0, part = 0;
       for (const node of glb.nodes) {
-        if (node.mesh < 0) continue;
+        // Collision pieces (Godot's "-convcolonly" nodes) are not drawn.
+        if (node.mesh < 0 || /-convcolonly$/.test(node.name || '')) continue;
         const color = PART_COLORS[part++ % PART_COLORS.length];
         for (const prim of glb.meshes[node.mesh].primitives) {
           const vao = gl.createVertexArray();
@@ -287,8 +288,10 @@ window.NoorAssetView = (() => {
           draws.push({ vao, buffers: [...buffers.filter(Boolean), ib], ib, count: prim.indices.length, type: prim.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, indices: prim.indices, positions: prim.position, matrix: node.matrix, material: glb.materials[prim.material] || null, part: color, node: node.name, lines: null, hasColor: !!prim.color });
         }
       }
-      const first = !scene;
-      scene = { draws, textures, bounds: { lo, hi }, windFrom, nodes: glb.nodes.filter((n) => n.mesh >= 0).map((n) => n.name) };
+      // Framed again when the first thing comes, or something of quite another size (a rock after a tree).
+      const sizeOf = (b) => Math.max(b.hi[0] - b.lo[0], b.hi[1] - b.lo[1], b.hi[2] - b.lo[2]);
+      const first = !scene || sizeOf({ lo, hi }) > sizeOf(scene.bounds) * 2.5 || sizeOf({ lo, hi }) < sizeOf(scene.bounds) / 2.5;
+      scene = { draws, textures, bounds: { lo, hi }, windFrom, nodes: glb.nodes.filter((n) => n.mesh >= 0 && !/-convcolonly$/.test(n.name || '')).map((n) => n.name) };
       height = Math.max(0.5, hi[1] - lo[1]);
       if (first) frame();
       dirty = true;
@@ -299,8 +302,10 @@ window.NoorAssetView = (() => {
       if (!scene) return;
       const { lo, hi } = scene.bounds;
       target = [(lo[0] + hi[0]) / 2, lo[1] + (hi[1] - lo[1]) * 0.48, (lo[2] + hi[2]) / 2];
-      dist = Math.max(hi[1] - lo[1], hi[0] - lo[0], hi[2] - lo[2]) * 1.75 + 0.5;
-      yaw = 0.6; pitch = 0.12;
+      const size = Math.max(hi[1] - lo[1], hi[0] - lo[0], hi[2] - lo[2]);
+      dist = size * 1.75 + Math.min(0.5, size * 0.3);
+      // Low things (rocks, shrubs) are looked at from a little higher.
+      yaw = 0.6; pitch = hi[1] - lo[1] < size * 0.6 ? 0.38 : 0.12;
       dirty = true;
     }
 

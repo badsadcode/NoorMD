@@ -5107,7 +5107,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const AS = () => page.evaluate(() => NoorAssets._state());
       const AM = () => page.evaluate(() => window.__mock.state.assets);
-      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
       check('Ctrl+Alt+M opens the Asset Bench with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
@@ -5329,6 +5329,71 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         await page.screenshot({ path: `${shots}/65-asset-bench.png` });
       }
       check('no page errors in the Asset Bench', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 66. Asset Bench rocks: trees and rocks side by side, rock presets, shape and surface, levels and collision, export.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const AS = () => page.evaluate(() => NoorAssets._state());
+      const RM = () => page.evaluate(() => window.__mock.state.rocks);
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      check('the bench opens on trees, with a Trees | Rocks switch', (await AS()).subject === 'tree' && !!(await page.$('#ab-presets [data-subject="rock"]')));
+      await page.fill('#ab-name', 'My oak');
+      await page.click('#ab-presets [data-subject="rock"]');
+      await waitFn(page, () => NoorAssets._state().subject === 'rock' && NoorAssets._state().build && NoorAssets._state().recipe.kind);
+      let st = await AS();
+      check('Rocks shows the rock presets by kind, the first one built', st.recipe.name === 'Rock' && (await RM()).builds.length === 1 && /Boulder/.test(await page.textContent('#ab-presets')) && !(await page.$('#ab-presets [data-look]')));
+      check('…with the rock tabs (no Branches, no wind)', !!(await page.$('#assetbench [data-tab="surface"]')) && !(await page.$('#assetbench [data-tab="branches"]')) && await page.$eval('#ab-wind', (b) => b.hidden));
+      check('the camera frames the rock, not the tree before it', await page.evaluate(() => NoorAssets._state().viewer.dist < 4));
+      check('collision pieces are not drawn in the preview', !(await page.evaluate(() => NoorAssets._state().viewer.nodes)).some((n) => /convcolonly/.test(n)));
+      check('…and says how big it is and its collision', /0\.54 m tall[\s\S]*collision: 1 convex piece/.test(await page.textContent('#ab-status')));
+      check('…and the levels with their triangles', (await page.$$eval('#ab-lod option', (o) => o.map((x) => x.textContent))).join('|') === 'LOD0 · 400 triangles|LOD1 · 160 triangles|LOD2 · 60 triangles');
+      await page.selectOption('#ab-pane [data-key="kind"]', 'outcrop');
+      await waitFn(page, () => NoorAssets._state().recipe.kind === 'outcrop');
+      await page.waitForTimeout(500);
+      check('changing the kind rebuilds the rock', (await RM()).builds.at(-1).kind === 'outcrop');
+      await page.click('#assetbench [data-tab="surface"]');
+      await page.selectOption('#ab-pane [data-key="material"]', 'mossy');
+      check('the surface has the rock materials', (await AS()).recipe.material === 'mossy' && /Weathered rock/.test(await page.textContent('#ab-pane')));
+      await page.$eval('#ab-pane input[data-key="snow"]', (i) => { i.value = '0.5'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      check('snow on top shows its colour', (await AS()).recipe.snow === 0.5 && !!(await page.$('#ab-pane [data-key="snowColor"]')));
+      await page.click('#assetbench [data-tab="rmesh"]');
+      check('the mesh tab shows the outcrop’s budget per level', (await page.$$eval('#ab-rock-levels [data-level]', (b) => b.map((x) => Number(x.value)))).join() === '2500,1000,375');
+      await page.fill('#ab-rock-levels [data-level="0"]', '1800');
+      await page.dispatchEvent('#ab-rock-levels [data-level="0"]', 'change');
+      check('a level’s triangles can be set', (await AS()).recipe.lodTriangles.join() === '1800,1000,375' && !!(await page.$('#ab-rock-auto')));
+      await page.click('#ab-rock-auto');
+      check('…and back to the budget', (await AS()).recipe.lodTriangles.length === 0);
+      await page.$eval('#ab-pane input[data-key="collisionPieces"]', (i) => { i.value = '3'; i.dispatchEvent(new Event('input', { bubbles: true })); });
+      check('collision pieces can be set', (await AS()).recipe.collisionPieces === 3);
+      await page.click('#assetbench [data-tab="export"]');
+      check('the export speaks of rocks', /noorrock\.json/.test(await page.textContent('#ab-pane')) && /Rocks/.test(await page.textContent('#ab-pane')));
+      await waitFn(page, () => /Rock\.noorrock\.json/.test(document.querySelector('#ab-pane').textContent));
+      check('…and the files it will write name the rock recipe', !/noortree/.test(await page.textContent('#ab-pane')));
+      await page.click('#ab-export');
+      await waitFn(page, () => !!document.querySelector('#ab-exported'));
+      const ex = (await RM()).exports.at(-1);
+      check('the export sends the rock', ex && ex.recipe.kind === 'outcrop' && ex.recipe.collisionPieces === 3 && /Rock.*\.glb/.test(await page.textContent('#ab-exported')));
+      await page.click('#ab-presets [data-subject="tree"]');
+      await waitFn(page, () => NoorAssets._state().subject === 'tree');
+      check('back on trees, the tree is as it was (name kept)', (await AS()).recipe.name === 'My oak' && !!(await page.$('#assetbench [data-tab="branches"]')) && !(await page.$eval('#ab-wind', (b) => b.hidden)));
+      await page.click('#ab-presets [data-subject="rock"]');
+      await waitFn(page, () => NoorAssets._state().subject === 'rock');
+      check('…and so is the rock', (await AS()).recipe.kind === 'outcrop' && (await AS()).recipe.collisionPieces === 3);
+      await page.click('#ab-save');
+      await waitFn(page, () => /Mine/.test(document.querySelector('#ab-presets').textContent));
+      check('a rock saves in Mine', (await RM()).mine.length === 1 && !!(await page.$('#ab-presets [data-preset^="user:"]')));
+      await page.evaluate(() => { window.__mock.state.assets.openRock = true; });
+      await page.click('#ab-presets [data-subject="tree"]');
+      await page.click('#ab-open');
+      await waitFn(page, () => NoorAssets._state().subject === 'rock' && NoorAssets._state().recipe.name === 'Opened rock');
+      check('opening a rock recipe switches to rocks', (await AS()).recipe.kind === 'boulder');
+      await page.waitForTimeout(400);
+      if (shots) await page.screenshot({ path: `${shots}/66-asset-bench-rocks.png` });
+      check('no page errors with rocks', errors.length === 0, errors);
       await page.close();
     }
   } finally {
