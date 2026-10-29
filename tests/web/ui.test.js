@@ -3324,7 +3324,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Enter');
       await page.waitForSelector('.radio-result');
       const res = await page.$$eval('.radio-result', (n) => n.map((r) => ({ text: r.textContent, addDisabled: r.querySelector('button:last-of-type')?.disabled })));
-      check('the directory lists stations; HLS ones can’t be added yet', res.length === 2 && /PL · MP3 128 kbps/.test(res[0].text) && res[1].addDisabled === true, res);
+      check('the directory lists stations; HLS ones can be tried and added too', res.length === 2 && /PL · MP3 128 kbps/.test(res[0].text) && /HLS/.test(res[1].text) && res[1].addDisabled === false, res);
       await page.click('.radio-result >> nth=0 >> button:has-text("Add")');
       await page.waitForSelector('.radio-result .radio-saved');
       check('＋ Add saves a found station', (await RM()).stations.some((x) => x.url === 'https://jazz.example/live') && (await RM()).searches[0] === 'jazz');

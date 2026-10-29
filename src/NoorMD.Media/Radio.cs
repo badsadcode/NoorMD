@@ -385,10 +385,18 @@ public sealed class RadioRelay : IAsyncDisposable
                     return;
                 }
                 var metaInt = resp.Headers.TryGetValues("icy-metaint", out var mi) && int.TryParse(mi.FirstOrDefault(), NumberStyles.None, CultureInfo.InvariantCulture, out var m) && m is > 0 and < 1_000_000 ? m : 0;
-                if (type.Equals("audio/x-mpegurl", StringComparison.OrdinalIgnoreCase) || type.Equals("application/vnd.apple.mpegurl", StringComparison.OrdinalIgnoreCase))
+                if (type.Contains("mpegurl", StringComparison.OrdinalIgnoreCase) || session.Upstream.AbsolutePath.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
                 {
-                    Failed?.Invoke(token, "This station sends HLS (a stream cut into pieces), which NoorMD can't play yet.");
-                    await Status(net, "502 Bad Gateway");
+                    // HLS: a playlist of pieces, unpacked here into one stream.
+                    await using var body = await resp.Content.ReadAsStreamAsync(ct);
+                    var text = await ReadText(body, 2 * 1024 * 1024, ct);
+                    if (!RadioPlaylist.IsHls(text))
+                    {
+                        Failed?.Invoke(token, "That address is a playlist, not a stream: add the station by its playlist and NoorMD finds the stream in it.");
+                        await Status(net, "502 Bad Gateway");
+                        return;
+                    }
+                    await ServeHls(net, method, token, resp.RequestMessage?.RequestUri ?? session.Upstream, text, ct);
                     return;
                 }
                 var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
@@ -413,6 +421,43 @@ public sealed class RadioRelay : IAsyncDisposable
         {
             // The page stopped listening, the station was closed, or the connection broke.
         }
+    }
+
+    /// <summary>An HLS station: the answer's type is known from its first piece, then every piece follows as sound.</summary>
+    private async Task ServeHls(NetworkStream net, string method, string token, Uri playlist, string text, CancellationToken ct)
+    {
+        var started = false;
+        string? last = null;
+        async Task Write(string type, ReadOnlyMemory<byte> data)
+        {
+            if (!started)
+            {
+                started = true;
+                var head = $"HTTP/1.1 200 OK\r\nContent-Type: {type}\r\nCache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n\r\n";
+                await net.WriteAsync(Encoding.ASCII.GetBytes(head), ct);
+                if (method == "HEAD") throw new OperationCanceledException();
+            }
+            await net.WriteAsync(data, ct);
+        }
+        try
+        {
+            await new HlsReader(_http).RunAsync(playlist, text, Write, t => { if (t != last) { last = t; Title?.Invoke(token, t); } }, ct);
+            if (!ct.IsCancellationRequested) Failed?.Invoke(token, "The station stopped sending.");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException && !ct.IsCancellationRequested)
+        {
+            Failed?.Invoke(token, ex is InvalidOperationException ? ex.Message : "The station can't be reached: " + ex.Message);
+            if (!started) await Status(net, "502 Bad Gateway");
+        }
+    }
+
+    private static async Task<string> ReadText(Stream s, int max, CancellationToken ct)
+    {
+        using var ms = new MemoryStream();
+        var buf = new byte[16 * 1024];
+        int n;
+        while (ms.Length < max && (n = await s.ReadAsync(buf, ct)) > 0) ms.Write(buf, 0, n);
+        return Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)Math.Min(ms.Length, max));
     }
 
     private static async Task<(string? Method, string? Path, string? Host)> ReadRequest(NetworkStream net, CancellationToken ct)

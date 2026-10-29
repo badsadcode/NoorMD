@@ -355,10 +355,10 @@ window.NoorRadio = (() => {
           status.textContent = found.length ? `${found.length} station${found.length === 1 ? '' : 's'} found.` : 'Nothing found. Try another name.';
           results.replaceChildren(...found.map((f) => el('div', { class: 'radio-result' },
             el('span', { class: 'radio-item-text' }, el('span', { class: 'radio-item-name', text: f.name }),
-              el('small', { text: [f.country, f.codec && f.bitrate ? `${f.codec} ${f.bitrate} kbps` : f.codec, (f.tags || []).slice(0, 4).join(', '), f.hls ? 'HLS (not playable yet)' : ''].filter(Boolean).join(' · ') })),
-            el('button', { class: 'utility-btn', disabled: f.hls || undefined, title: 'Listen without adding it', onclick: () => play({ id: null, name: f.name, url: f.url }) }, '▶ Try'),
+              el('small', { text: [f.country, f.codec && f.bitrate ? `${f.codec} ${f.bitrate} kbps` : f.codec, (f.tags || []).slice(0, 4).join(', '), f.hls ? 'HLS' : ''].filter(Boolean).join(' · ') })),
+            el('button', { class: 'utility-btn', title: 'Listen without adding it', onclick: () => play({ id: null, name: f.name, url: f.url }) }, '▶ Try'),
             f.saved ? el('span', { class: 'radio-saved', text: '✓ In your list' })
-              : el('button', { class: 'utility-btn', disabled: f.hls || undefined, onclick: async (e) => {
+              : el('button', { class: 'utility-btn', onclick: async (e) => {
                 const b = e.currentTarget;
                 try { const r = await req('radio.add', { name: f.name, url: f.url, homepage: f.homepage, tags: (f.tags || []).slice(0, 4) }); stations = r.stations; render(); b.replaceWith(el('span', { class: 'radio-saved', text: '✓ Added' })); } catch (err) { status.textContent = err.message || String(err); }
               } }, '＋ Add'))));

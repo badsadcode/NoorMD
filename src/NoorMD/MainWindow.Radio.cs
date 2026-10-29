@@ -74,7 +74,7 @@ public partial class MainWindow
         {
             throw new BridgeError("The station's playlist can't be read: " + ex.Message);
         }
-        if (RadioPlaylist.IsHls(text)) throw new BridgeError("This station sends HLS (a stream cut into pieces), which NoorMD can't play yet.");
+        if (RadioPlaylist.IsHls(text)) return (clean, null); // HLS: the playlist is the station (NoorMD follows its pieces)
         var first = RadioPlaylist.Parse(text).FirstOrDefault();
         if (first.Url == null) throw new BridgeError("No stream address was found in that playlist.");
         return (first.Url, first.Name);
