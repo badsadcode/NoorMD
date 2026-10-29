@@ -49,7 +49,7 @@ public static class ForgeCompositor
         var size = bake.Size;
         var n = size * size;
         var color = new Vector3[n]; var rough = new float[n]; var metal = new float[n]; var world = new Vector3[n]; var height = new float[n];
-        for (var i = 0; i < n; i++) { color[i] = new Vector3(0.5f); rough[i] = 0.8f; world[i] = bake.Normal[i]; height[i] = 0.5f; }
+        for (var i = 0; i < n; i++) { color[i] = new Vector3(0.5f); rough[i] = 0.8f; world[i] = bake.Shade(i); height[i] = 0.5f; }
         var span = bake.BoundsMax - bake.BoundsMin;
         // Each layer's mask as worked out, for the layers above that follow it.
         var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
@@ -71,7 +71,7 @@ public static class ForgeCompositor
                 var m = mk[i] * (float)layer.Opacity;
                 if (m <= 0) return;
                 var p = bake.Position[i] / scale;
-                var ng = bake.Normal[i];
+                var ng = bake.Shade(i); // the high-poly model's normal, after a high-poly bake
                 Vector3 c; float r, mt, h; Vector3 nw;
                 if (maps != null)
                 {
@@ -138,8 +138,8 @@ public static class ForgeCompositor
             case "chips": x = ForgeMasks.Chips(bake, i, mask); break;                                    // edges, broken into chunks
             case "layer" or "drips": x = given?[i] ?? 0; break;                                          // worked out for the whole model
             case "cavity": x = MathF.Max(-bake.Curvature[i], Math.Clamp((1 - bake.Ao[i]) * 2.5f, 0, 1)); break; // creases and hidden places
-            case "top": x = bake.Normal[i].Y; break;                                                     // −1…1, up high
-            case "bottom": x = -bake.Normal[i].Y; break;
+            case "top": x = bake.Shade(i).Y; break;                                                      // −1…1, up high
+            case "bottom": x = -bake.Shade(i).Y; break;
             default: x = span.Y > 1e-6f ? 1 - (bake.Position[i].Y - bake.BoundsMin.Y) / span.Y : 0; break; // height: low on the model high
         }
         // Noise moves the border about (in metres, on the surface), so edges and patches look natural.

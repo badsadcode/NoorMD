@@ -23,13 +23,23 @@ public sealed class ForgeBake
     /// <summary>The covered texels by position (made when a stroke first needs it).</summary>
     public ForgeTexelGrid Grid => LazyInitializer.EnsureInitialized(ref _grid, () => new ForgeTexelGrid(this));
     private ForgeTexelGrid? _grid;
+    /// <summary>
+    /// The surface's normal as the high-poly model has it (from a high-poly bake), else the model's own: what shading,
+    /// the normal map and the masks that look up or down read. Normal stays the low model's (the normal map's frame).
+    /// </summary>
+    public Vector3[]? HighNormal { get; init; }
+    /// <summary>Whether a high-poly model was baked, and how many texels found its surface.</summary>
+    public int HighHits { get; init; }
+    public Vector3 Shade(int i) => HighNormal != null ? HighNormal[i] : Normal[i];
     public required Vector3 BoundsMin { get; init; }
     public required Vector3 BoundsMax { get; init; }
 
     /// <param name="EdgeWidth">How wide worn edges and creases are, as a share of the model's size.</param>
-    public sealed record Settings(int AoRays = 24, float AoDistance = 0.25f, float CurvatureStrength = 1, float EdgeWidth = 0.02f);
+    /// <param name="HighDistance">How far from the model a high-poly model's surface is looked for, as a share of its size.</param>
+    public sealed record Settings(int AoRays = 24, float AoDistance = 0.25f, float CurvatureStrength = 1, float EdgeWidth = 0.02f, float HighDistance = 0.03f);
 
-    public static ForgeBake Bake(ForgeModel model, int setIndex, int size, Settings? settings = null)
+    /// <param name="high">A high-poly model of the same thing: its detail (normals, curvature, occlusion) baked onto this one.</param>
+    public static ForgeBake Bake(ForgeModel model, int setIndex, int size, Settings? settings = null, ForgeModel? high = null)
     {
         settings ??= new Settings();
         var set = model.Sets[setIndex];
@@ -70,8 +80,35 @@ public sealed class ForgeBake
         }
         var (min, max) = model.Bounds();
         SharpEdges(model, covered, pos, curvTex, (max - min).Length() * settings.EdgeWidth, settings.CurvatureStrength);
-        var ao = AmbientOcclusion(model, covered, pos, nrm, settings, (max - min).Length());
-        return new ForgeBake { Size = size, Covered = covered, Position = pos, Normal = nrm, Tangent = tan, Bitangent = bit, Part = part, Ao = ao, Curvature = curvTex, BoundsMin = min, BoundsMax = max };
+        if (high == null)
+        {
+            var ao = AmbientOcclusion(model, covered, pos, nrm, settings, (max - min).Length());
+            return new ForgeBake { Size = size, Covered = covered, Position = pos, Normal = nrm, Tangent = tan, Bitangent = bit, Part = part, Ao = ao, Curvature = curvTex, BoundsMin = min, BoundsMax = max };
+        }
+        // From the high-poly model: along each texel's normal (outside to inside, within the distance), its surface —
+        // its normal, its curvature, and occlusion cast by its detail.
+        var bvh = new Bvh(high);
+        var highCurv = Curvatures(high, settings.CurvatureStrength);
+        var cage = MathF.Max(1e-5f, (max - min).Length() * settings.HighDistance);
+        var hn = new Vector3[n]; var hp = new Vector3[n];
+        var hits = 0;
+        Parallel.For(0, n, i =>
+        {
+            if (covered[i] == 0) return;
+            hn[i] = nrm[i]; hp[i] = pos[i];
+            var o = pos[i] + nrm[i] * cage;
+            var hit = bvh.HitDetail(o, -nrm[i], cage * 2);
+            if (hit.T < 0) return;
+            var (tri, u, v) = (hit.Tri, hit.U, hit.V);
+            var nn = Vector3.Normalize(bvh.NormalAt(tri, u, v));
+            if (Vector3.Dot(nn, nrm[i]) < 0) nn = -nn;
+            hn[i] = nn; hp[i] = o - nrm[i] * hit.T;
+            var (a, b, c) = bvh.Corners(tri);
+            curvTex[i] = highCurv.GetValueOrDefault(Key(a)) * (1 - u - v) + highCurv.GetValueOrDefault(Key(b)) * u + highCurv.GetValueOrDefault(Key(c)) * v;
+            Interlocked.Increment(ref hits);
+        });
+        var highAo = AmbientOcclusion(bvh, covered, hp, hn, settings, (max - min).Length());
+        return new ForgeBake { Size = size, Covered = covered, Position = pos, Normal = nrm, Tangent = tan, Bitangent = bit, Part = part, Ao = highAo, Curvature = curvTex, BoundsMin = min, BoundsMax = max, HighNormal = hn, HighHits = hits };
     }
 
     private static (int, int, int) Key(Vector3 p) => ((int)MathF.Round(p.X * 1e4f), (int)MathF.Round(p.Y * 1e4f), (int)MathF.Round(p.Z * 1e4f));
@@ -196,11 +233,13 @@ public sealed class ForgeBake
 
     // ------------------------------------------------------------------ ambient occlusion
 
-    private static float[] AmbientOcclusion(ForgeModel model, byte[] covered, Vector3[] pos, Vector3[] nrm, Settings s, float diagonal)
+    private static float[] AmbientOcclusion(ForgeModel model, byte[] covered, Vector3[] pos, Vector3[] nrm, Settings s, float diagonal) =>
+        s.AoRays <= 0 ? Enumerable.Repeat(1f, covered.Length).ToArray() : AmbientOcclusion(new Bvh(model), covered, pos, nrm, s, diagonal);
+
+    private static float[] AmbientOcclusion(Bvh bvh, byte[] covered, Vector3[] pos, Vector3[] nrm, Settings s, float diagonal)
     {
         var ao = new float[covered.Length];
         if (s.AoRays <= 0) { Array.Fill(ao, 1f); return ao; }
-        var bvh = new Bvh(model);
         var reach = diagonal * s.AoDistance;
         var eps = diagonal * 1e-4f;
         Parallel.For(0, covered.Length, i =>
@@ -232,6 +271,7 @@ public sealed class ForgeBake
     private sealed class Bvh
     {
         private readonly Vector3[] _a, _b, _c;
+        private readonly Vector3[] _na, _nb, _nc;
         private readonly int[] _tri;
         private readonly List<(Vector3 Min, Vector3 Max, int Left, int Right, int First, int Count)> _nodes = [];
 
@@ -239,6 +279,8 @@ public sealed class ForgeBake
         {
             var all = m.Sets.SelectMany(s => Enumerable.Range(0, s.TriangleCount).Select(t => (s.Positions[t * 3], s.Positions[t * 3 + 1], s.Positions[t * 3 + 2]))).ToArray();
             _a = all.Select(x => x.Item1).ToArray(); _b = all.Select(x => x.Item2).ToArray(); _c = all.Select(x => x.Item3).ToArray();
+            var normals = m.Sets.SelectMany(s => Enumerable.Range(0, s.TriangleCount).Select(t => (s.Normals[t * 3], s.Normals[t * 3 + 1], s.Normals[t * 3 + 2]))).ToArray();
+            _na = normals.Select(x => x.Item1).ToArray(); _nb = normals.Select(x => x.Item2).ToArray(); _nc = normals.Select(x => x.Item3).ToArray();
             _tri = Enumerable.Range(0, all.Length).ToArray();
             var centres = all.Select(x => (x.Item1 + x.Item2 + x.Item3) / 3).ToArray();
             Build(0, _tri.Length, centres);
@@ -262,8 +304,16 @@ public sealed class ForgeBake
         }
 
         /// <summary>The distance to the nearest triangle along the ray, within <paramref name="reach"/>, or −1.</summary>
-        public float Hit(Vector3 o, Vector3 d, float reach)
+        public float Hit(Vector3 o, Vector3 d, float reach) => HitDetail(o, d, reach).T;
+
+        /// <summary>A triangle's corners, and its normal at a point of it (u towards b, v towards c).</summary>
+        public (Vector3 A, Vector3 B, Vector3 C) Corners(int tri) => (_a[tri], _b[tri], _c[tri]);
+        public Vector3 NormalAt(int tri, float u, float v) => _na[tri] * (1 - u - v) + _nb[tri] * u + _nc[tri] * v;
+
+        /// <summary>The nearest triangle along the ray within reach: its distance (−1 for none), which, and where on it.</summary>
+        public (float T, int Tri, float U, float V) HitDetail(Vector3 o, Vector3 d, float reach)
         {
+            var hitTri = -1; float hu = 0, hv = 0;
             var inv = new Vector3(1 / d.X, 1 / d.Y, 1 / d.Z);
             var best = reach;
             var found = false;
@@ -281,29 +331,29 @@ public sealed class ForgeBake
                 {
                     for (var i = first; i < first + count; i++)
                     {
-                        var t = Intersect(o, d, _a[_tri[i]], _b[_tri[i]], _c[_tri[i]]);
-                        if (t > 0 && t < best) { best = t; found = true; }
+                        var (t, u, v) = Intersect(o, d, _a[_tri[i]], _b[_tri[i]], _c[_tri[i]]);
+                        if (t > 0 && t < best) { best = t; found = true; hitTri = _tri[i]; hu = u; hv = v; }
                     }
                 }
                 else if (sp < 62) { stack[sp++] = left; stack[sp++] = right; }
             }
-            return found ? best : -1;
+            return found ? (best, hitTri, hu, hv) : (-1, -1, 0, 0);
         }
 
-        private static float Intersect(Vector3 o, Vector3 d, Vector3 a, Vector3 b, Vector3 c)
+        private static (float T, float U, float V) Intersect(Vector3 o, Vector3 d, Vector3 a, Vector3 b, Vector3 c)
         {
             var e1 = b - a; var e2 = c - a;
             var p = Vector3.Cross(d, e2);
             var det = Vector3.Dot(e1, p);
-            if (MathF.Abs(det) < 1e-12f) return -1;
+            if (MathF.Abs(det) < 1e-12f) return (-1, 0, 0);
             var inv = 1 / det;
             var s = o - a;
             var u = Vector3.Dot(s, p) * inv;
-            if (u < 0 || u > 1) return -1;
+            if (u < 0 || u > 1) return (-1, 0, 0);
             var q = Vector3.Cross(s, e1);
             var v = Vector3.Dot(d, q) * inv;
-            if (v < 0 || u + v > 1) return -1;
-            return Vector3.Dot(e2, q) * inv;
+            if (v < 0 || u + v > 1) return (-1, 0, 0);
+            return (Vector3.Dot(e2, q) * inv, u, v);
         }
     }
 }

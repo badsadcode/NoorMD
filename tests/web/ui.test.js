@@ -5588,10 +5588,22 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#fg-tabs [data-tab="bake"]');
       await page.waitForSelector('#fg-modelinfo');
       check('the model tab tells its sets and parts, and which UVs NoorForge laid out', /Metal: 200 triangles · UVs laid out by NoorForge/.test(await page.textContent('#fg-modelinfo')));
+      // A high-poly model: its detail baked onto this one.
+      await page.click('#fg-highpick');
+      await waitFn(page, () => NoorForge._state().recipe.highModel && window.__mock.state.forge.renders.at(-1).highModel);
+      await page.waitForSelector('#fg-highhits');
+      check('a high-poly model can be chosen: textured with its detail, telling how much of the surface found it', /Crate_high \(250,000 triangles\)/.test(await page.textContent('#fg-highpick'))
+        && /97% of the surface found it/.test(await page.textContent('#fg-highhits')) && /high-poly found on 97%/.test(await page.textContent('#fg-status')) && !!(await page.$('#fg-pane input[data-key="highDistance"]')));
+      await page.click('#fg-highclear');
+      check('…and ✕ bakes from the model alone again', (await FS()).recipe.highModel === null && !(await page.$('#fg-highhits')));
+      // Which engine the export is for.
+      check('the export is for Godot unless chosen otherwise', (await page.$eval('#fg-export-for', (s) => s.value)) === 'godot');
+      await page.selectOption('#fg-export-for', 'unreal');
+      check('…and can be for another engine (named in the recipe, described on ⤓ Export)', (await FS()).recipe.export === 'unreal' && /DirectX/.test(await page.getAttribute('#fg-export', 'title')));
       await page.selectOption('#fg-size', '2048');
       await page.click('#fg-export');
       await waitFn(page, () => window.__mock.state.forge.exports.length === 1);
-      check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && /Exported 4 files/.test(await page.textContent('#fg-status')));
+      check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && (await FM()).exports[0].export === 'unreal' && /Exported 4 files/.test(await page.textContent('#fg-status')));
       if (shots) await page.screenshot({ path: `${shots}/65b-noorforge.png` });
       // From the Asset Bench: its rock straight in.
       await page.keyboard.press('Control+Alt+m');
@@ -5600,6 +5612,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorForge.isOpen() && (window.__mock.state.forge.fromAsset || '').length > 0);
       await waitFn(page, () => NoorForge._state().model && NoorForge._state().model.name === NoorAssets._state().recipe.name);
       check('“Texture in NoorForge” on the Asset Bench brings its model here', (await FS()).recipe.model.endsWith('.glb'));
+      await page.click('#fg-tabs [data-tab="bake"]');
+      await page.waitForSelector('#fg-asset-level');
+      await page.selectOption('#fg-asset-level', '2');
+      await waitFn(page, () => NoorForge._state().recipe.highModel);
+      st = await FS();
+      check('…and a lower level of it can be textured, with the closest baked onto it', (await FM()).fromLevel === 2 && /_LOD2\.glb$/.test(st.recipe.model) && /_LOD0\.glb$/.test(st.recipe.highModel) && st.recipe.layers.length > 0);
       check('no page errors in NoorForge', errors.length === 0, errors);
       await page.close();
     }

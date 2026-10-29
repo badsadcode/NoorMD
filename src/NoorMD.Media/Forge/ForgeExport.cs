@@ -13,11 +13,58 @@ public static class ForgeExport
     public static readonly (string Map, string Suffix)[] Maps =
         [("basecolor", "BaseColor"), ("normal", "Normal"), ("orm", "ORM"), ("roughness", "Roughness"), ("metallic", "Metallic"), ("ao", "AO"), ("height", "Height")];
 
-    /// <summary>One texture set's files: {setName}_{Map}.png and the Godot material {setName}.tres beside them.</summary>
-    public static IEnumerable<(string File, byte[] Data)> SetFiles(string setName, ForgeTextures tex)
+    /// <summary>What an export writes, by the engine it is for (names and packing as each one expects).</summary>
+    public static readonly (string Id, string Name, string Description)[] Presets =
+    [
+        ("godot", "Godot 4", "BaseColor, Normal (OpenGL), ORM, Roughness, Metallic, AO, Height, and a Godot material (.tres) using them"),
+        ("unity-urp", "Unity (URP / Built-in)", "BaseMap, Normal (OpenGL), MetallicSmoothness (metal in red, smoothness in alpha), Occlusion, Height"),
+        ("unity-hdrp", "Unity (HDRP)", "BaseMap, Normal (OpenGL), MaskMap (metal, occlusion, detail mask, smoothness), Height"),
+        ("unreal", "Unreal Engine", "BaseColor, Normal (DirectX: green flipped), ORM (occlusion, roughness, metal), Height"),
+        ("all", "Every map", "Everything above, for any engine"),
+    ];
+
+    /// <summary>One texture set's files for an engine (Godot's by default: the maps and a material beside them).</summary>
+    public static IEnumerable<(string File, byte[] Data)> SetFiles(string setName, ForgeTextures tex, string preset = "godot")
     {
-        foreach (var (map, suffix) in Maps) yield return ($"{setName}_{suffix}.png", tex.Png(map));
-        yield return ($"{setName}.tres", Encoding.UTF8.GetBytes(GodotMaterial(setName, setName)));
+        var n = tex.Size * tex.Size;
+        byte[] Rgba(Func<int, (byte R, byte G, byte B, byte A)> px)
+        {
+            var b = new byte[n * 4];
+            for (var i = 0; i < n; i++) { var (r, g, bl, a) = px(i); b[i * 4] = r; b[i * 4 + 1] = g; b[i * 4 + 2] = bl; b[i * 4 + 3] = a; }
+            return PngWriter.Rgba(tex.Size, tex.Size, b);
+        }
+        byte[] DirectXNormal()
+        {
+            var b = (byte[])tex.Normal.Clone();
+            for (var i = 0; i < n; i++) b[i * 3 + 1] = (byte)(255 - b[i * 3 + 1]);
+            return PngWriter.Rgb(tex.Size, tex.Size, b);
+        }
+        var all = preset == "all";
+        if (preset == "godot" || all)
+        {
+            foreach (var (map, suffix) in Maps) yield return ($"{setName}_{suffix}.png", tex.Png(map));
+            yield return ($"{setName}.tres", Encoding.UTF8.GetBytes(GodotMaterial(setName, setName)));
+        }
+        if (preset is "unity-urp" or "unity-hdrp" || all)
+        {
+            yield return ($"{setName}_BaseMap.png", tex.Png("basecolor"));
+            if (!all) yield return ($"{setName}_Normal.png", tex.Png("normal"));
+            if (preset == "unity-urp" || all)
+            {
+                yield return ($"{setName}_MetallicSmoothness.png", Rgba(i => (tex.Metallic[i], tex.Metallic[i], tex.Metallic[i], (byte)(255 - tex.Roughness[i]))));
+                yield return ($"{setName}_Occlusion.png", tex.Png("ao"));
+            }
+            if (preset == "unity-hdrp" || all)
+                yield return ($"{setName}_MaskMap.png", Rgba(i => (tex.Metallic[i], tex.Ao[i], 255, (byte)(255 - tex.Roughness[i]))));
+            if (!all) yield return ($"{setName}_Height.png", tex.Png("height"));
+        }
+        if (preset == "unreal" || all)
+        {
+            if (!all) yield return ($"{setName}_BaseColor.png", tex.Png("basecolor"));
+            yield return ($"{setName}_Normal{(all ? "DX" : "")}.png", DirectXNormal());
+            if (!all) yield return ($"{setName}_ORM.png", tex.Png("orm"));
+            if (!all) yield return ($"{setName}_Height.png", tex.Png("height"));
+        }
     }
 
     /// <summary>

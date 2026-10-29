@@ -545,6 +545,7 @@ function mockHostScript(initial) {
         smart: [{ id: 'mossy-stone', name: 'Mossy stone', description: 'Rock with moss on top.', layers: [layer('Stone', { material: 'stone-rock', scale: 1.5 }), layer('Moss', { material: 'stone-mossy', mask: { kind: 'top', amount: 0.3, softness: 0.3, invert: false, noise: 0.6, noiseScale: 0.4, index: 0 } })] },
           { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }, ...FORGE.mine],
         materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone' }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
+        exports: [{ id: 'godot', name: 'Godot 4', description: 'BaseColor, Normal, ORM… and a Godot material' }, { id: 'unity-urp', name: 'Unity (URP / Built-in)', description: 'BaseMap, Normal, MetallicSmoothness…' }, { id: 'unreal', name: 'Unreal Engine', description: 'BaseColor, Normal (DirectX), ORM' }],
         masks: ['all', 'none', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
         tips: [{ id: 'square', name: 'Square', width: 8, height: 8, data: btoa(String.fromCharCode(...new Array(64).fill(255))) },
           { id: 'chalk', name: 'Chalk', width: 8, height: 8, data: btoa(String.fromCharCode(...Array.from({ length: 64 }, (_, i) => (i % 3 ? 255 : 0)))) }],
@@ -553,7 +554,7 @@ function mockHostScript(initial) {
       case 'forge.render': {
         FORGE.renders.push(JSON.parse(JSON.stringify(p.recipe))); FORGE.maskLayers.push(p.maskLayer);
         const maps = (i) => Object.fromEntries(['basecolor', 'normal', 'orm', 'roughness', 'metallic', 'height', 'ao', 'curvature', ...(p.maskLayer >= 0 ? ['mask'] : [])].map((m) => [m, `/_img/${i + 1}`]));
-        return { url: '/_asset/r1/lod0.glb', key: 'f1', size: Math.min(512, p.recipe.size), ms: 640, sets: [{ name: 'Wood', maps: maps(0) }, { name: 'Metal', maps: maps(1) }] };
+        return { url: '/_asset/r1/lod0.glb', key: 'f1', size: Math.min(512, p.recipe.size), ms: 640, high: p.recipe.highModel ? { hits: 970, texels: 1000 } : null, sets: [{ name: 'Wood', maps: maps(0) }, { name: 'Metal', maps: maps(1) }] };
       }
       case 'forge.export': FORGE.exports.push(JSON.parse(JSON.stringify(p.recipe))); return { folder: 'C:\\Export', files: ['Crate_Wood_BaseColor.png', 'Crate_Wood_Normal.png', 'Crate.glb', 'Crate.noorforge.json'] };
       case 'forge.recipe.open': return { cancelled: true };
@@ -564,8 +565,14 @@ function mockHostScript(initial) {
         const data = btoa(String.fromCharCode(...Array.from({ length: w * h }, (_, i) => (!stencil || i % w < w / 2 ? 255 : 0))));
         return { picture: { id: (p.purpose === 'decal' ? 'd' : stencil ? 's' : 't') + 'mock' + FORGE.pictures, name: p.purpose === 'decal' ? 'Logo' : stencil ? 'Leaves stencil' : 'Leaf photo', width: w, height: h, data } };
       }
+      case 'forge.highmodel.pick': FORGE.highPicks = (FORGE.highPicks || 0) + 1; return { path: 'C:\\Models\\Crate_high.obj', name: 'Crate_high', triangles: 250000 };
       case 'forge.texels': FORGE.texels = (FORGE.texels || 0) + 1; return { size: 64, sets: ['/_forge/texels/0.bin'] };
-      case 'forge.fromAsset': FORGE.fromAsset = p.key; return { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] };
+      case 'forge.fromAsset': {
+        FORGE.fromAsset = p.key; FORGE.fromLevel = p.level;
+        const file = p.level ? `${p.name}_LOD${p.level}` : p.name;
+        return { info: { path: `C:\\Local\\Forge\\Models\\${file}.glb`, name: file, triangles: p.level ? 140 : 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] },
+          level: p.level || 0, levels: 3, high: p.level ? { path: `C:\\Local\\Forge\\Models\\${p.name}_LOD0.glb`, name: `${p.name}_LOD0`, triangles: 400 } : null };
+      }
       default: throw new Error('Unknown forge command ' + type);
     }
   }

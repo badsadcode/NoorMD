@@ -59,7 +59,7 @@ window.NoorForge = (() => {
       try { lists = await req('forge.presets'); } catch (err) { hooks.showError(err); }
       renderNav();
     }
-    if (!recipe) setRecipe({ version: 1, name: 'Textured model', model: null, size: 1024, aoRays: 24, aoDistance: 0.25, edgeWidth: 0.02, layers: smartLayers('mossy-stone') }, true);
+    if (!recipe) setRecipe({ version: 1, name: 'Textured model', model: null, size: 1024, export: 'godot', aoRays: 24, aoDistance: 0.25, edgeWidth: 0.02, layers: smartLayers('mossy-stone') }, true);
     $('#forgebench').focus({ preventScroll: true });
   }
 
@@ -134,7 +134,9 @@ window.NoorForge = (() => {
         await applyView(gen);
       }
       renderMaps();
-      setStatus(`${r.sets.length} texture set${r.sets.length === 1 ? '' : 's'} · preview ${r.size} px (export ${recipe.size} px) · ${(r.ms / 1000).toFixed(1)} s`);
+      setStatus(`${r.sets.length} texture set${r.sets.length === 1 ? '' : 's'} · preview ${r.size} px (export ${recipe.size} px)${r.high ? ` · high-poly found on ${Math.round((r.high.hits / Math.max(1, r.high.texels)) * 100)}%` : ''} · ${(r.ms / 1000).toFixed(1)} s`);
+      if (r.high && $('#fg-highhits')) $('#fg-highhits').textContent = `${Math.round((r.high.hits / Math.max(1, r.high.texels)) * 100)}% of the surface found it`;
+      else if (r.high && tab === 'bake' && $('#fg-high')) renderEditor();
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); }
   }
 
@@ -176,6 +178,7 @@ window.NoorForge = (() => {
           el('div', { class: 'sb-top', id: 'fg-top' },
             el('input', { type: 'text', id: 'fg-name', class: 'tb-name', 'aria-label': 'Name', spellcheck: 'false', maxlength: '80' }),
             el('label', { class: 'sb-inline', title: 'How big the exported textures are (the preview is at most 512)' }, el('span', { text: 'Textures' }), el('select', { id: 'fg-size', 'aria-label': 'Texture size' })),
+            el('label', { class: 'sb-inline', title: 'Which engine the export is for: the maps\' names and how they are packed' }, el('span', { text: 'For' }), el('select', { id: 'fg-export-for', 'aria-label': 'Export for' })),
             el('button', { class: 'action primary', id: 'fg-export', title: 'Write the textures (each texture set: colour, normal, ORM, roughness, metallic, AO), the textured GLB and the recipe', onclick: exportAll }, '⤓ Export')),
           el('div', { class: 'tb-split', id: 'fg-split' },
             el('div', { class: 'tb-view-col', id: 'fg-view-col' },
@@ -202,6 +205,7 @@ window.NoorForge = (() => {
       splitter: $('#fg-splitter'), sideButton: $('#fg-side'), listButton: $('#fg-list'), top: $('#fg-top'), sideSized: 'edit' });
     $('#fg-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(); });
     $('#fg-size').addEventListener('change', (e) => { recipe.size = Number(e.target.value); changed(); });
+    $('#fg-export-for').addEventListener('change', (e) => { recipe.export = e.target.value; changed(); renderAll(); });
     const stencilUp = () => { stencilKey = false; stencilDrag = null; root.classList.remove('fg-stencil-move'); };
     root.addEventListener('keyup', (e) => { if (e.key.toLowerCase() === 's') stencilUp(); });
     window.addEventListener('blur', stencilUp);
@@ -229,6 +233,11 @@ window.NoorForge = (() => {
     $('#fg-name').value = recipe.name;
     $('#fg-size').replaceChildren(...lists.sizes.map((s) => el('option', { value: String(s), text: `${s} px` })));
     $('#fg-size').value = String(recipe.size);
+    const exports = lists.exports || [{ id: 'godot', name: 'Godot 4', description: '' }];
+    $('#fg-export-for').replaceChildren(...exports.map((x) => el('option', { value: x.id, text: x.name, title: x.description })));
+    $('#fg-export-for').value = recipe.export || 'godot';
+    const preset = exports.find((x) => x.id === (recipe.export || 'godot'));
+    $('#fg-export').title = `Write the textures (${preset ? preset.description : ''}), the textured GLB and the recipe`;
     $('#fg-model').textContent = model ? `${model.name} · ${model.triangles.toLocaleString()} triangles · ${model.sets.length} texture set${model.sets.length === 1 ? '' : 's'}` : 'no model yet';
     renderNav(); renderTabs(); renderEditor(); renderMaps();
   }
@@ -274,7 +283,7 @@ window.NoorForge = (() => {
   function renderEditor() {
     const pane = $('#fg-pane');
     if (!pane || !recipe) return;
-    pane.replaceChildren(...(tab === 'bake' ? bakePane() : layersPane()));
+    pane.replaceChildren(...(tab === 'bake' ? bakePane() : layersPane()).filter(Boolean));
     keepFocus();
   }
 
@@ -410,6 +419,19 @@ window.NoorForge = (() => {
         el('ul', {}, ...model.sets.map((s) => el('li', { text: `${s.name}: ${s.triangles.toLocaleString()} triangles${s.unwrapped ? ' · UVs laid out by NoorForge' : ''}` }))),
         el('p', { class: 'pref-hint', text: `Parts: ${model.parts.join(', ')}` })) : el('p', { class: 'pref-hint', text: 'No model yet.' }),
       el('button', { class: 'utility-btn', onclick: pickModel }, '📂 Open another model…'),
+      fromAsset && fromAsset.levels > 1 && recipe.model && recipe.model.includes(fromAsset.name) ? el('label', { class: 'sb-inline', title: 'Which of the Asset Bench\'s levels to texture: a lower one gets the closest baked onto it' }, el('span', { text: 'Asset Bench level' }),
+        (() => {
+          const s = el('select', { id: 'fg-asset-level', 'aria-label': 'Asset Bench level' }, ...Array.from({ length: fromAsset.levels }, (_, i) => el('option', { value: String(i), text: i === 0 ? 'the closest (LOD0)' : `LOD${i}, with LOD0 baked onto it` })));
+          s.value = String(fromAsset.level);
+          s.addEventListener('change', () => openAsset(fromAsset.key, fromAsset.name, null, Number(s.value)));
+          return s;
+        })()) : null,
+      el('h4', { class: 'music-subhead', text: 'High-poly model (its detail baked onto this one)' }),
+      el('div', { class: 'sb-row', id: 'fg-high' },
+        el('button', { class: 'utility-btn', id: 'fg-highpick', title: 'A dense model of the same thing: its normals, curvature and occlusion are baked onto this one', onclick: pickHigh }, recipe.highModel ? `🗿 ${highName || recipe.highModel.split(/[\\/]/).pop()}` : '📂 Choose a high-poly model…'),
+        recipe.highModel ? el('button', { class: 'icon-btn', id: 'fg-highclear', title: 'Bake from this model alone again', 'aria-label': 'No high-poly model', onclick: () => { recipe.highModel = null; highName = ''; changed('all'); } }, '✕') : null,
+        recipe.highModel && render && render.high ? el('span', { class: 'pref-hint', id: 'fg-highhits', text: `${Math.round((render.high.hits / Math.max(1, render.high.texels)) * 100)}% of the surface found it` }) : null),
+      recipe.highModel ? el('div', { class: 'sb-fields' }, slider(recipe, 'highDistance', 'How far to look for it (share of the model)', 0.001, 0.2, 0.001)) : null,
       el('h4', { class: 'music-subhead', text: 'Bakes (what the smart masks read)' }),
       el('div', { class: 'sb-fields' },
         slider(recipe, 'aoRays', 'Ambient occlusion rays (more: smoother, slower)', 0, 128, 1),
@@ -1012,6 +1034,18 @@ window.NoorForge = (() => {
     endStroke();
   }
 
+  let highName = '';
+
+  async function pickHigh() {
+    try {
+      const r = await req('forge.highmodel.pick');
+      if (!r || r.cancelled) return;
+      recipe.highModel = r.path; highName = `${r.name} (${r.triangles.toLocaleString()} triangles)`;
+      if (recipe.highDistance === undefined) recipe.highDistance = 0.03;
+      changed('all');
+    } catch (err) { hooks.showError(err); }
+  }
+
   // ---------------------------------------------------------------- files
 
   async function pickModel() {
@@ -1020,6 +1054,7 @@ window.NoorForge = (() => {
       if (!r || r.cancelled) return;
       model = r;
       recipe.model = r.path;
+      fromAsset = null;
       if (/^Textured model/.test(recipe.name)) recipe.name = r.name;
       render = null;
       changed('all'); renderAll();
@@ -1027,17 +1062,23 @@ window.NoorForge = (() => {
   }
 
   /** The Asset Bench's tree or rock, sent here to be textured (a stony smart material to start with for rocks). */
-  async function openAsset(key, name, isRock) {
+  let fromAsset = null;    // { key, name, level, levels }: the Asset Bench model in here, to choose another level of it
+
+  /** The Asset Bench's tree or rock (a level of it; a lower one with the closest baked onto it), sent here to be textured. */
+  async function openAsset(key, name, isRock, level = 0) {
     await open();
     try {
-      const r = await req('forge.fromAsset', { key, name });
-      model = r;
-      recipe.model = r.path;
-      recipe.name = r.name;
-      if (isRock && lists.smart.some((x) => x.id === 'mossy-stone')) { recipe.layers = smartLayers('mossy-stone'); ensureIds(); selected = recipe.layers.length - 1; }
-      render = null;
+      const r = await req('forge.fromAsset', { key, name, level });
+      model = r.info;
+      recipe.model = r.info.path;
+      recipe.name = name;
+      recipe.highModel = r.high ? r.high.path : null;
+      highName = r.high ? `${r.high.name} (${r.high.triangles.toLocaleString()} triangles)` : '';
+      fromAsset = { key, name, level: r.level, levels: r.levels };
+      if (isRock !== null && level === 0 && isRock && lists.smart.some((x) => x.id === 'mossy-stone')) { recipe.layers = smartLayers('mossy-stone'); ensureIds(); selected = recipe.layers.length - 1; }
+      render = null; texels = null;
       changed('all'); renderAll();
-      notice(`“${r.name}” is in NoorForge: choose a smart material or build up layers`, 2600);
+      if (isRock !== null) notice(`“${name}” is in NoorForge: choose a smart material or build up layers`, 2600);
     } catch (err) { hooks.showError(err); }
   }
 

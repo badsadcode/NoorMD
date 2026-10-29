@@ -34,6 +34,27 @@ public partial class MainWindow
         ForgeSmart.All.Select(s => (object)new { id = s.Id, name = s.Name, description = s.Description, layers = s.Make().Select(l => l.Clamped()), mine = false })
             .Concat(ForgeUserSmart.Load(ForgeSmartFolder).Select(s => (object)new { id = s.Id, name = s.Smart.Name, description = s.Smart.Description, layers = s.Smart.Layers, mine = true })).ToList();
 
+    private (string Path, DateTime Stamp, ForgeModel Model)? _forgeHigh;
+
+    /// <summary>The high-poly model (only one you picked, or one an opened recipe names), read once while it is unchanged.</summary>
+    private ForgeModel? ForgeLoadHigh(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return null;
+        var full = Path.GetFullPath(path);
+        if (!_forgeFiles.Contains(full)) throw new BridgeError("Open the high-poly model here first (it is read only when you pick it).");
+        if (!File.Exists(full)) throw new BridgeError("The high-poly model is no longer where it was.");
+        var stamp = File.GetLastWriteTimeUtc(full);
+        if (_forgeHigh is { } h && h.Path == full && h.Stamp == stamp) return h.Model;
+        if (new FileInfo(full).Length > 1024L * 1024 * 1024) throw new BridgeError("That high-poly model is too big (over 1 GB).");
+        try
+        {
+            var model = ForgeModel.Read(full);
+            _forgeHigh = (full, stamp, model);
+            return model;
+        }
+        catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+    }
+
     private ForgeModel ForgeLoad(string path)
     {
         var full = Path.GetFullPath(path);
@@ -65,10 +86,11 @@ public partial class MainWindow
 
     private ForgeBake ForgeBakeFor(ForgeModel model, int set, int size, ForgeRecipe r)
     {
-        var key = $"{set}|{size}|{r.AoRays}|{r.AoDistance}|{r.EdgeWidth}";
+        var high = ForgeLoadHigh(r.HighModel);
+        var key = $"{set}|{size}|{r.AoRays}|{r.AoDistance}|{r.EdgeWidth}|{(high != null ? $"{r.HighModel}|{_forgeHigh?.Stamp.Ticks}|{r.HighDistance}" : "")}";
         lock (_forgeBakes)
             if (_forgeBakes.TryGetValue(key, out var hit)) return hit;
-        var bake = ForgeBake.Bake(model, set, size, r.BakeSettings);
+        var bake = ForgeBake.Bake(model, set, size, r.BakeSettings, high);
         lock (_forgeBakes)
         {
             if (_forgeBakes.Count >= 16) _forgeBakes.Remove(_forgeBakes.Keys.First());
@@ -140,6 +162,7 @@ public partial class MainWindow
                     smart = await Task.Run(ForgeSmartList),
                     materials = TexturePresets.All.Select(m => new { id = m.Id, name = m.Name, family = m.Family }),
                     masks = ForgeMask.Kinds, sizes = ForgeRecipe.Sizes,
+                    exports = ForgeExport.Presets.Select(p => new { id = p.Id, name = p.Name, description = p.Description }),
                     tips = ForgeTips.All.Select(t => ForgeTips.Get(t.Id)!).Select(t => new { id = t.Id, name = t.Name, width = t.Width, height = t.Height, data = t.Data }),
                 };
             case "forge.smart.save":
@@ -181,6 +204,17 @@ public partial class MainWindow
                 var picture = await Task.Run(() => ForgePicture.FromImage(id, Path.GetFileNameWithoutExtension(full), image.Width, image.Height, image.Rgb, image.Alpha, stencil ? 1024 : 128, square: !stencil));
                 return new { picture = new { id = picture.Id, name = picture.Name, width = picture.Width, height = picture.Height, data = picture.Data } };
             }
+            case "forge.highmodel.pick":
+            {
+                // A high-poly model of the same thing, its detail baked onto the model being textured.
+                var dlg = new OpenFileDialog { Title = "A high-poly model of the same thing (its detail is baked onto this one)", Filter = "3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj", CheckFileExists = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                var full = Path.GetFullPath(dlg.FileName);
+                _forgeFiles.Add(full);
+                var high = await Task.Run(() => ForgeLoadHigh(full))!;
+                return new { path = full, name = high!.Name, triangles = high.TriangleCount };
+            }
             case "forge.model.pick":
             {
                 var dlg = new OpenFileDialog { Title = "Open a model to texture", Filter = "3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj", CheckFileExists = true };
@@ -193,18 +227,34 @@ public partial class MainWindow
             }
             case "forge.fromAsset":
             {
-                // The Asset Bench's tree or rock (its closest level, as built moments ago) as the model to texture.
+                // The Asset Bench's tree or rock (a level of it, as built moments ago) as the model to texture; a lower
+                // level comes with the closest as its high-poly model, so its detail is baked onto it.
                 var key = req.GetString("key", 80) ?? "";
-                byte[]? glb;
-                lock (_assetPreviews) glb = _assetPreviews.TryGetValue(key, out var lods) && lods.Length > 0 ? lods[0] : null;
-                if (glb == null) throw new BridgeError("Build the tree or rock again first (it is no longer in memory).");
+                var level = p.TryGetProperty("level", out var lv) && lv.TryGetInt32(out var li) ? li : 0;
+                byte[][]? lods;
+                lock (_assetPreviews) lods = _assetPreviews.TryGetValue(key, out var l) && l.Length > 0 ? l : null;
+                if (lods == null) throw new BridgeError("Build the tree or rock again first (it is no longer in memory).");
+                level = Math.Clamp(level, 0, lods.Length - 1);
                 var folder = Path.Combine(App.Paths.Local, "Forge", "Models");
                 Directory.CreateDirectory(folder);
                 var name = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 80) is { Length: > 0 } n ? n : "Asset", "");
-                var full = Path.GetFullPath(Path.Combine(folder, name + ".glb"));
-                await File.WriteAllBytesAsync(full, glb);
+                var full = Path.GetFullPath(Path.Combine(folder, level == 0 ? name + ".glb" : $"{name}_LOD{level}.glb"));
+                await File.WriteAllBytesAsync(full, lods[level]);
                 _forgeFiles.Add(full);
-                return ForgeModelInfo(full, await Task.Run(() => ForgeLoad(full)));
+                string? highPath = null;
+                if (level > 0)
+                {
+                    highPath = Path.GetFullPath(Path.Combine(folder, name + "_LOD0.glb"));
+                    await File.WriteAllBytesAsync(highPath, lods[0]);
+                    _forgeFiles.Add(highPath);
+                }
+                var model = await Task.Run(() => ForgeLoad(full));
+                var high = highPath != null ? await Task.Run(() => ForgeLoadHigh(highPath)) : null;
+                return new
+                {
+                    info = ForgeModelInfo(full, model), level, levels = lods.Length,
+                    high = high != null ? new { path = highPath, name = high.Name, triangles = high.TriangleCount } : null,
+                };
             }
             case "forge.render":
             {
@@ -220,9 +270,11 @@ public partial class MainWindow
                     var model = await Task.Run(() => ForgeLoad(recipe.Model));
                     var size = Math.Min(ForgePreviewSize, recipe.Size);
                     var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                    int highHits = 0, covered = 0;
                     var sets = await Task.Run(() => Enumerable.Range(0, model.Sets.Count).Select(s =>
                     {
                         var bake = ForgeBakeFor(model, s, size, recipe);
+                        highHits += bake.HighHits; covered += bake.Covered.Count(c => c != 0);
                         var tex = ForgeCompositor.Compose(model, s, bake, recipe, ForgeMaterial);
                         foreach (var m in new[] { "basecolor", "normal", "orm", "roughness", "metallic", "height" }) files[$"{s}-{m}.png"] = tex.Png(m);
                         if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe, maskLayer, s));
@@ -240,6 +292,7 @@ public partial class MainWindow
                     return new
                     {
                         url = $"/_forge/{key}/model.glb", key, size, ms = sw.ElapsedMilliseconds,
+                        high = recipe.HighModel != null ? new { hits = highHits, texels = covered } : null,
                         sets = model.Sets.Select((s, i) => new { name = s.Name, maps = ForgePreviewMaps.Where(m => m != "mask" || files.ContainsKey($"{i}-mask.png")).ToDictionary(m => m, m => $"/_forge/{key}/{i}-{m}.png") }),
                     };
                 }
@@ -292,7 +345,7 @@ public partial class MainWindow
                         var tex = await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, recipe.Size, recipe), recipe, ForgeMaterial));
                         sets.Add(tex);
                         var setName = model.Sets.Count == 1 ? stem : $"{stem}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(model.Sets[s].Name, "")}";
-                        foreach (var (name, data) in await Task.Run(() => ForgeExport.SetFiles(setName, tex).ToList()))
+                        foreach (var (name, data) in await Task.Run(() => ForgeExport.SetFiles(setName, tex, recipe.Export).ToList()))
                         {
                             var file = Path.Combine(folder, name);
                             await File.WriteAllBytesAsync(file, data);
@@ -329,6 +382,12 @@ public partial class MainWindow
                         _forgeFiles.Add(recipe.Model);
                         info = ForgeModelInfo(recipe.Model, await Task.Run(() => ForgeLoad(recipe.Model)));
                     }
+                }
+                if (recipe.HighModel != null)
+                {
+                    var high = File.Exists(recipe.HighModel) ? recipe.HighModel : Path.Combine(Path.GetDirectoryName(dlg.FileName)!, Path.GetFileName(recipe.HighModel));
+                    if (File.Exists(high)) { recipe.HighModel = Path.GetFullPath(high); _forgeFiles.Add(recipe.HighModel); }
+                    else recipe.HighModel = null;
                 }
                 return new { recipe = JsonDocument.Parse(recipe.ToJson()).RootElement.Clone(), model = info };
             }

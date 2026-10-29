@@ -137,6 +137,20 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - A new smart material: **Chipped paint, rust drips** (paint, bare-metal chips, dark rims round them, rust running
   down from them).
 
+### Done in preview.92 (stage 3, second part)
+
+- **Bakes from a high-poly model:** in "Model & bakes", a dense model of the same thing (GLB or OBJ). Along each
+  texel's normal (within a distance, a share of the model's size) its surface is found; its normal goes into the
+  normal map (in the model's own frame, so it fits the model in an engine), and its curvature and occlusion into the
+  bakes, so worn edges, dirt and moss follow its detail. NoorForge says how much of the surface found it.
+- **From the Asset Bench, a lower level:** a tree's or rock's LOD1 or LOD2 can be textured with its closest level
+  baked onto it (Model & bakes → Asset Bench level).
+- **Export for an engine:** Godot 4 (the maps and a material), Unity URP / Built-in (BaseMap, Normal,
+  MetallicSmoothness, Occlusion), Unity HDRP (BaseMap, Normal, MaskMap), Unreal (BaseColor, Normal in DirectX's
+  convention, ORM), or every map; named and packed as each expects.
+- Still to come: texture-set atlases (several texture sets in one set of maps) and lower-resolution textures for the
+  lower levels.
+
 ## Non-goals
 
 - A modeller or sculpting tool (Blender is for that), or animated textures.

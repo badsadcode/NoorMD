@@ -100,9 +100,15 @@ public sealed class ForgeRecipe
     /// <summary>The model (GLB or OBJ), as picked.</summary>
     public string? Model { get; set; }
     public int Size { get; set; } = 1024;
+    /// <summary>Which engine the export is for (ForgeExport.Presets): the maps' names and packing.</summary>
+    public string Export { get; set; } = "godot";
     public int AoRays { get; set; } = 24;
     public double AoDistance { get; set; } = 0.25;
     public double EdgeWidth { get; set; } = 0.02;
+    /// <summary>A high-poly model of the same thing (GLB or OBJ), as picked: its detail baked onto the model.</summary>
+    public string? HighModel { get; set; }
+    /// <summary>How far from the model its surface is looked for, as a share of the model's size.</summary>
+    public double HighDistance { get; set; } = 0.03;
     public List<ForgeLayer> Layers { get; set; } = [];
     /// <summary>Pictures the strokes use as tips and stencils (kept here, greyscale).</summary>
     public List<ForgePicture> Pictures { get; set; } = [];
@@ -120,7 +126,10 @@ public sealed class ForgeRecipe
         Name = string.IsNullOrWhiteSpace(Name) ? "Textured model" : Name.Trim()[..Math.Min(Name.Trim().Length, 80)];
         if (Model != null && (Model.Length > 1000 || Model.Any(char.IsControl))) Model = null;
         Size = Sizes.Contains(Size) ? Size : 1024;
+        Export = ForgeExport.Presets.Any(p => p.Id == Export) ? Export : "godot";
         AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2);
+        HighDistance = ForgeMask.C(HighDistance, 0.001, 0.5);
+        if (HighModel != null && (HighModel.Length > 1000 || HighModel.Any(char.IsControl) || HighModel.Length == 0)) HighModel = null;
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).Select(l => l.Clamped()).ToList();
         // Every layer has an id of its own (letters, digits, '-' and '_').
         var ids = new HashSet<string>();
@@ -138,5 +147,5 @@ public sealed class ForgeRecipe
         return this;
     }
 
-    public ForgeBake.Settings BakeSettings => new(AoRays, (float)AoDistance, 1, (float)EdgeWidth);
+    public ForgeBake.Settings BakeSettings => new(AoRays, (float)AoDistance, 1, (float)EdgeWidth, (float)HighDistance);
 }
