@@ -1182,6 +1182,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Filter by name, accent-insensitive.
       await page.fill('#vault-filter', 'zolw');
+      for (let k = 0; k < 40 && (await rows()).join() !== 'Notes/Żółw.md'; k++) await page.waitForTimeout(50); // the list is filtered as it redraws
       check('the name filter ignores accents (zolw → Żółw)', (await rows()).join() === 'Notes/Żółw.md', await rows());
       await page.fill('#vault-filter', '');
 
@@ -5600,10 +5601,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the export is for Godot unless chosen otherwise', (await page.$eval('#fg-export-for', (s) => s.value)) === 'godot');
       await page.selectOption('#fg-export-for', 'unreal');
       check('…and can be for another engine (named in the recipe, described on ⤓ Export)', (await FS()).recipe.export === 'unreal' && /DirectX/.test(await page.getAttribute('#fg-export', 'title')));
+      check('“one atlas” is offered for a model with several texture sets', !(await page.isHidden('#fg-atlas')));
+      await page.click('#fg-atlas');
+      await page.selectOption('#fg-lodcopies', '2');
       await page.selectOption('#fg-size', '2048');
       await page.click('#fg-export');
       await waitFn(page, () => window.__mock.state.forge.exports.length === 1);
-      check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && (await FM()).exports[0].export === 'unreal' && /Exported 4 files/.test(await page.textContent('#fg-status')));
+      check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && (await FM()).exports[0].export === 'unreal' && (await FM()).exports[0].atlas === true && (await FM()).exports[0].lodCopies === 2 && /Exported 4 files/.test(await page.textContent('#fg-status')));
       if (shots) await page.screenshot({ path: `${shots}/65b-noorforge.png` });
       // From the Asset Bench: its rock straight in.
       await page.keyboard.press('Control+Alt+m');

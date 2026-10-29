@@ -338,24 +338,47 @@ public partial class MainWindow
                     var model = await Task.Run(() => ForgeLoad(recipe.Model));
                     var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(recipe.Name, "");
                     var written = new List<string>();
-                    var sets = new List<ForgeTextures>();
-                    for (var s = 0; s < model.Sets.Count; s++)
+                    async Task Write(IEnumerable<(string Name, byte[] Data)> files)
                     {
-                        var set = s;
-                        var tex = await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, recipe.Size, recipe), recipe, ForgeMaterial));
-                        sets.Add(tex);
-                        var setName = model.Sets.Count == 1 ? stem : $"{stem}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(model.Sets[s].Name, "")}";
-                        foreach (var (name, data) in await Task.Run(() => ForgeExport.SetFiles(setName, tex, recipe.Export).ToList()))
+                        foreach (var (name, data) in files)
                         {
                             var file = Path.Combine(folder, name);
                             await File.WriteAllBytesAsync(file, data);
                             written.Add(file);
                         }
-                        PushEvent("forge.exportProgress", new { done = s + 1, total = model.Sets.Count });
                     }
-                    var glb = Path.Combine(folder, stem + ".glb");
-                    await File.WriteAllBytesAsync(glb, await Task.Run(() => ForgeExport.Glb(model, sets)));
-                    written.Add(glb);
+                    // The maps at the texture size, then (when asked) at half and a quarter of it for lower levels.
+                    var atlas = recipe.Atlas && model.Sets.Count > 1;
+                    var grid = atlas ? ForgeExport.AtlasGrid(model.Sets.Count) : 0;
+                    var steps = (recipe.LodCopies + 1) * model.Sets.Count;
+                    var done = 0;
+                    for (var lod = 0; lod <= recipe.LodCopies; lod++)
+                    {
+                        var size = Math.Max(64, recipe.Size >> lod);
+                        var suffix = lod == 0 ? "" : $"_LOD{lod}";
+                        var sets = new List<ForgeTextures>();
+                        for (var s = 0; s < model.Sets.Count; s++)
+                        {
+                            var set = s;
+                            // In an atlas each texture set has a cell: the whole atlas is the texture size.
+                            var cell = atlas ? Math.Max(32, size / grid) : size;
+                            sets.Add(await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, cell, recipe), recipe, ForgeMaterial)));
+                            if (!atlas)
+                            {
+                                var setName = model.Sets.Count == 1 ? stem : $"{stem}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(model.Sets[s].Name, "")}";
+                                await Write(await Task.Run(() => ForgeExport.SetFiles(setName + suffix, sets[^1], recipe.Export).ToList()));
+                            }
+                            PushEvent("forge.exportProgress", new { done = ++done, total = steps });
+                        }
+                        var atlasTex = atlas ? await Task.Run(() => ForgeExport.Atlas(sets)) : null;
+                        if (atlasTex != null) await Write(await Task.Run(() => ForgeExport.SetFiles(stem + suffix, atlasTex, recipe.Export).ToList()));
+                        if (lod == 0)
+                        {
+                            var glb = Path.Combine(folder, stem + ".glb");
+                            await File.WriteAllBytesAsync(glb, await Task.Run(() => atlasTex != null ? ForgeExport.Glb(model, [atlasTex], atlasGrid: grid) : ForgeExport.Glb(model, sets)));
+                            written.Add(glb);
+                        }
+                    }
                     var recipeFile = Path.Combine(folder, stem + ".noorforge.json");
                     await File.WriteAllTextAsync(recipeFile, recipe.ToJson());
                     written.Add(recipeFile);

@@ -13,6 +13,47 @@ public static class ForgeExport
     public static readonly (string Map, string Suffix)[] Maps =
         [("basecolor", "BaseColor"), ("normal", "Normal"), ("orm", "ORM"), ("roughness", "Roughness"), ("metallic", "Metallic"), ("ao", "AO"), ("height", "Height")];
 
+    /// <summary>How many cells a side an atlas of so many texture sets has.</summary>
+    public static int AtlasGrid(int sets) => Math.Max(1, (int)Math.Ceiling(Math.Sqrt(sets)));
+
+    /// <summary>Texture set <paramref name="set"/>'s cell: column and row, from the top left.</summary>
+    public static (int Column, int Row) AtlasCell(int set, int grid) => (set % grid, set / grid);
+
+    /// <summary>A UV of a texture set (v up) moved into its cell of the atlas.</summary>
+    public static Vector2 AtlasUv(Vector2 uv, int set, int grid)
+    {
+        var (cx, cy) = AtlasCell(set, grid);
+        return new Vector2((cx + uv.X) / grid, 1 - (cy + 1 - uv.Y) / grid);
+    }
+
+    /// <summary>Texture sets (each composed at the cell's size) laid into one atlas; cells left over are flat.</summary>
+    public static ForgeTextures Atlas(IReadOnlyList<ForgeTextures> cells)
+    {
+        var grid = AtlasGrid(cells.Count);
+        var cell = cells[0].Size;
+        var size = cell * grid;
+        var n = size * size;
+        var color = new byte[n * 3]; var normal = new byte[n * 3]; var rough = new byte[n]; var metal = new byte[n]; var ao = new byte[n]; var height = new byte[n];
+        for (var i = 0; i < n; i++) { normal[i * 3] = 128; normal[i * 3 + 1] = 128; normal[i * 3 + 2] = 255; ao[i] = 255; height[i] = 128; rough[i] = 204; }
+        for (var s = 0; s < cells.Count; s++)
+        {
+            var t = cells[s];
+            if (t.Size != cell) throw new ArgumentException("Every cell of an atlas has the same size.");
+            var (cx, cy) = AtlasCell(s, grid);
+            for (var y = 0; y < cell; y++)
+            {
+                var src = y * cell; var dst = (cy * cell + y) * size + cx * cell;
+                Array.Copy(t.BaseColor, src * 3, color, dst * 3, cell * 3);
+                Array.Copy(t.Normal, src * 3, normal, dst * 3, cell * 3);
+                Array.Copy(t.Roughness, src, rough, dst, cell);
+                Array.Copy(t.Metallic, src, metal, dst, cell);
+                Array.Copy(t.Ao, src, ao, dst, cell);
+                Array.Copy(t.Height, src, height, dst, cell);
+            }
+        }
+        return new ForgeTextures { Size = size, BaseColor = color, Normal = normal, Roughness = rough, Metallic = metal, Ao = ao, Height = height };
+    }
+
     /// <summary>What an export writes, by the engine it is for (names and packing as each one expects).</summary>
     public static readonly (string Id, string Name, string Description)[] Presets =
     [
@@ -93,26 +134,32 @@ public static class ForgeExport
         return sb.ToString();
     }
 
-    public static byte[] Glb(ForgeModel model, IReadOnlyList<ForgeTextures> sets, string generator = "NoorMD NoorForge")
+    /// <param name="atlasGrid">0: a material per texture set. More: <paramref name="sets"/> is one atlas, the sets in a
+    /// grid of that many cells a side (AtlasCell), and every set's UVs are moved into its cell (one material).</param>
+    public static byte[] Glb(ForgeModel model, IReadOnlyList<ForgeTextures> sets, string generator = "NoorMD NoorForge", int atlasGrid = 0)
     {
         var asset = new Asset3D { Name = model.Name };
         var mesh = new Mesh3D { Name = model.Name };
         for (var s = 0; s < model.Sets.Count; s++)
         {
             var set = model.Sets[s];
-            var tex = s < sets.Count ? sets[s] : null;
-            asset.Materials.Add(new Material3D
+            if (atlasGrid == 0 || s == 0)
             {
-                Name = set.Name, BaseColor = Vector4.One, Roughness = 1, Metallic = 1,
-                BaseColorPng = tex?.Png("basecolor"), NormalPng = tex?.Png("normal"), OcclusionRoughnessMetallicPng = tex?.Png("orm"),
-            });
+                var tex = atlasGrid > 0 ? sets[0] : s < sets.Count ? sets[s] : null;
+                asset.Materials.Add(new Material3D
+                {
+                    Name = atlasGrid > 0 ? model.Name : set.Name, BaseColor = Vector4.One, Roughness = 1, Metallic = 1,
+                    BaseColorPng = tex?.Png("basecolor"), NormalPng = tex?.Png("normal"), OcclusionRoughnessMetallicPng = tex?.Png("orm"),
+                });
+            }
             // Corners that share a position, normal and UV are one vertex.
-            var sub = mesh.Sub(s);
+            var sub = mesh.Sub(atlasGrid > 0 ? 0 : s);
             var index = new Dictionary<(Vector3, Vector3, Vector2), int>();
             for (var i = 0; i < set.Positions.Count; i++)
             {
-                var key = (set.Positions[i], set.Normals[i], set.Uvs[i]);
-                if (!index.TryGetValue(key, out var v)) index[key] = v = mesh.AddVertex(set.Positions[i], set.Normals[i], new Vector2(set.Uvs[i].X, 1 - set.Uvs[i].Y));
+                var uv = atlasGrid > 0 ? AtlasUv(set.Uvs[i], s, atlasGrid) : set.Uvs[i];
+                var key = (set.Positions[i], set.Normals[i], uv);
+                if (!index.TryGetValue(key, out var v)) index[key] = v = mesh.AddVertex(set.Positions[i], set.Normals[i], new Vector2(uv.X, 1 - uv.Y));
                 sub.Indices.Add(v);
             }
         }

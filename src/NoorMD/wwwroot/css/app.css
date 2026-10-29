@@ -1553,6 +1553,7 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .forgebench .fg-tipview { width: 40px; height: 40px; border-radius: 6px; background: #2a2a30; border: 1px solid var(--border); }
 .forgebench .fg-brushbar { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .forgebench .fg-brushbar[hidden] { display: none; }
+.forgebench #fg-atlas-wrap[hidden] { display: none; }
 .forgebench .fg-brushbar .sb-row { flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .forgebench .fg-bnum { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
 .forgebench .fg-bnum input[type=range] { width: 90px; }

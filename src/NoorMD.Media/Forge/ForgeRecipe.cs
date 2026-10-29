@@ -102,6 +102,10 @@ public sealed class ForgeRecipe
     public int Size { get; set; } = 1024;
     /// <summary>Which engine the export is for (ForgeExport.Presets): the maps' names and packing.</summary>
     public string Export { get; set; } = "godot";
+    /// <summary>Every texture set in one atlas (one material): the atlas is the texture size, each set in a cell of it.</summary>
+    public bool Atlas { get; set; }
+    /// <summary>Smaller copies of the maps for lower levels: 0 none, 1 half size (LOD1), 2 half and quarter (LOD1, LOD2).</summary>
+    public int LodCopies { get; set; }
     public int AoRays { get; set; } = 24;
     public double AoDistance { get; set; } = 0.25;
     public double EdgeWidth { get; set; } = 0.02;
@@ -127,6 +131,7 @@ public sealed class ForgeRecipe
         if (Model != null && (Model.Length > 1000 || Model.Any(char.IsControl))) Model = null;
         Size = Sizes.Contains(Size) ? Size : 1024;
         Export = ForgeExport.Presets.Any(p => p.Id == Export) ? Export : "godot";
+        LodCopies = Math.Clamp(LodCopies, 0, 2);
         AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2);
         HighDistance = ForgeMask.C(HighDistance, 0.001, 0.5);
         if (HighModel != null && (HighModel.Length > 1000 || HighModel.Any(char.IsControl) || HighModel.Length == 0)) HighModel = null;

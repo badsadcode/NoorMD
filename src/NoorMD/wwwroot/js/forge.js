@@ -179,6 +179,9 @@ window.NoorForge = (() => {
             el('input', { type: 'text', id: 'fg-name', class: 'tb-name', 'aria-label': 'Name', spellcheck: 'false', maxlength: '80' }),
             el('label', { class: 'sb-inline', title: 'How big the exported textures are (the preview is at most 512)' }, el('span', { text: 'Textures' }), el('select', { id: 'fg-size', 'aria-label': 'Texture size' })),
             el('label', { class: 'sb-inline', title: 'Which engine the export is for: the maps\' names and how they are packed' }, el('span', { text: 'For' }), el('select', { id: 'fg-export-for', 'aria-label': 'Export for' })),
+            el('label', { class: 'sb-inline', id: 'fg-atlas-wrap', title: 'Every texture set in one set of maps (one material), each in a cell of it' }, el('input', { type: 'checkbox', id: 'fg-atlas' }), el('span', { text: 'one atlas' })),
+            el('label', { class: 'sb-inline', title: 'Smaller copies of the maps for the model\'s lower levels (named …_LOD1, …_LOD2)' }, el('span', { text: 'Smaller copies' }),
+              el('select', { id: 'fg-lodcopies', 'aria-label': 'Smaller copies for lower levels' }, el('option', { value: '0', text: 'none' }), el('option', { value: '1', text: '½ (LOD1)' }), el('option', { value: '2', text: '½ and ¼ (LOD1, LOD2)' }))),
             el('button', { class: 'action primary', id: 'fg-export', title: 'Write the textures (each texture set: colour, normal, ORM, roughness, metallic, AO), the textured GLB and the recipe', onclick: exportAll }, '⤓ Export')),
           el('div', { class: 'tb-split', id: 'fg-split' },
             el('div', { class: 'tb-view-col', id: 'fg-view-col' },
@@ -206,6 +209,8 @@ window.NoorForge = (() => {
     $('#fg-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(); });
     $('#fg-size').addEventListener('change', (e) => { recipe.size = Number(e.target.value); changed(); });
     $('#fg-export-for').addEventListener('change', (e) => { recipe.export = e.target.value; changed(); renderAll(); });
+    $('#fg-atlas').addEventListener('change', (e) => { recipe.atlas = e.target.checked; changed(); });
+    $('#fg-lodcopies').addEventListener('change', (e) => { recipe.lodCopies = Number(e.target.value); changed(); });
     const stencilUp = () => { stencilKey = false; stencilDrag = null; root.classList.remove('fg-stencil-move'); };
     root.addEventListener('keyup', (e) => { if (e.key.toLowerCase() === 's') stencilUp(); });
     window.addEventListener('blur', stencilUp);
@@ -236,6 +241,9 @@ window.NoorForge = (() => {
     const exports = lists.exports || [{ id: 'godot', name: 'Godot 4', description: '' }];
     $('#fg-export-for').replaceChildren(...exports.map((x) => el('option', { value: x.id, text: x.name, title: x.description })));
     $('#fg-export-for').value = recipe.export || 'godot';
+    $('#fg-atlas').checked = !!recipe.atlas;
+    $('#fg-atlas-wrap').hidden = !model || model.sets.length < 2;
+    $('#fg-lodcopies').value = String(recipe.lodCopies || 0);
     const preset = exports.find((x) => x.id === (recipe.export || 'godot'));
     $('#fg-export').title = `Write the textures (${preset ? preset.description : ''}), the textured GLB and the recipe`;
     $('#fg-model').textContent = model ? `${model.name} · ${model.triangles.toLocaleString()} triangles · ${model.sets.length} texture set${model.sets.length === 1 ? '' : 's'}` : 'no model yet';

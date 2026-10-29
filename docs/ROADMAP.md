@@ -59,7 +59,7 @@ first, and anything that conflicts with it waits.
   preview.88; stage 2 (painting on the model: brush, eraser, mirror, straight lines, fill a part): preview.89; brush
   tips and a stencil: preview.90; stage 3 first part (masks following a layer, chips, drips, decals and text):
   preview.91; high-poly bakes, the Asset Bench's lower levels with the closest baked on, export presets per engine:
-  preview.92. See
+  preview.92; atlases and smaller copies for lower levels (stage 3 finished): preview.93. See
   [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
 
 ## Indie developer benches (concept)

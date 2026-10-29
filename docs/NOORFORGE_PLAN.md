@@ -148,8 +148,13 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - **Export for an engine:** Godot 4 (the maps and a material), Unity URP / Built-in (BaseMap, Normal,
   MetallicSmoothness, Occlusion), Unity HDRP (BaseMap, Normal, MaskMap), Unreal (BaseColor, Normal in DirectX's
   convention, ORM), or every map; named and packed as each expects.
-- Still to come: texture-set atlases (several texture sets in one set of maps) and lower-resolution textures for the
-  lower levels.
+
+### Done in preview.93 (stage 3 finished)
+
+- **One atlas:** every texture set of a model in one set of maps (one material) — the atlas at the texture size, each
+  set in a cell of it, the GLB's UVs moved into each set's cell. Offered when the model has several texture sets.
+- **Smaller copies for lower levels:** the maps made again at half (…_LOD1) and a quarter (…_LOD2) of the size, from
+  the recipe (not shrunk pictures), for a model's lower levels.
 
 ## Non-goals
 
