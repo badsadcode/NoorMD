@@ -383,8 +383,13 @@ public sealed class SoundRecipe
 }
 
 /// <summary>A rendered sound: stereo samples (−1…1) and what it measured.</summary>
+/// <summary>How loud a part of a mix got at its loudest (a track or a bus of a song, after its level and place).</summary>
+public sealed record SoundLevel(string Name, double PeakDb);
+
 public sealed class SoundRender
 {
+    /// <summary>A song's tracks and buses at their loudest, in this render (for the mixer); null for other sounds.</summary>
+    public IReadOnlyList<SoundLevel>? Levels { get; init; }
     public required int SampleRate { get; init; }
     public required float[] Left { get; init; }
     public required float[] Right { get; init; }

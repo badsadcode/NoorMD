@@ -689,7 +689,7 @@ function mockHostScript(initial) {
         SEQ.renders.push(JSON.parse(JSON.stringify(p)));
         const barSeconds = 60 / p.song.tempo * p.song.beatsPerBar;
         const from = p.loop ? p.song.loopStart : p.fromBar || 0, to = p.loop ? p.song.loopEnd : p.song.bars;
-        return { url: SEQ.longAudio ? `/_media/9?r=${SEQ.renders.length}` : '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, layer: p.layer || null, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
+        return { url: SEQ.longAudio ? `/_media/9?r=${SEQ.renders.length}` : '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, layer: p.layer || null, peakDb: -3.2, levels: p.song.tracks.filter((t) => !t.mute).map((t, k) => ({ name: t.name, peakDb: -6 - k })).concat((p.song.buses || []).map((b) => ({ name: b.name, peakDb: -18 }))), warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
       }
       case 'seq.transition': SEQ.transitions = (SEQ.transitions || []).concat([{ from: p.from, to: p.to, fadeBars: p.fadeBars }]); return { url: '/_media/4', seconds: 17.1, switchAt: 8.6, barSeconds: 2.1 };
       case 'seq.loopcheck': SEQ.loopchecks = (SEQ.loopchecks || []).concat([{ layer: p.layer || null }]); return { seconds: 8.571, seamJump: 0.4, tailPercent: 6.2, startDb: -18.5, endDb: -19.1, checks: p.layer === 'L1' ? [] : ['The start and the end differ by 7 dB: the loop may sound like it restarts'], seamUrl: '/_media/4', seamAt: 2 };

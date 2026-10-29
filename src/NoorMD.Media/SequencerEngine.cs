@@ -106,6 +106,19 @@ public sealed class SongInstrument
     public double FmDepth { get; set; }
 }
 
+/// <summary>
+/// A send bus of the mixer (as LMMS's FX channels): tracks send some of their sound to it, it runs its own effects
+/// (a shared reverb or echo, usually all wet) and joins the mix at its level.
+/// </summary>
+public sealed class SongBus
+{
+    public const int Max = 2;
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Reverb";
+    public double Gain { get; set; }
+    public List<SoundEffect> Effects { get; set; } = [];
+}
+
 /// <summary>An adaptive-music layer (exploration, danger, combat…): the tracks that play in it, at the same tempo.</summary>
 public sealed class SongLayer
 {
@@ -147,6 +160,8 @@ public sealed class SongTrack
     public List<SongPoint> GainAutomation { get; set; } = [];
     /// <summary>Synth filter over the song (octaves added to the cutoff; empty = none).</summary>
     public List<SongPoint> FilterAutomation { get; set; } = [];
+    /// <summary>How much goes to each send bus (bus id → 0–1, after the track's level and place).</summary>
+    public Dictionary<string, double> Sends { get; set; } = [];
 }
 
 public sealed class SongRecipe
@@ -171,6 +186,8 @@ public sealed class SongRecipe
     public double MasterGain { get; set; }
     /// <summary>Effects on the whole mix (the Sound Bench's).</summary>
     public List<SoundEffect> MasterEffects { get; set; } = [];
+    /// <summary>The mixer's send buses (up to two).</summary>
+    public List<SongBus> Buses { get; set; } = [];
     public int Seed { get; set; } = 1;
     public List<SongTrack> Tracks { get; set; } = [];
     /// <summary>Adaptive layers (up to four), each a version of the song with some of its tracks (empty = none).</summary>
@@ -218,9 +235,20 @@ public sealed class SongRecipe
             if (l.Id is not { Length: > 1 and <= 6 } || l.Id[0] != 'L' || !l.Id[1..].All(char.IsAsciiDigit) || !layerIds.Add(l.Id)) l.Id = "";
         }
         foreach (var l in Layers.Where(l => l.Id == "")) { var n = 1; while (!layerIds.Add("L" + n)) n++; l.Id = "L" + n; }
+        var busIds = new HashSet<string>(StringComparer.Ordinal);
+        Buses = (Buses ?? []).Where(b => b != null).Take(SongBus.Max).ToList();
+        foreach (var b in Buses)
+        {
+            b.Name = string.IsNullOrWhiteSpace(b.Name) ? "Bus" : b.Name.Trim()[..Math.Min(b.Name.Trim().Length, 30)];
+            b.Gain = C(b.Gain, -60, 12);
+            b.Effects = (b.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
+            if (b.Id is not ("B1" or "B2") || !busIds.Add(b.Id)) b.Id = "";
+        }
+        foreach (var b in Buses.Where(b => b.Id == "")) { b.Id = busIds.Add("B1") ? "B1" : "B2"; busIds.Add(b.Id); }
         var used = new HashSet<string>(StringComparer.Ordinal);
         foreach (var t in Tracks)
         {
+            t.Sends = (t.Sends ?? []).Where(kv => busIds.Contains(kv.Key) && double.IsFinite(kv.Value) && kv.Value > 0).ToDictionary(kv => kv.Key, kv => Math.Min(1, kv.Value));
             t.Kind = SongTrack.Kinds.Contains(t.Kind) ? t.Kind : "synth";
             t.Name = string.IsNullOrWhiteSpace(t.Name) ? "Track" : t.Name.Trim()[..Math.Min(t.Name.Trim().Length, 40)];
             t.Gain = C(t.Gain, -60, 12); t.Pan = C(t.Pan, -1, 1);
@@ -455,6 +483,9 @@ public static class SequencerEngine
         var anySolo = song.Tracks.Any(t => t.Solo);
         double[] mixL = new double[total], mixR = new double[total];
         var trackRenders = new List<(string Name, double[] L, double[] R)>();
+        // The send buses: what the tracks send them, before their effects.
+        var buses = song.Buses.Select(b => (Bus: b, L: new double[total], R: new double[total])).ToList();
+        var levels = new List<(string Name, double Peak)>();
         foreach (var track in song.Tracks)
         {
             var outOfLayer = layer != null && track.InLayers.Count > 0 && !track.InLayers.Contains(layer);
@@ -503,8 +534,25 @@ public static class SequencerEngine
             var gain = Math.Pow(10, track.Gain / 20);
             var angle = (track.Pan + 1) * Math.PI / 4;
             double gl = Math.Cos(angle) * Math.Sqrt(2) * gain, gr = Math.Sin(angle) * Math.Sqrt(2) * gain;
-            for (var i = 0; i < total; i++) { L[i] *= gl; R[i] *= gr; mixL[i] += L[i]; mixR[i] += R[i]; }
+            double tp = 0;
+            for (var i = 0; i < total; i++) { L[i] *= gl; R[i] *= gr; mixL[i] += L[i]; mixR[i] += R[i]; tp = Math.Max(tp, Math.Max(Math.Abs(L[i]), Math.Abs(R[i]))); }
+            levels.Add((track.Name, tp));
+            foreach (var (bus, bl, br) in buses)
+            {
+                if (!track.Sends.TryGetValue(bus.Id, out var amount) || amount <= 0) continue;
+                for (var i = 0; i < total; i++) { bl[i] += L[i] * amount; br[i] += R[i] * amount; }
+            }
             if (stems) trackRenders.Add((track.Name, L, R));
+        }
+        // Each bus: its effects, its level, into the mix (and a stem of its own, so the stems still add up to the mix).
+        foreach (var (bus, bl, br) in buses)
+        {
+            if (bus.Effects.Count > 0) SoundEffects.Apply(bus.Effects, bl, br, sr, files: samples);
+            var bg = Math.Pow(10, bus.Gain / 20);
+            double bp = 0;
+            for (var i = 0; i < total; i++) { bl[i] *= bg; br[i] *= bg; mixL[i] += bl[i]; mixR[i] += br[i]; bp = Math.Max(bp, Math.Max(Math.Abs(bl[i]), Math.Abs(br[i]))); }
+            levels.Add((bus.Name, bp));
+            if (stems) trackRenders.Add((bus.Name, bl, br));
         }
         // Master effects work on the mix (stems keep their track's own sound).
         if (song.MasterEffects.Count > 0) SoundEffects.Apply(song.MasterEffects, mixL, mixR, sr, files: samples);
@@ -515,15 +563,16 @@ public static class SequencerEngine
         double peak = 0;
         for (var i = 0; i < n; i++) peak = Math.Max(peak, Math.Max(Math.Abs(mixL[i]), Math.Abs(mixR[i])) * master);
         var g = master * (limit && peak > 0.97 ? 0.97 / peak : 1);
-        SoundRender Make(double[] a, double[] b, IReadOnlyList<string> w)
+        SoundRender Make(double[] a, double[] b, IReadOnlyList<string> w, IReadOnlyList<SoundLevel>? lv = null)
         {
             float[] fl = new float[n], fr = new float[n];
             double p = 0, sum = 0;
             for (var i = 0; i < n; i++) { fl[i] = (float)(a[i] * g); fr[i] = (float)(b[i] * g); p = Math.Max(p, Math.Max(Math.Abs(fl[i]), Math.Abs(fr[i]))); sum += fl[i] * fl[i] + fr[i] * fr[i]; }
             double Db(double x) => x <= 1e-9 ? -120 : Math.Round(20 * Math.Log10(x), 1);
-            return new SoundRender { SampleRate = sr, Left = fl, Right = fr, PeakDb = Db(p), RmsDb = Db(Math.Sqrt(sum / Math.Max(1, 2 * n))), Warnings = w };
+            return new SoundRender { SampleRate = sr, Left = fl, Right = fr, PeakDb = Db(p), RmsDb = Db(Math.Sqrt(sum / Math.Max(1, 2 * n))), Warnings = w, Levels = lv };
         }
-        return (Make(mixL, mixR, warnings), trackRenders.Select(t => (t.Name, Make(t.L, t.R, []))).ToList());
+        var meters = levels.Select(x => new SoundLevel(x.Name, x.Peak * g <= 1e-9 ? -120 : Math.Round(20 * Math.Log10(x.Peak * g), 1))).ToList();
+        return (Make(mixL, mixR, warnings, meters), trackRenders.Select(t => (t.Name, Make(t.L, t.R, []))).ToList());
     }
 
     /// <summary>An automation's value at a place in the song: a straight line between its points, flat before and after.</summary>

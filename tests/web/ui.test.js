@@ -4905,6 +4905,45 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 59d. NoorSequencer mixer (ideas from LMMS's FX mixer): strips with level, pan and sends, meters, send buses.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      await page.click('#seqbench [role=tab][data-tab="mixer"]');
+      await page.waitForSelector('#seq-mixer');
+      check('the Mixer tab shows a strip per track', (await page.$$('#seq-mixer .seq-strip')).length === (await SQ()).song.tracks.length);
+      check('…with meters waiting for a play', /—/.test(await page.textContent('#seq-mixer [data-meter]')));
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing);
+      const t0 = (await SQ()).song.tracks[0].name;
+      await waitFn(page, (n) => /-6\.0 dB/.test(document.querySelector(`#seq-mixer [data-meter="${n}"]`).textContent), t0);
+      check('a play measures each track (the meters fill)', true);
+      await page.click('#seq-play');
+      await page.click('#seq-addreverb');
+      await waitFn(page, () => (NoorSequencer._state().song.buses || []).length === 1);
+      const song = (await SQ()).song;
+      check('＋ Reverb bus: a bus with a full-wet reverb, and a little of each melodic track sent to it', song.buses[0].id === 'B1' && song.buses[0].effects[0].type === 'reverb' && song.buses[0].effects[0].mix === 1
+        && song.tracks.filter((t) => t.kind !== 'drums').every((t) => t.sends.B1 === 0.25) && song.tracks.filter((t) => t.kind === 'drums').every((t) => !(t.sends && t.sends.B1)));
+      check('…each strip gets a send slider and the bus its own strip and effects', !!(await page.$('#seq-mixer input[data-key="B1"]')) && !!(await page.$('[data-bus="B1"] .sb-rack')));
+      await page.$eval('#seq-mixer [data-strip="0"] input[data-key="B1"]', (i) => { i.value = '0.6'; i.dispatchEvent(new Event('input')); });
+      check('a send slider sets how much goes to the bus', (await SQ()).song.tracks[0].sends.B1 === 0.6);
+      await page.click('#seq-adddelay');
+      await waitFn(page, () => NoorSequencer._state().song.buses.length === 2);
+      check('a second bus (an echo); two is the most', (await SQ()).song.buses[1].effects[0].type === 'delay' && !(await page.$('#seq-addreverb')));
+      await page.click('#seq-play');
+      await waitFn(page, () => window.__mock.state.seq.renders.at(-1).song.buses.length === 2);
+      check('the buses and sends go to the app to be heard', (await M()).renders.at(-1).song.tracks[0].sends.B1 === 0.6);
+      await page.click('#seq-play');
+      await page.click('[data-bus="B1"] button[aria-label^="Remove"]');
+      check('removing a bus removes the sends to it', (await SQ()).song.buses.length === 1 && !(await SQ()).song.tracks[0].sends.B1);
+      if (shots) await page.screenshot({ path: `${shots}/59d-mixer.png` });
+      check('no page errors in the mixer', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 60. NoorSequencer help (stage 2): chords of the key, progressions, rhythms, variations, presets, arpeggiator, LFO, FM, humanize, automation.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

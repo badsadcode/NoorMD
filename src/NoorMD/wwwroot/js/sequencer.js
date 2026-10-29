@@ -223,6 +223,7 @@ window.NoorSequencer = (() => {
         if (t != null && Math.abs(next.currentTime - t) > 0.03) next.currentTime = t;
         render = out;
         renderStale = false;
+        if (tab === 'mixer') refreshMeters();
         audio = next;
         resumeAt = null;
         await next.play().catch((err) => setStatus(err.message));
@@ -231,6 +232,7 @@ window.NoorSequencer = (() => {
       } else {
         render = out;
         renderStale = false;
+        if (tab === 'mixer') refreshMeters();
         // Keep listening from the same place in the song (if it is inside what was rendered).
         if (keepPlaying && wasAt != null) { const t = secondsFor(out, wasAt); if (t != null) next.currentTime = Math.min(t, Math.max(0, next.duration - 0.05)); }
         if (keepPlaying && wantPlay) { resumeAt = null; audio.play().catch((err) => setStatus(err.message)); }
@@ -370,7 +372,7 @@ window.NoorSequencer = (() => {
       el('p', { class: 'pref-hint sb-status', id: 'seq-status', 'aria-live': 'polite' }),
       el('div', { class: 'seq-gridwrap' }, el('div', { class: 'seq-grid', id: 'seq-grid', role: 'grid', 'aria-label': 'Song: which pattern each track plays in each bar' })),
       el('div', { class: 'seq-patternbar', id: 'seq-patternbar' }),
-      el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['notes', 'Notes'], ['instrument', 'Instrument & effects'], ['song', 'Song & export']].map(([id, label]) =>
+      el('div', { class: 'music-tabs sb-tabs', role: 'tablist' }, ...[['notes', 'Notes'], ['instrument', 'Instrument & effects'], ['mixer', 'Mixer'], ['song', 'Song & export']].map(([id, label]) =>
         el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderPane(); } }, label))),
       el('div', { class: 'sb-pane seq-pane', id: 'seq-pane' }));
     ($('#app') || document.body).append(root);
@@ -756,6 +758,7 @@ window.NoorSequencer = (() => {
     if (tab === 'song') pane.replaceChildren(...songPane());
     else if (!t) pane.replaceChildren(el('p', { class: 'pref-hint', text: 'Add a track to start.' }));
     else if (tab === 'instrument') pane.replaceChildren(...instrumentPane(t));
+    else if (tab === 'mixer') pane.replaceChildren(...mixerPane());
     else pane.replaceChildren(...notesPane(t));
     if (roll) { sizeRoll(); scrollRollToNotes(); refreshNoteEditor(); }
     if (document.activeElement === document.body && isOpen()) $('#seqbench').focus({ preventScroll: true });
@@ -1391,6 +1394,66 @@ window.NoorSequencer = (() => {
       changed('pane');
     });
     return el('div', { class: 'sb-rack', 'data-rack': where }, ...cards, add);
+  }
+
+  // ---------------------------------------------------------------- the mixer (ideas from LMMS's FX mixer)
+
+  /** A level meter: how loud a track or bus got at its loudest in the last render. */
+  function meter(name) {
+    const db = ((render && render.levels) || []).find((l) => l.name === name)?.peakDb;
+    const known = Number.isFinite(db);
+    const pct = known ? Math.max(0, Math.min(100, ((db + 48) / 48) * 100)) : 0;
+    return el('span', { class: 'seq-meter' + (known && db > -1 ? ' hot' : ''), 'data-meter': name, title: known ? `Loudest ${db.toFixed(1)} dB in the last play` : 'Press ▶ to measure' },
+      el('i', { style: `width:${pct}%` }), el('small', { text: known ? `${db.toFixed(1)} dB` : '—' }));
+  }
+
+  /** The meters again after a render (the sliders stay as they are). */
+  function refreshMeters() {
+    document.querySelectorAll('#seqbench [data-meter]').forEach((m) => m.replaceWith(meter(m.dataset.meter)));
+  }
+
+  function mixerPane() {
+    const buses = song.buses ||= [];
+    const strip = (t, i) => el('div', { class: 'seq-strip' + (t.mute ? ' muted' : ''), 'data-strip': String(i) },
+      el('div', { class: 'seq-striphead' },
+        el('button', { class: 'utility-btn seq-stripname', title: 'Edit this track', onclick: () => { sel.track = i; tab = 'instrument'; renderAll(); } }, `${KIND_ICON[t.kind]} ${t.name}`),
+        el('button', { class: 'icon-btn seq-ms' + (t.mute ? ' on' : ''), 'aria-pressed': String(!!t.mute), title: 'Mute', 'aria-label': `Mute ${t.name}`, onclick: () => { t.mute = !t.mute; changed('all'); } }, 'M'),
+        el('button', { class: 'icon-btn seq-ms' + (t.solo ? ' on' : ''), 'aria-pressed': String(!!t.solo), title: 'Solo', 'aria-label': `Solo ${t.name}`, onclick: () => { t.solo = !t.solo; changed('all'); } }, 'S'),
+        meter(t.name)),
+      el('div', { class: 'sb-fields' }, slider(t, ['gain', 'Level', -60, 12, 0.5, 'db']), slider(t, ['pan', 'Pan', -1, 1, 0.05, 'pan']),
+        ...buses.map((b) => slider(t.sends ||= {}, [b.id, `Send to ${b.name}`, 0, 1, 0.01, 'pct']))));
+    const busStrip = (b, k) => {
+      const name = el('input', { type: 'text', value: b.name, maxlength: '30', spellcheck: 'false', 'aria-label': 'Bus name', 'data-busname': b.id });
+      name.addEventListener('change', () => { b.name = name.value.trim() || 'Bus'; changed('pane'); });
+      return el('div', { class: 'seq-strip seq-busstrip', 'data-bus': b.id },
+        el('div', { class: 'seq-striphead' }, el('span', { text: '🎛' }), name, meter(b.name),
+          el('button', { class: 'icon-btn', title: 'Remove this bus (the sends to it go too)', 'aria-label': `Remove ${b.name}`, onclick: () => { buses.splice(k, 1); for (const t of song.tracks) if (t.sends) delete t.sends[b.id]; changed('pane'); } }, '✕')),
+        el('div', { class: 'sb-fields' }, slider(b, ['gain', 'Level', -60, 12, 0.5, 'db'])),
+        effectsRack(b.effects ||= [], 'bus'));
+    };
+    const F = NoorSound.fx;
+    const addBus = (name, fx) => {
+      const id = buses.some((b) => b.id === 'B1') ? 'B2' : 'B1';
+      buses.push({ id, name, gain: 0, effects: [{ type: fx, bypass: false, out: 0, ...clone(F.NEW_FX[fx]), mix: 1 }] });
+      // A little of every melodic track to start with: you hear it at once.
+      for (const t of song.tracks) if (t.kind !== 'drums') (t.sends ||= {})[id] = 0.25;
+      changed('pane');
+    };
+    const masterDb = render ? render.peakDb : null;
+    return [
+      el('p', { class: 'pref-hint', text: 'Every track’s level, place and sends in one place. Meters show how loud each part got in the last play (▶ to measure again); red means near full scale.' }),
+      el('div', { class: 'seq-mixer', id: 'seq-mixer' }, ...song.tracks.map(strip)),
+      el('h4', { class: 'music-subhead', text: 'Send buses (shared effects)' }),
+      el('p', { class: 'pref-hint', text: 'A bus is one shared effect, like a room the whole band plays in: each track sends some of its sound to it. Up to two.' }),
+      ...buses.map(busStrip),
+      buses.length < 2 ? el('div', { class: 'sb-row' },
+        el('button', { class: 'utility-btn', id: 'seq-addreverb', onclick: () => addBus('Reverb', 'reverb') }, '＋ Reverb bus'),
+        el('button', { class: 'utility-btn', id: 'seq-adddelay', onclick: () => addBus('Echo', 'delay') }, '＋ Echo bus')) : null,
+      el('h4', { class: 'music-subhead', text: 'Master' }),
+      el('div', { class: 'seq-strip seq-masterstrip' }, el('div', { class: 'seq-striphead' }, el('strong', { text: 'Master' }),
+        el('span', { class: 'seq-meter' + (masterDb != null && masterDb > -1 ? ' hot' : '') }, el('i', { style: `width:${masterDb != null ? Math.max(0, Math.min(100, ((masterDb + 48) / 48) * 100)) : 0}%` }), el('small', { text: masterDb != null ? `${masterDb} dB` : '—' }))),
+        el('div', { class: 'sb-fields' }, slider(song, ['masterGain', 'Master level', -24, 12, 0.5, 'db']))),
+    ];
   }
 
   // ---------------------------------------------------------------- song & export

@@ -1568,6 +1568,15 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .seq-empty { padding: 14px 4px; }
 .seq-rollwrap { overflow: auto; max-height: 420px; min-height: 160px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .seq-roll { display: block; }
+.seq-mixer { display: flex; flex-direction: column; gap: 6px; }
+.seq-strip { border: 1px solid var(--border); border-radius: 10px; padding: 6px 10px; background: var(--surface); margin-bottom: 6px; }
+.seq-strip.muted { opacity: .55; }
+.seq-striphead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.seq-stripname { font-weight: 650; }
+.seq-meter { position: relative; display: inline-flex; align-items: center; width: 150px; height: 14px; border-radius: 4px; background: color-mix(in srgb, var(--border) 50%, transparent); overflow: hidden; margin-left: auto; }
+.seq-meter i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #2ea043 0%, #2ea043 70%, #d29922 88%, #e5484d 100%); }
+.seq-meter small { position: relative; font-size: 10.5px; padding-left: 6px; color: var(--text); }
+.seq-meter.hot { outline: 1px solid #e5484d; }
 .seq-wavedraw { display: block; width: 100%; max-width: 512px; height: 140px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: crosshair; touch-action: none; }
 .seq-drums { display: grid; grid-template-columns: 110px repeat(var(--steps), minmax(18px, 1fr)); gap: 3px; margin-top: 6px; }
 .seq-drumrow { display: contents; }

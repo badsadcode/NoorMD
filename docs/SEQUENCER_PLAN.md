@@ -88,3 +88,17 @@ LMMS (an open-source music maker, GPL) was looked at for ideas only; nothing of 
 
 Also in preview.83: an edit while playing is rendered into a second player that takes over at the same spot (no stop
 and no jump back), and rendered previews are served in byte ranges so seeking works however much has loaded.
+
+## More from LMMS (preview.85)
+
+- **Acid bass** (LB302): an **! Accent** per note (louder, the filter opening further and closing sooner) and a
+  **filter decay** of its own (the filter closes while the note holds: the 303 squelch); the Acid bass preset. With
+  Slide (preview.83) a 303 line can be written.
+- **Kick** wave (Kicker): a sine falling from a start to an end pitch (for C3; other notes tune it, for toms), with
+  click, noise and drive; presets for a deep and a punchy kick, a tom and a zap.
+- **Drawn** wave (BitInvader): one cycle of 64 points drawn with the mouse, a smooth curve or steps, shapes to start
+  from and Soften; an 8-bit preset.
+- **Mixer** tab (the FX mixer, simplified): a strip per track (level, pan, mute, solo, a send to each bus, a meter of
+  its loudest moment in the last play), up to two **send buses** with their own effects (＋ Reverb bus, ＋ Echo bus:
+  all wet, a quarter of each melodic track sent at first), and the master with its meter. Buses are in the stems, so
+  the stems still add up to the mix.

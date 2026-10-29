@@ -146,7 +146,8 @@ public partial class MainWindow
                     }
                     finally { SoundGate.Release(); }
                     var url = Serve(render, $"{song.ToJson()}|{loop}|{from}|{to}|{layer}");
-                    return new { url, seconds = render.Seconds, fromBar = from, toBar = to, barSeconds = song.BarSeconds, loop, cut, layer, peakDb = render.PeakDb, warnings = render.Warnings };
+                    return new { url, seconds = render.Seconds, fromBar = from, toBar = to, barSeconds = song.BarSeconds, loop, cut, layer, peakDb = render.PeakDb, warnings = render.Warnings,
+                        levels = render.Levels?.Select(x => new { name = x.Name, peakDb = x.PeakDb }) };
                 }
                 case "seq.transition":
                 {
