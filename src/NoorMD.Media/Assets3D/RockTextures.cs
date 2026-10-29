@@ -29,6 +29,22 @@ public static class RockTextures
         ],
     }.Clamped();
 
+    /// <summary>Moss for the tops of rocks, in its colour: soft clumps with lighter tips.</summary>
+    public static TextureRecipe Moss(string hex) => new TextureRecipe
+    {
+        Name = "Moss", Family = "Nature",
+        Surface = new TextureSurface
+        {
+            Ramp = BarkTextures.Ramp((0, BarkTextures.Scale(hex, 0.45)), (0.6, BarkTextures.Scale(hex, 0.85)), (1, BarkTextures.Scale(hex, 1.12))),
+            ColorVariation = 0.1, Dirt = 0.2, RoughnessLow = 1, RoughnessHigh = 0.9, NormalStrength = 4, AoStrength = 0.6, AoRadius = 0.02,
+        },
+        Layers =
+        [
+            new TextureLayer { Name = "Clumps", Type = "cells", Mode = "smooth", ScaleX = 10, ScaleY = 10, Jitter = 1 },
+            new TextureLayer { Name = "Fuzz", Type = "turbulence", ScaleX = 40, ScaleY = 40, Octaves = 3, Blend = "overlay", Opacity = 0.5 },
+        ],
+    }.Clamped();
+
     public static TextureRecipe? For(string id, string hex) => id switch
     {
         "rock" => Weathered("Weathered rock", hex),
@@ -78,8 +94,10 @@ public static class RockTextures
             },
             Layers =
             [
-                new TextureLayer { Name = "Planes", Type = "cells", Mode = "cells", ScaleX = 3, ScaleY = 3, Jitter = 0.9, Gamma = 0.8 },
-                new TextureLayer { Name = "Strokes", Type = "noise", ScaleX = 6, ScaleY = 2, Octaves = 2, Blend = "overlay", Opacity = 0.25 },
+                // Broad soft tones (the vertex colours do the light), brush strokes across, a little grain.
+                new TextureLayer { Name = "Tones", Type = "noise", ScaleX = 2, ScaleY = 2, Octaves = 3, Low = 0.3, High = 0.7 },
+                new TextureLayer { Name = "Strokes", Type = "noise", ScaleX = 10, ScaleY = 3, Octaves = 2, Blend = "overlay", Opacity = 0.3 },
+                new TextureLayer { Name = "Grain", Type = "noise", ScaleX = 32, ScaleY = 32, Octaves = 1, Blend = "overlay", Opacity = 0.12 },
             ],
         }.Clamped(),
         _ => null,

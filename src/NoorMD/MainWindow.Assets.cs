@@ -139,7 +139,7 @@ public partial class MainWindow
     /// from, units, axes, bounds and pivot, each level with its file (or node) and triangles, each material's maps with
     /// their colour space and normal-map convention, and the wind data's layout.
     /// </summary>
-    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize, string recipeFile, bool oneFile, int variant = 0, string? species = null)
+    private static object TreeManifest(TreeBuild build, IReadOnlyList<string> files, int textureSize, string recipeFile, bool oneFile, int variant = 0, string? species = null, bool woodOnly = false)
     {
         var (lo, hi) = TreeExport.Bounds(build.Lods[0]);
         float R(float v) => MathF.Round(v, 3);
@@ -168,6 +168,7 @@ public partial class MainWindow
             widthMetres = R(MathF.Max(hi.X - lo.X, hi.Z - lo.Z)),
             texture = new { size = build.Recipe.Pixels > 0 && textureSize > 0 ? build.Recipe.Pixels : textureSize, sampling = build.Recipe.Pixels > 0 ? "nearest" : "linear", pixelArt = build.Recipe.Pixels > 0 },
             branches = build.Recipe.Branches,
+            woodOnly,
             files,
             lods = build.Lods.Select((l, i) => new
             {
@@ -182,7 +183,8 @@ public partial class MainWindow
                 visibleFrom = i == 0 ? 0 : at[i - 1],
                 visibleTo = i < build.Lods.Count - 1 ? at[i] : 0,
             }),
-            materials = build.Lods.SelectMany(l => l.Materials).Distinct().Select(m => new { name = m.Name, alpha = m.Alpha, doubleSided = m.DoubleSided, embedded = textureSize > 0, maps = TreeExport.Maps(m, textureSize) }),
+            // The materials the files use (the wood alone has no leaves).
+            materials = build.Lods.SelectMany(l => l.Materials.Where((_, i) => l.Root.All().Any(n => n.Mesh?.Submeshes.Any(s => s.Material == i && s.Indices.Count > 0) == true))).Distinct().Select(m => new { name = m.Name, alpha = m.Alpha, doubleSided = m.DoubleSided, embedded = textureSize > 0, maps = TreeExport.Maps(m, textureSize) }),
             wind = !build.Recipe.Wind ? null : (object)(build.Recipe.WindData == "color"
                 ? new { channel = "COLOR_0", r = "trunk sway (0 at the base, 1 at the top)", g = "branch bend (0 on the trunk, rising along limbs)", b = "leaf flutter (0 at a card's anchor, 1 at its tip)", a = "phase (shared by a limb and what grows on it)" }
                 : new { channel = "TEXCOORD_1 and TEXCOORD_2", uv1x = "branch bend (0 on the trunk, rising along limbs)", uv1y = "leaf flutter (0 at a card's anchor, 1 at its tip)", uv2x = "phase (shared by a limb and what grows on it)", uv2y = "trunk sway (0 at the base, 1 at the top)" }),
@@ -273,6 +275,8 @@ public partial class MainWindow
                     var size = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "textureSize") ?? 1024);
                     if (size is not (0 or 256 or 512 or 1024 or 2048)) throw new BridgeError("Choose 256, 512, 1024 or 2048 pixels for the textures, or none.");
                     var oneFile = req.GetString("lodFiles", 10) == "one";
+                    // The trunk and branches alone (for your own leaves, or a bare tree): its files end in _Wood.
+                    var woodOnly = NoorMD.Core.Bridge.Json.IsTrue(p, "woodOnly");
                     // A variety pack: several trees of this kind from consecutive seeds, sizes spread a little.
                     var variants = TreeVariants.Make(recipe, (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "variants") ?? 1), NoorMD.Core.Bridge.Json.OptDouble(p, "spread") ?? 0.15);
                     // Made for a game: variants lettered as its catalogue names them (Pine_A, Pine_B…), even a single tree.
@@ -286,9 +290,10 @@ public partial class MainWindow
                     var folder = ExportLayouts.Under(root, ExportLayouts.Folders(ExportLayouts.Expand(place.FolderPattern, tokens)));
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), recipe.Name);
                     var stem = ExportLayouts.FileName(tokens["name"], recipe.Name);
+                    if (woodOnly) { file += "_Wood"; stem += "_Wood"; }
                     var levels = recipe.Lods + (recipe.Billboard ? 1 : 0);
                     var separate = !oneFile && levels > 1;
-                    string Suffix(int v) => profile != null ? "_" + GameProfile.Variant(v) : variants.Count > 1 ? $"_{v + 1:00}" : "";
+                    string Suffix(int v) => (profile != null ? "_" + GameProfile.Variant(v) : variants.Count > 1 ? $"_{v + 1:00}" : "");
                     List<string> GlbNames(int v) => separate ? Enumerable.Range(0, levels).Select(i => $"{file}{Suffix(v)}_LOD{i}.glb").ToList() : [$"{file}{Suffix(v)}.glb"];
                     var planned = Enumerable.Range(0, variants.Count).SelectMany(v => GlbNames(v).Append($"{stem}{Suffix(v)}.noortree.json")).Append(stem + ".manifest.json").Concat(profile != null ? [stem + ".handoff.md"] : []).Select(n => Path.Combine(folder, n)).ToList();
                     var how = AskReplace(planned, $"“{recipe.Name}”");
@@ -307,7 +312,7 @@ public partial class MainWindow
                         PushEvent("asset.exportProgress", new { stage = variants.Count > 1 ? $"Growing and meshing tree {v + 1} of {variants.Count}…" : "Growing and meshing the tree…", done = v, total = variants.Count });
                         TreeBuild build;
                         await AssetGate.WaitAsync();
-                        try { build = await Task.Run(() => TreeBuilder.Build(variant, new TreeBuilder.Options { TextureSize = size, Images = LoadAssetImage })); }
+                        try { build = await Task.Run(() => TreeBuilder.Build(variant, new TreeBuilder.Options { TextureSize = size, Images = LoadAssetImage, WoodOnly = woodOnly })); }
                         finally { AssetGate.Release(); }
                         var names = GlbNames(v);
                         var mine = new List<string>();
@@ -328,7 +333,7 @@ public partial class MainWindow
                         await File.WriteAllTextAsync(recipePath, variant.ToJson(), new UTF8Encoding(false));
                         written.AddRange(mine);
                         recipes.Add(Path.GetFileName(recipePath));
-                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size, Path.GetFileName(recipePath), !separate, v, recipe.Name));
+                        manifests.Add(TreeManifest(build, mine.Select(Path.GetFileName).ToList()!, size, Path.GetFileName(recipePath), !separate, v, recipe.Name, woodOnly));
                         triangles.Add(build.Lods[0].TriangleCount);
                         if (profile != null)
                         {
@@ -344,7 +349,7 @@ public partial class MainWindow
                     if (profile != null)
                     {
                         var handoffPath = ExportTarget(folder, stem + ".handoff.md", keep, taken);
-                        await File.WriteAllTextAsync(handoffPath, GameProfiles.Handoff(profile, recipe, Path.GetFileName(manifestPath), delivered, size), new UTF8Encoding(false));
+                        await File.WriteAllTextAsync(handoffPath, GameProfiles.Handoff(profile, recipe, Path.GetFileName(manifestPath), delivered, size, woodOnly), new UTF8Encoding(false));
                         handoff = Path.GetFileName(handoffPath);
                     }
                     // Engine helpers. Godot: the import plugin (levels switched by distance, the wind material), in the

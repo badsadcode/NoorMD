@@ -1095,4 +1095,29 @@ public class TreeTests
             }
         }
     }
+
+    [Fact]
+    public void Wood_only_is_the_same_trunk_and_branches_with_no_foliage()
+    {
+        foreach (var id in new[] { "oak", "stylized-oak", "pine" })
+        {
+            var r = TreePresets.Make(id);
+            r.Quality = "low";
+            r.Lods = 2;
+            var full = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64 });
+            var wood = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 64, WoodOnly = true });
+            Assert.Equal(full.Lods.Count, wood.Lods.Count);
+            for (var i = 0; i < full.Lods.Count - (r.Billboard ? 1 : 0); i++)
+            {
+                var names = wood.Lods[i].Root.All().Where(n => n.Mesh != null).Select(n => n.Name).ToList();
+                Assert.DoesNotContain(names, n => n.Contains("Leaves", StringComparison.Ordinal));
+                Assert.NotEmpty(names);
+                // The wood is exactly the full tree's.
+                var a = full.Lods[i].Root.All().Where(n => n.Mesh != null && !n.Name.Contains("Leaves", StringComparison.Ordinal)).Select(n => n.Mesh!.Positions.Count + ":" + n.Mesh.TriangleCount);
+                var b = wood.Lods[i].Root.All().Where(n => n.Mesh != null).Select(n => n.Mesh!.Positions.Count + ":" + n.Mesh.TriangleCount);
+                Assert.Equal(a, b);
+                Assert.DoesNotContain(wood.Lods[i].Root.All(), n => n.Mesh?.Submeshes.Any(s => wood.Lods[i].Materials[s.Material].Name == "Leaves") == true);
+            }
+        }
+    }
 }

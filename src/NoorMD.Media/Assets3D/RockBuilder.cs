@@ -25,7 +25,7 @@ public sealed class RockBuild
 /// looks to (in metres, so every rock shares one texel density), and moss sits in the vertex colours on upward faces.
 /// The pivot is the middle of where it meets the ground; the base reaches a little below it.
 /// </summary>
-public static class RockBuilder
+public static partial class RockBuilder
 {
     public sealed class Options
     {
@@ -44,8 +44,11 @@ public static class RockBuilder
         var stylized = recipe.Style == "stylized";
         var levels = Math.Min(recipe.Lods, options.MaxLods ?? 3);
 
-        // Dense meshes, then each level simplified from them.
+        // Dense meshes, then each level simplified from them: the rock (or the scree's stones), and stones at its foot.
         List<(Mesh3D Mesh, float Scale)> pieces = [];
+        List<(Mesh3D Mesh, float Scale)> debris = [];
+        IShape? shape = null;
+        var shift = Vector3.Zero;
         if (recipe.Kind == "scree")
         {
             var rng = new Random(recipe.Seed);
@@ -60,30 +63,49 @@ public static class RockBuilder
                 var at = new Vector2(MathF.Cos((float)a) * d, MathF.Sin((float)a) * d);
                 if (placed.Any(p => Vector2.Distance(p.At, at) < (p.R + size * 0.5f) * 0.8f)) continue;
                 placed.Add((at, size * 0.5f));
-                var stone = new RockRecipe
-                {
-                    Kind = "stone", Style = recipe.Style, Seed = rng.Next(), Size = size, Height = 0.35 + 0.4 * rng.NextDouble(), Elongation = rng.NextDouble() * 0.6,
-                    Roughness = recipe.Roughness, Fractures = 2 + rng.Next(4), FlatBase = true, Sink = 0.25,
-                }.Clamped();
-                var dense = Dense(stone, 14);
-                Place(dense, stone, new Vector3(at.X, 0, at.Y), (float)(rng.NextDouble() * Math.Tau));
-                pieces.Add((dense, size));
+                pieces.Add((SmallStone(recipe, rng, size, new Vector3(at.X, 0, at.Y)), size));
             }
         }
-        else pieces.Add((Dense(recipe, stylized ? 40 : recipe.Kind switch { "stone" => 30, "rock" => 46, _ => 60 }), (float)recipe.Size));
-        ct.ThrowIfCancellationRequested();
-
-        // The pivot: the middle of the ground contact, the base reaching Sink × height below it.
-        if (recipe.Kind != "scree")
+        else
         {
+            var cells = recipe.IsFormation
+                ? (recipe.Kind is "arch" or "pillar" or "outcrop" ? 92 : 80) - (stylized ? 10 : 0)
+                : stylized ? 40 : recipe.Kind switch { "stone" => 30, "rock" => 46, _ => 60 };
+            shape = recipe.IsFormation ? new ChunkShape(recipe) : new Shape(recipe);
+            pieces.Add((Dense(shape, cells), (float)recipe.Size));
+            ct.ThrowIfCancellationRequested();
+
+            // The pivot: the middle of the ground contact, the base reaching Sink × height below it.
             var m = pieces[0].Mesh;
             var (lo, hi) = m.Bounds();
             var h = hi.Y - lo.Y;
             var low = m.Positions.Where(p => p.Y < lo.Y + h * 0.1f).ToList();
-            var c = low.Count > 0 ? low.Aggregate(Vector3.Zero, (s, p) => s + p) / low.Count : (lo + hi) / 2;
-            var shift = new Vector3(-c.X, -lo.Y - (float)recipe.Sink * h, -c.Z);
+            // The middle of the foot's outline (its box: steady however the corners are spread).
+            var c = low.Count > 0 ? (low.Aggregate(new Vector3(float.MaxValue), Vector3.Min) + low.Aggregate(new Vector3(float.MinValue), Vector3.Max)) / 2 : (lo + hi) / 2;
+            shift = new Vector3(-c.X, -lo.Y - (float)recipe.Sink * h, -c.Z);
             for (var i = 0; i < m.VertexCount; i++) m.Positions[i] += shift;
+
+            // Fallen stones round the foot, just outside where it meets the ground.
+            if (recipe.Debris > 0)
+            {
+                var rng = new Random(recipe.Seed * 31 + 7);
+                var foot = m.Positions.Where(p => p.Y < h * 0.12f - (float)recipe.Sink * h).ToList();
+                if (foot.Count < 3) foot = m.Positions.ToList();
+                var count = (int)Math.Round(4 + recipe.Debris * (recipe.IsFormation ? 14 : 8));
+                for (var i = 0; i < count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var ang = (float)(rng.NextDouble() * Math.Tau);
+                    var dir = new Vector2(MathF.Cos(ang), MathF.Sin(ang));
+                    // How far the foot reaches that way.
+                    var reach = foot.Max(p => Vector2.Dot(new Vector2(p.X, p.Z), dir));
+                    var size = (float)(recipe.Size * (0.04 + 0.08 * Math.Pow(rng.NextDouble(), 1.5)) * (recipe.Kind == "pillar" ? 1.6 : 1));
+                    var at = dir * (reach + size * (0.1f + 0.6f * (float)rng.NextDouble()));
+                    debris.Add((SmallStone(recipe, rng, size, new Vector3(at.X, 0, at.Y)), size));
+                }
+            }
         }
+        ct.ThrowIfCancellationRequested();
 
         // Materials.
         var rock = new Material3D { Name = "Rock", BaseColor = Color(recipe.Color), Roughness = 0.9f };
@@ -101,38 +123,60 @@ public static class RockBuilder
             catch (ArgumentException) { build.Notes.Add($"The material \"{recipe.Material}\" was not found; a plain colour is used."); }
         }
 
-        // Snow lies on the faces that look up (its own material, so it stays white whatever the rock's texture).
+        // Snow and moss lie on the faces that look up, each its own material (so they keep their colour whatever the
+        // rock's texture): snow evenly, moss in patches.
         var snow = new Material3D { Name = "Snow", BaseColor = Color(recipe.SnowColor), Roughness = 0.65f };
+        var moss = new Material3D { Name = "Moss", BaseColor = Color(recipe.MossColor), Roughness = 0.95f };
+        if (options.TextureSize > 0 && recipe.Moss > 0)
+        {
+            var maps = TextureEngine.Render(RockTextures.Moss(recipe.MossColor), Math.Max(TextureEngine.MinSize, options.TextureSize / 2));
+            moss.BaseColor = Vector4.One;
+            moss.BaseColorPng = maps.Png("albedo");
+            moss.NormalPng = maps.Png("normal");
+            moss.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
+            moss.Roughness = 1;
+        }
+        var snowIndex = recipe.Snow > 0 ? 1 : -1;
+        var mossIndex = recipe.Moss > 0 ? (recipe.Snow > 0 ? 2 : 1) : -1;
+        var surface = new Surface(recipe, stylized, snowIndex, mossIndex);
 
+        var rockVertices = int.MaxValue;
         for (var level = 0; level < levels; level++)
         {
             ct.ThrowIfCancellationRequested();
             var budget = recipe.LevelTriangles(level);
-            // Stylized rocks read best as a few big facets: a third of the budget unless the levels are set by hand.
-            if (stylized && recipe.LodTriangles.Count <= level) budget = Math.Max(recipe.Kind == "stone" ? 20 : 40, budget / 3);
+            // Stylized rocks read best as a few big facets: a third of the budget unless the levels are set by hand
+            // (formations are planes already, and keep more, for their blocks).
+            if (stylized && recipe.LodTriangles.Count <= level) budget = Math.Max(recipe.Kind == "stone" ? 20 : 40, recipe.IsFormation ? budget * 2 / 3 : budget / 3);
             var mesh = new Mesh3D { Name = recipe.Kind == "scree" ? "Scree" : "Rock" };
-            if (recipe.Kind == "scree")
+            void Stones(List<(Mesh3D Mesh, float Scale)> stones, int share)
             {
                 // Share the budget by size; the far levels leave out the smallest stones.
-                var keep = pieces.OrderByDescending(p => p.Scale).Take(level switch { 0 => pieces.Count, 1 => Math.Max(3, pieces.Count * 2 / 3), _ => Math.Max(3, pieces.Count / 3) }).ToList();
+                var keep = stones.OrderByDescending(p => p.Scale).Take(level switch { 0 => stones.Count, 1 => Math.Max(3, stones.Count * 2 / 3), _ => Math.Max(3, stones.Count / 3) }).ToList();
                 var total = keep.Sum(p => p.Scale * p.Scale);
                 foreach (var (dense, scale) in keep)
                 {
                     var part = Copy(dense);
-                    Simplifier.Simplify(part, Math.Max(8, (int)(budget * scale * scale / total)));
-                    TreeBuilder.Append(mesh, Finish(part, recipe, stylized));
+                    Simplifier.Simplify(part, Math.Max(8, (int)(share * scale * scale / total)));
+                    TreeBuilder.Append(mesh, surface.Finish(part));
                 }
             }
+            if (recipe.Kind == "scree") Stones(pieces, budget);
             else
             {
+                // The stones at its foot take a small share (none on the farthest level).
+                var stoneShare = debris.Count == 0 || level >= 2 ? 0 : Math.Max(debris.Count * 10, budget / 8);
                 var part = Copy(pieces[0].Mesh);
-                Simplifier.Simplify(part, budget);
-                TreeBuilder.Append(mesh, Finish(part, recipe, stylized));
+                Simplifier.Simplify(part, budget - stoneShare);
+                TreeBuilder.Append(mesh, surface.Finish(part));
+                if (level == 0) rockVertices = mesh.VertexCount;
+                if (stoneShare > 0) Stones(debris, stoneShare);
             }
             mesh.ComputeTangents();
             var asset = new Asset3D { Name = recipe.Name };
             asset.Materials.Add(rock);
             if (recipe.Snow > 0) asset.Materials.Add(snow);
+            if (recipe.Moss > 0) asset.Materials.Add(moss);
             asset.Root = new Node3D { Name = GameProfile.Species(recipe.Name) };
             asset.Root.Children.Add(new Node3D { Name = mesh.Name, Mesh = mesh });
             build.Lods.Add(asset);
@@ -141,8 +185,12 @@ public static class RockBuilder
         // Collision: convex hulls of the closest level, ≤ 64 triangles each, named for Godot's importer.
         if (recipe.CollisionPieces > 0 && recipe.Kind != "scree" && build.Lods.Count > 0)
         {
-            var src = build.Lods[0].Root.Children[0].Mesh!.Positions;
-            foreach (var hull in Hulls(src, recipe.CollisionPieces))
+            // The rock itself, not the stones at its foot (the first vertices of the mesh are the rock's).
+            var all = build.Lods[0].Root.Children[0].Mesh!.Positions;
+            var rockCount = Math.Min(all.Count, rockVertices);
+            var src = all.Take(rockCount).ToList();
+            var hulls = shape is ChunkShape chunks ? GroupHulls(src, chunks, shift, recipe.CollisionPieces) : Hulls(src, recipe.CollisionPieces);
+            foreach (var hull in hulls)
             {
                 hull.Name = build.Collision.Count == 0 ? "Collision" : $"Collision{build.Collision.Count + 1}";
                 build.Collision.Add(hull);
@@ -160,36 +208,36 @@ public static class RockBuilder
     // ---- The shape ----
 
     /// <summary>The rock's signed distance field (metres, negative inside), in its own frame: base near y = 0.</summary>
-    private sealed class Shape
+    private sealed class Shape : IShape
     {
         private readonly List<(Vector3 C, Vector3 R)> _blobs = [];
         private readonly List<(Vector3 N, float D)> _cuts = [];
         private readonly Noise _noise;
         private readonly float _rough, _strata, _layer, _base, _small, _blend, _edge;
         private readonly bool _flat, _stylized;
-        public Vector3 Lo, Hi;
+        public Vector3 Lo { get; }
+        public Vector3 Hi { get; }
 
         public Shape(RockRecipe r)
         {
             var rng = new Random(r.Seed * 7919 + 13);
             _noise = new Noise(r.Seed);
             _stylized = r.Style == "stylized";
-            var outcrop = r.Kind == "outcrop";
             // Half-sizes: X the long side, Z the short one, Y the height.
             var ax = (float)r.Size / 2;
             var az = ax / (1 + (float)r.Elongation);
-            var ay = (float)(r.Size * r.Height) / 2 * (outcrop ? 0.8f : 1);
+            var ay = (float)(r.Size * r.Height) / 2;
             _small = MathF.Min(ax, MathF.Min(ay, az));
-            var main = new Vector3(ax, ay, az) * (outcrop ? 0.62f : 0.9f);
+            var main = new Vector3(ax, ay, az) * 0.9f;
             _blobs.Add((new Vector3(0, ay, 0), main));
-            // Boulders and outcrops are lumpier: a few more pieces melted in, along the long side mostly.
-            var extra = r.Kind switch { "outcrop" => 4 + rng.Next(3), "boulder" => 1 + rng.Next(2), "rock" => rng.Next(2), _ => 0 };
+            // Boulders are lumpier: a few more pieces melted in, along the long side mostly.
+            var extra = r.Kind switch { "boulder" => 1 + rng.Next(2), "rock" => rng.Next(2), _ => 0 };
             for (var i = 0; i < extra; i++)
             {
                 var along = (float)(rng.NextDouble() * 2 - 1);
-                var c = new Vector3(along * ax * 0.55f, ay * (outcrop ? 0.55f + 0.5f * (float)rng.NextDouble() : 0.8f + 0.3f * (float)rng.NextDouble()), (float)(rng.NextDouble() * 2 - 1) * az * 0.45f);
+                var c = new Vector3(along * ax * 0.55f, ay * (0.8f + 0.3f * (float)rng.NextDouble()), (float)(rng.NextDouble() * 2 - 1) * az * 0.45f);
                 var s = 0.45f + 0.3f * (float)rng.NextDouble();
-                _blobs.Add((c, new Vector3(ax, ay, az) * new Vector3(s, s * (outcrop ? 1.1f : 0.9f), s)));
+                _blobs.Add((c, new Vector3(ax, ay, az) * new Vector3(s, s * 0.9f, s)));
             }
             _blend = _small * 0.45f;
             // Fracture planes: flat broken faces, more on the sides and top than below.
@@ -236,31 +284,12 @@ public static class RockBuilder
             return d;
         }
 
-        private static float Sq(float v) => v * v;
         private static float Smooth(float a, float b, float x) { var t = Math.Clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
-
-        /// <summary>An ellipsoid's distance (Inigo Quilez's bound: good near the surface).</summary>
-        private static float Ellipsoid(Vector3 p, Vector3 r)
-        {
-            var k0 = (p / r).Length();
-            var k1 = (p / (r * r)).Length();
-            return k1 < 1e-9f ? -MathF.Min(r.X, MathF.Min(r.Y, r.Z)) : k0 * (k0 - 1) / k1;
-        }
-
-        private static float SmoothMin(float a, float b, float k)
-        {
-            if (a == float.MaxValue) return b;
-            var h = Math.Clamp(0.5f + 0.5f * (b - a) / k, 0, 1);
-            return b + (a - b) * h - k * h * (1 - h);
-        }
-
-        private static float SmoothMax(float a, float b, float k) => k <= 1e-6f ? MathF.Max(a, b) : -SmoothMin(-a, -b, k);
     }
 
     /// <summary>The rock's dense surface, about <paramref name="cells"/> grid cells across its widest side.</summary>
-    private static Mesh3D Dense(RockRecipe r, int cells)
+    private static Mesh3D Dense(IShape shape, int cells)
     {
-        var shape = new Shape(r);
         var span = shape.Hi - shape.Lo;
         var cell = MathF.Max(span.X, MathF.Max(span.Y, span.Z)) / cells;
         int nx = (int)MathF.Ceiling(span.X / cell) + 3, ny = (int)MathF.Ceiling(span.Y / cell) + 3, nz = (int)MathF.Ceiling(span.Z / cell) + 3;
@@ -333,6 +362,19 @@ public static class RockBuilder
         return mesh;
     }
 
+    /// <summary>A small stone of the rock's kind of stone (for scree and the stones at a rock's foot), placed at <paramref name="at"/>.</summary>
+    private static Mesh3D SmallStone(RockRecipe parent, Random rng, float size, Vector3 at)
+    {
+        var stone = new RockRecipe
+        {
+            Kind = "stone", Style = parent.Style, Seed = rng.Next(), Size = size, Height = 0.35 + 0.4 * rng.NextDouble(), Elongation = rng.NextDouble() * 0.6,
+            Roughness = parent.Roughness, Fractures = 2 + rng.Next(4), FlatBase = true, Sink = 0.25,
+        }.Clamped();
+        var dense = Dense(new Shape(stone), 14);
+        Place(dense, stone, at, (float)(rng.NextDouble() * Math.Tau));
+        return dense;
+    }
+
     /// <summary>Turns and moves a stone into a scree patch.</summary>
     private static void Place(Mesh3D m, RockRecipe stone, Vector3 at, float yaw)
     {
@@ -346,81 +388,159 @@ public static class RockBuilder
     // ---- Surface: normals, UVs, colours ----
 
     /// <summary>
-    /// The finished level: normals smooth across gentle bends and split at hard edges (every face its own when
-    /// stylized), UVs projected from the side a face looks to, moss and a darker foot in the vertex colours.
+    /// The finished surface of a level: normals smooth across gentle bends and split at hard edges, UVs projected from
+    /// the side a face looks to (in metres), snow and moss on the faces that look up (their own materials), and painted
+    /// light in the vertex colours: lighter towards the top and on the edges, darker in the cracks and at the foot
+    /// (strong for the stylized look, a touch for the realistic one). Engines multiply the colours with the texture.
     /// </summary>
-    private static Mesh3D Finish(Mesh3D m, RockRecipe r, bool stylized)
+    private sealed class Surface(RockRecipe r, bool stylized, int snowIndex, int mossIndex)
     {
-        var faces = new List<(int A, int B, int C, Vector3 N)>();
-        foreach (var s in m.Submeshes)
-            for (var i = 0; i + 2 < s.Indices.Count; i += 3)
-            {
-                int a = s.Indices[i], b = s.Indices[i + 1], c = s.Indices[i + 2];
-                var n = Vector3.Cross(m.Positions[b] - m.Positions[a], m.Positions[c] - m.Positions[a]);
-                faces.Add((a, b, c, n));
-            }
-        var around = new List<int>[m.VertexCount];
-        for (var f = 0; f < faces.Count; f++)
-            foreach (var v in new[] { faces[f].A, faces[f].B, faces[f].C }) (around[v] ??= []).Add(f);
-        var (lo, hi) = m.Bounds();
-        var height = MathF.Max(hi.Y - lo.Y, 1e-4f);
-        var tile = (float)r.TileMetres;
-        var moss = LeafAtlas.Hex(r.MossColor) * 1.7f;
-        // Hard edges: faces bent further than this from each other don't share a normal.
-        var crease = MathF.Cos((stylized ? 0 : 48) * MathF.PI / 180);
+        private readonly Noise _noise = new(r.Seed + 77);
 
-        var outMesh = new Mesh3D { Name = m.Name };
-        var sub = outMesh.Sub(0);
-        var snowSub = r.Snow > 0 ? outMesh.Sub(1) : null;
-        // Faces steeper than this from straight up stay bare (more snow, flatter limit).
-        var snowLimit = 0.97f - 0.5f * (float)r.Snow;
-        var made = new Dictionary<(int V, int Axis, Vector3 N), int>();
-        foreach (var (a, b, c, fn) in faces)
+        public Mesh3D Finish(Mesh3D m)
         {
-            var unit = fn.LengthSquared() > 1e-24f ? Vector3.Normalize(fn) : Vector3.UnitY;
-            // The side this face looks to picks its projection; the whole triangle uses the same one.
-            var abs = Vector3.Abs(unit);
-            var axis = abs.X >= abs.Y && abs.X >= abs.Z ? 0 : abs.Y >= abs.Z ? 1 : 2;
-            var target = snowSub != null && unit.Y > snowLimit ? snowSub : sub;
-            foreach (var v in new[] { a, b, c })
+            var faces = new List<(int A, int B, int C, Vector3 N)>();
+            foreach (var s in m.Submeshes)
+                for (var i = 0; i + 2 < s.Indices.Count; i += 3)
+                {
+                    int a = s.Indices[i], b = s.Indices[i + 1], c = s.Indices[i + 2];
+                    faces.Add((a, b, c, Vector3.Cross(m.Positions[b] - m.Positions[a], m.Positions[c] - m.Positions[a])));
+                }
+            var around = new List<int>[m.VertexCount];
+            for (var f = 0; f < faces.Count; f++)
+                foreach (var v in new[] { faces[f].A, faces[f].B, faces[f].C }) (around[v] ??= []).Add(f);
+
+            // How the surface bends at each corner: its neighbours below its tangent plane (an edge, < 0) or above
+            // (a crack, > 0), as a share of the distance to them.
+            var bend = new float[m.VertexCount];
+            for (var v = 0; v < m.VertexCount; v++)
             {
+                if (around[v] == null) continue;
                 var n = Vector3.Zero;
-                if (stylized) n = unit;
-                else
+                foreach (var f in around[v]) n += faces[f].N;
+                if (n.LengthSquared() < 1e-24f) continue;
+                n = Vector3.Normalize(n);
+                float sum = 0; var count = 0;
+                foreach (var f in around[v])
+                    foreach (var o in new[] { faces[f].A, faces[f].B, faces[f].C })
+                    {
+                        if (o == v) continue;
+                        var d = m.Positions[o] - m.Positions[v];
+                        var len = d.Length();
+                        if (len < 1e-9f) continue;
+                        sum += Vector3.Dot(n, d) / len;
+                        count++;
+                    }
+                bend[v] = count > 0 ? sum / count : 0;
+            }
+
+            var (lo, hi) = m.Bounds();
+            var height = MathF.Max(hi.Y - lo.Y, 1e-4f);
+            var tile = (float)r.TileMetres;
+            var mossTint = LeafAtlas.Hex(r.MossColor) * 1.7f;
+            // Hard edges: faces bent further than this from each other don't share a normal (a stylized rock keeps
+            // its planes flat and its bevels soft).
+            var crease = MathF.Cos((stylized ? 38 : 48) * MathF.PI / 180);
+            var size = MathF.Max(hi.X - lo.X, MathF.Max(height, hi.Z - lo.Z));
+
+            var outMesh = new Mesh3D { Name = m.Name };
+            var sub = outMesh.Sub(0);
+            var snowSub = snowIndex >= 0 ? outMesh.Sub(snowIndex) : null;
+            var mossSub = mossIndex >= 0 ? outMesh.Sub(mossIndex) : null;
+            // Faces steeper than these from straight up stay bare (more snow or moss, flatter limit).
+            var snowLimit = 0.97f - 0.5f * (float)r.Snow;
+            var mossLimit = 0.98f - 0.42f * (float)r.Moss;
+            var made = new Dictionary<(int V, int Axis, Vector3 N), int>();
+            foreach (var (a, b, c, fn) in faces)
+            {
+                var unit = fn.LengthSquared() > 1e-24f ? Vector3.Normalize(fn) : Vector3.UnitY;
+                // The side this face looks to picks its projection; the whole triangle uses the same one.
+                var abs = Vector3.Abs(unit);
+                var axis = abs.X >= abs.Y && abs.X >= abs.Z ? 0 : abs.Y >= abs.Z ? 1 : 2;
+                var mid = (m.Positions[a] + m.Positions[b] + m.Positions[c]) / 3;
+                // Moss in patches: where a slow noise says so, on faces up enough, not right at the ground.
+                var patch = (_noise.At(mid / size * 6f) + 0.5f * _noise.At(mid / size * 15f + new Vector3(9))) * 0.25f;
+                var target = snowSub != null && unit.Y > snowLimit ? snowSub
+                    : mossSub != null && unit.Y > mossLimit + patch && mid.Y > lo.Y + height * 0.12f ? mossSub
+                    : sub;
+                foreach (var v in new[] { a, b, c })
+                {
+                    var n = Vector3.Zero;
                     foreach (var f in around[v])
                     {
                         var other = faces[f].N;
                         if (other.LengthSquared() < 1e-24f) continue;
                         if (Vector3.Dot(Vector3.Normalize(other), unit) >= crease) n += other;
                     }
-                n = n.LengthSquared() > 1e-24f ? Vector3.Normalize(n) : unit;
-                // Round so corners whose normals came out the same share a vertex.
-                var key = (v, axis, new Vector3(MathF.Round(n.X, 3), MathF.Round(n.Y, 3), MathF.Round(n.Z, 3)));
-                if (!made.TryGetValue(key, out var id))
-                {
-                    var p = m.Positions[v];
-                    var uv = axis switch
+                    n = n.LengthSquared() > 1e-24f ? Vector3.Normalize(n) : unit;
+                    // Round so corners whose normals came out the same share a vertex.
+                    var key = (v, axis, new Vector3(MathF.Round(n.X, 3), MathF.Round(n.Y, 3), MathF.Round(n.Z, 3)));
+                    if (!made.TryGetValue(key, out var id))
                     {
-                        0 => new Vector2(p.Z * MathF.Sign(unit.X), -p.Y),
-                        1 => new Vector2(p.X, p.Z * MathF.Sign(unit.Y)),
-                        _ => new Vector2(-p.X * MathF.Sign(unit.Z), -p.Y),
-                    } / tile;
-                    // Moss on what faces up, thinning towards the ground; the foot a little darker (dirt, shade).
-                    var up = Math.Clamp((n.Y - 0.35f) / 0.5f, 0, 1);
-                    var cover = (float)r.Moss * up * up * Math.Clamp((p.Y - lo.Y) / height * 2.5f, 0, 1);
-                    var foot = 0.72f + 0.28f * Math.Clamp((p.Y - lo.Y) / (height * 0.35f), 0, 1);
-                    var col = Vector3.Lerp(Vector3.One, Vector3.Min(moss, Vector3.One), cover) * foot;
-                    id = outMesh.AddVertex(p, n, uv, new Vector4(col, 1));
-                    made[key] = id;
+                        var p = m.Positions[v];
+                        var uv = axis switch
+                        {
+                            0 => new Vector2(p.Z * MathF.Sign(unit.X), -p.Y),
+                            1 => new Vector2(p.X, p.Z * MathF.Sign(unit.Y)),
+                            _ => new Vector2(-p.X * MathF.Sign(unit.Z), -p.Y),
+                        } / tile;
+                        id = outMesh.AddVertex(p, n, uv, new Vector4(Paint(p, n, bend[v], lo.Y, height, mossTint), 1));
+                        made[key] = id;
+                    }
+                    target.Indices.Add(id);
                 }
-                target.Indices.Add(id);
             }
+            outMesh.Submeshes.RemoveAll(x => x.Indices.Count == 0);
+            return outMesh;
         }
-        if (snowSub is { Indices.Count: 0 }) outMesh.Submeshes.Remove(snowSub);
-        return outMesh;
+
+        /// <summary>The painted light of a corner (never above 1: engines multiply it with the texture).</summary>
+        private Vector3 Paint(Vector3 p, Vector3 n, float bend, float bottom, float height, Vector3 mossTint)
+        {
+            var up = Math.Clamp((p.Y - bottom) / height, 0, 1);
+            var edge = Math.Clamp(-bend * 3.5f, 0, 1);
+            var crack = Math.Clamp(bend * 3f, 0, 1);
+            var light = stylized
+                ? 0.74f + 0.16f * up + 0.1f * Math.Clamp(n.Y, 0, 1) + 0.22f * edge - 0.4f * crack
+                : 0.86f + 0.06f * up + 0.06f * edge - 0.32f * crack;
+            // The foot darker (dirt, shade).
+            light *= 0.75f + 0.25f * Math.Clamp(up / 0.3f, 0, 1);
+            light = Math.Clamp(light, 0.3f, 1);
+            // A green fringe where the moss thins out.
+            var facing = Math.Clamp((n.Y - 0.25f) / 0.5f, 0, 1);
+            var cover = (float)r.Moss * facing * facing * Math.Clamp(up * 2.5f, 0, 1) * 0.7f;
+            return Vector3.Lerp(Vector3.One, Vector3.Min(mossTint, Vector3.One), cover) * light;
+        }
     }
 
     // ---- Collision ----
+
+    /// <summary>
+    /// Convex pieces for a formation: its blocks gathered into <paramref name="pieces"/> groups of neighbours (an arch's
+    /// legs and its span apart, not one hull filling the opening), each group's part of the surface a hull.
+    /// </summary>
+    private static List<Mesh3D> GroupHulls(List<Vector3> points, ChunkShape shape, Vector3 shift, int pieces)
+    {
+        var blocks = shape.Chunks;
+        var k = Math.Min(pieces, blocks.Count);
+        // k-means on the blocks' centres, weighted by size, from the farthest-apart start.
+        var centres = Farthest(blocks.Select(c => c.C).ToList(), k);
+        var group = new int[blocks.Count];
+        for (var round = 0; round < 12; round++)
+        {
+            for (var i = 0; i < blocks.Count; i++) group[i] = Enumerable.Range(0, centres.Count).MinBy(g => Vector3.DistanceSquared(blocks[i].C, centres[g]));
+            for (var g = 0; g < centres.Count; g++)
+            {
+                var members = Enumerable.Range(0, blocks.Count).Where(i => group[i] == g).ToList();
+                if (members.Count == 0) continue;
+                var w = members.Sum(i => blocks[i].H.Length());
+                centres[g] = members.Aggregate(Vector3.Zero, (s, i) => s + blocks[i].C * blocks[i].H.Length()) / w;
+            }
+        }
+        var parts = Enumerable.Range(0, centres.Count).Select(_ => new List<Vector3>()).ToList();
+        foreach (var p in points) parts[group[shape.Owner(p - shift)]].Add(p);
+        return parts.Where(x => x.Count >= 4).Select(x => Hull34(x.Distinct().ToList())).OfType<Mesh3D>().ToList();
+    }
 
     /// <summary>Convex pieces covering the points: slices along the longest side, each a hull of at most 34 points (≤ 64 triangles).</summary>
     internal static List<Mesh3D> Hulls(IReadOnlyList<Vector3> points, int pieces)
@@ -430,7 +550,7 @@ public static class RockBuilder
         var lo = points.Aggregate(new Vector3(float.MaxValue), Vector3.Min);
         var hi = points.Aggregate(new Vector3(float.MinValue), Vector3.Max);
         var span = hi - lo;
-        var axis = span.X >= span.Z ? Vector3.UnitX : Vector3.UnitZ;
+        var axis = span.Y > MathF.Max(span.X, span.Z) * 1.5f ? Vector3.UnitY : span.X >= span.Z ? Vector3.UnitX : Vector3.UnitZ;
         var a0 = Vector3.Dot(lo, axis);
         var len = MathF.Max(Vector3.Dot(span, axis), 1e-4f);
         for (var k = 0; k < pieces; k++)
@@ -438,26 +558,32 @@ public static class RockBuilder
             // Each slice overlaps its neighbours a little, so the pieces leave no gaps.
             var from = a0 + len * k / pieces - len * 0.04f;
             var to = a0 + len * (k + 1) / pieces + len * 0.04f;
-            var slice = points.Where(p => { var t = Vector3.Dot(p, axis); return t >= from && t <= to; }).Distinct().ToList();
-            // The full hull, cut down to at most 34 of its own corners: from a few spread ones, the corner sticking out
-            // furthest is added until none sticks out by more than a hair (each corner kept is where it matters most).
-            var full = ConvexHull(slice);
-            if (full == null) continue;
-            var all = full.Positions.ToList();
-            var size = (all.Aggregate(new Vector3(float.MinValue), Vector3.Max) - all.Aggregate(new Vector3(float.MaxValue), Vector3.Min)).Length();
-            var corners = Farthest(all, Math.Min(6, all.Count));
-            var hull = ConvexHull(corners);
-            while (hull != null && corners.Count < Math.Min(34, all.Count))
-            {
-                var worst = all.MaxBy(q => Outside(hull, q));
-                if (Outside(hull, worst) < size * 0.004f) break;
-                corners.Add(worst);
-                hull = ConvexHull(corners) ?? hull;
-            }
-            if (hull == null) continue;
-            result.Add(hull);
+            var hull = Hull34(points.Where(p => { var t = Vector3.Dot(p, axis); return t >= from && t <= to; }).Distinct().ToList());
+            if (hull != null) result.Add(hull);
         }
         return result;
+    }
+
+    /// <summary>
+    /// A convex hull of at most 34 corners (64 triangles): the full hull cut down to its own corners that matter most —
+    /// from a few spread ones, the corner sticking out furthest is added until none sticks out by more than a hair.
+    /// </summary>
+    private static Mesh3D? Hull34(List<Vector3> points)
+    {
+        var full = ConvexHull(points);
+        if (full == null) return null;
+        var all = full.Positions.ToList();
+        var size = (all.Aggregate(new Vector3(float.MinValue), Vector3.Max) - all.Aggregate(new Vector3(float.MaxValue), Vector3.Min)).Length();
+        var corners = Farthest(all, Math.Min(6, all.Count));
+        var hull = ConvexHull(corners);
+        while (hull != null && corners.Count < Math.Min(34, all.Count))
+        {
+            var worst = all.MaxBy(q => Outside(hull, q));
+            if (Outside(hull, worst) < size * 0.004f) break;
+            corners.Add(worst);
+            hull = ConvexHull(corners) ?? hull;
+        }
+        return hull;
     }
 
     /// <summary>How far a point is outside a convex hull (its furthest face plane; 0 or less inside).</summary>

@@ -13,15 +13,24 @@ public sealed class RockRecipe
     public int Version { get; set; } = 1;
     public string Name { get; set; } = "Rock";
     public int Seed { get; set; } = 1;
-    /// <summary>"stone" (0.2–0.5 m), "rock" (0.5–1.5 m), "boulder" (1.5–4 m), "outcrop" (2–6 m, wide and flat-based) or "scree" (a patch of many small stones as one mesh).</summary>
+    /// <summary>
+    /// Single rocks: "stone" (0.2–0.5 m), "rock" (0.5–1.5 m), "boulder" (rounded, 1.5–4 m). Formations built of chunky
+    /// blocks: "angular" (a blocky boulder with fallen chunks), "cracked" (a mound of blocks split apart), "layered"
+    /// (slabs in layers, flat like sandstone or tilted like schist), "cluster" (pointed rocks together), "outcrop"
+    /// (stepped blocks rising to a crest), "stacked" (flat stones balanced on a base), "pillar" (a spire of tall
+    /// blocks), "arch" (blocks along an arc). And "scree" (a patch of many small stones as one mesh).
+    /// </summary>
     public string Kind { get; set; } = "rock";
-    public static readonly string[] Kinds = ["stone", "rock", "boulder", "outcrop", "scree"];
+    public static readonly string[] Kinds = ["stone", "rock", "boulder", "angular", "cracked", "layered", "cluster", "outcrop", "stacked", "pillar", "arch", "scree"];
+    /// <summary>The kinds built of blocks (chunks), with pieces, debris and collision per part.</summary>
+    public static readonly string[] Formations = ["angular", "cracked", "layered", "cluster", "outcrop", "stacked", "pillar", "arch"];
+    public bool IsFormation => Formations.Contains(Kind);
     /// <summary>"realistic" (rough, noisy) or "stylized" (chunky facets, crisp edges, flat shaded).</summary>
     public string Style { get; set; } = "realistic";
     public static readonly string[] Styles = ["realistic", "stylized"];
     /// <summary>The widest size across, in metres (for scree: the patch).</summary>
     public double Size { get; set; } = 1;
-    /// <summary>Height against the width (0.2 a slab … 1.5 a standing stone).</summary>
+    /// <summary>Height against the width (0.2 a slab … 1.5 a standing stone … 5 a spire).</summary>
     public double Height { get; set; } = 0.7;
     /// <summary>Stretched along one side (0 round in plan … 1 twice as long as wide).</summary>
     public double Elongation { get; set; } = 0.3;
@@ -40,14 +49,22 @@ public sealed class RockRecipe
     /// <summary>How much rock one texture tile covers (metres).</summary>
     public double TileMetres { get; set; } = 1.5;
     public string Color { get; set; } = "#8a8580";
-    /// <summary>Moss on the upward faces (0 none … 1 thick), in the vertex colours (engines multiply them).</summary>
+    /// <summary>Moss on the upward faces (0 none … 1 thick): its own material in patches, and a green fringe in the vertex colours.</summary>
     public double Moss { get; set; }
-    public string MossColor { get; set; } = "#5e7a3a";
+    public string MossColor { get; set; } = "#6b8a34";
     /// <summary>Snow on the faces that look up (0 none … 1 on everything but the sides), as its own material.</summary>
     public double Snow { get; set; }
     public string SnowColor { get; set; } = "#eef2f6";
     /// <summary>Stones in a scree patch (scree only).</summary>
     public int Stones { get; set; } = 40;
+    /// <summary>Blocks in a formation (layers of a layered rock, rocks in a cluster, stones in an arch…; 0: as the kind likes).</summary>
+    public int Pieces { get; set; }
+    /// <summary>Small fallen stones round its foot (0 none … 1 many).</summary>
+    public double Debris { get; set; }
+    /// <summary>How steeply a layered rock's layers are tilted (degrees: 0 flat like sandstone, 30–60 like schist).</summary>
+    public double Dip { get; set; }
+    /// <summary>How sharply pillars and pointed rocks end (0 blunt … 1 a sharp point).</summary>
+    public double Taper { get; set; } = 0.5;
     public int Lods { get; set; } = 3;
     /// <summary>Triangles for each level, closest first (empty: the kind's budget, then about 40 % and 15 % of it; a third of that when stylized).</summary>
     public List<int> LodTriangles { get; set; } = [];
@@ -55,7 +72,11 @@ public sealed class RockRecipe
     public int CollisionPieces { get; set; } = 1;
 
     /// <summary>LOD0 budgets a game can afford (Thornwake's spec): stone 150, rock 400, boulder 1,200, outcrop 2,500, scree 1,500.</summary>
-    public static int Budget(string kind) => kind switch { "stone" => 150, "boulder" => 1200, "outcrop" => 2500, "scree" => 1500, _ => 400 };
+    public static int Budget(string kind) => kind switch
+    {
+        "stone" => 150, "boulder" or "angular" => 1200, "stacked" => 1400, "pillar" or "scree" => 1500, "layered" => 1600,
+        "cracked" or "cluster" => 1800, "outcrop" or "arch" => 2500, _ => 400,
+    };
 
     public int LevelTriangles(int lod) =>
         LodTriangles.Count > lod ? LodTriangles[lod] : lod == 0 ? Budget(Kind) : Math.Max(Kind == "stone" ? 24 : 40, (int)(LevelTriangles(0) * (lod == 1 ? 0.4 : 0.15)));
@@ -75,7 +96,7 @@ public sealed class RockRecipe
         Kind = Kinds.Contains(Kind) ? Kind : "rock";
         Style = Styles.Contains(Style) ? Style : "realistic";
         Size = C(Size, 0.05, 80, 1);
-        Height = C(Height, 0.1, 3, 0.7);
+        Height = C(Height, 0.1, 6, 0.7);
         Elongation = C(Elongation, 0, 1, 0.3);
         Roughness = C(Roughness, 0, 1, 0.5);
         Fractures = Math.Clamp(Fractures, 0, 12);
@@ -85,10 +106,14 @@ public sealed class RockRecipe
         TileMetres = C(TileMetres, 0.05, 50, 1.5);
         Color = Hex(Color, "#8a8580");
         Moss = C(Moss, 0, 1, 0);
-        MossColor = Hex(MossColor, "#5e7a3a");
+        MossColor = Hex(MossColor, "#6b8a34");
         Snow = C(Snow, 0, 1, 0);
         SnowColor = Hex(SnowColor, "#eef2f6");
         Stones = Math.Clamp(Stones, 3, 200);
+        Pieces = Math.Clamp(Pieces, 0, 40);
+        Debris = C(Debris, 0, 1, 0);
+        Dip = C(Dip, 0, 80, 0);
+        Taper = C(Taper, 0, 1, 0.5);
         Lods = Math.Clamp(Lods, 1, 3);
         LodTriangles = (LodTriangles ?? []).Take(3).Select(t => Math.Clamp(t, 8, 100_000)).ToList();
         CollisionPieces = Math.Clamp(CollisionPieces, 0, 8);
@@ -103,16 +128,25 @@ public static class RockPresets
 
     public static readonly IReadOnlyList<Preset> All =
     [
+        // Single rocks.
         new("stone", "Stone", "A small stone for scattering (0.2–0.5 m, 150 triangles).", () => new RockRecipe { Name = "Stone", Kind = "stone", Size = 0.35, Height = 0.6, Roughness = 0.4, Fractures = 5, Lods = 1, CollisionPieces = 0 }),
         new("rock", "Rock", "A knee-high rock (0.5–1.5 m).", () => new RockRecipe { Name = "Rock", Kind = "rock", Size = 1, Height = 0.7, Roughness = 0.5, Fractures = 7 }),
-        new("boulder", "Boulder", "A big boulder to climb on (1.5–4 m).", () => new RockRecipe { Name = "Boulder", Kind = "boulder", Size = 2.8, Height = 0.75, Roughness = 0.55, Fractures = 8 }),
-        new("mossy-boulder", "Mossy boulder", "A boulder in a damp forest, moss on top.", () => new RockRecipe { Name = "Mossy boulder", Kind = "boulder", Size = 2.4, Height = 0.7, Roughness = 0.45, Fractures = 5, Material = "mossy", Moss = 0.6, Color = "#7d7a70" }),
         new("river-stone", "River stone", "Smooth and rounded by water.", () => new RockRecipe { Name = "River stone", Kind = "rock", Size = 0.8, Height = 0.45, Elongation = 0.5, Roughness = 0.12, Fractures = 0, Material = "granite", Color = "#8e8a86" }),
-        new("slab", "Slab", "A flat, layered slab.", () => new RockRecipe { Name = "Slab", Kind = "rock", Size = 1.4, Height = 0.3, Elongation = 0.4, Roughness = 0.35, Fractures = 5, Strata = 0.6, Material = "sandstone", Color = "#a58e72" }),
-        new("outcrop", "Outcrop", "A wide, layered outcrop for cliff edges and rocky ground (2–6 m), flat underside.", () => new RockRecipe { Name = "Outcrop", Kind = "outcrop", Size = 4.5, Height = 0.55, Elongation = 0.6, Roughness = 0.5, Fractures = 8, Strata = 0.5, Material = "sandstone", Color = "#9c8b78", CollisionPieces = 3 }),
-        new("scree", "Scree patch", "Many small stones as one mesh, a 3 m patch of loose rock.", () => new RockRecipe { Name = "Scree", Kind = "scree", Size = 3, Stones = 45, Roughness = 0.5, CollisionPieces = 0 }),
-        new("stylized-boulder", "Stylized boulder", "Chunky facets and crisp edges, flat shaded.", () => new RockRecipe { Name = "Stylized boulder", Kind = "boulder", Style = "stylized", Size = 2.4, Height = 0.75, Roughness = 0.15, Fractures = 10, Material = "painted", Color = "#8c8a92" }),
+        new("rounded-boulder", "Rounded boulder", "A big rounded boulder with a little moss and stones at its foot.", () => new RockRecipe { Name = "Rounded boulder", Kind = "boulder", Style = "stylized", Size = 2.6, Height = 0.75, Roughness = 0.2, Fractures = 4, Material = "painted", Color = "#8f8b84", Moss = 0.25, Debris = 0.5 }),
+        new("mossy-stone", "Mossy forest stone", "A rounded stone deep in moss, for a damp forest floor.", () => new RockRecipe { Name = "Mossy forest stone", Kind = "boulder", Style = "stylized", Size = 2, Height = 0.7, Roughness = 0.2, Fractures = 3, Material = "painted", Color = "#8a877e", Moss = 0.85, Debris = 0.3 }),
         new("snowy-rock", "Snowy rock", "A mountain rock with its snow.", () => new RockRecipe { Name = "Snowy rock", Kind = "boulder", Size = 2.2, Height = 0.65, Roughness = 0.6, Fractures = 7, Material = "rock", Snow = 0.6 }),
+        // Formations of blocks (after the stylized rock reference sheet).
+        new("angular-boulder", "Angular boulder", "A blocky boulder, big flat faces, chunks broken off at its foot.", () => new RockRecipe { Name = "Angular boulder", Kind = "angular", Style = "stylized", Size = 2.6, Height = 0.7, Material = "painted", Color = "#8d8a86", Debris = 0.6, CollisionPieces = 2 }),
+        new("cracked-rock", "Cracked rock", "A mound of blocks split apart along its cracks.", () => new RockRecipe { Name = "Cracked rock", Kind = "cracked", Style = "stylized", Size = 3, Height = 0.75, Material = "painted", Color = "#8a8782", Moss = 0.2, Debris = 0.5, CollisionPieces = 3 }),
+        new("layered-sandstone", "Layered sandstone", "Flat slabs in layers, warm red sandstone.", () => new RockRecipe { Name = "Layered sandstone", Kind = "layered", Style = "stylized", Size = 3, Height = 0.45, Elongation = 0.4, Material = "sandstone", Color = "#b8744a", Debris = 0.3, CollisionPieces = 2 }),
+        new("schist-tor", "Schist tor", "Thin tilted layers breaking out of a hillside, jagged and half buried (as on the Otago high country).", () => new RockRecipe { Name = "Schist tor", Kind = "layered", Size = 3.5, Height = 0.55, Elongation = 0.5, Dip = 50, Roughness = 0.6, Material = "rock", Color = "#85847e", Debris = 0.5, CollisionPieces = 3 }),
+        new("rock-cluster", "Rock cluster", "Pointed rocks leaning out from a tall one.", () => new RockRecipe { Name = "Rock cluster", Kind = "cluster", Style = "stylized", Size = 3, Height = 0.8, Taper = 0.6, Material = "painted", Color = "#8b8984", Debris = 0.4, CollisionPieces = 3 }),
+        new("rocky-outcrop", "Rocky outcrop", "Stepped blocks rising to a crest, for cliff edges and hillsides.", () => new RockRecipe { Name = "Rocky outcrop", Kind = "outcrop", Style = "stylized", Size = 5, Height = 0.6, Elongation = 0.6, Material = "painted", Color = "#8a8780", Moss = 0.3, Debris = 0.4, CollisionPieces = 4 }),
+        new("stacked-stones", "Stacked formation", "Flat stones balanced on a blocky base.", () => new RockRecipe { Name = "Stacked formation", Kind = "stacked", Style = "stylized", Size = 2, Height = 1.1, Material = "painted", Color = "#8e8a84", Moss = 0.2, Debris = 0.5, CollisionPieces = 3 }),
+        new("stone-spire", "Stone pillar", "A spire of tall blocks tapering to a point.", () => new RockRecipe { Name = "Stone pillar", Kind = "pillar", Style = "stylized", Size = 1.8, Height = 2.6, Taper = 0.7, Material = "painted", Color = "#86847f", Debris = 0.5, CollisionPieces = 2 }),
+        new("natural-arch", "Natural arch", "Blocks along an arc, big ones at its feet.", () => new RockRecipe { Name = "Natural arch", Kind = "arch", Style = "stylized", Size = 5, Height = 0.75, Elongation = 0.3, Material = "painted", Color = "#8c8984", Moss = 0.3, Debris = 0.4, CollisionPieces = 6 }),
+        // Ground.
+        new("scree", "Scree patch", "Many small stones as one mesh, a 3 m patch of loose rock.", () => new RockRecipe { Name = "Scree", Kind = "scree", Size = 3, Stones = 45, Roughness = 0.5, CollisionPieces = 0 }),
     ];
 
     public static RockRecipe Make(string id) => (All.FirstOrDefault(p => p.Id == id) ?? All[1]).Make().Clamped();

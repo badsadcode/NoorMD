@@ -31,7 +31,7 @@ window.NoorAssets = (() => {
   let history = [], future = [], lastSnapshot = '';
   let exportWhere = null;
   // Godot first (one file: the NoorMD plugin switches its levels), then Unity (one file: a LOD Group from the names), Unreal.
-  const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true, godotInProject: true };
+  const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true, godotInProject: true, woodOnly: false };
   let exportPrefs = (() => { try { return { ...exportDefaults, ...JSON.parse(localStorage.getItem('noormd.assets.export') || '{}') }; } catch { return { ...exportDefaults }; } })();
   const ENGINES = {
     godot: { name: 'Godot 4', lodFiles: 'one', helper: 'Godot import plugin: levels switched by distance, wind', title: 'addons/noor_trees: written into your Godot project’s addons folder when you export into a Godot project (otherwise beside the trees, to copy there). Turn it on once in Project Settings → Plugins; every NoorMD tree you import then gets its levels of detail switched by distance and the wind shader with its own textures. Other scenes are left alone.' },
@@ -55,9 +55,13 @@ window.NoorAssets = (() => {
   const LEAVES = [['broad', 'Broad leaves'], ['round', 'Round leaves'], ['maple', 'Maple-like'], ['slender', 'Slender (willow)'], ['needle', 'Needles'], ['frond', 'Fronds (palm, fern)']];
   const QUALITY = [['low', 'Low (fast, chunky)'], ['medium', 'Medium'], ['high', 'High (fine detail, slower)']];
   const VIEWS = [['shaded', 'Shaded'], ['clay', 'Clay'], ['parts', 'Parts'], ['wind', 'Wind data']];
-  const ROCK_KINDS = [['stone', 'Stone (0.2–0.5 m)'], ['rock', 'Rock (0.5–1.5 m)'], ['boulder', 'Boulder (1.5–4 m)'], ['outcrop', 'Outcrop (2–6 m, flat underside)'], ['scree', 'Scree patch (many small stones)']];
+  const ROCK_KINDS = [['stone', 'Stone (0.2–0.5 m)'], ['rock', 'Rock (0.5–1.5 m)'], ['boulder', 'Rounded boulder (1.5–4 m)'],
+    ['angular', 'Angular boulder (blocks, chunks at its foot)'], ['cracked', 'Cracked rock (a mound of split blocks)'], ['layered', 'Layered rock (sandstone flat, schist tilted)'],
+    ['cluster', 'Rock cluster (pointed rocks together)'], ['outcrop', 'Rocky outcrop (stepped blocks)'], ['stacked', 'Stacked stones (balanced)'],
+    ['pillar', 'Stone pillar or spire'], ['arch', 'Natural arch'], ['scree', 'Scree patch (many small stones)']];
+  const FORMATIONS = ['angular', 'cracked', 'layered', 'cluster', 'outcrop', 'stacked', 'pillar', 'arch'];
   const ROCK_STYLES = [['realistic', 'Realistic (rough, smooth shading)'], ['stylized', 'Stylized (big facets, flat shaded)']];
-  const ROCK_BUDGET = { stone: 150, rock: 400, boulder: 1200, outcrop: 2500, scree: 1500 };
+  const ROCK_BUDGET = { stone: 150, rock: 400, boulder: 1200, angular: 1200, cracked: 1800, layered: 1600, cluster: 1800, outcrop: 2500, stacked: 1400, pillar: 1500, arch: 2500, scree: 1500 };
   const TABS = { tree: [['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']], rock: [['rock', 'Rock'], ['surface', 'Surface'], ['rmesh', 'Mesh'], ['export', 'Export']] };
 
   function init(h) {
@@ -229,7 +233,8 @@ window.NoorAssets = (() => {
       el('button', { class: 'utility-btn sb-save', id: 'ab-save', title: 'Keep this recipe in “Mine”', onclick: savePreset }, '💾 Save as mine'),
       ...(selectedPreset.startsWith('user:') ? [el('button', { class: 'utility-btn', id: 'ab-delete', onclick: deletePreset }, '🗑 Delete this one')] : [])];
     if (isRock()) {
-      const kinds = ROCK_KINDS.map(([k, t]) => [t.replace(/ \(.*$/, ''), rockPresets.builtIn.filter((p) => p.kind === k)]);
+      const kinds = [['Single rocks', (p) => ['stone', 'rock', 'boulder'].includes(p.kind)], ['Formations', (p) => FORMATIONS.includes(p.kind)], ['Ground', (p) => p.kind === 'scree']]
+        .map(([title, test]) => [title, rockPresets.builtIn.filter(test)]);
       nav.replaceChildren(subjects, ...[...kinds, ['Mine', rockPresets.mine]].flatMap(([title, list]) => list.length ? [el('div', { class: 'gnav-head', text: title }), ...list.map(item)] : []), ...saveRow);
       return;
     }
@@ -399,14 +404,23 @@ window.NoorAssets = (() => {
     $('#ab-kind').textContent = `${(STYLES.find((s) => s[0] === recipe.style) || ['', ''])[1]} · ${(ARCHETYPES.find((a) => a[0] === recipe.archetype) || ['', ''])[1]}`;
   }
 
+  // A re-render that blurs a changed number box fires its change (and so another render) mid-way: one at a time.
+  let rendering = false;
   function renderEditor() {
-    if (!recipe) return;
+    if (!recipe || rendering) return;
+    rendering = true;
+    try { renderPane(); } finally { rendering = false; }
+  }
+
+  function renderPane() {
     renderHeader();
     document.querySelectorAll('#assetbench .sb-tabs [data-tab]').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#ab-pane');
     const keep = pane.scrollTop;
     // Keep the keyboard where it was (a re-render replaces the controls).
     const focused = document.activeElement && pane.contains(document.activeElement) ? document.activeElement.getAttribute('data-key') : null;
+    // Let a box being left take its value first (its change event runs now, not while the pane is replaced).
+    if (document.activeElement && pane.contains(document.activeElement)) document.activeElement.blur();
     const panes = { tree: treePane, branches: branchesPane, leaves: leavesPane, mesh: meshPane, rock: rockPane, surface: surfacePane, rmesh: rockMeshPane };
     pane.replaceChildren(...(panes[tab] || exportPane)().filter(Boolean));
     pane.scrollTop = keep;
@@ -567,17 +581,25 @@ window.NoorAssets = (() => {
 
   function rockPane() {
     const scree = recipe.kind === 'scree';
+    const formation = FORMATIONS.includes(recipe.kind);
+    const PIECES = { angular: 'Fallen chunks', cracked: 'Blocks', layered: 'Layers', cluster: 'Rocks', outcrop: 'Columns of blocks', stacked: 'Stones on top', pillar: 'Blocks round it', arch: 'Stones in the arch' };
     return [
       section('Kind',
         el('div', { class: 'sb-row' }, choice(recipe, 'kind', 'Kind', ROCK_KINDS, 'What it is: sizes and triangle budgets follow (a scree patch is many small stones as one mesh)', true), choice(recipe, 'style', 'Look', ROCK_STYLES, 'Realistic: rough surface, smooth shading with hard edges where it broke. Stylized: a few big flat facets', true))),
       section('Shape',
         slider(recipe, ['size', scree ? 'Patch size' : 'Size', 0.05, 20, 0.01, 'm', scree ? 'How wide the patch of stones is' : 'Its widest side']),
         scree ? slider(recipe, ['stones', 'Stones', 3, 200, 1, 'int', 'How many stones in the patch (the far levels leave out the smallest)']) : null,
-        scree ? null : slider(recipe, ['height', 'Height', 0.1, 3, 0.01, 'pct', 'Height against the width: low for a slab, over 100% for a standing stone']),
+        scree ? null : slider(recipe, ['height', 'Height', 0.1, 6, 0.01, 'pct', 'Height against the width: low for a slab, over 100% for a standing stone, several times for a spire']),
         scree ? null : slider(recipe, ['elongation', 'Stretch', 0, 1, 0.01, 'pct', 'Longer one way than the other']),
         slider(recipe, ['roughness', 'Roughness', 0, 1, 0.01, 'pct', 'Lumps and pits on the surface (not used by the stylized look)']),
-        scree ? null : slider(recipe, ['fractures', 'Broken faces', 0, 12, 1, 'int', 'Flat faces where the rock split off']),
-        scree ? null : slider(recipe, ['strata', 'Layers', 0, 1, 0.01, 'pct', 'Ledges round it, as in layered sandstone or slate'])),
+        scree || formation ? null : slider(recipe, ['fractures', 'Broken faces', 0, 12, 1, 'int', 'Flat faces where the rock split off']),
+        scree || formation ? null : slider(recipe, ['strata', 'Ledges', 0, 1, 0.01, 'pct', 'Ledges round it, as in layered sandstone or slate'])),
+      formation ? section('Blocks',
+        slider(recipe, ['pieces', PIECES[recipe.kind] || 'Pieces', 0, 24, 1, 'int', 'How many (0: as this kind likes, a few different each seed)']),
+        recipe.kind === 'layered' ? slider(recipe, ['dip', 'Tilt of the layers', 0, 80, 1, 'deg', '0: flat, like sandstone. 30–60: tilted, like schist breaking out of a hillside (thin layers, jagged ends, half buried)']) : null,
+        ['cluster', 'pillar'].includes(recipe.kind) ? slider(recipe, ['taper', 'Pointed', 0, 1, 0.01, 'pct', 'How sharply the rocks end: blunt or a sharp point']) : null) : null,
+      scree ? null : section('Foot',
+        slider(recipe, ['debris', 'Fallen stones', 0, 1, 0.01, 'pct', 'Small stones round its foot, as rocks have in the wild (a small share of the triangles; none on the farthest level)'])),
       scree ? null : section('Ground',
         check(recipe, 'flatBase', 'Flat underside', 'Cut flat where it meets the ground, so it sits without rocking'),
         slider(recipe, ['sink', 'Sinks in', 0, 0.5, 0.01, 'pct', 'How far the base reaches below the pivot, as a share of the height: no gaps on uneven ground'])),
@@ -622,7 +644,7 @@ window.NoorAssets = (() => {
         own ? el('button', { class: 'utility-btn', id: 'ab-rock-auto', onclick: () => { recipe.lodTriangles = []; changed(true); } }, `Back to the ${recipe.kind}’s budget`) : el('small', { class: 'pref-hint', text: `The ${recipe.kind}’s budget: ${budget.toLocaleString()} triangles up close, then about 40% and 15%${recipe.style === 'stylized' ? ' — a third of that for the stylized look' : ''}.` })),
       section('Collision',
         slider(recipe, ['collisionPieces', 'Convex pieces', 0, 8, 1, 'int', 'Convex collision shapes in the closest level (64 triangles at most each), named “-convcolonly” for Godot. Wide or arched rocks want several; 0: none']),
-        el('small', { class: 'pref-hint', text: recipe.kind === 'scree' ? 'A scree patch has no collision: players walk over loose stones.' : 'Shown in the manifest too, for other engines.' })),
+        el('small', { class: 'pref-hint', text: recipe.kind === 'scree' ? 'A scree patch has no collision: players walk over loose stones.' : FORMATIONS.includes(recipe.kind) ? 'Each piece is a group of neighbouring blocks (an arch keeps its opening). Shown in the manifest too, for other engines.' : 'Shown in the manifest too, for other engines.' })),
     ];
   }
 
@@ -709,7 +731,7 @@ window.NoorAssets = (() => {
   }
 
   function exportPane() {
-    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: isRock() ? recipe.kind : recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods + (recipe.billboard ? 1 : 0), lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, recipeKind: subject }), hooks.showError);
+    if (!exportWhere) exportWhere = NoorExportWhere.panel('model', () => ({ name: recipe.name, family: isRock() ? recipe.kind : recipe.archetype, size: exportPrefs.textureSize, lods: recipe.lods + (recipe.billboard ? 1 : 0), lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, recipeKind: subject, woodOnly: !isRock() && exportPrefs.woodOnly }), hooks.showError);
     const size = el('select', { id: 'ab-tex-size', 'aria-label': 'Texture size' }, ...[[0, 'No textures (plain colours)'], [256, '256 px'], [512, '512 px'], [1024, '1024 px'], [2048, '2048 px']].map(([v, t]) => el('option', { value: String(v), text: t })));
     size.value = String(exportPrefs.textureSize);
     size.addEventListener('change', () => { exportPrefs.textureSize = Number(size.value); saveExportPrefs(); exportWhere.refresh(); });
@@ -748,6 +770,10 @@ window.NoorAssets = (() => {
     spread.addEventListener('input', () => { exportPrefs.spread = Number(spread.value); spreadText.textContent = `± ${Math.round(exportPrefs.spread * 100)}%`; saveExportPrefs(); });
     const spreadRow = el('label', { class: 'sb-inline', title: isRock() ? 'Each rock is up to this much bigger or smaller' : 'Each tree is up to this much taller or shorter (the trunk follows)', hidden: exportPrefs.variants < 2 }, el('span', { text: 'Size spread' }), spread, spreadText);
     const things = isRock() ? 'rocks' : 'trees';
+    // The trunk and branches alone: for leaves of your own, or a bare tree.
+    const woodBox = el('input', { type: 'checkbox', id: 'ab-wood-only', checked: exportPrefs.woodOnly || undefined });
+    woodBox.addEventListener('change', () => { exportPrefs.woodOnly = woodBox.checked; saveExportPrefs(); exportWhere.refresh(); });
+    const woodOnly = isRock() ? null : el('label', { class: 'sb-inline', title: 'Only the trunk and branches, without leaves, clumps, crystals or moss: to put leaves of your own on them, or for a bare tree. The wood is the same as the full tree’s, and the files end in _Wood so they sit beside the full tree. The billboard (if on) is drawn from the bare wood' }, woodBox, el('span', { text: 'Wood only: the trunk and branches, no foliage' }));
     exportWhere.refresh();
     return [
       section('Variety pack',
@@ -757,6 +783,7 @@ window.NoorAssets = (() => {
         el('small', { class: 'pref-hint', text: isRock() ? 'A world needs a few of each: a pack gives each rock its own shape from the same recipe (3 to 5 is usual), numbered _01, _02…, each with its recipe.' : 'A forest needs many trees: a pack gives each its own shape from the same recipe, numbered _01, _02…, each with its recipe so any can be opened and changed again.' })),
       section('Files',
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'For' }), engine), el('label', { class: 'sb-inline' }, el('span', { text: 'Textures' }), size), el('label', { class: 'sb-inline' }, el('span', { text: 'Levels of detail' }), files)),
+        woodOnly,
         helper,
         inProject,
         el('small', { class: 'pref-hint', text: isRock()
@@ -781,7 +808,7 @@ window.NoorAssets = (() => {
     const btn = $('#ab-export');
     btn.disabled = true;
     try {
-      const r = await req(cmd('export'), { recipe, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, godotInProject: exportPrefs.godotInProject !== false, ...exportWhere.payload() });
+      const r = await req(cmd('export'), { recipe, woodOnly: !isRock() && !!exportPrefs.woodOnly, textureSize: exportPrefs.textureSize, lodFiles: exportPrefs.lodFiles, variants: exportPrefs.variants, spread: exportPrefs.spread, shaders: exportPrefs.shaders, engine: exportPrefs.engine, godotInProject: exportPrefs.godotInProject !== false, ...exportWhere.payload() });
       if (!r || r.cancelled) return;
       lastExport = r;
       lastExport.subject = subject;

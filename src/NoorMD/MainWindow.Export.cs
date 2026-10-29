@@ -154,9 +154,11 @@ public partial class MainWindow
                 else if (bench == "model")
                 {
                     var file = ExportLayouts.FileName(ExportLayouts.Expand(place.FilePattern, tokens), name);
+                    var wood = Json.IsTrue(p, "woodOnly") ? "_Wood" : "";
+                    file += wood;
                     var lods = Math.Clamp((int)(Json.OptDouble(p, "lods") ?? 1), 1, 6);
                     var variants = Math.Clamp((int)(Json.OptDouble(p, "variants") ?? 1), 1, NoorMD.Media.Assets3D.TreeVariants.MaxCount);
-                    var stem = ExportLayouts.FileName(tokens["name"], name);
+                    var stem = ExportLayouts.FileName(tokens["name"], name) + wood;
                     // A variety pack lists the first tree's files and says how many more there are.
                     var first = variants > 1 ? $"{file}_01" : file;
                     if (lods > 1 && req.GetString("lodFiles", 10) != "one") for (var i = 0; i < lods; i++) files.Add($"{first}_LOD{i}.glb");

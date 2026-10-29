@@ -430,6 +430,30 @@ Still open: the biome catalogue (and rocks, stage 2).
   distance and leaves its materials alone), a variety pack (sizes spread), the recipe and a manifest (pivot, sink,
   levels, triangles, collision pieces, materials, texel density).
 
+### Formations and a better stylized look (preview.77)
+
+From a stylized rock reference sheet (rounded and angular boulders, cracked rock, layered sandstone, mossy forest
+stone, rock cluster, rocky outcrop, stacked formation, stone pillar, natural arch) and a photo of schist tors (thin
+tilted layers breaking out of a hillside, jagged, half buried):
+
+- **Formations of blocks** (`RockFormations.cs`): each block a rounded box (or squashed ball) with chipped corners,
+  turned and placed by the kind's layout, joined with the slightest rounding so the seams stay creases (read as
+  cracks). Kinds: angular, cracked, layered (flat sandstone, or tilted by `dip` into thin overhanging schist layers,
+  buried to the height asked), cluster (pointed, `taper`), outcrop (stepped blocks to a crest), stacked, pillar (a
+  cone of pointed blocks round a segmented middle), arch (blocks along an arc, big feet). `pieces` sets how many.
+- **Fallen stones** round the foot (`debris`), a small share of the triangles, none on the farthest level.
+- **Collision per group of blocks:** the blocks gathered into the asked number of neighbour groups (k-means on their
+  centres), each group's surface a ≤ 34-point hull — an arch keeps its opening.
+- **Painted light** in the vertex colours from the surface's bend: lighter tops and edges, darker cracks and foot
+  (strong when stylized, a touch when realistic). Stylized normals keep planes flat and bevels soft (38°).
+- **Moss** as its own textured material in patches on upward faces (plus a green fringe in the vertex colours); a
+  softer painted rock texture.
+- Presets grouped as single rocks, formations and ground; the stylized budget cut is a third for single rocks, two
+  thirds for formations.
+
+Trees: **wood only** on the Export tab — the trunk and branches without leaves, clumps, crystals or moss (the same
+wood as the full tree), files ending in `_Wood`, for your own leaves or a bare tree.
+
 Next for rocks: baked normal and AO maps from the dense form, dual contouring for crisper stylized edges, landform
 pieces (≤ 8,000), arches with several collision pieces placed by shape rather than slices.
 

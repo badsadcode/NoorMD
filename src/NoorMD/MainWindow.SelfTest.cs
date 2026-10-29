@@ -556,7 +556,7 @@ public partial class MainWindow
             // A rock in the app: its levels, its collision pieces named for Godot, its GLB read back in the page.
             await Eval(@"window.__rock = null; (async () => {
                 try {
-                    const r = await NoorBridge.request('asset.rock.preset', { id: 'boulder' });
+                    const r = await NoorBridge.request('asset.rock.preset', { id: 'angular-boulder' });
                     const out = await NoorBridge.request('asset.rock.build', { recipe: r });
                     const glb = NoorAssetView.parseGlb(await (await fetch(out.lods[0].url)).arrayBuffer());
                     window.__rock = JSON.stringify({ lods: out.lods.length, tris: out.lods.map((l) => l.triangles), collision: out.collision, nodes: glb.nodes.filter((n) => n.mesh >= 0).map((n) => n.name) });

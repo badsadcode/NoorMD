@@ -28,6 +28,8 @@ public static class TreeBuilder
         public int TextureSize { get; init; } = 512;
         /// <summary>Build only the first N levels of detail (the preview needs one).</summary>
         public int? MaxLods { get; init; }
+        /// <summary>Only the trunk and branches: no leaves, clumps, crystals or moss (the wood is the same as with them).</summary>
+        public bool WoodOnly { get; init; }
         /// <summary>Reads a picture of your own (bark, leaves) by its path; null when it can't or may not be read.</summary>
         public Func<string, RawImage?>? Images { get; init; }
     }
@@ -128,7 +130,7 @@ public static class TreeBuilder
 
         // Clump shapes (stylized foliage): blobs at the branch tips, melted together. Drawn as a solid mesh ("clumps",
         // "both"), or only used to place leaf cards over them, with no solid mesh at all ("tufts").
-        var clumpShapes = recipe.Foliage is "clumps" or "both" or "tufts" && recipe.Archetype is not ("dead" or "cactus");
+        var clumpShapes = recipe.Foliage is "clumps" or "both" or "tufts" && recipe.Archetype is not ("dead" or "cactus") && !options.WoodOnly;
         var clumps = clumpShapes && recipe.Foliage != "tufts";
         if (clumpShapes)
             foreach (var g in groups)
@@ -316,8 +318,9 @@ public static class TreeBuilder
                 if (bark.NormalPng != null && wood.VertexCount > 0) wood.ComputeTangents();
                 wood.Name = g.Name;
 
-                // Leaves of this group.
+                // Leaves of this group (none for the wood alone).
                 var leaves = new Mesh3D { Name = g.Name == "Trunk" ? "Leaves" : g.Name + "_Leaves" };
+                if (options.WoodOnly) { made.Add((g, wood, leaves)); continue; }
                 Mesh3D? clumpMesh = null;
                 if (clumpShapes && g.ClumpDense != null && g.ClumpField != null)
                 {
@@ -345,7 +348,7 @@ public static class TreeBuilder
 
             // The crown looked at from its sides: where the sky shows through, more cards on the nearest branches,
             // until it is as full as asked or the leaf budget is spent.
-            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging") && recipe.Foliage != "masses")
+            if (cards && !options.WoodOnly && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging") && recipe.Foliage != "masses")
             {
                 var fill = FillCrown(made, sk, recipe, asset.Materials, leafIndex, detail, lodGrow, new Random(recipe.Seed * 6007 + lod), ct);
                 if (lod == 0) canopy = fill;

@@ -49,7 +49,7 @@ public static class GameProfiles
     /// textures, axes and wind data are laid out, and the profile's own notes. Written for a person or an agent bringing
     /// the trees into the game.
     /// </summary>
-    public static string Handoff(GameProfile profile, TreeRecipe recipe, string manifest, IReadOnlyList<Delivered> trees, int textureSize)
+    public static string Handoff(GameProfile profile, TreeRecipe recipe, string manifest, IReadOnlyList<Delivered> trees, int textureSize, bool woodOnly = false)
     {
         var inv = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
@@ -66,11 +66,21 @@ public static class GameProfiles
         sb.Append("\n* `").Append(manifest).Append("`: every tree, level, file, triangle count, bounds and material, for reading by a tool.\n");
         sb.Append("* `*.noortree.json`: each tree's recipe (with its seed), to remake it at another size or change it later.\n\n");
         sb.Append("## Layout\n\n");
-        sb.Append("* A file per level, `_LOD0` the closest. Each file has one root; the wood is a mesh named `Trunk` (and `Branch_..`), the leaves `Leaves`.\n");
-        sb.Append("* Metres, Y up (glTF), the pivot at the base of the trunk on the ground. Bounds in the manifest are Y up too.\n");
-        sb.Append("* Materials: `Bark` (opaque) and `Leaves` (alpha MASK, cut-off 0.5, single-sided cards with real back faces)");
-        if (recipe.Moss > 0) sb.Append(", `Moss` (alpha MASK)");
-        sb.Append(".\n");
+        if (woodOnly)
+        {
+            sb.Append("* **Wood only:** the trunk and branches, no leaves (for leaves of your own, or a bare tree). The files end in `_Wood`.\n");
+            sb.Append("* A file per level, `_LOD0` the closest. Each file has one root; the wood is a mesh named `Trunk` (and `Branch_..`).\n");
+            sb.Append("* Metres, Y up (glTF), the pivot at the base of the trunk on the ground. Bounds in the manifest are Y up too.\n");
+            sb.Append("* Material: `Bark` (opaque).\n");
+        }
+        else
+        {
+            sb.Append("* A file per level, `_LOD0` the closest. Each file has one root; the wood is a mesh named `Trunk` (and `Branch_..`), the leaves `Leaves`.\n");
+            sb.Append("* Metres, Y up (glTF), the pivot at the base of the trunk on the ground. Bounds in the manifest are Y up too.\n");
+            sb.Append("* Materials: `Bark` (opaque) and `Leaves` (alpha MASK, cut-off 0.5, single-sided cards with real back faces)");
+            if (recipe.Moss > 0) sb.Append(", `Moss` (alpha MASK)");
+            sb.Append(".\n");
+        }
         if (recipe.Pixels > 0)
             sb.Append("* Textures ").Append(recipe.Pixels).Append(" × ").Append(recipe.Pixels).Append(" px, embedded, full PBR: colour (sRGB")
               .Append(recipe.PixelColours > 0 ? $", {recipe.PixelColours} colours" : "").Append("), normal (OpenGL, Y+) and ORM (R occlusion, G roughness, B metallic); leaves cut out hard. The files' samplers say NEAREST — keep the engine's filter on nearest for crisp pixels.\n");
