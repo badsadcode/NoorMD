@@ -64,7 +64,8 @@ first, and anything that conflicts with it waits.
 - NoorSprite (pixel art and animation, after the ideas of Aseprite and LibreSprite), stage 1: preview.94; stage 2
   (shading, dithering, brushes from the sprite, outline, palette files, linked cels, RotSprite, Scale2x): preview.95;
   slices, reference layers, packed sheets, Godot SpriteFrames and scenes: preview.96; tilemap layers, tilesets and
-  Godot TileSets: preview.97; in-betweens and frame timing: preview.98. See
+  Godot TileSets: preview.97; in-betweens and frame timing: preview.98; smooth lines, indexed colour and colour
+  cycling, tiling, free and radial symmetry, turned tiles: preview.99. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorCanvas (a layered photo and painting editor) is planned in
   [NOORCANVAS_PLAN.md](NOORCANVAS_PLAN.md); NoorSketch stays the small sketchpad it is.
 

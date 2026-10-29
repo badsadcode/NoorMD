@@ -1794,6 +1794,9 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .spritebench .sp-layername.ref { font-style: italic; opacity: .8; }
 .spritebench .sp-slicepanel { display: flex; flex-direction: column; gap: 4px; }
 .spritebench .sp-slicepanel[hidden] { display: none; }
+.spritebench #sp-cycle.on { outline: 2px solid var(--accent); }
+.spritebench #sp-cycle[hidden] { display: none; }
+.spritebench .sp-palette.indexed { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 4px; }
 .spritebench .sp-tileset { display: flex; flex-direction: column; gap: 4px; }
 .spritebench .sp-tileset[hidden] { display: none; }
 .spritebench .sp-tileset .utility-btn.on { outline: 2px solid var(--accent); }

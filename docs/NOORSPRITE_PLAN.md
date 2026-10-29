@@ -144,6 +144,33 @@ NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and p
   fast), each set to a length, or a total length shared out evenly.
 - Stage 3 is done. Still to come from stage 2: a true indexed colour mode.
 
+## Stage 4 — more for pixel artists and games (planned after stage 3)
+
+Indexed colour and colour cycling; tiled drawing; symmetry about any axis and radial; smooth lines (a stabilizer);
+turned tiles; layer groups; gradients with dithering and pattern fills; squash, stretch and smears for in-betweens;
+cel offsets with a motion path; onion skin by tag and as outlines; a timeline of thumbnails; Unity and Unreal
+(Paper2D) exports; autotiling (Godot terrains); every tilemap layer in one Godot scene; hitboxes that move with the
+frames; links to NoorForge, the Texture Bench, NoorSequencer, the Vault and the Gallery; command search, shortcuts of
+one's own, a floating reference picture, pen pressure.
+
+### Done in preview.99
+
+- **Smooth lines** (the pencil's and eraser's "Smooth", S cycles it): the brush hangs on a string behind the cursor —
+  gentle to very strong — so a shaky hand draws round, even curves; the string shows while drawing.
+- **Indexed colour** (palette ⋯): every pixel is a palette colour by its number. Changing a colour changes every
+  pixel of it; sorting, reversing or removing colours keeps the picture (the numbers follow); off-palette colours
+  drawn become the nearest. Indexed .aseprite files are opened as such and saved at 8 bits (a clear entry added
+  when needed); exported PNGs are palette PNGs when every pixel allows.
+- **Colour cycling** (🌈): palette colours from one to another turn round at a speed — water, fire, lights —
+  played on the canvas and the preview, kept in the .noorsprite file.
+- **Tiling** (View): the sprite shown repeated around itself (both ways, across or down), and drawing that wraps
+  round the edges — for seamless tiles and textures.
+- **Symmetry** about axes of one's own (half-pixel steps, shown dashed) and **radial** symmetry (2 to 8 copies
+  turned round where the axes cross).
+- **Turned tiles** (⇋ ⇵ ⟳ in the tileset panel; Shift+X, Shift+Y, R in tile mode): tiles placed flipped or turned a
+  quarter, kept with the tile (as Aseprite keeps them), drawn turned, and exported to Godot with its flip and
+  transpose flags (checked in headless Godot 4.4).
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

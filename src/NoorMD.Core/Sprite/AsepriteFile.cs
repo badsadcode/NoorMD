@@ -6,9 +6,10 @@ namespace NoorMD.Core.Sprite;
 
 /// <summary>
 /// Aseprite's .aseprite / .ase files, read and written from its published file specification (no Aseprite or
-/// LibreSprite code). Reading takes RGBA, greyscale and indexed sprites (turned into RGBA), image layers (groups and
-/// tilemaps are passed over, their names noted), raw, linked and compressed cels, frame durations, tags and the
-/// palette. Writing makes an RGBA sprite with compressed cels, the palette, layers and tags.
+/// LibreSprite code). Reading takes RGBA, greyscale and indexed sprites (their pixels as RGBA, an indexed one marked
+/// so), image layers (groups and tilemaps are passed over, their names noted), raw, linked and compressed cels, frame
+/// durations, tags and the palette. Writing makes an RGBA sprite with compressed cels, the palette, layers and tags —
+/// or an indexed one when the sprite is indexed and every pixel is a palette colour.
 /// </summary>
 public static class AsepriteFile
 {
@@ -165,7 +166,7 @@ public static class AsepriteFile
         if (doc.Layers.Count == 0) throw new InvalidDataException("That sprite has no image layers NoorSprite can show.");
         if (skipped.Count > 0) notes.Add($"Left out: {string.Join(", ", skipped)} (their image layers are kept, flat).");
         doc.Palette = palette.Take(SpriteDoc.MaxPalette).Select(c => $"#{c.R:x2}{c.G:x2}{c.B:x2}{c.A:x2}").ToList();
-        if (depth == 8) notes.Add("An indexed sprite: NoorSprite keeps its colours as RGBA (the palette is kept too).");
+        if (depth == 8) doc.ColorMode = "indexed";
         return new Result(doc.Checked(), notes);
     }
 
@@ -188,16 +189,18 @@ public static class AsepriteFile
             flat.Tilesets = [];
             doc = flat.Checked();
         }
+        var (indices, outPalette, clear) = doc.ColorMode == "indexed" ? Indexed(doc) : (null, doc.Palette, 0);
         using var ms = new MemoryStream();
         var header = new byte[128];
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(4), HeaderMagic);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(6), (ushort)doc.Frames.Count);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(8), (ushort)doc.Width);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(10), (ushort)doc.Height);
-        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(12), 32);
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(12), (ushort)(indices != null ? 8 : 32));
+        header[28] = (byte)clear;
         BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(14), 1); // layer opacity is valid
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(18), (ushort)Math.Clamp(doc.Frames[0].Duration, 1, 65535));
-        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(32), (ushort)(doc.Palette.Count is > 0 and < 256 ? doc.Palette.Count : 0));
+        BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(32), (ushort)(outPalette.Count is > 0 and < 256 ? outPalette.Count : 0));
         header[34] = 1; header[35] = 1; // square pixels
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(40), (ushort)doc.GridWidth);
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(42), (ushort)doc.GridHeight);
@@ -208,7 +211,7 @@ public static class AsepriteFile
             if (f == 0)
             {
                 chunks.Add((ChunkColorProfile, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])); // sRGB
-                if (doc.Palette.Count > 0) chunks.Add((ChunkPalette, PaletteChunk(doc.Palette)));
+                if (outPalette.Count > 0) chunks.Add((ChunkPalette, PaletteChunk(outPalette)));
                 foreach (var l in doc.Layers) chunks.Add((ChunkLayer, LayerChunk(l)));
                 if (doc.Tags.Count > 0) chunks.Add((ChunkTags, TagsChunk(doc.Tags)));
                 foreach (var sl in doc.Slices) chunks.Add((ChunkSlice, SliceChunk(sl)));
@@ -218,7 +221,7 @@ public static class AsepriteFile
                 if (doc.Cel(doc.Layers[li].Id, f) is not { } cel) continue;
                 // A linked cel after its first frame is written as a link to that frame.
                 var first = cel.Link == null ? null : doc.Cels.Where(c => c.Layer == cel.Layer && c.Link == cel.Link).MinBy(c => c.Frame);
-                chunks.Add((ChunkCel, first != null && first.Frame < f ? LinkedCelChunk(li, cel, first.Frame) : CelChunk(li, cel)));
+                chunks.Add((ChunkCel, first != null && first.Frame < f ? LinkedCelChunk(li, cel, first.Frame) : CelChunk(li, cel, indices != null ? indices[cel] : cel.Pixels())));
             }
             var body = new MemoryStream();
             foreach (var (type, data) in chunks)
@@ -253,10 +256,41 @@ public static class AsepriteFile
         return d;
     }
 
-    private static byte[] CelChunk(int layer, SpriteCel c)
+    /// <summary>
+    /// An indexed sprite's cels as palette indices (clear pixels at the palette's clear entry, added if there is none),
+    /// or no indices when a pixel isn't a palette colour or there's no room for a clear entry.
+    /// </summary>
+    private static (Dictionary<SpriteCel, byte[]>? Indices, List<string> Palette, int Clear) Indexed(SpriteDoc doc)
+    {
+        var pal = doc.Palette.ToList();
+        var clear = pal.FindIndex(c => c.EndsWith("00", StringComparison.Ordinal) && c.Length == 9);
+        var lookup = new Dictionary<string, byte>();
+        for (var i = pal.Count - 1; i >= 0; i--) lookup[pal[i]] = (byte)i;
+        var result = new Dictionary<SpriteCel, byte[]>();
+        foreach (var cel in doc.Cels)
+        {
+            var px = cel.Pixels();
+            var idx = new byte[cel.Width * cel.Height];
+            for (var i = 0; i < idx.Length; i++)
+            {
+                if (px[i * 4 + 3] == 0)
+                {
+                    if (clear < 0) { if (pal.Count >= 256) return (null, doc.Palette, 0); pal.Add("#00000000"); clear = pal.Count - 1; }
+                    idx[i] = (byte)clear;
+                    continue;
+                }
+                if (!lookup.TryGetValue($"#{px[i * 4]:x2}{px[i * 4 + 1]:x2}{px[i * 4 + 2]:x2}{px[i * 4 + 3]:x2}", out var k)) return (null, doc.Palette, 0);
+                idx[i] = k;
+            }
+            result[cel] = idx;
+        }
+        return (result, pal, Math.Max(0, clear));
+    }
+
+    private static byte[] CelChunk(int layer, SpriteCel c, byte[] data)
     {
         using var z = new MemoryStream();
-        using (var zs = new ZLibStream(z, CompressionLevel.Optimal, leaveOpen: true)) zs.Write(c.Pixels());
+        using (var zs = new ZLibStream(z, CompressionLevel.Optimal, leaveOpen: true)) zs.Write(data);
         var d = new byte[20 + z.Length];
         BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)layer);
         BinaryPrimitives.WriteInt16LittleEndian(d.AsSpan(2), (short)c.X);

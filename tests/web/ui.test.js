@@ -6003,6 +6003,109 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66g. NoorSprite: smooth lines, indexed colour, colour cycling, tiling, symmetry, turned tiles.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const a = (x, y, l, f) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
+      const strokeTo = async (pts, steps = 5) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps }); } await page.mouse.up(); };
+      const fresh = async (w, h) => { await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok'); await page.fill('#sp-nw', String(w)); await page.fill('#sp-nh', String(h)); await page.click('#sp-new-ok'); const sure = await page.waitForSelector('button.action.primary:has-text("New sprite")', { timeout: 1500 }).catch(() => null); if (sure) await sure.click(); await waitFn(page, (ww) => NoorSprite._state().width === ww, w); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await fresh(64, 32);
+      // Smooth lines: the brush trails the cursor on a string.
+      await page.keyboard.press('b');
+      check('the pencil offers smooth lines (off at first)', (await page.inputValue('#sp-stabilize')) === '0');
+      await page.selectOption('#sp-stabilize', '64');
+      check('…chosen (strong)', (await SS()).opts.stabilize === 64);
+      // A stroke of 8 pixels at zoom 8 (64 screen px) with a 64 px string: the brush hasn't moved yet.
+      await strokeTo([[4, 10], [12, 10]]);
+      check('a short stroke with a long string draws only where it began', (await a(4, 10)) === 255 && (await a(10, 10)) === 0);
+      await page.keyboard.press('Control+z');
+      await strokeTo([[4, 10], [40, 10]], 20);
+      check('…a long one catches up, trailing behind the cursor', (await a(20, 10)) === 255 && (await a(39, 10)) === 0);
+      await page.keyboard.press('s');
+      check('S: smooth lines stronger again, round to off', (await SS()).opts.stabilize === 112);
+      await page.keyboard.press('s');
+      check('…and off', (await SS()).opts.stabilize === 0);
+      // Symmetry about an axis of one's own, and radial.
+      await fresh(32, 32);
+      await page.check('[data-opt="mirrorX"]');
+      await page.fill('[data-opt="axisX"]', '10'); await page.press('[data-opt="axisX"]', 'Enter');
+      await strokeTo([[4, 4], [4, 4]]);
+      check('mirror ↔ about an axis at x 10: the pixel at 4 lands at 15', (await a(4, 4)) === 255 && (await a(15, 4)) === 255 && (await a(27, 4)) === 0);
+      await page.click('#sp-axes-middle');
+      await page.uncheck('[data-opt="mirrorX"]');
+      await page.selectOption('#sp-radial', '4');
+      await strokeTo([[16, 4], [16, 4]]);
+      check('radial 4×: four copies turned round the middle', (await a(16, 4)) === 255 && (await a(27, 16)) === 255 && (await a(15, 27)) === 255 && (await a(4, 15)) === 255);
+      await page.selectOption('#sp-radial', '0');
+      // Tiled: shown around itself, and drawing wraps round the edges.
+      await page.selectOption('#sp-tiled', 'both');
+      await strokeTo([[29, 20], [34, 20]]);
+      check('tiled: a line off the right edge comes back on the left', (await a(31, 20)) === 255 && (await a(0, 20)) === 255 && (await a(2, 20)) === 255);
+      await page.selectOption('#sp-tiled', '');
+      // Indexed colour.
+      await fresh(8, 8);
+      await page.evaluate(() => { NoorSprite._load({ version: 1, width: 4, height: 1, palette: ['#000000ff', '#ff0000ff', '#00ff00ff', '#0000ffff'], layers: [{ id: 'a', name: 'A', visible: true, locked: false, opacity: 255, blend: 'normal' }], frames: [{ duration: 100 }], tags: [], cels: [{ layer: 'a', frame: 0, x: 0, y: 0, width: 3, height: 1, opacity: 255, data: btoa(String.fromCharCode(255, 0, 0, 255, 0, 255, 0, 255, 250, 10, 10, 255)) }] }); });
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("Indexed colour")');
+      let st = await SS();
+      check('palette ⋯ makes the sprite indexed: every pixel a palette colour (the off one the nearest)', st.indexed && (await page.evaluate(() => NoorSprite._index(2, 0))) === 1 && (await page.evaluate(() => NoorSprite._pixel(2, 0))).join() === '255,0,0,255' && /indexed/.test(await page.textContent('#sp-file')));
+      await page.dblclick('#sp-palette [data-index="1"]'); await page.waitForSelector('#sp-sw-ok');
+      await page.$eval('#sp-sw-colour', (i) => { i.value = '#ffff00'; });
+      await page.click('#sp-sw-ok');
+      check('changing a palette colour changes every pixel of it', (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,255,0,255' && (await page.evaluate(() => NoorSprite._pixel(2, 0))).join() === '255,255,0,255' && (await page.evaluate(() => NoorSprite._pixel(1, 0))).join() === '0,255,0,255');
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("Reverse")');
+      check('reversing the palette keeps the picture (the indices follow)', (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,255,0,255' && (await page.evaluate(() => NoorSprite._index(0, 0))) === 2);
+      await page.keyboard.press('Control+z');
+      // Colour cycling.
+      await page.click('#sp-cycle'); await page.waitForSelector('#sp-cy-ok');
+      await page.fill('#sp-cy-from', '2'); await page.fill('#sp-cy-to', '3'); await page.fill('#sp-cy-fps', '20');
+      await page.click('#sp-cy-ok');
+      st = await SS();
+      check('🌈 colour cycling: colours 2–3 turn round, playing', st.cycle && st.cycle.from === 1 && st.cycle.to === 2 && st.cycling);
+      const seen = new Set();
+      for (let i = 0; i < 8; i++) { seen.add((await page.evaluate(() => NoorSprite._shown(0, 0))).join()); await page.waitForTimeout(60); }
+      check('…the shown colour of those pixels changes as it plays (the sprite itself doesn\'t)', seen.size === 2 && (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,255,0,255');
+      await page.click('#sp-cycle');
+      check('…and stops', !(await SS()).cycling);
+      const w = await page.evaluate(() => NoorSprite._wire());
+      check('the sprite says it is indexed, with its cycling', w.colorMode === 'indexed' && w.cycle.to === 2);
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'frame'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      check('an indexed sprite\'s export sends the palette (palette PNGs)', (await page.evaluate(() => window.__mock.state.sprite.exports[0].palette.length)) === 4);
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("RGB colour")');
+      check('…and back to RGB', !(await SS()).indexed);
+      // Turned tiles.
+      await fresh(16, 8);
+      await page.fill('#sp-viewopts [aria-label="Grid width"]', '8'); await page.press('#sp-viewopts [aria-label="Grid width"]', 'Enter');
+      await page.fill('#sp-viewopts [aria-label="Grid height"]', '8'); await page.press('#sp-viewopts [aria-label="Grid height"]', 'Enter');
+      await page.click('#sp-addtilemap');
+      await page.keyboard.press('b');
+      await strokeTo([[0, 0], [0, 0]]);
+      await page.click('#sp-tiles [data-tile="1"]');
+      await page.click('#sp-tile-fx');
+      await strokeTo([[12, 4], [12, 4]]);
+      let tl = await page.evaluate(() => NoorSprite._tiles());
+      check('a tile placed flipped across: its pixel on the other side', (tl[1] & 0x1fffffff) === 1 && (tl[1] & 0x20000000) !== 0 && (await a(15, 0)) === 255 && (await a(8, 0)) === 0);
+      await page.click('#sp-tile-fx');
+      await page.keyboard.press('r');
+      await strokeTo([[12, 4], [12, 4]]);
+      check('R turns the tile a quarter clockwise (top left to top right)', (await a(15, 0)) === 255 && (await a(8, 7)) === 0);
+      await page.keyboard.press('Shift+Y');
+      await strokeTo([[12, 4], [12, 4]]);
+      check('Shift+Y flips it down too (top right to bottom right)', (await a(15, 7)) === 255);
+      await page.keyboard.press('t');
+      await strokeTo([[1, 1], [1, 1]]);
+      tl = await page.evaluate(() => NoorSprite._tiles());
+      check('a turned tile left alone keeps its turn when the tile is drawn on', (tl[1] & 0x1fffffff) !== 0 && (tl[1] & ~0x1fffffff) !== 0);
+      check('no page errors in this NoorSprite batch', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66g-noorsprite-batch.png` });
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

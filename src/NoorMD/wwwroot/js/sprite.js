@@ -30,12 +30,14 @@ window.NoorSprite = (() => {
   let layer = 0, frame = 0; // the layer (index, bottom first) and frame being drawn
   let tool = 'pencil';
   let fg = [0, 0, 0, 255], bg = [255, 255, 255, 255];
-  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, ink: 'simple', dither: 0, custom: false };
+  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, radial: 0, axisX: null, axisY: null, ink: 'simple', dither: 0, custom: false, stabilize: 0 };
   let brushImage = null;    // a brush cut from the sprite: { px, w, h }
   // Ordered dithering (a 4 × 4 Bayer matrix): a pixel is drawn when its cell is under the level (of 16).
+  // The stabilizer: the brush hangs on a string this long (screen pixels) behind the cursor, so lines come out smooth.
+  const STABILIZERS = [[0, 'off'], [16, 'gentle'], [32, 'medium'], [64, 'strong'], [112, 'very strong']];
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '' };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -79,6 +81,7 @@ window.NoorSprite = (() => {
     const prev = doc;
     doc = snapshot(doc);
     fn(doc);
+    normalizeIndexed(doc, prev);
     normalizeTilemaps(doc, prev);
     layer = Math.max(0, Math.min(doc.layers.length - 1, layer));
     frame = Math.max(0, Math.min(doc.frames.length - 1, frame));
@@ -204,6 +207,7 @@ window.NoorSprite = (() => {
           el('div', { class: 'sp-palette-head' },
             el('select', { id: 'sp-palette-pick', 'aria-label': 'Palette' }),
             el('button', { class: 'icon-btn', title: 'Add the colour to the palette', 'aria-label': 'Add to palette', onclick: addToPalette }, '＋'),
+            el('button', { class: 'icon-btn', id: 'sp-cycle', title: 'Colour cycling: play / stop (an indexed sprite\'s palette colours turning round)', 'aria-label': 'Colour cycling', onclick: toggleCycling }, '🌈'),
             el('button', { class: 'icon-btn', id: 'sp-palmenu', title: 'Palette: sort, a ramp, the sprite\'s colours, load and save…', 'aria-label': 'Palette menu', onclick: paletteMenu }, '⋯')),
           el('div', { class: 'sp-palette', id: 'sp-palette', role: 'listbox', 'aria-label': 'Palette (click: draw with it; right-click: second colour; Shift+click: remove)' })),
         el('div', { class: 'sp-centre' },
@@ -270,7 +274,7 @@ window.NoorSprite = (() => {
 
   function renderAll() {
     if (!built || !doc) return;
-    $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}`;
+    $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}${doc.indexed ? ' · indexed' : ''}`;
     renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderTileset();
     fitCanvas(); draw(); drawPreview(); status();
     keepFocus();
@@ -297,8 +301,11 @@ window.NoorSprite = (() => {
     const named = Object.keys(PALETTES).find((n) => PALETTES[n].split(' ').map((c) => `#${c}ff`).join() === doc.palette.join());
     $('#sp-palette-pick').value = named || '';
     const current = hex(fg);
+    const cb = $('#sp-cycle');
+    if (cb) { cb.hidden = !doc.indexed; cb.classList.toggle('on', !!cycling); }
+    box.classList.toggle('indexed', !!doc.indexed);
     box.replaceChildren(...doc.palette.map((c, i) => el('button', { class: 'sp-pal' + (c === current ? ' on' : ''), 'data-index': String(i), 'data-colour': c, title: `${c} (click: draw with it; right-click: second colour; double-click: change it; Shift+click: remove)`, style: `--c:${c}`,
-      onclick: (e) => { if (e.shiftKey) { change('Remove a colour', (d) => { d.palette.splice(i, 1); }); return; } fg = parseHex(c); renderColours(); renderPalette(); keepFocus(); },
+      onclick: (e) => { if (e.shiftKey) { change('Remove a colour', (d) => { const old = d.palette; d.palette = old.filter((_, j) => j !== i); remapIndices(d, old.map((_, j) => (j < i ? j : j === i ? -1 : j - 1)), old); }); return; } fg = parseHex(c); renderColours(); renderPalette(); keepFocus(); },
       ondblclick: () => editSwatch(i),
       oncontextmenu: (e) => { e.preventDefault(); bg = parseHex(c); renderColours(); } })));
   }
@@ -336,7 +343,7 @@ window.NoorSprite = (() => {
   function renderOptions() {
     const box = $('#sp-options');
     if (!box) return;
-    const check = (k, label, title) => { const c = el('input', { type: 'checkbox', checked: opts[k] || undefined, 'data-opt': k }); c.addEventListener('change', () => { opts[k] = c.checked; keepFocus(); }); return el('label', { class: 'sb-inline', title }, c, el('span', { text: label })); };
+    const check = (k, label, title) => { const c = el('input', { type: 'checkbox', checked: opts[k] || undefined, 'data-opt': k }); c.addEventListener('change', () => { opts[k] = c.checked; if (k.startsWith('mirror')) { renderOptions(); draw(); } keepFocus(); }); return el('label', { class: 'sb-inline', title }, c, el('span', { text: label })); };
     const num = (k, label, min, max, title) => {
       const i = el('input', { type: 'number', min: String(min), max: String(max), value: String(opts[k]), class: 'sb-num', 'data-opt': k, 'aria-label': label });
       i.addEventListener('change', () => { opts[k] = Math.max(min, Math.min(max, Math.round(Number(i.value) || min))); i.value = String(opts[k]); keepFocus(); });
@@ -351,10 +358,29 @@ window.NoorSprite = (() => {
       const dith = el('select', { 'data-opt': 'dither', 'aria-label': 'Dithering', title: 'Draw only some pixels, in an even pattern (ordered dithering)' }, ...DITHERS.map(([v, l]) => el('option', { value: String(v), text: l })));
       dith.value = String(opts.dither); dith.addEventListener('change', () => { opts.dither = Number(dith.value); keepFocus(); });
       parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Ink' }), inkSel), el('label', { class: 'sb-inline' }, el('span', { text: 'Pattern' }), dith));
+    }
+    if (tool === 'pencil' || tool === 'eraser') {
+      const stab = el('select', { 'data-opt': 'stabilize', id: 'sp-stabilize', 'aria-label': 'Stabilizer', title: 'Smooth lines: the brush follows the cursor on a string, so wobbles even out into round curves (S cycles)' }, ...STABILIZERS.map(([v, l]) => el('option', { value: String(v), text: l })));
+      stab.value = String(opts.stabilize); stab.addEventListener('change', () => { opts.stabilize = Number(stab.value); keepFocus(); });
+      parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Smooth' }), stab));
+    }
+    if (tool === 'pencil') {
       if (brushImage) parts.push(check('custom', `the brush cut from the sprite (${brushImage.w} × ${brushImage.h})`, 'Draw with the picture cut with Ctrl+B'));
       else parts.push(el('span', { class: 'pref-hint', text: 'Ctrl+B: a brush from the selection' }));
     }
-    if (['pencil', 'eraser', 'line', 'rect', 'ellipse', 'fill'].includes(tool)) parts.push(check('mirrorX', 'mirror ↔', 'Draw the other side too, mirrored left to right'), check('mirrorY', 'mirror ↕', 'Draw the other half too, mirrored top to bottom'));
+    if (['pencil', 'eraser', 'line', 'rect', 'ellipse', 'fill'].includes(tool)) {
+      const axis = (k, label) => {
+        const i = el('input', { type: 'number', step: '0.5', min: '0', max: String(k === 'axisX' ? doc.width : doc.height), value: String(k === 'axisX' ? axisX() : axisY()), class: 'sb-num', 'data-opt': k, 'aria-label': label, title: `${label} (in pixels; .5 is a pixel's middle)` });
+        i.addEventListener('change', () => { const v = Math.round(Number(i.value) * 2) / 2; opts[k] = Number.isFinite(v) ? v : null; draw(); keepFocus(); });
+        return i;
+      };
+      const radial = el('select', { 'data-opt': 'radial', id: 'sp-radial', 'aria-label': 'Radial symmetry', title: 'Copies turned round where the axes cross (a star, a flower, a wheel)' }, el('option', { value: '0', text: 'none' }), ...[2, 3, 4, 5, 6, 8].map((n) => el('option', { value: String(n), text: `${n}×` })));
+      radial.value = String(opts.radial); radial.addEventListener('change', () => { opts.radial = Number(radial.value); renderOptions(); draw(); keepFocus(); });
+      parts.push(check('mirrorX', 'mirror ↔', 'Draw the other side too, mirrored about the vertical axis'), check('mirrorY', 'mirror ↕', 'Draw the other half too, mirrored about the horizontal axis'),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Radial' }), radial));
+      if (opts.mirrorX || opts.mirrorY || opts.radial) parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Axes' }), axis('axisX', 'Vertical axis at x'), axis('axisY', 'Horizontal axis at y')),
+        el('button', { class: 'utility-btn', id: 'sp-axes-middle', title: 'The axes back in the middle', onclick: () => { opts.axisX = opts.axisY = null; renderOptions(); draw(); } }, 'Middle'));
+    }
     if (tool === 'fill' || tool === 'wand') parts.push(check('contiguous', 'touching only', 'Only the area touching the click (else every pixel of that colour)'), num('tolerance', 'Tolerance', 0, 255, 'How different a colour may be and still count as the same'));
     if (tool === 'rect' || tool === 'ellipse') parts.push(check('filled', 'filled', 'Filled (else only the outline); Shift: a square or a circle'));
     if (['select', 'eselect', 'lasso', 'wand'].includes(tool)) parts.push(el('span', { class: 'pref-hint', text: 'Shift: add · Alt: take away · Ctrl+A all · Ctrl+D none · Ctrl+Shift+I turn round' }));
@@ -403,6 +429,12 @@ window.NoorSprite = (() => {
       el('h4', { class: 'music-subhead', text: 'View' }),
       check('pixelGrid', 'pixel grid', 'Lines between the pixels when zoomed in'),
       check('slices', 'slices', 'The slices\' outlines (always shown with the slice tool)'),
+      (() => {
+        const t = el('select', { id: 'sp-tiled', 'aria-label': 'Tiled', title: 'The sprite repeated around itself, and drawing that wraps round the edges: for seamless tiles and textures' },
+          el('option', { value: '', text: 'not tiled' }), el('option', { value: 'both', text: 'tiled both ways' }), el('option', { value: 'x', text: 'tiled across' }), el('option', { value: 'y', text: 'tiled down' }));
+        t.value = view.tiled; t.addEventListener('change', () => { view.tiled = t.value; draw(); keepFocus(); });
+        return el('label', { class: 'sb-inline' }, el('span', { text: 'Tiling' }), t);
+      })(),
       el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
       el('div', { class: 'sb-row' },
@@ -678,7 +710,8 @@ window.NoorSprite = (() => {
 
   function toPixel(e) {
     const r = $('#sp-canvas').getBoundingClientRect(), o = origin();
-    return { x: Math.floor((e.clientX - r.left - o.x) / view.zoom), y: Math.floor((e.clientY - r.top - o.y) / view.zoom), cx: e.clientX - r.left, cy: e.clientY - r.top };
+    const fx = (e.clientX - r.left - o.x) / view.zoom, fy = (e.clientY - r.top - o.y) / view.zoom;
+    return { x: Math.floor(fx), y: Math.floor(fy), fx, fy, cx: e.clientX - r.left, cy: e.clientY - r.top };
   }
 
   const scratch = document.createElement('canvas');
@@ -715,6 +748,16 @@ window.NoorSprite = (() => {
     const shown = composeShown();
     ctx.drawImage(pixelsToCanvas(shown, doc.width, doc.height), o.x, o.y, W, H);
     ctx.restore();
+    if (view.tiled) {
+      // The sprite repeated around itself, fainter, to see that it joins up.
+      const sc = pixelsToCanvas(shown, doc.width, doc.height), tx = view.tiled !== 'y', ty = view.tiled !== 'x';
+      ctx.save(); ctx.imageSmoothingEnabled = false; ctx.globalAlpha = 0.6;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if ((!dx && !dy) || (dx && !tx) || (dy && !ty)) continue;
+        ctx.drawImage(sc, o.x + dx * W, o.y + dy * H, W, H);
+      }
+      ctx.restore();
+    }
     // The pixel grid, and a grid of one's own.
     ctx.lineWidth = 1;
     if (view.pixelGrid && z >= 8) {
@@ -738,14 +781,29 @@ window.NoorSprite = (() => {
       ctx.stroke();
       const at = tileMode && hover && !drag && cellAt(hover);
       if (at) {
-        if (tool === 'pencil' && ts.tiles[tileSel]) { ctx.globalAlpha = 0.6; ctx.drawImage(pixelsToCanvas(ts.tiles[tileSel], ts.tw, ts.th), o.x + at.c * tw, o.y + at.r * th, tw, th); ctx.globalAlpha = 1; }
+        if (tool === 'pencil' && ts.tiles[tileSel]) { ctx.globalAlpha = 0.6; ctx.drawImage(pixelsToCanvas(turnedTile(ts, tileSel | tileFlags), ts.tw, ts.th), o.x + at.c * tw, o.y + at.r * th, tw, th); ctx.globalAlpha = 1; }
         ctx.strokeStyle = '#ffaa28'; ctx.lineWidth = 2; ctx.strokeRect(o.x + at.c * tw + 1, o.y + at.r * th + 1, tw - 2, th - 2); ctx.lineWidth = 1;
       }
     }
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(o.x - 0.5, o.y - 0.5, W + 1, H + 1);
+    if (['pencil', 'eraser', 'line', 'rect', 'ellipse', 'fill'].includes(tool) && (opts.mirrorX || opts.mirrorY || opts.radial > 1)) {
+      // The symmetry axes.
+      ctx.save(); ctx.strokeStyle = 'rgba(255,60,200,0.8)'; ctx.setLineDash([6, 4]); ctx.beginPath();
+      if (opts.mirrorX || opts.radial > 1) { const x = Math.round(o.x + axisX() * z) + 0.5; ctx.moveTo(x, o.y); ctx.lineTo(x, o.y + H); }
+      if (opts.mirrorY || opts.radial > 1) { const y = Math.round(o.y + axisY() * z) + 0.5; ctx.moveTo(o.x, y); ctx.lineTo(o.x + W, y); }
+      ctx.stroke(); ctx.restore();
+    }
     // The selection's edge (marching ants).
     if (selection) drawSelection(ctx, o, z);
     drawSlices(ctx, o, z);
+    // The stabilizer's string, from the brush to the cursor.
+    if (drag && drag.kind === 'stroke' && drag.lazy) {
+      const L = drag.lazy, bx = o.x + L.x * z, by = o.y + L.y * z;
+      ctx.save(); ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(L.cx, L.cy); ctx.stroke();
+      ctx.setLineDash([]); ctx.strokeStyle = 'rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.arc(bx, by, opts.stabilize, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
     // The brush under the cursor.
     if (hover && ['pencil', 'eraser'].includes(tool) && !spaceHeld && !altHeld && !tilesOn()) {
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
@@ -756,7 +814,7 @@ window.NoorSprite = (() => {
   /** The current frame as shown: the sprite, a shape being drawn and a lifted selection on top. */
   function composeShown() {
     if (!drag || !drag.preview) {
-      if (!floating) return compose(frame);
+      if (!floating) return composeCycled(frame) || compose(frame);
     }
     const d = snapshot(doc);
     if (drag && drag.preview) {
@@ -806,7 +864,7 @@ window.NoorSprite = (() => {
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.drawImage(pixelsToCanvas(compose(frame), doc.width, doc.height), 0, 0, cv.width, cv.height);
+    ctx.drawImage(pixelsToCanvas(composeCycled(frame) || compose(frame), doc.width, doc.height), 0, 0, cv.width, cv.height);
     $('#sp-preview-label').textContent = `${scale}× · frame ${frame + 1}/${doc.frames.length}${playing ? ' · playing' : ''}`;
   }
 
@@ -815,7 +873,7 @@ window.NoorSprite = (() => {
     if (!s || !doc) return;
     const at = hover && hover.x >= 0 && hover.y >= 0 && hover.x < doc.width && hover.y < doc.height ? hover : null;
     let colour = '';
-    if (at) { const px = compose(frame); const i = (at.y * doc.width + at.x) * 4; colour = ` · ${hex([px[i], px[i + 1], px[i + 2], px[i + 3]])}`; }
+    if (at) { const px = compose(frame); const i = (at.y * doc.width + at.x) * 4; colour = ` · ${hex([px[i], px[i + 1], px[i + 2], px[i + 3]])}`; const ix = indexAt(at.x, at.y); if (ix !== null) colour += ` · index ${ix < 0 ? 'clear' : ix + 1}`; }
     const sel = selection ? ` · selection ${selection.x1 - selection.x0 + 1} × ${selection.y1 - selection.y0 + 1}` : '';
     let tile = '';
     if (isTilemap()) { const c = at && cellAt(at), n = c ? currentMap()[c.i] : 0; tile = ` · ${tileMode ? 'tiles' : 'pixels'}${c ? ` · cell ${c.c}, ${c.r}: ${n ? `tile ${n}` : 'none'}` : ''}`; }
@@ -848,16 +906,33 @@ window.NoorSprite = (() => {
     return mirrored(pts);
   }
 
+  /** Where symmetry turns about: an axis of one's own, or the middle (on a pixel's edge or its middle: halves). */
+  const axisX = () => (opts.axisX === null ? doc.width / 2 : opts.axisX);
+  const axisY = () => (opts.axisY === null ? doc.height / 2 : opts.axisY);
+
+  /** Points with their mirror images (about the axes) and radial copies (turned about where the axes cross). */
   function mirrored(pts) {
-    const out = [...pts];
-    if (opts.mirrorX) for (const [x, y] of pts) out.push([doc.width - 1 - x, y]);
-    if (opts.mirrorY) for (const [x, y] of [...out]) out.push([x, doc.height - 1 - y]);
+    const out = [...pts], ax = axisX(), ay = axisY();
+    if (opts.mirrorX) for (const [x, y] of pts) out.push([Math.round(2 * ax - 1 - x), y]);
+    if (opts.mirrorY) for (const [x, y] of [...out]) out.push([x, Math.round(2 * ay - 1 - y)]);
+    if (opts.radial > 1) {
+      const base = [...out];
+      for (let k = 1; k < opts.radial; k++) {
+        const a = (k * 2 * Math.PI) / opts.radial, cs = Math.cos(a), sn = Math.sin(a);
+        for (const [x, y] of base) { const dx = x + 0.5 - ax, dy = y + 0.5 - ay; out.push([Math.round(ax + dx * cs - dy * sn - 0.5), Math.round(ay + dx * sn + dy * cs - 0.5)]); }
+      }
+    }
     return out;
   }
+
+  /** Tiled drawing: what goes off one edge comes back on the other. */
+  const wrapX = (x) => (view.tiled === 'both' || view.tiled === 'x' ? ((x % doc.width) + doc.width) % doc.width : x);
+  const wrapY = (y) => (view.tiled === 'both' || view.tiled === 'y' ? ((y % doc.height) + doc.height) % doc.height : y);
 
   const inside = (x, y) => x >= 0 && y >= 0 && x < doc.width && y < doc.height && (!selection || selection.mask[y * doc.width + x]);
 
   function plot(px, x, y, c) {
+    x = wrapX(x); y = wrapY(y);
     if (!inside(x, y)) return;
     px.set(c, (y * doc.width + x) * 4);
   }
@@ -945,7 +1020,8 @@ window.NoorSprite = (() => {
       // The stroke draws into a copy shown as it goes; it becomes one undo step when the button is let go.
       const base = cel();
       drag = { kind: 'stroke', colour: t === 'eraser' ? [0, 0, 0, 0] : colour, last: [p.x, p.y], preview: base ? new Uint8ClampedArray(base.px) : new Uint8ClampedArray(doc.width * doc.height * 4), original: base ? base.px : null, trail: [],
-        ink: t === 'pencil' ? opts.ink : 'simple', shadeDir: e.button === 2 ? -1 : 1, shaded: new Set(), custom: t === 'pencil' && opts.custom && brushImage };
+        ink: t === 'pencil' ? opts.ink : 'simple', shadeDir: e.button === 2 ? -1 : 1, shaded: new Set(), custom: t === 'pencil' && opts.custom && brushImage,
+        lazy: opts.stabilize ? { x: p.fx, y: p.fy, cx: p.cx, cy: p.cy } : null };
       stamp(p.x, p.y);
       draw();
       return;
@@ -984,6 +1060,7 @@ window.NoorSprite = (() => {
   /** One pixel of a stroke by its ink: plain, dithered (some pixels only), or shading (a step along the palette). */
   function ink(x, y) {
     const d = drag;
+    x = wrapX(x); y = wrapY(y);
     if (!inside(x, y)) return;
     if (opts.dither && tool === 'pencil' && BAYER[(y & 3) * 4 + (x & 3)] >= opts.dither) return;
     if (d.ink === 'shade') {
@@ -1006,7 +1083,7 @@ window.NoorSprite = (() => {
       const s = (by * b.w + bx) * 4;
       if (!b.px[s + 3]) continue;
       const c = [b.px[s], b.px[s + 1], b.px[s + 2], b.px[s + 3]];
-      for (const [mx, my] of mirrored([[ox + bx, oy + by]])) if (inside(mx, my)) plot(drag.preview, mx, my, c);
+      for (const [mx, my] of mirrored([[ox + bx, oy + by]])) plot(drag.preview, mx, my, c);
     }
   }
 
@@ -1045,9 +1122,18 @@ window.NoorSprite = (() => {
     if (drag.kind === 'picker') { pick(p, drag.right); return; }
     if (drag.kind === 'tiles') { tileMove(p); return; }
     if (drag.kind === 'stroke') {
-      const pts = linePoints(drag.last[0], drag.last[1], p.x, p.y).slice(1);
+      let to = [p.x, p.y];
+      if (drag.lazy) {
+        // The brush is pulled along only when the cursor is further away than the string is long.
+        const L = drag.lazy, R = opts.stabilize / view.zoom, dx = p.fx - L.x, dy = p.fy - L.y, dist = Math.hypot(dx, dy);
+        if (dist > R) { L.x += (dx / dist) * (dist - R); L.y += (dy / dist) * (dist - R); }
+        L.cx = p.cx; L.cy = p.cy;
+        to = [Math.floor(L.x), Math.floor(L.y)];
+        if (to[0] === drag.last[0] && to[1] === drag.last[1]) { draw(); return; }
+      }
+      const pts = linePoints(drag.last[0], drag.last[1], to[0], to[1]).slice(1);
       for (const [x, y] of pts) stamp(x, y);
-      drag.last = [p.x, p.y];
+      drag.last = to;
       draw(); status();
       return;
     }
@@ -1230,6 +1316,7 @@ window.NoorSprite = (() => {
     const prev = doc;
     doc = snapshot(doc);
     putCel(doc, k, { px, opacity: old ? old.opacity : 255 });
+    normalizeIndexed(doc, prev);
     normalizeTilemaps(doc, prev);
     selection = bounds(mask);
     renderAll();
@@ -1422,6 +1509,147 @@ window.NoorSprite = (() => {
     fitZoom(); renderAll();
   }
 
+  // ---------------------------------------------------------------- indexed colour
+
+  // An indexed sprite: each cel keeps the palette index of every pixel (idx; −1 clear) beside its pixels, which are
+  // always drawn from it. Drawing works out the indices afterwards (an unchanged pixel keeps its index, else the
+  // palette's colour, else the nearest); changing a palette colour changes every pixel of that index.
+  const palDist = (p, r, g, b, a) => (p[0] - r) ** 2 * 3 + (p[1] - g) ** 2 * 4 + (p[2] - b) ** 2 * 2 + (p[3] - a) ** 2 * 2;
+
+  function renderIndexed(idx, pal) {
+    const px = new Uint8ClampedArray(idx.length * 4);
+    for (let i = 0; i < idx.length; i++) { const c = pal[idx[i]]; if (c) px.set(c, i * 4); }
+    return px;
+  }
+
+  function normalizeIndexed(d, prev) {
+    if (!d.indexed || !d.palette.length) return;
+    const pal = d.palette.map(parseHex), palChanged = !prev || !prev.indexed || prev.palette.join() !== d.palette.join();
+    const exact = new Map(), near = new Map();
+    pal.forEach((c, i) => { const k = rgbaKey(c, 0); if (!exact.has(k)) exact.set(k, i); });
+    const nearest = (r, g, b, a) => {
+      const k = ((r << 24 | g << 16 | b << 8 | a) >>> 0);
+      let n = exact.get(k);
+      if (n !== undefined) return n;
+      n = near.get(k);
+      if (n !== undefined) return n;
+      let bd = Infinity; n = 0;
+      pal.forEach((p2, i) => { if (!p2[3]) return; const dd = palDist(p2, r, g, b, a); if (dd < bd) { bd = dd; n = i; } });
+      near.set(k, n);
+      return n;
+    };
+    const refs = new Set(d.layers.filter((l) => l.reference).map((l) => l.id));
+    const done = new Map();
+    for (const [k, c] of [...d.cels]) {
+      if (refs.has(k.slice(0, k.lastIndexOf(':')))) continue;
+      const pxChanged = !c.idx || c.idxPx !== c.px;
+      if (!pxChanged && !palChanged) continue;
+      if (done.has(c.px)) { const r = done.get(c.px); d.cels.set(k, { ...c, ...r }); continue; }
+      const n = d.width * d.height, idx = new Int16Array(n);
+      if (!pxChanged) {
+        // The palette changed: each pixel keeps its index (one past the end takes the nearest colour left).
+        for (let i = 0; i < n; i++) { const v = c.idx[i]; idx[i] = v < pal.length ? v : (c.px[i * 4 + 3] ? nearest(c.px[i * 4], c.px[i * 4 + 1], c.px[i * 4 + 2], c.px[i * 4 + 3]) : -1); }
+      } else {
+        const was = c.idx || (prev && prev.cels.get(k) && prev.cels.get(k).idx);
+        for (let i = 0, o = 0; i < n; i++, o += 4) {
+          if (!c.px[o + 3]) { idx[i] = -1; continue; }
+          const v = was && was.length === n ? was[i] : -1, pc = v >= 0 && pal[v];
+          // A pixel still the colour its index had keeps the index (two entries of one colour stay apart).
+          idx[i] = pc && v < pal.length && pc[0] === c.px[o] && pc[1] === c.px[o + 1] && pc[2] === c.px[o + 2] && pc[3] === c.px[o + 3] ? v : nearest(c.px[o], c.px[o + 1], c.px[o + 2], c.px[o + 3]);
+        }
+      }
+      const px = renderIndexed(idx, pal), r = { px, idx, idxPx: px };
+      done.set(c.px, r);
+      d.cels.set(k, { ...c, ...r });
+    }
+  }
+
+  /** Palette entries moved or removed in an indexed sprite: every pixel's index follows its colour (`to[i]`: −1 gone). */
+  function remapIndices(d, to, oldPal) {
+    if (!d.indexed) return;
+    const pal = d.palette.map(parseHex), done = new Map();
+    for (const [k, c] of [...d.cels]) {
+      if (!c.idx) continue;
+      if (!done.has(c.idx)) {
+        const idx = new Int16Array(c.idx.length);
+        for (let i = 0; i < idx.length; i++) {
+          const v = c.idx[i];
+          if (v < 0) { idx[i] = -1; continue; }
+          let n = to[v];
+          if (n === undefined || n < 0) { const oc = parseHex(oldPal[v]); let bd = Infinity; n = 0; pal.forEach((p2, j) => { const dd = palDist(p2, ...oc); if (dd < bd) { bd = dd; n = j; } }); }
+          idx[i] = n;
+        }
+        done.set(c.idx, idx);
+      }
+      d.cels.set(k, { ...c, idx: done.get(c.idx), idxPx: c.px });
+    }
+  }
+
+  function setIndexed(on) {
+    if (on === !!doc.indexed) return;
+    if (on && !doc.palette.length) { notice('An indexed sprite needs a palette first', 1600); return; }
+    change(on ? 'Indexed colour' : 'RGB colour', (d) => {
+      d.indexed = on;
+      if (!on) for (const [k, c] of [...d.cels]) { const { idx, idxPx, ...rest } = c; void idx; void idxPx; d.cels.set(k, rest); }
+    });
+    notice(on ? 'Indexed: every pixel is a palette colour; changing a colour changes its pixels' : 'RGB: any colour', 1800);
+  }
+
+  /** The palette index under a sprite pixel on the current layer (or null). */
+  function indexAt(x, y) {
+    const c = cel();
+    return doc.indexed && c && c.idx ? c.idx[y * doc.width + x] : null;
+  }
+
+  // Colour cycling: palette entries from…to turn round, shown while it plays.
+  let cycling = null; // { timer, phase }
+
+  function cyclePalette(phase) {
+    const cy = doc.cycle, pal = doc.palette.map(parseHex);
+    if (!cy) return pal;
+    const len = cy.to - cy.from + 1, out = [...pal];
+    for (let i = 0; i < len; i++) if (cy.from + i < pal.length) out[cy.from + i] = pal[cy.from + ((i - phase) % len + len) % len];
+    return out;
+  }
+
+  /** A frame composed with the palette turned `cycling.phase` steps (indexed sprites with a cycle). */
+  function composeCycled(f, d = doc) {
+    if (!cycling || !d.indexed || !d.cycle) return null;
+    const pal = cyclePalette(cycling.phase), d2 = snapshot(d);
+    for (const [k, c] of d2.cels) if (c.idx) d2.cels.set(k, { ...c, px: renderIndexed(c.idx, pal) });
+    return compose(f, d2);
+  }
+
+  function toggleCycling() {
+    if (cycling) { clearInterval(cycling.timer); cycling = null; draw(); drawPreview(); renderPalette(); return; }
+    if (!doc.indexed || !doc.cycle) { cycleDialog(); return; }
+    cycling = { phase: 0, timer: setInterval(() => { if (!isOpen() || !doc.indexed || !doc.cycle) { toggleCycling(); return; } cycling.phase++; draw(); drawPreview(); }, 1000 / doc.cycle.fps) };
+    renderPalette();
+  }
+
+  function cycleDialog() {
+    if (!doc.indexed) { notice('Colour cycling turns palette colours round: make the sprite indexed first (palette ⋯)', 2200); return; }
+    const cy = doc.cycle || { from: 0, to: Math.min(doc.palette.length - 1, 3), fps: 8 };
+    NoorUI.modal({ label: 'Colour cycling', width: 380 }, (s, closeIt) => {
+      const from = el('input', { type: 'number', min: '1', max: String(doc.palette.length), value: String(cy.from + 1), id: 'sp-cy-from', 'aria-label': 'From colour' });
+      const to = el('input', { type: 'number', min: '1', max: String(doc.palette.length), value: String(cy.to + 1), id: 'sp-cy-to', 'aria-label': 'To colour' });
+      const fps = el('input', { type: 'number', min: '1', max: '60', value: String(cy.fps), id: 'sp-cy-fps', 'aria-label': 'Steps a second' });
+      const ok = (clear) => {
+        const a = Math.max(0, Math.min(doc.palette.length - 1, Number(from.value) - 1)), b = Math.max(a, Math.min(doc.palette.length - 1, Number(to.value) - 1));
+        closeIt();
+        if (cycling) toggleCycling();
+        change(clear ? 'No colour cycling' : 'Colour cycling', (d) => { d.cycle = clear || a === b ? null : { from: a, to: b, fps: Math.max(1, Math.min(60, Math.round(Number(fps.value) || 8))) }; });
+        if (!clear && doc.cycle) toggleCycling();
+      };
+      s.append(NoorUI.head('Colour cycling', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Palette colours that turn round, as water, fire or lights in old games: every pixel of those colours moves along.' }),
+          el('label', {}, 'Colours ', from, ' to ', to), el('label', {}, 'Steps a second ', fps)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
+          ...(doc.cycle ? [el('button', { class: 'action', onclick: () => ok(true) }, 'No cycling')] : []),
+          el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-cy-ok', onclick: () => ok(false) }, 'Play it'))));
+    });
+  }
+
   // ---------------------------------------------------------------- stage 3: animation helpers
 
   const EASES = { linear: (t) => t, in: (t) => t * t, out: (t) => 1 - (1 - t) * (1 - t), inout: (t) => (t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t)) };
@@ -1528,6 +1756,51 @@ window.NoorSprite = (() => {
   // "auto" mode does; drawing tiles places them and the pixels follow.
   let tileMode = false;   // T: drawing tiles (else pixels) on a tilemap layer
   let tileSel = 1;        // the tile drawn with
+  let tileFlags = 0;      // how it is turned: the bits below
+
+  // A tile in a map: its number in the low 29 bits, then flipped across (bit 29), flipped down (30) and turned on
+  // its diagonal (31) — as Aseprite keeps them; the diagonal first, then the flips.
+  const TILE_ID = 0x1fffffff, FLIP_X = 0x20000000, FLIP_Y = 0x40000000, FLIP_D = 0x80000000 | 0;
+  const tileId = (v) => v & TILE_ID;
+  const tileBits = (v) => v & ~TILE_ID;
+
+  /** A tile's pixels turned as its bits say (square tiles only turn on the diagonal). */
+  function turnedTile(ts, v) {
+    const t = ts.tiles[tileId(v)], f = tileBits(v);
+    if (!t || !f) return t;
+    const w = ts.tw, h = ts.th, out = new Uint8ClampedArray(t.length), d = (f & FLIP_D) && w === h;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let sx = x, sy = y;
+      if (f & FLIP_X) sx = w - 1 - sx;
+      if (f & FLIP_Y) sy = h - 1 - sy;
+      if (d) [sx, sy] = [sy, sx];
+      out.set(t.subarray((sy * w + sx) * 4, (sy * w + sx) * 4 + 4), (y * w + x) * 4);
+    }
+    return out;
+  }
+
+  /** Turning a tile a quarter clockwise, or flipping it, as bits (the turn composed with what is there). */
+  function turnBits(f, how) {
+    // As a matrix on the tile's middle: the diagonal (swap), then flips; compose, then read back.
+    let m = [[1, 0], [0, 1]];
+    const mul = (a, b) => [[a[0][0] * b[0][0] + a[0][1] * b[1][0], a[0][0] * b[0][1] + a[0][1] * b[1][1]], [a[1][0] * b[0][0] + a[1][1] * b[1][0], a[1][0] * b[0][1] + a[1][1] * b[1][1]]];
+    if (f & FLIP_D) m = mul([[0, 1], [1, 0]], m);
+    if (f & FLIP_X) m = mul([[-1, 0], [0, 1]], m);
+    if (f & FLIP_Y) m = mul([[1, 0], [0, -1]], m);
+    m = mul(how === 'x' ? [[-1, 0], [0, 1]] : how === 'y' ? [[1, 0], [0, -1]] : [[0, -1], [1, 0]], m);
+    let out = 0;
+    if (m[0][0] === 0) { out |= FLIP_D; m = mul(m, [[0, 1], [1, 0]]); }
+    if (m[0][0] < 0) out |= FLIP_X;
+    if (m[1][1] < 0) out |= FLIP_Y;
+    return out;
+  }
+
+  function turnTileToPlace(how) {
+    const ts = isTilemap() && tilesetOf();
+    if (how === 'r' && ts && ts.tw !== ts.th) { notice('Only square tiles can be turned', 1400); return; }
+    tileFlags = turnBits(tileFlags, how);
+    renderTileset(); draw();
+  }
 
   const isTilemap = (l = layer, d = doc) => !!d.layers[l] && d.layers[l].kind === 'tilemap';
   const tilesetOf = (l = layer, d = doc) => d.tilesets[d.layers[l].tileset];
@@ -1538,7 +1811,7 @@ window.NoorSprite = (() => {
   function renderMap(d, ts, map) {
     const W = d.width, H = d.height, px = new Uint8ClampedArray(W * H * 4), { cols, rows } = mapSize(d, ts);
     for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
-      const t = ts.tiles[map[r * cols + c]];
+      const t = turnedTile(ts, map[r * cols + c]);
       if (!t) continue;
       const x0 = c * ts.tw, w = Math.min(ts.tw, W - x0);
       for (let y = 0; y < ts.th && r * ts.th + y < H; y++) px.set(t.subarray(y * ts.tw * 4, (y * ts.tw + w) * 4), ((r * ts.th + y) * W + x0) * 4);
@@ -1576,7 +1849,7 @@ window.NoorSprite = (() => {
       const oldMap = (k, c) => { const m = c.map || (prev && prev.cels.get(k) && prev.cels.get(k).map); return m && m.length === cols * rows ? m : null; };
       // How often each tile is used (a map shared by linked cels counted once).
       const uses = new Map(), counted = new Set();
-      for (const [k, c] of ofSet) { const m = oldMap(k, c); if (m && !counted.has(m)) { counted.add(m); for (const n of m) uses.set(n, (uses.get(n) || 0) + 1); } }
+      for (const [k, c] of ofSet) { const m = oldMap(k, c); if (m && !counted.has(m)) { counted.add(m); for (const v of m) { const n = tileId(v); uses.set(n, (uses.get(n) || 0) + 1); } } }
       const index = new Map();
       const indexAdd = (n) => { const h = tileHash(ts.tiles[n]); index.set(h, [...(index.get(h) || []), n]); };
       for (let n = 1; n < ts.tiles.length; n++) indexAdd(n);
@@ -1587,10 +1860,10 @@ window.NoorSprite = (() => {
         if (done.has(c.px)) { d.cels.set(k, { ...c, map: done.get(c.px), mapPx: c.px }); continue; }
         const was = oldMap(k, c), map = new Int32Array(cols * rows);
         for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) {
-          const i = r * cols + col, t = cellOf(d, ts, c.px, col, r), old = was ? was[i] : 0;
+          const i = r * cols + col, t = cellOf(d, ts, c.px, col, r), oldV = was ? was[i] : 0, old = tileId(oldV);
           let n;
           if (clearTile(t)) n = 0;
-          else if (old && sameTile(ts.tiles[old], t)) n = old;
+          else if (old && sameTile(turnedTile(ts, oldV), t)) n = oldV; // unchanged, turned as it was
           else if ((n = find(t))) { /* the same as a tile there already */ }
           else if (old && uses.get(old) === 1) {
             const h = tileHash(ts.tiles[old]);
@@ -1598,7 +1871,8 @@ window.NoorSprite = (() => {
             ts.tiles[old] = t; indexAdd(old); n = old; edited = true;
           } else if (ts.tiles.length <= 4096) { n = ts.tiles.length; ts.tiles.push(t); indexAdd(n); }
           else n = 0;
-          if (n !== old) { if (old) uses.set(old, uses.get(old) - 1); if (n) uses.set(n, (uses.get(n) || 0) + 1); }
+          const nid = tileId(n);
+          if (nid !== old) { if (old) uses.set(old, uses.get(old) - 1); if (nid) uses.set(nid, (uses.get(nid) || 0) + 1); }
           map[i] = n;
         }
         done.set(c.px, map);
@@ -1676,10 +1950,10 @@ window.NoorSprite = (() => {
     const at = cellAt(p);
     if (!at) return;
     const map = currentMap();
-    if (t === 'picker') { if (map[at.i]) { tileSel = map[at.i]; renderTileset(); } return; }
+    if (t === 'picker') { if (map[at.i]) { tileSel = tileId(map[at.i]); tileFlags = tileBits(map[at.i]); renderTileset(); } return; }
     if (!canDraw()) return;
-    const n = t === 'eraser' || right ? 0 : tileSel;
-    if (n >= tilesetOf().tiles.length) { notice('Choose a tile in the tileset first', 1400); return; }
+    if (!(t === 'eraser' || right) && tileSel >= tilesetOf().tiles.length) { notice('Choose a tile in the tileset first', 1400); return; }
+    const n = t === 'eraser' || right ? 0 : (tileSel | tileFlags);
     const next = new Int32Array(map);
     if (t === 'fill') {
       const { cols, rows } = mapSize(doc, tilesetOf()), from = next[at.i];
@@ -1738,6 +2012,11 @@ window.NoorSprite = (() => {
       el('h4', { class: 'music-subhead', text: `Tileset “${ts.name}”` }),
       el('small', { class: 'pref-hint', id: 'sp-tileinfo', text: `${ts.tiles.length - 1} tile${ts.tiles.length === 2 ? '' : 's'} of ${ts.tw} × ${ts.th}` }),
       el('div', { class: 'sb-row', role: 'group', 'aria-label': 'Draw' }, mode(false, 'Pixels', 'Draw pixels; the tiles follow (T)'), mode(true, 'Tiles', 'Place whole tiles (T)')),
+      el('div', { class: 'sb-row', role: 'group', 'aria-label': 'Turn the tile' },
+        el('button', { class: 'icon-btn' + (tileFlags & FLIP_X ? ' on' : ''), id: 'sp-tile-fx', title: 'Place it flipped left ↔ right (Shift+X in tile mode)', 'aria-label': 'Flip the tile across', onclick: () => turnTileToPlace('x') }, '⇋'),
+        el('button', { class: 'icon-btn' + (tileFlags & FLIP_Y ? ' on' : ''), id: 'sp-tile-fy', title: 'Place it flipped top ↕ bottom (Shift+Y in tile mode)', 'aria-label': 'Flip the tile down', onclick: () => turnTileToPlace('y') }, '⇵'),
+        el('button', { class: 'icon-btn' + (tileFlags & FLIP_D ? ' on' : ''), id: 'sp-tile-rot', title: 'Place it turned a quarter clockwise (R in tile mode)', 'aria-label': 'Turn the tile', onclick: () => turnTileToPlace('r') }, '⟳'),
+        tileFlags ? el('button', { class: 'utility-btn', title: 'Upright again', onclick: () => { tileFlags = 0; renderTileset(); draw(); } }, 'upright') : null),
       tiles.length ? el('div', { class: 'sp-tiles', id: 'sp-tiles', role: 'listbox', 'aria-label': 'Tiles' }, ...tiles) : el('p', { class: 'pref-hint', text: 'Draw on the layer and its tiles appear here.' }),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'sp-tiles-godot', title: 'The tiles as a Godot TileSet and the map as a TileMap scene', onclick: exportTiles }, 'Godot TileSet…'),
@@ -1964,7 +2243,13 @@ window.NoorSprite = (() => {
   function sortPalette(by) {
     const lum = (c) => { const [r, g, b] = parseHex(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
     const hue = (c) => { const [r, g, b] = parseHex(c).map((v) => v / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn; if (dl < 0.08) return 400 + lum(c) / 255; const h = mx === r ? ((g - b) / dl) % 6 : mx === g ? (b - r) / dl + 2 : (r - g) / dl + 4; return ((h * 60) + 360) % 360 + lum(c) / 1000; };
-    change('Sort the palette', (d) => { d.palette = by === 'reverse' ? [...d.palette].reverse() : [...d.palette].sort((a, b) => (by === 'hue' ? hue(a) - hue(b) : lum(a) - lum(b))); });
+    change('Sort the palette', (d) => {
+      const old = d.palette, order = old.map((_, i) => i);
+      if (by === 'reverse') order.reverse(); else order.sort((a, b) => (by === 'hue' ? hue(old[a]) - hue(old[b]) : lum(old[a]) - lum(old[b])));
+      d.palette = order.map((i) => old[i]);
+      const to = []; order.forEach((oi, ni) => { to[oi] = ni; });
+      remapIndices(d, to, old); // an indexed sprite looks the same
+    });
   }
 
   /** A ramp of colours from the drawing colour to the second, added to the palette. */
@@ -1981,7 +2266,11 @@ window.NoorSprite = (() => {
     const seen = new Set();
     for (const c of doc.cels.values()) for (let i = 0; i < c.px.length; i += 4) if (c.px[i + 3]) { seen.add(hex([c.px[i], c.px[i + 1], c.px[i + 2], c.px[i + 3]])); if (seen.size > 256) break; }
     if (seen.size > 256) { notice('The sprite has more than 256 colours: the first 256 are taken', 2000); }
-    change('Palette from the sprite', (d) => { d.palette = [...seen].slice(0, 256); });
+    change('Palette from the sprite', (d) => {
+      d.palette = [...seen].slice(0, 256);
+      // Indexed: each pixel finds its colour in the new palette.
+      for (const [k, c] of [...d.cels]) if (c.idx) { const { idx, idxPx, ...rest } = c; void idx; void idxPx; d.cels.set(k, rest); }
+    });
   }
 
   /** Every pixel made the nearest colour of the palette (alpha kept). */
@@ -2015,7 +2304,7 @@ window.NoorSprite = (() => {
         el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Colour ', picker), el('label', {}, 'Alpha ', alpha), el('label', {}, recolour, ' change the sprite\'s pixels of this colour too')),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
           el('button', { class: 'action primary', id: 'sp-sw-ok', onclick: () => {
-            const nc = picker.value + Number(alpha.value).toString(16).padStart(2, '0'), from = parseHex(old), to = parseHex(nc), doPx = recolour.checked;
+            const nc = picker.value + Number(alpha.value).toString(16).padStart(2, '0'), from = parseHex(old), to = parseHex(nc), doPx = recolour.checked && !doc.indexed; // indexed: the index does it
             closeIt();
             change('Palette colour', (d) => {
               d.palette[i] = nc;
@@ -2042,7 +2331,8 @@ window.NoorSprite = (() => {
   function paletteMenu() {
     const items = [['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
       ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
-      ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette]];
+      ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette], null,
+      [doc.indexed ? 'RGB colour (any colour; leave indexed)' : 'Indexed colour (every pixel a palette colour)', () => setIndexed(!doc.indexed)], ['Colour cycling…', cycleDialog]];
     NoorUI.modal({ label: 'Palette', width: 320 }, (s, closeIt) => {
       s.append(NoorUI.head('Palette', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
     });
@@ -2104,7 +2394,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' ? l : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), cels };
   }
 
   function fromWire(w) {
@@ -2138,6 +2428,9 @@ window.NoorSprite = (() => {
       }
       d.cels.set(key(c.layer, c.frame), { px, opacity: c.opacity ?? 255, ...(c.link ? { link: c.link } : {}) });
     }
+    d.indexed = w.colorMode === 'indexed';
+    d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
+    normalizeIndexed(d, null);
     return d;
   }
 
@@ -2260,7 +2553,7 @@ window.NoorSprite = (() => {
         closeIt();
         try {
           const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags, slices: doc.slices || [],
-            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference })) });
+            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference })), ...(doc.indexed ? { palette: doc.palette } : {}) });
           if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
         } catch (err) { hooks.showError(err); }
       };
@@ -2306,6 +2599,8 @@ window.NoorSprite = (() => {
     if (k === '.' || e.key === 'ArrowRight') { handled(); goFrame((frame + 1) % doc.frames.length); return; }
     if (e.key === 'ArrowUp') { handled(); layer = Math.min(doc.layers.length - 1, layer + 1); renderAll(); return; }
     if (e.key === 'ArrowDown') { handled(); layer = Math.max(0, layer - 1); renderAll(); return; }
+    if (tilesOn() && e.shiftKey && (k === 'x' || k === 'y')) { handled(); turnTileToPlace(k); return; }
+    if (tilesOn() && k === 'r') { handled(); turnTileToPlace('r'); return; }
     if (k === 'x') { handled(); swapColours(); return; }
     if (k === '[' || k === ']') { handled(); opts.size = Math.max(1, Math.min(64, opts.size + (k === ']' ? 1 : -1))); renderOptions(); draw(); return; }
     if (k === '+' || k === '=') { handled(); zoomBy(1); return; }
@@ -2313,6 +2608,7 @@ window.NoorSprite = (() => {
     if (k === '0') { handled(); fitZoom(); draw(); return; }
     if (k === 'n' && e.shiftKey) { handled(); addLayer(); return; }
     if (k === 't') { handled(); setTileMode(!tileMode); return; }
+    if (k === 's') { handled(); const i = STABILIZERS.findIndex(([v]) => v === opts.stabilize); opts.stabilize = STABILIZERS[(i + 1) % STABILIZERS.length][0]; renderOptions(); notice(`Smooth lines: ${STABILIZERS.find(([v]) => v === opts.stabilize)[1]}`, 1000); return; }
     const t = TOOLS.find((x) => x[3] === k);
     if (t) { handled(); setTool(t[0]); }
   }
@@ -2329,7 +2625,12 @@ window.NoorSprite = (() => {
       floating: floating ? { x: floating.x, y: floating.y, w: floating.w, h: floating.h } : null, playing: !!playing,
       cels: [...doc.cels.keys()],
       tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
+      indexed: !!doc.indexed, cycle: doc.cycle || null, cycling: !!cycling,
     }),
+    /** For tests: the palette index of a cel's pixel (indexed sprites). */
+    _index: (x, y, l = layer, f = frame) => { const c = doc.cels.get(key(doc.layers[l].id, f)); return c && c.idx ? c.idx[y * doc.width + x] : null; },
+    /** For tests: the frame as shown (with colour cycling). */
+    _shown: (x, y) => { const px = composeShown(); const i = (y * doc.width + x) * 4; return [px[i], px[i + 1], px[i + 2], px[i + 3]]; },
     /** For tests: a tilemap cel's tile numbers (row by row). */
     _tiles: (l = layer, f = frame) => { const c = doc.cels.get(key(doc.layers[l].id, f)); return c && c.map ? [...c.map] : null; },
     /** For tests: a pixel of a cel (or of the composed frame when layer is null). */

@@ -127,7 +127,7 @@ public class SpriteTests
     }
 
     [Fact]
-    public void An_indexed_aseprite_file_with_a_group_and_a_linked_cel_is_read_as_rgba()
+    public void An_indexed_aseprite_file_with_a_group_and_a_linked_cel_is_read_with_its_colours()
     {
         // Built by hand from the specification: 2×2, indexed, palette (transparent 0, red, blue); a group, then a
         // layer in it; frame 0 a raw cel, frame 1 linked to it.
@@ -141,7 +141,7 @@ public class SpriteTests
         var (doc, notes) = AsepriteFile.Read(file);
         Assert.Equal(["Paint"], doc.Layers.Select(l => l.Name));
         Assert.Contains(notes, n => n.Contains("group “Group”"));
-        Assert.Contains(notes, n => n.Contains("indexed"));
+        Assert.Equal("indexed", doc.ColorMode);
         var c0 = doc.Cel(doc.Layers[0].Id, 0)!;
         Assert.Equal(new byte[] { 255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0, 255, 0, 0, 255 }, c0.Pixels());
         Assert.Equal(c0.Pixels(), doc.Cel(doc.Layers[0].Id, 1)!.Pixels());

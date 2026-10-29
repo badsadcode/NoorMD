@@ -43,6 +43,50 @@ public static class SpritePng
         return ms.ToArray();
     }
 
+    /// <summary>
+    /// An 8-bit palette PNG (PLTE with tRNS) when every pixel is a palette colour (#rrggbbaa); clear pixels take the
+    /// palette's clear entry, or one added at the end. Null when a pixel isn't in the palette or there's no room.
+    /// </summary>
+    public static byte[]? EncodeIndexed(int width, int height, byte[] rgba, IReadOnlyList<string> palette)
+    {
+        if (rgba.Length != width * height * 4 || palette.Count is 0 or > 256) return null;
+        var pal = palette.Select(c => (R: Convert.ToByte(c[1..3], 16), G: Convert.ToByte(c[3..5], 16), B: Convert.ToByte(c[5..7], 16), A: c.Length >= 9 ? Convert.ToByte(c[7..9], 16) : (byte)255)).ToList();
+        var clear = pal.FindIndex(c => c.A == 0);
+        var lookup = new Dictionary<uint, byte>();
+        for (var i = pal.Count - 1; i >= 0; i--) lookup[(uint)(pal[i].R << 24 | pal[i].G << 16 | pal[i].B << 8 | pal[i].A)] = (byte)i;
+        var idx = new byte[width * height];
+        for (var i = 0; i < idx.Length; i++)
+        {
+            if (rgba[i * 4 + 3] == 0)
+            {
+                if (clear < 0) { if (pal.Count >= 256) return null; pal.Add((0, 0, 0, 0)); clear = pal.Count - 1; }
+                idx[i] = (byte)clear;
+                continue;
+            }
+            if (!lookup.TryGetValue((uint)(rgba[i * 4] << 24 | rgba[i * 4 + 1] << 16 | rgba[i * 4 + 2] << 8 | rgba[i * 4 + 3]), out var k)) return null;
+            idx[i] = k;
+        }
+        using var ms = new MemoryStream();
+        ms.Write(Signature);
+        var ihdr = new byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(ihdr, width); BinaryPrimitives.WriteInt32BigEndian(ihdr.AsSpan(4), height);
+        ihdr[8] = 8; ihdr[9] = 3;
+        Chunk(ms, "IHDR", ihdr);
+        Chunk(ms, "PLTE", pal.SelectMany(c => new[] { c.R, c.G, c.B }).ToArray());
+        var last = pal.FindLastIndex(c => c.A != 255);
+        if (last >= 0) Chunk(ms, "tRNS", pal.Take(last + 1).Select(c => c.A).ToArray());
+        using var raw = new MemoryStream();
+        using (var z = new ZLibStream(raw, CompressionLevel.Optimal, leaveOpen: true))
+            for (var y = 0; y < height; y++) { z.WriteByte(0); z.Write(idx, y * width, width); }
+        Chunk(ms, "IDAT", raw.ToArray());
+        Chunk(ms, "IEND", []);
+        return ms.ToArray();
+    }
+
+    /// <summary>A palette PNG when the colours allow, else RGBA.</summary>
+    public static byte[] EncodeBest(int width, int height, byte[] rgba, IReadOnlyList<string>? palette) =>
+        (palette != null ? EncodeIndexed(width, height, rgba, palette) : null) ?? Encode(width, height, rgba);
+
     public static (int Width, int Height, byte[] Rgba) Decode(byte[] png)
     {
         if (png.Length < 8 || !png.AsSpan(0, 8).SequenceEqual(Signature)) throw new InvalidDataException("Not a PNG image.");

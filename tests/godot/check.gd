@@ -168,6 +168,7 @@ func _init() -> void:
 		check(level.get_cell_source_id(0, Vector2i(1, 0)) == 0 and level.get_cell_atlas_coords(0, Vector2i(1, 0)) == Vector2i(1, 0), "…tile 2 where it was drawn", level.get_cell_atlas_coords(0, Vector2i(1, 0)))
 		check(level.get_cell_atlas_coords(0, Vector2i(5, 2)) == Vector2i(0, 1) and level.get_cell_source_id(0, Vector2i(2, 1)) == -1, "…tile 3 along the bottom, nothing in the empty row", [level.get_cell_atlas_coords(0, Vector2i(5, 2)), level.get_cell_source_id(0, Vector2i(2, 1))])
 		check(level.get_used_cells(0).size() == 12, "…12 tiles in all", level.get_used_cells(0).size())
+		check(level.get_cell_alternative_tile(0, Vector2i(0, 2)) == 4096 and level.get_cell_atlas_coords(0, Vector2i(0, 2)) == Vector2i(0, 1), "…a flipped tile flipped (Godot's flip flag)", level.get_cell_alternative_tile(0, Vector2i(0, 2)))
 	level.free()
 
 	# The shader itself: its code loads and declares what the plugin sets.

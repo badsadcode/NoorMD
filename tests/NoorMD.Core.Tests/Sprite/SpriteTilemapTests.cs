@@ -19,7 +19,7 @@ public class SpriteTilemapTests
             Frames = [new SpriteFrame(), new SpriteFrame()],
         };
         // 6 × 3 tiles: a row of red-green-blue, then nothing, then all blue.
-        doc.Cels.Add(new SpriteCel { Layer = "map", Frame = 0, Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3] });
+        doc.Cels.Add(new SpriteCel { Layer = "map", Frame = 0, Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3 | SpriteTilemap.FlipX, 3, 3, 3, 3, 3] }); // the first of the bottom row flipped
         doc.Cels.Add(new SpriteCel { Layer = "map", Frame = 1, Width = 6, Height = 3, Tiles = [2, 2, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1] });
         doc.Cels.Add(new SpriteCel { Layer = "back", Frame = 0, Width = 1, Height = 1 }.WithPixels([9, 9, 9, 255]));
         return doc.Checked();
@@ -72,9 +72,10 @@ public class SpriteTilemapTests
         Assert.Contains("0:0/0 = 0\n1:0/0 = 0\n0:1/0 = 0\n", tres);
         var scene = GodotTiles.Scene("Level", "ground.tres", doc.Cel("map", 0)!, ts);
         Assert.Contains("type=\"TileMap\"", scene);
-        // Cell (1, 0) is tile 2: atlas (1, 0) → 1 | (1 << 16); cell (0, 2) is tile 3: atlas (0, 1).
+        // Cell (1, 0) is tile 2: atlas (1, 0) → 1 | (1 << 16); cell (0, 2) is tile 3 flipped across: atlas (0, 1),
+        // Godot's flip flag (4096) as its alternative.
         Assert.Contains("1, 65536, 0", scene);
-        Assert.Contains($"{2 << 16}, 0, 1", scene);
+        Assert.Contains($"{2 << 16}, 0, {1 | (4096 << 16)}", scene);
         Assert.Equal(12 * 3, scene.Split("PackedInt32Array(")[1].TrimEnd(')', '\n').Split(", ").Length);
     }
     [Fact]
@@ -88,12 +89,31 @@ public class SpriteTilemapTests
             + "\"gridWidth\":2,\"gridHeight\":2,\"cels\":[{\"layer\":\"L1\",\"frame\":0,\"x\":0,\"y\":0,\"width\":2,\"height\":1,\"opacity\":255,\"tiles\":[0,1]}]}";
         var doc = SpriteDoc.FromJson(json);
         Assert.Equal("tilemap", doc.Layers[0].Kind);
-        Assert.Equal([0, 1], doc.Cels[0].Tiles);
+        Assert.Equal([0, 1], doc.Cels[0].Tiles!);
         var px = SpriteTilemap.Render(doc.Cels[0], doc.Tilesets[0], 4, 2);
         Assert.Equal(0, px[3]);
         Assert.Equal(255, px[2 * 4]);
         var again = SpriteFile.FromBytes(SpriteFile.ToBytes(doc));
-        Assert.Equal([0, 1], again.Cels[0].Tiles);
+        Assert.Equal([0, 1], again.Cels[0].Tiles!);
         Assert.Equal(tile, again.Tilesets[0].Tile(1));
+    }
+    [Fact]
+    public void Turned_tiles_are_drawn_turned_and_go_to_godot_with_its_flags()
+    {
+        // A 2 × 2 tile: red top left, the rest clear.
+        var tile = new byte[16]; tile[0] = 255; tile[3] = 255;
+        var ts = new SpriteTileset { TileWidth = 2, TileHeight = 2, Count = 1 }.WithPixels(tile);
+        Assert.Equal(255, SpriteTilemap.Turned(ts, 1 | SpriteTilemap.FlipX)[4]);                            // top right
+        Assert.Equal(255, SpriteTilemap.Turned(ts, 1 | SpriteTilemap.FlipY)[8]);                            // bottom left
+        Assert.Equal(255, SpriteTilemap.Turned(ts, 1 | SpriteTilemap.FlipD | SpriteTilemap.FlipX)[4]);      // a quarter turn clockwise: top right
+        var cel = new SpriteCel { Width = 1, Height = 1, Tiles = [1 | SpriteTilemap.FlipX | SpriteTilemap.FlipD] };
+        Assert.Contains("PackedInt32Array(0, 0, " + (20480 << 16) + ")", GodotTiles.Scene("Map", "t.tres", cel, ts));
+        var doc = new SpriteDoc
+        {
+            Width = 2, Height = 2, Tilesets = [ts], Frames = [new SpriteFrame()],
+            Layers = [new SpriteLayer { Id = "m", Name = "M", Kind = "tilemap" }],
+            Cels = [new SpriteCel { Layer = "m", Frame = 0, Width = 1, Height = 1, Tiles = [1 | SpriteTilemap.FlipD] }],
+        }.Checked();
+        Assert.Equal(1 | SpriteTilemap.FlipD, SpriteFile.FromBytes(SpriteFile.ToBytes(doc)).Cels[0].Tiles![0]);
     }
 }

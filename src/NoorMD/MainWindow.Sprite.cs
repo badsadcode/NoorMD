@@ -128,6 +128,9 @@ public partial class MainWindow
                 var tags = p.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<List<SpriteTag>>(tg.GetRawText(), SpriteDoc.Json) ?? [] : [];
                 var slices = p.TryGetProperty("slices", out var sl) && sl.ValueKind == JsonValueKind.Array ? (JsonSerializer.Deserialize<List<SpriteSlice>>(sl.GetRawText(), SpriteDoc.Json) ?? []).Select(x => x.Checked(SpriteDoc.MaxSide, SpriteDoc.MaxSide)).ToList() : [];
                 var form = req.GetString("form", 10) == "array" ? "array" : "hash";
+                // An indexed sprite's pictures go as palette PNGs when every pixel is a palette colour.
+                var indexedPalette = p.TryGetProperty("palette", out var ip) && ip.ValueKind == JsonValueKind.Array
+                    ? ip.EnumerateArray().Select(x => x.GetString() ?? "").Where(x => x.Length == 9 && x[0] == '#').Take(256).ToList() : null;
                 var layers = p.TryGetProperty("layers", out var ly) && ly.ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<List<SpriteLayer>>(ly.GetRawText(), SpriteDoc.Json) ?? [] : [];
                 var (ext, filter, title) = kind switch
                 {
@@ -153,14 +156,14 @@ public partial class MainWindow
                             files.Add(target);
                             break;
                         case "frame":
-                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.Encode(frames[0].Width, frames[0].Height, frames[0].Rgba));
+                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.EncodeBest(frames[0].Width, frames[0].Height, frames[0].Rgba, indexedPalette));
                             files.Add(target);
                             break;
                         case "frames":
                             for (var i = 0; i < frames.Count; i++)
                             {
                                 var file = Path.Combine(dir, $"{baseName}_{i}.png");
-                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(file, SpritePng.Encode(frames[i].Width, frames[i].Height, frames[i].Rgba));
+                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(file, SpritePng.EncodeBest(frames[i].Width, frames[i].Height, frames[i].Rgba, indexedPalette));
                                 files.Add(file);
                             }
                             break;
@@ -169,7 +172,7 @@ public partial class MainWindow
                             // The sheet (packed unless a layout was chosen), the SpriteFrames, and a scene to drop in.
                             var (gs, placed) = SpriteExport.Pack(frames, layout == "row" ? "packed" : layout, spacing);
                             var png = Path.Combine(dir, baseName + ".png");
-                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.Encode(gs.Width, gs.Height, gs.Rgba));
+                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.EncodeBest(gs.Width, gs.Height, gs.Rgba, indexedPalette));
                             File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags));
                             var scene = Path.Combine(dir, baseName + ".tscn");
                             File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
@@ -178,7 +181,7 @@ public partial class MainWindow
                         }
                         default:
                             var (sheet, json) = SpriteExport.Sheet(frames, layout, spacing, baseName, tags, layers, scale, slices.Select(x => x).ToList(), form);
-                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.Encode(sheet.Width, sheet.Height, sheet.Rgba));
+                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.EncodeBest(sheet.Width, sheet.Height, sheet.Rgba, indexedPalette));
                             var jsonPath = Path.Combine(dir, baseName + ".json");
                             File.WriteAllText(jsonPath, json);
                             files.Add(target); files.Add(jsonPath);

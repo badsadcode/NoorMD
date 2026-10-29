@@ -29,6 +29,10 @@ public sealed class SpriteDoc
     public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>Tilesets the tilemap layers draw from.</summary>
     public List<SpriteTileset> Tilesets { get; set; } = [];
+    /// <summary>"rgba", or "indexed": every pixel is one of the palette's colours (changing a colour changes them).</summary>
+    public string ColorMode { get; set; } = "rgba";
+    /// <summary>Colour cycling: palette entries From…To turn round, Fps steps a second (indexed sprites).</summary>
+    public SpriteCycle? Cycle { get; set; }
     /// <summary>The grid drawn over the sprite (tiles), in pixels.</summary>
     public int GridWidth { get; set; } = 16;
     public int GridHeight { get; set; } = 16;
@@ -49,6 +53,12 @@ public sealed class SpriteDoc
         if (Layers.Count is 0 or > MaxLayers) throw new InvalidDataException($"A sprite has 1 to {MaxLayers} layers.");
         if (Frames.Count is 0 or > MaxFrames) throw new InvalidDataException($"A sprite has 1 to {MaxFrames} frames.");
         Palette = Palette.Where(IsColour).Take(MaxPalette).ToList();
+        ColorMode = ColorMode == "indexed" ? "indexed" : "rgba";
+        if (Cycle != null)
+        {
+            Cycle.From = Math.Clamp(Cycle.From, 0, 255); Cycle.To = Math.Clamp(Cycle.To, Cycle.From, 255); Cycle.Fps = Math.Clamp(Cycle.Fps, 1, 60);
+            if (Cycle.To == Cycle.From) Cycle = null;
+        }
         var ids = new HashSet<string>();
         foreach (var l in Layers)
         {
@@ -79,7 +89,7 @@ public sealed class SpriteDoc
                 // A tilemap cel: Width × Height tiles, each a tile's number in the layer's tileset (0: none).
                 var ts = Tilesets[cl.Tileset];
                 if (c.Tiles == null || c.Tiles.Length != c.Width * c.Height) throw new InvalidDataException("A tilemap's tiles don't match its size.");
-                for (var t = 0; t < c.Tiles.Length; t++) if (c.Tiles[t] < 0 || c.Tiles[t] > ts.Count) c.Tiles[t] = 0;
+                for (var t = 0; t < c.Tiles.Length; t++) if ((c.Tiles[t] & SpriteTilemap.TileId) > ts.Count || (c.Tiles[t] & SpriteTilemap.TileId) == 0) c.Tiles[t] = 0;
                 c.Data = null;
                 continue;
             }
@@ -173,7 +183,10 @@ public sealed class SpriteCel
     public string? Data { get; set; }
     /// <summary>Cels of a layer with the same link are one picture on several frames (drawn on one, changed on all).</summary>
     public string? Link { get; set; }
-    /// <summary>A tilemap cel's tiles (row by row, Width × Height), each a tile's number (0: none).</summary>
+    /// <summary>
+    /// A tilemap cel's tiles (row by row, Width × Height), each a tile's number (0: none) in the low 29 bits, then
+    /// flipped across (bit 29), flipped down (30) and turned on its diagonal (31), as Aseprite keeps them.
+    /// </summary>
     public int[]? Tiles { get; set; }
 
     private byte[]? _pixels;
@@ -227,6 +240,28 @@ public sealed class SpriteTileset
 
 public static class SpriteTilemap
 {
+    public const int TileId = 0x1fffffff, FlipX = 0x20000000, FlipY = 0x40000000, FlipD = unchecked((int)0x80000000);
+
+    /// <summary>Tile v (a number with its bits) as RGBA: on the diagonal first (square tiles), then flipped.</summary>
+    public static byte[] Turned(SpriteTileset ts, int v)
+    {
+        var tile = ts.Tile(v & TileId);
+        if ((v & ~TileId) == 0) return tile;
+        int w = ts.TileWidth, h = ts.TileHeight;
+        var d = (v & FlipD) != 0 && w == h;
+        var o = new byte[tile.Length];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                int sx = x, sy = y;
+                if ((v & FlipX) != 0) sx = w - 1 - sx;
+                if ((v & FlipY) != 0) sy = h - 1 - sy;
+                if (d) (sx, sy) = (sy, sx);
+                Array.Copy(tile, (sy * w + sx) * 4, o, (y * w + x) * 4, 4);
+            }
+        return o;
+    }
+
     /// <summary>A tilemap cel drawn as pixels (Width × Height tiles), cut to the sprite's size.</summary>
     public static byte[] Render(SpriteCel cel, SpriteTileset ts, int width, int height)
     {
@@ -236,8 +271,8 @@ public static class SpriteTilemap
             for (var tx = 0; tx < cel.Width; tx++)
             {
                 var n = cel.Tiles![ty * cel.Width + tx];
-                if (n == 0) continue;
-                var tile = ts.Tile(n);
+                if ((n & TileId) == 0) continue;
+                var tile = Turned(ts, n);
                 for (var y = 0; y < th; y++)
                 {
                     var py = cel.Y + ty * th + y;
@@ -252,4 +287,11 @@ public static class SpriteTilemap
             }
         return px;
     }
+}
+
+public sealed class SpriteCycle
+{
+    public int From { get; set; }
+    public int To { get; set; }
+    public int Fps { get; set; } = 8;
 }

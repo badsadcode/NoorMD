@@ -421,12 +421,15 @@ public static class GodotTiles
         for (var y = 0; y < cel.Height; y++)
             for (var x = 0; x < cel.Width; x++)
             {
-                var n = cel.Tiles![y * cel.Width + x];
+                var v = cel.Tiles![y * cel.Width + x];
+                var n = v & SpriteTilemap.TileId;
                 if (n == 0) continue;
                 int ax = (n - 1) % cols, ay = (n - 1) / cols;
+                // Godot's turning flags ride in the alternative: flip across 4096, down 8192, transposed 16384.
+                var alt = ((v & SpriteTilemap.FlipX) != 0 ? 4096 : 0) | ((v & SpriteTilemap.FlipY) != 0 ? 8192 : 0) | ((v & SpriteTilemap.FlipD) != 0 ? 16384 : 0);
                 data.Add((x & 0xFFFF) | ((y & 0xFFFF) << 16));   // the cell
                 data.Add(0 | ((ax & 0xFFFF) << 16));              // source 0, atlas x
-                data.Add(ay & 0xFFFF);                            // atlas y, no alternative
+                data.Add((ay & 0xFFFF) | (alt << 16));            // atlas y, the alternative (turning)
             }
         var node = new string(nodeName.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
         return "[gd_scene load_steps=2 format=3]\n\n" +

@@ -223,7 +223,7 @@ public class GodotExportTests
         var atlas = NoorMD.Core.Sprite.GodotTiles.Atlas(tileset);
         File.WriteAllBytes(Path.Combine(dir, "sprite", "ground.png"), NoorMD.Core.Sprite.SpritePng.Encode(atlas.Width, atlas.Height, atlas.Rgba));
         File.WriteAllText(Path.Combine(dir, "sprite", "ground.tres"), NoorMD.Core.Sprite.GodotTiles.TileSet("ground.png", tileset));
-        var mapCel = new NoorMD.Core.Sprite.SpriteCel { Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3] };
+        var mapCel = new NoorMD.Core.Sprite.SpriteCel { Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3 | NoorMD.Core.Sprite.SpriteTilemap.FlipX, 3, 3, 3, 3, 3] }; // the first of the bottom row flipped
         File.WriteAllText(Path.Combine(dir, "sprite", "level.tscn"), NoorMD.Core.Sprite.GodotTiles.Scene("Level", "ground.tres", mapCel, tileset));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
