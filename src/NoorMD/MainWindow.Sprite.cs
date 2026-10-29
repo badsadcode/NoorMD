@@ -1,4 +1,5 @@
 using System.IO;
+using System.Net.Http;
 using System.Text.Json;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -348,6 +349,27 @@ public partial class MainWindow
                     return new List<string> { png, target, scene };
                 });
                 return new { files = written.Select(Path.GetFileName) };
+            }
+            case "sprite.palette.lospec":
+            {
+                // A palette from Lospec's public list, by its name there: fetched only now, as asked.
+                var slug = (req.GetString("slug", 80) ?? "").Trim().ToLowerInvariant();
+                if (slug.Length == 0 || !slug.All(c => c is >= 'a' and <= 'z' or >= '0' and <= '9' or '-')) throw new BridgeError("A Lospec palette's name is letters, digits and dashes (like endesga-32).");
+                using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
+                http.DefaultRequestHeaders.UserAgent.ParseAdd("NoorMD");
+                byte[] bytes;
+                try
+                {
+                    using var resp = await http.GetAsync($"https://lospec.com/palette-list/{slug}.hex");
+                    if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) throw new BridgeError($"Lospec has no palette called “{slug}”.");
+                    resp.EnsureSuccessStatusCode();
+                    bytes = await resp.Content.ReadAsByteArrayAsync();
+                    if (bytes.Length > 64 * 1024) throw new BridgeError("That isn't a palette (too large).");
+                }
+                catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) { throw new BridgeError("Lospec couldn't be reached: " + ex.Message); }
+                var colours = SpritePalette.Read(bytes, ".hex");
+                if (colours.Count == 0) throw new BridgeError("That palette has no colours.");
+                return new { palette = colours, name = slug };
             }
             case "sprite.palette.open":
             {

@@ -399,7 +399,7 @@ public partial class MainWindow
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
             Title = "Choose an image",
-            Filter = "Images|" + string.Join(';', AssetResolver.ImageExtensions.Select(e => "*" + e)) + "|All files (*.*)|*.*",
+            Filter = "Images and sprites|" + string.Join(';', AssetResolver.ImageExtensions.Concat(AssetResolver.SpriteExtensions).Select(e => "*" + e)) + "|All files (*.*)|*.*",
             CheckFileExists = true,
             InitialDirectory = s.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         };

@@ -115,4 +115,31 @@ public class SpriteEngineTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void A_note_plays_a_sprite_as_a_gif_or_shows_one_frame()
+    {
+        var px = new byte[2 * 2 * 4]; px[3] = 255;
+        var doc = new SpriteDoc
+        {
+            Width = 2, Height = 2, Layers = [new SpriteLayer { Id = "a", Name = "A" }], Frames = [new SpriteFrame { Duration = 100 }, new SpriteFrame { Duration = 200 }, new SpriteFrame()],
+            Tags = [new SpriteTag { Name = "walk", From = 1, To = 2 }],
+            Cels = [new SpriteCel { Layer = "a", Frame = 0, Width = 2, Height = 2 }.WithPixels(px)],
+        }.Checked();
+        var path = Path.Combine(Path.GetTempPath(), $"noorsprite-{Guid.NewGuid():N}.noorsprite");
+        try
+        {
+            SpriteFile.Save(path, doc);
+            var all = SpriteRender.ForNote(path, 64, null, null)!.Value;
+            Assert.Equal("image/gif", all.ContentType);
+            Assert.Equal("GIF89a", System.Text.Encoding.ASCII.GetString(all.Bytes, 0, 6));
+            Assert.Equal(64, BitConverter.ToUInt16(all.Bytes, 6));                       // grown to fit
+            var one = SpriteRender.ForNote(path, 64, null, 0)!.Value;
+            Assert.Equal("image/png", one.ContentType);
+            Assert.Equal(255, SpritePng.Decode(one.Bytes).Rgba[3]);
+            Assert.Equal("image/gif", SpriteRender.ForNote(path, 64, "walk", null)!.Value.ContentType);
+            Assert.Null(SpriteRender.ForNote(path + ".none", 64, null, null));
+        }
+        finally { File.Delete(path); }
+    }
 }

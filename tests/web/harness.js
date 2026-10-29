@@ -551,6 +551,7 @@ function mockHostScript(initial) {
       case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
       case 'sprite.toTexture': SPRITE.toTexture = (SPRITE.toTexture || []).concat([{ name: p.name, width: p.width, height: p.height }]); return { path: `C:\\Local\\Sprite\\ToTexture\\${p.name}.png`, name: `${p.name}.png`, width: p.width, height: p.height };
       case 'sprite.sound.pick': return { path: 'C:\\Sounds\\step.wav', name: 'step.wav' };
+      case 'sprite.palette.lospec': SPRITE.lospec = p.slug; return { palette: ['#1a1c2cff', '#5d275dff', '#b13e53ff', '#ef7d57ff'], name: p.slug };
       case 'sprite.tiles.export': SPRITE.tiles = (SPRITE.tiles || []).concat([JSON.parse(JSON.stringify(p))]); return { files: [`${p.name}.png`, `${p.name}.tres`, `${p.name}_map.tscn`] };
       case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
       default: throw new Error('Unknown sprite command ' + type);

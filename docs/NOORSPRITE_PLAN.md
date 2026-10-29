@@ -229,6 +229,21 @@ one's own, a floating reference picture, pen pressure.
   .aseprite file) shows its first frame, drawn by the app (small sprites grown by whole steps, crisp). Only from the
   note's folder, or its Vault's folders above it, as with pictures.
 
+### Done in preview.105
+
+- **Sprites play in notes:** `![hero](hero.noorsprite)` plays the animation (a looping GIF the app makes, each
+  frame its own time); `?tag=walk` plays one tag its way, `?frame=3` shows one frame, `?size=128` fits it. Insert ›
+  Image offers sprites too.
+- **Hue-shifted ramps** (palette ⋯): from the drawing colour, darker steps turn towards blue-violet and lighter ones
+  towards warm yellow, as pixel artists shade — how many colours, how far the hue turns, the darkest and lightest;
+  shown before it is added.
+- **Auto shade** (☰): a light from one of eight sides and a ramp of palette colours; the pixels drawn in the ramp's
+  colours are shaded by where they face — lighter towards the light, darker away, strongest near the edge, the far
+  edge the darkest (an outline) — in the selection or the whole layer. A start to touch up.
+- **Seen as** (View): the sprite as people with protanopia, deuteranopia or tritanopia see it, or in grey (its values)
+  — to check that its colours still read apart.
+- **Lospec palettes** by name (palette ⋯): fetched from lospec.com only when asked.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

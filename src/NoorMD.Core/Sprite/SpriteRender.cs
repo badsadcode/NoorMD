@@ -62,17 +62,49 @@ public static class SpriteRender
         return (nw, nh, o);
     }
 
-    /// <summary>A sprite file's first frame as a PNG fitted in `size` (.noorsprite, .aseprite, .ase), or null.</summary>
-    public static byte[]? Thumbnail(string path, int size)
+    /// <summary>A sprite file read (.noorsprite, .aseprite, .ase), or null when it can't be.</summary>
+    public static SpriteDoc? Load(string path)
     {
         try
         {
-            var doc = path.EndsWith(SpriteFile.Extension, StringComparison.OrdinalIgnoreCase) ? SpriteFile.Load(path)
+            return path.EndsWith(SpriteFile.Extension, StringComparison.OrdinalIgnoreCase) ? SpriteFile.Load(path)
                 : new FileInfo(path).Length <= 256L * 1024 * 1024 ? AsepriteFile.Read(File.ReadAllBytes(path)).Sprite : null;
-            if (doc == null) return null;
-            var (w, h, px) = Fit(doc.Width, doc.Height, Frame(doc, 0), size);
-            return SpritePng.Encode(w, h, px);
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Text.Json.JsonException) { return null; }
+    }
+
+    /// <summary>
+    /// A sprite as a note shows it: one frame as a PNG, or its animation (every frame, or a tag's, played its way) as a
+    /// looping GIF — fitted in `size`, small sprites grown by whole steps. Null when it can't be read.
+    /// </summary>
+    public static (byte[] Bytes, string ContentType)? ForNote(string path, int size, string? tag, int? frame)
+    {
+        var doc = Load(path);
+        if (doc == null) return null;
+        var order = Enumerable.Range(0, doc.Frames.Count).ToList();
+        if (!string.IsNullOrEmpty(tag) && doc.Tags.FirstOrDefault(t => string.Equals(t.Name, tag, StringComparison.OrdinalIgnoreCase)) is { } tg)
+            order = GodotSprite.Animations(doc.Frames.Count, [tg])[0].Frames;
+        if (frame is { } f || order.Count == 1)
+        {
+            var one = Math.Clamp(frame ?? order[0], 0, doc.Frames.Count - 1);
+            var (w, h, px) = Fit(doc.Width, doc.Height, Frame(doc, one), size);
+            return (SpritePng.Encode(w, h, px), "image/png");
+        }
+        var cache = new Dictionary<int, SpriteImage>();
+        var frames = order.Select(i =>
+        {
+            if (!cache.TryGetValue(i, out var im)) { var (w, h, px) = Fit(doc.Width, doc.Height, Frame(doc, i), size); cache[i] = im = new SpriteImage(w, h, px, doc.Frames[i].Duration); }
+            return im;
+        }).ToList();
+        return (GifWriter.Write(frames), "image/gif");
+    }
+
+    /// <summary>A sprite file's first frame as a PNG fitted in `size` (.noorsprite, .aseprite, .ase), or null.</summary>
+    public static byte[]? Thumbnail(string path, int size)
+    {
+        var doc = Load(path);
+        if (doc == null) return null;
+        var (w, h, px) = Fit(doc.Width, doc.Height, Frame(doc, 0), size);
+        return SpritePng.Encode(w, h, px);
     }
 }

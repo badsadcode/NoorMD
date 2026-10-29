@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '' };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -507,6 +507,12 @@ window.NoorSprite = (() => {
         t.value = view.tiled; t.addEventListener('change', () => { view.tiled = t.value; draw(); keepFocus(); });
         return el('label', { class: 'sb-inline' }, el('span', { text: 'Tiling' }), t);
       })(),
+      (() => {
+        const t = el('select', { id: 'sp-seen', 'aria-label': 'Seen as', title: 'The sprite as people with colour blindness see it, or in grey: do its colours still read apart?' },
+          el('option', { value: '', text: 'as it is' }), el('option', { value: 'protanopia', text: 'protanopia (red-blind)' }), el('option', { value: 'deuteranopia', text: 'deuteranopia (green-blind)' }), el('option', { value: 'tritanopia', text: 'tritanopia (blue-blind)' }), el('option', { value: 'grey', text: 'in grey (values)' }));
+        t.value = view.seen; t.addEventListener('change', () => { view.seen = t.value; draw(); keepFocus(); });
+        return el('label', { class: 'sb-inline' }, el('span', { text: 'Seen' }), t);
+      })(),
       el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
       el('div', { class: 'sb-row' }, check('onionTag', 'this tag only', 'Onion skin from the frames of the tag you are in, not past it'), check('onionOutline', 'outlines', 'Onion skin as outlines (easier to see through)')),
@@ -946,7 +952,7 @@ window.NoorSprite = (() => {
       }
       ctx.globalAlpha = 1;
     }
-    const shown = composeShown();
+    const shown = seenAs(composeShown());
     ctx.drawImage(pixelsToCanvas(shown, doc.width, doc.height), o.x, o.y, W, H);
     ctx.restore();
     if (view.tiled) {
@@ -1752,7 +1758,7 @@ window.NoorSprite = (() => {
       ['Flip the layer ↔', () => transform('flipH', 'layer')], ['Flip the layer ↕', () => transform('flipV', 'layer')],
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
-      ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
@@ -2784,7 +2790,7 @@ window.NoorSprite = (() => {
 
   /** The palette menu's items (also found by the command search). */
   function paletteItems() {
-    return [['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
+    return [['A hue-shifted ramp from the drawing colour…', hueRampDialog], ['From Lospec (by name)…', lospecPalette], null, ['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
       ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
       ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette], null,
       [doc.indexed ? 'RGB colour (any colour; leave indexed)' : 'Indexed colour (every pixel a palette colour)', () => setIndexed(!doc.indexed)], ['Colour cycling…', cycleDialog]];
@@ -3032,6 +3038,140 @@ window.NoorSprite = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- shading helpers: hue-shifted ramps, auto shading, seeing colours
+
+  function toHsl([r, g, b]) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    if (!d) return [0, 0, l];
+    const s2 = d / (1 - Math.abs(2 * l - 1));
+    const h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    return [(h * 60 + 360) % 360, s2, l];
+  }
+  function fromHsl(h, s2, l) {
+    const c = (1 - Math.abs(2 * l - 1)) * s2, x = c * (1 - Math.abs(((h / 60) % 2) - 1)), m = l - c / 2;
+    const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x] : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+    return [r, g, b].map((v) => Math.round(Math.max(0, Math.min(1, v + m)) * 255));
+  }
+  /** A hue moved towards another by up to `amt` degrees (the short way round). */
+  const towards = (h, target, amt) => { const diff = ((target - h + 540) % 360) - 180; return (h + Math.sign(diff) * Math.min(Math.abs(diff), amt) + 360) % 360; };
+
+  /**
+   * A ramp the way pixel artists shade: darker steps turn towards blue-violet and lose a little saturation, lighter
+   * ones towards warm yellow — not just darker and lighter of one hue.
+   */
+  function hueRamp(base, n, shift, lo, hi) {
+    const [h, s2] = toHsl(base);
+    return Array.from({ length: n }, (_, i) => {
+      const t = n === 1 ? 0.5 : i / (n - 1), l = lo + (hi - lo) * t;
+      const hue = t < 0.5 ? towards(h, 245, shift * (0.5 - t) * 2) : towards(h, 55, shift * (t - 0.5) * 2);
+      const sat = Math.max(0, Math.min(1, s2 * (1 - 0.35 * Math.abs(t - 0.5) * 2) + 0.08 * (1 - Math.abs(t - 0.5) * 2)));
+      return [...fromHsl(hue, sat, l), 255];
+    });
+  }
+
+  function hueRampDialog() {
+    NoorUI.modal({ label: 'A hue-shifted ramp', width: 420 }, (s2, closeIt) => {
+      const n = el('input', { type: 'number', min: '2', max: '12', value: '7', id: 'sp-hr-n', 'aria-label': 'Colours' });
+      const shift = el('input', { type: 'range', min: '0', max: '60', value: '25', id: 'sp-hr-shift', 'aria-label': 'Hue shift' });
+      const lo = el('input', { type: 'range', min: '0', max: '45', value: '12', 'aria-label': 'Darkest' });
+      const hi = el('input', { type: 'range', min: '55', max: '100', value: '88', 'aria-label': 'Lightest' });
+      const strip = el('div', { class: 'sp-hr-strip', id: 'sp-hr-strip' });
+      const make = () => hueRamp(fg, Math.max(2, Math.min(12, Number(n.value) || 7)), Number(shift.value), Number(lo.value) / 100, Number(hi.value) / 100);
+      const show = () => strip.replaceChildren(...make().map((c) => el('span', { class: 'sp-hr-swatch', style: `background:${hex(c).slice(0, 7)}`, title: hex(c) })));
+      [n, shift, lo, hi].forEach((i) => i.addEventListener('input', show));
+      show();
+      s2.append(NoorUI.head('A hue-shifted ramp', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'From the drawing colour: shadows lean towards blue-violet, highlights towards warm yellow.' }),
+          el('label', {}, 'Colours ', n), el('label', {}, 'Hue shift ', shift), el('label', {}, 'Darkest ', lo), el('label', {}, 'Lightest ', hi), strip),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-hr-ok', onclick: () => { const cs = make().map(hex); closeIt(); change('A hue-shifted ramp', (d) => { for (const c of cs) if (!d.palette.includes(c) && d.palette.length < 256) d.palette.push(c); }); } }, 'Add to the palette'))));
+    });
+  }
+
+  const LIGHTS = { tl: [-1, -1], t: [0, -1], tr: [1, -1], r: [1, 0], br: [1, 1], b: [0, 1], bl: [-1, 1], l: [-1, 0] };
+
+  /**
+   * Auto shading: the pixels drawn in a palette ramp's colours (in the selection, or the whole cel) shaded by where
+   * they face — towards the light a step or two lighter, away a step or two darker, strongest near the edge; the far
+   * edge can take the darkest colour as an outline. A start to touch up, not the end.
+   */
+  function autoShade(from, to, light, band, outlineEdge) {
+    const c = cel();
+    if (!c) { notice('Nothing on this layer and frame to shade', 1400); return; }
+    const W = doc.width, H = doc.height, ramp = doc.palette.slice(Math.min(from, to), Math.max(from, to) + 1).map(parseHex);
+    if (ramp.length < 2) { notice('A ramp is two palette colours or more', 1400); return; }
+    const idxOf = (i) => ramp.findIndex((r) => r[0] === c.px[i] && r[1] === c.px[i + 1] && r[2] === c.px[i + 2] && r[3] === c.px[i + 3]);
+    const solid = (x, y) => x >= 0 && y >= 0 && x < W && y < H && c.px[(y * W + x) * 4 + 3] > 0;
+    // How far each drawn pixel is from the edge (steps to a clear one).
+    const dist = new Int16Array(W * H).fill(-1), queue = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid(x, y) && (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1))) { dist[y * W + x] = 0; queue.push(y * W + x); }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q], x = i % W, y = (i - x) / W;
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) if (solid(nx, ny) && dist[ny * W + nx] < 0) { dist[ny * W + nx] = dist[i] + 1; queue.push(ny * W + nx); }
+    }
+    const [lx, ly] = LIGHTS[light] || LIGHTS.tl, ll = Math.hypot(lx, ly), D = (x, y) => (solid(x, y) ? dist[y * W + x] : -1);
+    change('Auto shade', (d) => {
+      const px = editable(d);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x, o = i * 4;
+        if (dist[i] < 0 || (selection && !selection.mask[i])) continue;
+        const k = idxOf(o);
+        if (k < 0) continue;
+        // The way out of the shape here: from deeper to shallower.
+        const gx = D(x - 1, y) - D(x + 1, y), gy = D(x, y - 1) - D(x, y + 1), gl = Math.hypot(gx, gy);
+        if (!gl) continue;
+        const facing = (gx * lx + gy * ly) / (gl * ll), near = Math.max(0, 1 - dist[i] / band);
+        let step = Math.round(facing * near * 2);
+        let n = Math.max(0, Math.min(ramp.length - 1, k + step));
+        if (outlineEdge && dist[i] === 0 && facing < -0.3) n = 0;
+        px.set(ramp[n], o);
+      }
+    });
+  }
+
+  function autoShadeDialog() {
+    const fi = doc.palette.indexOf(hex(fg)), start = Math.max(0, fi < 0 ? 0 : fi - 2);
+    NoorUI.modal({ label: 'Auto shade', width: 420 }, (s2, closeIt) => {
+      const from = el('input', { type: 'number', min: '1', max: String(doc.palette.length), value: String(start + 1), id: 'sp-as-from', 'aria-label': 'Ramp from colour' });
+      const to = el('input', { type: 'number', min: '1', max: String(doc.palette.length), value: String(Math.min(doc.palette.length, start + 5)), id: 'sp-as-to', 'aria-label': 'Ramp to colour' });
+      const light = el('select', { id: 'sp-as-light', 'aria-label': 'Light from' }, ...[['tl', 'top left'], ['t', 'above'], ['tr', 'top right'], ['r', 'the right'], ['br', 'bottom right'], ['b', 'below'], ['bl', 'bottom left'], ['l', 'the left']].map(([v, l]) => el('option', { value: v, text: l })));
+      const band = el('input', { type: 'number', min: '1', max: '8', value: '2', id: 'sp-as-band', 'aria-label': 'How far in' });
+      const edge = el('input', { type: 'checkbox', id: 'sp-as-edge', checked: true });
+      s2.append(NoorUI.head('Auto shade', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Pixels in the ramp\'s colours (dark to light, in palette order) are shaded by where they face: a start to touch up. In the selection, or the whole layer on this frame.' }),
+          el('label', {}, 'Ramp: colours ', from, ' to ', to), el('label', {}, 'Light from ', light), el('label', {}, 'Pixels in from the edge ', band), el('label', {}, edge, ' the far edge darkest (an outline)')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-as-ok', onclick: () => { closeIt(); autoShade(Number(from.value) - 1, Number(to.value) - 1, light.value, Math.max(1, Number(band.value) || 2), edge.checked); } }, 'Shade'))));
+    });
+  }
+
+  // Seeing the sprite as people with colour blindness do (or in grey), to check its colours read apart.
+  const SEEN = {
+    protanopia: [0.567, 0.433, 0, 0.558, 0.442, 0, 0, 0.242, 0.758],
+    deuteranopia: [0.625, 0.375, 0, 0.7, 0.3, 0, 0, 0.3, 0.7],
+    tritanopia: [0.95, 0.05, 0, 0, 0.433, 0.567, 0, 0.475, 0.525],
+    grey: [0.299, 0.587, 0.114, 0.299, 0.587, 0.114, 0.299, 0.587, 0.114],
+  };
+  function seenAs(px) {
+    const m = SEEN[view.seen];
+    if (!m) return px;
+    const out = new Uint8ClampedArray(px);
+    for (let i = 0; i < out.length; i += 4) { const r = px[i], g = px[i + 1], b = px[i + 2]; out[i] = m[0] * r + m[1] * g + m[2] * b; out[i + 1] = m[3] * r + m[4] * g + m[5] * b; out[i + 2] = m[6] * r + m[7] * g + m[8] * b; }
+    return out;
+  }
+
+  /** A palette from Lospec's list, by its name there (e.g. "endesga-32"): fetched only when asked. */
+  async function lospecPalette() {
+    const slug = await NoorUI.prompt('A palette from Lospec', 'Its name on lospec.com/palette-list (like endesga-32 or resurrect-64):', '', { okLabel: 'Load' });
+    if (!slug || !slug.trim()) return;
+    try {
+      const r = await req('sprite.palette.lospec', { slug: slug.trim().toLowerCase() });
+      change('A Lospec palette', (d) => { d.palette = r.palette.slice(0, 256); });
+      notice(`${r.palette.length} colours: ${r.name}`, 1600);
+    } catch (err) { hooks.showError(err); }
+  }
+
   // ---------------------------------------------------------------- to other benches
 
   /** This frame as a NoorForge decal: its shape (where it is drawn) in white, grown by whole steps to be crisp. */
@@ -3247,6 +3387,8 @@ window.NoorSprite = (() => {
       tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
       indexed: !!doc.indexed, cycle: doc.cycle || null, cycling: !!cycling,
     }),
+    /** For tests: the drawing colour. */
+    _setColour: (c) => { fg = [...c]; renderColours(); renderPalette(); },
     /** For tests: the palette index of a cel's pixel (indexed sprites). */
     _index: (x, y, l = layer, f = frame) => { const c = doc.cels.get(key(doc.layers[l].id, f)); return c && c.idx ? c.idx[y * doc.width + x] : null; },
     /** For tests: the frame as shown (with colour cycling). */

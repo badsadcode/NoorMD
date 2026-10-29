@@ -6435,6 +6435,52 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66m. NoorSprite shading helpers: hue-shifted ramps, auto shading, seeing colours, Lospec palettes.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const px = (x, y) => page.evaluate(([p, q]) => NoorSprite._pixel(p, q), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // A ramp from a mid green.
+      await page.evaluate(() => NoorSprite._load({ version: 1, width: 12, height: 12, palette: [], layers: [{ id: 'a', name: 'A', visible: true, locked: false, opacity: 255, blend: 'normal' }], frames: [{ duration: 100 }], tags: [], cels: [] }));
+      await page.evaluate(() => NoorSprite._setColour([60, 160, 70, 255]));
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("A hue-shifted ramp")');
+      await page.waitForSelector('#sp-hr-ok');
+      check('a hue-shifted ramp: 7 colours shown from the drawing colour', (await page.$$('#sp-hr-strip .sp-hr-swatch')).length === 7);
+      await page.click('#sp-hr-ok');
+      let pal = (await SS()).palette;
+      const hsl = (c) => { const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16) / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn; const h = !d ? 0 : mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; return [(h * 60 + 360) % 360, (mx + mn) / 2]; };
+      check('…added dark to light, the darkest turned towards blue, the lightest towards yellow', pal.length === 7 && hsl(pal[0])[1] < hsl(pal[6])[1] && hsl(pal[0])[0] > hsl(pal[3])[0] && hsl(pal[6])[0] < hsl(pal[3])[0], pal.map((c) => hsl(c).map((v) => Math.round(v * 100) / 100)));
+      // Auto shade a filled square of the middle colour.
+      await page.evaluate((c) => NoorSprite._setColour(c), [1, 3, 5].map((i) => parseInt(pal[3].slice(i, i + 2), 16)).concat([255]));
+      await page.keyboard.press('u'); await page.check('[data-opt="filled"]');
+      const a0 = await page.evaluate(() => NoorSprite._screen(2, 2)), a1 = await page.evaluate(() => NoorSprite._screen(9, 9));
+      await page.mouse.move(a0.x, a0.y); await page.mouse.down(); await page.mouse.move(a1.x, a1.y, { steps: 4 }); await page.mouse.up();
+      const mid = (await px(5, 5)).join();
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Auto shade")');
+      await page.waitForSelector('#sp-as-ok');
+      await page.fill('#sp-as-from', '1'); await page.fill('#sp-as-to', '7');
+      await page.click('#sp-as-ok');
+      const hex2 = (p2) => '#' + p2.map((v) => v.toString(16).padStart(2, '0')).join('');
+      const ix = async (x, y) => pal.indexOf(hex2(await px(x, y)));
+      check('auto shade: the edge facing the light lighter, the far edge darkest, the middle as it was', (await ix(2, 2)) > 3 && (await ix(9, 9)) === 0 && (await px(5, 5)).join() === mid, [await ix(2, 2), await ix(9, 9)]);
+      await page.keyboard.press('Control+z');
+      check('…one undo', (await px(9, 9)).join() === mid);
+      // Seen as (colour blindness, grey).
+      await page.selectOption('#sp-seen', 'grey');
+      check('the sprite can be seen in grey or as with colour blindness', (await SS()).view.seen === 'grey');
+      await page.selectOption('#sp-seen', '');
+      // Lospec.
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("From Lospec")');
+      await page.waitForSelector('.modal input[type=text]');
+      await page.fill('.modal input[type=text]', 'Sweetie-16 '); await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSprite._state().palette.length === 4);
+      check('a palette from Lospec by its name', (await page.evaluate(() => window.__mock.state.sprite.lospec)) === 'sweetie-16' && (await SS()).palette[0] === '#1a1c2cff');
+      check('no page errors with the shading helpers', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

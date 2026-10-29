@@ -172,11 +172,15 @@ public partial class MainWindow : Window
             }
             if (AssetResolver.IsSprite(file))
             {
-                // A sprite in a note: its first frame, drawn by the app as a PNG (small ones grown by whole steps).
-                var png = NoorMD.Core.Sprite.SpriteRender.Thumbnail(file, 256);
-                e.Response = png == null
+                // A sprite in a note, drawn by the app (small ones grown by whole steps): playing as a GIF, or one frame.
+                // ?tag=walk plays a tag; ?frame=3 shows one frame (from 1); ?size=128 fits it in 128 pixels.
+                var q = System.Web.HttpUtility.ParseQueryString(uri.Query);
+                int? oneFrame = int.TryParse(q["frame"], out var fq) ? fq - 1 : null;
+                var fit = int.TryParse(q["size"], out var sq) ? Math.Clamp(sq, 16, 1024) : 256;
+                var shown = NoorMD.Core.Sprite.SpriteRender.ForNote(file, fit, q["tag"], oneFrame);
+                e.Response = shown is not { } sh
                     ? Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain")
-                    : Core.Environment.CreateWebResourceResponse(new MemoryStream(png), 200, "OK", "Content-Type: image/png\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+                    : Core.Environment.CreateWebResourceResponse(new MemoryStream(sh.Bytes), 200, "OK", $"Content-Type: {sh.ContentType}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
                 return;
             }
             var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
