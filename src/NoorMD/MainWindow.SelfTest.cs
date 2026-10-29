@@ -981,6 +981,37 @@ public partial class MainWindow
                 $"{string.Join("; ", painted.Warnings)} painted {Red(20, 20)}, elsewhere {Red(100, 100)}");
         }
 
+        // NoorSprite: drawn on in WebView2 (pointer events on its canvas), the sprite read by the app as a .noorsprite and an .aseprite file.
+        {
+            await Eval(@"window.__sp = null; (async () => {
+                try {
+                    await NoorSprite.open();
+                    const cv = document.querySelector('#sp-canvas');
+                    const at = NoorSprite._screen(3, 4);
+                    const ev = (t) => new PointerEvent(t, { clientX: at.x, clientY: at.y, button: 0, buttons: 1, pointerId: 7, bubbles: true });
+                    cv.dispatchEvent(ev('pointerdown')); cv.dispatchEvent(ev('pointerup'));
+                    window.__sp = JSON.stringify({ px: NoorSprite._pixel(3, 4, 0, 0), wire: NoorSprite._wire() });
+                    NoorSprite.close();
+                } catch (e) { window.__sp = 'error ' + e.message; } })()");
+            var sp = "null";
+            for (var i = 0; i < 50 && sp == "null"; i++) { await Task.Delay(100); sp = await Eval("window.__sp"); }
+            string drawn = "", files = "";
+            var ok = false;
+            try
+            {
+                using var j = JsonDocument.Parse(JsonSerializer.Deserialize<string>(sp) ?? "{}");
+                drawn = j.RootElement.GetProperty("px").GetRawText();
+                var doc = NoorMD.Core.Sprite.SpriteDoc.FromJson(j.RootElement.GetProperty("wire").GetRawText());
+                var again = NoorMD.Core.Sprite.SpriteFile.FromBytes(NoorMD.Core.Sprite.SpriteFile.ToBytes(doc));
+                var (ase, _) = NoorMD.Core.Sprite.AsepriteFile.Read(NoorMD.Core.Sprite.AsepriteFile.Write(doc));
+                var cel = again.Cels.Single();
+                files = $"{doc.Width}x{doc.Height}, cel {cel.X},{cel.Y} {cel.Width}x{cel.Height}, aseprite {ase.Cels.Count} cel";
+                ok = drawn == "[0,0,0,255]" && cel is { X: 3, Y: 4, Width: 1, Height: 1 } && ase.Cels.Single().Pixels().SequenceEqual(cel.Pixels());
+            }
+            catch (Exception ex) { files = ex.Message; }
+            Check("NoorSprite: a pixel drawn in WebView2 is kept by the app as a .noorsprite and an .aseprite file", ok, $"{sp[..Math.Min(sp.Length, 120)]} → {drawn} · {files}");
+        }
+
         // Voice notes: the microphone is refused unless Record was just pressed; a recording made in the page is saved and linked.
         await Eval(@"window.__vt = null; (async () => {
             let denied = '?'; try { const s = await navigator.mediaDevices.getUserMedia({ audio: true }); s.getTracks().forEach(t => t.stop()); denied = 'allowed'; } catch (e) { denied = e.name; }

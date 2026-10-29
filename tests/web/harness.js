@@ -198,6 +198,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('forge.')) { try { return reply(m.id, true, forgeMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('sprite.')) { try { return reply(m.id, true, spriteMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('radio.')) { try { return reply(m.id, true, radioMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -526,6 +527,24 @@ function mockHostScript(initial) {
       case 'asset.rock.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ROCK.mine.some((x) => x.id === id); ROCK.mine = ROCK.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'asset.rock.delete': ROCK.mine = ROCK.mine.filter((x) => x.id !== p.id); return { mine: mine() };
       default: throw new Error('Unknown command ' + type);
+    }
+  }
+  // NoorSprite: the app keeps files; here a small sprite to open, a picture to import, and what was saved / exported.
+  const SPRITE = { saves: [], exports: [] };
+  function spriteMock(type, p) {
+    state.sprite = SPRITE;
+    const px = (w, h, f) => { const b = new Uint8Array(w * h * 4); for (let i = 0; i < w * h; i++) b.set(f(i % w, Math.floor(i / w)), i * 4); let s2 = ''; for (const v of b) s2 += String.fromCharCode(v); return btoa(s2); };
+    switch (type) {
+      case 'sprite.open': SPRITE.opens = (SPRITE.opens || 0) + 1; return { path: 'C:\\Art\\hero.noorsprite', name: 'hero.noorsprite', notes: [], sprite: {
+        version: 1, width: 8, height: 8, palette: ['#000000ff', '#ff004dff'], gridWidth: 4, gridHeight: 4,
+        layers: [{ id: 'bg', name: 'Ground', visible: true, locked: false, opacity: 255, blend: 'normal' }, { id: 'hero', name: 'Hero', visible: true, locked: false, opacity: 255, blend: 'normal' }],
+        frames: [{ duration: 100 }, { duration: 200 }], tags: [{ name: 'idle', from: 0, to: 1, direction: 'pingpong', color: '#ff004dff' }],
+        cels: [{ layer: 'bg', frame: 0, x: 0, y: 6, width: 8, height: 2, opacity: 255, data: px(8, 2, () => [41, 173, 255, 255]) },
+          { layer: 'hero', frame: 1, x: 3, y: 3, width: 2, height: 2, opacity: 255, data: px(2, 2, () => [255, 0, 77, 255]) }] } };
+      case 'sprite.picture.pick': return { name: 'sheet', image: { width: 8, height: 4, data: px(8, 4, (x) => (x < 4 ? [255, 0, 0, 255] : [0, 0, 255, 255])) } };
+      case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
+      case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
+      default: throw new Error('Unknown sprite command ' + type);
     }
   }
   // NoorForge: the app bakes and composes; here a rock GLB stands in for the textured model, a photo for each map.

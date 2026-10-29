@@ -152,6 +152,8 @@ public partial class MainWindow
                 return await DispatchCalendarAsync(req);
             case var forge when forge.StartsWith("forge.", StringComparison.Ordinal):
                 return await DispatchForgeAsync(req);
+            case var sprite when sprite.StartsWith("sprite.", StringComparison.Ordinal):
+                return await DispatchSpriteAsync(req);
             case var asset when asset.StartsWith("asset.", StringComparison.Ordinal):
                 return await DispatchAssetAsync(req);
             case var seq when seq.StartsWith("seq.", StringComparison.Ordinal):

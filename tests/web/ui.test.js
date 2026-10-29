@@ -5488,6 +5488,189 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66. NoorSprite: drawing, layers, frames, tags, selections, files and exports.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const px = (x, y, l, f) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d), [x, y, l === undefined ? null : l, f]);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const click = async (x, y, opts) => { const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
+      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 4 }); } await page.mouse.up(); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      let st = await SS();
+      check('Ctrl+Alt+P opens NoorSprite with a 32 × 32 sprite, one layer, one frame, a palette', st.width === 32 && st.layers.length === 1 && st.frames.length === 1 && st.palette.length === 32 && st.tool === 'pencil');
+      // New 16 × 16.
+      await page.click('#sp-new');
+      await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '16');
+      await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      check('a new sprite of any size', (await SS()).height === 16);
+      // Pencil: a line, pixel-perfect (no doubled corners on a diagonal).
+      await page.click('#sp-palette [data-index="8"]');
+      const red = (await SS()).fg;
+      await strokeTo([[2, 2], [6, 6]]);
+      st = await SS();
+      check('the pencil draws with the chosen palette colour, one undo step', (await px(2, 2, 0, 0)).join() === red.join() && (await px(6, 6, 0, 0)).join() === red.join() && st.history === 1);
+      const diag = []; for (let k = 2; k <= 6; k++) diag.push((await px(k, k, 0, 0))[3]);
+      check('…a diagonal line is one pixel wide (pixel-perfect: no L-corners)', diag.every((a) => a === 255) && (await px(3, 2, 0, 0))[3] === 0 && (await px(2, 3, 0, 0))[3] === 0);
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z takes it back', (await px(4, 4, 0, 0))[3] === 0);
+      await page.keyboard.press('Control+y');
+      check('…and Ctrl+Y puts it back', (await px(4, 4, 0, 0))[3] === 255);
+      // Rectangle (filled), fill, eraser, eyedropper.
+      await page.keyboard.press('u');
+      await page.click('#sp-options [data-opt="filled"]');
+      await strokeTo([[9, 9], [12, 11]]);
+      check('U: a filled rectangle', (await px(9, 9, 0, 0))[3] === 255 && (await px(12, 11, 0, 0))[3] === 255 && (await px(13, 11, 0, 0))[3] === 0);
+      await page.click('#sp-palette [data-index="18"]');
+      const blue = (await SS()).fg;
+      await page.keyboard.press('g');
+      await click(10, 10);
+      check('G: the fill fills the rectangle (touching, same colour)', (await px(12, 11, 0, 0)).join() === blue.join() && (await px(2, 2, 0, 0)).join() === red.join());
+      await page.keyboard.press('e');
+      await click(10, 10);
+      check('E: the eraser clears to transparent', (await px(10, 10, 0, 0))[3] === 0);
+      await page.keyboard.press('i');
+      await click(2, 2);
+      check('I: the eyedropper takes the colour under it', (await SS()).fg.join() === red.join());
+      // Mirror.
+      await page.keyboard.press('b');
+      await page.click('#sp-options [data-opt="mirrorX"]');
+      await click(1, 14);
+      check('drawing mirrored left ↔ right', (await px(1, 14, 0, 0))[3] === 255 && (await px(14, 14, 0, 0))[3] === 255);
+      await page.click('#sp-options [data-opt="mirrorX"]');
+      // Layers.
+      await page.click('#sp-addlayer');
+      st = await SS();
+      check('a new layer goes above and is the one drawn on', st.layers.length === 2 && st.layer === 1);
+      await click(5, 12);
+      check('…drawing goes on it, the layer below untouched', (await px(5, 12, 1, 0))[3] === 255 && (await px(5, 12, 0, 0))[3] === 0);
+      await page.selectOption('#sp-blend', 'multiply');
+      check('a layer has a blend mode', (await SS()).layers[1].blend === 'multiply');
+      await page.click('#sp-timeline [data-layer="1"] [aria-label="Show Layer 2"]');
+      check('a layer can be hidden (the frame shows without it)', (await SS()).layers[1].visible === false && (await px(5, 12, null, 0))[3] === 0);
+      await page.click('#sp-timeline [data-layer="1"] [aria-label="Show Layer 2"]');
+      // Frames.
+      await page.click('#sp-addframe');
+      st = await SS();
+      check('＋ frame: a copy of this one, now the frame drawn on', st.frames.length === 2 && st.frame === 1 && (await px(2, 2, 0, 1)).join() === red.join());
+      await page.keyboard.press('Delete');
+      check('Delete clears the layer on this frame only', (await px(5, 12, 1, 1))[3] === 0 && (await px(5, 12, 1, 0))[3] === 255);
+      await page.click('#sp-timeline [data-frame="1"]', { clickCount: 2 });
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', '250');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSprite._state().frames[1].duration === 250);
+      check('double-clicking a frame sets how long it shows', true);
+      // A tag over both frames, ping-pong; playing.
+      await page.click('#sp-addtag');
+      await page.waitForSelector('#sp-tag-ok');
+      await page.fill('#sp-tag-name', 'walk'); await page.fill('#sp-tag-from', '1'); await page.fill('#sp-tag-to', '2');
+      await page.selectOption('#sp-tag-dir', 'pingpong');
+      await page.click('#sp-tag-ok');
+      st = await SS();
+      check('a tag names frames and how they play', st.tags.length === 1 && st.tags[0].name === 'walk' && st.tags[0].from === 0 && st.tags[0].to === 1 && st.tags[0].direction === 'pingpong' && !!(await page.$('#sp-timeline .sp-tag')));
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSprite._state().playing);
+      const seen = new Set();
+      for (let k = 0; k < 14; k++) { seen.add((await SS()).frame); await page.waitForTimeout(40); }
+      await page.keyboard.press('Enter');
+      check('Enter plays the frames (with their durations) and stops', seen.size === 2 && !(await SS()).playing);
+      // Onion skin, grid.
+      await page.click('#sp-viewopts [data-view="onion"]');
+      await page.click('#sp-viewopts [data-view="grid"]');
+      check('onion skin and a grid of one\'s own can be shown', (await SS()).view.onion && (await SS()).view.grid);
+      // Selection, copy, paste, move.
+      await page.click('#sp-timeline [data-frame="0"]');
+      await page.click('#sp-timeline [data-layer="0"] .sp-tl-name');
+      await page.keyboard.press('m');
+      await strokeTo([[1, 1], [3, 3]]);
+      st = await SS();
+      check('M: a rectangle selection', st.selection && st.selection.x0 === 1 && st.selection.y1 === 3 && st.selection.count === 9);
+      await page.keyboard.press('Control+c');
+      await page.keyboard.press('Control+v');
+      st = await SS();
+      check('Ctrl+C, Ctrl+V: the copy floats, to be placed (the move tool on)', st.floating && st.floating.w === 3 && st.tool === 'move');
+      for (let k = 0; k < 8; k++) await page.keyboard.press('ArrowRight');
+      await page.keyboard.press('Enter');
+      check('…the arrow keys move it, Enter puts it down', !(await SS()).floating && (await px(10, 2, 0, 0)).join() === red.join() && (await px(2, 2, 0, 0)).join() === red.join());
+      await page.keyboard.press('Control+d');
+      check('Ctrl+D: no selection', (await SS()).selection === null);
+      await page.keyboard.press('w');
+      await click(0, 6); // (not low down, where the “Copied” notice may still be showing)
+      const wand = (await SS()).selection;
+      check('W: the magic wand selects the area of one colour touching the click', wand && wand.count > 100 && wand.count < 256);
+      await page.keyboard.press('q');
+      await strokeTo([[1, 8], [6, 8], [4, 13], [1, 8]]);
+      const lasso = (await SS()).selection;
+      check('Q: the lasso selects what it goes round', lasso && lasso.count > 8 && lasso.count < 40 && lasso.x0 === 1 && lasso.x1 === 6);
+      await page.keyboard.press('Control+Shift+i');
+      check('Ctrl+Shift+I turns the selection round', (await SS()).selection.count === 256 - lasso.count);
+      await page.keyboard.press('Control+d');
+      // Transforms and canvas size.
+      await page.evaluate(() => NoorSprite._state());
+      const beforeFlip = await px(2, 2, 0, 0);
+      await page.click('#sp-menu');
+      await page.click('.sp-menu .utility-btn:has-text("Flip the sprite left ↔ right")');
+      check('the whole sprite flips (every layer, every frame)', (await px(13, 2, 0, 0)).join() === beforeFlip.join() && (await px(13, 2, 0, 1)).join() === beforeFlip.join());
+      await page.click('#sp-menu');
+      await page.click('.sp-menu .utility-btn:has-text("Canvas size…")');
+      await page.waitForSelector('#sp-cs-ok');
+      await page.fill('#sp-cw', '20'); await page.fill('#sp-ch', '16');
+      await page.click('.sp-anchor [aria-label="Anchor 0,0"]');
+      await page.click('#sp-cs-ok');
+      check('the canvas grows with the picture kept where anchored', (await SS()).width === 20 && (await px(13, 2, 0, 0)).join() === beforeFlip.join());
+      await page.click('#sp-menu');
+      await page.click('.sp-menu .utility-btn:has-text("Scale the sprite…")');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', '2'); await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSprite._state().width === 40);
+      check('the sprite scales by whole pixels', (await px(26, 4, 0, 0)).join() === beforeFlip.join() && (await px(27, 5, 0, 0)).join() === beforeFlip.join());
+      // Save (a new file asks where), export a sheet, a GIF.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => window.__mock.state.sprite.saves.length === 1 && /new\.noorsprite/.test(document.querySelector('#sp-file').textContent));
+      let saved = (await SM()).saves[0];
+      check('Ctrl+S saves the sprite: layers, frames, tags, cels cropped to what they hold', saved.path === null && saved.sprite.width === 40 && saved.sprite.layers.length === 2 && saved.sprite.frames.length === 2 && saved.sprite.tags[0].name === 'walk'
+        && saved.sprite.cels.length > 0 && saved.sprite.cels.every((c) => c.width <= 40 && atob(c.data).length === c.width * c.height * 4) && /new\.noorsprite/.test(await page.textContent('#sp-file')));
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => window.__mock.state.sprite.saves.length === 2);
+      check('…and saves again in place', (await SM()).saves[1].path === 'C:\\Art\\new.noorsprite');
+      await page.click('#sp-export');
+      await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-scale', '2'); await page.selectOption('#sp-ex-layout', 'grid');
+      await page.click('#sp-ex-ok');
+      await waitFn(page, () => window.__mock.state.sprite.exports.length === 1);
+      let ex = (await SM()).exports[0];
+      check('⤓ a sprite sheet: every frame composed, their durations, the tags, at a scale and layout', ex.kind === 'sheet' && ex.frames.length === 2 && ex.frames[1].duration === 250 && ex.scale === 2 && ex.layout === 'grid' && ex.tags[0].name === 'walk' && atob(ex.frames[0].data).length === 40 * 32 * 4);
+      await page.click('#sp-export');
+      await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'gif'); await page.selectOption('#sp-ex-tag', '0');
+      await page.click('#sp-ex-ok');
+      await waitFn(page, () => window.__mock.state.sprite.exports.length === 2);
+      ex = (await SM()).exports[1];
+      check('…an animated GIF of one tag', ex.kind === 'gif' && ex.frames.length === 2 && /-walk$/.test(ex.name));
+      // Open a sprite (its cels placed back full size), import a sheet.
+      await page.click('#sp-open'); // saved a moment ago: no question about changes
+      await waitFn(page, () => NoorSprite._state().width === 8);
+      st = await SS();
+      check('📂 opens a sprite: its layers, frames, tags and pixels where they were', st.layers.map((l) => l.name).join() === 'Ground,Hero' && st.frames[1].duration === 200 && st.tags[0].direction === 'pingpong'
+        && (await px(0, 7, 0, 0)).join() === '41,173,255,255' && (await px(3, 3, 1, 1)).join() === '255,0,77,255' && (await px(3, 3, 1, 0))[3] === 0 && st.history === 0);
+      await page.click('#sp-menu');
+      await page.click('.sp-menu .utility-btn:has-text("Import a sprite sheet")');
+      await page.waitForSelector('#sp-sheet-ok');
+      await page.fill('#sp-sw', '4'); await page.fill('#sp-sh', '4');
+      await page.click('#sp-sheet-ok');
+      await waitFn(page, () => NoorSprite._state().width === 4);
+      st = await SS();
+      check('a sprite sheet is cut into frames', st.frames.length === 2 && (await px(0, 0, 0, 0)).join() === '255,0,0,255' && (await px(0, 0, 0, 1)).join() === '0,0,255,255');
+      if (shots) await page.screenshot({ path: `${shots}/66-noorsprite.png` });
+      check('no page errors in NoorSprite', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

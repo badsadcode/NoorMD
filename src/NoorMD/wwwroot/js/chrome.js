@@ -276,7 +276,7 @@ window.NoorChrome = (() => {
     ]],
     ['Tools', 't', () => [
       { id: 'palette.show' }, { id: 'stats.show' }, { id: 'goal.set' }, '-', { id: 'snapshot.create' }, { id: 'history.show' }, '-',
-      { label: 'NoorSketch', sub: () => [{ id: 'sketch.new' }, { id: 'sketch.open' }] }, { id: 'apps.toggle' }, { id: 'radio.toggle' }, { id: 'sound.toggle' }, { id: 'texture.toggle' }, { id: 'seq.toggle' }, { id: 'assets.toggle' }, { id: 'forge.toggle' }, { id: 'cal.toggle' }, { id: 'gallery.toggle' }, { id: 'gallery.slideshow' }, { id: 'voice.toggle' }, { id: 'voice.record' },
+      { label: 'NoorSketch', sub: () => [{ id: 'sketch.new' }, { id: 'sketch.open' }] }, { id: 'apps.toggle' }, { id: 'radio.toggle' }, { id: 'sound.toggle' }, { id: 'texture.toggle' }, { id: 'seq.toggle' }, { id: 'assets.toggle' }, { id: 'forge.toggle' }, { id: 'sprite.toggle' }, { id: 'cal.toggle' }, { id: 'gallery.toggle' }, { id: 'gallery.slideshow' }, { id: 'voice.toggle' }, { id: 'voice.record' },
     ]],
     ['Help', 'h', () => [
       { id: 'shortcuts.show' }, { id: 'help.guide' }, '-', { id: 'help.diagnostics' }, { id: 'help.repo' }, { id: 'about.show' },
