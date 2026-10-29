@@ -36,7 +36,13 @@ public static class UnitySprite
         return (Math.Max(0, l), Math.Max(0, b), Math.Max(0, r), Math.Max(0, t));
     }
 
-    public static string Meta(string sheetName, SpriteImage sheet, IReadOnlyList<SpriteExport.SheetFrame> frames, IReadOnlyList<SpriteSlice> slices, int pixelsPerUnit)
+    /// <summary>A plain texture's .meta (a normal map beside a sheet: point filtered, not sRGB, no compression).</summary>
+    public static string PlainMeta(string name) =>
+        $"fileFormatVersion: 2\nguid: {Guid(name)}\nTextureImporter:\n  serializedVersion: 12\n  mipmaps:\n    enableMipMap: 0\n    sRGBTexture: 0\n" +
+        "  textureSettings:\n    serializedVersion: 2\n    filterMode: 0\n    wrapU: 1\n    wrapV: 1\n  nPOTScale: 0\n  textureType: 0\n  textureShape: 1\n" +
+        "  platformSettings:\n  - serializedVersion: 3\n    buildTarget: DefaultTexturePlatform\n    textureCompression: 0\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n";
+
+    public static string Meta(string sheetName, SpriteImage sheet, IReadOnlyList<SpriteExport.SheetFrame> frames, IReadOnlyList<SpriteSlice> slices, int pixelsPerUnit, string? normalName = null)
     {
         var pivot = slices.FirstOrDefault(s => s.HasPivot);
         var nine = slices.FirstOrDefault(s => s.Nine);
@@ -69,7 +75,9 @@ public static class UnitySprite
             sb.Append($"      spriteID: {Guid(sheetName + ":" + i)}\n      internalID: {InternalId(sheetName, i)}\n");
             sb.Append("      vertices: []\n      indices: \n      edges: []\n      weights: []\n");
         }
-        sb.Append("    outline: []\n    physicsShape: []\n    bones: []\n    spriteID: \n    internalID: 0\n    vertices: []\n    indices: \n    edges: []\n    weights: []\n    secondaryTextures: []\n");
+        sb.Append("    outline: []\n    physicsShape: []\n    bones: []\n    spriteID: \n    internalID: 0\n    vertices: []\n    indices: \n    edges: []\n    weights: []\n");
+        // A normal map beside the sheet: URP's 2D lights read it as the sprites' _NormalMap.
+        sb.Append(normalName == null ? "    secondaryTextures: []\n" : $"    secondaryTextures:\n    - name: _NormalMap\n      texture: {{fileID: 2800000, guid: {Guid(normalName)}, type: 3}}\n");
         sb.Append("  spritePackingTag: \n  pSDRemoveMatte: 0\n  userData: \n  assetBundleName: \n  assetBundleVariant: \n");
         return sb.ToString();
     }

@@ -1815,6 +1815,10 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .spritebench .sp-ref-body { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 4px; }
 .spritebench .sp-ref-canvas { max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .spritebench { position: relative; }
+.spritebench .sp-normal-swatches { gap: 3px; }
+.spritebench .sp-swatch-mini { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 3px; cursor: pointer; padding: 0; }
+.sp-hr-strip { display: flex; gap: 2px; margin-top: 6px; }
+.sp-hr-swatch { flex: 1; height: 28px; border-radius: 3px; }
 .spritebench .sp-terrains { flex-wrap: wrap; gap: 4px; }
 .spritebench .sp-terrain { display: inline-flex; align-items: center; gap: 2px; }
 .spritebench .sp-terrain .utility-btn { border-left: 4px solid var(--c); }

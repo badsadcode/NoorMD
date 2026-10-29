@@ -170,6 +170,21 @@ public partial class MainWindow
                     if (w < 1 || h < 1 || w > SpriteDoc.MaxSide || h > SpriteDoc.MaxSide || data.Length != w * h * 4) throw new BridgeError("A frame doesn't match its size.");
                     frames.Add(SpriteExport.Scale(new SpriteImage(w, h, data, f.TryGetProperty("duration", out var d) ? Math.Clamp(d.GetInt32(), 1, 65535) : 100), scale));
                 }
+                // Normal maps of the frames (the page makes them), scaled as the frames are.
+                List<SpriteImage>? normals = null;
+                if (p.TryGetProperty("normals", out var nmEl) && nmEl.ValueKind == JsonValueKind.Array && nmEl.GetArrayLength() == frames.Count)
+                {
+                    normals = [];
+                    var k = 0;
+                    foreach (var nm in nmEl.EnumerateArray())
+                    {
+                        var d = Convert.FromBase64String(nm.GetString() ?? "");
+                        var src = fr[k++];
+                        int nw = src.GetProperty("width").GetInt32(), nh = src.GetProperty("height").GetInt32();
+                        if (d.Length != nw * nh * 4) throw new BridgeError("A normal map doesn't match its frame.");
+                        normals.Add(SpriteExport.Scale(new SpriteImage(nw, nh, d, 0), scale));
+                    }
+                }
                 var tags = p.TryGetProperty("tags", out var tg) && tg.ValueKind == JsonValueKind.Array ? JsonSerializer.Deserialize<List<SpriteTag>>(tg.GetRawText(), SpriteDoc.Json) ?? [] : [];
                 var slices = p.TryGetProperty("slices", out var sl) && sl.ValueKind == JsonValueKind.Array ? (JsonSerializer.Deserialize<List<SpriteSlice>>(sl.GetRawText(), SpriteDoc.Json) ?? []).Select(x => x.Checked(SpriteDoc.MaxSide, SpriteDoc.MaxSide)).ToList() : [];
                 var form = req.GetString("form", 10) == "array" ? "array" : "hash";
@@ -230,7 +245,17 @@ public partial class MainWindow
                                 break;
                             }
                             var ppu = p.TryGetProperty("pixelsPerUnit", out var pu) && pu.TryGetInt32(out var pui) ? Math.Clamp(pui, 1, 4096) : 16;
-                            File.WriteAllText(target + ".meta", UnitySprite.Meta(baseName, us, placed, scaled, ppu * scale));
+                            string? unityNormal = null;
+                            if (normals != null)
+                            {
+                                var nsheet = SpriteExport.PlaceLike(us, placed, normals);
+                                var npath = Path.Combine(dir, baseName + "_n.png");
+                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(npath, SpritePng.Encode(nsheet.Width, nsheet.Height, nsheet.Rgba));
+                                unityNormal = baseName + "_n";
+                                File.WriteAllText(npath + ".meta", UnitySprite.PlainMeta(unityNormal));
+                                files.Add(npath); files.Add(npath + ".meta");
+                            }
+                            File.WriteAllText(target + ".meta", UnitySprite.Meta(baseName, us, placed, scaled, ppu * scale, unityNormal));
                             files.Add(target + ".meta");
                             foreach (var (animName, order) in GodotSprite.Animations(frames.Count, tags))
                             {
@@ -246,7 +271,15 @@ public partial class MainWindow
                             var (gs, placed) = SpriteExport.Pack(frames, layout == "row" ? "packed" : layout, spacing);
                             var png = Path.Combine(dir, baseName + ".png");
                             NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.EncodeBest(gs.Width, gs.Height, gs.Rgba, indexedPalette));
-                            File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags));
+                            string? godotNormal = null;
+                            if (normals != null)
+                            {
+                                var nsheet = SpriteExport.PlaceLike(gs, placed, normals);
+                                godotNormal = baseName + "_n.png";
+                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(Path.Combine(dir, godotNormal), SpritePng.Encode(nsheet.Width, nsheet.Height, nsheet.Rgba));
+                                files.Add(Path.Combine(dir, godotNormal));
+                            }
+                            File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags, godotNormal));
                             var scene = Path.Combine(dir, baseName + ".tscn");
                             // With hitboxes: an Area2D per slice and an AnimationPlayer keeping them with the frames.
                             // Frames' sounds: the files the sprite names, copied beside the scene.
@@ -273,6 +306,13 @@ public partial class MainWindow
                         default:
                             var (sheet, json) = SpriteExport.Sheet(frames, layout, spacing, baseName, tags, layers, scale, slices.Select(x => x).ToList(), form);
                             NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.EncodeBest(sheet.Width, sheet.Height, sheet.Rgba, indexedPalette));
+                            if (normals != null)
+                            {
+                                var nsheet = SpriteExport.PlaceLike(sheet, SpriteExport.Pack(frames, layout, spacing).Frames, normals);
+                                var npath = Path.Combine(dir, baseName + "_n.png");
+                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(npath, SpritePng.Encode(nsheet.Width, nsheet.Height, nsheet.Rgba));
+                                files.Add(npath);
+                            }
                             var jsonPath = Path.Combine(dir, baseName + ".json");
                             File.WriteAllText(jsonPath, json);
                             files.Add(target); files.Add(jsonPath);

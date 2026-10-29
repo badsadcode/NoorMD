@@ -157,4 +157,18 @@ public class SpriteEngineTests
         Assert.Equal(90, doc.Frames[1].Pose!["B1"].A);
         Assert.False(doc.Frames[1].Pose!.ContainsKey("gone"));
     }
+
+    [Fact]
+    public void Normal_maps_sit_where_the_frames_do_and_unity_is_told_of_them()
+    {
+        var (sheet, frames) = Sheet();
+        var normals = new List<SpriteImage> { new(8, 8, Enumerable.Repeat((byte)1, 256).ToArray(), 0), new(8, 8, Enumerable.Repeat((byte)2, 256).ToArray(), 0) };
+        var n = SpriteExport.PlaceLike(sheet, frames, normals);
+        Assert.Equal((16, 8), (n.Width, n.Height));
+        Assert.Equal(1, n.Rgba[0]);
+        Assert.Equal(2, n.Rgba[8 * 4]);                           // the second frame's place
+        var meta = UnitySprite.Meta("hero", sheet, frames, [], 16, "hero_n");
+        Assert.Contains($"secondaryTextures:\n    - name: _NormalMap\n      texture: {{fileID: 2800000, guid: {UnitySprite.Guid("hero_n")}, type: 3}}", meta);
+        Assert.Contains("sRGBTexture: 0", UnitySprite.PlainMeta("hero_n"));
+    }
 }

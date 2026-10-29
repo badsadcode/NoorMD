@@ -6535,6 +6535,43 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66o. NoorSprite normal maps: made from the shape, painted over, lit, exported.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const N = (x, y) => page.evaluate(([p, q]) => NoorSprite._normal(p, q), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // A 10 × 10 square in a 16 × 16 sprite.
+      const sq = []; for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) sq.push(...(x >= 3 && x < 13 && y >= 3 && y < 13 ? [200, 120, 60, 255] : [0, 0, 0, 0]));
+      await page.evaluate((px) => NoorSprite._load({ version: 1, width: 16, height: 16, palette: [], layers: [{ id: 'a', name: 'A', visible: true, locked: false, opacity: 255, blend: 'normal' }], frames: [{ duration: 100 }], tags: [], cels: [{ layer: 'a', frame: 0, x: 0, y: 0, width: 16, height: 16, opacity: 255, data: btoa(String.fromCharCode(...px)) }] }), sq);
+      const left = await N(3, 8), right = await N(12, 8), top = await N(8, 3), bottom = await N(8, 12), mid = await N(8, 8);
+      check('a normal map from the shape: the edges face out (left, right, up, down), the middle faces you', left[0] < 110 && right[0] > 146 && top[1] > 146 && bottom[1] < 110 && Math.abs(mid[0] - 128) < 3 && Math.abs(mid[1] - 128) < 3 && mid[2] > 250 && (await N(0, 0))[3] === 0, [left, right, top, bottom, mid]);
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Normal maps")');
+      await page.waitForSelector('#sp-nm-ok');
+      await page.fill('#sp-nm-bevel', '1'); await page.check('#sp-nm-export'); await page.click('#sp-nm-ok');
+      check('settings: rounded over fewer pixels (two in from the edge faces you already), exported with sheets', (await SS()).history >= 1 && Math.abs((await N(5, 8))[0] - 128) < 3 && (await page.evaluate(() => NoorSprite._wire())).normals.export === true);
+      // A normals layer paints over.
+      await page.click('#sp-addlayer');
+      await page.check('#sp-normals');
+      await page.click('#sp-layerprops [data-normal="right"]');
+      await page.keyboard.press('b');
+      const p = await page.evaluate(() => NoorSprite._screen(8, 8)); await page.mouse.click(p.x, p.y);
+      check('a normals layer paints the normal map (facing right here)', (await N(8, 8))[0] > 200);
+      // Lit.
+      await page.check('[data-view="lit"]');
+      const c = await page.evaluate(() => NoorSprite._screen(3, 8)); await page.mouse.move(c.x, c.y);
+      check('View › lit: shaded by a light at the cursor', (await SS()).view.lit);
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'godot'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      const ex = (await page.evaluate(() => window.__mock.state.sprite.exports[0]));
+      check('the export sends a normal map a frame; the colour leaves the normals layer out', ex.normals && ex.normals.length === 1 && atob(ex.frames[0].data).charCodeAt((8 * 16 + 8) * 4) === 200);
+      check('no page errors with normal maps', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66o-noorsprite-normals.png` });
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

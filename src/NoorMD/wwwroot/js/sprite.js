@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -187,7 +187,7 @@ window.NoorSprite = (() => {
     d.layers.forEach((l, li) => {
       if (isGroup(l)) return;
       if (only ? !only.includes(li) : !shown(d, l)) return;
-      if (forExport && l.reference) return;
+      if (forExport && (l.reference || l.normals)) return;
       const c = d.cels.get(key(l.id, f));
       if (!c) return;
       const k = (l.opacity / 255) * (c.opacity / 255) * (only ? 1 : ancestors(d, l).reduce((m, g) => m * g.opacity / 255, 1));
@@ -479,6 +479,8 @@ window.NoorSprite = (() => {
       el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
       ingroup,
+      (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-normals', checked: l.normals || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A normals layer' : 'Not a normals layer', (d) => { const x = { ...d.layers[layer] }; if (c2.checked) x.normals = true; else delete x.normals; d.layers[layer] = x; })); return el('label', { class: 'sb-inline', title: 'Its pixels are normal-map colours that paint over the made normal map (never exported as colour)' }, c2, el('span', { text: 'normals (paints the normal map)' })); })(),
+      l.normals ? el('div', { class: 'sb-row sp-normal-swatches', role: 'group', 'aria-label': 'Normal colours' }, ...NORMAL_SWATCHES.map(([name, c]) => el('button', { class: 'sp-swatch-mini', 'data-normal': name, title: `Facing ${name}`, style: `background:${hex(c).slice(0, 7)}`, onclick: () => { fg = [...c]; renderColours(); keepFocus(); } }))) : null,
       (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-reference', checked: l.reference || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A reference layer' : 'Not a reference layer', (d) => { d.layers[layer].reference = c2.checked; })); return el('label', { class: 'sb-inline', title: 'A picture to draw over or trace: shown here, never exported' }, c2, el('span', { text: 'reference (not exported)' })); })(),
       el('label', { class: 'sb-inline', title: 'This frame\'s picture on the layer' }, el('span', { text: 'Cel opacity' }), cop),
       c && c.link ? el('div', { class: 'sb-row', id: 'sp-linkinfo' }, el('span', { class: 'pref-hint', text: `🔗 on ${linkCount()} frames` }), el('button', { class: 'utility-btn', id: 'sp-unlink', title: 'This frame gets a picture of its own', onclick: unlinkCel }, 'Unlink')) : null,
@@ -503,6 +505,7 @@ window.NoorSprite = (() => {
       check('pixelGrid', 'pixel grid', 'Lines between the pixels when zoomed in'),
       check('slices', 'slices', 'The slices\' outlines (always shown with the slice tool)'),
       check('bones', 'bones', 'The skeleton (always shown with the bone tool)'),
+      check('lit', 'lit (light at the cursor)', 'The sprite lit by a light at the cursor, through its normal map: as a game\'s 2D lights will'),
       (() => {
         const t = el('select', { id: 'sp-tiled', 'aria-label': 'Tiled', title: 'The sprite repeated around itself, and drawing that wraps round the edges: for seamless tiles and textures' },
           el('option', { value: '', text: 'not tiled' }), el('option', { value: 'both', text: 'tiled both ways' }), el('option', { value: 'x', text: 'tiled across' }), el('option', { value: 'y', text: 'tiled down' }));
@@ -954,7 +957,8 @@ window.NoorSprite = (() => {
       }
       ctx.globalAlpha = 1;
     }
-    const shown = seenAs(composeShown());
+    // Lit: the sprite's colours as exported (no normals or reference layers), shaded by its normal map.
+    const shown = seenAs(view.lit ? litView(compose(frame, doc, null, true)) : composeShown());
     ctx.drawImage(pixelsToCanvas(shown, doc.width, doc.height), o.x, o.y, W, H);
     ctx.restore();
     if (view.tiled) {
@@ -1768,6 +1772,7 @@ window.NoorSprite = (() => {
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
+      ['Normal maps (for lit sprites)…', normalsDialog],
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
       ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to the Texture Bench (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
@@ -2859,7 +2864,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
   }
 
   function fromWire(w) {
@@ -2899,7 +2904,8 @@ window.NoorSprite = (() => {
     }
     d.bones = (w.bones || []).map((b) => ({ id: b.id, name: b.name, parent: b.parent || null, x: b.x, y: b.y, tipX: b.tipX, tipY: b.tipY }));
     for (const f of d.frames) if (!f.pose) delete f.pose;
-    for (const l of d.layers) if (!l.bone) delete l.bone;
+    for (const l of d.layers) { if (!l.bone) delete l.bone; if (!l.normals) delete l.normals; }
+    if (w.normals) d.normals = { ...w.normals };
     d.indexed = w.colorMode === 'indexed';
     d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
     normalizeIndexed(d, null);
@@ -3029,7 +3035,8 @@ window.NoorSprite = (() => {
         closeIt();
         try {
           const sounds = which.map((f, i) => (doc.frames[f].sound ? { frame: i, path: doc.frames[f].sound.path } : null)).filter(Boolean);
-          const r = await req('sprite.export', { kind: kind.value, frames, sounds, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
+          const normals = normalSettings().export && ['sheet', 'godot', 'unity'].includes(kind.value) ? which.map((f) => b64(new Uint8Array(normalMap(f).buffer))) : undefined;
+          const r = await req('sprite.export', { kind: kind.value, frames, sounds, normals, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
             // One tag's frames start at 0: a moving slice's keys follow them.
             slices: (doc.slices || []).map((sl) => {
               if (!t || !(sl.keys && sl.keys.length)) return sl;
@@ -3045,6 +3052,86 @@ window.NoorSprite = (() => {
           el('label', { title: 'Godot: an Area2D for each slice, moved with the frames by an AnimationPlayer' }, hitboxes, ' slices as hitboxes (Godot)'), el('label', {}, 'Pixels per unit (Unity) ', ppu),
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
+    });
+  }
+
+  // ---------------------------------------------------------------- normal maps
+
+  // A normal map says which way each pixel faces, so a game's 2D lights shade the sprite. NoorSprite makes one from
+  // the shape (edges round over `bevel` pixels, optionally bumped by brightness); a "normals" layer paints over it
+  // where you want (its pixels are normal colours, never exported as colour).
+  const normalSettings = (d = doc) => ({ bevel: 3, strength: 2, brightness: 0, export: false, ...(d.normals || {}) });
+
+  /** A frame's normal map (RGBA; clear where the sprite is clear), OpenGL style: green is up. */
+  function normalMap(f, d = doc) {
+    const W = d.width, H = d.height, ns = normalSettings(d), col = compose(f, d, null, true), n = W * H;
+    const dist = new Float32Array(n).fill(-1), queue = [];
+    const solid = (x, y) => x >= 0 && y >= 0 && x < W && y < H && col[(y * W + x) * 4 + 3] > 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (solid(x, y) && (!solid(x - 1, y) || !solid(x + 1, y) || !solid(x, y - 1) || !solid(x, y + 1))) { dist[y * W + x] = 0; queue.push(y * W + x); }
+    for (let q = 0; q < queue.length; q++) {
+      const i = queue[q], x = i % W, y = (i - x) / W;
+      for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) if (solid(nx, ny) && dist[ny * W + nx] < 0) { dist[ny * W + nx] = dist[i] + 1; queue.push(ny * W + nx); }
+    }
+    // Height: rising over the bevel from the edge (a rounded rim), plus brightness if asked.
+    const h = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      if (dist[i] < 0) continue;
+      const t = Math.min(1, (dist[i] + 0.5) / Math.max(1, ns.bevel));
+      const lum = (0.299 * col[i * 4] + 0.587 * col[i * 4 + 1] + 0.114 * col[i * 4 + 2]) / 255;
+      h[i] = Math.sin((t * Math.PI) / 2) + ns.brightness * (lum - 0.5);
+    }
+    const H2 = (x, y) => (solid(x, y) ? h[y * W + x] : 0), out = new Uint8ClampedArray(n * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      if (dist[i] < 0) continue;
+      let nx = -(H2(x + 1, y) - H2(x - 1, y)) * ns.strength, ny = (H2(x, y + 1) - H2(x, y - 1)) * ns.strength, nz = 1;
+      const len = Math.hypot(nx, ny, nz); nx /= len; ny /= len; nz /= len;
+      out.set([Math.round((nx * 0.5 + 0.5) * 255), Math.round((ny * 0.5 + 0.5) * 255), Math.round((nz * 0.5 + 0.5) * 255), 255], i * 4);
+    }
+    // Painted normals win where they are.
+    d.layers.forEach((l) => {
+      if (!l.normals || !shown(d, l)) return;
+      const c = d.cels.get(key(l.id, f));
+      if (!c) return;
+      for (let i = 0; i < n; i++) if (c.px[i * 4 + 3] && col[i * 4 + 3]) out.set([c.px[i * 4], c.px[i * 4 + 1], c.px[i * 4 + 2], 255], i * 4);
+    });
+    return out;
+  }
+
+  /** The frame lit by a light at the cursor (above the sprite), from its normal map: to see what a game will. */
+  function litView(shownPx) {
+    const W = doc.width, H = doc.height, nm = normalMap(frame), out = new Uint8ClampedArray(shownPx);
+    const lx = hover ? hover.x + 0.5 : W * 0.25, ly = hover ? hover.y + 0.5 : H * 0.25, lz = Math.max(W, H) * 0.35;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = (y * W + x) * 4;
+      if (!nm[i + 3]) continue;
+      const nx = nm[i] / 127.5 - 1, nyUp = nm[i + 1] / 127.5 - 1, nz = nm[i + 2] / 127.5 - 1;
+      let dx = lx - (x + 0.5), dyUp = (y + 0.5) - ly, dz = lz; const L = Math.hypot(dx, dyUp, dz); dx /= L; dyUp /= L; dz /= L;
+      const k = 0.3 + 0.9 * Math.max(0, nx * dx + nyUp * dyUp + nz * dz);
+      for (let c = 0; c < 3; c++) out[i + c] = Math.min(255, shownPx[i + c] * k);
+    }
+    return out;
+  }
+
+  /** The nine normal colours (flat, and facing each way) for painting a normals layer. */
+  const NORMAL_SWATCHES = [['flat', 0, 0], ['up', 0, 1], ['up right', 1, 1], ['right', 1, 0], ['down right', 1, -1], ['down', 0, -1], ['down left', -1, -1], ['left', -1, 0], ['up left', -1, 1]].map(([name, x, y]) => {
+    const tilt = 0.6, nx = x * tilt / Math.hypot(x || 1e-9, y || 1e-9) * (x || y ? 1 : 0), ny = y * tilt / Math.hypot(x || 1e-9, y || 1e-9) * (x || y ? 1 : 0), nz = Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+    return [name, [Math.round((nx * 0.5 + 0.5) * 255), Math.round((ny * 0.5 + 0.5) * 255), Math.round((nz * 0.5 + 0.5) * 255), 255]];
+  });
+
+  function normalsDialog() {
+    const ns = normalSettings();
+    NoorUI.modal({ label: 'Normal maps', width: 420 }, (s2, closeIt) => {
+      const bevel = el('input', { type: 'number', min: '1', max: '16', value: String(ns.bevel), id: 'sp-nm-bevel', 'aria-label': 'Rounded over (pixels)' });
+      const strength = el('input', { type: 'number', min: '0.2', max: '8', step: '0.1', value: String(ns.strength), id: 'sp-nm-strength', 'aria-label': 'Strength' });
+      const bright = el('input', { type: 'number', min: '0', max: '2', step: '0.1', value: String(ns.brightness), id: 'sp-nm-bright', 'aria-label': 'Bumps from brightness' });
+      const exp = el('input', { type: 'checkbox', id: 'sp-nm-export', checked: ns.export || undefined });
+      s2.append(NoorUI.head('Normal maps', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Made from the sprite\'s shape: its edges round over a few pixels. A "normals" layer (in the layer\'s settings) paints over it where you want. View › lit shows it with a light at the cursor.' }),
+          el('label', {}, 'Edges rounded over (px) ', bevel), el('label', {}, 'Strength ', strength), el('label', {}, 'Bumps from brightness ', bright),
+          el('label', {}, exp, ' export a normal map with sheets (…_n.png; Godot and Unity use it)')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-nm-ok', onclick: () => { const v = { bevel: Math.max(1, Math.min(16, Number(bevel.value) || 3)), strength: Math.max(0.2, Math.min(8, Number(strength.value) || 2)), brightness: Math.max(0, Math.min(2, Number(bright.value) || 0)), export: exp.checked }; closeIt(); change('Normal maps', (d) => { d.normals = v; }); } }, 'OK'))));
     });
   }
 
@@ -3579,6 +3666,8 @@ window.NoorSprite = (() => {
       tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
       indexed: !!doc.indexed, cycle: doc.cycle || null, cycling: !!cycling,
     }),
+    /** For tests: a frame's normal map pixel. */
+    _normal: (x, y, f = frame) => { const nm = normalMap(f); const i = (y * doc.width + x) * 4; return [nm[i], nm[i + 1], nm[i + 2], nm[i + 3]]; },
     /** For tests: the drawing colour. */
     _setColour: (c) => { fg = [...c]; renderColours(); renderPalette(); },
     /** For tests: the palette index of a cel's pixel (indexed sprites). */

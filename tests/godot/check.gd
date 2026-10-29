@@ -155,6 +155,9 @@ func _init() -> void:
 		check(is_equal_approx(sf.get_frame_duration("walk", 1), 1.5) and is_equal_approx(sf.get_animation_speed("walk"), 10.0), "…each frame's own duration", sf.get_frame_duration("walk", 1))
 		var tex: Texture2D = sf.get_frame_texture("walk", 1)
 		check(tex is AtlasTexture and tex.get_width() == 16 and tex.get_height() == 16, "…frames are parts of the sheet, trimmed ones the full size again", [tex, tex.get_width() if tex else 0])
+	var lit: SpriteFrames = load("res://sprite/hero_lit.tres")
+	var lt: Texture2D = lit.get_frame_texture("walk", 1) if lit else null
+	check(lt is AtlasTexture and lt.atlas is CanvasTexture and lt.atlas.normal_texture != null and lt.atlas.diffuse_texture != null, "…with a normal map: frames cut from a CanvasTexture (2D lights shade them)", lt.atlas if lt is AtlasTexture else lt)
 	var hero: Node = load("res://sprite/hero.tscn").instantiate()
 	check(hero is AnimatedSprite2D and hero.sprite_frames is SpriteFrames and hero.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and hero.autoplay == "walk", "…and the scene is an AnimatedSprite2D with sharp pixels, playing walk", hero)
 	hero.free()

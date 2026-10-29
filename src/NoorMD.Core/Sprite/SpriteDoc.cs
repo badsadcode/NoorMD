@@ -29,6 +29,8 @@ public sealed class SpriteDoc
     public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>Tilesets the tilemap layers draw from.</summary>
     public List<SpriteTileset> Tilesets { get; set; } = [];
+    /// <summary>How normal maps are made from the sprite (and whether exports carry them).</summary>
+    public SpriteNormals? Normals { get; set; }
     /// <summary>A skeleton: bones that layers move with (posed frame by frame; frame 1 is the rest pose).</summary>
     public List<SpriteBone> Bones { get; set; } = [];
     /// <summary>"rgba", or "indexed": every pixel is one of the palette's colours (changing a colour changes them).</summary>
@@ -139,6 +141,8 @@ public sealed class SpriteLayer
 {
     public static readonly string[] Blends = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "add", "difference"];
     public string Id { get; set; } = "";
+    /// <summary>Its pixels are normal-map colours painting over the made normal map; never exported as colour.</summary>
+    public bool Normals { get; set; }
     /// <summary>The bone the layer moves with (its picture on frame 1 posed on every frame), or none.</summary>
     public string? Bone { get; set; }
     /// <summary>The group the layer is in (a group layer's id), or none.</summary>
@@ -398,4 +402,12 @@ public sealed class SpriteBonePose
     public double A { get; set; }
     public double Dx { get; set; }
     public double Dy { get; set; }
+}
+
+public sealed class SpriteNormals
+{
+    public double Bevel { get; set; } = 3;
+    public double Strength { get; set; } = 2;
+    public double Brightness { get; set; }
+    public bool Export { get; set; }
 }

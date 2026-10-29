@@ -253,6 +253,16 @@ one's own, a floating reference picture, pen pressure.
   frame 1 to change it everywhere. "Rest" and "As before" per frame; new frames copy the pose. Kept in .noorsprite
   files; exported as the frames they make.
 
+### Done in preview.107
+
+- **Normal maps** (☰ › Normal maps): made from the sprite's shape — its edges round over a few pixels (how many, how
+  strongly, bumps from brightness if wanted); a layer marked **normals** paints over it where you want, with nine
+  normal colours to pick (flat, and facing each way), and is never exported as colour.
+- **View › lit:** the sprite shaded by a light at the cursor through its normal map, as a game's 2D lights will.
+- **Exported with sheets** when asked: a …_n.png beside the sheet, laid out exactly like it. Godot's SpriteFrames cut
+  the frames from a CanvasTexture holding both (2D lights shade them — checked in headless Godot 4.4); Unity's .meta
+  names it the sprites' _NormalMap secondary texture.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

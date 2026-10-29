@@ -27,6 +27,24 @@ public static class SpriteExport
     /// <summary>Where a frame went on a sheet: its rectangle, and (trimmed) where that sits in the full frame.</summary>
     public sealed record SheetFrame(int X, int Y, int W, int H, int OffX, int OffY, int SrcW, int SrcH, int Duration, bool Trimmed);
 
+    /// <summary>Other pictures of the same frames (normal maps) laid out exactly where a packing put the frames.</summary>
+    public static SpriteImage PlaceLike(SpriteImage sheet, IReadOnlyList<SheetFrame> placed, IReadOnlyList<SpriteImage> frames)
+    {
+        var px = new byte[sheet.Width * sheet.Height * 4];
+        for (var i = 0; i < placed.Count && i < frames.Count; i++)
+        {
+            var f = placed[i]; var src = frames[i];
+            for (var y = 0; y < f.H; y++)
+            {
+                int sy = f.OffY + y, ty = f.Y + y;
+                if (sy < 0 || sy >= src.Height || ty >= sheet.Height) continue;
+                var w = Math.Min(f.W, Math.Min(src.Width - f.OffX, sheet.Width - f.X));
+                if (w > 0) Array.Copy(src.Rgba, (sy * src.Width + f.OffX) * 4, px, (ty * sheet.Width + f.X) * 4, w * 4);
+            }
+        }
+        return new SpriteImage(sheet.Width, sheet.Height, px, 0);
+    }
+
     /// <summary>
     /// Frames laid out in one picture: a row, a column, a grid nearly square — or packed: each frame trimmed to what
     /// it shows, frames that are the same stored once, packed in rows (smallest sheet, for engines that read the JSON).
@@ -194,17 +212,20 @@ public static class GodotSprite
     }
 
     /// <summary>SpriteFrames using the sheet (its file name beside the .tres), each frame's duration kept (at 10 fps, × its length).</summary>
-    public static string SpriteFrames(string sheetFile, IReadOnlyList<SpriteExport.SheetFrame> frames, IReadOnlyList<SpriteTag> tags)
+    public static string SpriteFrames(string sheetFile, IReadOnlyList<SpriteExport.SheetFrame> frames, IReadOnlyList<SpriteTag> tags, string? normalFile = null)
     {
         var anims = Animations(frames.Count, tags);
         var sb = new System.Text.StringBuilder();
-        sb.Append($"[gd_resource type=\"SpriteFrames\" load_steps={frames.Count + 2} format=3]\n\n");
-        sb.Append($"[ext_resource type=\"Texture2D\" path={Q(sheetFile)} id=\"1_sheet\"]\n\n");
+        sb.Append($"[gd_resource type=\"SpriteFrames\" load_steps={frames.Count + 2 + (normalFile != null ? 2 : 0)} format=3]\n\n");
+        sb.Append($"[ext_resource type=\"Texture2D\" path={Q(sheetFile)} id=\"1_sheet\"]\n");
+        // With a normal map: the frames are cut from a CanvasTexture holding both, so 2D lights shade them.
+        if (normalFile != null) sb.Append($"[ext_resource type=\"Texture2D\" path={Q(normalFile)} id=\"2_normal\"]\n\n[sub_resource type=\"CanvasTexture\" id=\"CanvasTexture_1\"]\ndiffuse_texture = ExtResource(\"1_sheet\")\nnormal_texture = ExtResource(\"2_normal\")\ntexture_filter = 1\n");
+        sb.Append('\n');
         for (var i = 0; i < frames.Count; i++)
         {
             var f = frames[i];
             sb.Append($"[sub_resource type=\"AtlasTexture\" id=\"AtlasTexture_{i}\"]\n");
-            sb.Append("atlas = ExtResource(\"1_sheet\")\n");
+            sb.Append(normalFile != null ? "atlas = SubResource(\"CanvasTexture_1\")\n" : "atlas = ExtResource(\"1_sheet\")\n");
             sb.Append($"region = Rect2({f.X}, {f.Y}, {f.W}, {f.H})\n");
             if (f.Trimmed) sb.Append($"margin = Rect2({f.OffX}, {f.OffY}, {f.SrcW - f.W}, {f.SrcH - f.H})\n");
             sb.Append('\n');

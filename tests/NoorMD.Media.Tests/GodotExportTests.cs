@@ -216,6 +216,11 @@ public class GodotExportTests
         List<NoorMD.Core.Sprite.SpriteTag> spriteTags = [new() { Name = "walk", From = 0, To = 3, Direction = "pingpong" }, new() { Name = "idle", From = 0, To = 0 }];
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tres"), NoorMD.Core.Sprite.GodotSprite.SpriteFrames("hero.png", placed, spriteTags));
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tscn"), NoorMD.Core.Sprite.GodotSprite.Scene("Hero", "hero.tres", "walk"));
+        // Lit: a flat normal map beside the sheet, the frames cut from a CanvasTexture holding both.
+        var flat = Enumerable.Range(0, 16 * 16).SelectMany(_ => new byte[] { 128, 128, 255, 255 }).ToArray();
+        var normalSheet = NoorMD.Core.Sprite.SpriteExport.PlaceLike(spriteSheet, placed, spriteFrames.Select(f => new NoorMD.Core.Sprite.SpriteImage(16, 16, flat, 0)).ToList());
+        File.WriteAllBytes(Path.Combine(dir, "sprite", "hero_n.png"), NoorMD.Core.Sprite.SpritePng.Encode(normalSheet.Width, normalSheet.Height, normalSheet.Rgba));
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero_lit.tres"), NoorMD.Core.Sprite.GodotSprite.SpriteFrames("hero.png", placed, spriteTags, "hero_n.png"));
         // A tilemap: its tileset as a TileSet, and a scene with a TileMap of it.
         var tilePx = new byte[4 * 4 * 4 * 3];
         for (var t = 0; t < 3; t++) for (var i = 0; i < 16; i++) { tilePx[(t * 16 + i) * 4 + t] = 200; tilePx[(t * 16 + i) * 4 + 3] = 255; }
