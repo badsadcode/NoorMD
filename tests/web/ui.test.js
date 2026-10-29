@@ -5953,6 +5953,56 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66f. NoorSprite stage 3: in-betweens and frame timing.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const dot = async (x, y) => { const p = await at(x, y); await page.mouse.click(p.x, p.y); };
+      const px = (x, y, l, f) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d)[3], [x, y, l, f]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '32'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 32);
+      // A background layer that stays, and a ball that moves from x 2 to x 26.
+      await dot(0, 15);
+      await page.keyboard.press('Shift+N');
+      await dot(2, 5);
+      await page.click('#sp-addframe');
+      await page.keyboard.press('Delete'); // nothing selected: the cel is emptied
+      await page.keyboard.press('Control+a'); await page.keyboard.press('Delete'); await page.keyboard.press('Control+d');
+      await dot(26, 5);
+      check('two frames: the ball on the left, then on the right', (await px(2, 5, 1, 0)) === 255 && (await px(26, 5, 1, 1)) === 255 && (await px(2, 5, 1, 1)) === 0);
+      await page.keyboard.press(',');
+      await page.click('#sp-tween'); await page.waitForSelector('#sp-tw-ok');
+      await page.fill('#sp-tw-count', '3'); await page.click('#sp-tw-ok');
+      let st = await SS();
+      check('⇢ in-betweens: three new frames between them', st.frames.length === 5 && st.frame === 1);
+      check('…the ball moves evenly (8, 14, 20), the end frame keeps its place', (await px(8, 5, 1, 1)) === 255 && (await px(14, 5, 1, 2)) === 255 && (await px(20, 5, 1, 3)) === 255 && (await px(26, 5, 1, 4)) === 255 && (await px(2, 5, 1, 1)) === 0);
+      check('…the other layer stays as on the first frame', (await px(0, 15, 0, 2)) === 255);
+      await page.keyboard.press('Control+z');
+      st = await SS();
+      check('one undo takes them away (back on the first frame)', st.frames.length === 2 && st.frame === 0);
+      await page.click('#sp-tween'); await page.waitForSelector('#sp-tw-ok');
+      await page.fill('#sp-tw-count', '1'); await page.selectOption('#sp-tw-ease', 'in'); await page.click('#sp-tw-ok');
+      check('easing: speeding up, the middle frame a quarter of the way (8)', (await px(8, 5, 1, 1)) === 255);
+      // Timing.
+      await page.click('#sp-timing'); await page.waitForSelector('#sp-tm-ok');
+      await page.fill('#sp-tm-value', '50'); await page.click('#sp-tm-ok');
+      check('⏱ scales every frame (50 %: twice as fast)', (await SS()).frames.every((f) => f.duration === 50));
+      await page.click('#sp-timing'); await page.waitForSelector('#sp-tm-ok');
+      await page.selectOption('#sp-tm-how', 'total');
+      check('…the total is offered for "all together"', (await page.inputValue('#sp-tm-value')) === '150');
+      await page.fill('#sp-tm-value', '900'); await page.click('#sp-tm-ok');
+      check('…or spread over a length', (await SS()).frames.every((f) => f.duration === 300));
+      await page.click('#sp-timing'); await page.waitForSelector('#sp-tm-ok');
+      await page.selectOption('#sp-tm-which', 'here'); await page.selectOption('#sp-tm-how', 'set'); await page.fill('#sp-tm-value', '80'); await page.click('#sp-tm-ok');
+      check('…or set from this frame on', (await SS()).frames.map((f) => f.duration).join() === '300,80,80');
+      check('no page errors with in-betweens and timing', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

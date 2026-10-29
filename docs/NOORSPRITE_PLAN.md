@@ -134,7 +134,15 @@ NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and p
   tilemap drawn as a picture layer.
 - **Godot TileSet:** the tileset as a picture, a TileSet (.tres) with an atlas of it and a scene with a TileMap
   placing the tiles as drawn, sharp pixels — checked in headless Godot 4.4 on CI.
-- Still to come for stage 3: animation helpers.
+
+### Done in preview.98 (stage 3, animation helpers)
+
+- **In-betweens** (⇢ in the timeline): from this frame to a later one, new frames in which the layer's picture moves
+  from where it is to where it is on the later frame (the middles of what is drawn) — evenly, slow–fast–slow,
+  speeding up or slowing down; the other layers keep this frame's pictures; one undo step.
+- **Frame timing** (⏱): every frame's, a tag's, or this frame's on — scaled by a percentage (50 % plays twice as
+  fast), each set to a length, or a total length shared out evenly.
+- Stage 3 is done. Still to come from stage 2: a true indexed colour mode.
 
 ## Non-goals
 

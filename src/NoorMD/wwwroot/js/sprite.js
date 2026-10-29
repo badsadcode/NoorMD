@@ -426,6 +426,8 @@ window.NoorSprite = (() => {
         el('button', { class: 'icon-btn', id: 'sp-delframe', title: 'Remove this frame', 'aria-label': 'Remove the frame', disabled: doc.frames.length < 2 || undefined, onclick: removeFrame }, '🗑'),
         el('button', { class: 'icon-btn', title: 'Move the frame earlier', 'aria-label': 'Frame earlier', onclick: () => moveFrame(-1) }, '◀'),
         el('button', { class: 'icon-btn', title: 'Move the frame later', 'aria-label': 'Frame later', onclick: () => moveFrame(1) }, '▶'),
+        el('button', { class: 'icon-btn', id: 'sp-tween', title: 'In-betweens: frames in which this layer moves to where it is on a later frame', 'aria-label': 'In-betweens', onclick: tweenDialog }, '⇢'),
+        el('button', { class: 'icon-btn', id: 'sp-timing', title: 'Frame timing: scale or set the durations', 'aria-label': 'Frame timing', onclick: timingDialog }, '⏱'),
         el('button', { class: 'icon-btn', id: 'sp-addtag', title: 'A tag over frames (an animation: walk, jump…)', 'aria-label': 'New tag', onclick: () => tagDialog(null) }, '🏷')),
       ...doc.frames.map((f, i) => el('button', { class: 'sp-tl-frame' + (i === frame ? ' on' : ''), 'data-frame': String(i), title: `Frame ${i + 1}: ${f.duration} ms (double-click: duration)`, onclick: () => goFrame(i), ondblclick: () => frameDialog(i) },
         el('span', { text: String(i + 1) }), el('small', { text: `${f.duration}` }))));
@@ -1363,6 +1365,7 @@ window.NoorSprite = (() => {
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
@@ -1417,6 +1420,104 @@ window.NoorSprite = (() => {
     if (layer < 0) layer = 0;
     history = []; future = []; savedAt = null; selection = null; floating = null;
     fitZoom(); renderAll();
+  }
+
+  // ---------------------------------------------------------------- stage 3: animation helpers
+
+  const EASES = { linear: (t) => t, in: (t) => t * t, out: (t) => 1 - (1 - t) * (1 - t), inout: (t) => (t < 0.5 ? 2 * t * t : 1 - 2 * (1 - t) * (1 - t)) };
+
+  /** Where a picture's drawn pixels are: their box, or null when there are none. */
+  function drawnBox(px, W, H) {
+    let x0 = W, y0 = H, x1 = -1, y1 = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (px[(y * W + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    return x1 < 0 ? null : { x0, y0, x1, y1 };
+  }
+
+  function shifted(px, W, H, dx, dy) {
+    const out = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) {
+      const sy = y - dy;
+      if (sy < 0 || sy >= H) continue;
+      for (let x = 0; x < W; x++) { const sx = x - dx; if (sx >= 0 && sx < W) out.set(px.subarray((sy * W + sx) * 4, (sy * W + sx) * 4 + 4), (y * W + x) * 4); }
+    }
+    return out;
+  }
+
+  /**
+   * In-betweens: `count` new frames before frame `to`, in which this layer's picture on frame `from` moves (eased)
+   * towards where it is on frame `to`; the other layers keep frame `from`'s pictures.
+   */
+  function tween(from, to, count, ease) {
+    const lid = doc.layers[layer].id, a = doc.cels.get(key(lid, from)), b = doc.cels.get(key(lid, to));
+    const W = doc.width, H = doc.height, ba = a && drawnBox(a.px, W, H), bb = b && drawnBox(b.px, W, H);
+    if (!ba || !bb) { notice('This layer needs a picture on both frames to move between', 2000); return false; }
+    // The move: the middles of what is drawn on each frame.
+    const dx = (bb.x0 + bb.x1 - ba.x0 - ba.x1) / 2, dy = (bb.y0 + bb.y1 - ba.y0 - ba.y1) / 2, f = EASES[ease] || EASES.linear;
+    change(`${count} in-between${count === 1 ? '' : 's'}`, (d) => {
+      const dur = d.frames[from].duration;
+      d.frames.splice(to, 0, ...Array.from({ length: count }, () => ({ duration: dur })));
+      shiftFrames(d, to, count);
+      for (let i = 1; i <= count; i++) {
+        const t = f(i / (count + 1)), at = to + i - 1;
+        d.layers.forEach((l) => {
+          const c = d.cels.get(key(l.id, from));
+          if (!c) return;
+          const { link, ...plain } = c; void link;
+          d.cels.set(key(l.id, at), l.id === lid ? { ...plain, px: shifted(c.px, W, H, Math.round(dx * t), Math.round(dy * t)) } : plain);
+        });
+      }
+      frame = to;
+    });
+    return true;
+  }
+
+  function tweenDialog() {
+    commitFloating();
+    if (frame >= doc.frames.length - 1) { notice('In-betweens go from this frame to a later one: add a frame first', 2000); return; }
+    NoorUI.modal({ label: 'In-betweens', width: 400 }, (s, closeIt) => {
+      const to = el('input', { type: 'number', min: String(frame + 2), max: String(doc.frames.length), value: String(frame + 2), id: 'sp-tw-to', 'aria-label': 'To frame' });
+      const count = el('input', { type: 'number', min: '1', max: '30', value: '3', id: 'sp-tw-count', 'aria-label': 'How many frames' });
+      const ease = el('select', { id: 'sp-tw-ease', 'aria-label': 'Easing' }, ...[['linear', 'evenly'], ['inout', 'slow – fast – slow'], ['in', 'speeding up'], ['out', 'slowing down']].map(([v, l]) => el('option', { value: v, text: l })));
+      const ok = () => {
+        const b = Math.max(frame + 1, Math.min(doc.frames.length - 1, Number(to.value) - 1)), n = Math.max(1, Math.min(30, Math.round(Number(count.value) || 1)));
+        closeIt();
+        tween(frame, b, n, ease.value);
+      };
+      s.append(NoorUI.head('In-betweens', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('p', { class: 'pref-hint', text: `The layer “${doc.layers[layer].name}” moves from frame ${frame + 1} to where it is on the frame you choose; new frames go in between.` }),
+          el('label', {}, 'To frame ', to), el('label', {}, 'New frames ', count), el('label', {}, 'Moving ', ease)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-tw-ok', onclick: ok }, 'Make them'))));
+    });
+  }
+
+  /** Frame timing: durations scaled, or set, for every frame, a tag's or this one on. */
+  function timing(which, how, value) {
+    const t = typeof which === 'number' ? doc.tags[which] : null;
+    const [a, b] = t ? [t.from, t.to] : which === 'here' ? [frame, doc.frames.length - 1] : [0, doc.frames.length - 1];
+    change(how === 'scale' ? 'Scale durations' : 'Set durations', (d) => {
+      for (let i = a; i <= b; i++) d.frames[i].duration = Math.max(1, Math.min(65535, Math.round(how === 'scale' ? d.frames[i].duration * value / 100 : how === 'total' ? value / (b - a + 1) : value)));
+    });
+  }
+
+  function timingDialog() {
+    NoorUI.modal({ label: 'Frame timing', width: 400 }, (s, closeIt) => {
+      const which = el('select', { id: 'sp-tm-which', 'aria-label': 'Which frames' }, el('option', { value: 'all', text: 'every frame' }), el('option', { value: 'here', text: `frame ${frame + 1} on` }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
+      const how = el('select', { id: 'sp-tm-how', 'aria-label': 'How' }, el('option', { value: 'scale', text: 'scale by (%)' }), el('option', { value: 'set', text: 'each lasts (ms)' }), el('option', { value: 'total', text: 'all together last (ms)' }));
+      const value = el('input', { type: 'number', min: '1', max: '65535', value: '50', id: 'sp-tm-value', 'aria-label': 'Value' });
+      const total = () => doc.frames.reduce((n, f) => n + f.duration, 0);
+      how.addEventListener('change', () => { value.value = how.value === 'scale' ? '50' : how.value === 'set' ? '100' : String(total()); });
+      const ok = () => {
+        const v = Number(value.value);
+        if (!(v > 0)) return;
+        closeIt();
+        timing(which.value === 'all' || which.value === 'here' ? which.value : Number(which.value), how.value, v);
+      };
+      s.append(NoorUI.head('Frame timing', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: `Now ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}, ${total()} ms in all. 50 % plays twice as fast.` }),
+          el('label', {}, 'Frames ', which), el('label', {}, 'How ', how), el('label', {}, 'Value ', value)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-tm-ok', onclick: ok }, 'OK'))));
+    });
   }
 
   // ---------------------------------------------------------------- stage 3: tilemaps
