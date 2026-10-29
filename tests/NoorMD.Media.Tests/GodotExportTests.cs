@@ -1,5 +1,6 @@
 using System.Text.Json;
 using NoorMD.Media.Assets3D;
+using NoorMD.Media.Forge;
 using Xunit;
 
 namespace NoorMD.Media.Tests;
@@ -192,6 +193,16 @@ public class GodotExportTests
         outcropRecipe.CollisionPieces = 3;
         var outcrop = RockBuilder.Build(outcropRecipe, new RockBuilder.Options { TextureSize = 64 });
         File.WriteAllBytes(Path.Combine(dir, "trees", "outcrop.glb"), GlbWriter.Write(RockExport.OneFile(outcrop)));
+        // NoorForge: a rock textured with a smart material, exported as it would be (maps, Godot material, GLB).
+        Directory.CreateDirectory(Path.Combine(dir, "forge"));
+        var forgeRock = ForgeModel.ReadGlb(GlbWriter.Write(RockExport.Level(outcrop, 0)), "Boulder");
+        var forgeRecipe = new ForgeRecipe { Size = 256, AoRays = 8, Layers = ForgeSmart.Make("mossy-stone") }.Clamped();
+        var forgeSets = Enumerable.Range(0, forgeRock.Sets.Count).Select(s =>
+            ForgeCompositor.Compose(forgeRock, s, ForgeBake.Bake(forgeRock, s, 256, forgeRecipe.BakeSettings), forgeRecipe, id => TextureEngine.Render(TexturePresets.Make(id), 128))).ToList();
+        for (var s = 0; s < forgeSets.Count; s++)
+            foreach (var (file, data) in ForgeExport.SetFiles(s == 0 ? "Boulder" : $"Boulder_{s}", forgeSets[s]))
+                File.WriteAllBytes(Path.Combine(dir, "forge", file), data);
+        File.WriteAllBytes(Path.Combine(dir, "forge", "Boulder.glb"), ForgeExport.Glb(forgeRock, forgeSets));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

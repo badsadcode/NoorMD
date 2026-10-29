@@ -131,6 +131,8 @@ window.NoorAssetView = (() => {
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
     void main() {
+      // One channel (NoorForge): the picture as it is, no light.
+      if (uMode == 4) { outColor = vec4(uHasColor == 1 ? texture(tColor, vUv).rgb : vec3(0.0), 1.0); return; }
       vec4 base = uBase;
       if (uHasColor == 1) {
         vec4 t = texture(tColor, vUv);
@@ -222,6 +224,7 @@ window.NoorAssetView = (() => {
 
     let scene = null;          // { draws: [...], textures: [...], bounds, windFrom }
     let mode = 0, wind = 0, wireframe = false;
+    let channel = [];      // NoorForge: one channel's textures, per material
     let yaw = 0.6, pitch = 0.12, dist = 10, target = [0, 3, 0], height = 8;
     let raf = 0, start = performance.now(), dirty = true;
     const windDir = [0.8, 0, 0.6];
@@ -285,7 +288,7 @@ window.NoorAssetView = (() => {
             if (x < lo[0]) lo[0] = x; if (y < lo[1]) lo[1] = y; if (z < lo[2]) lo[2] = z;
             if (x > hi[0]) hi[0] = x; if (y > hi[1]) hi[1] = y; if (z > hi[2]) hi[2] = z;
           }
-          draws.push({ vao, buffers: [...buffers.filter(Boolean), ib], ib, count: prim.indices.length, type: prim.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, indices: prim.indices, positions: prim.position, matrix: node.matrix, material: glb.materials[prim.material] || null, part: color, node: node.name, lines: null, hasColor: !!prim.color });
+          draws.push({ vao, buffers: [...buffers.filter(Boolean), ib], ib, count: prim.indices.length, type: prim.indices instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT, indices: prim.indices, positions: prim.position, matrix: node.matrix, material: glb.materials[prim.material] || null, matIndex: prim.material, part: color, node: node.name, lines: null, hasColor: !!prim.color });
         }
       }
       // Framed again when the first thing comes, or something of quite another size (a rock after a tree).
@@ -377,7 +380,12 @@ window.NoorAssetView = (() => {
           gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t);
           gl.uniform1i(main.u[flag], t ? 1 : 0);
         };
-        tex(0, m ? m.colorImage : -1, 'uHasColor');
+        if (mode === 4) {
+          // The channel's picture for this material (texture set), in place of its colour.
+          const t = channel[d.matIndex ?? 0] || null;
+          gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.uniform1i(main.u.uHasColor, t ? 1 : 0);
+        } else tex(0, m ? m.colorImage : -1, 'uHasColor');
         tex(1, m ? m.normalImage : -1, 'uHasNormal');
         tex(2, m ? m.ormImage : -1, 'uHasOrm');
         gl.uniform4fv(main.u.uBase, m ? m.color : [1, 1, 1, 1]);
@@ -442,7 +450,22 @@ window.NoorAssetView = (() => {
 
     return {
       load,
-      setMode(m) { mode = { shaded: 0, clay: 1, parts: 2, wind: 3 }[m] ?? 0; dirty = true; tick(); },
+      setMode(m) { mode = { shaded: 0, clay: 1, parts: 2, wind: 3, channel: 4 }[m] ?? 0; dirty = true; tick(); },
+      /** Pictures (one per material, as ImageBitmaps; null for none) shown unlit in the "channel" mode, as data. */
+      setChannel(bitmaps) {
+        channel.forEach((t) => t && gl.deleteTexture(t));
+        channel = (bitmaps || []).map((bmp) => {
+          if (!bmp) return null;
+          const t = gl.createTexture();
+          gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, bmp);
+          gl.generateMipmap(gl.TEXTURE_2D);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+          gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+          return t;
+        });
+        dirty = true; tick();
+      },
       setWind(v) { wind = v; dirty = true; tick(); },
       setWireframe(v) { wireframe = !!v; dirty = true; tick(); },
       reset() { frame(); tick(); },

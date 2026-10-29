@@ -55,3 +55,73 @@ public static class ForgeSmart
 
     public static List<ForgeLayer> Make(string id) => (All.FirstOrDefault(s => s.Id == id) ?? All[^1]).Make().Select(l => l.Clamped()).ToList();
 }
+
+/// <summary>Smart materials of your own: a layer stack saved by name (one .json each in a folder of the app's).</summary>
+public static class ForgeUserSmart
+{
+    public const string Prefix = "mine:";
+    public const int MaxCount = 200;
+
+    public sealed class Saved
+    {
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+        public List<ForgeLayer> Layers { get; set; } = [];
+    }
+
+    private static readonly System.Text.Json.JsonSerializerOptions Options = new() { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, WriteIndented = true };
+
+    /// <summary>The saved ones, by name: (id, saved). Files that can't be read are passed over.</summary>
+    public static List<(string Id, Saved Smart)> Load(string folder)
+    {
+        var all = new List<(string, Saved)>();
+        if (!Directory.Exists(folder)) return all;
+        foreach (var file in Directory.EnumerateFiles(folder, "*.json").Take(MaxCount))
+        {
+            try
+            {
+                if (new FileInfo(file).Length > 400_000) continue;
+                var s = System.Text.Json.JsonSerializer.Deserialize<Saved>(File.ReadAllText(file), Options);
+                if (s == null || string.IsNullOrWhiteSpace(s.Name)) continue;
+                s.Layers = (s.Layers ?? []).Where(l => l != null).Take(ForgeRecipe.MaxLayers).Select(l => l.Clamped()).ToList();
+                all.Add((Prefix + Path.GetFileNameWithoutExtension(file), s));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Text.Json.JsonException) { }
+        }
+        return all.OrderBy(s => s.Item2.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+    }
+
+    /// <summary>Saves (or replaces, by the same name) a stack; returns its id.</summary>
+    public static string Save(string folder, string name, string description, IEnumerable<ForgeLayer> layers)
+    {
+        name = (name ?? "").Trim();
+        if (name.Length == 0) throw new ArgumentException("Give the smart material a name.");
+        if (name.Length > 60) name = name[..60];
+        var stem = FileStem(name);
+        Directory.CreateDirectory(folder);
+        var path = Path.Combine(folder, stem + ".json");
+        if (!File.Exists(path) && Directory.EnumerateFiles(folder, "*.json").Count() >= MaxCount) throw new ArgumentException($"There are already {MaxCount} smart materials of your own: remove one first.");
+        var saved = new Saved { Name = name, Description = (description ?? "").Trim() is var d && d.Length > 200 ? d[..200] : d, Layers = layers.Take(ForgeRecipe.MaxLayers).Select(l => l.Clamped()).ToList() };
+        File.WriteAllText(path, System.Text.Json.JsonSerializer.Serialize(saved, Options));
+        return Prefix + stem;
+    }
+
+    public static bool Delete(string folder, string id)
+    {
+        if (!id.StartsWith(Prefix, StringComparison.Ordinal)) return false;
+        var stem = id[Prefix.Length..];
+        if (stem.Length == 0 || stem != FileStem(stem)) return false; // only a name this class made: nothing outside the folder
+        var path = Path.Combine(folder, stem + ".json");
+        if (!File.Exists(path)) return false;
+        File.Delete(path);
+        return true;
+    }
+
+    /// <summary>A file name from the material's name: letters, digits, spaces, '-' and '_' only.</summary>
+    internal static string FileStem(string name)
+    {
+        var chars = name.Trim().Select(c => char.IsLetterOrDigit(c) || c is ' ' or '-' or '_' ? c : '_').ToArray();
+        var stem = new string(chars).Trim(' ', '.');
+        return stem.Length == 0 ? "smart" : stem.ToLowerInvariant();
+    }
+}

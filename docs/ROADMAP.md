@@ -55,7 +55,8 @@ first, and anything that conflicts with it waits.
   even loudness shared with the radio (evened out live, as a station can't be measured ahead): preview.84.
 
 - NoorForge (texturing a model with layers and smart masks, after Substance Painter's idea), stage 1 first cut:
-  preview.87. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
+  preview.87; stage 1 finished (height, a Godot material, smart materials of your own, one channel in the 3D view):
+  preview.88. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
 
 ## Indie developer benches (concept)
 

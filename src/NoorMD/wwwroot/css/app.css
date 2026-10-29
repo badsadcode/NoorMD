@@ -1543,6 +1543,9 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .forgebench .fg-swatch { width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--border); flex: none; }
 .forgebench .fg-layername { font-weight: 600; }
 .forgebench .fg-pickbig { width: calc(100% - 8px); margin: 4px; text-align: left; }
+.forgebench .fg-mine-row { display: flex; align-items: center; gap: 2px; }
+.forgebench .fg-mine-row .sb-preset { flex: 1; min-width: 0; }
+.forgebench #fg-savesmart { width: calc(100% - 8px); margin: 4px; }
 .forgebench #fg-color { width: 40px; height: 26px; padding: 0 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
 .assetbench .sb-presets .sb-save { margin: 14px 4px 4px; width: calc(100% - 8px); }
 .seqbench { padding: 0 12px; }

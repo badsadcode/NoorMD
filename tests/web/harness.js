@@ -512,22 +512,28 @@ function mockHostScript(initial) {
     }
   }
   // NoorForge: the app bakes and composes; here a rock GLB stands in for the textured model, a photo for each map.
-  const FORGE = { renders: [], exports: [], picks: 0 };
+  const FORGE = { renders: [], exports: [], picks: 0, maskLayers: [], mine: [] };
   function forgeMock(type, p) {
     state.forge = FORGE;
     const layer = (name, extra) => ({ name, visible: true, opacity: 1, material: '', scale: 1, color: '#808080', roughness: 0.7, metallic: 0, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, normalStrength: 1,
       mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, ...extra });
     switch (type) {
+      case 'forge.smart.save': {
+        FORGE.mine = FORGE.mine.filter((s) => s.name.toLowerCase() !== p.name.toLowerCase());
+        FORGE.mine.push({ id: 'mine:' + p.name.toLowerCase(), name: p.name, description: '', layers: JSON.parse(JSON.stringify(p.recipe.layers)), mine: true });
+        return { id: 'mine:' + p.name.toLowerCase(), smart: forgeMock('forge.presets').smart };
+      }
+      case 'forge.smart.delete': FORGE.mine = FORGE.mine.filter((s) => s.id !== p.id); return { removed: true, smart: forgeMock('forge.presets').smart };
       case 'forge.presets': return {
         smart: [{ id: 'mossy-stone', name: 'Mossy stone', description: 'Rock with moss on top.', layers: [layer('Stone', { material: 'stone-rock', scale: 1.5 }), layer('Moss', { material: 'stone-mossy', mask: { kind: 'top', amount: 0.3, softness: 0.3, invert: false, noise: 0.6, noiseScale: 0.4, index: 0 } })] },
-          { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }],
+          { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }, ...FORGE.mine],
         materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone' }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
         masks: ['all', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
       };
       case 'forge.model.pick': FORGE.picks++; return { path: 'C:\\Models\\Crate.glb', name: 'Crate', triangles: 1200, parts: ['Body', 'Lid'], size: [1, 0.8, 1], sets: [{ name: 'Wood', triangles: 1000, unwrapped: false }, { name: 'Metal', triangles: 200, unwrapped: true }] };
       case 'forge.render': {
-        FORGE.renders.push(JSON.parse(JSON.stringify(p.recipe)));
-        const maps = (i) => Object.fromEntries(['basecolor', 'normal', 'orm', 'ao', 'curvature'].map((m) => [m, `/_img/${i + 1}`]));
+        FORGE.renders.push(JSON.parse(JSON.stringify(p.recipe))); FORGE.maskLayers.push(p.maskLayer);
+        const maps = (i) => Object.fromEntries(['basecolor', 'normal', 'orm', 'roughness', 'metallic', 'height', 'ao', 'curvature', ...(p.maskLayer >= 0 ? ['mask'] : [])].map((m) => [m, `/_img/${i + 1}`]));
         return { url: '/_asset/r1/lod0.glb', key: 'f1', size: Math.min(512, p.recipe.size), ms: 640, sets: [{ name: 'Wood', maps: maps(0) }, { name: 'Metal', maps: maps(1) }] };
       }
       case 'forge.export': FORGE.exports.push(JSON.parse(JSON.stringify(p.recipe))); return { folder: 'C:\\Export', files: ['Crate_Wood_BaseColor.png', 'Crate_Wood_Normal.png', 'Crate.glb', 'Crate.noorforge.json'] };

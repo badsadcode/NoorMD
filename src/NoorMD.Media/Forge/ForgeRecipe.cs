@@ -48,11 +48,14 @@ public sealed class ForgeLayer
     public string Color { get; set; } = "#808080";
     public double Roughness { get; set; } = 0.7;
     public double Metallic { get; set; }
+    /// <summary>A plain layer's height, 0–1 (mid: neither raised nor sunk); a material brings its own.</summary>
+    public double Height { get; set; } = 0.5;
     /// <summary>Which channels the layer paints (the others show through).</summary>
     public bool UseColor { get; set; } = true;
     public bool UseRoughness { get; set; } = true;
     public bool UseMetallic { get; set; } = true;
     public bool UseNormal { get; set; } = true;
+    public bool UseHeight { get; set; } = true;
     public double NormalStrength { get; set; } = 1;
     public ForgeMask Mask { get; set; } = new();
 
@@ -61,7 +64,7 @@ public sealed class ForgeLayer
         Name = string.IsNullOrWhiteSpace(Name) ? "Layer" : Name.Trim()[..Math.Min(Name.Trim().Length, 40)];
         Opacity = ForgeMask.C(Opacity, 0, 1); Scale = ForgeMask.C(Scale, 0.01, 100);
         Color = Color is { Length: 7 } c && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : "#808080";
-        Roughness = ForgeMask.C(Roughness, 0, 1); Metallic = ForgeMask.C(Metallic, 0, 1); NormalStrength = ForgeMask.C(NormalStrength, 0, 3);
+        Roughness = ForgeMask.C(Roughness, 0, 1); Metallic = ForgeMask.C(Metallic, 0, 1); Height = ForgeMask.C(Height, 0, 1); NormalStrength = ForgeMask.C(NormalStrength, 0, 3);
         Material = Material is { Length: <= 200 } m && !m.Any(char.IsControl) ? m : "";
         Mask = (Mask ?? new()).Clamped();
         return this;

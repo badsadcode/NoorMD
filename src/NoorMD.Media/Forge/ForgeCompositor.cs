@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace NoorMD.Media.Forge;
 
-/// <summary>A texture set made by the layers: base colour, normal (tangent space, OpenGL), roughness, metallic, AO.</summary>
+/// <summary>A texture set made by the layers: base colour, normal (tangent space, OpenGL), roughness, metallic, AO, height.</summary>
 public sealed class ForgeTextures
 {
     public required int Size { get; init; }
@@ -13,6 +13,8 @@ public sealed class ForgeTextures
     public required byte[] Roughness { get; init; }
     public required byte[] Metallic { get; init; }
     public required byte[] Ao { get; init; }
+    /// <summary>0–255, mid grey neither raised nor sunk.</summary>
+    public required byte[] Height { get; init; }
 
     public byte[] Png(string map) => map switch
     {
@@ -21,6 +23,7 @@ public sealed class ForgeTextures
         "roughness" => PngWriter.Gray(Size, Size, Roughness),
         "metallic" => PngWriter.Gray(Size, Size, Metallic),
         "ao" => PngWriter.Gray(Size, Size, Ao),
+        "height" => PngWriter.Gray(Size, Size, Height),
         "orm" => PngWriter.Rgb(Size, Size, Orm()),
         _ => throw new ArgumentException("Unknown map."),
     };
@@ -45,8 +48,8 @@ public static class ForgeCompositor
     {
         var size = bake.Size;
         var n = size * size;
-        var color = new Vector3[n]; var rough = new float[n]; var metal = new float[n]; var world = new Vector3[n];
-        for (var i = 0; i < n; i++) { color[i] = new Vector3(0.5f); rough[i] = 0.8f; world[i] = bake.Normal[i]; }
+        var color = new Vector3[n]; var rough = new float[n]; var metal = new float[n]; var world = new Vector3[n]; var height = new float[n];
+        for (var i = 0; i < n; i++) { color[i] = new Vector3(0.5f); rough[i] = 0.8f; world[i] = bake.Normal[i]; height[i] = 0.5f; }
         var span = bake.BoundsMax - bake.BoundsMin;
         foreach (var layer in recipe.Layers)
         {
@@ -65,25 +68,26 @@ public static class ForgeCompositor
                 if (m <= 0) return;
                 var p = bake.Position[i] / scale;
                 var ng = bake.Normal[i];
-                Vector3 c; float r, mt; Vector3 nw;
+                Vector3 c; float r, mt, h; Vector3 nw;
                 if (maps != null)
                 {
-                    var (alb, ro, me, tn) = Triplanar(maps, p, ng);
-                    c = tinting ? Vector3.Min(alb * tintScale, Vector3.One) : alb; r = ro; mt = me;
+                    var (alb, ro, me, he, tn) = Triplanar(maps, p, ng);
+                    c = tinting ? Vector3.Min(alb * tintScale, Vector3.One) : alb; r = ro; mt = me; h = he;
                     nw = Vector3.Normalize(ng + tn * (float)layer.NormalStrength);
                 }
-                else { c = tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; nw = ng; }
+                else { c = tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
                 if (layer.UseColor) color[i] = Vector3.Lerp(color[i], c, m);
                 if (layer.UseRoughness) rough[i] += (r - rough[i]) * m;
                 if (layer.UseMetallic) metal[i] += (mt - metal[i]) * m;
+                if (layer.UseHeight) height[i] += (h - height[i]) * m;
                 if (layer.UseNormal && maps != null) world[i] = Vector3.Normalize(Vector3.Lerp(world[i], nw, m));
             });
         }
         // Out: the normal in the surface's own tangent frame; everything bled outwards past the charts' edges.
-        var outColor = new byte[n * 3]; var outNormal = new byte[n * 3]; var outRough = new byte[n]; var outMetal = new byte[n]; var outAo = new byte[n];
+        var outColor = new byte[n * 3]; var outNormal = new byte[n * 3]; var outRough = new byte[n]; var outMetal = new byte[n]; var outAo = new byte[n]; var outHeight = new byte[n];
         for (var i = 0; i < n; i++)
         {
-            if (bake.Covered[i] == 0) { outNormal[i * 3] = 128; outNormal[i * 3 + 1] = 128; outNormal[i * 3 + 2] = 255; continue; }
+            if (bake.Covered[i] == 0) { outNormal[i * 3] = 128; outNormal[i * 3 + 1] = 128; outNormal[i * 3 + 2] = 255; outHeight[i] = 128; continue; }
             var c = color[i];
             outColor[i * 3] = B(Srgb(c.X)); outColor[i * 3 + 1] = B(Srgb(c.Y)); outColor[i * 3 + 2] = B(Srgb(c.Z));
             var w = world[i];
@@ -91,10 +95,21 @@ public static class ForgeCompositor
             if (t.Z < 0.05f) t.Z = 0.05f;
             t = Vector3.Normalize(t);
             outNormal[i * 3] = B(t.X * 0.5f + 0.5f); outNormal[i * 3 + 1] = B(t.Y * 0.5f + 0.5f); outNormal[i * 3 + 2] = B(t.Z * 0.5f + 0.5f);
-            outRough[i] = B(rough[i]); outMetal[i] = B(metal[i]); outAo[i] = B(bake.Ao[i]);
+            outRough[i] = B(rough[i]); outMetal[i] = B(metal[i]); outAo[i] = B(bake.Ao[i]); outHeight[i] = B(height[i]);
         }
-        Bleed(bake.Covered, size, outColor, 3); Bleed(bake.Covered, size, outNormal, 3); Bleed(bake.Covered, size, outRough, 1); Bleed(bake.Covered, size, outMetal, 1); Bleed(bake.Covered, size, outAo, 1);
-        return new ForgeTextures { Size = size, BaseColor = outColor, Normal = outNormal, Roughness = outRough, Metallic = outMetal, Ao = outAo };
+        Bleed(bake.Covered, size, outColor, 3); Bleed(bake.Covered, size, outNormal, 3); Bleed(bake.Covered, size, outRough, 1); Bleed(bake.Covered, size, outMetal, 1); Bleed(bake.Covered, size, outAo, 1); Bleed(bake.Covered, size, outHeight, 1);
+        return new ForgeTextures { Size = size, BaseColor = outColor, Normal = outNormal, Roughness = outRough, Metallic = outMetal, Ao = outAo, Height = outHeight };
+    }
+
+    /// <summary>Where one layer shows (its mask times its opacity), 0–255 a texel: for looking at it on the model.</summary>
+    public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex)
+    {
+        var n = bake.Size * bake.Size;
+        var px = new byte[n];
+        var span = bake.BoundsMax - bake.BoundsMin;
+        Parallel.For(0, n, i => { if (bake.Covered[i] != 0) px[i] = B(MaskAt(layer.Mask, bake, i, setIndex, span) * (float)layer.Opacity); });
+        Bleed(bake.Covered, bake.Size, px, 1);
+        return px;
     }
 
     /// <summary>The mask's value at a texel, 0–1.</summary>
@@ -124,44 +139,45 @@ public static class ForgeCompositor
 
     private static float Smooth(float e0, float e1, float x) { var t = Math.Clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
 
-    /// <summary>The material at a point, from three sides blended by the normal: colour (linear), roughness, metal, and the normal's tilt (world).</summary>
-    private static (Vector3 Albedo, float Rough, float Metal, Vector3 Tilt) Triplanar(TextureMaps maps, Vector3 p, Vector3 n)
+    /// <summary>The material at a point, from three sides blended by the normal: colour (linear), roughness, metal, height and the normal's tilt (world).</summary>
+    private static (Vector3 Albedo, float Rough, float Metal, float Height, Vector3 Tilt) Triplanar(TextureMaps maps, Vector3 p, Vector3 n)
     {
         var w = new Vector3(MathF.Pow(MathF.Abs(n.X), 4), MathF.Pow(MathF.Abs(n.Y), 4), MathF.Pow(MathF.Abs(n.Z), 4));
         w /= w.X + w.Y + w.Z + 1e-6f;
-        Vector3 alb = default, tilt = default; float ro = 0, me = 0;
+        Vector3 alb = default, tilt = default; float ro = 0, me = 0, he = 0;
         // Each side: its UV axes in world space (the normal map's x and y run along them).
         void Side(float weight, float u, float v, Vector3 uAxis, Vector3 vAxis)
         {
             if (weight < 0.01f) return;
-            var (c, r, m, tx, ty) = Sample(maps, u, v);
-            alb += c * weight; ro += r * weight; me += m * weight;
+            var (c, r, m, h, tx, ty) = Sample(maps, u, v);
+            alb += c * weight; ro += r * weight; me += m * weight; he += h * weight;
             tilt += (uAxis * tx + vAxis * ty) * weight;
         }
         Side(w.X, p.Z * MathF.Sign(n.X == 0 ? 1 : n.X), p.Y, Vector3.UnitZ * MathF.Sign(n.X == 0 ? 1 : n.X), Vector3.UnitY);
         Side(w.Y, p.X, p.Z * MathF.Sign(n.Y == 0 ? 1 : n.Y), Vector3.UnitX, Vector3.UnitZ * MathF.Sign(n.Y == 0 ? 1 : n.Y));
         Side(w.Z, -p.X * MathF.Sign(n.Z == 0 ? 1 : n.Z), p.Y, -Vector3.UnitX * MathF.Sign(n.Z == 0 ? 1 : n.Z), Vector3.UnitY);
-        return (alb, ro, me, tilt - n * Vector3.Dot(tilt, n));
+        return (alb, ro, me, he, tilt - n * Vector3.Dot(tilt, n));
     }
 
-    /// <summary>One tiling texel of the maps, bilinear: linear colour, roughness, metal and the normal's x and y (−1…1).</summary>
-    private static (Vector3 C, float R, float M, float Tx, float Ty) Sample(TextureMaps maps, float u, float v)
+    /// <summary>One tiling texel of the maps, bilinear: linear colour, roughness, metal, height and the normal's x and y (−1…1).</summary>
+    private static (Vector3 C, float R, float M, float H, float Tx, float Ty) Sample(TextureMaps maps, float u, float v)
     {
         var s = maps.Size;
         var fx = (u - MathF.Floor(u)) * s - 0.5f; var fy = (1 - (v - MathF.Floor(v))) * s - 0.5f;
         int x0 = (int)MathF.Floor(fx), y0 = (int)MathF.Floor(fy);
         float ax = fx - x0, ay = fy - y0;
-        Vector3 c = default; float r = 0, m = 0, tx = 0, ty = 0;
+        Vector3 c = default; float r = 0, m = 0, h = 0, tx = 0, ty = 0;
+        var heights = maps.HeightOut ?? maps.Height;
         for (var k = 0; k < 4; k++)
         {
             int xx = ((x0 + (k & 1)) % s + s) % s, yy = ((y0 + (k >> 1)) % s + s) % s;
             var wgt = ((k & 1) == 1 ? ax : 1 - ax) * ((k >> 1) == 1 ? ay : 1 - ay);
             var i = yy * s + xx;
             c += new Vector3(Lin(maps.Albedo[i * 3]), Lin(maps.Albedo[i * 3 + 1]), Lin(maps.Albedo[i * 3 + 2])) * wgt;
-            r += maps.Roughness[i] / 255f * wgt; m += maps.Metallic[i] / 255f * wgt;
+            r += maps.Roughness[i] / 255f * wgt; m += maps.Metallic[i] / 255f * wgt; h += Math.Clamp(heights[i], 0, 1) * wgt;
             tx += (maps.Normal[i * 3] / 255f * 2 - 1) * wgt; ty += (maps.Normal[i * 3 + 1] / 255f * 2 - 1) * wgt;
         }
-        return (c, r, m, tx, ty);
+        return (c, r, m, h, tx, ty);
     }
 
     private static readonly float[] LinTable = Enumerable.Range(0, 256).Select(v => { var c = v / 255.0; return (float)(c <= 0.04045 ? c / 12.92 : Math.Pow((c + 0.055) / 1.055, 2.4)); }).ToArray();

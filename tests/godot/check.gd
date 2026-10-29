@@ -129,6 +129,22 @@ func _init() -> void:
 	check(wind_materials(plain).all(func(m): return m == null) and meshes(plain).all(func(m): return m.visibility_range_end == 0.0), "a scene not made by NoorMD is left alone")
 	plain.free()
 
+	# NoorForge: the Godot material beside its maps (found by relative paths), and the textured GLB.
+	var forge_mat = load("res://forge/Boulder.tres")
+	check(forge_mat is ORMMaterial3D, "a NoorForge export's .tres loads as an ORM material", forge_mat)
+	if forge_mat is ORMMaterial3D:
+		check(forge_mat.albedo_texture is Texture2D and forge_mat.albedo_texture.resource_path.ends_with("Boulder_BaseColor.png"), "…with its colour map", forge_mat.albedo_texture)
+		check(forge_mat.normal_enabled and forge_mat.normal_texture is Texture2D, "…its normal map")
+		check(forge_mat.orm_texture is Texture2D and forge_mat.orm_texture.resource_path.ends_with("Boulder_ORM.png"), "…its occlusion/roughness/metal map")
+		check(forge_mat.heightmap_texture is Texture2D and not forge_mat.heightmap_enabled, "…and its height map, set but off")
+	var forge_scene: Node = load("res://forge/Boulder.glb").instantiate()
+	var forge_meshes := meshes(forge_scene)
+	check(forge_meshes.size() > 0, "the textured GLB imports")
+	if forge_meshes.size() > 0:
+		var forge_surface: Material = forge_meshes[0].mesh.surface_get_material(0)
+		check(forge_surface is BaseMaterial3D and forge_surface.albedo_texture is Texture2D and forge_surface.normal_enabled, "…with its textures on its material", forge_surface)
+	forge_scene.free()
+
 	# The shader itself: its code loads and declares what the plugin sets.
 	var shader: Shader = load("res://addons/noor_trees/noor_tree_wind.gdshader")
 	check(shader != null and shader.code.contains("shader_type spatial"), "the wind shader loads")

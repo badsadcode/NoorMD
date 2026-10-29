@@ -25,6 +25,14 @@ public partial class MainWindow
     private readonly Queue<string> _forgePreviewOrder = new();
     private static readonly SemaphoreSlim ForgeGate = new(1);
     private const int ForgePreviewSize = 512, ForgeMaterialSize = 512;
+    private static string ForgeSmartFolder => Path.Combine(App.Paths.Local, "Forge", "Smart materials");
+
+    private static readonly string[] ForgePreviewMaps = ["basecolor", "normal", "orm", "roughness", "metallic", "height", "ao", "curvature", "mask"];
+
+    /// <summary>The smart materials: NoorForge's, then your own.</summary>
+    private static List<object> ForgeSmartList() =>
+        ForgeSmart.All.Select(s => (object)new { id = s.Id, name = s.Name, description = s.Description, layers = s.Make().Select(l => l.Clamped()), mine = false })
+            .Concat(ForgeUserSmart.Load(ForgeSmartFolder).Select(s => (object)new { id = s.Id, name = s.Smart.Name, description = s.Smart.Description, layers = s.Smart.Layers, mine = true })).ToList();
 
     private ForgeModel ForgeLoad(string path)
     {
@@ -113,10 +121,27 @@ public partial class MainWindow
             case "forge.presets":
                 return new
                 {
-                    smart = ForgeSmart.All.Select(s => new { id = s.Id, name = s.Name, description = s.Description, layers = s.Make().Select(l => l.Clamped()) }),
+                    smart = await Task.Run(ForgeSmartList),
                     materials = TexturePresets.All.Select(m => new { id = m.Id, name = m.Name, family = m.Family }),
                     masks = ForgeMask.Kinds, sizes = ForgeRecipe.Sizes,
                 };
+            case "forge.smart.save":
+            {
+                // The layers as a smart material of your own (the same name replaces it).
+                var name = req.GetString("name", 200) ?? "";
+                var recipe = ForgeRecipeFrom(p);
+                if (recipe.Layers.Count == 0) throw new BridgeError("There are no layers to save.");
+                string id;
+                try { id = await Task.Run(() => ForgeUserSmart.Save(ForgeSmartFolder, name, req.GetString("description", 400) ?? "", recipe.Layers)); }
+                catch (ArgumentException ex) { throw new BridgeError(ex.Message); }
+                return new { id, smart = ForgeSmartList() };
+            }
+            case "forge.smart.delete":
+            {
+                var id = req.GetString("id", 200) ?? "";
+                var removed = await Task.Run(() => ForgeUserSmart.Delete(ForgeSmartFolder, id));
+                return new { removed, smart = ForgeSmartList() };
+            }
             case "forge.model.pick":
             {
                 var dlg = new OpenFileDialog { Title = "Open a model to texture", Filter = "3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj", CheckFileExists = true };
@@ -147,6 +172,8 @@ public partial class MainWindow
                 // The preview: textures at most 512 px (the export makes them at the recipe's size).
                 var recipe = ForgeRecipeFrom(p);
                 if (recipe.Model == null) throw new BridgeError("Open a model first.");
+                // The layer whose mask is shown (on the model and in the strip).
+                var maskLayer = p.TryGetProperty("maskLayer", out var ml) && ml.TryGetInt32(out var mli) ? mli : -1;
                 await ForgeGate.WaitAsync();
                 try
                 {
@@ -158,7 +185,8 @@ public partial class MainWindow
                     {
                         var bake = ForgeBakeFor(model, s, size, recipe);
                         var tex = ForgeCompositor.Compose(model, s, bake, recipe, ForgeMaterial);
-                        foreach (var m in new[] { "basecolor", "normal", "orm" }) files[$"{s}-{m}.png"] = tex.Png(m);
+                        foreach (var m in new[] { "basecolor", "normal", "orm", "roughness", "metallic", "height" }) files[$"{s}-{m}.png"] = tex.Png(m);
+                        if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe.Layers[maskLayer], s));
                         files[$"{s}-ao.png"] = PngWriter.Gray(size, size, bake.Ao.Select(v => (byte)Math.Clamp(v * 255, 0, 255)).ToArray());
                         files[$"{s}-curvature.png"] = PngWriter.Gray(size, size, bake.Curvature.Select(v => (byte)Math.Clamp(128 + v * 127, 0, 255)).ToArray());
                         return tex;
@@ -173,7 +201,7 @@ public partial class MainWindow
                     return new
                     {
                         url = $"/_forge/{key}/model.glb", key, size, ms = sw.ElapsedMilliseconds,
-                        sets = model.Sets.Select((s, i) => new { name = s.Name, maps = new[] { "basecolor", "normal", "orm", "ao", "curvature" }.ToDictionary(m => m, m => $"/_forge/{key}/{i}-{m}.png") }),
+                        sets = model.Sets.Select((s, i) => new { name = s.Name, maps = ForgePreviewMaps.Where(m => m != "mask" || files.ContainsKey($"{i}-mask.png")).ToDictionary(m => m, m => $"/_forge/{key}/{i}-{m}.png") }),
                     };
                 }
                 finally { ForgeGate.Release(); }
@@ -199,10 +227,10 @@ public partial class MainWindow
                         var tex = await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, recipe.Size, recipe), recipe, ForgeMaterial));
                         sets.Add(tex);
                         var setName = model.Sets.Count == 1 ? stem : $"{stem}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(model.Sets[s].Name, "")}";
-                        foreach (var (map, suffix) in new[] { ("basecolor", "BaseColor"), ("normal", "Normal"), ("orm", "ORM"), ("roughness", "Roughness"), ("metallic", "Metallic"), ("ao", "AO") })
+                        foreach (var (name, data) in await Task.Run(() => ForgeExport.SetFiles(setName, tex).ToList()))
                         {
-                            var file = Path.Combine(folder, $"{setName}_{suffix}.png");
-                            await File.WriteAllBytesAsync(file, tex.Png(map));
+                            var file = Path.Combine(folder, name);
+                            await File.WriteAllBytesAsync(file, data);
                             written.Add(file);
                         }
                         PushEvent("forge.exportProgress", new { done = s + 1, total = model.Sets.Count });

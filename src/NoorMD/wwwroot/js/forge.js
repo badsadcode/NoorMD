@@ -8,7 +8,10 @@ window.NoorForge = (() => {
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
   const MASKS = { all: 'Everywhere', edges: 'Worn edges', cavity: 'Cracks and corners (dirt)', top: 'On top (dust, moss, snow)', bottom: 'Underneath (grime)', height: 'Low down (a gradient up the model)', part: 'One part', material: 'One material' };
-  const MAPS = [['basecolor', 'Colour'], ['normal', 'Normal'], ['orm', 'AO · rough · metal'], ['ao', 'Baked AO'], ['curvature', 'Curvature']];
+  const MAPS = [['basecolor', 'Colour'], ['normal', 'Normal'], ['orm', 'AO · rough · metal'], ['height', 'Height'], ['ao', 'Baked AO'], ['curvature', 'Curvature'], ['mask', 'Mask (this layer)']];
+  // What the 3D view shows: lit, or one channel on the model as it is (no light).
+  const VIEWS = [['shaded', 'Textured'], ['clay', 'Clay (the shape)'], ['basecolor', 'Colour only'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['metallic', 'Metal'], ['height', 'Height'],
+    ['ao', 'Baked AO'], ['curvature', 'Curvature'], ['mask', 'Mask of the chosen layer']];
 
   let hooks = { showError: (e) => console.error(e) };
   let built = false;
@@ -21,6 +24,7 @@ window.NoorForge = (() => {
   let layout = { prefs: {}, set() {}, apply() {} };
   let render = null;       // the last preview
   let shownSet = 0;
+  let view = 'shaded';
   let renderTimer = null, renderGen = 0;
   const history = []; let future = []; let lastSnapshot = '';
 
@@ -97,7 +101,7 @@ window.NoorForge = (() => {
     const gen = ++renderGen;
     setStatus('Texturing…');
     try {
-      const r = await req('forge.render', { recipe });
+      const r = await req('forge.render', { recipe, maskLayer: recipe.layers.length ? selected : -1 });
       if (gen !== renderGen) return;
       render = r;
       shownSet = Math.min(shownSet, r.sets.length - 1);
@@ -106,10 +110,28 @@ window.NoorForge = (() => {
         if (!res.ok) throw new Error('The textured model could not be loaded for the preview.');
         if (gen !== renderGen) return;
         await viewer.load(await res.arrayBuffer());
+        await applyView(gen);
       }
       renderMaps();
       setStatus(`${r.sets.length} texture set${r.sets.length === 1 ? '' : 's'} · preview ${r.size} px (export ${recipe.size} px) · ${(r.ms / 1000).toFixed(1)} s`);
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); }
+  }
+
+  /** Shows the chosen view: the lit model, its clay, or one channel's pictures on it. */
+  async function applyView(gen = renderGen) {
+    if (!viewer) return;
+    if (view === 'shaded' || view === 'clay' || !render) { viewer.setChannel(null); viewer.setMode(view === 'clay' ? 'clay' : 'shaded'); return; }
+    const bitmaps = await Promise.all(render.sets.map(async (set) => {
+      const url = set.maps[view];
+      if (!url) return null;
+      try {
+        const res = await fetch(url);
+        return res.ok ? await createImageBitmap(await res.blob(), { imageOrientation: 'none', premultiplyAlpha: 'none', colorSpaceConversion: 'none' }) : null;
+      } catch { return null; }
+    }));
+    if (gen !== renderGen) return;
+    viewer.setChannel(bitmaps);
+    viewer.setMode('channel');
   }
 
   function setStatus(t) { const s = $('#fg-status'); if (s) s.textContent = t; }
@@ -137,7 +159,7 @@ window.NoorForge = (() => {
           el('div', { class: 'tb-split', id: 'fg-split' },
             el('div', { class: 'tb-view-col', id: 'fg-view-col' },
               el('div', { class: 'tb-views', role: 'group', 'aria-label': 'Preview' },
-                (() => { const s = el('select', { id: 'fg-view', 'aria-label': 'Show' }, el('option', { value: 'shaded', text: 'Textured' }), el('option', { value: 'clay', text: 'Clay (the shape)' })); s.addEventListener('change', () => viewer && viewer.setMode(s.value)); return s; })(),
+                (() => { const s = el('select', { id: 'fg-view', 'aria-label': 'Show', title: 'The model lit, or one channel on it as it is' }, ...VIEWS.map(([v, t]) => el('option', { value: v, text: t }))); s.addEventListener('change', () => { view = s.value; applyView(); }); return s; })(),
                 el('span', { class: 'sb-fx-space' }),
                 el('button', { class: 'icon-btn', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => viewer && viewer.zoom(1.2) }, '−'),
                 el('button', { class: 'icon-btn', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => viewer && viewer.zoom(1 / 1.2) }, '+'),
@@ -184,8 +206,30 @@ window.NoorForge = (() => {
       el('div', { class: 'sb-family' }, el('h4', { text: 'Model' }),
         el('button', { class: 'utility-btn fg-pickbig', onclick: pickModel }, model ? `🗿 ${model.name}` : '📂 Open a model…'),
         model && model.sets.some((s) => s.unwrapped) ? el('small', { class: 'pref-hint', text: 'Its UVs overlapped or were missing: NoorForge laid them out again (the export carries the new ones).' }) : null),
-      el('div', { class: 'sb-family' }, el('h4', { text: 'Smart materials' }),
-        ...lists.smart.map((s) => el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description} (replaces the layers; Ctrl+Z brings them back)`, onclick: () => { recipe.layers = clone(s.layers); selected = recipe.layers.length - 1; changed('all'); } }, s.name))));
+      el('div', { class: 'sb-family' }, el('h4', { text: 'Smart materials' }), ...lists.smart.filter((s) => !s.mine).map(smartButton)),
+      el('div', { class: 'sb-family', id: 'fg-mine' }, el('h4', { text: 'Your smart materials' }),
+        ...lists.smart.filter((s) => s.mine).map((s) => el('div', { class: 'fg-mine-row' }, smartButton(s),
+          el('button', { class: 'icon-btn', title: `Remove “${s.name}”`, 'aria-label': `Remove ${s.name}`, 'data-delsmart': s.id, onclick: () => deleteSmart(s) }, '✕'))),
+        el('button', { class: 'utility-btn', id: 'fg-savesmart', title: 'Keep these layers by name, to use on any model', disabled: !recipe || !recipe.layers.length || undefined, onclick: saveSmart }, '＋ Save these layers…')));
+  }
+
+  function smartButton(s) {
+    return el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description ? s.description + ' ' : ''}(replaces the layers; Ctrl+Z brings them back)`, onclick: () => { recipe.layers = clone(s.layers); selected = recipe.layers.length - 1; changed('all'); } }, s.name);
+  }
+
+  async function saveSmart() {
+    const name = await NoorUI.prompt('Save as a smart material', 'Name (the same name replaces one of yours):', recipe.name && !/^Textured model/.test(recipe.name) ? recipe.name : 'My material', { okLabel: 'Save' });
+    if (!name || !name.trim()) return;
+    try {
+      const r = await req('forge.smart.save', { name: name.trim(), recipe });
+      lists.smart = r.smart; renderNav();
+      notice(`Saved “${name.trim()}” with your smart materials`, 2000);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function deleteSmart(s) {
+    if (!await NoorUI.confirm('Remove this smart material?', `“${s.name}” is removed from your smart materials (models textured with it keep their textures).`, 'Remove')) return;
+    try { const r = await req('forge.smart.delete', { id: s.id }); lists.smart = r.smart; renderNav(); } catch (err) { hooks.showError(err); }
   }
 
   function renderTabs() {
@@ -210,7 +254,7 @@ window.NoorForge = (() => {
     const set = render.sets[shownSet];
     const pick = render.sets.length > 1 ? el('select', { id: 'fg-set', 'aria-label': 'Texture set' }, ...render.sets.map((s, i) => el('option', { value: String(i), text: s.name }))) : null;
     if (pick) { pick.value = String(shownSet); pick.addEventListener('change', () => { shownSet = Number(pick.value); renderMaps(); }); }
-    box.replaceChildren(...(pick ? [pick] : []), ...MAPS.map(([m, label]) => el('figure', { class: 'fg-map', 'data-map': m },
+    box.replaceChildren(...(pick ? [pick] : []), ...MAPS.filter(([m]) => set.maps[m]).map(([m, label]) => el('figure', { class: 'fg-map', 'data-map': m },
       el('img', { src: set.maps[m], alt: label, loading: 'lazy' }), el('figcaption', { text: label }))));
   }
 
@@ -230,7 +274,7 @@ window.NoorForge = (() => {
     if (!list) return;
     // Top of the stack first, as in a painting program.
     list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off'), 'data-layer': String(i), role: 'button', tabindex: '0',
-      onclick: () => { selected = i; renderLayers(); renderLayerEditor(); } },
+      onclick: () => { selected = i; renderLayers(); renderLayerEditor(); schedule(); } }, // its mask, shown
       el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden (click to show)', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); l.visible = !l.visible; changed('layers'); } }, l.visible ? '👁' : '◌'),
       el('span', { class: 'fg-swatch', style: `background:${l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}` }),
       el('span', { class: 'fg-layername', text: l.name }),
@@ -241,7 +285,7 @@ window.NoorForge = (() => {
   function layersPane() {
     const add = (material) => {
       const l = { name: material ? 'Material' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
-        useColor: true, useRoughness: true, useMetallic: true, useNormal: true, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 } };
+        height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 } };
       recipe.layers.splice(selected + 1, 0, l); selected++; changed('all');
     };
     const move = (d) => { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); };
@@ -292,8 +336,8 @@ window.NoorForge = (() => {
       el('h4', { class: 'music-subhead', text: 'Layer' }),
       el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
       el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
-        ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01)])),
-      el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : [])),
+        ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01), slider(l, 'height', 'Height (mid: flat)', 0, 1, 0.01)])),
+      el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
       el('h4', { class: 'music-subhead', text: 'Where it shows (smart mask)' }),
       el('div', { class: 'sb-row' }, kind, which, el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Everywhere else instead' }))),
       shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01), slider(m, 'noise', 'Break up with noise', 0, 1, 0.01), slider(m, 'noiseScale', 'Noise size (m)', 0.01, 5, 0.01)) : null);
@@ -368,6 +412,6 @@ window.NoorForge = (() => {
 
   return {
     init, open, close, toggle, isOpen, openAsset,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, render: render ? clone(render) : null, history: history.length }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, render: render ? clone(render) : null, history: history.length }),
   };
 })();

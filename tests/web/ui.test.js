@@ -5495,12 +5495,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+f');
       await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
       check('Ctrl+Alt+F opens NoorForge with a smart material ready, asking for a model', (await FS()).recipe.layers.length === 2 && /no model yet/.test(await page.textContent('#fg-model')) && /Open a model/.test(await page.textContent('#fg-status')));
-      check('smart materials are listed', (await page.$$('#fg-nav [data-smart]')).length === 2);
+      check('smart materials are listed', (await page.$$('#fg-nav [data-smart]')).length === 2 && !!(await page.$('#fg-mine #fg-savesmart')));
       await page.click('#fg-pick');
       await waitFn(page, () => window.__mock.state.forge.renders.length >= 1);
       let st = await FS();
       check('a model is opened and textured (the recipe names it)', st.recipe.model === 'C:\\Models\\Crate.glb' && st.recipe.name === 'Crate' && /1,200 triangles · 2 texture sets/.test(await page.textContent('#fg-model')));
-      await waitFn(page, () => document.querySelectorAll('#fg-maps .fg-map').length === 5);
+      await waitFn(page, () => document.querySelectorAll('#fg-maps .fg-map').length === 7);
       check('…and its maps are shown, with a choice of texture set', !!(await page.$('#fg-set')) && /2 texture sets · preview 512 px \(export 1024 px\)/.test(await page.textContent('#fg-status')));
       check('the layers are listed top first', (await page.$$eval('#fg-layers .fg-layername', (n) => n.map((x) => x.textContent))).join() === 'Moss,Stone');
       // A colour layer of worn edges.
@@ -5515,6 +5515,33 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const n0 = (await FM()).renders.length;
       await waitFn(page, (n) => window.__mock.state.forge.renders.length > n, n0);
       check('changes are textured again', (await FM()).renders.at(-1).layers.at(-1).mask.kind === 'edges');
+      check('…with the chosen layer\'s mask asked for (shown in the strip)', (await FM()).maskLayers.at(-1) === 2 && !!(await page.$('#fg-maps [data-map="mask"]')) && !!(await page.$('#fg-maps [data-map="height"]')));
+      // One channel on the model, as it is.
+      await page.selectOption('#fg-view', 'roughness');
+      await waitFn(page, () => NoorForge._state().viewMode === 4);
+      check('the 3D view shows one channel (roughness) on the model, unlit', (await FS()).view === 'roughness');
+      await page.selectOption('#fg-view', 'mask');
+      const r0 = (await FM()).renders.length;
+      await page.click('#fg-layers [data-layer="0"]');
+      await waitFn(page, (n) => window.__mock.state.forge.renders.length > n, r0);
+      check('…and choosing another layer shows its mask', (await FM()).maskLayers.at(-1) === 0 && (await FS()).viewMode === 4);
+      await page.selectOption('#fg-view', 'shaded');
+      await waitFn(page, () => NoorForge._state().viewMode === 0);
+      check('…and back to the lit model', true);
+      await page.click('#fg-layers [data-layer="2"]');
+      // A plain layer has a height of its own; every layer can leave height alone.
+      await page.waitForSelector('#fg-layeredit input[data-key="height"]');
+      await page.$eval('#fg-layeredit input[data-key="height"]', (i) => { i.value = '0.8'; i.dispatchEvent(new Event('input')); });
+      await page.click('#fg-layeredit input[data-use="useHeight"]');
+      st = await FS();
+      check('a colour layer sets a height, and can leave height alone', st.recipe.layers[2].height === 0.8 && st.recipe.layers[2].useHeight === false);
+      // These layers as a smart material of my own.
+      await page.click('#fg-savesmart');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'Worn crate');
+      await page.keyboard.press('Enter');
+      await page.waitForSelector('#fg-mine [data-smart="mine:worn crate"]');
+      check('＋ Save these layers… keeps them as a smart material of my own', (await FM()).mine[0].layers.length === 3 && (await FM()).mine[0].layers[2].height === 0.8);
       // A mask by part names the model's parts.
       await page.selectOption('#fg-maskkind', 'part');
       await page.waitForSelector('#fg-maskindex');
@@ -5529,6 +5556,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and Ctrl+Z brings it back', true);
       await page.click('#fg-nav [data-smart="clay"]');
       check('a smart material replaces the layers', (await FS()).recipe.layers.map((l) => l.name).join() === 'Clay');
+      await page.click('#fg-mine [data-smart="mine:worn crate"]');
+      check('…and my own one brings mine back', (await FS()).recipe.layers.length === 3);
+      await page.click('#fg-mine [data-delsmart="mine:worn crate"]');
+      await page.waitForSelector('.modal .action.primary');
+      await page.click('.modal .action.primary');
+      await waitFn(page, () => !document.querySelector('#fg-mine [data-smart]'));
+      check('…and it can be removed (after asking)', (await FM()).mine.length === 0);
+      await page.click('#fg-nav [data-smart="clay"]');
       await page.click('#fg-tabs [data-tab="bake"]');
       await page.waitForSelector('#fg-modelinfo');
       check('the model tab tells its sets and parts, and which UVs NoorForge laid out', /Metal: 200 triangles · UVs laid out by NoorForge/.test(await page.textContent('#fg-modelinfo')));

@@ -64,8 +64,19 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - The preview is the textured GLB (512 px textures) with its maps beside it (colour, normal, ORM, baked AO,
   curvature); the export writes each texture set's base colour, normal (OpenGL), ORM, roughness, metallic and AO at
   256–4096 px, the textured GLB and the recipe, which opens again (finding the model beside it if it moved).
-- Still to come for stage 1: a Godot material, saving smart materials of your own, height output, viewing one channel
-  in the 3D view.
+
+### Done in preview.88 (stage 1 finished)
+
+- **Height:** every layer paints height too — a material its own relief, a plain layer the height you give it (mid
+  grey: flat) — or leaves it alone ("Paints: height"). Exported as `_Height.png`.
+- **A Godot material:** beside each texture set's maps the export writes `{set}.tres`, a Godot 4 ORMMaterial3D using
+  them (colour, normal, ORM; the height map set but off, as parallax suits some surfaces only). Its paths are relative,
+  so the folder can go anywhere in a project. CI imports one in headless Godot 4.4 and checks it.
+- **Smart materials of your own:** "＋ Save these layers…" keeps the stack by name (the same name replaces it), listed
+  under "Your smart materials" for any model; ✕ removes one (after asking).
+- **One channel in the 3D view:** the view shows the model lit, as clay, or one channel on it as it is, unlit — colour,
+  normal, roughness, metal, height, the baked AO and curvature, or the mask of the chosen layer (choosing another layer
+  shows its mask). The strip under the view shows the height and the chosen layer's mask too.
 
 ## Stage 2 — painting on the model
 
