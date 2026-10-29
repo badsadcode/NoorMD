@@ -59,3 +59,12 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
 ## Later (only if real use asks)
 
 - Triplets and odd subdivisions, tempo changes, a mixer view, MIDI import.
+
+## Fix (preview.72): playback carries on while you edit
+
+An edit while the song (or the loop) played renders it again and swaps the audio, which pauses it; nothing started it
+again, so adding a note stopped playback, and the ▶/■ button showed the pause, not what you asked for. The bench now
+keeps whether you want it playing (from ▶ until ■, the song's end, another player, or closing the bench): after each
+re-render it carries on from the same spot (also when several edits come quickly, while one render is still loading),
+and the button shows ■ throughout. ■ cancels a re-render still due, so it never starts again by itself. UI test: an
+edit while the loop plays renders again and keeps playing; ■ stops it for good.

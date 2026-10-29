@@ -96,14 +96,32 @@ public static class LeafAtlas
             // Each blade's bounding circle, so a pixel only measures the blades that can reach it.
             var reach = leaves.Select(l => (Centre: l.Base + l.Dir * l.Len * 0.5f, Radius: l.Len * (0.5f + l.Width * 0.6f) + 0.02f)).ToArray();
 
+            // The whole sprite inside its cell: the blades at their full width (a maple leaf's lobes spread all round
+            // its base) and the stems. Too big: shrunk round the anchor; below the cell (side leaves of a cluster
+            // pointing down): lifted, with a short stalk down to the anchor. Otherwise the cell's edge would cut it.
+            float minX = 0, maxX = 0, minY = 0, maxY = 0;
+            void Grow(Vector2 c, float r) { minX = MathF.Min(minX, c.X - r); maxX = MathF.Max(maxX, c.X + r); minY = MathF.Min(minY, c.Y - r); maxY = MathF.Max(maxY, c.Y + r); }
+            foreach (var (b, dir, len, width, _) in leaves)
+            {
+                if (shape == "maple") { Grow(b + dir * len * 0.1f, len * 0.95f); continue; }
+                for (var k = 0; k <= 4; k++) Grow(b + dir * len * (k / 4f), width * len * 0.5f + 0.004f);
+            }
+            if (shape != "moss")
+                foreach (var st in stems)
+                    for (var k = 0; k <= 6; k++) Grow(StemAt(st, k / 6f * 0.97f), 0.02f);
+            var lowest = MathF.Min(0, minY);
+            var fit = MathF.Min(1, MathF.Min(0.53f / MathF.Max(1e-3f, MathF.Max(-minX, maxX)), 0.985f / MathF.Max(1e-3f, maxY - lowest)));
+            var lift = lowest < 0 ? -lowest * fit + 0.003f : 0;
+
             for (var y = 0; y < half; y++)
                 for (var x = 0; x < half; x++)
                 {
-                    // Pixel centre to sprite space (row 0 is the top of the image).
-                    var sx = ((x + 0.5f) / half * 2 - 1) * 0.55f;
-                    var sy = 1 - (y + 0.5f) / half;
-                    var p = new Vector2(sx, sy);
-                    var aa = 1.6f / half;
+                    // Pixel centre to sprite space (row 0 is the top of the image), undoing the fit into the cell.
+                    var cx = ((x + 0.5f) / half * 2 - 1) * 0.55f;
+                    var cy = 1 - (y + 0.5f) / half;
+                    var p = new Vector2(cx / fit, (cy - lift) / fit);
+                    var sy = p.Y;
+                    var aa = 1.6f / half / fit;
                     float alpha = 0;
                     var rgb = c1;
                     // Stems (thicker near the anchor).
@@ -111,6 +129,8 @@ public static class LeafAtlas
                     if (shape != "moss")
                         foreach (var st in stems)
                             for (var k = 0; k < 6; k++) ds = MathF.Min(ds, SegmentDistance(p, StemAt(st, k / 6f * 0.97f), StemAt(st, (k + 1) / 6f * 0.97f)));
+                    // The stalk from the cell's bottom (the card's anchor) up to a lifted sprite.
+                    if (lift > 0 && shape != "moss") ds = MathF.Min(ds, SegmentDistance(p, new Vector2(0, -lift / fit), Vector2.Zero));
                     ds -= 0.012f * (1.2f - sy);
                     var stemA = Math.Clamp(0.5f - ds / aa, 0, 1);
                     if (stemA > 0 && shape != "moss") { alpha = stemA; rgb = stemColour; }

@@ -1002,6 +1002,33 @@ public class TreeTests
         Assert.True(Floating(b, 0, reach * 0.5f) < 0.5);
     }
 
+    [Fact]
+    public void Every_leaf_sprite_fits_inside_its_cell_so_no_card_cuts_it()
+    {
+        // The bug: maple lobes and a cluster's lower leaves ran past their cell, so the card's edge cut them straight.
+        // Only the stalk may touch the cell's edge, at the bottom middle (the card's anchor).
+        foreach (var shape in TreeRecipe.LeafShapes.Append("moss"))
+            foreach (var cluster in LeafAtlas.Clusters)
+                foreach (var stylized in new[] { false, true })
+                {
+                    const int size = 256, half = size / 2;
+                    var img = LeafAtlas.Pixels(shape, "#4f7a2c", "#8aa83a", stylized, size, 1, cluster);
+                    var cut = 0;
+                    for (var cell = 0; cell < 4; cell++)
+                    {
+                        int ox = (cell & 1) * half, oy = (cell >> 1) * half;
+                        for (var k = 0; k < half; k++)
+                            foreach (var (x, y) in new[] { (k, 0), (k, half - 1), (0, k), (half - 1, k) })
+                            {
+                                if (img.Rgba[((oy + y) * size + ox + x) * 4 + 3] < 64) continue;
+                                if (y == half - 1 && MathF.Abs(x - half / 2f) < half * 0.06f) continue;     // the stalk
+                                cut++;
+                            }
+                    }
+                    Assert.True(cut == 0, $"{shape}/{cluster}/{(stylized ? "stylized" : "realistic")}: {cut} leaf pixels on a cell's edge");
+                }
+    }
+
     /// <summary>Share of leaf-card anchors (no flutter) farther than <paramref name="gap"/> metres from any wood vertex.</summary>
     private static double Floating(TreeBuild b, int level, float gap)
     {

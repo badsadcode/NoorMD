@@ -364,6 +364,12 @@ so crowns were lumpy, gappy and spiky: an autumn maple read as separate balls on
 * Tests: at 4,000 triangles the crown is fuller (over 80 % of its outline covered, measured from four sides) than
   with cards along the twigs; at 2,000, no card is farther from the wood that is there than a mass and a card.
 
+Fix (preview.72): leaf textures were cut off. The atlas kept a leaf inside its cell only along its length, not its
+width: a maple leaf's lobes spread all round its base, and a cluster's lower side leaves pointed below the cell, so
+the card's edge cut them straight (up to 386 leaf pixels on the cell edges of one atlas). Each sprite is now
+measured whole (blades at full width, stems) and shrunk round its anchor, or lifted with a short stalk down to it,
+to fit its cell. A test checks every leaf shape, cluster and look: no leaf pixel on a cell's edge but the stalk.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

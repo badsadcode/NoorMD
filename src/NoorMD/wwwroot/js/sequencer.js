@@ -58,6 +58,10 @@ window.NoorSequencer = (() => {
   let roll = null; // the piano roll's state while the Notes tab shows a melodic track
   let listenLayer = ''; // an adaptive layer to listen to ('' = the whole song)
   const audition = new Audio(); // a transition or the loop's seam, played on its own
+  // Whether you want the song playing (true from Play until Stop, the end of the song or another player): a re-render
+  // after an edit swaps the audio, which pauses it for a moment; playback carries on from where it was.
+  let wantPlay = false;
+  let resumeAt = null; // bars from the song's start where playback was when an edit started a re-render
 
   const isOpen = () => document.body.classList.contains('seq-open');
   const track = () => (song && song.tracks[sel.track]) || null;
@@ -68,7 +72,7 @@ window.NoorSequencer = (() => {
     NoorBridge.on('seq.exportProgress', (p) => { const s = $('#seq-export-status'); if (s) s.textContent = `Rendering ${p.done} of ${p.total}…`; });
     audio.addEventListener('play', () => { renderTransport(); tick(); });
     audio.addEventListener('pause', renderTransport);
-    audio.addEventListener('ended', () => { renderTransport(); showPlayhead(-1); });
+    audio.addEventListener('ended', () => { wantPlay = false; renderTransport(); showPlayhead(-1); });
   }
 
   async function open() {
@@ -86,7 +90,7 @@ window.NoorSequencer = (() => {
 
   function close() {
     if (!built || !isOpen()) return;
-    audio.pause();
+    stopPlaying();
     document.body.classList.remove('seq-open');
     $('#seqbench').hidden = true;
     if (window.NoorDock) NoorDock.closed('sequencer');
@@ -104,7 +108,7 @@ window.NoorSequencer = (() => {
     if (!fresh && song) pushHistory();
     song = s;
     // A fresh song: no undo steps (also none still waiting to be saved from the song before).
-    if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; sel = { track: 0, bar: 0 }; playFrom = 0; audio.pause(); }
+    if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; sel = { track: 0, bar: 0 }; playFrom = 0; stopPlaying(); }
     fixSelection();
     lastSnapshot = JSON.stringify(song);
     renderAll();
@@ -152,12 +156,15 @@ window.NoorSequencer = (() => {
   /** The song changed: what plays is out of date. While playing, render again shortly and carry on from the same spot. */
   function stale() {
     renderStale = true;
-    if (!audio.paused) { clearTimeout(renderTimer); renderTimer = setTimeout(() => preview(true), 350); }
+    if (wantPlay) { clearTimeout(renderTimer); renderTimer = setTimeout(() => preview(true), 350); }
   }
 
   async function preview(keepPlaying) {
     const gen = ++renderGen;
-    const wasAt = currentBarPosition();
+    // Where it was playing: now, or (while an earlier re-render is still loading) where that one meant to carry on.
+    const now = currentBarPosition();
+    if (now != null) resumeAt = now;
+    const wasAt = keepPlaying ? resumeAt : null;
     setStatus('Rendering…');
     try {
       if (listenLayer && !(song.layers || []).some((l) => l.id === listenLayer)) listenLayer = '';
@@ -175,6 +182,8 @@ window.NoorSequencer = (() => {
       if (!loaded) { setStatus('The rendered song could not be played.'); return false; }
       // Keep listening from the same place in the song (if it is inside what was rendered).
       if (keepPlaying && wasAt != null && wasAt >= out.fromBar && wasAt < out.toBar) audio.currentTime = Math.min((wasAt - out.fromBar) * out.barSeconds, Math.max(0, audio.duration - 0.05));
+      // Swapping the audio paused it: carry on playing if you still want it to (an edit while playing).
+      if (keepPlaying && wantPlay) { resumeAt = null; audio.play().catch((err) => setStatus(err.message)); }
       setStatus(`${loopMode ? `Loop: bars ${out.fromBar + 1}–${out.toBar}` : `From bar ${out.fromBar + 1}`} · ${out.seconds.toFixed(1)} s · peak ${out.peakDb} dB${out.cut ? ` · plays up to bar ${out.toBar} (a few minutes at once)` : ''}${out.warnings && out.warnings.length ? ' · ⚠ ' + out.warnings.join('; ') : ''}`);
       return true;
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); return false; }
@@ -189,12 +198,25 @@ window.NoorSequencer = (() => {
 
   async function playStop() {
     if (!song) return;
-    if (!audio.paused) { audio.pause(); showPlayhead(-1); return; }
+    if (wantPlay || !audio.paused) { stopPlaying(); return; }
     hooks.onPlay();
+    wantPlay = true;
+    resumeAt = null;
+    renderTransport();
     const wanted = loopMode ? song.loopStart : playFrom;
     audition.pause();
-    if (renderStale || !render || render.loop !== loopMode || render.fromBar !== wanted || (render.layer || '') !== listenLayer) { if (!(await preview(false))) return; } else audio.currentTime = 0;
+    if (renderStale || !render || render.loop !== loopMode || render.fromBar !== wanted || (render.layer || '') !== listenLayer) { if (!(await preview(false))) { wantPlay = false; renderTransport(); return; } } else audio.currentTime = 0;
+    if (!wantPlay) return;      // stopped while it rendered
     audio.play().catch((err) => setStatus(err.message));
+  }
+
+  function stopPlaying() {
+    wantPlay = false;
+    resumeAt = null;
+    clearTimeout(renderTimer);
+    audio.pause();
+    showPlayhead(-1);
+    renderTransport();
   }
 
   function setLoopMode(on) {
@@ -202,7 +224,7 @@ window.NoorSequencer = (() => {
     try { localStorage.setItem('noormd.seq.loop', loopMode ? 'on' : 'off'); } catch { /* private storage off */ }
     const b = $('#seq-loop');
     if (b) { b.setAttribute('aria-pressed', String(loopMode)); b.classList.toggle('active', loopMode); b.title = loopMode ? 'Playing the loop (bars marked above the grid) over and over: click to play the song (L)' : 'Playing the song from the marked bar: click to play the loop over and over (L)'; }
-    if (!audio.paused) { audio.pause(); playStop(); }
+    if (wantPlay) { stopPlaying(); playStop(); }
   }
 
   function setVolume(v) {
@@ -225,8 +247,11 @@ window.NoorSequencer = (() => {
   function renderTransport() {
     const b = $('#seq-play');
     if (!b) return;
-    b.textContent = audio.paused ? '▶' : '■';
-    b.setAttribute('aria-label', audio.paused ? 'Play' : 'Stop');
+    // What you asked for: a re-render after an edit pauses the audio for a moment, but the song is still "playing".
+    const on = wantPlay || !audio.paused;
+    b.textContent = on ? '■' : '▶';
+    b.setAttribute('aria-label', on ? 'Stop' : 'Play');
+    b.classList.toggle('active', on);
   }
 
   function tick() {
@@ -302,7 +327,7 @@ window.NoorSequencer = (() => {
     setVolume(volume);
     setLoopMode(loopMode);
     $('#seq-name').addEventListener('input', (e) => { song.name = e.target.value; changed(); });
-    $('#seq-listenlayer').addEventListener('change', (e) => { listenLayer = e.target.value; renderGrid(); stale(); if (!audio.paused) { audio.pause(); playStop(); } });
+    $('#seq-listenlayer').addEventListener('change', (e) => { listenLayer = e.target.value; renderGrid(); stale(); if (wantPlay) { stopPlaying(); playStop(); } });
     $('#seq-template').addEventListener('change', (e) => { const id = e.target.value; e.target.value = ''; if (id) newFrom(id); });
     const bindNum = (id, apply) => $(id).addEventListener('change', (e) => { const v = Math.round(Number(e.target.value)); if (Number.isFinite(v)) apply(v); renderHeader(); });
     bindNum('#seq-tempo', (v) => { song.tempo = Math.max(30, Math.min(300, v)); changed(); });
@@ -441,7 +466,7 @@ window.NoorSequencer = (() => {
     playFrom = b;
     sel.bar = b;
     renderGrid(); renderPane();
-    if (!audio.paused && !loopMode) { audio.pause(); playStop(); }
+    if (wantPlay && !loopMode) { stopPlaying(); playStop(); }
   }
 
   function select(i, b, quiet) {
@@ -1253,7 +1278,7 @@ window.NoorSequencer = (() => {
       try {
         status.textContent = 'Rendering…';
         const r = await req('seq.transition', { song, from: from.value, to: to.value, fadeBars: Number(fade.value) });
-        audio.pause();
+        stopPlaying();
         hooks.onPlay();
         audition.src = r.url; audition.volume = volume; audition.currentTime = 0;
         audition.play().catch(() => {});
@@ -1283,7 +1308,7 @@ window.NoorSequencer = (() => {
           chip('ends', `start ${r.startDb} dB · end ${r.endDb} dB`, 'The level of the first and last half second'),
           ...r.checks.map((c) => chip('check', '⚠ ' + c, c, true)),
           el('button', { class: 'utility-btn', id: 'seq-hearseam', title: 'The loop\'s last two seconds, then its first two: the moment it wraps, at ' + r.seamAt.toFixed(1) + ' s',
-            onclick: () => { audio.pause(); hooks.onPlay(); audition.src = r.seamUrl; audition.volume = volume; audition.currentTime = 0; audition.play().catch(() => {}); } }, '▶ Hear the seam'));
+            onclick: () => { stopPlaying(); hooks.onPlay(); audition.src = r.seamUrl; audition.volume = volume; audition.currentTime = 0; audition.play().catch(() => {}); } }, '▶ Hear the seam'));
       } catch (err) { box.replaceChildren(); hooks.showError(err); }
     };
     return [el('h4', { class: 'music-subhead', text: 'Loop check' }),
@@ -1331,7 +1356,7 @@ window.NoorSequencer = (() => {
   return {
     init, open, close, toggle, isOpen,
     /** Another player started: the song stops. */
-    stopForOther: () => { if (!audio.paused) audio.pause(); noteAudio.pause(); audition.pause(); },
+    stopForOther: () => { if (wantPlay || !audio.paused) stopPlaying(); noteAudio.pause(); audition.pause(); },
     _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
   };
 })();

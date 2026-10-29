@@ -4672,7 +4672,17 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorSequencer._state().playing);
       rr = (await M()).renders.at(-1);
       check('🔁 plays the loop over and over', rr.loop === true && (await SQ()).loopMode && (await page.evaluate(() => NoorSequencer._state().render.loop)));
-      await page.keyboard.press('Space');
+      // An edit while the loop plays: it renders again and carries on playing (swapping the audio pauses it for a moment).
+      const rendersBefore = (await M()).renders.length;
+      await page.click('#seq-grid .seq-ms[aria-label^="Mute"]');
+      await waitFn(page, (n) => window.__mock.state.seq.renders.length > n, rendersBefore);
+      await waitFn(page, () => NoorSequencer._state().playing);
+      check('an edit while playing renders again and keeps playing the loop', (await M()).renders.at(-1).loop === true && (await page.textContent('#seq-play')) === '■');
+      await page.click('#seq-grid .seq-ms[aria-label^="Mute"]');
+      await page.click('#seq-play');
+      await waitFn(page, () => !NoorSequencer._state().playing);
+      await page.waitForTimeout(600);
+      check('Stop stops it for good (a re-render still due doesn\'t start it again), and the button says Play', !(await SQ()).playing && (await page.textContent('#seq-play')) === '▶');
       // Export and save.
       await page.click('#seqbench .sb-tabs [data-tab="song"]');
       await page.check('#seq-part-midi');
