@@ -20,7 +20,7 @@ window.NoorSprite = (() => {
     ['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['fill', '🪣', 'Fill (G)', 'g'], ['line', '╱', 'Line (L)', 'l'],
     ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
     ['select', '⬚', 'Select a rectangle (M)', 'm'], ['eselect', '◌', 'Select an ellipse', null], ['lasso', '➰', 'Lasso (Q)', 'q'], ['wand', '🪄', 'Magic wand (W)', 'w'],
-    ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
+    ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['bone', '🦴', 'Bones (K): a skeleton that layers move with; pose it frame by frame', 'k'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
   ];
 
   let hooks = { showError: (e) => console.error(e) };
@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '' };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -89,6 +89,7 @@ window.NoorSprite = (() => {
     fn(doc);
     normalizeIndexed(doc, prev);
     normalizeTilemaps(doc, prev);
+    normalizeBones(doc, prev);
     layer = Math.max(0, Math.min(doc.layers.length - 1, layer));
     frame = Math.max(0, Math.min(doc.frames.length - 1, frame));
     afterChange();
@@ -304,7 +305,7 @@ window.NoorSprite = (() => {
   function renderAll() {
     if (!built || !doc) return;
     $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}${doc.indexed ? ' · indexed' : ''}`;
-    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderTileset();
+    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderBonePanel(); renderTileset();
     fitCanvas(); draw(); drawPreview(); status();
     keepFocus();
   }
@@ -313,7 +314,7 @@ window.NoorSprite = (() => {
     $('#sp-tools').replaceChildren(...TOOLS.map(([id, icon, title]) => el('button', { class: 'icon-btn sp-tool' + (tool === id ? ' on' : ''), 'data-tool': id, title, 'aria-label': title, 'aria-pressed': String(tool === id), onclick: () => setTool(id) }, icon)));
   }
 
-  function setTool(t) { if (t !== 'move') commitFloating(); if (tilesOn() && !['pencil', 'eraser', 'fill', 'picker', 'hand', 'slice'].includes(t)) tileMode = false; tool = t; renderTileset(); renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
+  function setTool(t) { if (t !== 'move') commitFloating(); if (tilesOn() && !['pencil', 'eraser', 'fill', 'picker', 'hand', 'slice'].includes(t)) tileMode = false; tool = t; renderTileset(); renderBonePanel(); renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
 
   function renderColours() {
     $('#sp-fg').style.setProperty('--c', `rgba(${fg[0]},${fg[1]},${fg[2]},${fg[3] / 255})`);
@@ -501,6 +502,7 @@ window.NoorSprite = (() => {
       el('h4', { class: 'music-subhead', text: 'View' }),
       check('pixelGrid', 'pixel grid', 'Lines between the pixels when zoomed in'),
       check('slices', 'slices', 'The slices\' outlines (always shown with the slice tool)'),
+      check('bones', 'bones', 'The skeleton (always shown with the bone tool)'),
       (() => {
         const t = el('select', { id: 'sp-tiled', 'aria-label': 'Tiled', title: 'The sprite repeated around itself, and drawing that wraps round the edges: for seamless tiles and textures' },
           el('option', { value: '', text: 'not tiled' }), el('option', { value: 'both', text: 'tiled both ways' }), el('option', { value: 'x', text: 'tiled across' }), el('option', { value: 'y', text: 'tiled down' }));
@@ -636,7 +638,7 @@ window.NoorSprite = (() => {
   function addFrame(copy, linked = false) {
     change(linked ? 'New linked frame' : copy ? 'New frame' : 'New empty frame', (d) => {
       const at = frame + 1;
-      d.frames.splice(at, 0, { duration: d.frames[frame].duration });
+      d.frames.splice(at, 0, { duration: d.frames[frame].duration, ...(copy && d.frames[frame].pose ? { pose: d.frames[frame].pose } : {}) });
       shiftFrames(d, at, 1);
       if (copy) d.layers.forEach((l) => {
         const c = d.cels.get(key(l.id, frame));
@@ -1004,6 +1006,7 @@ window.NoorSprite = (() => {
     if (selection) drawSelection(ctx, o, z);
     drawSlices(ctx, o, z);
     if (view.path && !playing) drawPath(ctx, o, z);
+    drawBones(ctx, o, z);
     // The stabilizer's string, from the brush to the cursor.
     if (drag && drag.kind === 'stroke' && drag.lazy) {
       const L = drag.lazy, bx = o.x + L.x * z, by = o.y + L.y * z;
@@ -1262,6 +1265,7 @@ window.NoorSprite = (() => {
     if (t === 'picker') { pick(p, e.button === 2); drag = { kind: 'picker', right: e.button === 2 }; return; }
     if (['select', 'eselect', 'lasso', 'wand'].includes(t)) { startSelect(t, p, e); return; }
     if (t === 'slice') { startSlice(p); return; }
+    if (t === 'bone') { boneDown(p, e); return; }
     const node = t === 'move' && !floating ? pathNodeAt(p) : -1;
     if (node >= 0) {
       if (node !== frame) { frame = node; renderAll(); }
@@ -1436,6 +1440,7 @@ window.NoorSprite = (() => {
     if (drag.kind === 'gradient') { drag.to = [p.fx, p.fy]; drag.preview = gradientPixels(drag); draw(); return; }
     if (drag.kind === 'select') { moveSelect(p, e); return; }
     if (drag.kind === 'slice') { drag.to = [p.x, p.y]; draw(); return; }
+    if (drag.kind === 'bone-new' || drag.kind === 'bone-pose') { boneMove(p); return; }
     if (drag.kind === 'move') { floating.x = drag.fx + (p.x - drag.px); floating.y = drag.fy + (p.y - drag.py); draw(); }
   }
 
@@ -1450,6 +1455,7 @@ window.NoorSprite = (() => {
     else if (d.kind === 'tiles') putTiles(d.terrain ? (d.on ? 'Draw a terrain' : 'Take a terrain away') : d.value ? 'Place tiles' : 'Take tiles away', d.map);
     else if (d.kind === 'select') endSelect(d);
     else if (d.kind === 'slice') endSlice(d);
+    else if (d.kind === 'bone-new' || d.kind === 'bone-pose') boneUp(d);
     else draw();
   }
 
@@ -1616,6 +1622,7 @@ window.NoorSprite = (() => {
     putCel(doc, k, { px, opacity: old ? old.opacity : 255 });
     normalizeIndexed(doc, prev);
     normalizeTilemaps(doc, prev);
+    normalizeBones(doc, prev);
     selection = bounds(mask);
     renderAll();
   }
@@ -2852,7 +2859,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
   }
 
   function fromWire(w) {
@@ -2890,6 +2897,9 @@ window.NoorSprite = (() => {
       }
       d.cels.set(key(c.layer, c.frame), { px, opacity: c.opacity ?? 255, ...(c.link ? { link: c.link } : {}) });
     }
+    d.bones = (w.bones || []).map((b) => ({ id: b.id, name: b.name, parent: b.parent || null, x: b.x, y: b.y, tipX: b.tipX, tipY: b.tipY }));
+    for (const f of d.frames) if (!f.pose) delete f.pose;
+    for (const l of d.layers) if (!l.bone) delete l.bone;
     d.indexed = w.colorMode === 'indexed';
     d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
     normalizeIndexed(d, null);
@@ -3036,6 +3046,188 @@ window.NoorSprite = (() => {
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
     });
+  }
+
+  // ---------------------------------------------------------------- bones (cutout animation)
+
+  // A skeleton: bones { id, name, parent, x, y (the pivot), tipX, tipY } at rest. A layer can move with a bone: its
+  // picture on frame 1 (the rest pose) is turned (crisply, RotSprite) and moved on every other frame as that frame's
+  // pose says — frames[f].pose[boneId] = { a (degrees, clockwise), dx, dy } — with its parents carrying it along.
+  let boneSel = -1;
+  const bones = (d = doc) => d.bones || [];
+  const bigCache = new WeakMap(); // a rest picture grown 8× once (RotSprite's first step), for every frame's turn
+
+  /** Where a bone puts things on frame f: a turn by `a` and a move, as { a, c, s, tx, ty } (p → R(a)p + t). */
+  function boneWorld(d, id, f, depth = 0) {
+    const b = bones(d).find((x) => x.id === id);
+    if (!b || depth > 64) return { a: 0, c: 1, s: 0, tx: 0, ty: 0 };
+    const pose = (d.frames[f] && d.frames[f].pose && d.frames[f].pose[id]) || { a: 0, dx: 0, dy: 0 };
+    const r = (pose.a * Math.PI) / 180, c = Math.cos(r), sn = Math.sin(r);
+    // Local: turned about its pivot, then moved.
+    const local = { a: pose.a, c, s: sn, tx: b.x - (c * b.x - sn * b.y) + (pose.dx || 0), ty: b.y - (sn * b.x + c * b.y) + (pose.dy || 0) };
+    if (!b.parent) return local;
+    const P = boneWorld(d, b.parent, f, depth + 1);
+    return { a: P.a + local.a, c: P.c * local.c - P.s * local.s, s: P.s * local.c + P.c * local.s, tx: P.c * local.tx - P.s * local.ty + P.tx, ty: P.s * local.tx + P.c * local.ty + P.ty };
+  }
+  const apply = (T, x, y) => [T.c * x - T.s * y + T.tx, T.s * x + T.c * y + T.ty];
+
+  /** A layer's rest picture posed as its bone is on frame f. */
+  function posedPicture(d, l, f, rest) {
+    const b = bones(d).find((x) => x.id === l.bone), T = boneWorld(d, l.bone, f), W = d.width, H = d.height;
+    const [px2, py2] = apply(T, b.x, b.y), mx = Math.round(px2 - b.x), my = Math.round(py2 - b.y);
+    const turn = ((T.a % 360) + 360) % 360;
+    let pic = rest;
+    if (Math.abs(turn) > 0.01 && Math.abs(turn - 360) > 0.01) {
+      let big = bigCache.get(rest);
+      if (!big) { let g = rest, bw = W, bh = H; for (let k = 0; k < 3; k++) { g = scaleXBR(g, bw, bh, 2); bw *= 2; bh *= 2; } big = g; bigCache.set(rest, big); }
+      pic = turnBig(big, W, H, T.a, b.x + 0.5, b.y + 0.5);
+    }
+    return mx || my ? shifted(pic, W, H, mx, my) : pic;
+  }
+
+  /** RotSprite's turn from a picture already grown 8×. */
+  function turnBig(big, w, h, degrees, cx, cy) {
+    const a = (-degrees * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a), bw = w * 8, bh = h * 8, o = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cy, ix = Math.floor((cx + dx * ca - dy * sa) * 8), iy = Math.floor((cy + dx * sa + dy * ca) * 8);
+      if (ix < 0 || iy < 0 || ix >= bw || iy >= bh) continue;
+      o.set(big.subarray((iy * bw + ix) * 4, (iy * bw + ix) * 4 + 4), (y * w + x) * 4);
+    }
+    return o;
+  }
+
+  /**
+   * After a change: layers that move with bones are posed again where something they hang on changed — their rest
+   * picture (frame 1: every frame), a frame's pose (that frame), the bones (every frame).
+   */
+  function normalizeBones(d, prev) {
+    const boned = d.layers.filter((l) => l.bone && !isGroup(l) && bones(d).some((b) => b.id === l.bone));
+    if (!boned.length) return;
+    const allFrames = !prev || prev.bones !== d.bones;
+    for (const l of boned) {
+      const rest = d.cels.get(key(l.id, 0)), prevRest = prev && prev.cels.get(key(l.id, 0)), prevL = prev && prev.layers.find((x) => x.id === l.id);
+      const restChanged = allFrames || !prevL || prevL.bone !== l.bone || (rest && rest.px) !== (prevRest && prevRest.px);
+      for (let f = 1; f < d.frames.length; f++) {
+        if (!restChanged && prev && prev.frames[f] && prev.frames[f].pose === d.frames[f].pose) continue;
+        if (!rest) { d.cels.delete(key(l.id, f)); continue; }
+        d.cels.set(key(l.id, f), { px: posedPicture(d, l, f, rest.px), opacity: rest.opacity });
+      }
+    }
+  }
+
+  /** A bone's pivot and tip as posed on frame f. */
+  function bonePosed(d, b, f) {
+    const P = b.parent ? boneWorld(d, b.parent, f) : { c: 1, s: 0, tx: 0, ty: 0 };
+    const T = boneWorld(d, b.id, f);
+    const pose = (d.frames[f] && d.frames[f].pose && d.frames[f].pose[b.id]) || { dx: 0, dy: 0 };
+    const pv = apply(P, b.x + (pose.dx || 0), b.y + (pose.dy || 0));
+    return { pivot: pv, tip: apply(T, b.tipX, b.tipY) };
+  }
+
+  function drawBones(ctx, o, z) {
+    if (tool !== 'bone' && !view.bones) return;
+    ctx.save();
+    bones().forEach((b, i) => {
+      const { pivot, tip } = bonePosed(doc, b, frame), X = (p2) => o.x + (p2[0] + 0.5) * z, Y = (p2) => o.y + (p2[1] + 0.5) * z;
+      ctx.lineWidth = i === boneSel ? 4 : 2.5; ctx.strokeStyle = i === boneSel ? '#ffd23c' : 'rgba(255,255,255,0.85)';
+      ctx.beginPath(); ctx.moveTo(X(pivot), Y(pivot)); ctx.lineTo(X(tip), Y(tip)); ctx.stroke();
+      ctx.fillStyle = i === boneSel ? '#ffd23c' : '#fff'; ctx.beginPath(); ctx.arc(X(pivot), Y(pivot), 5, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(X(tip), Y(tip), 3, 0, Math.PI * 2); ctx.fill();
+    });
+    if (drag && drag.kind === 'bone-new') { ctx.strokeStyle = '#ffd23c'; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(o.x + (drag.from[0] + 0.5) * z, o.y + (drag.from[1] + 0.5) * z); ctx.lineTo(o.x + (drag.to[0] + 0.5) * z, o.y + (drag.to[1] + 0.5) * z); ctx.stroke(); }
+    ctx.restore();
+  }
+
+  /** The bone under a point (its pivot, tip or along it), as posed on this frame; -1 for none. */
+  function boneAt(p) {
+    let best = -1, bd = 1.6;
+    bones().forEach((b, i) => {
+      const { pivot, tip } = bonePosed(doc, b, frame), vx = tip[0] - pivot[0], vy = tip[1] - pivot[1], L2 = vx * vx + vy * vy || 1;
+      const t = Math.max(0, Math.min(1, ((p.fx - 0.5 - pivot[0]) * vx + (p.fy - 0.5 - pivot[1]) * vy) / L2));
+      const dd = Math.hypot(p.fx - 0.5 - (pivot[0] + vx * t), p.fy - 0.5 - (pivot[1] + vy * t));
+      if (dd < bd) { bd = dd; best = i; }
+    });
+    return best;
+  }
+
+  /** The bone tool: on frame 1 drag a new bone (from its tip, a child of it); elsewhere drag a bone to turn it (Shift: move). */
+  function boneDown(p, e) {
+    const hit = boneAt(p);
+    if (frame === 0) {
+      if (hit >= 0 && !e.altKey) {
+        // A bone's tip starts a child; elsewhere on it, choose it.
+        const b = bones()[hit];
+        if (Math.hypot(p.fx - 0.5 - b.tipX, p.fy - 0.5 - b.tipY) > 1.5) { boneSel = hit; renderBonePanel(); draw(); return; }
+        drag = { kind: 'bone-new', from: [b.tipX, b.tipY], to: [p.x, p.y], parent: b.id };
+        return;
+      }
+      drag = { kind: 'bone-new', from: [p.x, p.y], to: [p.x, p.y], parent: boneSel >= 0 && e.shiftKey ? bones()[boneSel].id : null };
+      return;
+    }
+    if (hit < 0) { notice('Bones are made on frame 1 (the rest pose); on other frames drag one to pose it', 2200); return; }
+    boneSel = hit; renderBonePanel();
+    const b = bones()[hit], { pivot } = bonePosed(doc, b, frame), pose = (doc.frames[frame].pose && doc.frames[frame].pose[b.id]) || { a: 0, dx: 0, dy: 0 };
+    drag = { kind: 'bone-pose', bone: b.id, pivot, start: Math.atan2(p.fy - 0.5 - pivot[1], p.fx - 0.5 - pivot[0]), from: [p.fx, p.fy], pose: { ...pose }, move: e.shiftKey, now: { ...pose } };
+  }
+
+  function boneMove(p) {
+    if (drag.kind === 'bone-new') { drag.to = [p.x, p.y]; draw(); return; }
+    const d0 = drag;
+    if (d0.move) d0.now = { ...d0.pose, dx: Math.round(d0.pose.dx + p.fx - d0.from[0]), dy: Math.round(d0.pose.dy + p.fy - d0.from[1]) };
+    else d0.now = { ...d0.pose, a: Math.round(d0.pose.a + ((Math.atan2(p.fy - 0.5 - d0.pivot[1], p.fx - 0.5 - d0.pivot[0]) - d0.start) * 180) / Math.PI) };
+    // Shown as it goes: the bones at once (the pictures when let go).
+    const keep = doc.frames[frame].pose;
+    doc.frames[frame].pose = { ...(keep || {}), [d0.bone]: d0.now };
+    draw();
+    doc.frames[frame].pose = keep;
+  }
+
+  function boneUp(d0) {
+    if (d0.kind === 'bone-new') {
+      const [x0, y0] = d0.from, [x1, y1] = d0.to;
+      if (x0 === x1 && y0 === y1) { boneSel = -1; renderBonePanel(); draw(); return; }
+      change('New bone', (d) => { d.bones = [...bones(d), { id: 'B' + Math.random().toString(36).slice(2, 9), name: `Bone ${bones(d).length + 1}`, parent: d0.parent, x: x0, y: y0, tipX: x1, tipY: y1 }]; });
+      boneSel = bones().length - 1; renderBonePanel();
+      return;
+    }
+    if (d0.now.a !== d0.pose.a || d0.now.dx !== d0.pose.dx || d0.now.dy !== d0.pose.dy) setPose(d0.bone, d0.now); else draw();
+  }
+
+  function setPose(boneId, pose) {
+    change('Pose', (d) => { d.frames[frame] = { ...d.frames[frame], pose: { ...(d.frames[frame].pose || {}), [boneId]: { a: pose.a || 0, dx: pose.dx || 0, dy: pose.dy || 0 } } }; });
+  }
+
+  /** The chosen bone: its name, parent, the layers that move with it, and its pose on this frame. */
+  function renderBonePanel() {
+    let box = $('#sp-bonepanel');
+    if (!box) { box = el('div', { class: 'sp-slicepanel', id: 'sp-bonepanel' }); $('#sp-layerprops').before(box); }
+    box.hidden = tool !== 'bone';
+    if (box.hidden) return;
+    const b = bones()[boneSel];
+    if (!b) { box.replaceChildren(el('h4', { class: 'music-subhead', text: 'Bones' }), el('p', { class: 'pref-hint', text: 'On frame 1 (the rest pose) drag to make a bone — from a bone\'s tip for a child. Then let layers move with it, and pose it on the other frames: drag to turn, Shift+drag to move.' })); return; }
+    const name = el('input', { type: 'text', value: b.name, maxlength: '64', id: 'sp-bone-name', 'aria-label': 'Bone name' });
+    name.addEventListener('change', () => change('Rename a bone', (d) => { d.bones = bones(d).map((x) => (x.id === b.id ? { ...x, name: name.value.trim() || 'Bone' } : x)); }));
+    const parent = el('select', { id: 'sp-bone-parent', 'aria-label': 'Parent' }, el('option', { value: '', text: 'no parent' }), ...bones().filter((x) => x.id !== b.id).map((x) => el('option', { value: x.id, text: x.name })));
+    parent.value = b.parent || '';
+    parent.addEventListener('change', () => change('A bone\'s parent', (d) => { d.bones = bones(d).map((x) => (x.id === b.id ? { ...x, parent: parent.value || null } : x)); }));
+    const layersBox = el('div', { class: 'sp-bone-layers' }, ...doc.layers.map((l, li) => (isGroup(l) || l.reference || l.kind === 'tilemap' ? null : (() => {
+      const c = el('input', { type: 'checkbox', 'data-bonelayer': String(li), checked: l.bone === b.id || undefined });
+      c.addEventListener('change', () => change(c.checked ? 'Moves with a bone' : 'Moves on its own', (d) => { const x = { ...d.layers[li] }; if (c.checked) x.bone = b.id; else delete x.bone; d.layers[li] = x; }));
+      return el('label', { class: 'sb-inline' }, c, el('span', { text: l.name }));
+    })())).filter(Boolean));
+    const pose = (doc.frames[frame].pose && doc.frames[frame].pose[b.id]) || { a: 0, dx: 0, dy: 0 };
+    const num = (k, label) => { const i = el('input', { type: 'number', class: 'sb-num', value: String(pose[k] || 0), 'data-pose': k, 'aria-label': label, disabled: frame === 0 || undefined }); i.addEventListener('change', () => setPose(b.id, { ...pose, [k]: Number(i.value) || 0 })); return el('label', { class: 'sb-inline' }, el('span', { text: label }), i); };
+    const before = frame > 0 && doc.frames[frame - 1].pose && doc.frames[frame - 1].pose[b.id];
+    box.replaceChildren(...[
+      el('h4', { class: 'music-subhead', text: 'Bone' }), name,
+      el('label', { class: 'sb-inline' }, el('span', { text: 'Parent' }), parent),
+      el('small', { class: 'pref-hint', text: 'Layers that move with it (their picture on frame 1):' }), layersBox,
+      el('h4', { class: 'music-subhead', text: frame === 0 ? 'Frame 1: the rest pose' : `Pose on frame ${frame + 1}` }),
+      el('div', { class: 'sp-grid2' }, num('a', 'turn °'), num('dx', 'move x'), num('dy', 'move y')),
+      frame > 0 ? el('div', { class: 'sb-row' },
+        el('button', { class: 'utility-btn', title: 'Back to the rest pose on this frame', onclick: () => setPose(b.id, { a: 0, dx: 0, dy: 0 }) }, 'Rest'),
+        before ? el('button', { class: 'utility-btn', title: 'As on the frame before', onclick: () => setPose(b.id, before) }, 'As before') : null) : null,
+      el('button', { class: 'utility-btn', id: 'sp-bone-del', onclick: () => { change('Remove a bone', (d) => { d.bones = bones(d).filter((x) => x.id !== b.id).map((x) => (x.parent === b.id ? { ...x, parent: b.parent || null } : x)); d.layers = d.layers.map((l) => (l.bone === b.id ? (({ bone, ...rest }) => (void bone, rest))(l) : l)); }); boneSel = -1; renderBonePanel(); } }, '🗑 Remove the bone')].filter(Boolean));
   }
 
   // ---------------------------------------------------------------- shading helpers: hue-shifted ramps, auto shading, seeing colours

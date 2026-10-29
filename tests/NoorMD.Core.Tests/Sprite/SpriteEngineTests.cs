@@ -142,4 +142,19 @@ public class SpriteEngineTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Bones_and_poses_are_kept_as_the_page_sends_them()
+    {
+        var json = "{\"width\":4,\"height\":4,\"layers\":[{\"id\":\"a\",\"name\":\"Arm\",\"bone\":\"B1\"},{\"id\":\"b\",\"name\":\"Body\",\"bone\":\"nope\"}],"
+            + "\"frames\":[{\"duration\":100},{\"duration\":100,\"pose\":{\"B1\":{\"a\":90,\"dx\":1,\"dy\":0},\"gone\":{\"a\":5}}}],"
+            + "\"bones\":[{\"id\":\"B1\",\"name\":\"Arm\",\"x\":1,\"y\":1,\"tipX\":3,\"tipY\":1},{\"id\":\"B2\",\"name\":\"Hand\",\"parent\":\"B1\",\"x\":3,\"y\":1,\"tipX\":4,\"tipY\":1}],\"cels\":[]}";
+        var doc = SpriteFile.FromBytes(SpriteFile.ToBytes(SpriteDoc.FromJson(json)));
+        Assert.Equal(["B1", "B2"], doc.Bones.Select(b => b.Id));
+        Assert.Equal("B1", doc.Bones[1].Parent);
+        Assert.Equal("B1", doc.Layers[0].Bone);
+        Assert.Null(doc.Layers[1].Bone);                      // a bone that isn't there
+        Assert.Equal(90, doc.Frames[1].Pose!["B1"].A);
+        Assert.False(doc.Frames[1].Pose!.ContainsKey("gone"));
+    }
 }

@@ -29,6 +29,8 @@ public sealed class SpriteDoc
     public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>Tilesets the tilemap layers draw from.</summary>
     public List<SpriteTileset> Tilesets { get; set; } = [];
+    /// <summary>A skeleton: bones that layers move with (posed frame by frame; frame 1 is the rest pose).</summary>
+    public List<SpriteBone> Bones { get; set; } = [];
     /// <summary>"rgba", or "indexed": every pixel is one of the palette's colours (changing a colour changes them).</summary>
     public string ColorMode { get; set; } = "rgba";
     /// <summary>Colour cycling: palette entries From…To turn round, Fps steps a second (indexed sprites).</summary>
@@ -68,8 +70,17 @@ public sealed class SpriteDoc
             l.Opacity = Math.Clamp(l.Opacity, 0, 255);
             l.Blend = SpriteLayer.Blends.Contains(l.Blend) ? l.Blend : "normal";
         }
+        Bones = (Bones ?? []).Where(b => b != null && !string.IsNullOrEmpty(b.Id) && b.Id.Length <= 40 && b.Id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_')).GroupBy(b => b.Id).Select(g => g.First()).Take(64).ToList();
+        var boneIds = Bones.Select(b => b.Id).ToHashSet();
+        foreach (var b in Bones)
+        {
+            b.Name = string.IsNullOrWhiteSpace(b.Name) ? "Bone" : b.Name.Trim()[..Math.Min(b.Name.Trim().Length, 64)];
+            if (b.Parent != null && (!boneIds.Contains(b.Parent) || b.Parent == b.Id)) b.Parent = null;
+        }
+        foreach (var l in Layers) if (l.Bone != null && !boneIds.Contains(l.Bone)) l.Bone = null;
         foreach (var f in Frames)
         {
+            if (f.Pose != null) f.Pose = f.Pose.Where(kv => boneIds.Contains(kv.Key) && kv.Value != null).ToDictionary(kv => kv.Key, kv => kv.Value);
             f.Duration = Math.Clamp(f.Duration, 1, 65535);
             if (f.Sound != null && (string.IsNullOrWhiteSpace(f.Sound.Path) || f.Sound.Path.Length > 2000)) f.Sound = null;
             if (f.Sound != null) f.Sound.Name = string.IsNullOrWhiteSpace(f.Sound.Name) ? System.IO.Path.GetFileName(f.Sound.Path) : f.Sound.Name[..Math.Min(f.Sound.Name.Length, 120)];
@@ -128,6 +139,8 @@ public sealed class SpriteLayer
 {
     public static readonly string[] Blends = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "add", "difference"];
     public string Id { get; set; } = "";
+    /// <summary>The bone the layer moves with (its picture on frame 1 posed on every frame), or none.</summary>
+    public string? Bone { get; set; }
     /// <summary>The group the layer is in (a group layer's id), or none.</summary>
     public string? Parent { get; set; }
     /// <summary>A group shown folded in the timeline.</summary>
@@ -198,6 +211,8 @@ public sealed class SpriteFrame
     public int Duration { get; set; } = 100;
     /// <summary>A sound the frame plays when it comes (a file the user chose), for engine exports.</summary>
     public SpriteSound? Sound { get; set; }
+    /// <summary>How each bone is turned (degrees, clockwise) and moved on this frame, by bone id.</summary>
+    public Dictionary<string, SpriteBonePose>? Pose { get; set; }
 }
 
 public sealed class SpriteSound
@@ -363,4 +378,24 @@ public sealed class SpriteSliceKey
     public int Y { get; set; }
     public int Width { get; set; } = 1;
     public int Height { get; set; } = 1;
+}
+
+/// <summary>A bone: where it turns (its pivot) and where it ends, at rest; a parent carries it along.</summary>
+public sealed class SpriteBone
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "Bone";
+    public string? Parent { get; set; }
+    public double X { get; set; }
+    public double Y { get; set; }
+    public double TipX { get; set; }
+    public double TipY { get; set; }
+}
+
+public sealed class SpriteBonePose
+{
+    /// <summary>Turned by this many degrees (clockwise) about its pivot.</summary>
+    public double A { get; set; }
+    public double Dx { get; set; }
+    public double Dy { get; set; }
 }

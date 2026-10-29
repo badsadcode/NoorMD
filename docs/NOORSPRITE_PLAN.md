@@ -244,6 +244,15 @@ one's own, a floating reference picture, pen pressure.
   — to check that its colours still read apart.
 - **Lospec palettes** by name (palette ⋯): fetched from lospec.com only when asked.
 
+### Done in preview.106
+
+- **Bones** (K, 🦴): a skeleton for cutout animation. On frame 1 (the rest pose) drag to make a bone (from a bone's
+  tip: a child of it); choose which layers move with each bone. On every other frame, drag a bone to turn it about
+  its pivot (Shift+drag moves it) or type its turn and move; children are carried by their parents. Each layer's
+  picture on frame 1 is turned crisply (RotSprite) and moved for every frame — so draw an arm once, and change it on
+  frame 1 to change it everywhere. "Rest" and "As before" per frame; new frames copy the pose. Kept in .noorsprite
+  files; exported as the frames they make.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

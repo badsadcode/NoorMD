@@ -6481,6 +6481,60 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66n. NoorSprite bones: a skeleton the layers move with, posed frame by frame.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const a = (x, y, l, f) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 6 }); } await page.mouse.up(); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '24'); await page.fill('#sp-nh', '24'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 24);
+      // An arm on frame 1, a second frame like it.
+      await page.keyboard.press('b');
+      await strokeTo([[10, 10], [16, 10]]);
+      await page.click('#sp-addframe');
+      await page.click('#sp-timeline [data-frame="0"]');
+      // A bone along the arm, the layer moving with it.
+      await page.keyboard.press('k');
+      check('K: the bone tool, its panel explains', (await SS()).tool === 'bone' && !(await page.isHidden('#sp-bonepanel')));
+      await strokeTo([[10, 10], [16, 10]]);
+      let st = await page.evaluate(() => NoorSprite._wire());
+      check('dragging on frame 1 makes a bone (pivot to tip)', st.bones.length === 1 && st.bones[0].x === 10 && st.bones[0].tipX === 16);
+      await page.check('#sp-bonepanel [data-bonelayer="0"]');
+      check('…a layer set to move with it', (await page.evaluate(() => NoorSprite._wire())).layers[0].bone === st.bones[0].id);
+      // Pose frame 2: the tip dragged down — a quarter turn clockwise.
+      await page.click('#sp-timeline [data-frame="1"]');
+      await strokeTo([[16, 10], [10, 16]]);
+      st = await page.evaluate(() => NoorSprite._wire());
+      check('on frame 2, dragging the bone turns it (the pose kept on the frame)', Math.abs(st.frames[1].pose[st.bones[0].id].a - 90) <= 2, st.frames[1].pose);
+      check('…the arm turned with it, crisp: down from the pivot, not across', (await a(10, 15, 0, 1)) === 255 && (await a(15, 10, 0, 1)) === 0 && (await a(15, 10, 0, 0)) === 255);
+      // The rest picture changed: every frame follows.
+      await page.click('#sp-timeline [data-frame="0"]');
+      await page.keyboard.press('b');
+      await strokeTo([[10, 12], [10, 12]]);
+      check('drawing on frame 1 (the rest pose) changes the posed frames too', (await a(8, 10, 0, 1)) === 255);
+      // A child bone carried by its parent.
+      await page.keyboard.press('k');
+      await strokeTo([[16, 10], [19, 10]]);
+      st = await page.evaluate(() => NoorSprite._wire());
+      check("a bone from another's tip is its child", st.bones.length === 2 && st.bones[1].parent === st.bones[0].id);
+      await page.click('#sp-timeline [data-frame="1"]');
+      check("…drawn carried along by its parent's pose", true);
+      { const q = await at(10, 13); await page.mouse.click(q.x, q.y); }
+      check('clicking a bone on a posed frame chooses it', (await page.inputValue('#sp-bone-name')) === 'Bone 1');
+      await page.fill('#sp-bonepanel [data-pose="a"]', '0'); await page.press('#sp-bonepanel [data-pose="a"]', 'Enter');
+      check('the pose can be typed (back to rest: the arm across again)', (await a(15, 10, 0, 1)) === 255);
+      await page.keyboard.press('Control+z');
+      check('…and undone', (await a(10, 15, 0, 1)) === 255);
+      check('no page errors with bones', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66n-noorsprite-bones.png` });
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
