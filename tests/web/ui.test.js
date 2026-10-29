@@ -4944,6 +4944,38 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 59e. NoorSequencer SoundFonts (as LMMS's SF2 player): a font's instruments as a track.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      check('＋ Add a track offers a SoundFont', (await page.$$eval('#seq-addtrack option', (o) => o.map((x) => x.value))).includes('sf2'));
+      await page.selectOption('#seq-addtrack', 'sf2');
+      await page.waitForSelector('#seq-fontpick');
+      check('a SoundFont track opens on its instrument, asking for a font', (await SQ()).tab === 'instrument' && /no SoundFont chosen yet/.test(await page.textContent('#seq-fontname')) && await page.isDisabled('#seq-fontpreset'));
+      await page.click('#seq-fontpick');
+      await waitFn(page, () => NoorSequencer._state().song.tracks.at(-1).instrument.path);
+      await waitFn(page, () => !document.querySelector('#seq-fontpreset').disabled);
+      let t = (await SQ()).song.tracks.at(-1);
+      check('the font is picked and the track named after its first instrument', t.instrument.path === 'C:\\Fonts\\GeneralUser.sf2' && t.name === 'Grand Piano' && t.instrument.fontPreset === 0);
+      check('its instruments are listed by bank (drum kits apart)', (await page.$$eval('#seq-fontpreset optgroup', (g) => g.map((x) => x.label))).join('|') === 'Bank 0|Drum kits (bank 128)'
+        && /49\. Strings/.test(await page.textContent('#seq-fontpreset')));
+      const heard = (await M()).notes.length;
+      await page.selectOption('#seq-fontpreset', '1');
+      t = (await SQ()).song.tracks.at(-1);
+      check('choosing another instrument: its program (for MIDI) and the track\'s name follow, and it is heard', t.instrument.fontPreset === 1 && t.instrument.fontProgram === 48 && t.name === 'Strings');
+      await waitFn(page, (n) => window.__mock.state.seq.notes.length > n, heard);
+      // Away and back: the font's instruments are listed again.
+      await page.click('#seqbench [role=tab][data-tab="mixer"]');
+      await page.click('#seqbench [role=tab][data-tab="instrument"]');
+      await waitFn(page, () => !document.querySelector('#seq-fontpreset').disabled);
+      check('…and stays chosen', (await page.inputValue('#seq-fontpreset')) === '1' && /GeneralUser GS · 3 instruments/.test(await page.textContent('#seq-fontname')));
+      check('no page errors with SoundFonts', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 60. NoorSequencer help (stage 2): chords of the key, progressions, rhythms, variations, presets, arpeggiator, LFO, FM, humanize, automation.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

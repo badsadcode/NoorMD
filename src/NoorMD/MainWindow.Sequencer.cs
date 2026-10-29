@@ -29,6 +29,16 @@ public partial class MainWindow
         foreach (var path in r.Files()) { try { _soundSampleFiles.Add(Path.GetFullPath(path)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { } }
     }
 
+    private object FontForPage(string path)
+    {
+        var font = LoadSample(path)?.Font ?? throw new BridgeError("That SoundFont can't be read (or it is no longer where it was).");
+        return new
+        {
+            path = Path.GetFullPath(path), name = font.Name.Length > 0 && font.Name != "SoundFont" ? font.Name : Path.GetFileNameWithoutExtension(path),
+            presets = font.Presets.Select(p => new { index = p.Index, name = p.Name, bank = p.Bank, program = p.Program }),
+        };
+    }
+
     private static SongRecipe SongFrom(JsonElement p)
     {
         if (!p.TryGetProperty("song", out var r) || r.ValueKind != JsonValueKind.Object) throw new BridgeError("Missing the song.");
@@ -215,6 +225,23 @@ public partial class MainWindow
                     _soundSampleFiles.Add(full);
                     var audio = LoadSample(full) ?? throw new BridgeError("That WAV file can't be read (PCM or 32-bit float WAV files work).");
                     return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
+                }
+                case "seq.font.pick":
+                {
+                    // A SoundFont (.sf2) as an instrument: its presets to choose from.
+                    var dlg = new OpenFileDialog { Title = "Choose a SoundFont (.sf2)", Filter = "SoundFont 2 (*.sf2)|*.sf2", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var full = Path.GetFullPath(dlg.FileName);
+                    if (new FileInfo(full).Length > SoundFont.MaxBytes) throw new BridgeError("That SoundFont is too big (over 512 MB).");
+                    _soundSampleFiles.Add(full);
+                    return FontForPage(full);
+                }
+                case "seq.font.presets":
+                {
+                    // The presets of a font the song already uses (allowed when the song was opened or the font picked).
+                    var path = req.GetString("path", 1000) ?? "";
+                    return FontForPage(path);
                 }
                 case "seq.sample.fromSound":
                 {

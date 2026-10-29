@@ -102,3 +102,8 @@ and no jump back), and rendered previews are served in byte ranges so seeking wo
   its loudest moment in the last play), up to two **send buses** with their own effects (＋ Reverb bus, ＋ Echo bus:
   all wet, a quarter of each melodic track sent at first), and the master with its meter. Buses are in the stems, so
   the stems still add up to the mix.
+- **SoundFont** tracks (preview.86, as LMMS's SF2 player): pick a .sf2 file and one of its instruments (listed by
+  bank, drum kits apart). Zones by key and velocity, root key and tuning, scale tuning (drum kits), loops (held, or
+  played out after release), attenuation, pan (stereo pairs) and the volume envelope are followed; Slide and Accent
+  work too. The font stays where it is (only a font you picked, or one a song you opened names, is read; up to
+  512 MB, kept in memory as 16-bit), and MIDI export uses the instrument's program number.

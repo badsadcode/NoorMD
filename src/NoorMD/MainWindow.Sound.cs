@@ -50,14 +50,16 @@ public partial class MainWindow
             lock (_soundSampleCache)
             {
                 if (_soundSampleCache.TryGetValue(full, out var hit) && hit.Stamp == stamp) return hit.Audio;
-                if (new FileInfo(full).Length > 100 * 1024 * 1024) return null;
-                var audio = SampleAudio.ReadWav(File.ReadAllBytes(full));
+                // A SoundFont: read as a font (bigger than a sample may be); its sound lives in the font.
+                var isFont = full.EndsWith(".sf2", StringComparison.OrdinalIgnoreCase);
+                if (new FileInfo(full).Length > (isFont ? SoundFont.MaxBytes : 100 * 1024 * 1024)) return null;
+                var audio = isFont ? new SampleAudio { Left = [], Right = [], Rate = 1, Font = SoundFont.Read(File.ReadAllBytes(full)) } : SampleAudio.ReadWav(File.ReadAllBytes(full));
                 if (_soundSampleCache.Count >= 8) _soundSampleCache.Remove(_soundSampleCache.Keys.First());
                 _soundSampleCache[full] = (stamp, audio);
                 return audio;
             }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { return null; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException or InvalidDataException or OutOfMemoryException) { return null; }
     }
 
     /// <summary>Serves /_sound/{key}.wav: a preview rendered moments ago.</summary>

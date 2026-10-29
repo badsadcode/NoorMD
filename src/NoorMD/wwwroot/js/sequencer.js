@@ -21,8 +21,8 @@ window.NoorSequencer = (() => {
     'minor-pentatonic': 'Minor pentatonic (rock, folk)', blues: 'Blues', chromatic: 'Chromatic (every note)',
   };
   const KIT = ['Kick', 'Snare', 'Clap', 'Closed hat', 'Open hat', 'Low tom', 'High tom', 'Rim'];
-  const KIND_ICON = { synth: '🎹', drums: '🥁', sample: '🎙' };
-  const KIND_LABEL = { synth: 'Synth', drums: 'Drum kit', sample: 'Sample (your WAV)' };
+  const KIND_ICON = { synth: '🎹', drums: '🥁', sample: '🎙', sf2: '🎻' };
+  const KIND_LABEL = { synth: 'Synth', drums: 'Drum kit', sample: 'Sample (your WAV)', sf2: 'SoundFont (.sf2)' };
   const WAVES = [['sine', 'Sine (soft, pure)'], ['triangle', 'Triangle (flute, soft lead)'], ['square', 'Square (retro, hollow)'], ['pulse', 'Pulse (nasal, chiptune)'], ['saw', 'Saw (bright, strings, brass)'], ['noise', 'Noise (wind, hiss)'], ['kick', 'Kick (a drum synth: a falling sine)'], ['drawn', 'Drawn (draw your own wave)']];
   // A drum synth (ideas from LMMS's Kicker): the pitch falls from Start to End (for C3: other notes tune it).
   const KICK = [['kickStart', 'Start pitch', 30, 2000, 1, 'hz'], ['kickEnd', 'End pitch', 20, 1000, 1, 'hz'], ['kickSweep', 'Pitch fall time', 0.005, 1, 0.001, 's'],
@@ -36,7 +36,9 @@ window.NoorSequencer = (() => {
     synth: { name: 'Synth', kind: 'synth', gain: -10, instrument: { wave: 'triangle', detune: 6, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.2, cutoff: 8000, resonance: 0.7 } },
     drums: { name: 'Drums', kind: 'drums', gain: -8, instrument: { drumTune: 0, drumDecay: 1, drumTone: 0.5 } },
     sample: { name: 'Sample', kind: 'sample', gain: -6, instrument: { rootNote: 60, attack: 0.002, decay: 0.3, sustain: 1, release: 0.15 } },
+    sf2: { name: 'SoundFont', kind: 'sf2', gain: -6, instrument: { fontPreset: 0, fontProgram: 0 } },
   };
+  const fontInfo = new Map(); // a SoundFont's path → { name, presets } (asked of the app once)
   const MAX_TRACKS = 12, MAX_PATTERNS = 32, MAX_BARS = 128;
 
   let hooks = { showError: (e) => console.error(e), onPlay: () => {} };
@@ -742,7 +744,7 @@ window.NoorSequencer = (() => {
     const same = song.tracks.filter((t) => t.kind === kind).length;
     song.tracks.push({ id: '', ...base, name: same ? `${base.name} ${same + 1}` : base.name, pan: 0, mute: false, solo: false, effects: [], patterns: [{ notes: [] }], sequence: Array.from({ length: song.bars }, (_, b) => (b === sel.bar ? 1 : 0)) });
     sel.track = song.tracks.length - 1;
-    tab = kind === 'sample' ? 'instrument' : 'notes';
+    tab = kind === 'sample' || kind === 'sf2' ? 'instrument' : 'notes';
     changed('all');
   }
 
@@ -1217,6 +1219,8 @@ window.NoorSequencer = (() => {
           ...(ins.wave === 'sine' ? [slider(ins, ['fmDepth', 'FM depth (bells, electric piano; 0 = off)', 0, 10, 0.05, 'num']), slider(ins, ['fmRatio', 'FM ratio (whole numbers sound musical)', 0.25, 16, 0.25, 'num'])] : [])));
     } else if (t.kind === 'drums') {
       out.push(el('h4', { class: 'music-subhead', text: 'Kit' }), el('div', { class: 'sb-fields' }, ...DRUMS.map((f) => slider(ins, f))));
+    } else if (t.kind === 'sf2') {
+      out.push(...fontSection(t, i));
     } else {
       const root = el('input', { type: 'number', id: 'seq-rootnote', min: '0', max: '127', step: '1', value: String(ins.rootNote ?? 60), class: 'seq-num', 'aria-label': 'The pitch the sample was recorded at (MIDI note)' });
       const rootName = el('small', { text: noteName(ins.rootNote ?? 60) });
@@ -1309,6 +1313,53 @@ window.NoorSequencer = (() => {
     requestAnimationFrame(draw);
     return el('div', { class: 'seq-lanewrap' }, c,
       el('button', { class: 'icon-btn', title: `No ${label.toLowerCase()} changes over the song`, 'aria-label': `Clear the ${label.toLowerCase()} lane`, disabled: !points.length || undefined, onclick: () => { points.length = 0; changed('pane'); } }, '✕'));
+  }
+
+  /** A SoundFont track: the font (picked once; it stays where it is) and which of its instruments plays. */
+  function fontSection(t, ti) {
+    const ins = t.instrument;
+    const presets = el('select', { id: 'seq-fontpreset', 'aria-label': 'Instrument from the SoundFont', disabled: !ins.path || undefined });
+    const fill = (info) => {
+      // Grouped by bank: the usual instruments, then drum kits (bank 128) and the rest.
+      const banks = new Map();
+      for (const p of info.presets) { if (!banks.has(p.bank)) banks.set(p.bank, []); banks.get(p.bank).push(p); }
+      presets.replaceChildren(...[...banks].sort((a, b) => a[0] - b[0]).map(([bank, list]) => el('optgroup', { label: bank === 128 ? 'Drum kits (bank 128)' : `Bank ${bank}` },
+        ...list.sort((a, b) => a.program - b.program).map((p) => el('option', { value: String(p.index), text: `${p.program + 1}. ${p.name}` })))));
+      presets.value = String(ins.fontPreset || 0);
+      presets.disabled = false;
+      const n = $('#seq-fontname'); if (n) n.textContent = `🎻 ${info.name} · ${info.presets.length} instruments`;
+    };
+    presets.addEventListener('change', () => {
+      const info = fontInfo.get(ins.path);
+      const p = info && info.presets.find((x) => String(x.index) === presets.value);
+      if (!p) return;
+      // A track still named after the font's last instrument (or not named yet) takes the new one's name.
+      const was = info.presets.find((x) => x.index === ins.fontPreset);
+      const autoNamed = /^SoundFont( \d+)?$/.test(t.name) || (was && t.name === was.name.slice(0, 40));
+      ins.fontPreset = p.index; ins.fontProgram = p.bank === 128 ? 0 : p.program;
+      if (autoNamed) { t.name = p.name.slice(0, 40); renderGrid(); const nm = $('#seq-trackname'); if (nm) nm.value = t.name; }
+      changed(); hear(ti, 60 + song.key);
+    });
+    if (ins.path && fontInfo.has(ins.path)) requestAnimationFrame(() => fill(fontInfo.get(ins.path)));
+    else if (ins.path) req('seq.font.presets', { path: ins.path }).then((info) => { fontInfo.set(ins.path, info); if (presets.isConnected) fill(info); })
+      .catch((err) => { const n = $('#seq-fontname'); if (n) n.textContent = `⚠ ${err && err.message ? err.message : err}`; });
+    const pick = async () => {
+      try {
+        const f = await req('seq.font.pick');
+        if (!f || f.cancelled) return;
+        fontInfo.set(f.path, f);
+        ins.path = f.path; ins.sampleName = f.name; ins.fontPreset = f.presets.length ? f.presets[0].index : 0; ins.fontProgram = f.presets.length ? f.presets[0].program : 0;
+        if (/^SoundFont( \d+)?$/.test(t.name) && f.presets.length) t.name = f.presets[0].name.slice(0, 40);
+        changed('all'); hear(ti, 60 + song.key);
+      } catch (err) { hooks.showError(err); }
+    };
+    return [el('h4', { class: 'music-subhead', text: 'SoundFont' }),
+      el('div', { class: 'sb-row' },
+        el('span', { class: 'sb-file', id: 'seq-fontname', title: ins.path || '', text: ins.path ? `🎻 ${ins.sampleName || 'SoundFont'}` : '🎻 no SoundFont chosen yet' }),
+        el('button', { class: 'utility-btn', id: 'seq-fontpick', onclick: pick }, ins.path ? 'Choose another…' : 'Choose a SoundFont (.sf2)…'),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Instrument' }), presets)),
+      el('p', { class: 'pref-hint', text: 'A SoundFont is a bank of recorded instruments (free ones are easy to find: General MIDI sets with pianos, strings, drums…). The font stays where it is; the song remembers where.' }),
+      el('div', { class: 'sb-fields' }, slider(ins, ['octave', 'Octave', -3, 3, 1, 'num']))];
   }
 
   async function pickSample() {

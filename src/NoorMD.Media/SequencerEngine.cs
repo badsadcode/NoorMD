@@ -86,6 +86,10 @@ public sealed class SongInstrument
     public string? SampleName { get; set; }
     public int RootNote { get; set; } = 60;
     public bool Loop { get; set; }
+    // sf2: a SoundFont you picked (Path, SampleName) and which of its presets plays (its index in the font), with its
+    // General MIDI program number for MIDI export
+    public int FontPreset { get; set; }
+    public int FontProgram { get; set; }
 
     // stage 2: arpeggiator (synth and sample): notes held together are played one after another
     public static readonly string[] ArpModes = ["off", "up", "down", "updown", "random", "chord"];
@@ -135,7 +139,7 @@ public sealed class SongPoint
 
 public sealed class SongTrack
 {
-    public static readonly string[] Kinds = ["synth", "drums", "sample"];
+    public static readonly string[] Kinds = ["synth", "drums", "sample", "sf2"];
     public const int MaxPatterns = 32;
 
     public string Id { get; set; } = "";
@@ -264,6 +268,7 @@ public sealed class SongRecipe
             i.Vibrato = C(i.Vibrato, 0, 100); i.VibratoRate = C(i.VibratoRate, 0.1, 15);
             i.DrumTune = C(i.DrumTune, -24, 24); i.DrumDecay = C(i.DrumDecay, 0.2, 4); i.DrumTone = C(i.DrumTone, 0, 1);
             i.RootNote = Math.Clamp(i.RootNote, 0, 127);
+            i.FontPreset = Math.Clamp(i.FontPreset, 0, 65535); i.FontProgram = Math.Clamp(i.FontProgram, 0, 127);
             if (i.Path != null && (i.Path.Length > 1000 || i.Path.Any(char.IsControl))) i.Path = null;
             if (i.SampleName != null && i.SampleName.Length > 120) i.SampleName = i.SampleName[..120];
             i.Arp = SongInstrument.ArpModes.Contains(i.Arp) ? i.Arp : "off";
@@ -314,14 +319,14 @@ public sealed class SongRecipe
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return path; /* reported missing when rendered */ }
         }
-        foreach (var t in Tracks) if (t.Kind == "sample") t.Instrument.Path = Find(t.Instrument.Path);
+        foreach (var t in Tracks) if (t.Kind is "sample" or "sf2") t.Instrument.Path = Find(t.Instrument.Path);
         foreach (var fx in Tracks.SelectMany(t => t.Effects).Concat(MasterEffects)) if (fx.Type == "convolution") fx.IrPath = Find(fx.IrPath);
         return this;
     }
 
     /// <summary>The samples the song's tracks read (for allowing and finding them beside a recipe).</summary>
     public IEnumerable<string> Files() =>
-        Tracks.Where(t => t.Kind == "sample" && !string.IsNullOrEmpty(t.Instrument.Path)).Select(t => t.Instrument.Path!)
+        Tracks.Where(t => t.Kind is "sample" or "sf2" && !string.IsNullOrEmpty(t.Instrument.Path)).Select(t => t.Instrument.Path!)
             .Concat(Tracks.SelectMany(t => t.Effects).Concat(MasterEffects).Where(fx => fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath)).Select(fx => fx.IrPath!));
 }
 
@@ -491,10 +496,11 @@ public static class SequencerEngine
             var outOfLayer = layer != null && track.InLayers.Count > 0 && !track.InLayers.Contains(layer);
             if (track.Mute || (anySolo && !track.Solo) || outOfLayer) { if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
             SampleAudio? sample = null;
-            if (track.Kind == "sample")
+            if (track.Kind is "sample" or "sf2")
             {
                 sample = string.IsNullOrEmpty(track.Instrument.Path) ? null : samples?.Invoke(track.Instrument.Path);
-                if (sample == null) { warnings.Add($"“{track.Name}”: its sample is missing or can't be read"); if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
+                if (track.Kind == "sf2" && sample?.Font == null) sample = null;
+                if (sample == null) { warnings.Add(track.Kind == "sf2" ? $"“{track.Name}”: its SoundFont is missing or can't be read" : $"“{track.Name}”: its sample is missing or can't be read"); if (stems) trackRenders.Add((track.Name, new double[total], new double[total])); continue; }
             }
             double[] L = new double[total], R = new double[total];
             var trackIndex = song.Tracks.IndexOf(track);
@@ -518,6 +524,13 @@ public static class SequencerEngine
                     {
                         case "drums": Drum(new Out(L, R, nl, nr), at, note, track.Instrument, sr, new SoundRng(seed)); break;
                         case "sample": SampleVoice(new Out(L, R, nl, nr), at, note, seconds, track.Instrument, sample!, sr, bend); break;
+                        case "sf2":
+                        {
+                            var (la, ra, aa) = (L, R, at);
+                            sample!.Font!.Play((n, l, rr) => { var x = aa + n; if (x >= 0 && x < la.Length) { la[x] += l * nl; ra[x] += rr * nr; } },
+                                track.Instrument.FontPreset, Math.Clamp(pitch + 12 * track.Instrument.Octave, 0, 127), Math.Min(1, velocity * (accent ? 1.25 : 1)), seconds, sr, bend);
+                            break;
+                        }
                         default: Synth(new Out(L, R, nl, nr), at, note, seconds, track.Instrument, sr, new SoundRng(seed), songSeconds, At(track.FilterAutomation, step / song.StepsPerBar, 0), bend, accent); break;
                     }
                 }
@@ -1031,7 +1044,7 @@ public static class SequencerEngine
     }
 
     /// <summary>A General MIDI instrument close to the track's sound.</summary>
-    private static int GmProgram(SongTrack t) => t.Kind == "sample" ? 0 : t.Instrument.Wave switch
+    private static int GmProgram(SongTrack t) => t.Kind == "sample" ? 0 : t.Kind == "sf2" ? t.Instrument.FontProgram : t.Instrument.Wave switch
     {
         "square" or "pulse" => 80, // square lead
         "saw" => t.Instrument.Octave < 0 ? 38 : 81, // synth bass / saw lead

@@ -1331,6 +1331,8 @@ public sealed class SampleAudio
     public required float[] Right { get; init; }
     public required int Rate { get; init; }
     public double Seconds => (double)Left.Length / Rate;
+    /// <summary>A SoundFont read from the file instead of a sample (its sound is in the font; Left and Right are empty).</summary>
+    public SoundFont? Font { get; init; }
 
     /// <summary>The waveform for a picture of it: for each of <paramref name="columns"/> slices, its lowest and highest value (both channels).</summary>
     public float[] Peaks(int columns)

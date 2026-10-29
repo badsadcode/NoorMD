@@ -697,6 +697,10 @@ function mockHostScript(initial) {
       case 'seq.sample.library': return { tracks: [{ id: 7, title: 'Kalimba loop', artist: 'Me', seconds: 4.2 }].filter((x) => !p.search || x.title.toLowerCase().includes(p.search.toLowerCase())) };
       case 'seq.sample.fromLibrary': SEQ.fromLibrary = p.id; return { path: 'D:\\Music\\Kalimba loop.wav', name: 'Kalimba loop.wav', seconds: 4.2 };
       case 'seq.note': SEQ.notes.push({ track: p.track, pitch: p.pitch, pitches: p.pitches, velocity: p.velocity }); return { url: '/_media/4' };
+      case 'seq.font.pick': case 'seq.font.presets': {
+        SEQ.fonts = (SEQ.fonts || []).concat([{ type, path: p && p.path }]);
+        return { path: 'C:\\Fonts\\GeneralUser.sf2', name: 'GeneralUser GS', presets: [{ index: 0, name: 'Grand Piano', bank: 0, program: 0 }, { index: 1, name: 'Strings', bank: 0, program: 48 }, { index: 2, name: 'Standard kit', bank: 128, program: 0 }] };
+      }
       case 'seq.sample.pick': SEQ.picks++; return { path: 'C:\\Samples\\kalimba C4.wav', name: 'kalimba C4.wav', seconds: 1.2 };
       case 'seq.export': {
         SEQ.exports.push(JSON.parse(JSON.stringify(p)));
