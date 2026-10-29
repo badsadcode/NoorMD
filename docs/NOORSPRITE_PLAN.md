@@ -222,7 +222,12 @@ one's own, a floating reference picture, pen pressure.
 - **A floating reference picture:** a picture in a window of its own over NoorSprite — dragged by its title,
   resized from its corner, made see-through — to look at while drawing.
 - **Pen pressure** (pencil and eraser): with a pen, pressing lightly draws thinner, up to the brush size.
-- Still to come: sprites shown inside Vault notes.
+
+### Done in preview.104
+
+- **Sprites in notes:** a note can show a sprite beside it like a picture — `![hero](hero.noorsprite)` (or an
+  .aseprite file) shows its first frame, drawn by the app (small sprites grown by whole steps, crisp). Only from the
+  note's folder, or its Vault's folders above it, as with pictures.
 
 ## Non-goals
 

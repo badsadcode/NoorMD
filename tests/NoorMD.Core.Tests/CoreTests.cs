@@ -275,6 +275,10 @@ public class AssetResolverTests
         Assert.Equal(Path.GetFullPath(web.File("js/app.js")), AssetResolver.Resolve(new Uri("https://noormd.local/_noormd/js/app.js"), web.Path, doc.Path));
         Assert.Equal(Path.GetFullPath(doc.File("img/a b.png")), AssetResolver.Resolve(new Uri("https://noormd.local/img/a%20b.png"), web.Path, doc.Path));
         Assert.Null(AssetResolver.Resolve(new Uri("https://noormd.local/secret.txt"), web.Path, doc.Path));
+        // A sprite beside the note is shown as a picture (the app draws it); it is still only the note's folder.
+        File.WriteAllText(doc.File("hero.noorsprite"), "zip");
+        Assert.Equal(Path.GetFullPath(doc.File("hero.noorsprite")), AssetResolver.Resolve(new Uri("https://noormd.local/hero.noorsprite"), web.Path, doc.Path));
+        Assert.True(AssetResolver.IsSprite("hero.noorsprite"));
         Assert.Null(AssetResolver.Resolve(new Uri("https://noormd.local/_noormd/%2e%2e/%2e%2e/etc/passwd"), web.Path, doc.Path));
         Assert.Null(AssetResolver.Resolve(new Uri("https://noormd.local/img/a b.png"), web.Path, null));
         Assert.Null(AssetResolver.Resolve(new Uri("https://evil.example/_noormd/js/app.js"), web.Path, doc.Path));

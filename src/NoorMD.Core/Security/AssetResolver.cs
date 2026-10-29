@@ -14,6 +14,10 @@ public static class AssetResolver
     public static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif" };
 
+    /// <summary>Sprites a note can show as a picture (their first frame, made a PNG by the app).</summary>
+    public static readonly HashSet<string> SpriteExtensions = new(StringComparer.OrdinalIgnoreCase) { ".noorsprite", ".aseprite", ".ase" };
+    public static bool IsSprite(string path) => SpriteExtensions.Contains(Path.GetExtension(path));
+
     private static readonly Dictionary<string, string> ContentTypes = new(StringComparer.OrdinalIgnoreCase)
     {
         [".html"] = "text/html; charset=utf-8", [".js"] = "text/javascript; charset=utf-8", [".css"] = "text/css; charset=utf-8",
@@ -47,7 +51,7 @@ public static class AssetResolver
         if (path == "/" || path == "/index.html") return SafeCombine(webRoot, "index.html");
         if (path.StartsWith(AppPrefix, StringComparison.Ordinal))
             return SafeCombine(webRoot, path[AppPrefix.Length..]);
-        if (documentFolder == null || !ImageExtensions.Contains(Path.GetExtension(path))) return null;
+        if (documentFolder == null || !(ImageExtensions.Contains(Path.GetExtension(path)) || SpriteExtensions.Contains(Path.GetExtension(path)))) return null;
         var rel = path.TrimStart('/');
         var found = SafeCombine(documentFolder, rel);
         if (found != null || boundary == null) return found;

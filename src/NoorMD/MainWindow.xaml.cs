@@ -170,6 +170,15 @@ public partial class MainWindow : Window
                 e.Response = Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
                 return;
             }
+            if (AssetResolver.IsSprite(file))
+            {
+                // A sprite in a note: its first frame, drawn by the app as a PNG (small ones grown by whole steps).
+                var png = NoorMD.Core.Sprite.SpriteRender.Thumbnail(file, 256);
+                e.Response = png == null
+                    ? Core.Environment.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain")
+                    : Core.Environment.CreateWebResourceResponse(new MemoryStream(png), 200, "OK", "Content-Type: image/png\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff");
+                return;
+            }
             var headers = $"Content-Type: {AssetResolver.ContentType(file)}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
             if (AssetResolver.IsAppPage(uri) || AssetResolver.IsSketchPage(uri))
                 headers += "\r\nContent-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https: http:; font-src 'self'; connect-src 'self'; media-src 'self' blob: http://127.0.0.1:*; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
