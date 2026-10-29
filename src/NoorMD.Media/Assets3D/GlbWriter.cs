@@ -53,6 +53,7 @@ public static class GlbWriter
         }
 
         var nearestUsed = false;
+        var transmission = false;
         int Texture(byte[] png, bool nearest = false)
         {
             var view = View(png, null);
@@ -86,6 +87,11 @@ public static class GlbWriter
             if (m.Alpha == "mask") { mat["alphaMode"] = "MASK"; mat["alphaCutoff"] = m.AlphaCutoff; }
             else if (m.Alpha == "blend") mat["alphaMode"] = "BLEND";
             if (m.DoubleSided) mat["doubleSided"] = true;
+            if (m.Transmission > 0)
+            {
+                mat["extensions"] = new Dictionary<string, object> { ["KHR_materials_diffuse_transmission"] = new Dictionary<string, object> { ["diffuseTransmissionFactor"] = m.Transmission } };
+                transmission = true;
+            }
             if (m.Emissive != Vector3.Zero) mat["emissiveFactor"] = new[] { Math.Clamp(m.Emissive.X, 0, 1), Math.Clamp(m.Emissive.Y, 0, 1), Math.Clamp(m.Emissive.Z, 0, 1) };
             return (object)mat;
         }).ToList();
@@ -144,6 +150,8 @@ public static class GlbWriter
             ["accessors"] = accessors,
         };
         if (meshes.Count > 0) gltf["meshes"] = meshes;
+        // Optional: engines that don't know it ignore it.
+        if (transmission) gltf["extensionsUsed"] = new[] { "KHR_materials_diffuse_transmission" };
         if (materials.Count > 0) gltf["materials"] = materials;
         if (images.Count > 0)
         {

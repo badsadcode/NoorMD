@@ -9,7 +9,7 @@ namespace NoorMD.Media.Assets3D;
 public static class GodotAddon
 {
     public const string Folder = "noor_trees";
-    public const int Version = 2;
+    public const int Version = 3;
     /// <summary>The first line of every file, so a later export can tell our files (and how old they are) from yours.</summary>
     public static string Header => $"NoorMD Asset Bench, Godot tree import v{Version}";
 
@@ -176,6 +176,8 @@ public static class GodotAddon
         	m.set_shader_parameter("use_albedo_texture", source.albedo_texture != null)
         	m.set_shader_parameter("albedo_tint", source.albedo_color)
         	m.set_shader_parameter("use_alpha_cutoff", source.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR)
+        	# Leaves (cut out) let light through from behind.
+        	m.set_shader_parameter("backlight", 0.35 if source.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR else 0.0)
         	m.set_shader_parameter("alpha_cutoff", source.alpha_scissor_threshold)
         	m.set_shader_parameter("roughness", source.roughness)
         	m.set_shader_parameter("metallic", source.metallic)

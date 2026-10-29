@@ -69,6 +69,19 @@ public class GodotExportTests
     }
 
     [Fact]
+    public void Leaves_let_light_through_and_say_so_in_the_file()
+    {
+        var (json, _) = GlbWriterTests.Parse(GlbWriter.Write(TreeExport.Level(Build(billboard: false), 0)));
+        var materials = json.GetProperty("materials").EnumerateArray().ToList();
+        var leaves = materials.Single(m => m.GetProperty("name").GetString() == "Leaves");
+        Assert.InRange(leaves.GetProperty("extensions").GetProperty("KHR_materials_diffuse_transmission").GetProperty("diffuseTransmissionFactor").GetSingle(), 0.2f, 0.5f);
+        Assert.False(materials.Single(m => m.GetProperty("name").GetString() == "Bark").TryGetProperty("extensions", out _));
+        // Optional: an engine that doesn't know it still loads the file.
+        Assert.Contains("KHR_materials_diffuse_transmission", json.GetProperty("extensionsUsed").EnumerateArray().Select(e => e.GetString()));
+        Assert.False(json.TryGetProperty("extensionsRequired", out _));
+    }
+
+    [Fact]
     public void Wind_in_colours_and_no_wind_are_named()
     {
         var colour = Build("birch", billboard: false, windData: "color");
@@ -101,7 +114,7 @@ public class GodotExportTests
         }
         var shader = GodotAddon.Files.Single(f => f.Name.EndsWith(".gdshader", StringComparison.Ordinal)).Text;
         Assert.Equal(shader.Count(c => c == '{'), shader.Count(c => c == '}'));
-        foreach (var uniform in new[] { "albedo_texture", "use_albedo_texture", "albedo_tint", "use_alpha_cutoff", "alpha_cutoff", "roughness", "metallic", "normal_texture", "use_normal_texture", "normal_strength", "orm_texture", "use_orm_texture", "emission", "wind_enabled", "wind_in_color", "vertex_shading", "tree_height", "sharp_pixels", "albedo_sharp", "normal_sharp", "orm_sharp" })
+        foreach (var uniform in new[] { "albedo_texture", "use_albedo_texture", "albedo_tint", "use_alpha_cutoff", "alpha_cutoff", "roughness", "metallic", "normal_texture", "use_normal_texture", "normal_strength", "orm_texture", "use_orm_texture", "emission", "wind_enabled", "wind_in_color", "vertex_shading", "tree_height", "sharp_pixels", "albedo_sharp", "normal_sharp", "orm_sharp", "keep_coverage", "backlight" })
             Assert.Contains($" {uniform} ", shader);
 
         var dir = Path.Combine(Path.GetTempPath(), "noormd-godot-" + Guid.NewGuid().ToString("N"));

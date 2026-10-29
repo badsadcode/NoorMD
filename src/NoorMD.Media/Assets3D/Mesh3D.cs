@@ -25,6 +25,8 @@ public sealed class Material3D
     /// <summary>The normal and ORM maps' pixels (not exported): what a smaller copy is made from.</summary>
     public RawImage? NormalPixels { get; set; }
     public RawImage? OrmPixels { get; set; }
+    /// <summary>Light let through from behind (0–1; leaves): glTF KHR_materials_diffuse_transmission.</summary>
+    public float Transmission { get; set; }
     /// <summary>Textures sampled nearest, not blurred between pixels (pixel art).</summary>
     public bool Nearest { get; set; }
     /// <summary>The colour texture's pixels (not exported): what the billboard renderer samples.</summary>

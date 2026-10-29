@@ -132,7 +132,17 @@ window.NoorAssetView = (() => {
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
     void main() {
       vec4 base = uBase;
-      if (uHasColor == 1) { vec4 t = texture(tColor, vUv); base *= vec4(t.rgb, t.a); }
+      if (uHasColor == 1) {
+        vec4 t = texture(tColor, vUv);
+        // Cut-out leaves keep their coverage at a distance: the smaller mipmaps average the alpha away, so it is
+        // raised by the mip level (otherwise far and low-detail trees look thin).
+        if (uMask == 1) {
+          vec2 px = vUv * vec2(textureSize(tColor, 0));
+          float lod = max(0.0, 0.5 * log2(max(dot(dFdx(px), dFdx(px)), dot(dFdy(px), dFdy(px)))));
+          t.a *= 1.0 + lod * 0.25;
+        }
+        base *= vec4(t.rgb, t.a);
+      }
       if (uMask == 1 && base.a < uCutoff) discard;
       vec3 N = normalize(vNorm);
       if (!gl_FrontFacing) N = -N;

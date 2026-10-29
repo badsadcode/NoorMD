@@ -29,6 +29,10 @@ public static class WindShaders
         uniform vec4 albedo_tint : source_color = vec4(1.0);
         uniform bool use_alpha_cutoff = false;
         uniform float alpha_cutoff : hint_range(0.0, 1.0) = 0.5;
+        // Cut-out leaves keep their coverage at a distance (the smaller mipmaps average the alpha away).
+        uniform float keep_coverage : hint_range(0.0, 1.0) = 0.25;
+        // Light through the leaves from behind (0 for wood).
+        uniform float backlight : hint_range(0.0, 1.0) = 0.0;
         uniform bool use_normal_texture = false;
         uniform sampler2D normal_texture : hint_normal, filter_linear_mipmap_anisotropic, repeat_enable;
         uniform float normal_strength : hint_range(0.0, 4.0) = 1.0;
@@ -71,6 +75,11 @@ public static class WindShaders
 
         void fragment() {
         	vec4 tex = (use_albedo_texture ? (sharp_pixels ? texture(albedo_sharp, UV) : texture(albedo_texture, UV)) : vec4(1.0)) * albedo_tint;
+        	if (use_alpha_cutoff && use_albedo_texture) {
+        		vec2 px = UV * vec2(textureSize(albedo_texture, 0));
+        		float lod = max(0.0, 0.5 * log2(max(dot(dFdx(px), dFdx(px)), dot(dFdy(px), dFdy(px)))));
+        		tex.a *= 1.0 + lod * keep_coverage;
+        	}
         	if (use_alpha_cutoff && tex.a < alpha_cutoff) {
         		discard;
         	}
@@ -88,6 +97,9 @@ public static class WindShaders
         		NORMAL_MAP_DEPTH = normal_strength;
         	}
         	EMISSION = emission;
+        	if (backlight > 0.0) {
+        		BACKLIGHT = ALBEDO * backlight;
+        	}
         }
 
         """;

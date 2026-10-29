@@ -168,7 +168,8 @@ public static class TreeBuilder
         var cards = recipe.Foliage is "cards" or "both" or "tufts" or "masses" && recipe.Archetype is not ("dead" or "cactus");
         // Single-sided: every card has a real back face with its own normals (a double-sided material would flip the
         // normals on the back and darken half the crown in every engine).
-        var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
+        // Leaves let some light through from behind (engines that know KHR_materials_diffuse_transmission show it).
+        var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f, Transmission = 0.35f };
         if (cards)
         {
             var ownLeaves = recipe.LeafImage != "" ? options.Images?.Invoke(recipe.LeafImage) : null;
@@ -191,7 +192,7 @@ public static class TreeBuilder
         }
         // Hanging moss (also on bare and dead trees: the swamp snag).
         var mossy = recipe.Moss > 0;
-        var mossMat = new Material3D { Name = "Moss", Alpha = "mask", AlphaCutoff = 0.45f, Roughness = 0.9f };
+        var mossMat = new Material3D { Name = "Moss", Alpha = "mask", AlphaCutoff = 0.45f, Roughness = 0.9f, Transmission = 0.25f };
         if (mossy)
         {
             var light = LeafAtlas.Hex(recipe.MossColor) * 1.35f;

@@ -65,12 +65,14 @@ func _init() -> void:
 		check(bark.get_shader_parameter("use_normal_texture") == true and bark.get_shader_parameter("normal_texture") is Texture2D, "bark keeps its normal map")
 		check(bark.get_shader_parameter("use_orm_texture") == true, "bark keeps its occlusion/roughness map")
 		check(bark.get_shader_parameter("use_alpha_cutoff") == false, "bark is opaque")
+		check(float(bark.get_shader_parameter("backlight")) == 0.0, "no light through the bark")
 		check(bark.get_shader_parameter("wind_in_color") == false and bark.get_shader_parameter("vertex_shading") == true, "wind from UV2, colours are the shading")
 		check(float(bark.get_shader_parameter("tree_height")) > 3.0, "the tree's height is set", bark.get_shader_parameter("tree_height"))
 	for leafy in ["Leaves", "Billboard"]:
 		if by_name.has(leafy):
 			var m: ShaderMaterial = by_name[leafy]
 			check(m.get_shader_parameter("use_alpha_cutoff") == true and m.get_shader_parameter("albedo_texture") is Texture2D, leafy + " are cut out by their texture's alpha")
+			check(float(m.get_shader_parameter("backlight")) > 0.0, leafy + " let light through from behind")
 	check(by_name.size() == mats.filter(func(m): return m != null).map(func(m): return m.resource_name).reduce(func(a, n): return a if a.has(n) else a + [n], []).size(), "levels share one material each, not a copy per mesh")
 
 	# The wind data arrived: UV2 (TEXCOORD_1) and the colours.
