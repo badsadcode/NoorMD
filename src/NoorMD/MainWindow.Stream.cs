@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.Win32;
 using NoorMD.Core;
+using NoorMD.Core.Calendar;
 using NoorMD.Core.Bridge;
 using NoorMD.Core.Documents;
 using NoorMD.Core.Stream;
@@ -87,6 +88,38 @@ public partial class MainWindow
         o.Broadcast("credits.config", new JsonObject { ["config"] = StreamCfg["credits"]?.DeepClone() ?? new JsonObject(), ["effects"] = StreamCfg["effects"]?.DeepClone() ?? new JsonArray() }.ToJsonString());
         try { o.Broadcast("credits.data", JsonSerializer.Serialize(new { supporters = ActiveSupporters() })); }
         catch (Exception ex) when (ex is IOException or BridgeError) { /* no Vault yet: the roll shows a placeholder */ }
+        o.Broadcast("sc.config", (StreamCfg["schedule"] ?? new JsonObject()).ToJsonString());
+        BroadcastSchedule(force: true);
+    }
+
+    private string? _lastScheduleJson;
+
+    /// <summary>
+    /// The stream schedule for the "Next stream" and "This week" overlays: the stream that is on or next, the week's
+    /// streams and the coming ones, from the calendar. Sent when it changes (the overlays count down by themselves).
+    /// </summary>
+    private void BroadcastSchedule(bool force = false)
+    {
+        if (_overlay is not { Running: true } o) return;
+        var monday = StreamCfg["schedule"]?["mondayFirst"] is not JsonValue v || !v.TryGetValue<bool>(out var first) || first;
+        var now = DateTime.Now;
+        string json;
+        try
+        {
+            var entries = Calendar.Entries;
+            var next = StreamSchedule.Next(entries, now);
+            json = JsonSerializer.Serialize(new
+            {
+                next = next == null ? null : SlotForPage(next),
+                week = StreamSchedule.Week(entries, now, monday).Select(SlotForPage),
+                upcoming = StreamSchedule.Between(entries, now, now.AddDays(14)).Take(10).Select(SlotForPage),
+                weekStart = CalendarTime.Day(StreamSchedule.WeekStart(now, monday)),
+            });
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }
+        if (!force && json == _lastScheduleJson) return;
+        _lastScheduleJson = json;
+        o.Broadcast("sc.data", json);
     }
 
     private object[] ActiveSupporters() =>
@@ -220,7 +253,7 @@ public partial class MainWindow
                 {
                     server = new { running = _overlay is { Running: true }, port = _overlay?.Port ?? Port, url = _overlay is { Running: true } o ? o.BaseUrl : $"http://127.0.0.1:{Port}/", clients = _overlay?.SseClients ?? 0 },
                     enabled = CfgBool("serverEnabled"),
-                    nowPlaying = cfg["nowPlaying"], credits = cfg["credits"], effects = cfg["effects"] ?? new JsonArray(), templates = cfg["templates"] ?? new JsonArray(),
+                    nowPlaying = cfg["nowPlaying"], credits = cfg["credits"], schedule = cfg["schedule"], effects = cfg["effects"] ?? new JsonArray(), templates = cfg["templates"] ?? new JsonArray(),
                     txt = new { enabled = CfgBool("txtEnabled"), path = CfgString("txtPath", Path.Combine(App.Paths.Local, "Stream", "now-playing.txt")), format = CfgString("txtFormat", "{artist} - {title}") },
                     vault = _vault?.Root, supportersNote = CfgString("supportersNote", "Stream/Supporters.md"), streamsFolder = CfgString("streamsFolder", "Streams"),
                     session = _streamSession is { } s ? new { start = s.StartUtc, marks = s.Marks.Select(m => new { offset = m.Offset, text = m.Text, stamp = StreamLog.Stamp(m.Offset) }) } : null,
@@ -243,6 +276,12 @@ public partial class MainWindow
                 StreamCfg["nowPlaying"] = JsonNode.Parse(Bounded(p, "config"));
                 SaveStreamCfg();
                 _overlay?.Broadcast("np.config", StreamCfg["nowPlaying"]!.ToJsonString());
+                return null;
+            case "stream.sc.config":
+                StreamCfg["schedule"] = JsonNode.Parse(Bounded(p, "config"));
+                SaveStreamCfg();
+                _overlay?.Broadcast("sc.config", StreamCfg["schedule"]!.ToJsonString());
+                BroadcastSchedule(force: true);
                 return null;
             case "stream.np.update":
                 OnNowPlaying(p);

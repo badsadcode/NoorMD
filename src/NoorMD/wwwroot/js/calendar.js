@@ -19,12 +19,15 @@ window.NoorCalendar = (() => {
   const TIMED_REMINDERS = [[0, 'At the start'], [5, '5 minutes before'], [10, '10 minutes before'], [15, '15 minutes before'], [30, '30 minutes before'], [60, '1 hour before'], [120, '2 hours before'], [1440, '1 day before'], [2880, '2 days before'], [10080, '1 week before']];
   const ALLDAY_REMINDERS = [[-540, 'On the day at 9:00'], [-480, 'On the day at 8:00'], [900, 'The day before at 9:00'], [2340, '2 days before at 9:00'], [9540, 'A week before at 9:00'], [0, 'At midnight']];
 
-  let hooks = { showError: (e) => console.error(e) };
+  let hooks = { showError: (e) => console.error(e), insertMarkdown: () => false, hasDocument: () => false };
   let built = false;
   let entries = [];
   let byId = new Map();
   let view = (() => { try { return ['month', 'week', 'agenda'].includes(localStorage.getItem('noormd.cal.view')) ? localStorage.getItem('noormd.cal.view') : 'month'; } catch { return 'month'; } })();
   let weekStartsMonday = (() => { try { return localStorage.getItem('noormd.cal.monday') !== 'off'; } catch { return true; } })();
+  // Public holidays of one country (worked out by their rules in the app; shown on their days, not saved or edited).
+  let holidayCountry = (() => { try { return /^[A-Z]{2}$/.test(localStorage.getItem('noormd.cal.holidays') || '') ? localStorage.getItem('noormd.cal.holidays') : ''; } catch { return ''; } })();
+  let countries = [];
   let cursor = startOfDay(new Date()); // the day the view is around
   let selected = startOfDay(new Date());
   let occurrences = [];
@@ -87,6 +90,8 @@ window.NoorCalendar = (() => {
     try {
       const r = await req('cal.entries');
       setEntries(r.entries);
+      countries = r.countries || [];
+      fillCountries();
       if (r.problem) notice(r.problem, 6000);
     } catch (err) { hooks.showError(err); return; }
     await refresh();
@@ -111,9 +116,18 @@ window.NoorCalendar = (() => {
     const gen = ++loadGen;
     const [from, to] = range();
     try {
-      const r = await req('cal.range', { from: dayKey(from), to: dayKey(to) });
+      const r = await req('cal.range', { from: dayKey(from), to: dayKey(to), holidays: holidayCountry || undefined });
       if (gen !== loadGen) return;
-      occurrences = r.occurrences.map((o) => ({ ...o, s: parse(o.start), e: parse(o.end) })).filter((o) => byId.has(o.entryId));
+      // Holidays as read-only all-day entries of their own.
+      for (const id of [...byId.keys()]) if (id.startsWith('hol-')) byId.delete(id);
+      const country = (countries.find((c) => c.code === holidayCountry) || {}).name || holidayCountry;
+      const holidays = (r.holidays || []).map((h) => {
+        byId.set(h.id, { id: h.id, title: h.name, category: 'holiday', allDay: true, notes: `Public holiday in ${country}`, readOnly: true, color: '' });
+        const day = parse(h.date);
+        return { entryId: h.id, date: h.date, start: h.date, end: dayKey(addDays(day, 1)), allDay: true, s: day, e: addDays(day, 1), holiday: true };
+      });
+      occurrences = [...holidays, ...r.occurrences.map((o) => ({ ...o, s: parse(o.start), e: parse(o.end) })).filter((o) => byId.has(o.entryId))]
+        .sort((a, b) => a.s - b.s || (a.allDay ? -1 : 1));
     } catch (err) { hooks.showError(err); return; }
     render();
   }
@@ -128,6 +142,8 @@ window.NoorCalendar = (() => {
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'cal-import', title: 'Import a calendar (.ics) from Google, Outlook, Apple or another app', 'aria-label': 'Import a calendar', onclick: importIcs }, '📥'),
           el('button', { class: 'icon-btn', id: 'cal-export', title: 'Export the calendar (.ics) for another calendar app', 'aria-label': 'Export the calendar', onclick: exportIcs }, '📤'),
+          el('button', { class: 'icon-btn', id: 'cal-agenda-insert', title: 'Insert the agenda of the week from the selected day into the document', 'aria-label': 'Insert the agenda into the document', onclick: insertAgenda }, '📝'),
+          el('select', { id: 'cal-holidays', class: 'cal-holidays', title: 'Public holidays to show (worked out by their rules, nothing is downloaded)', 'aria-label': 'Public holidays' }, el('option', { value: '', text: 'No holidays' })),
           el('button', { class: 'icon-btn', id: 'cal-dock', title: 'Where this panel goes', 'aria-label': 'Move the calendar', onclick: (e) => NoorDock.showMenu('calendar', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+C)', 'aria-label': 'Close the calendar', onclick: close }, '✕'))),
       el('div', { class: 'cal-bar' },
@@ -142,6 +158,12 @@ window.NoorCalendar = (() => {
         el('button', { class: 'action primary', id: 'cal-new', title: 'A new entry on the selected day (N)', onclick: () => newEntry(selected) }, '＋ New')),
       el('div', { class: 'cal-body', id: 'cal-body' }));
     ($('#app') || document.body).append(root);
+    $('#cal-holidays').addEventListener('change', (e) => {
+      holidayCountry = e.target.value;
+      try { localStorage.setItem('noormd.cal.holidays', holidayCountry); } catch { /* private storage off */ }
+      refresh();
+    });
+    fillCountries();
     $('#cal-search').addEventListener('input', (e) => {
       search = e.target.value.trim().toLowerCase();
       if (search && view !== 'agenda') setView('agenda'); else refresh();
@@ -188,6 +210,22 @@ window.NoorCalendar = (() => {
     const age = o.age != null ? (e.category === 'birthday' ? ` (${o.age})` : ` · ${o.age} yr${o.age === 1 ? '' : 's'}`) : '';
     return `${e.title}${age}`;
   };
+
+  function fillCountries() {
+    const sel = $('#cal-holidays');
+    if (!sel || !countries.length || sel.options.length > 1) return;
+    sel.append(...countries.map((c) => el('option', { value: c.code, text: `🎌 ${c.name}` })));
+    sel.value = holidayCountry;
+  }
+
+  /** The agenda of the week from the selected day, as a block in the document on screen. */
+  async function insertAgenda() {
+    if (!hooks.hasDocument()) { notice('Open a document first: the agenda goes in at the cursor', 2500); return; }
+    try {
+      const r = await req('cal.agenda', { from: dayKey(selected), days: 7, holidays: holidayCountry || undefined });
+      if (hooks.insertMarkdown(r.markdown)) notice('Agenda inserted', 1400);
+    } catch (err) { hooks.showError(err); }
+  }
 
   function render() {
     const today = startOfDay(new Date());
@@ -333,6 +371,7 @@ window.NoorCalendar = (() => {
    */
   function editEntry(entry, occurrenceDate) {
     if (!entry) return;
+    if (entry.readOnly) { notice(`${entry.title}: ${entry.notes}`, 2500); return; }
     const e = clone(entry);
     const isNew = !e.id;
     const repeating = !!e.repeat && !!occurrenceDate;
@@ -446,6 +485,16 @@ window.NoorCalendar = (() => {
       const game = el('input', { type: 'text', id: 'cal-e-game', value: e.game || '', maxlength: '120', placeholder: 'game or category', 'aria-label': 'Game or category' });
       const platform = el('input', { type: 'text', id: 'cal-e-platform', value: e.platform || '', maxlength: '60', placeholder: 'Twitch, YouTube…', 'aria-label': 'Platform' });
       const streamRow = row('Game, platform', game, platform);
+      // The note this entry belongs to (a note in the Vault): open it, or link the note on screen.
+      const noteBox = el('div', { class: 'cal-inline', id: 'cal-e-note' });
+      const drawNote = () => noteBox.replaceChildren(
+        e.note ? el('button', { class: 'utility-btn', id: 'cal-e-note-open', title: e.note, onclick: (ev) => { ev.preventDefault(); req('vault.openFile', { path: e.note }).then(() => { closeModal(); close(); }).catch(hooks.showError); } }, `📄 ${e.note.split('/').pop().replace(/\.md$/i, '')}`) : el('small', { class: 'pref-hint', text: 'none' }),
+        el('button', { class: 'utility-btn', id: 'cal-e-note-link', title: 'Link the note open on screen (from your Vault)', onclick: async (ev) => {
+          ev.preventDefault();
+          try { const r = await req('cal.note.current'); e.note = r.path; drawNote(); } catch (err) { status.textContent = err && err.message ? err.message : String(err); }
+        } }, 'Link the open note'),
+        e.note ? el('button', { class: 'icon-btn', id: 'cal-e-note-clear', 'aria-label': 'Unlink the note', title: 'Unlink the note', onclick: (ev) => { ev.preventDefault(); e.note = null; drawNote(); } }, '✕') : null);
+      drawNote();
       const notes = el('textarea', { id: 'cal-e-notes', rows: '3', maxlength: '10000', placeholder: 'Notes', 'aria-label': 'Notes' });
       notes.value = e.notes || '';
       const kindRows = () => {
@@ -475,6 +524,7 @@ window.NoorCalendar = (() => {
         out.game = !streamRow.hidden && game.value.trim() ? game.value.trim() : null;
         out.platform = !streamRow.hidden && platform.value.trim() ? platform.value.trim() : null;
         out.notes = notes.value;
+        out.note = e.note || null;
         return out;
       };
       const save = async () => {
@@ -514,6 +564,7 @@ window.NoorCalendar = (() => {
           row('Repeats', freq), repeatBox,
           row('Reminders', remBox),
           sinceRow, streamRow,
+          row('Note', noteBox),
           notes, status),
         el('div', { class: 'modal-foot' },
           el('div', { class: 'modal-buttons cal-editbuttons' },

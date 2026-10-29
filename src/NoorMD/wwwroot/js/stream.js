@@ -10,7 +10,7 @@ window.NoorStream = (() => {
   let built = false;
   let tab = 'np';
   let status = null;
-  let np = null, npPreview = null, cr = null, crPreview = null;
+  let np = null, npPreview = null, cr = null, crPreview = null, sc = null, scPreviews = [];
   let effects = [];         // custom effects [{ id, label, background, particles, nameAnim }]
   let templates = [];       // [{ name, title, description, keywords }]
   let supporters = [], supportersDirty = false, supportersPath = null, supportersFilter = 'active';
@@ -96,6 +96,7 @@ window.NoorStream = (() => {
   async function refresh() {
     try { status = await req('stream.status'); } catch (err) { hooks.showError(err); return; }
     np = NoorNowPlaying.clean(status.nowPlaying);
+    sc = NoorSchedule.clean(status.schedule);
     effects = Array.isArray(status.effects) ? status.effects : [];
     cr = { ...NoorCredits.DEFAULTS, ...(status.credits || {}) };
     templates = Array.isArray(status.templates) ? status.templates : [];
@@ -111,7 +112,7 @@ window.NoorStream = (() => {
 
   function build() {
     built = true;
-    const tabs = [['np', '🎵', 'Now Playing'], ['credits', '🎬', 'Credits'], ['supporters', '💜', 'Supporters'], ['log', '📼', 'Stream log'], ['mic', '🎙', 'Mic Guard']];
+    const tabs = [['np', '🎵', 'Now Playing'], ['schedule', '📅', 'Schedule'], ['credits', '🎬', 'Credits'], ['supporters', '💜', 'Supporters'], ['log', '📼', 'Stream log'], ['mic', '🎙', 'Mic Guard']];
     // Same parts as the Music and Video Benches: a title row with its buttons, then the tabs.
     const section = el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
       el('header', { class: 'music-head sd-head' },
@@ -137,12 +138,15 @@ window.NoorStream = (() => {
     const gen = ++renderGen;
     document.querySelectorAll('[data-sdtab]').forEach((b) => { b.classList.toggle('active', b.dataset.sdtab === id); b.setAttribute('aria-selected', String(b.dataset.sdtab === id)); });
     if (crPreview) { crPreview.destroy(); crPreview = null; }
+    scPreviews.forEach((x) => x.destroy());
+    scPreviews = [];
     npPreview = null;
     const body = $('#sd-body');
     // Mic Guard redraws after every setting: it swaps its content in one go (no empty flash, see renderMic).
     if (id !== 'mic') body.replaceChildren();
     micSettled = false;
     if (id === 'np') renderNowPlaying(body);
+    else if (id === 'schedule') renderSchedule(body, gen);
     else if (id === 'credits') renderCredits(body, gen);
     else if (id === 'supporters') renderSupporters(body, gen);
     else if (id === 'mic') renderMic(body, gen);
@@ -198,7 +202,9 @@ window.NoorStream = (() => {
       el('p', { class: 'pref-hint', text: 'Answers only on this computer (127.0.0.1), read-only. In OBS: Sources › + › Browser, paste the address, width 1920, height 1080. Changes here update OBS live.' }),
       el('div', { class: 'sd-urls' },
         el('code', { text: base + 'now-playing.html' }), copyBtn('Now Playing URL', base + 'now-playing.html'),
-        el('code', { text: base + 'credits.html' }), copyBtn('Credits URL', base + 'credits.html')));
+        el('code', { text: base + 'credits.html' }), copyBtn('Credits URL', base + 'credits.html'),
+        el('code', { text: base + 'next-stream.html' }), copyBtn('Next stream URL', base + 'next-stream.html'),
+        el('code', { text: base + 'schedule.html' }), copyBtn('This week URL', base + 'schedule.html')));
   }
 
   // ------------------------------------------------------------------ Now Playing
@@ -253,6 +259,159 @@ window.NoorStream = (() => {
     npPreview = NoorNowPlaying.mount(frame);
     npPreview.setConfig(np);
     npPreview.setTrack(lastTrack || SAMPLE_TRACK);
+  }
+
+  // ------------------------------------------------------------------ Stream schedule (from the calendar)
+
+  let saveScTimer = 0;
+  let schedulePost = { format: 'discord', week: 0, title: 'Stream schedule' };
+
+  /** A sample week, when the calendar has no streams yet: the preview still shows what the overlays look like. */
+  function sampleWeek() {
+    const d = new Date();
+    const at = (days, h, len) => { const s = new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, h, 0); return { s, e: new Date(s.getTime() + len * 3600_000) }; };
+    const iso = (x) => x.toISOString();
+    return [[1, 19, 3, 'Cozy building night', 'Minecraft'], [3, 20, 2, 'Speedrun practice', 'Celeste'], [5, 18, 4, 'Community games', 'Variety']].map(([n, h, len, title, game]) => {
+      const { s, e } = at(n, h, len);
+      return { title, game, platform: 'Twitch', start: iso(s), end: iso(e), allDay: false, sample: true };
+    });
+  }
+
+  async function renderSchedule(body, gen) {
+    let thisWeek = [], nextWeek = [];
+    try {
+      const monday = sc.mondayFirst;
+      const today = new Date();
+      const ymd = (x) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+      const later = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 7);
+      [thisWeek, nextWeek] = (await Promise.all([req('cal.schedule', { week: ymd(today), monday }), req('cal.schedule', { week: ymd(later), monday })])).map((r) => r.slots);
+    } catch (err) { hooks.showError(err); }
+    if (gen !== renderGen) return;
+    const real = thisWeek.length + nextWeek.length > 0;
+    const week = real ? thisWeek : sampleWeek();
+    const now = new Date();
+    const next = (real ? [...thisWeek, ...nextWeek] : week).find((x) => new Date(x.end) > now) || null;
+    const data = { week, next };
+    const changed = () => {
+      Object.assign(sc, NoorSchedule.clean(sc));
+      scPreviews.forEach((x) => x.setConfig(sc));
+      clearTimeout(saveScTimer);
+      saveScTimer = setTimeout(() => req('stream.sc.config', { config: sc }).catch(hooks.showError), 300);
+    };
+    const designs = el('div', { class: 'sd-designs', role: 'radiogroup', 'aria-label': 'Design' }, ...Object.entries(NoorSchedule.DESIGNS).map(([k, label]) =>
+      el('button', { class: 'chip' + (sc.design === k ? ' active' : ''), role: 'radio', 'aria-checked': String(sc.design === k), 'data-scdesign': k, onclick: (e) => {
+        sc.design = k;
+        e.currentTarget.parentElement.querySelectorAll('.chip').forEach((c) => { c.classList.toggle('active', c.dataset.scdesign === k); c.setAttribute('aria-checked', String(c.dataset.scdesign === k)); });
+        changed();
+      } }, label)));
+    const positions = { 'top-left': 'Top left', 'top-center': 'Top centre', 'top-right': 'Top right', 'bottom-left': 'Bottom left', 'bottom-center': 'Bottom centre', 'bottom-right': 'Bottom right' };
+    // Posting the schedule: text for Discord, X or anywhere, and a picture.
+    const out = el('textarea', { id: 'sc-text', class: 'sd-text', rows: '8', readonly: true, 'aria-label': 'The schedule as text' });
+    const fmt = select(schedulePost, 'format', { discord: 'Discord (times shown in each reader’s time zone)', x: 'X (short, 280 characters)', plain: 'Plain text' }, () => fill(), { id: 'sc-format' });
+    const which = select(schedulePost, 'week', { 0: 'This week', 1: 'Next week' }, () => { schedulePost.week = Number(schedulePost.week); fill(); }, { id: 'sc-week' });
+    const title = input(schedulePost, 'title', { type: 'text', id: 'sc-title', maxlength: '80' }, () => { clearTimeout(fill.t); fill.t = setTimeout(fill, 300); });
+    const weekDay = () => { const d = new Date(); d.setDate(d.getDate() + 7 * Number(schedulePost.week)); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+    let lastPost = null;
+    async function fill() {
+      try { lastPost = await req('cal.schedule', { week: weekDay(), monday: sc.mondayFirst, format: schedulePost.format, title: schedulePost.title }); out.value = lastPost.text; }
+      catch (err) { hooks.showError(err); }
+    }
+    const nextFrame = el('div', { class: 'sd-frame', id: 'sc-frame-next', 'aria-label': 'Next stream preview' });
+    const weekFrame = el('div', { class: 'sd-frame', id: 'sc-frame-week', 'aria-label': 'This week preview' });
+    body.append(el('div', { class: 'sd-grid' },
+      el('div', { class: 'sd-col' },
+        serverPanel(),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'Overlays: next stream and this week' }), designs,
+          row('Accent', input(sc, 'accent', { type: 'color' }, changed)), row('Text', input(sc, 'text', { type: 'color' }, changed)),
+          row('Background', input(sc, 'background', { type: 'color' }, changed), input(sc, 'bgOpacity', { type: 'range', min: '0', max: '1', step: '0.05', 'aria-label': 'Background opacity' }, changed)),
+          row('Font', select(sc, 'font', { inter: 'Inter', system: 'System', rounded: 'Rounded', serif: 'Serif', mono: 'Monospace', display: 'Display' }, changed)),
+          row('Size', input(sc, 'scale', { type: 'range', min: '0.5', max: '2.5', step: '0.05' }, changed)),
+          row('Corners', input(sc, 'radius', { type: 'range', min: '0', max: '40', step: '1' }, changed)),
+          row('Next stream at', select(sc, 'position', positions, changed)),
+          row('This week at', select(sc, 'weekPosition', positions, changed)),
+          row('Labels', input(sc, 'nextLabel', { type: 'text', placeholder: 'Next stream', 'aria-label': 'Next stream label' }, changed), input(sc, 'liveLabel', { type: 'text', placeholder: 'Live now', 'aria-label': 'Live label' }, changed), input(sc, 'weekTitle', { type: 'text', placeholder: 'This week', 'aria-label': 'Week title' }, changed)),
+          row('Clock', select(sc, 'clock', { auto: 'As Windows shows it', 24: '24-hour', 12: '12-hour (am/pm)' }, changed)),
+          el('div', { class: 'sd-checks' },
+            el('label', { class: 'inline' }, input(sc, 'showGame', { type: 'checkbox' }, changed), 'Game'),
+            el('label', { class: 'inline' }, input(sc, 'showPlatform', { type: 'checkbox' }, changed), 'Platform'),
+            el('label', { class: 'inline' }, input(sc, 'showCountdown', { type: 'checkbox' }, changed), 'Countdown'),
+            el('label', { class: 'inline' }, input(sc, 'mondayFirst', { type: 'checkbox' }, () => { changed(); setTab('schedule'); }), 'Weeks start on Monday'),
+            el('label', { class: 'inline' }, input(sc, 'hideWhenNone', { type: 'checkbox' }, changed), 'Hide when nothing is planned')),
+          el('p', { class: 'pref-hint', text: 'Streams come from the calendar (entries of the Stream kind, with their game and platform). OBS updates by itself when you change them.' }),
+          el('div', { class: 'sd-row' },
+            el('button', { class: 'utility-btn', id: 'sc-open-calendar', onclick: () => { if (window.NoorCalendar) NoorCalendar.open(); } }, '📅 Open the calendar'),
+            el('button', { class: 'utility-btn', onclick: () => { sc = NoorSchedule.clean({}); changed(); setTab('schedule'); } }, 'Reset to default'))),
+        el('section', { class: 'sd-card' },
+          el('h3', { text: 'Post the schedule' }),
+          row('For', fmt), row('Week', which), row('Title', title),
+          out,
+          el('div', { class: 'sd-row' },
+            el('button', { class: 'utility-btn primary', id: 'sc-copy', onclick: () => copy(out.value, 'Schedule') }, '⧉ Copy'),
+            el('button', { class: 'utility-btn', id: 'sc-picture', onclick: () => savePicture() }, '🖼 Save as picture…')),
+          el('p', { class: 'pref-hint', text: 'Discord shows the times in each reader’s own time zone. The picture is 1200 × 675, for posts on X, Discord or anywhere.' }))),
+      el('div', { class: 'sd-col sd-preview-col' }, el('h3', { text: 'Preview' }), nextFrame, weekFrame,
+        el('p', { class: 'pref-hint', id: 'sc-preview-note', text: real ? 'Showing your streams from the calendar.' : 'Showing a sample week: add Stream entries in the calendar to see yours.' }))));
+    for (const [frame, mode] of [[nextFrame, 'next'], [weekFrame, 'week']]) {
+      // Drawn on a real 1920 × 1080 stage and shrunk to the frame: exactly what OBS shows, only smaller.
+      const stage = el('div', { class: 'sd-stage' });
+      frame.append(stage);
+      const fit = () => { stage.style.transform = `scale(${frame.clientWidth / 1920})`; };
+      new ResizeObserver(fit).observe(frame);
+      fit();
+      const p = NoorSchedule.mount(stage, mode);
+      p.setConfig(sc);
+      p.setData(data);
+      scPreviews.push(p);
+    }
+    fill();
+
+    /** The week as a 1200 × 675 picture in the overlay's colours, saved where you choose. */
+    async function savePicture() {
+      const post = lastPost || await req('cal.schedule', { week: weekDay(), monday: sc.mondayFirst, format: 'plain', title: schedulePost.title });
+      const W = 1200, H = 675, c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const g = c.getContext('2d');
+      const bg = g.createLinearGradient(0, 0, W, H);
+      bg.addColorStop(0, sc.background); bg.addColorStop(1, '#000000');
+      g.fillStyle = bg; g.fillRect(0, 0, W, H);
+      g.fillStyle = sc.accent; g.fillRect(0, 0, 12, H);
+      const font = (w, px) => `${w} ${px}px ${NoorSchedule.FONTS[sc.font]}`;
+      g.fillStyle = sc.accent; g.font = font(700, 26); g.textBaseline = 'top';
+      const start = new Date(post.week + 'T00:00');
+      const end = new Date(start); end.setDate(end.getDate() + 6);
+      const dm = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short' });
+      g.fillText(`${dm.format(start)} – ${dm.format(end)}`.toUpperCase(), 60, 52);
+      g.fillStyle = sc.text; g.font = font(800, 60);
+      g.fillText(schedulePost.title || 'Stream schedule', 60, 86);
+      const day = new Intl.DateTimeFormat(undefined, { weekday: 'long' });
+      const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', ...(sc.clock === 'auto' ? {} : { hour12: sc.clock === '12' }) });
+      const rowH = 64, top = 190;
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(start); d.setDate(d.getDate() + i);
+        const y = top + i * rowH;
+        g.fillStyle = i % 2 ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.08)';
+        g.fillRect(60, y, W - 120, rowH - 6);
+        g.fillStyle = sc.accent; g.font = font(800, 24);
+        g.fillText(day.format(d).toUpperCase(), 84, y + 16);
+        const todays = post.slots.filter((x) => { const s = new Date(x.start); return s.getFullYear() === d.getFullYear() && s.getMonth() === d.getMonth() && s.getDate() === d.getDate(); });
+        g.fillStyle = sc.text;
+        if (!todays.length) { g.globalAlpha = 0.45; g.font = font(500, 24); g.fillText('—', 330, y + 16); g.globalAlpha = 1; continue; }
+        const text = todays.map((x) => `${x.allDay ? '' : time.format(new Date(x.start)) + '  '}${x.title}${x.game && sc.showGame ? ' · ' + x.game : ''}`).join('    ');
+        g.font = font(700, 26);
+        let shown = text;
+        while (g.measureText(shown).width > W - 120 - 270 - 24 && shown.length > 4) shown = shown.slice(0, -2);
+        if (shown !== text) shown = shown.slice(0, -1) + '…';
+        g.fillText(shown, 330, y + 15);
+      }
+      g.globalAlpha = 0.6; g.font = font(500, 18); g.fillStyle = sc.text;
+      g.fillText(`Times ${post.zone}`, 60, H - 40);
+      g.globalAlpha = 1;
+      try {
+        const r = await req('cal.schedule.png', { data: c.toDataURL('image/png'), name: `${schedulePost.title || 'Stream schedule'} ${post.week}` });
+        if (r && r.path) notice('Schedule picture saved', 1600);
+      } catch (err) { hooks.showError(err); }
+    }
   }
 
   // ------------------------------------------------------------------ Credits roll and effect builder

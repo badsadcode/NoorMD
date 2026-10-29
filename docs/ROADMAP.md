@@ -40,8 +40,9 @@ first, and anything that conflicts with it waits.
   Bench (playlist "Made in NoorMD"), sound recipes kept in and opened from the Vault: preview.50. Materials (Gallery,
   Vault) and songs (Vault) were connected earlier; samples for NoorSequencer come from the Sound and Music Benches.
 - Calendar, stage 1 (entries, repeats, birthdays with ages, reminders in the app and near the clock, month, week
-  and agenda views, search, .ics import and export): preview.52. Next: stage 2 (notes, public holidays, streams on
-  the Stream Desk). See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
+  and agenda views, search, .ics import and export): preview.52. Stage 2 (note links and agenda blocks, public
+  holidays for 18 countries, "Next stream" and "This week" OBS overlays, the schedule as Discord, X or plain text and
+  as a picture): preview.80. See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
 - Asset Bench, stage 1 (trees: skeleton growth, welded implicit wood with collars and root flare, merged, separate
   or mixed branches, leaf cards, clumps, wind data, levels of detail, GLB export checked by the Khronos validator,
   the 3D preview): preview.53. Next: stage 2 (rocks, realistic to hyper-realistic and stylized). See

@@ -41,6 +41,14 @@ public partial class MainWindow
         entryId = o.EntryId, date = o.Date, start = CalendarTime.Time(o.Start), end = CalendarTime.Time(o.End), allDay = o.AllDay, age = o.Age, moved = o.Moved,
     };
 
+    /// <summary>A stream for the page and the overlays: times with their offset, so a browser reads them exactly.</summary>
+    private static object SlotForPage(StreamSlot s) => new
+    {
+        entryId = s.EntryId, title = s.Title, game = s.Game, platform = s.Platform, allDay = s.AllDay,
+        start = new DateTimeOffset(s.Start, TimeZoneInfo.Local.GetUtcOffset(s.Start)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture),
+        end = new DateTimeOffset(s.End, TimeZoneInfo.Local.GetUtcOffset(s.End)).ToString("yyyy-MM-dd'T'HH:mm:sszzz", System.Globalization.CultureInfo.InvariantCulture),
+    };
+
     private static object ReminderForPage(CalendarReminder r, CalendarEntry? e) => new
     {
         key = r.Key, entryId = r.EntryId, minutes = r.Minutes, at = CalendarTime.Time(r.At), occurrence = OccurrenceForPage(r.Occurrence),
@@ -58,6 +66,7 @@ public partial class MainWindow
 
     private void CheckReminders()
     {
+        BroadcastSchedule();
         List<CalendarReminder> due;
         try { due = Calendar.TakeDue(DateTime.Now); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Calendar reminders", ex); return; }
@@ -128,20 +137,75 @@ public partial class MainWindow
         switch (req.Type)
         {
             case "cal.entries":
-                return new { entries = Calendar.Entries, problem = Calendar.LoadProblem, now = CalendarTime.Time(DateTime.Now), categories = CalendarEntry.Categories };
+                return new { entries = Calendar.Entries, problem = Calendar.LoadProblem, now = CalendarTime.Time(DateTime.Now), categories = CalendarEntry.Categories, countries = Holidays.Countries.Select(c => new { code = c.Code, name = c.Name }) };
             case "cal.range":
             {
                 var from = DayFrom(req, "from");
                 var to = DayFrom(req, "to");
                 if (to <= from || (to - from).TotalDays > 800) throw new BridgeError("That range of days is too long.");
                 var occ = await Task.Run(() => CalendarEngine.Occurrences(Calendar.Entries, from, to));
-                return new { occurrences = occ.Take(20_000).Select(OccurrenceForPage) };
+                // Public holidays of the chosen country, worked out for the range (not saved: shown, not edited).
+                var country = req.GetString("holidays", 4) ?? "";
+                var holidays = Holidays.Between(country, from, to).Select((h, i) => new { id = $"hol-{CalendarTime.Day(h.Date)}-{i}", date = CalendarTime.Day(h.Date), name = h.Name });
+                return new { occurrences = occ.Take(20_000).Select(OccurrenceForPage), holidays };
             }
             case "cal.save":
-                try { return new { entry = Calendar.Upsert(EntryFrom(p)) }; }
+                try { var saved = Calendar.Upsert(EntryFrom(p)); BroadcastSchedule(); return new { entry = saved }; }
                 catch (InvalidOperationException ex) { throw new BridgeError(ex.Message); }
             case "cal.delete":
-                return new { entry = Calendar.Delete(req.GetString("id", 40) ?? "") };
+            {
+                var gone = Calendar.Delete(req.GetString("id", 40) ?? "");
+                BroadcastSchedule();
+                return new { entry = gone };
+            }
+            case "cal.schedule":
+            {
+                // The week's streams as text to post (plain, Discord, X) and as data for the picture.
+                var week = StreamSchedule.WeekStart(CalendarTime.TryDay(req.GetString("week", 20), out var w) ? w : DateTime.Today, !p.TryGetProperty("monday", out var m) || m.ValueKind != JsonValueKind.False);
+                var format = req.GetString("format", 10) is { } f && StreamSchedule.Formats.Contains(f) ? f : "plain";
+                var title = req.GetString("title", 80) is { Length: > 0 } t ? t : "Stream schedule";
+                var slots = StreamSchedule.Between(Calendar.Entries, week, week.AddDays(7));
+                return new
+                {
+                    week = CalendarTime.Day(week),
+                    text = StreamSchedule.Text(slots, format, week, title, System.Globalization.CultureInfo.CurrentCulture, TimeZoneInfo.Local),
+                    slots = slots.Select(SlotForPage),
+                    zone = StreamSchedule.Offset(week.AddHours(12), TimeZoneInfo.Local),
+                };
+            }
+            case "cal.schedule.png":
+            {
+                // The week's schedule as a picture, drawn by the page; saved where you choose.
+                var data = req.GetString("data", 12_000_000) ?? throw new BridgeError("Missing the picture.");
+                var comma = data.IndexOf(',');
+                byte[] png;
+                try { png = Convert.FromBase64String(comma >= 0 ? data[(comma + 1)..] : data); }
+                catch (FormatException) { throw new BridgeError("The picture can't be read."); }
+                if (png.Length < 8 || png[0] != 0x89 || png[1] != (byte)'P') throw new BridgeError("That is not a PNG picture.");
+                var name = req.GetString("name", 80) is { Length: > 0 } n ? n : "Stream schedule";
+                var dlg = new SaveFileDialog { Title = "Save the schedule as a picture", Filter = "PNG picture (*.png)|*.png", DefaultExt = ".png", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".png"), OverwritePrompt = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                await File.WriteAllBytesAsync(dlg.FileName, png);
+                return new { path = dlg.FileName };
+            }
+            case "cal.agenda":
+            {
+                // An agenda block for a note: the coming days, with the holidays if a country is chosen.
+                var from = CalendarTime.TryDay(req.GetString("from", 20), out var d) ? d : DateTime.Today;
+                var days = Math.Clamp(Json.OptInt(p, "days") ?? 7, 1, 62);
+                var holidays = Holidays.Between(req.GetString("holidays", 4) ?? "", from, from.AddDays(days));
+                return new { markdown = StreamSchedule.Agenda(Calendar.Entries, from, days, System.Globalization.CultureInfo.CurrentCulture, holidays) };
+            }
+            case "cal.note.current":
+            {
+                // The note open on screen, as a Vault path (an entry can belong to it).
+                var path = ActiveSession?.Path ?? throw new BridgeError("Open the note first (from your Vault).");
+                if (_vault == null) throw new BridgeError("Open your Vault first: notes are linked by their place in it.");
+                var rel = Path.GetRelativePath(_vault.Root, path);
+                if (rel.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(rel)) throw new BridgeError("That document is not in your Vault.");
+                return new { path = rel.Replace('\\', '/'), name = Path.GetFileNameWithoutExtension(path) };
+            }
             case "cal.snooze":
             {
                 var key = req.GetString("key", 120) ?? throw new BridgeError("Missing the reminder.");
@@ -168,6 +232,7 @@ public partial class MainWindow
                     [new DialogButton("Cancel", "cancel", Cancel: true), new DialogButton("Import", "import", Primary: true)]);
                 if (choice != "import") return new { cancelled = true };
                 var added = Calendar.AddMany(result.Entries);
+                BroadcastSchedule();
                 Log.Info($"Calendar: imported {added} entries from an .ics file");
                 return new { added, notes = result.Notes, file = Path.GetFileName(dlg.FileName), entries = Calendar.Entries };
             }

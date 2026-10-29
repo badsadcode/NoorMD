@@ -2221,7 +2221,7 @@
     NoorSound.init({ showError, onPlay: () => { if (NoorMusic.isPlaying()) NoorMusic.toggle(); NoorVideo.pause(); NoorRadio.stopForOther(); NoorSequencer.stopForOther(); } });
     NoorSequencer.init({ showError, onPlay: () => { if (NoorMusic.isPlaying()) NoorMusic.toggle(); NoorVideo.pause(); NoorRadio.stopForOther(); NoorSound.stopForOther(); } });
     NoorTexture.init({ showError });
-    NoorCalendar.init({ showError });
+    NoorCalendar.init({ showError, insertMarkdown: (md) => { if (!editor) return false; editor.focus(); return insertMarkdown(md); }, hasDocument: () => !!editor });
     NoorAssets.init({ showError });
     NoorStream.init({ showError });
     NoorApps.init({ showError });

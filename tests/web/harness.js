@@ -348,9 +348,10 @@ function mockHostScript(initial) {
   function streamMock(type, p) {
     const today = '2026-10-26';
     switch (type) {
-      case 'stream.status': return { server: { running: ST.running, port: ST.port, url: `http://127.0.0.1:${ST.port}/`, clients: ST.clients }, enabled: ST.running, nowPlaying: ST.np, credits: ST.cr, effects: ST.effects, templates: ST.templates, txt: ST.txt, vault: ST.vault, supportersNote: 'Stream/Supporters.md', streamsFolder: 'Streams', session: ST.session };
+      case 'stream.status': return { server: { running: ST.running, port: ST.port, url: `http://127.0.0.1:${ST.port}/`, clients: ST.clients }, enabled: ST.running, nowPlaying: ST.np, schedule: ST.sc, credits: ST.cr, effects: ST.effects, templates: ST.templates, txt: ST.txt, vault: ST.vault, supportersNote: 'Stream/Supporters.md', streamsFolder: 'Streams', session: ST.session };
       case 'stream.server': ST.running = !!p.enabled; ST.port = p.port || ST.port; return ST.running ? { running: true, url: `http://127.0.0.1:${ST.port}/` } : { running: false };
       case 'stream.np.config': ST.np = p.config; return null;
+      case 'stream.sc.config': ST.sc = p.config; ST.scSaves = (ST.scSaves || 0) + 1; return null;
       case 'stream.window': ST.windows.push({ ...p }); return { open: !p.close };
       case 'stream.track': return null;
       case 'stream.np.update': ST.updates.push(p.track); if (ST.session && p.track && p.track.playing && ST.session.last !== p.track.id) { ST.session.marks.push({ offset: ST.session.marks.length * 200, text: (p.track.artist ? p.track.artist + ' – ' : '') + p.track.title, stamp: '00:0' + ST.session.marks.length + ':00' }); ST.session.last = p.track.id; } return null;
@@ -586,11 +587,26 @@ function mockHostScript(initial) {
   }
   function calMock(type, p) {
     switch (type) {
-      case 'cal.entries': return { entries: JSON.parse(JSON.stringify(CAL.entries)), problem: CAL.problem, now: calTime(new Date()), categories: [] };
+      case 'cal.entries': return { entries: JSON.parse(JSON.stringify(CAL.entries)), problem: CAL.problem, now: calTime(new Date()), categories: [], countries: [{ code: 'GB', name: 'United Kingdom' }, { code: 'SE', name: 'Sweden' }] };
       case 'cal.range': {
         const from = calParse(p.from), to = calParse(p.to);
-        return { occurrences: CAL.entries.flatMap((e) => calOccurrences(e, from, to)).sort((a, b) => a.start.localeCompare(b.start)) };
+        CAL.ranges = (CAL.ranges || []).concat([p]);
+        // A made-up holiday the day after tomorrow, for the chosen country.
+        const hd = new Date(); hd.setHours(0, 0, 0, 0); hd.setDate(hd.getDate() + 2);
+        const holidays = p.holidays && hd >= from && hd < to ? [{ id: `hol-${calDay(hd)}-0`, date: calDay(hd), name: p.holidays === 'SE' ? 'Midsummer Day' : 'Bank holiday' }] : [];
+        return { occurrences: CAL.entries.flatMap((e) => calOccurrences(e, from, to)).sort((a, b) => a.start.localeCompare(b.start)), holidays };
       }
+      case 'cal.schedule': {
+        CAL.schedules = (CAL.schedules || []).concat([p]);
+        const from = calParse(p.week + 'T00:00');
+        const slots = CAL.entries.filter((e) => e.category === 'stream').flatMap((e) => calOccurrences(e, from, new Date(from.getTime() + 7 * 86400000)))
+          .map((o) => { const e = CAL.entries.find((x) => x.id === o.entryId); return { entryId: e.id, title: e.title, game: e.game, platform: e.platform, allDay: e.allDay, start: calParse(o.start).toISOString(), end: calParse(o.end).toISOString() }; });
+        const text = p.format === 'discord' ? `**📅 ${p.title || 'Stream schedule'}**\n` + slots.map((x) => `• <t:${Math.floor(new Date(x.start) / 1000)}:F> — **${x.title}**`).join('\n') : `${p.title || 'Stream schedule'}\n` + slots.map((x) => x.title).join('\n');
+        return { week: p.week, text, slots, zone: 'UTC+01:00' };
+      }
+      case 'cal.schedule.png': CAL.pictures = (CAL.pictures || []).concat([{ name: p.name, bytes: p.data.length, png: p.data.startsWith('data:image/png;base64,') }]); return { path: 'C:\\Users\\me\\Stream schedule.png' };
+      case 'cal.agenda': CAL.agendas = (CAL.agendas || []).concat([p]); return { markdown: `## Agenda · from ${p.from}\n\n**Today**\n- 19:00 Test entry\n` };
+      case 'cal.note.current': return { path: 'Streams/Plan.md', name: 'Plan' };
       case 'cal.save': {
         const e = JSON.parse(JSON.stringify(p.entry));
         if (!e.id) e.id = 'n' + (CAL.saves.length + 1);

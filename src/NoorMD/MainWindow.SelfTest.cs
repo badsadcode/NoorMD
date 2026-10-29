@@ -442,6 +442,10 @@ public partial class MainWindow
         var page = await http.GetStringAsync($"http://127.0.0.1:{port}/now-playing.html");
         var font = await http.GetAsync($"http://127.0.0.1:{port}/inter-ext.woff2");
         Check("OBS can load the Now Playing page and its font", page.Contains("np-render.js") && font.IsSuccessStatusCode && font.Content.Headers.ContentType?.MediaType == "font/woff2");
+        var nextPage = await http.GetStringAsync($"http://127.0.0.1:{port}/next-stream.html");
+        var weekPage = await http.GetStringAsync($"http://127.0.0.1:{port}/schedule.html");
+        var scRender = await http.GetAsync($"http://127.0.0.1:{port}/sc-render.js");
+        Check("OBS can load the Next stream and This week overlays", nextPage.Contains("sc-render.js") && weekPage.Contains("data-mode=\"week\"") && scRender.IsSuccessStatusCode);
         using (var evil = new System.Net.Sockets.TcpClient())
         {
             await evil.ConnectAsync(System.Net.IPAddress.Loopback, port);

@@ -1,6 +1,6 @@
 /* Overlay styles for OBS (transparent page) and for NoorMD's preview. */
 html:has(body.overlay), body.overlay { margin: 0; background: transparent; overflow: hidden; width: 100%; height: 100%; }
-.ovnp-stage, .cr-stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
+.ovnp-stage, .cr-stage, .ovsc-stage { position: relative; width: 100%; height: 100%; overflow: hidden; }
 
 /* ---- Now Playing */
 .ovnp { position: absolute; display: flex; align-items: center; gap: calc(14px * var(--np-scale)); font-family: var(--np-font); color: var(--np-text);
@@ -69,5 +69,39 @@ html:has(body.overlay), body.overlay { margin: 0; background: transparent; overf
 @keyframes cr-fadein { from { opacity: 0; filter: blur(4px); } to { opacity: 1; filter: none; } }
 .cr-shadow .cr-roll { text-shadow: 0 2px 8px rgba(0,0,0,.65); }
 @keyframes cr-bgmove { from { background-position: 0 0; } to { background-position: 0 100%; } }
+/* ---- Stream schedule (next stream, this week) */
+.ovsc { position: absolute; font-family: var(--sc-font); color: var(--sc-text); font-size: calc(22px * var(--sc-scale)); max-width: 46%;
+  display: flex; flex-direction: column; gap: .2em; transition: opacity .5s; }
+.ovsc.ovsc-pos-top-left { top: 4%; left: 3%; } .ovsc.ovsc-pos-top-right { top: 4%; right: 3%; text-align: right; }
+.ovsc.ovsc-pos-bottom-left { bottom: 5%; left: 3%; } .ovsc.ovsc-pos-bottom-right { bottom: 5%; right: 3%; text-align: right; }
+.ovsc.ovsc-pos-bottom-center { bottom: 5%; left: 50%; transform: translateX(-50%); text-align: center; } .ovsc.ovsc-pos-top-center { top: 4%; left: 50%; transform: translateX(-50%); text-align: center; }
+.ovsc.ovsc-hidden { opacity: 0; }
+.ovsc-label { font-size: .55em; text-transform: uppercase; letter-spacing: .16em; color: var(--sc-accent); font-weight: 700; display: flex; align-items: center; gap: .5em; }
+.ovsc-pos-top-right .ovsc-label, .ovsc-pos-bottom-right .ovsc-label { justify-content: flex-end; }
+.ovsc-title { font-weight: 800; font-size: 1.15em; line-height: 1.15; }
+.ovsc-game { font-size: .72em; opacity: .85; }
+.ovsc-when { font-size: .72em; font-weight: 600; }
+.ovsc-count { color: var(--sc-accent); }
+.ovsc-dot { width: .7em; height: .7em; border-radius: 50%; background: var(--sc-accent); box-shadow: 0 0 .6em var(--sc-accent); animation: sc-pulse 1.4s ease-in-out infinite; }
+.ovsc-week { min-width: 14em; }
+.ovsc-row { display: grid; grid-template-columns: 3.2em max-content 1fr auto; align-items: baseline; gap: .5em; font-size: .78em; padding: .22em 0; border-top: 1px solid rgba(255,255,255,.12); text-align: left; }
+.ovsc-row .ovsc-day { font-weight: 800; color: var(--sc-accent); text-transform: uppercase; font-size: .85em; letter-spacing: .06em; }
+.ovsc-row .ovsc-time { font-variant-numeric: tabular-nums; opacity: .9; }
+.ovsc-row .ovsc-what { font-weight: 700; min-width: 0; }
+.ovsc-row .ovsc-game { display: block; font-weight: 500; font-size: .82em; }
+.ovsc-row.ovsc-past { opacity: .45; }
+.ovsc-row.ovsc-today .ovsc-day { text-decoration: underline; text-underline-offset: .2em; }
+.ovsc-badge { font-size: .7em; font-weight: 800; text-transform: uppercase; background: var(--sc-accent); color: #fff; padding: .1em .5em; border-radius: 1em; }
+.ovsc-empty { font-size: .8em; opacity: .8; }
+.ovsc-design-glass { background: var(--sc-bg); padding: calc(14px * var(--sc-scale)) calc(18px * var(--sc-scale)); border-radius: var(--sc-radius); backdrop-filter: blur(14px);
+  border: 1px solid rgba(255,255,255,.14); box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.ovsc-design-lowerthird { background: linear-gradient(90deg, var(--sc-bg), transparent); padding: calc(10px * var(--sc-scale)) calc(40px * var(--sc-scale)) calc(10px * var(--sc-scale)) calc(14px * var(--sc-scale));
+  border-left: calc(6px * var(--sc-scale)) solid var(--sc-accent); }
+.ovsc-design-neon .ovsc-title, .ovsc-design-neon .ovsc-label { text-shadow: 0 0 6px var(--sc-accent), 0 0 18px var(--sc-accent); }
+.ovsc-design-neon { background: var(--sc-bg); padding: calc(12px * var(--sc-scale)) calc(16px * var(--sc-scale)); border-radius: var(--sc-radius); border: 2px solid var(--sc-accent); box-shadow: 0 0 22px var(--sc-accent); }
+.ovsc-design-minimal { text-shadow: 0 2px 6px rgba(0,0,0,.7); }
+.ovsc-live.ovsc-design-glass, .ovsc-live.ovsc-design-neon { border-color: var(--sc-accent); }
+@keyframes sc-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .ovsc-dot { animation: none; } }
 .ov-index { font-family: 'NoorOverlayInter', system-ui, sans-serif; color: #eee; background: #15121f; padding: 24px; height: auto; overflow: auto; }
 .ov-index a { color: #b19aff; }

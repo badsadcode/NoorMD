@@ -48,7 +48,7 @@ tried before the next.
 - **.ics:** import and export, with repeats, skipped days and reminders. What cannot be imported exactly is
   imported as near as possible and listed.
 
-## Stage 2 — notes, holidays and streams (preview.53)
+## Stage 2 — notes, holidays and streams (done: preview.80)
 
 - **Stream entries:** title, game or category, platform, and a short description.
 - **Stream Desk:**
@@ -59,6 +59,11 @@ tried before the next.
 - **Notes:** link an entry to a note (and open it), "Add to calendar" from a date in a note, and an agenda block
   that can be inserted into a note.
 - **Public holidays** for a chosen country, worked out by rules (no download), shown as all-day days.
+
+Done in preview.80: everything above except "Add to calendar" from a date in a note, which is still to come. 18
+countries have holidays (Easter-based ones by the Gregorian computus; UK, Irish, Australian and New Zealand
+substitute days; US observed days). The Discord text uses Discord's own time stamps, so each reader sees their own
+time; the X text stays within 280 characters. The overlays are `next-stream.html` and `schedule.html`.
 
 ## Later (only if use asks)
 

@@ -855,6 +855,9 @@ button.np-art { padding: 0; border: 0; cursor: zoom-in; }
 .sd-urls code, .sd-row code { font-size: 12px; overflow-wrap: anywhere; background: var(--surface); padding: 3px 6px; border-radius: 6px; }
 .sd-frame { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 10px; overflow: hidden; border: 1px solid var(--border);
   background: repeating-conic-gradient(#2a2a35 0% 25%, #1e1e27 0% 50%) 50% / 24px 24px; }
+.sd-frame + .sd-frame { margin-top: 10px; }
+.sd-stage { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; transform-origin: 0 0; }
+.sd-text { width: 100%; box-sizing: border-box; font: 12.5px/1.45 var(--mono, ui-monospace, Consolas, monospace); resize: vertical; margin: 6px 0; }
 .sd-colors { display: flex; gap: 8px; flex-wrap: wrap; }
 .sd-colors > span { display: inline-flex; align-items: center; gap: 2px; }
 .sd-spacer { flex: 1; }

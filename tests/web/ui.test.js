@@ -5102,6 +5102,65 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the calendar', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 64b. Calendar stage 2: public holidays, a note per entry, the agenda in a note, the stream schedule on the Stream Desk.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const CM = () => page.evaluate(() => window.__mock.state.calendar);
+      const dk = (days) => page.evaluate((n) => { const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; }, days);
+      await page.evaluate(() => { try { ['noormd.cal.view', 'noormd.cal.monday', 'noormd.cal.holidays'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+c');
+      await waitFn(page, () => NoorCalendar.isOpen() && document.querySelector('.cal-monthgrid'));
+      check('the calendar offers public holidays by country (none at first)', (await page.inputValue('#cal-holidays')) === '' && (await page.$$eval('#cal-holidays option', (o) => o.map((x) => x.value))).join() === ',GB,SE');
+      await page.selectOption('#cal-holidays', 'SE');
+      const hol = await dk(2);
+      await waitFn(page, (d) => !!document.querySelector(`.cal-day[data-day="${d}"] [data-entry^="hol-"]`), hol);
+      check('…and shows them on their days', /Midsummer Day/.test(await page.textContent(`.cal-day[data-day="${hol}"]`)) && (await CM()).ranges.at(-1).holidays === 'SE');
+      await page.click(`.cal-day[data-day="${hol}"] [data-entry^="hol-"]`);
+      await page.waitForTimeout(150);
+      check('a holiday is not edited (it says what it is)', !(await page.$('#cal-e-title')));
+      // A new entry linked to the note on screen.
+      await page.click('#cal-new');
+      await page.waitForSelector('#cal-e-title');
+      await page.fill('#cal-e-title', 'Plan the week');
+      await page.click('#cal-e-note-link');
+      await waitFn(page, () => !!document.querySelector('#cal-e-note-open'));
+      check('an entry can be linked to the note on screen', /Plan/.test(await page.textContent('#cal-e-note-open')));
+      await page.click('#cal-e-save');
+      await waitFn(page, () => !document.querySelector('#cal-e-title'));
+      check('…and keeps the link', (await CM()).saves.at(-1).note === 'Streams/Plan.md');
+      // The agenda into the document.
+      await page.click('#cal-agenda-insert');
+      await waitFn(page, () => window.__mock.state.calendar.agendas && window.__mock.state.calendar.agendas.length === 1);
+      await page.waitForTimeout(200);
+      check('the week’s agenda goes into the document', /Agenda/.test(await page.evaluate(() => NoorMD.getState().markdown || '')) || /Agenda/.test(await page.textContent('.toastui-editor-contents, .ProseMirror, body')));
+      // A weekly stream, then the Stream Desk's schedule.
+      await page.evaluate(async (start) => {
+        await NoorBridge.request('cal.save', { entry: { title: 'Friday night', category: 'stream', allDay: false, start: start + 'T19:00', end: start + 'T22:00', repeat: { freq: 'weekly', interval: 1, days: [] }, skip: [], moved: [], reminders: [], game: 'Elden Ring', platform: 'Twitch', notes: '' } });
+      }, await dk(1));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => NoorStream.open('schedule'));
+      await waitFn(page, () => !!document.querySelector('#sc-frame-week .ovsc'));
+      await waitFn(page, () => /Friday night/.test(document.querySelector('#sc-frame-week').textContent));
+      check('the Stream Desk shows the schedule overlays with the calendar’s streams', /Friday night/.test(await page.textContent('#sc-frame-next')) && /Elden Ring/.test(await page.textContent('#sc-frame-week')));
+      check('…and gives OBS the two overlay addresses', /next-stream\.html/.test(await page.textContent('#streamdesk')) && /schedule\.html/.test(await page.textContent('#streamdesk')));
+      await waitFn(page, () => /<t:\d+:F>/.test(document.querySelector('#sc-text').value));
+      check('the schedule as text for Discord (time stamps every reader sees in their own time)', /Friday night/.test(await page.inputValue('#sc-text')));
+      await page.selectOption('#sc-format', 'plain');
+      await waitFn(page, () => !/<t:/.test(document.querySelector('#sc-text').value));
+      check('…or plain', (await CM()).schedules.at(-1).format === 'plain');
+      await page.click('[data-scdesign="neon"]');
+      await waitFn(page, () => window.__mock.state.stream.sc && window.__mock.state.stream.sc.design === 'neon');
+      check('the overlay design is saved (OBS follows)', await page.$eval('#sc-frame-next .ovsc', (b) => b.classList.contains('ovsc-design-neon')));
+      await page.click('#sc-picture');
+      await waitFn(page, () => (window.__mock.state.calendar.pictures || []).length === 1);
+      const pic = (await CM()).pictures[0];
+      check('the week can be saved as a picture (a PNG drawn in the page)', pic.png && pic.bytes > 20000);
+      check('the countdown reads naturally', await page.evaluate(() => [NoorSchedule.countdown(30 * 60000), NoorSchedule.countdown(135 * 60000), NoorSchedule.countdown(3 * 86400000)].join('|')) === 'in 30 min|in 2 h 15 min|in 3 days');
+      if (shots) await page.screenshot({ path: `${shots}/64b-stream-schedule.png` });
+      check('no page errors in calendar stage 2', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65. Asset Bench: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
