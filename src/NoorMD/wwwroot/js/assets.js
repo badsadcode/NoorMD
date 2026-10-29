@@ -60,7 +60,7 @@ window.NoorAssets = (() => {
     ['cluster', 'Rock cluster (pointed rocks together)'], ['outcrop', 'Rocky outcrop (stepped blocks)'], ['stacked', 'Stacked stones (balanced)'],
     ['pillar', 'Stone pillar or spire'], ['arch', 'Natural arch'], ['scree', 'Scree patch (many small stones)']];
   const FORMATIONS = ['angular', 'cracked', 'layered', 'cluster', 'outcrop', 'stacked', 'pillar', 'arch'];
-  const ROCK_STYLES = [['realistic', 'Realistic (rough, smooth shading)'], ['stylized', 'Stylized (big facets, flat shaded)']];
+  const ROCK_STYLES = [['realistic', 'Realistic (rough, smooth shading)'], ['stylized', 'Stylized (soft painted planes)'], ['faceted', 'Faceted (crisp planes, a line of light on every edge)']];
   const ROCK_BUDGET = { stone: 150, rock: 400, boulder: 1200, angular: 1200, cracked: 1800, layered: 1600, cluster: 1800, outcrop: 2500, stacked: 1400, pillar: 1500, arch: 2500, scree: 1500 };
   const TABS = { tree: [['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']], rock: [['rock', 'Rock'], ['surface', 'Surface'], ['rmesh', 'Mesh'], ['export', 'Export']] };
 

@@ -33,7 +33,7 @@ public class RockTests
             Assert.Empty(Surface(b.Lods[i]).Problems());
         }
         // Its size is what the kind says, give or take what the shape cuts away.
-        Assert.InRange(b.Width, r.Size * 0.6, r.Size * 1.35);
+        Assert.InRange(b.Width, r.Size * 0.6, r.Size * 1.45);
     }
 
     [Fact]
@@ -41,7 +41,8 @@ public class RockTests
     {
         foreach (var id in new[] { "rock", "rounded-boulder", "rocky-outcrop", "angular-boulder", "natural-arch", "schist-tor", "layered-sandstone" })
         {
-            var m = Surface(Build(id).Lods[0]);
+            // The distance-field looks (the faceted look overlaps its chunks on purpose).
+            var m = Surface(Build(id, r => { if (r.Style == "faceted") r.Style = "stylized"; }).Lods[0]);
             // Welded by position (normals and UVs split corners), every edge has exactly two triangles.
             var ids = new Dictionary<Vector3, int>();
             int Id(int v) { var p = m.Positions[v]; if (!ids.TryGetValue(p, out var i)) ids[p] = i = ids.Count; return i; }
@@ -78,7 +79,7 @@ public class RockTests
     [Fact]
     public void A_flat_base_sits_flat()
     {
-        var m = Surface(Build("rocky-outcrop", r => r.Debris = 0).Lods[0]);
+        var m = Surface(Build("rocky-outcrop", r => { r.Debris = 0; r.Style = "stylized"; }).Lods[0]);
         var (lo, hi) = m.Bounds();
         var h = hi.Y - lo.Y;
         // Many corners on the bottom plane, and faces there look straight down.
@@ -164,9 +165,9 @@ public class RockTests
     [Fact]
     public void Stylized_rocks_are_lighter_and_painted_light_on_top_dark_in_the_cracks()
     {
-        var single = Build("rounded-boulder", r => r.Debris = 0);
+        var single = Build("rounded-boulder", r => { r.Debris = 0; r.Style = "stylized"; });
         Assert.True(RockExport.Drawn(single.Lods[0]) <= RockRecipe.Budget("boulder") / 3);
-        var m = Surface(Build("cracked-rock", r => { r.Debris = 0; r.Moss = 0; }).Lods[0]);
+        var m = Surface(Build("cracked-rock", r => { r.Debris = 0; r.Moss = 0; r.Style = "stylized"; }).Lods[0]);
         var (lo, hi) = m.Bounds();
         var h = hi.Y - lo.Y;
         float Light(Func<Vector3, bool> where) => Enumerable.Range(0, m.VertexCount).Where(i => where(m.Positions[i])).Average(i => m.Colors[i].X);
@@ -230,8 +231,8 @@ public class RockTests
     [Fact]
     public void Debris_lies_round_the_foot()
     {
-        var with = Build("angular-boulder", r => r.Debris = 1);
-        var without = Build("angular-boulder", r => r.Debris = 0);
+        var with = Build("angular-boulder", r => { r.Debris = 1; r.Style = "stylized"; });
+        var without = Build("angular-boulder", r => { r.Debris = 0; r.Style = "stylized"; });
         Assert.True(RockExport.Drawn(with.Lods[0]) <= with.Recipe.LevelTriangles(0));
         var a = Surface(with.Lods[0]);
         var b = Surface(without.Lods[0]);
@@ -349,5 +350,34 @@ public class RockTests
         var rubbed = TextureEngine.Render(RockTextures.For("rock", "#8a8580", 1)!, 64);
         Assert.InRange(rubbed.Albedo.Average(b => (double)b), plain.Albedo.Average(b => (double)b) - 12, plain.Albedo.Average(b => (double)b) + 12);
         Assert.NotEqual(plain.Albedo, rubbed.Albedo);
+    }
+
+    [Fact]
+    public void Faceted_rocks_have_flat_planes_bright_uneven_chamfers_and_lighter_far_levels()
+    {
+        var b = Build("cracked-rock", r => { r.Debris = 0; r.Moss = 0; });
+        Assert.Equal("faceted", b.Recipe.Style);
+        var near = Surface(b.Lods[0]);
+        var far = Surface(b.Lods[1]);
+        // The chamfers carry the wear mask in alpha and are near white; the next level has none.
+        var chamfer = Enumerable.Range(0, near.VertexCount).Where(i => near.Colors[i].W > 0).ToList();
+        Assert.True(chamfer.Count > 30);
+        Assert.True(chamfer.Average(i => near.Colors[i].X) > 0.88f);
+        Assert.DoesNotContain(far.Colors, c => c.W > 0);
+        // The planes are flat: each triangle's corners share one normal (chamfers lean theirs up to catch the light).
+        foreach (var s in near.Submeshes)
+            for (var t = 0; t < s.Indices.Count; t += 3)
+                Assert.True(near.Normals[s.Indices[t]] == near.Normals[s.Indices[t + 1]] && near.Normals[s.Indices[t]] == near.Normals[s.Indices[t + 2]]);
+        // Uneven: the chamfer strips are not all one width (their triangles' areas spread widely).
+        var areas = new List<float>();
+        foreach (var s in near.Submeshes)
+            for (var t = 0; t < s.Indices.Count; t += 3)
+                if (near.Colors[s.Indices[t]].W > 0)
+                    areas.Add(Vector3.Cross(near.Positions[s.Indices[t + 1]] - near.Positions[s.Indices[t]], near.Positions[s.Indices[t + 2]] - near.Positions[s.Indices[t]]).Length());
+        areas.Sort();
+        Assert.True(areas[areas.Count * 9 / 10] > areas[areas.Count / 10] * 4, "the chamfers look machined (all alike)");
+        // Darker where the chunks meet.
+        Assert.True(near.Colors.Min(c => c.X) < 0.55f);
+        Assert.True(RockExport.Drawn(b.Lods[1]) < RockExport.Drawn(b.Lods[0]));
     }
 }

@@ -8,7 +8,7 @@ namespace NoorMD.Media.Assets3D;
 /// </summary>
 public static class RockTextures
 {
-    public static readonly string[] Ids = ["rock", "granite", "sandstone", "mossy", "snowy", "painted"];
+    public static readonly string[] Ids = ["rock", "granite", "sandstone", "mossy", "snowy", "painted", "smooth"];
 
 
     private static TextureRecipe Weathered(string name, string hex, params TextureLayer[] extra) => new TextureRecipe
@@ -40,8 +40,8 @@ public static class RockTextures
         },
         Layers =
         [
-            new TextureLayer { Name = "Clumps", Type = "cells", Mode = "smooth", ScaleX = 10, ScaleY = 10, Jitter = 1 },
-            new TextureLayer { Name = "Fuzz", Type = "turbulence", ScaleX = 40, ScaleY = 40, Octaves = 3, Blend = "overlay", Opacity = 0.5 },
+            new TextureLayer { Name = "Clumps", Type = "noise", ScaleX = 6, ScaleY = 6, Octaves = 3, Low = 0.3, High = 0.7 },
+            new TextureLayer { Name = "Fuzz", Type = "turbulence", ScaleX = 40, ScaleY = 40, Octaves = 2, Blend = "overlay", Opacity = 0.25 },
         ],
     }.Clamped();
 
@@ -49,7 +49,8 @@ public static class RockTextures
     public static TextureRecipe? For(string id, string hex, double wear)
     {
         var t = For(id, hex);
-        if (t == null || wear <= 0) return t;
+        // The painted look has its wear painted in the vertex colours (and the chamfers), not in the texture.
+        if (t == null || wear <= 0 || id is "painted" or "smooth") return t;
         // Tints only (the height, and so the rock's own colours, stay as they are): ridges rubbed lighter, hollows dirtier.
         t.Layers.Add(new TextureLayer { Name = "Worn edges", Type = "curvature", ScaleX = 10, ScaleY = 10, Low = 0.55, High = 0.85, Opacity = 0, Tint = BarkTextures.Scale(hex, 1.35), TintAmount = 0.4 * wear });
         t.Layers.Add(new TextureLayer { Name = "Dirty hollows", Type = "curvature", ScaleX = 20, ScaleY = 20, Invert = true, Low = 0.5, High = 0.9, Opacity = 0, Tint = BarkTextures.Scale(hex, 0.55), TintAmount = 0.25 * wear });
@@ -95,6 +96,21 @@ public static class RockTextures
                 new TextureLayer { Name = "Grit", Type = "turbulence", ScaleX = 20, ScaleY = 20, Octaves = 3, Blend = "overlay", Opacity = 0.4 },
             ],
         }.Clamped(),
+        // Nearly the plain colour, a faint grain: for the faceted look, whose planes, chamfers and painted light do the work.
+        "smooth" => new TextureRecipe
+        {
+            Name = "Smooth stone", Family = "Stone",
+            Surface = new TextureSurface
+            {
+                Ramp = BarkTextures.Ramp((0, BarkTextures.Scale(hex, 0.93)), (1, BarkTextures.Scale(hex, 1.05))),
+                ColorVariation = 0.03, Dirt = 0.05, RoughnessLow = 0.85, RoughnessHigh = 0.75, NormalStrength = 1, AoStrength = 0.1, AoRadius = 0.04,
+            },
+            Layers =
+            [
+                new TextureLayer { Name = "Tones", Type = "noise", ScaleX = 2, ScaleY = 2, Octaves = 2, Low = 0.3, High = 0.7 },
+                new TextureLayer { Name = "Grain", Type = "noise", ScaleX = 48, ScaleY = 48, Octaves = 1, Blend = "overlay", Opacity = 0.1 },
+            ],
+        }.Clamped(),
         "painted" => new TextureRecipe
         {
             Name = "Painted rock", Family = "Stone",
@@ -106,8 +122,8 @@ public static class RockTextures
             Layers =
             [
                 // Broad soft tones (the vertex colours do the light), brush strokes across, a little grain.
-                new TextureLayer { Name = "Tones", Type = "noise", ScaleX = 2, ScaleY = 2, Octaves = 3, Low = 0.3, High = 0.7 },
-                new TextureLayer { Name = "Strokes", Type = "noise", ScaleX = 10, ScaleY = 3, Octaves = 2, Blend = "overlay", Opacity = 0.3 },
+                new TextureLayer { Name = "Tones", Type = "noise", ScaleX = 2, ScaleY = 2, Octaves = 2, Low = 0.4, High = 0.6 },
+                new TextureLayer { Name = "Strokes", Type = "noise", ScaleX = 10, ScaleY = 3, Octaves = 2, Blend = "overlay", Opacity = 0.18 },
                 new TextureLayer { Name = "Grain", Type = "noise", ScaleX = 32, ScaleY = 32, Octaves = 1, Blend = "overlay", Opacity = 0.12 },
             ],
         }.Clamped(),

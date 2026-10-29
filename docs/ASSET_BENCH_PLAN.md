@@ -465,6 +465,21 @@ wood as the full tree), files ending in `_Wood`, for your own leaves or a bare t
   the rock keeps its colours).
 - **Vertex colours:** worn edges lighter, in patches; the wear in the alpha as a mask for a shader of your own.
 
+### The faceted look (preview.79)
+
+From references of stylized game rocks (kitbashed faceted chunks with a line of light along every edge):
+
+- **Exact planes** (`RockFacets.cs`): each chunk a convex polyhedron clipped from a box (or a ball of facets when
+  round) by its chips and worn corners, so its faces are truly flat; chunks overlap as they are kitbashed, the
+  triangles buried inside other chunks left out.
+- **Hand-cut bevels:** each edge its own width, one to three cuts tilted along it so the bevel widens and narrows,
+  now and then an edge left sharp; the chamfers painted near white (each catching the light a little differently,
+  their normals leaned up), the planes a touch darker, the stone darkened where chunks meet.
+- **Levels within budget:** LOD0 bevels the biggest chunks first as far as the budget allows; LOD1 drops the bevels;
+  LOD2 drops the small chunks. Collision: neighbouring chunks' corners, ≤ 34-point hulls.
+- A **smooth stone** material (nearly the plain colour) for it; the stylized formation presets now use it, and two new
+  presets: snowy peaks and desert spires.
+
 Next for rocks: baked normal and AO maps from the dense form, dual contouring for crisper stylized edges, landform
 pieces (≤ 8,000), arches with several collision pieces placed by shape rather than slices.
 

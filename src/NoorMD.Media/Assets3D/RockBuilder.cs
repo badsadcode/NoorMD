@@ -41,6 +41,7 @@ public static partial class RockBuilder
         recipe = recipe.Clone();
         var watch = Stopwatch.StartNew();
         var build = new RockBuild { Recipe = recipe };
+        if (recipe.Style == "faceted") return BuildFaceted(recipe, options, build, watch, ct);
         var stylized = recipe.Style == "stylized";
         var levels = Math.Min(recipe.Lods, options.MaxLods ?? 3);
 
@@ -107,35 +108,7 @@ public static partial class RockBuilder
         }
         ct.ThrowIfCancellationRequested();
 
-        // Materials.
-        var rock = new Material3D { Name = "Rock", BaseColor = Color(recipe.Color), Roughness = 0.9f };
-        if (options.TextureSize > 0 && recipe.Material != "")
-        {
-            try
-            {
-                var maps = TextureEngine.Render(RockTextures.For(recipe.Material, recipe.Color, recipe.EdgeWear) ?? TexturePresets.Make(recipe.Material), options.TextureSize);
-                rock.BaseColor = Vector4.One;
-                rock.BaseColorPng = maps.Png("albedo");
-                rock.NormalPng = maps.Png("normal");
-                rock.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
-                rock.Roughness = 1;
-            }
-            catch (ArgumentException) { build.Notes.Add($"The material \"{recipe.Material}\" was not found; a plain colour is used."); }
-        }
-
-        // Snow and moss lie on the faces that look up, each its own material (so they keep their colour whatever the
-        // rock's texture): snow evenly, moss in patches.
-        var snow = new Material3D { Name = "Snow", BaseColor = Color(recipe.SnowColor), Roughness = 0.65f };
-        var moss = new Material3D { Name = "Moss", BaseColor = Color(recipe.MossColor), Roughness = 0.95f };
-        if (options.TextureSize > 0 && recipe.Moss > 0)
-        {
-            var maps = TextureEngine.Render(RockTextures.Moss(recipe.MossColor), Math.Max(TextureEngine.MinSize, options.TextureSize / 2));
-            moss.BaseColor = Vector4.One;
-            moss.BaseColorPng = maps.Png("albedo");
-            moss.NormalPng = maps.Png("normal");
-            moss.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
-            moss.Roughness = 1;
-        }
+        var (rock, snow, moss) = Materials(recipe, options, build);
         var snowIndex = recipe.Snow > 0 ? 1 : -1;
         var mossIndex = recipe.Moss > 0 ? (recipe.Snow > 0 ? 2 : 1) : -1;
         var surface = new Surface(recipe, stylized, snowIndex, mossIndex);
@@ -203,6 +176,42 @@ public static partial class RockBuilder
         build.Width = MathF.Max(bhi.X - blo.X, bhi.Z - blo.Z);
         build.Seconds = watch.Elapsed.TotalSeconds;
         return build;
+    }
+
+    /// <summary>
+    /// A rock's materials: the rock (a rock surface in its colour, or a Texture Bench preset, or a plain colour), and
+    /// snow and moss for the faces that look up, each its own material (so they keep their colour whatever the rock's
+    /// texture).
+    /// </summary>
+    private static (Material3D Rock, Material3D Snow, Material3D Moss) Materials(RockRecipe recipe, Options options, RockBuild build)
+    {
+        var rock = new Material3D { Name = "Rock", BaseColor = Color(recipe.Color), Roughness = 0.9f };
+        if (options.TextureSize > 0 && recipe.Material != "")
+        {
+            try
+            {
+                var maps = TextureEngine.Render(RockTextures.For(recipe.Material, recipe.Color, recipe.EdgeWear) ?? TexturePresets.Make(recipe.Material), options.TextureSize);
+                rock.BaseColor = Vector4.One;
+                rock.BaseColorPng = maps.Png("albedo");
+                rock.NormalPng = maps.Png("normal");
+                rock.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
+                rock.Roughness = 1;
+            }
+            catch (ArgumentException) { build.Notes.Add($"The material \"{recipe.Material}\" was not found; a plain colour is used."); }
+        }
+
+        var snow = new Material3D { Name = "Snow", BaseColor = Color(recipe.SnowColor), Roughness = 0.65f };
+        var moss = new Material3D { Name = "Moss", BaseColor = Color(recipe.MossColor), Roughness = 0.95f };
+        if (options.TextureSize > 0 && recipe.Moss > 0)
+        {
+            var maps = TextureEngine.Render(RockTextures.Moss(recipe.MossColor), Math.Max(TextureEngine.MinSize, options.TextureSize / 2));
+            moss.BaseColor = Vector4.One;
+            moss.BaseColorPng = maps.Png("albedo");
+            moss.NormalPng = maps.Png("normal");
+            moss.OcclusionRoughnessMetallicPng = maps.Packed("ao", "roughness", "metallic");
+            moss.Roughness = 1;
+        }
+        return (rock, snow, moss);
     }
 
     // ---- The shape ----

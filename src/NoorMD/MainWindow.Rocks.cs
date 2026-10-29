@@ -106,7 +106,7 @@ public partial class MainWindow
                 {
                     builtIn = RockPresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, kind = r.Kind }; }),
                     mine = UserRockPresets(),
-                    materials = new[] { new { id = "rock", name = "Weathered rock" }, new { id = "granite", name = "Granite (speckled)" }, new { id = "sandstone", name = "Sandstone (layered)" }, new { id = "mossy", name = "Mossy rock" }, new { id = "snowy", name = "Snowy rock" }, new { id = "painted", name = "Painted rock (stylized)" } }
+                    materials = new[] { new { id = "rock", name = "Weathered rock" }, new { id = "granite", name = "Granite (speckled)" }, new { id = "sandstone", name = "Sandstone (layered)" }, new { id = "mossy", name = "Mossy rock" }, new { id = "snowy", name = "Snowy rock" }, new { id = "painted", name = "Painted rock (stylized)" }, new { id = "smooth", name = "Smooth stone (faceted)" } }
                         .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Stone" or "Ground").Select(t => new { id = t.Id, name = "Texture Bench: " + t.Name })),
                 };
             case "asset.rock.preset":
