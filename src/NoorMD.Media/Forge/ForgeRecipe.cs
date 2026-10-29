@@ -44,7 +44,7 @@ public sealed class ForgeLayer
     public string Material { get; set; } = "";
     /// <summary>How many metres one tile of the material covers (projected from three sides, no seams).</summary>
     public double Scale { get; set; } = 1;
-    /// <summary>Plain layer values, and a tint over a material ("#ffffff" leaves it as it is).</summary>
+    /// <summary>Plain layer values, and a tint over a material (mid grey "#808080" leaves it as it is).</summary>
     public string Color { get; set; } = "#808080";
     public double Roughness { get; set; } = 0.7;
     public double Metallic { get; set; }

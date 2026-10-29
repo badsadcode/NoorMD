@@ -53,7 +53,9 @@ public static class ForgeCompositor
             if (!layer.Visible || layer.Opacity <= 0) continue;
             var maps = layer.Material.Length > 0 ? materials(layer.Material) : null;
             var tint = Hex(layer.Color);
-            var tinting = maps != null && layer.Color != "#ffffff" && layer.Color != "#808080";
+            // A tint over a material: mid grey leaves it as it is, a colour shifts it that way (darker, or brighter).
+            var tinting = maps != null && layer.Color != "#808080";
+            var tintScale = tint / Lin(128);
             var mask = layer.Mask;
             var scale = (float)layer.Scale;
             Parallel.For(0, n, i =>
@@ -67,7 +69,7 @@ public static class ForgeCompositor
                 if (maps != null)
                 {
                     var (alb, ro, me, tn) = Triplanar(maps, p, ng);
-                    c = tinting ? alb * tint * 2 : alb; r = ro; mt = me;
+                    c = tinting ? Vector3.Min(alb * tintScale, Vector3.One) : alb; r = ro; mt = me;
                     nw = Vector3.Normalize(ng + tn * (float)layer.NormalStrength);
                 }
                 else { c = tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; nw = ng; }

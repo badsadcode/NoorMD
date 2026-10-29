@@ -15,7 +15,7 @@ public static class ForgeSmart
             Mat("Stone", "stone-rock", 1.5),
             Plain("Dirt in the cracks", "#3a2a1a", 1, 0, new ForgeMask { Kind = "cavity", Amount = 0.45, Noise = 0.4, NoiseScale = 0.3 }),
             Plain("Worn edges", "#c8c0b0", 0.55, 0, new ForgeMask { Kind = "edges", Amount = 0.3, Noise = 0.5, NoiseScale = 0.1 }),
-            new ForgeLayer { Name = "Moss", Material = "stone-mossy", Scale = 1, Color = "#5a7a2a", Mask = new ForgeMask { Kind = "top", Amount = 0.3, Noise = 0.6, NoiseScale = 0.4 } },
+            new ForgeLayer { Name = "Moss", Material = "stone-mossy", Scale = 1, Color = "#585e3e", Mask = new ForgeMask { Kind = "top", Amount = 0.3, Noise = 0.6, NoiseScale = 0.4 } },
         ]),
         new("snowy-rock", "Snowy rock", "Grey rock, snow settled on everything facing up.", () =>
         [
