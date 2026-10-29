@@ -1612,10 +1612,20 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .cal-month { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .cal-monthhead { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; padding: 0 2px 4px; }
 .cal-monthgrid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: repeat(6, minmax(64px, 1fr)); gap: 2px; }
-.cal-day { background: var(--surface); border: 1px solid transparent; border-radius: 6px; padding: 3px 4px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; cursor: default; min-width: 0; }
+.cal-day { background: var(--surface); border: 1px solid transparent; border-radius: 6px; padding: 3px 4px; overflow: hidden; display: flex; flex-direction: column; gap: 2px; cursor: default; min-width: 0; user-select: none; }
 .cal-day.other { opacity: .5; }
 .cal-day.today .cal-daynum { background: var(--accent); color: var(--on-accent); border-radius: 999px; padding: 0 6px; }
 .cal-day.sel { border-color: var(--accent); }
+/* Days off (vacations, days off, public holidays): the whole day is tinted in the entry's colour. */
+.cal-day.off { background: color-mix(in srgb, var(--off) 22%, var(--surface)); }
+.cal-day.inrange { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent); background-image: linear-gradient(color-mix(in srgb, var(--accent) 12%, transparent), color-mix(in srgb, var(--accent) 12%, transparent)); }
+.cal-weekday.off, .cal-alldaycell.off { background: color-mix(in srgb, var(--off) 22%, transparent); border-radius: 6px; }
+.cal-col.off { background: color-mix(in srgb, var(--off) 9%, transparent); }
+.cal-weekday.inrange { box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent); }
+.cal-offbar { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; font-size: 12.5px; color: var(--muted); margin-bottom: 6px; }
+.cal-offbar:empty { display: none; }
+.cal-offrange { color: var(--text); font-weight: 600; }
+.cal-offyear { margin-left: auto; }
 .cal-daynum { font-size: 12px; font-weight: 650; align-self: flex-start; }
 .cal-chip { display: block; width: 100%; text-align: left; border: 0; border-left: 3px solid var(--c); border-radius: 4px; background: color-mix(in srgb, var(--c) 16%, transparent); color: var(--text); font: inherit; font-size: 11px; padding: 1px 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .cal-chip.allday { background: color-mix(in srgb, var(--c) 38%, transparent); }

@@ -594,7 +594,16 @@ function mockHostScript(initial) {
         // A made-up holiday the day after tomorrow, for the chosen country.
         const hd = new Date(); hd.setHours(0, 0, 0, 0); hd.setDate(hd.getDate() + 2);
         const holidays = p.holidays && hd >= from && hd < to ? [{ id: `hol-${calDay(hd)}-0`, date: calDay(hd), name: p.holidays === 'SE' ? 'Midsummer Day' : 'Bank holiday' }] : [];
-        return { occurrences: CAL.entries.flatMap((e) => calOccurrences(e, from, to)).sort((a, b) => a.start.localeCompare(b.start)), holidays };
+        // Work days taken by days off in the year (Monday to Friday; the mock has no public holidays in it).
+        let daysOff = null;
+        if (p.year) {
+          const y0 = new Date(p.year, 0, 1), y1 = new Date(p.year + 1, 0, 1), days = new Set();
+          for (const e of CAL.entries.filter((x) => x.category === 'holiday')) for (const o of calOccurrences(e, y0, y1)) {
+            for (let d = calParse(o.start); d < calParse(o.end); d = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 1)) if (d >= y0 && d < y1 && d.getDay() % 6 !== 0) days.add(calDay(d));
+          }
+          daysOff = { year: p.year, workDays: days.size };
+        }
+        return { occurrences: CAL.entries.flatMap((e) => calOccurrences(e, from, to)).sort((a, b) => a.start.localeCompare(b.start)), holidays, daysOff };
       }
       case 'cal.schedule': {
         CAL.schedules = (CAL.schedules || []).concat([p]);

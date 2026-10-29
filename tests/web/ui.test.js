@@ -5161,6 +5161,61 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 64c. Calendar: days off (a vacation planner): drag across days, mark them off, the days are tinted, work days counted.
+    {
+      const { page, errors } = await open(browser, url, {}, { width: 1400, height: 950 });
+      const CM = () => page.evaluate(() => window.__mock.state.calendar);
+      const day = (n) => page.evaluate((d) => { const t = new Date(); return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; }, n);
+      await page.evaluate(() => { try { ['noormd.cal.view', 'noormd.cal.monday', 'noormd.cal.holidays'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+c');
+      await waitFn(page, () => NoorCalendar.isOpen() && document.querySelector('.cal-monthgrid'));
+      const [d10, d11, d12, d13, d14] = [await day(10), await day(11), await day(12), await day(13), await day(14)];
+      const centre = async (d) => { const b = await page.locator(`.cal-day[data-day="${d}"]`).boundingBox(); return [b.x + b.width / 2, b.y + b.height - 8]; };
+      // Drag from the 10th to the 14th.
+      let [x, y] = await centre(d10);
+      await page.mouse.move(x, y); await page.mouse.down();
+      [x, y] = await centre(d12); await page.mouse.move(x, y, { steps: 3 });
+      [x, y] = await centre(d14); await page.mouse.move(x, y, { steps: 3 });
+      await page.mouse.up();
+      await waitFn(page, () => !!document.querySelector('#cal-offrange'));
+      check('dragging across the month chooses several days', (await page.$$eval('.cal-day.inrange', (c) => c.map((x) => x.dataset.day))).join() === [d10, d11, d12, d13, d14].join() && /5 days/.test(await page.textContent('#cal-offrange')));
+      await page.click('#cal-off');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 1);
+      const saved = (await CM()).saves[0];
+      check('“Day off” marks them as one vacation (all day, the holiday / day off kind)', saved.category === 'holiday' && saved.allDay && saved.start === d10 && saved.end === d14 && saved.title === 'Vacation');
+      await waitFn(page, (d) => document.querySelector(`.cal-day[data-day="${d}"]`).classList.contains('off'), d12);
+      check('the days off are tinted in their colour', (await page.$$eval('.cal-day.off', (c) => c.map((x) => x.dataset.day))).join() === [d10, d11, d12, d13, d14].join()
+        && await page.$eval(`.cal-day[data-day="${d12}"]`, (c) => getComputedStyle(c).backgroundColor !== getComputedStyle(document.querySelector('.cal-day:not(.off)')).backgroundColor));
+      const workDays = await page.evaluate((ds) => ds.filter((k) => { const [y, m, d] = k.split('-').map(Number); return new Date(y, m - 1, d).getDay() % 6 !== 0; }).length, [d10, d11, d12, d13, d14]);
+      check('the year’s work days off are counted', new RegExp(`: ${workDays} work day`).test(await page.textContent('#cal-offyear')));
+      if (shots) await page.screenshot({ path: `${shots}/64c-days-off.png` });
+      // One day in the middle back to work: the vacation is split in two.
+      await page.click(`.cal-day[data-day="${d12}"] .cal-daynum`);
+      check('on a day off the button offers to undo it', /Not off/.test(await page.textContent('#cal-off')));
+      await page.keyboard.press('o');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 3);
+      const parts = (await CM()).entries.filter((e) => e.category === 'holiday').map((e) => `${e.start}..${e.end}`).sort();
+      check('O makes a day off a work day again (the vacation around it is split)', parts.join() === `${d10}..${d11},${d13}..${d14}`, parts);
+      // Shift+click a range over both parts: Not off removes them.
+      await page.click(`.cal-day[data-day="${d10}"] .cal-daynum`);
+      await page.click(`.cal-day[data-day="${d14}"] .cal-daynum`, { modifiers: ['Shift'] });
+      await waitFn(page, () => !!document.querySelector('#cal-offrange'));
+      check('Shift+click chooses a range too', /5 days/.test(await page.textContent('#cal-offrange')));
+      check('…with a work day in it, the button marks days off', /Day off/.test(await page.textContent('#cal-off')));
+      await page.click('#cal-off');
+      await waitFn(page, () => window.__mock.state.calendar.saves.length === 4);
+      await waitFn(page, (d) => document.querySelector(`.cal-day[data-day="${d}"]`).classList.contains('off'), d12);
+      await page.click(`.cal-day[data-day="${d10}"] .cal-daynum`);
+      await page.click(`.cal-day[data-day="${d14}"] .cal-daynum`, { modifiers: ['Shift'] });
+      await waitFn(page, () => /Not off/.test(document.querySelector('#cal-off').textContent));
+      await page.click('#cal-off');
+      await waitFn(page, () => !window.__mock.state.calendar.entries.some((e) => e.category === 'holiday'));
+      await waitFn(page, () => !document.querySelector('.cal-day.off'));
+      check('“Not off” over them all makes every day a work day again', (await CM()).deletes.length === 3);
+      check('no page errors with days off', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65. Asset Bench: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

@@ -42,7 +42,8 @@ first, and anything that conflicts with it waits.
 - Calendar, stage 1 (entries, repeats, birthdays with ages, reminders in the app and near the clock, month, week
   and agenda views, search, .ics import and export): preview.52. Stage 2 (note links and agenda blocks, public
   holidays for 18 countries, "Next stream" and "This week" OBS overlays, the schedule as Discord, X or plain text and
-  as a picture): preview.80. See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
+  as a picture): preview.80. Days off (a vacation planner: drag across days, tinted days, work days counted):
+  preview.82. See [CALENDAR_PLAN.md](CALENDAR_PLAN.md).
 - Asset Bench, stage 1 (trees: skeleton growth, welded implicit wood with collars and root flare, merged, separate
   or mixed branches, leaf cards, clumps, wind data, levels of detail, GLB export checked by the Khronos validator,
   the 3D preview): preview.53. Next: stage 2 (rocks, realistic to hyper-realistic and stylized). See

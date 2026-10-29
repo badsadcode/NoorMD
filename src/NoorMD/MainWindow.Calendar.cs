@@ -147,7 +147,15 @@ public partial class MainWindow
                 // Public holidays of the chosen country, worked out for the range (not saved: shown, not edited).
                 var country = req.GetString("holidays", 4) ?? "";
                 var holidays = Holidays.Between(country, from, to).Select((h, i) => new { id = $"hol-{CalendarTime.Day(h.Date)}-{i}", date = CalendarTime.Day(h.Date), name = h.Name });
-                return new { occurrences = occ.Take(20_000).Select(OccurrenceForPage), holidays };
+                // Days off: how many work days the year's vacations and days off take (public holidays don't count).
+                object? daysOff = null;
+                if (p.TryGetProperty("year", out var yv) && yv.ValueKind == JsonValueKind.Number && yv.TryGetInt32(out var year) && year is >= 1900 and <= 2200)
+                {
+                    var y0 = new DateTime(year, 1, 1);
+                    var used = await Task.Run(() => DaysOff.WorkDays(Calendar.Entries, y0, y0.AddYears(1), Holidays.Between(country, y0, y0.AddYears(1))));
+                    daysOff = new { year, workDays = used };
+                }
+                return new { occurrences = occ.Take(20_000).Select(OccurrenceForPage), holidays, daysOff };
             }
             case "cal.save":
                 try { var saved = Calendar.Upsert(EntryFrom(p)); BroadcastSchedule(); return new { entry = saved }; }

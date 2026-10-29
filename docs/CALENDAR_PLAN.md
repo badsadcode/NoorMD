@@ -65,6 +65,17 @@ countries have holidays (Easter-based ones by the Gregorian computus; UK, Irish,
 substitute days; US observed days). The Discord text uses Discord's own time stamps, so each reader sees their own
 time; the X text stays within 280 characters. The overlays are `next-stream.html` and `schedule.html`.
 
+## Days off — a vacation planner (preview.82)
+
+- Choose days by dragging across the month (or Shift+click, or Shift+click in the week's header), then **🌴 Day off**
+  (or O): they become one all-day "Holiday / day off" entry ("Vacation" for several days, "Day off" for one).
+- Days off — and public holidays — tint the whole day cell (the month, and the week's header, all-day row and
+  column) in the entry's colour.
+- On days that are all off the button reads **Not off**: vacations inside the range go, ones across its edges are cut,
+  one around it is split in two, and a repeating day off skips those days.
+- The bar above the month says how many days and work days are chosen, and how many work days the year's days off
+  take (Monday to Friday, public holidays of the chosen country not counted).
+
 ## Later (only if use asks)
 
 - Reminders while NoorMD is closed (an optional helper that starts with Windows).

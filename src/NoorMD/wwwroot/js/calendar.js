@@ -30,6 +30,10 @@ window.NoorCalendar = (() => {
   let countries = [];
   let cursor = startOfDay(new Date()); // the day the view is around
   let selected = startOfDay(new Date());
+  // A few days chosen together (drag across the month, or Shift+click): from `selected` to `rangeEnd`, for days off.
+  let rangeEnd = null;
+  let drag = null; // { anchor, moved } while the mouse is held on the month
+  let daysOff = null; // { year, workDays } for the year on screen
   let occurrences = [];
   let search = '';
   let loadGen = 0;
@@ -116,8 +120,9 @@ window.NoorCalendar = (() => {
     const gen = ++loadGen;
     const [from, to] = range();
     try {
-      const r = await req('cal.range', { from: dayKey(from), to: dayKey(to), holidays: holidayCountry || undefined });
+      const r = await req('cal.range', { from: dayKey(from), to: dayKey(to), holidays: holidayCountry || undefined, year: cursor.getFullYear() });
       if (gen !== loadGen) return;
+      daysOff = r.daysOff || null;
       // Holidays as read-only all-day entries of their own.
       for (const id of [...byId.keys()]) if (id.startsWith('hol-')) byId.delete(id);
       const country = (countries.find((c) => c.code === holidayCountry) || {}).name || holidayCountry;
@@ -155,9 +160,11 @@ window.NoorCalendar = (() => {
         el('input', { type: 'search', id: 'cal-search', placeholder: 'Search', 'aria-label': 'Search the calendar', spellcheck: 'false' }),
         el('div', { class: 'cal-views', role: 'tablist' }, ...[['month', 'Month'], ['week', 'Week'], ['agenda', 'Agenda']].map(([id, label]) =>
           el('button', { role: 'tab', 'data-view': id, class: 'utility-btn', onclick: () => setView(id) }, label))),
+        el('button', { class: 'action', id: 'cal-off', title: 'Mark the selected days as days off, or not off again (O). Drag across the month or Shift+click to choose several days.', onclick: toggleOff }, '🌴 Day off'),
         el('button', { class: 'action primary', id: 'cal-new', title: 'A new entry on the selected day (N)', onclick: () => newEntry(selected) }, '＋ New')),
       el('div', { class: 'cal-body', id: 'cal-body' }));
     ($('#app') || document.body).append(root);
+    document.addEventListener('mouseup', () => { if (!drag) return; const moved = drag.moved; drag = null; if (moved) { dragEnded = true; setTimeout(() => { dragEnded = false; }); render(); } });
     $('#cal-holidays').addEventListener('change', (e) => {
       holidayCountry = e.target.value;
       try { localStorage.setItem('noormd.cal.holidays', holidayCountry); } catch { /* private storage off */ }
@@ -180,6 +187,7 @@ window.NoorCalendar = (() => {
     else if (e.key === 'PageDown') { e.preventDefault(); step(1); }
     else if (k === 't' && !e.ctrlKey && !e.altKey) { e.preventDefault(); cursor = selected = startOfDay(new Date()); refresh(); }
     else if (k === 'n' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newEntry(selected); }
+    else if (k === 'o' && !e.ctrlKey && !e.altKey) { e.preventDefault(); toggleOff(); }
     else if (k === 'm' && !e.ctrlKey && !e.altKey) setView('month');
     else if (k === 'w' && !e.ctrlKey && !e.altKey) setView('week');
     else if (k === 'a' && !e.ctrlKey && !e.altKey) setView('agenda');
@@ -194,6 +202,7 @@ window.NoorCalendar = (() => {
   }
 
   function step(dir) {
+    rangeEnd = null;
     if (view === 'month') cursor = new Date(cursor.getFullYear(), cursor.getMonth() + dir, 1);
     else if (view === 'week') cursor = addDays(cursor, 7 * dir);
     else cursor = addDays(cursor, 30 * dir);
@@ -236,8 +245,92 @@ window.NoorCalendar = (() => {
       : view === 'week' ? `${fmt(from, { day: 'numeric', month: 'short' })} – ${fmt(addDays(to, -1), { day: 'numeric', month: 'short', year: 'numeric' })}`
         : search ? `Search: “${search}”` : `From ${fmt(cursor, { day: 'numeric', month: 'long' })}`;
     const body = $('#cal-body');
-    body.replaceChildren(nextStrip(), view === 'month' ? monthView(from) : view === 'week' ? weekView(from) : agendaView());
+    body.replaceChildren(nextStrip(), offBar(), view === 'month' ? monthView(from) : view === 'week' ? weekView(from) : agendaView());
     if (view === 'week') { const g = body.querySelector('.cal-weekgrid'); if (g) g.scrollTop = 8 * 44; }
+  }
+
+  // ---------------------------------------------------------------- days off (vacation planner)
+
+  /** The chosen days: [first, last] (one day when nothing more is chosen). */
+  function chosen() {
+    if (!rangeEnd || sameDay(rangeEnd, selected)) return [selected, selected];
+    return selected < rangeEnd ? [selected, rangeEnd] : [rangeEnd, selected];
+  }
+  const daysIn = (a, b) => { const out = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
+  const isOffEntry = (e) => e && e.category === 'holiday';
+  /** The off entry that colours a day (a vacation or day off, or a public holiday), or null. */
+  function offOn(day) {
+    const o = dayOccurrences(day).find((x) => x.allDay && isOffEntry(byId.get(x.entryId)));
+    return o ? byId.get(o.entryId) : null;
+  }
+  const publicHoliday = (day) => occurrences.some((o) => o.holiday && sameDay(o.s, day));
+  const isWorkDay = (d) => d.getDay() !== 0 && d.getDay() !== 6 && !publicHoliday(d);
+
+  function offBar() {
+    if (view === 'agenda') return el('span', { hidden: true });
+    const [a, b] = chosen();
+    const days = daysIn(a, b);
+    const work = days.filter(isWorkDay).length;
+    const span = sameDay(a, b) ? fmt(a, { weekday: 'short', day: 'numeric', month: 'short' }) : `${fmt(a, { day: 'numeric', month: 'short' })} – ${fmt(b, { day: 'numeric', month: 'short' })}`;
+    const allOff = days.every((d) => { const e = offOn(d); return e && !e.readOnly; });
+    const btn = $('#cal-off');
+    if (btn) btn.textContent = allOff ? '🌴 Not off' : '🌴 Day off';
+    return el('div', { class: 'cal-offbar', id: 'cal-offbar' },
+      days.length > 1 ? el('span', { class: 'cal-offrange', id: 'cal-offrange', text: `${span} · ${days.length} days, ${work} work day${work === 1 ? '' : 's'}` }) : null,
+      days.length > 1 ? el('button', { class: 'cal-link', id: 'cal-offclear', onclick: () => { rangeEnd = null; render(); } }, 'Clear') : null,
+      daysOff ? el('span', { class: 'cal-offyear', id: 'cal-offyear', title: 'Work days (Monday to Friday) taken by vacations and days off; public holidays are not counted', text: `🌴 ${daysOff.year}: ${daysOff.workDays} work day${daysOff.workDays === 1 ? '' : 's'} off` }) : null);
+  }
+
+  /** Marks the chosen days as days off — or, when they all are already, makes them work days again. */
+  async function toggleOff() {
+    const [a, b] = chosen();
+    const days = daysIn(a, b);
+    const allOff = days.every((d) => { const e = offOn(d); return e && !e.readOnly; });
+    try {
+      if (allOff) await unmarkOff(a, b);
+      else {
+        const entry = {
+          id: '', title: days.length > 1 ? 'Vacation' : 'Day off', notes: '', category: 'holiday', color: '', allDay: true,
+          start: dayKey(a), end: dayKey(b), repeat: null, skip: [], moved: [], reminders: [], sinceYear: null, note: null, game: null, platform: null,
+        };
+        const r = await req('cal.save', { entry });
+        setEntries(entries.concat([r.entry]));
+        const work = days.filter(isWorkDay).length;
+        notice(`🌴 ${r.entry.title}: ${days.length} day${days.length === 1 ? '' : 's'} off (${work} work day${work === 1 ? '' : 's'}). Click it to rename.`, 2600);
+      }
+      rangeEnd = null;
+      await refresh();
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** The days a..b are not off any more: vacations inside go, ones across the edges are cut (or split in two). */
+  async function unmarkOff(a, b) {
+    for (const e of entries.filter((x) => isOffEntry(x))) {
+      if (e.repeat) {
+        // A repeating day off: leave out its days in the range.
+        const dates = occurrences.filter((o) => o.entryId === e.id && o.s <= b && o.e > a).map((o) => o.date);
+        if (!dates.length) continue;
+        const r = await req('cal.save', { entry: { ...clone(e), skip: [...new Set([...(e.skip || []), ...dates])] } });
+        setEntries(entries.filter((x) => x.id !== e.id).concat([r.entry]));
+        continue;
+      }
+      const s0 = startOfDay(parse(e.start)), e0 = startOfDay(parse(e.end));
+      if (e0 < a || s0 > b) continue;
+      if (s0 >= a && e0 <= b) {
+        await req('cal.delete', { id: e.id });
+        setEntries(entries.filter((x) => x.id !== e.id));
+        continue;
+      }
+      const keep = [];
+      if (s0 < a) keep.push({ ...clone(e), end: dayKey(addDays(a, -1)) });
+      if (e0 > b) keep.push({ ...clone(e), id: s0 < a ? '' : e.id, start: dayKey(addDays(b, 1)) });
+      for (const k of keep) {
+        if (!e.allDay) { k.allDay = true; k.start = k.start.slice(0, 10); k.end = k.end.slice(0, 10); }
+        const r = await req('cal.save', { entry: k });
+        setEntries(entries.filter((x) => x.id !== r.entry.id).concat([r.entry]));
+      }
+    }
+    notice('Those days are work days again', 1600);
   }
 
   /** "Today: 2 entries · Next: Ola's birthday on Friday" — at the top of every view. */
@@ -271,17 +364,37 @@ window.NoorCalendar = (() => {
     return occurrences.filter((o) => o.s < next && o.e > day && (o.e > o.s || sameDay(o.s, day)));
   }
 
+  // Keys (N, O, T…) keep working after a click: the redrawn month gets the focus back on the chosen day.
+  const focusSelected = () => { const c = document.querySelector('#calendar .cal-day.sel'); if (c) c.focus({ preventScroll: true }); };
+  let dragEnded = false; // true only until the click that ends a drag has gone by
+  const justDragged = () => dragEnded;
   function monthView(from) {
     const today = startOfDay(new Date());
+    const [ra, rb] = chosen();
     const head = el('div', { class: 'cal-monthhead' }, ...weekdayNames().map((n) => el('span', { text: n })));
     const cells = Array.from({ length: 42 }, (_, i) => {
       const day = addDays(from, i);
       const list = dayOccurrences(day);
       const more = list.length > 3 ? list.length - 3 : 0;
+      const off = offOn(day);
+      const inRange = rangeEnd && day >= ra && day <= rb;
       return el('div', {
-        class: 'cal-day' + (day.getMonth() !== cursor.getMonth() ? ' other' : '') + (sameDay(day, today) ? ' today' : '') + (sameDay(day, selected) ? ' sel' : ''),
-        'data-day': dayKey(day), role: 'gridcell', tabindex: sameDay(day, selected) ? '0' : '-1', 'aria-label': fmt(day, { weekday: 'long', day: 'numeric', month: 'long' }) + (list.length ? `, ${list.length} entr${list.length === 1 ? 'y' : 'ies'}` : ''),
-        onclick: () => { selected = day; render(); },
+        class: 'cal-day' + (day.getMonth() !== cursor.getMonth() ? ' other' : '') + (sameDay(day, today) ? ' today' : '') + (sameDay(day, selected) ? ' sel' : '') + (off ? ' off' : '') + (inRange ? ' inrange' : ''),
+        style: off ? `--off:${colorOf(off)}` : null,
+        'data-day': dayKey(day), role: 'gridcell', tabindex: sameDay(day, selected) ? '0' : '-1', 'aria-selected': inRange ? 'true' : null,
+        'aria-label': fmt(day, { weekday: 'long', day: 'numeric', month: 'long' }) + (off ? `, ${off.readOnly ? off.title : 'day off'}` : '') + (list.length ? `, ${list.length} entr${list.length === 1 ? 'y' : 'ies'}` : ''),
+        onmousedown: (ev) => { if (ev.button !== 0 || ev.shiftKey || ev.target.closest('.cal-chip, .cal-more')) return; drag = { anchor: day, moved: false }; },
+        onmouseenter: () => {
+          if (!drag || sameDay(drag.anchor, day) && !drag.moved) return;
+          drag.moved = true; selected = drag.anchor; rangeEnd = day;
+          const [a, b] = chosen();
+          document.querySelectorAll('#calendar .cal-day').forEach((c) => { const d = parse(c.dataset.day); c.classList.toggle('inrange', d >= a && d <= b); });
+        },
+        onclick: (ev) => {
+          if (ev.shiftKey) { ev.preventDefault(); rangeEnd = day; render(); focusSelected(); return; }
+          if (justDragged()) return; // the end of a drag across days, not a click
+          selected = day; rangeEnd = null; render(); focusSelected();
+        },
         ondblclick: () => newEntry(day),
       }, el('span', { class: 'cal-daynum', text: String(day.getDate()) }),
       ...list.slice(0, 3).map((o) => chip(o, true)),
@@ -293,13 +406,17 @@ window.NoorCalendar = (() => {
   function weekView(from) {
     const days = Array.from({ length: 7 }, (_, i) => addDays(from, i));
     const today = startOfDay(new Date());
-    const head = el('div', { class: 'cal-weekhead' }, el('span'), ...days.map((d) => el('button', { class: 'cal-weekday' + (sameDay(d, today) ? ' today' : '') + (sameDay(d, selected) ? ' sel' : ''), onclick: () => { selected = d; render(); } },
+    const [ra, rb] = chosen();
+    const offStyle = (d) => { const off = offOn(d); return off ? `--off:${colorOf(off)}` : null; };
+    const head = el('div', { class: 'cal-weekhead' }, el('span'), ...days.map((d) => el('button', {
+      class: 'cal-weekday' + (sameDay(d, today) ? ' today' : '') + (sameDay(d, selected) ? ' sel' : '') + (offOn(d) ? ' off' : '') + (rangeEnd && d >= ra && d <= rb ? ' inrange' : ''), style: offStyle(d), 'data-day': dayKey(d),
+      onclick: (ev) => { if (ev.shiftKey) rangeEnd = d; else { selected = d; rangeEnd = null; } render(); } },
       el('small', { text: fmt(d, { weekday: 'short' }) }), el('strong', { text: String(d.getDate()) }))));
     const allDay = el('div', { class: 'cal-alldayrow' }, el('span', { class: 'cal-hourlabel', text: 'all day' }),
-      ...days.map((d) => el('div', { class: 'cal-alldaycell', ondblclick: () => newEntry(d, true) }, ...dayOccurrences(d).filter((o) => o.allDay).map((o) => chip(o)))));
+      ...days.map((d) => el('div', { class: 'cal-alldaycell' + (offOn(d) ? ' off' : ''), style: offStyle(d), ondblclick: () => newEntry(d, true) }, ...dayOccurrences(d).filter((o) => o.allDay).map((o) => chip(o)))));
     const hours = el('div', { class: 'cal-hours' }, ...Array.from({ length: 24 }, (_, h) => el('div', { class: 'cal-hourlabel', text: fmt(new Date(2024, 0, 1, h), { hour: 'numeric' }) })));
     const cols = days.map((d) => {
-      const col = el('div', { class: 'cal-col', 'data-day': dayKey(d) }, ...Array.from({ length: 24 }, (_, h) => el('div', { class: 'cal-slot', 'data-hour': String(h), ondblclick: () => newEntry(new Date(d.getFullYear(), d.getMonth(), d.getDate(), h)) })));
+      const col = el('div', { class: 'cal-col' + (offOn(d) ? ' off' : ''), style: offStyle(d), 'data-day': dayKey(d) }, ...Array.from({ length: 24 }, (_, h) => el('div', { class: 'cal-slot', 'data-hour': String(h), ondblclick: () => newEntry(new Date(d.getFullYear(), d.getMonth(), d.getDate(), h)) })));
       // Timed occurrences that touch this day, side by side when they overlap.
       const timed = dayOccurrences(d).filter((o) => !o.allDay).sort((a, b) => a.s - b.s);
       const lanes = [];
@@ -655,6 +772,6 @@ window.NoorCalendar = (() => {
 
   return {
     init, open, close, toggle, isOpen,
-    _state: () => ({ view, cursor: dayKey(cursor), selected: dayKey(selected), entries: clone(entries), occurrences: occurrences.map((o) => ({ entryId: o.entryId, date: o.date, start: o.start, end: o.end, allDay: o.allDay, age: o.age })), cards: [...cards.keys()], search, lastDeleted: lastDeleted ? lastDeleted.id : null, weekStartsMonday }),
+    _state: () => ({ view, cursor: dayKey(cursor), selected: dayKey(selected), entries: clone(entries), occurrences: occurrences.map((o) => ({ entryId: o.entryId, date: o.date, start: o.start, end: o.end, allDay: o.allDay, age: o.age })), cards: [...cards.keys()], search, lastDeleted: lastDeleted ? lastDeleted.id : null, weekStartsMonday, rangeEnd: rangeEnd ? dayKey(rangeEnd) : null, daysOff }),
   };
 })();
