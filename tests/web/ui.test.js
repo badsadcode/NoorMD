@@ -4698,6 +4698,25 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !NoorSequencer._state().playing);
       await page.waitForTimeout(600);
       check('Stop stops it for good (a re-render still due doesn\'t start it again), and the button says Play', !(await SQ()).playing && (await page.textContent('#seq-play')) === '▶');
+      // Edits while the song plays: the new render takes over at the same spot, the music never starts again from the top.
+      await page.evaluate(() => { window.__mock.state.seq.longAudio = true; });
+      if ((await SQ()).loopMode) await page.click('#seq-loop');
+      await page.click('#seq-play');
+      await waitFn(page, () => NoorSequencer._state().playing && NoorSequencer._state().time > 1.5, null, { timeout: 8000 });
+      const srcBefore = (await SQ()).src;
+      for (let k = 0; k < 2; k++) {
+        const n0 = (await M()).renders.length;
+        await page.click('#seq-grid .seq-ms[aria-label^="Mute"], #seq-grid .seq-ms[aria-label^="Unmute"]');
+        await waitFn(page, (n) => window.__mock.state.seq.renders.length > n, n0);
+        await page.waitForTimeout(120);
+      }
+      const before = (await SQ()).time;
+      await waitFn(page, (src) => NoorSequencer._state().src !== src && NoorSequencer._state().playing, srcBefore, { timeout: 8000 });
+      const after = await SQ();
+      check('an edit while the song plays carries on from the same spot (no restart)', after.playing && after.time >= before - 0.1 && after.time > 1.4, { before, after: after.time });
+      await page.click('#seq-play');
+      await waitFn(page, () => !NoorSequencer._state().playing);
+      await page.evaluate(() => { window.__mock.state.seq.longAudio = false; });
       // Export and save.
       await page.click('#seqbench .sb-tabs [data-tab="song"]');
       await page.check('#seq-part-midi');

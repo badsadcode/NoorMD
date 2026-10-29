@@ -15,11 +15,21 @@ const MEDIA_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio
 const MAX_CHUNK = 2 * 1024 * 1024; // same as NoorMD.Media.MediaResponse
 const mediaLog = [];
 
+// Media 9: 30 seconds of quiet (8 kHz, 16-bit mono WAV), for listening that must last (a song kept playing while edited).
+let longWav = null;
+function makeLongWav() {
+  const rate = 8000, n = rate * 30, b = Buffer.alloc(44 + n * 2);
+  b.write('RIFF', 0); b.writeUInt32LE(36 + n * 2, 4); b.write('WAVEfmt ', 8); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20); b.writeUInt16LE(1, 22);
+  b.writeUInt32LE(rate, 24); b.writeUInt32LE(rate * 2, 28); b.writeUInt16LE(2, 32); b.writeUInt16LE(16, 34); b.write('data', 36); b.writeUInt32LE(n * 2, 40);
+  for (let i = 0; i < n; i++) b.writeInt16LE(Math.round(Math.sin(i / 20) * 300), 44 + i * 2);
+  return b;
+}
+
 function serveMedia(id, req, res, video) {
-  const name = video ? (id === 4 ? 'dual-audio.webm' : 'clip.webm') : MEDIA[id]; // video 4 has two audio tracks
+  const name = video ? (id === 4 ? 'dual-audio.webm' : 'clip.webm') : id === 9 ? 'long.wav' : MEDIA[id]; // video 4 has two audio tracks
   if (!name) { res.writeHead(404); res.end(); return; }
   const file = path.join(FIXTURES, name);
-  const data = fs.readFileSync(file);
+  const data = id === 9 && !video ? (longWav = longWav || makeLongWav()) : fs.readFileSync(file);
   const type = MEDIA_TYPES[path.extname(file)];
   const range = req.headers.range;
   mediaLog.push({ id, range: range || null });
@@ -671,7 +681,7 @@ function mockHostScript(initial) {
         SEQ.renders.push(JSON.parse(JSON.stringify(p)));
         const barSeconds = 60 / p.song.tempo * p.song.beatsPerBar;
         const from = p.loop ? p.song.loopStart : p.fromBar || 0, to = p.loop ? p.song.loopEnd : p.song.bars;
-        return { url: '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, layer: p.layer || null, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
+        return { url: SEQ.longAudio ? `/_media/9?r=${SEQ.renders.length}` : '/_media/4', seconds: (to - from) * barSeconds, fromBar: from, toBar: to, barSeconds, loop: !!p.loop, cut: false, layer: p.layer || null, peakDb: -3.2, warnings: p.song.tracks.some((t) => t.kind === 'sample' && !t.instrument.path) ? ['“Sample”: its sample is missing or can\'t be read'] : [] };
       }
       case 'seq.transition': SEQ.transitions = (SEQ.transitions || []).concat([{ from: p.from, to: p.to, fadeBars: p.fadeBars }]); return { url: '/_media/4', seconds: 17.1, switchAt: 8.6, barSeconds: 2.1 };
       case 'seq.loopcheck': SEQ.loopchecks = (SEQ.loopchecks || []).concat([{ layer: p.layer || null }]); return { seconds: 8.571, seamJump: 0.4, tailPercent: 6.2, startDb: -18.5, endDb: -19.1, checks: p.layer === 'L1' ? [] : ['The start and the end differ by 7 dB: the loop may sound like it restarts'], seamUrl: '/_media/4', seamAt: 2 };

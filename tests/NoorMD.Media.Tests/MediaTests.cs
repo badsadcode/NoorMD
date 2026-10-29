@@ -501,6 +501,20 @@ public class PlaylistFileAndRangeTests
 public class MediaResponseTests
 {
     [Fact]
+    public void Audio_in_memory_is_served_in_ranges_for_seeking()
+    {
+        var data = Enumerable.Range(0, 5000).Select(i => (byte)i).ToArray();
+        var all = MediaResponse.FromBytes(data, null, "audio/wav");
+        Assert.Equal(200, all.Status);
+        Assert.Contains("Accept-Ranges: bytes", all.Headers);
+        var part = MediaResponse.FromBytes(data, "bytes=1000-1999", "audio/wav");
+        Assert.Equal(206, part.Status);
+        Assert.Equal(data[1000..2000], part.Body);
+        Assert.Contains("Content-Range: bytes 1000-1999/5000", part.Headers);
+        Assert.Equal(416, MediaResponse.FromBytes(data, "bytes=6000-", "audio/wav").Status);
+    }
+
+    [Fact]
     public void Serves_Chunked_Ranges_And_Releases_The_File()
     {
         using var t = new TempDir();

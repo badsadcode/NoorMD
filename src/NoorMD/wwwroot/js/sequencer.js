@@ -53,7 +53,9 @@ window.NoorSequencer = (() => {
   let where = null;
   const history = []; let future = [];
   let lastSnapshot = null, snapTimer = null;
-  const audio = new Audio(); audio.preload = 'auto';
+  // The song as heard. An edit while playing renders it again into a second player, which takes over at the same spot
+  // once it is ready, so the music carries on without a stop or a jump back.
+  let audio = makePlayer();
   const noteAudio = new Audio();
   let roll = null; // the piano roll's state while the Notes tab shows a melodic track
   let listenLayer = ''; // an adaptive layer to listen to ('' = the whole song)
@@ -70,9 +72,6 @@ window.NoorSequencer = (() => {
     hooks = { ...hooks, ...h };
     NoorBridge.on('seq.openSong', async (p) => { await open(); setSong(p.song, true); notice(`Opened “${p.song.name}” from the Vault`, 1600); });
     NoorBridge.on('seq.exportProgress', (p) => { const s = $('#seq-export-status'); if (s) s.textContent = `Rendering ${p.done} of ${p.total}…`; });
-    audio.addEventListener('play', () => { renderTransport(); tick(); });
-    audio.addEventListener('pause', renderTransport);
-    audio.addEventListener('ended', () => { wantPlay = false; renderTransport(); showPlayhead(-1); });
   }
 
   async function open() {
@@ -159,6 +158,32 @@ window.NoorSequencer = (() => {
     if (wantPlay) { clearTimeout(renderTimer); renderTimer = setTimeout(() => preview(true), 350); }
   }
 
+  function makePlayer() {
+    const a = new Audio();
+    a.preload = 'auto';
+    // Only the player in use counts (the one taken over from is paused when the new one starts).
+    a.addEventListener('play', () => { if (a === audio) { renderTransport(); tick(); } });
+    a.addEventListener('pause', () => { if (a === audio) renderTransport(); });
+    a.addEventListener('ended', () => { if (a === audio) { wantPlay = false; renderTransport(); showPlayhead(-1); } });
+    return a;
+  }
+
+  const once = (a, ok, bad) => new Promise((resolve) => {
+    const done = (v) => { a.removeEventListener(ok, yes); if (bad) a.removeEventListener(bad, no); resolve(v); };
+    const yes = () => done(true), no = () => done(false);
+    a.addEventListener(ok, yes); if (bad) a.addEventListener(bad, no);
+  });
+
+  /** Seconds into a render for a spot in the song (bars from its start), or null when the render doesn't hold it. */
+  function secondsFor(out, at) {
+    if (at == null) return null;
+    if (out.loop) {
+      const len = out.toBar - out.fromBar;
+      if (at < out.fromBar || at >= out.toBar) at = out.fromBar + (((at - out.fromBar) % len) + len) % len;
+    } else if (at < out.fromBar || at >= out.toBar) return null;
+    return (at - out.fromBar) * out.barSeconds;
+  }
+
   async function preview(keepPlaying) {
     const gen = ++renderGen;
     // Where it was playing: now, or (while an earlier re-render is still loading) where that one meant to carry on.
@@ -170,20 +195,37 @@ window.NoorSequencer = (() => {
       if (listenLayer && !(song.layers || []).some((l) => l.id === listenLayer)) listenLayer = '';
       const out = await req('seq.render', { song, loop: loopMode, fromBar: loopMode ? song.loopStart : playFrom, layer: listenLayer || undefined });
       if (gen !== renderGen) return false;
-      render = out;
-      renderStale = false;
-      audio.loop = out.loop;
-      audio.src = out.url;
-      audio.volume = volume;
-      const loaded = await new Promise((resolve) => {
-        audio.addEventListener('loadedmetadata', () => resolve(true), { once: true });
-        audio.addEventListener('error', () => resolve(false), { once: true });
-      });
-      if (!loaded) { setStatus('The rendered song could not be played.'); return false; }
-      // Keep listening from the same place in the song (if it is inside what was rendered).
-      if (keepPlaying && wasAt != null && wasAt >= out.fromBar && wasAt < out.toBar) audio.currentTime = Math.min((wasAt - out.fromBar) * out.barSeconds, Math.max(0, audio.duration - 0.05));
-      // Swapping the audio paused it: carry on playing if you still want it to (an edit while playing).
-      if (keepPlaying && wantPlay) { resumeAt = null; audio.play().catch((err) => setStatus(err.message)); }
+      // While the old one still plays, the new render loads in a player of its own, and takes over at the same spot.
+      const playing = keepPlaying && wantPlay && !audio.paused;
+      const next = playing ? makePlayer() : audio;
+      next.loop = out.loop;
+      next.volume = volume;
+      next.src = out.url;
+      if (!(await once(next, 'loadedmetadata', 'error'))) { if (gen === renderGen) setStatus('The rendered song could not be played.'); return false; }
+      if (gen !== renderGen) return false;
+      const target = () => { const t = secondsFor(out, currentBarPosition() ?? wasAt); return t == null ? null : Math.min(t, Math.max(0, next.duration - 0.05)); };
+      if (playing) {
+        // Seek, then once more to where the old player has got to by now (the second jump is short and quick).
+        let t = target();
+        if (t != null) { next.currentTime = t; await once(next, 'seeked'); }
+        if (gen !== renderGen || !wantPlay) return false;
+        const old = audio;
+        t = target();
+        if (t != null && Math.abs(next.currentTime - t) > 0.03) next.currentTime = t;
+        render = out;
+        renderStale = false;
+        audio = next;
+        resumeAt = null;
+        await next.play().catch((err) => setStatus(err.message));
+        old.pause();
+        old.removeAttribute('src'); old.load();
+      } else {
+        render = out;
+        renderStale = false;
+        // Keep listening from the same place in the song (if it is inside what was rendered).
+        if (keepPlaying && wasAt != null) { const t = secondsFor(out, wasAt); if (t != null) next.currentTime = Math.min(t, Math.max(0, next.duration - 0.05)); }
+        if (keepPlaying && wantPlay) { resumeAt = null; audio.play().catch((err) => setStatus(err.message)); }
+      }
       setStatus(`${loopMode ? `Loop: bars ${out.fromBar + 1}–${out.toBar}` : `From bar ${out.fromBar + 1}`} · ${out.seconds.toFixed(1)} s · peak ${out.peakDb} dB${out.cut ? ` · plays up to bar ${out.toBar} (a few minutes at once)` : ''}${out.warnings && out.warnings.length ? ' · ⚠ ' + out.warnings.join('; ') : ''}`);
       return true;
     } catch (err) { if (gen === renderGen) setStatus(err && err.message ? err.message : String(err)); return false; }
@@ -1357,6 +1399,6 @@ window.NoorSequencer = (() => {
     init, open, close, toggle, isOpen,
     /** Another player started: the song stops. */
     stopForOther: () => { if (wantPlay || !audio.paused) stopPlaying(); noteAudio.pause(); audition.pause(); },
-    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
+    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), time: audio.currentTime, render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
   };
 })();

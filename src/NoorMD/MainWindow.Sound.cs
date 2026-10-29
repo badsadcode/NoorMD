@@ -68,9 +68,12 @@ public partial class MainWindow
         var key = Path.GetFileNameWithoutExtension(path[8..]);
         byte[]? wav;
         lock (_soundPreviews) { _soundPreviews.TryGetValue(key, out wav); if (wav == null && _soundReference is { } re && re.Key == key) wav = re.Wav; }
-        e.Response = wav != null
-            ? env.CreateWebResourceResponse(new MemoryStream(wav), 200, "OK", "Content-Type: audio/wav\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
-            : env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
+        if (wav == null) { e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain"); return true; }
+        // Ranges, so the page can jump to a spot (a song keeps playing from where it was after an edit re-renders it).
+        string? range = null;
+        try { range = e.Request.Headers.GetHeader("Range"); } catch { /* no Range header */ }
+        var r = NoorMD.Media.MediaResponse.FromBytes(wav, range, "audio/wav");
+        e.Response = env.CreateWebResourceResponse(r.Body.Length > 0 ? new MemoryStream(r.Body) : null, r.Status, r.Reason, r.Headers);
         return true;
     }
 
