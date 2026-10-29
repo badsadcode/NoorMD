@@ -1318,7 +1318,8 @@ window.NoorSequencer = (() => {
   /** A SoundFont track: the font (picked once; it stays where it is) and which of its instruments plays. */
   function fontSection(t, ti) {
     const ins = t.instrument;
-    const presets = el('select', { id: 'seq-fontpreset', 'aria-label': 'Instrument from the SoundFont', disabled: !ins.path || undefined });
+    const presets = el('select', { id: 'seq-fontpreset', 'aria-label': 'Instrument from the SoundFont', disabled: true });
+    const nameEl = el('span', { class: 'sb-file', id: 'seq-fontname', title: ins.path || '', text: ins.path ? `🎻 ${ins.sampleName || 'SoundFont'}` : '🎻 no SoundFont chosen yet' });
     const fill = (info) => {
       // Grouped by bank: the usual instruments, then drum kits (bank 128) and the rest.
       const banks = new Map();
@@ -1327,7 +1328,7 @@ window.NoorSequencer = (() => {
         ...list.sort((a, b) => a.program - b.program).map((p) => el('option', { value: String(p.index), text: `${p.program + 1}. ${p.name}` })))));
       presets.value = String(ins.fontPreset || 0);
       presets.disabled = false;
-      const n = $('#seq-fontname'); if (n) n.textContent = `🎻 ${info.name} · ${info.presets.length} instruments`;
+      nameEl.textContent = `🎻 ${info.name} · ${info.presets.length} instruments`;
     };
     presets.addEventListener('change', () => {
       const info = fontInfo.get(ins.path);
@@ -1340,9 +1341,9 @@ window.NoorSequencer = (() => {
       if (autoNamed) { t.name = p.name.slice(0, 40); renderGrid(); const nm = $('#seq-trackname'); if (nm) nm.value = t.name; }
       changed(); hear(ti, 60 + song.key);
     });
-    if (ins.path && fontInfo.has(ins.path)) requestAnimationFrame(() => fill(fontInfo.get(ins.path)));
+    if (ins.path && fontInfo.has(ins.path)) fill(fontInfo.get(ins.path));
     else if (ins.path) req('seq.font.presets', { path: ins.path }).then((info) => { fontInfo.set(ins.path, info); if (presets.isConnected) fill(info); })
-      .catch((err) => { const n = $('#seq-fontname'); if (n) n.textContent = `⚠ ${err && err.message ? err.message : err}`; });
+      .catch((err) => { nameEl.textContent = `⚠ ${err && err.message ? err.message : err}`; });
     const pick = async () => {
       try {
         const f = await req('seq.font.pick');
@@ -1355,7 +1356,7 @@ window.NoorSequencer = (() => {
     };
     return [el('h4', { class: 'music-subhead', text: 'SoundFont' }),
       el('div', { class: 'sb-row' },
-        el('span', { class: 'sb-file', id: 'seq-fontname', title: ins.path || '', text: ins.path ? `🎻 ${ins.sampleName || 'SoundFont'}` : '🎻 no SoundFont chosen yet' }),
+        nameEl,
         el('button', { class: 'utility-btn', id: 'seq-fontpick', onclick: pick }, ins.path ? 'Choose another…' : 'Choose a SoundFont (.sf2)…'),
         el('label', { class: 'sb-inline' }, el('span', { text: 'Instrument' }), presets)),
       el('p', { class: 'pref-hint', text: 'A SoundFont is a bank of recorded instruments (free ones are easy to find: General MIDI sets with pianos, strings, drums…). The font stays where it is; the song remembers where.' }),
