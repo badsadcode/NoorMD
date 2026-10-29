@@ -40,7 +40,7 @@ public sealed class TreeRecipe
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
     public static readonly string[] Arrangements = ["scatter", "single", "cross", "star", "fan", "dome", "hanging", "fronds", "boughs"];
     public static readonly string[] BranchModes = ["merged", "separate", "mixed"];
-    public static readonly string[] FoliageKinds = ["cards", "tufts", "clumps", "both", "crystals", "none"];
+    public static readonly string[] FoliageKinds = ["cards", "masses", "tufts", "clumps", "both", "crystals", "none"];
     public static readonly string[] LeafShapes = ["broad", "round", "needle", "maple", "slender", "frond"];
     public static readonly string[] Qualities = ["low", "medium", "high"];
 
@@ -364,7 +364,7 @@ public static class TreePresets
             Levels = [new() { Count = 7, Start = 0.35, Angle = 55, AngleSpread = 15, Length = 0.62, Radius = 0.6, Bend = 12, Wobble = 10 },
                       new() { Count = 9, Start = 0.15, Angle = 45, Length = 0.5, Radius = 0.5, Bend = 8, Wobble = 12 },
                       new() { Count = 6, Start = 0.2, Angle = 50, Length = 0.4, Radius = 0.5, Bend = 0, Wobble = 15 }],
-            LeafCluster = "cluster", LeafShape = "broad", LeafSize = 0.9, LeafDensity = 0.65, LeafColor = "#3f6b26", LeafColor2 = "#7a9a33",
+            Foliage = "masses", LeafCluster = "cluster", LeafShape = "broad", LeafSize = 0.9, LeafDensity = 0.65, LeafColor = "#3f6b26", LeafColor2 = "#7a9a33",
         }),
         new("pine", "Pine (realistic)", "A tall conifer with whorls of near-level branches and needle cards.", () => new TreeRecipe
         {
@@ -378,7 +378,7 @@ public static class TreePresets
             Name = "Birch", Archetype = "birch", Height = 11, TrunkRadius = 0.16, Taper = 0.9, CrownStart = 0.9, Flare = 0.25, Roots = 4, Shape = "flame", Lean = 4,
             Levels = [new() { Count = 22, Start = 0.3, Angle = 40, Length = 0.38, Radius = 0.45, Bend = -25, Wobble = 8 },
                       new() { Count = 10, Start = 0.15, Angle = 35, Length = 0.5, Radius = 0.5, Bend = -40, Wobble = 10 }],
-            LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#e2ddd2", BarkMaterial = "birch",
+            Foliage = "masses", LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.5, LeafDensity = 0.55, LeafColor = "#5d8a2e", LeafColor2 = "#a6b83d", BarkColor = "#e2ddd2", BarkMaterial = "birch",
         }),
         new("dead", "Dead tree (realistic)", "Bare, twisted and broken: no leaves.", () => new TreeRecipe
         {
@@ -419,7 +419,7 @@ public static class TreePresets
         {
             Name = "Autumn maple", Archetype = "broadleaf", Height = 11, TrunkRadius = 0.3, Taper = 0.7, CrownStart = 0.35, Flare = 0.45, Shape = "spherical",
             Levels = [L(7, 0.35, 45, 0.6, 0.6, 15, 10), L(8, 0.15, 45, 0.5, 0.5, 5, 10), L(5, 0.2, 50, 0.4, 0.5, 0, 12)],
-            LeafCluster = "cluster", LeafShape = "maple", Arrangement = "dome", LeafSize = 0.7, LeafDensity = 0.6, LeafColor = "#a3301a", LeafColor2 = "#f0a028", BarkColor = "#5a4a40",
+            Foliage = "masses", LeafCluster = "cluster", LeafShape = "maple", Arrangement = "dome", LeafSize = 0.7, LeafDensity = 0.6, LeafColor = "#a3301a", LeafColor2 = "#f0a028", BarkColor = "#5a4a40",
         }),
 
         new("italian-cypress", "Italian cypress (realistic)", "A tall, dark, narrow flame of a tree.", () => new TreeRecipe
@@ -432,7 +432,7 @@ public static class TreePresets
         {
             Name = "Cherry", Archetype = "broadleaf", Height = 7, TrunkRadius = 0.24, Taper = 0.7, CrownStart = 0.35, Flare = 0.45, Shape = "spherical", Lean = 4,
             Levels = [L(7, 0.35, 50, 0.65, 0.6, 12, 12), L(8, 0.15, 45, 0.5, 0.5, 5, 10), L(5, 0.2, 50, 0.4, 0.5, 0, 12)],
-            Foliage = "tufts", LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.6, LeafDensity = 0.6, LeafColor = "#e7a2bd", LeafColor2 = "#f8d6e4", BarkColor = "#4a3a3a",
+            Foliage = "masses", LeafCluster = "cluster", LeafShape = "round", LeafSize = 0.6, LeafDensity = 0.6, LeafColor = "#e7a2bd", LeafColor2 = "#f8d6e4", BarkColor = "#4a3a3a",
         }),
 
         // ---- Swamp and marsh.
@@ -543,7 +543,7 @@ public static class TreePresets
             Name = "Jungle tree", Archetype = "broadleaf", Height = 20, TrunkRadius = 0.55, Taper = 0.6, CrownStart = 0.7, Shape = "umbrella", Lean = 1, Flare = 1, Roots = 7,
             Flute = 0.6, FluteLobes = 6, FluteHeight = 0.15,
             Levels = [L(8, 0.72, 75, 0.4, 0.55, -5, 6, 8), L(6, 0.3, 60, 0.45, 0.5, 15, 10, 15)],
-            Foliage = "tufts", LeafCluster = "cluster", LeafShape = "broad", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#2f5a22", LeafColor2 = "#5f8a2e", BarkColor = "#7a6e5c",
+            Foliage = "masses", LeafCluster = "cluster", LeafShape = "broad", LeafSize = 1.1, LeafDensity = 0.65, LeafColor = "#2f5a22", LeafColor2 = "#5f8a2e", BarkColor = "#7a6e5c",
         }, "Tropical"),
 
         // ---- Dry and windswept.
@@ -730,7 +730,7 @@ public static class TreePresets
 
         // More of the woodland.
         ForGame("thornwake", "larch", "spruce", "Larch", "A conifer gone gold in autumn.", 12, [3600, 1500, 260], r => { Boughs(r); r.Levels[0].Count = 40; r.Levels[0].Start = 0.2; r.Levels[0].Length = 0.26; r.LeafColor = "#b8892a"; r.LeafColor2 = "#e6c24e"; }),
-        ForGame("thornwake", "cherry", "cherry", "Cherry", "A round crown in spring pink.", 7, [3200, 1600, 500], r => r.Height *= 0.8),
+        ForGame("thornwake", "cherry", "cherry", "Cherry", "A round crown in spring pink.", 7, [3200, 1600, 500]),
         ForGame("thornwake", "italian-cypress", "italian-cypress", "Italian_Cypress", "A tall, dark, narrow flame (the game's \"cypress\" placeholder).", 13, [2400, 1100, 300]),
 
         // The species the game draws as placeholders today, and the desert.
@@ -753,12 +753,8 @@ public static class TreePresets
         ForGame("thornwake", "joshua-tree", "joshua-tree", "Joshua_Tree", "Forking branches tipped with spiky leaf tufts.", 6, [2400, 1200, 400]),
     ];
 
-    /// <summary>Broadleaf crowns as leaf masses (cards over puffy clumps), like the pack's oaks.</summary>
-    private static void Puffy(TreeRecipe r)
-    {
-        r.Foliage = "tufts";
-        r.Height *= 0.8;        // the leaf masses stand out past the branch tips
-    }
+    /// <summary>Broadleaf crowns as leaf masses (cards spread over the crown's shape), full like the pack's oaks.</summary>
+    private static void Puffy(TreeRecipe r) => r.Foliage = "masses";
 
     /// <summary>Every preset: the general ones, then each game's.</summary>
     public static IEnumerable<Preset> Everything => All.Concat(Thornwake);

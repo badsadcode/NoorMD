@@ -350,6 +350,20 @@ made from their shape; "Sharp pixels" (nearest-neighbour sampling) for any tree,
 Godot plugin (v2: sharp_pixels with nearest-filtered copies of the textures); the Thornwake trees are 64 px with the
 full PBR set, sampled sharp (a palette only when asked for).
 
+Leaf masses (preview.71): the canopy's outline came from where the twigs happened to be (cards placed along them),
+so crowns were lumpy, gappy and spiky: an autumn maple read as separate balls on bare stalks. A new foliage mode,
+**leaf masses**, shapes the crown first and places the cards on it:
+* Overlapping soft balls (flattened tiers on conifers) along the outer branches together give the crown's outline.
+  A mass on a twig the level's wood left out moves until it touches wood that is there.
+* The cards are spread evenly over that outer surface (Fibonacci points round each mass, none where a neighbour
+  covers it), a few deeper for depth (fewer with more "outer leaves"), each lying on the surface facing out.
+* The leaf budget sets how many; their size is what covers the surface. No canopy fill pass is needed.
+* The default for the realistic oak, birch, maple, cherry and jungle giant, and the Thornwake oak, autumn maple,
+  cherry and bald cypress. Conifers, willows, palms and acacias keep their own placement; "Leaf cards on the
+  branches" is still a choice for any tree.
+* Tests: at 4,000 triangles the crown is fuller (over 80 % of its outline covered, measured from four sides) than
+  with cards along the twigs; at 2,000, no card is farther from the wood that is there than a mass and a card.
+
 Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
 with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
 consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of

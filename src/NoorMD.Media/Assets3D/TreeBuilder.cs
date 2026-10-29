@@ -165,7 +165,7 @@ public static class TreeBuilder
             if (options.Images?.Invoke(recipe.BarkImage) is { } own) { bark.BaseColor = Vector4.One; bark.NormalPng = null; bark.OcclusionRoughnessMetallicPng = null; bark.Roughness = 0.9f; Use(bark, own); }
             else build.Notes.Add("Your bark picture can't be read (moved, deleted, or not chosen here); the bark is generated.");
         }
-        var cards = recipe.Foliage is "cards" or "both" or "tufts" && recipe.Archetype is not ("dead" or "cactus");
+        var cards = recipe.Foliage is "cards" or "both" or "tufts" or "masses" && recipe.Archetype is not ("dead" or "cactus");
         // Single-sided: every card has a real back face with its own normals (a double-sided material would flip the
         // normals on the back and darken half the crown in every engine).
         var leafMat = new Material3D { Name = "Leaves", Alpha = "mask", AlphaCutoff = 0.5f, Roughness = 0.75f };
@@ -265,6 +265,7 @@ public static class TreeBuilder
             // Tubes first: what they cost comes off the budget of the implicit surfaces. Branches left out of this
             // level's wood are noted: leaves meant for them go on the nearest branch that is there.
             missingWood = [];
+            leafMasses = null;      // they touch this level's wood
             var tubes = new Dictionary<int, Mesh3D>();
             var tubeTris = 0;
             // Low-poly wood when the whole tree is (a small budget), and on any farther level whose share is small: a
@@ -343,7 +344,7 @@ public static class TreeBuilder
 
             // The crown looked at from its sides: where the sky shows through, more cards on the nearest branches,
             // until it is as full as asked or the leaf budget is spent.
-            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging"))
+            if (cards && recipe.CanopyFullness > 0 && recipe.Arrangement is not ("fronds" or "boughs" or "hanging") && recipe.Foliage != "masses")
             {
                 var fill = FillCrown(made, sk, recipe, asset.Materials, leafIndex, detail, lodGrow, new Random(recipe.Seed * 6007 + lod), ct);
                 if (lod == 0) canopy = fill;
@@ -395,6 +396,7 @@ public static class TreeBuilder
         cardShapes = null;
         measureLeaves = null;
         missingWood = null;
+        leafMasses = null;
         build.Seconds = watch.Elapsed.TotalSeconds;
         return build;
     }
@@ -733,6 +735,7 @@ public static class TreeBuilder
     {
         if (recipe.Arrangement == "fronds") { AddFronds(m, sk, recipe, branchIds, material, detail, rng); return 1; }
         if (recipe.Arrangement == "boughs") { AddBoughs(m, sk, recipe, branchIds, material, detail, rng); return 1; }
+        if (recipe.Foliage == "masses" && recipe.Arrangement != "hanging") return AddMassCards(m, sk, recipe, branchIds, material, detail);
         var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
         var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Max(b => b.Level);
         var size0 = (float)recipe.LeafSize;
@@ -803,6 +806,112 @@ public static class TreeBuilder
             }
         }
         return grow;
+    }
+
+    /// <summary>
+    /// The crown as leaf masses: overlapping soft balls (flattened tiers on conifers) along the outer branches, which
+    /// together give the crown its outline. A mass on a twig this level's wood left out moves until it touches wood
+    /// that is there.
+    /// </summary>
+    private static List<LeafMass> LeafMasses(TreeSkeleton sk, TreeRecipe recipe)
+    {
+        var rng = new Random(recipe.Seed * 977 + 13);
+        var masses = new List<LeafMass>();
+        var conifer = recipe.Archetype == "conifer" || recipe.LeafShape == "needle";
+        var deepest = sk.Branches.Where(b => !b.Root && !b.Bare).Select(b => b.Level).DefaultIfEmpty(0).Max();
+        var r0 = (float)(recipe.LeafSize * 1.3 * recipe.CardScale);
+        foreach (var b in sk.Branches)
+        {
+            if (b.Root || b.Bare || b.Kind != "branch" || b.Level == 0 && deepest > 0) continue;
+            if (b.Children.Count > 0 && b.Level < deepest) continue;
+            var from = conifer ? 0.15f : 0.35f;
+            var n = Math.Clamp((int)MathF.Round(b.Length * (1 - from) / (r0 * 1.1f)), 1, 5);
+            for (var k = 0; k < n; k++)
+            {
+                var t = from + (1 - from) * (k + 0.6f) / n;
+                var (p, _, _) = b.At(t);
+                var r = r0 * (0.8f + 0.4f * (float)rng.NextDouble()) * (conifer ? 1 - 0.35f * t : 1);
+                var c = p + Vector3.UnitY * r * (conifer ? -0.1f : 0.15f);
+                var (anchor, _, _, _) = Attach(sk, b, p);
+                if (Vector3.Distance(c, anchor) > r * 0.7f) c = anchor + Vector3.Normalize(c - anchor) * r * 0.7f;
+                masses.Add(new LeafMass(c, r, conifer ? 0.55f : 0.85f, b, t));
+            }
+        }
+        // Thousands of masses would only overlap each other: keep an even selection, the bigger ones.
+        if (masses.Count > 400) masses = masses.Where((_, i) => i % (int)Math.Ceiling(masses.Count / 400.0) == 0).ToList();
+        // How much of each mass's surface shows (not inside another), from a few points round it.
+        var near = masses.Select(a => masses.Where(o => o != a && Vector3.Distance(o.C, a.C) < o.R + a.R).ToList()).ToList();
+        for (var i = 0; i < masses.Count; i++)
+        {
+            var a = masses[i];
+            var shown = 0;
+            const int probes = 48;
+            for (var j = 0; j < probes; j++)
+            {
+                var q = a.C + Scaled(Fibonacci(j, probes, 0), a.Flat) * a.R;
+                if (!near[i].Any(o => o.Holds(q))) shown++;
+            }
+            a.Exposed = shown / (float)probes;
+        }
+        return masses;
+    }
+
+    private static Vector3 Fibonacci(int i, int n, float turn)
+    {
+        var y = 1 - 2 * (i + 0.5f) / n;
+        var r = MathF.Sqrt(MathF.Max(0, 1 - y * y));
+        var phi = i * 2.399963f + turn;
+        return new Vector3(MathF.Cos(phi) * r, y, MathF.Sin(phi) * r);
+    }
+
+    private static Vector3 Scaled(Vector3 d, float flat) => d with { Y = d.Y * flat };
+
+    /// <summary>
+    /// Leaf masses: the cards spread evenly over the crown's outer surface (the masses' surfaces, less what lies inside
+    /// a neighbour), a few deeper for depth, each facing out of its mass. The leaf budget sets how many; their size is
+    /// what covers the surface. The outline is the crown's shape, not wherever the twigs happen to be.
+    /// </summary>
+    private static float AddMassCards(Mesh3D m, TreeSkeleton sk, TreeRecipe recipe, List<int> branchIds, int material, float detail)
+    {
+        var masses = leafMasses ??= LeafMasses(sk, recipe);
+        if (masses.Count == 0) return 1;
+        var rng = new Random(recipe.Seed * 31 + branchIds.FirstOrDefault() * 7 + (int)detail);
+        float Area(LeafMass a) => 4 * MathF.PI * a.R * a.R * (0.4f + 0.6f * a.Flat) * MathF.Max(0.02f, a.Exposed);
+        var area = masses.Sum(Area);
+        var cards = recipe.LeafBudget / (float)CardTriangles("scatter") / detail;
+        // Each card about the size that covers the surface with some overlap; never smaller than a leaf spray.
+        var size = MathF.Max(MathF.Sqrt(area * 2.4f / cards), (float)recipe.LeafSize * PlaneScale(recipe) * 0.7f);
+        cards = MathF.Min(cards, area * 2.4f / (size * size));
+        var mine = branchIds.ToHashSet();
+        var neighbours = masses.Select(a => masses.Where(o => o != a && Vector3.Distance(o.C, a.C) < o.R + a.R).ToList()).ToList();
+        var outer = (float)recipe.OuterLeaves;
+        for (var i = 0; i < masses.Count; i++)
+        {
+            var a = masses[i];
+            if (!mine.Contains(a.B.Id)) continue;
+            var want = cards * Area(a) / area;
+            var k = (int)want + (rng.NextDouble() < want - (int)want ? 1 : 0);
+            if (k == 0) continue;
+            var tries = (int)MathF.Ceiling(k / MathF.Max(0.05f, a.Exposed)) + 2;
+            var turn = (float)(rng.NextDouble() * MathF.Tau);
+            var placed = 0;
+            for (var j = 0; j < tries && placed < k; j++)
+            {
+                var dir = Fibonacci(j, tries, turn);
+                var deep = rng.NextDouble() < 0.25 * (1 - outer) + 0.05;
+                var q = a.C + Scaled(dir, a.Flat) * a.R * (deep ? 0.45f + 0.25f * (float)rng.NextDouble() : 0.82f + 0.18f * (float)rng.NextDouble());
+                if (!deep && neighbours[i].Any(o => o.Holds(q))) continue;
+                var n = Vector3.Normalize(dir with { Y = dir.Y / a.Flat });
+                // Along the surface, a little out and up: a leaf spray lying on the crown.
+                var tangent = Vector3.Cross(n, new Vector3((float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f, (float)rng.NextDouble() - 0.5f));
+                tangent = tangent.LengthSquared() > 1e-6f ? Vector3.Normalize(tangent) : Vector3.Cross(n, Vector3.UnitX);
+                var grow = Vector3.Normalize(tangent * 0.75f + n * 0.35f + Vector3.UnitY * 0.2f);
+                var s = size * (0.85f + 0.3f * (float)rng.NextDouble());
+                Card(m, q - grow * s * 0.45f, grow, s, sk, recipe, a.B, a.T, material, rng, face: n);
+                placed++;
+            }
+        }
+        return 1;
     }
 
     /// <summary>
@@ -1201,6 +1310,19 @@ public static class TreeBuilder
 
     /// <summary>Branches left out of the wood of the level being built (twigs a small budget drops).</summary>
     [ThreadStatic] private static HashSet<int>? missingWood;
+
+    /// <summary>The crown as leaf masses, for the level being built (see AddMassCards).</summary>
+    [ThreadStatic] private static List<LeafMass>? leafMasses;
+    private sealed record LeafMass(Vector3 C, float R, float Flat, TreeBranch B, float T)
+    {
+        public float Exposed { get; set; } = 1;
+        /// <summary>Whether a point is inside this mass (a little inside its surface).</summary>
+        public bool Holds(Vector3 q)
+        {
+            var d = q - C;
+            return d.X * d.X + d.Y * d.Y / (Flat * Flat) + d.Z * d.Z < R * R * 0.8f;
+        }
+    }
 
     /// <summary>
     /// Where a leaf meant for point <paramref name="p"/> of branch <paramref name="b"/> really hangs: there, if the branch is

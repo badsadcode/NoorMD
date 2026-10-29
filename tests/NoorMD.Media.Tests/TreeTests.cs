@@ -15,6 +15,7 @@ public class TreeTests
         r.Lods = 2;
         r.Billboard = false;
         r.CanopyFullness = 0;       // the cards as placed (the canopy fill has its own test)
+        if (r.Foliage == "masses") r.Foliage = "cards";     // cards along the twigs (leaf masses have their own tests)
         return r;
     }
 
@@ -762,6 +763,7 @@ public class TreeTests
     public void The_canopy_fill_puts_cards_where_the_sky_shows_through()
     {
         var r = TreePresets.Make("oak");
+        r.Foliage = "cards";
         r.Billboard = false; r.Lods = 1;
         r.CanopyFullness = 0;
         var open = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 });
@@ -968,6 +970,36 @@ public class TreeTests
         var c = ring.Aggregate(Vector3.Zero, (a, v) => a + v) / ring.Count;
         var radii = ring.Select(v => Vector3.Distance(new Vector3(v.X, 0, v.Z), new Vector3(c.X, 0, c.Z))).ToList();
         Assert.True(radii.Max() > radii.Min() * 1.15f, $"radii {radii.Min():0.000}–{radii.Max():0.000}");
+    }
+
+    [Fact]
+    public void Leaf_masses_give_a_fuller_crown_than_cards_along_the_twigs_for_the_same_triangles()
+    {
+        foreach (var preset in new[] { "oak", "maple" })
+        {
+            double Full(string foliage)
+            {
+                var r = TreePresets.Make(preset);
+                r.Foliage = foliage; r.TriangleTarget = 4000; r.Lods = 1; r.Billboard = false; r.CanopyFullness = 0;
+                return TreeStatsMeter.Measure(TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 128 }).Lods[0]).Fullness ?? 0;
+            }
+            var cards = Full("cards");
+            var masses = Full("masses");
+            Assert.True(masses > cards && masses > 0.8, $"{preset}: crown {masses:P0} full with leaf masses, {cards:P0} with cards on the twigs");
+        }
+    }
+
+    [Fact]
+    public void Leaf_masses_stay_round_the_wood_that_is_there()
+    {
+        // At 2,000 triangles most twigs are left out of the wood: every mass still touches wood that is there, so no
+        // card is farther from it than a mass's size and a card.
+        var r = TreePresets.Make("oak");
+        r.TriangleTarget = 2000; r.Lods = 1; r.Billboard = false;
+        var b = TreeBuilder.Build(r, NoTextures);
+        var reach = (float)(r.LeafSize * 1.3 * 1.2 * 1.7) + (float)r.LeafSize * 2.5f;
+        Assert.Equal(0, Floating(b, 0, reach));
+        Assert.True(Floating(b, 0, reach * 0.5f) < 0.5);
     }
 
     /// <summary>Share of leaf-card anchors (no flutter) farther than <paramref name="gap"/> metres from any wood vertex.</summary>
