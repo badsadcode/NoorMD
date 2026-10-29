@@ -91,6 +91,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Asset Bench (trees for games) · in it: variation · wireframe · play the wind · undo / redo · turn · zoom · move | Ctrl+Alt+M · V · W · Space · Ctrl+Z / Ctrl+Y · drag · wheel or + / − · right-drag or Shift+drag |
 | NoorForge (texture a model) · in it: undo / redo · turn · zoom · move | Ctrl+Alt+F · Ctrl+Z / Ctrl+Y · drag · wheel · right-drag |
 | NoorForge painting: brush on/off · eraser · brush size · turn while painting · straight line · put the brush down | B · E · [ / ] · Alt+drag · Shift+click · Escape |
+| NoorForge stencil: move · size · turn | hold S and drag · hold S and wheel · hold S and Shift+wheel |
 | Calendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |
 | Gallery (your pictures) | Ctrl+Alt+G |
 | Voice note: record / stop (opens the recorder) | Ctrl+Alt+D |

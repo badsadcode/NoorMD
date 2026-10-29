@@ -102,7 +102,19 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
   on the model, and paints them as the app will); the app's textures replace it a moment after the stroke ends. A
   ring shows the brush on the surface, an inner ring its hardness.
 - Every stroke is its own undo step; a layer tells how many strokes it has, and ✕ clears them.
-- Still to come for stage 2: brush tips (from NoorSketch's brushes and pictures) and a stencil.
+
+### Done in preview.90 (stage 2 finished: tips and a stencil)
+
+- **Brush tips:** round (its hardness), NoorForge's own — square, chalk, splatter, grunge, scratches, stipple, leaf —
+  or **any picture** (a NoorSketch painting too): its shape where it is transparent, else its brightness, turned around
+  when it is dark on a light ground, so the mark is what paints. A tip faces the painter; **Angle** turns it
+  (clockwise), **Turn at random** turns each dab differently (the same each time the stroke is painted: a seed).
+- **A stencil:** a picture laid over the view, paint getting through where it is white (or black, turned around), as
+  far as its edges or **repeated**. Hold **S**: drag to move it, the wheel to size it, Shift+wheel to turn it; Centre
+  puts it back. Each stroke keeps where the stencil lay — the camera and its place, as three rows taking a point on
+  the model to the stencil — so the app paints it at any texture size exactly as it showed (mirrored strokes too).
+- **Pictures are kept in the recipe** (greyscale: a tip at 128 px, a stencil up to 1024), so it opens anywhere without
+  the files; one strokes use can't be removed.
 
 ## Stage 3 — more
 

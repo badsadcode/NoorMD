@@ -1546,6 +1546,11 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .forgebench .fg-mine-row { display: flex; align-items: center; gap: 2px; }
 .forgebench .fg-mine-row .sb-preset { flex: 1; min-width: 0; }
 .forgebench #fg-savesmart { width: calc(100% - 8px); margin: 4px; }
+.forgebench .fg-stage { position: relative; overflow: hidden; }
+.forgebench .fg-stencil { position: absolute; z-index: 1; pointer-events: none; transform-origin: center; mix-blend-mode: screen; }
+.forgebench .fg-stencil[hidden] { display: none; }
+.forgebench.fg-stencil-move .tb-canvas { cursor: move; }
+.forgebench .fg-tipview { width: 40px; height: 40px; border-radius: 6px; background: #2a2a30; border: 1px solid var(--border); }
 .forgebench .fg-brushbar { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; margin: 4px 0; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
 .forgebench .fg-brushbar[hidden] { display: none; }
 .forgebench .fg-brushbar .sb-row { flex-wrap: wrap; gap: 6px 10px; align-items: center; }

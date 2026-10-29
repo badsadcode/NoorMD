@@ -62,7 +62,7 @@ public static class ForgeCompositor
             var mask = layer.Mask;
             var scale = (float)layer.Scale;
             // Painted strokes: the mask worked out whole first (they add to it and take from it in order).
-            var painted = layer.Strokes.Count > 0 ? ForgePaint.LayerMask(bake, layer, setIndex) : null;
+            var painted = layer.Strokes.Count > 0 ? ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture) : null;
             Parallel.For(0, n, i =>
             {
                 if (bake.Covered[i] == 0) return;
@@ -104,11 +104,11 @@ public static class ForgeCompositor
     }
 
     /// <summary>Where one layer shows (its mask times its opacity), 0–255 a texel: for looking at it on the model.</summary>
-    public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex)
+    public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null)
     {
         var n = bake.Size * bake.Size;
         var px = new byte[n];
-        var v = ForgePaint.LayerMask(bake, layer, setIndex);
+        var v = ForgePaint.LayerMask(bake, layer, setIndex, pictures);
         for (var i = 0; i < n; i++) if (bake.Covered[i] != 0) px[i] = B(v[i] * (float)layer.Opacity);
         Bleed(bake.Covered, bake.Size, px, 1);
         return px;

@@ -91,6 +91,12 @@ public sealed class ForgeRecipe
     public double AoDistance { get; set; } = 0.25;
     public double EdgeWidth { get; set; } = 0.02;
     public List<ForgeLayer> Layers { get; set; } = [];
+    /// <summary>Pictures the strokes use as tips and stencils (kept here, greyscale).</summary>
+    public List<ForgePicture> Pictures { get; set; } = [];
+    public const int MaxPictures = 24;
+
+    /// <summary>A picture of the recipe by id.</summary>
+    public ForgePicture? Picture(string id) => Pictures.FirstOrDefault(p => p.Id == id);
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
     public string ToJson() => JsonSerializer.Serialize(this, Options);
@@ -103,6 +109,7 @@ public sealed class ForgeRecipe
         Size = Sizes.Contains(Size) ? Size : 1024;
         AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2);
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).Select(l => l.Clamped()).ToList();
+        Pictures = (Pictures ?? []).Where(p => p != null).Select(p => p.Clamped()).OfType<ForgePicture>().DistinctBy(p => p.Id).Take(MaxPictures).ToList();
         return this;
     }
 

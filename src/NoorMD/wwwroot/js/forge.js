@@ -28,7 +28,11 @@ window.NoorForge = (() => {
   // Painting (stage 2): the tool, the brush, where each texel is on the model, the stroke being painted.
   let tool = null;         // null, 'brush' or 'fill'
   let erasing = false;
-  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false };
+  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false, tip: '', angle: 0, jitter: 0 };
+  // The stencil: a picture of the recipe laid over the view (where, how big, turned how far clockwise), white lets paint through.
+  let stencil = null;      // { id, fx, fy, size, angle, tile, invert, opacity, shown }
+  let stencilKey = false;  // S held: the mouse moves the stencil, the wheel sizes (Shift: turns) it
+  const grays = new Map(); // picture id → { w, h, g: Uint8Array }
   let brush = (() => { try { return { ...BRUSH_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.forge.brush') || '{}') }; } catch { return { ...BRUSH_DEFAULTS }; } })();
   let texels = null;       // { key, size, sets: [Float32Array (7 a texel)], grid, center }
   let texelsLoading = null;
@@ -180,7 +184,7 @@ window.NoorForge = (() => {
                 el('button', { class: 'icon-btn', id: 'fg-side', title: 'The model big, the settings in a column on the right; or the settings under the model', 'aria-label': 'Settings beside the model', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
                 el('button', { class: 'icon-btn', id: 'fg-list', title: 'Show or hide the list on the left', 'aria-label': 'The list', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
               el('div', { class: 'fg-brushbar', id: 'fg-brushbar', hidden: true }),
-              el('div', { class: 'tb-stage' }, el('canvas', { id: 'fg-canvas', class: 'tb-canvas', role: 'img', 'aria-label': 'The textured model: drag to turn it, wheel to zoom', title: 'Drag: turn · wheel: zoom · right-drag: move' })),
+              el('div', { class: 'tb-stage fg-stage' }, el('canvas', { id: 'fg-stencil', class: 'fg-stencil', hidden: true, 'aria-hidden': 'true' }), el('canvas', { id: 'fg-canvas', class: 'tb-canvas', role: 'img', 'aria-label': 'The textured model: drag to turn it, wheel to zoom', title: 'Drag: turn · wheel: zoom · right-drag: move' })),
               el('p', { class: 'pref-hint sb-status', id: 'fg-status', 'aria-live': 'polite' }),
               el('div', { class: 'fg-maps', id: 'fg-maps' })),
             el('div', { class: 'tb-splitter', id: 'fg-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to share the room between the model and the settings (double-click: back to normal)' }),
@@ -188,11 +192,14 @@ window.NoorForge = (() => {
               el('div', { class: 'music-tabs sb-tabs', id: 'fg-tabs', role: 'tablist' }),
               el('div', { class: 'sb-pane', id: 'fg-pane' }))))));
     ($('#app') || document.body).append(root);
-    new ResizeObserver(() => root.classList.toggle('wide', root.clientWidth >= 820)).observe(root);
+    new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); showStencil(); }).observe(root);
     layout = NoorBenchLayout.attach({ root, storageKey: 'noormd.forge.layout', defaults: { side: true }, split: $('#fg-split'), viewCol: $('#fg-view-col'), editCol: $('#fg-edit-col'),
       splitter: $('#fg-splitter'), sideButton: $('#fg-side'), listButton: $('#fg-list'), top: $('#fg-top'), sideSized: 'edit' });
     $('#fg-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(); });
     $('#fg-size').addEventListener('change', (e) => { recipe.size = Number(e.target.value); changed(); });
+    const stencilUp = () => { stencilKey = false; stencilDrag = null; root.classList.remove('fg-stencil-move'); };
+    root.addEventListener('keyup', (e) => { if (e.key.toLowerCase() === 's') stencilUp(); });
+    window.addEventListener('blur', stencilUp);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
       if (e.key === 'Escape' && !typing && tool) { e.preventDefault(); e.stopPropagation(); setTool(null); return; }
@@ -200,6 +207,7 @@ window.NoorForge = (() => {
       if (typing) return;
       const k = e.key.toLowerCase();
       if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (k === 's' && tool && stencil) { e.preventDefault(); stencilKey = true; $('#forgebench').classList.add('fg-stencil-move'); return; }
         if (k === 'b') { e.preventDefault(); setTool(tool === 'brush' && !erasing ? null : 'brush', false); return; }
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
         if ((k === '[' || k === ']') && tool) { e.preventDefault(); setBrush('size', Math.max(0.2, Math.min(25, +(brush.size * (k === ']' ? 1.2 : 1 / 1.2)).toFixed(2)))); return; }
@@ -389,6 +397,115 @@ window.NoorForge = (() => {
   const modelSize = () => (model ? Math.max(...model.size, 0.01) : 1);
   const radius = () => (brush.size / 100) * modelSize();
   const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+  const pictures = () => (recipe.pictures = recipe.pictures || []);
+
+  /** A tip or stencil's greyscale (a NoorForge tip, or a picture of the recipe), decoded once. */
+  function gray(id) {
+    if (!id) return null;
+    if (grays.has(id)) return grays.get(id);
+    const p = (lists.tips || []).find((t) => t.id === id) || pictures().find((t) => t.id === id);
+    if (!p) return null;
+    const bin = atob(p.data), g = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) g[i] = bin.charCodeAt(i);
+    const out = { w: p.width, h: p.height, g };
+    grays.set(id, out);
+    return out;
+  }
+
+  /** As ForgePicture.Sample: bilinear, 0 outside (or repeating). */
+  function sample(pic, u, v, tile) {
+    if (tile) { u -= Math.floor(u); v -= Math.floor(v); } else if (u < 0 || v < 0 || u > 1 || v > 1) return 0;
+    const fx = u * pic.w - 0.5, fy = v * pic.h - 0.5, x0 = Math.floor(fx), y0 = Math.floor(fy), ax = fx - x0, ay = fy - y0;
+    const X = (x) => (tile ? ((x % pic.w) + pic.w) % pic.w : Math.max(0, Math.min(pic.w - 1, x))), Y = (y) => (tile ? ((y % pic.h) + pic.h) % pic.h : Math.max(0, Math.min(pic.h - 1, y)));
+    const at = (x, y) => pic.g[Y(y) * pic.w + X(x)] / 255;
+    return (at(x0, y0) * (1 - ax) + at(x0 + 1, y0) * ax) * (1 - ay) + (at(x0, y0 + 1) * (1 - ax) + at(x0 + 1, y0 + 1) * ax) * ay;
+  }
+
+  /** As ForgePaint.Hash: a dab's random number 0–1. */
+  function hash(i, seed) {
+    let x = (Math.imul(i, 0x9E3779B1) + Math.imul(seed, 0x85EBCA77)) >>> 0;
+    x = (x ^ (x >>> 15)) >>> 0; x = Math.imul(x, 0x2C1B3C6D) >>> 0; x = (x ^ (x >>> 12)) >>> 0;
+    return x / 4294967296;
+  }
+
+  /** As ForgePaint.ScreenAxes. */
+  function screenAxes(v) {
+    let r = [-v[2], 0, v[0]]; // view × up
+    const l = Math.hypot(r[0], r[2]);
+    r = l < 1e-4 ? [1, 0, 0] : [r[0] / l, 0, r[2] / l];
+    return { right: r, up: [r[1] * v[2] - r[2] * v[1], r[2] * v[0] - r[0] * v[2], r[0] * v[1] - r[1] * v[0]] };
+  }
+
+  /**
+   * Where the stencil lies now, as three rows taking a point on the model to its u·w, v·w and w (ForgeStencil.Rows):
+   * the camera's view-projection, then the stencil's place, size and turn on the canvas.
+   */
+  function stencilRows() {
+    const cam = viewer.camera(), m = cam.viewProj, pic = gray(stencil.id);
+    const rx = [m[0], m[4], m[8], m[12]], ry = [m[1], m[5], m[9], m[13]], rw = [m[3], m[7], m[11], m[15]];
+    const cx = (2 * stencil.fx - 1) * cam.aspect, cy = 1 - 2 * stencil.fy, sz = 2 * stencil.size, a = pic.w / pic.h;
+    const th = -stencil.angle * Math.PI / 180, c = Math.cos(th), sn = Math.sin(th);
+    const P = rx.map((v, k) => cam.aspect * v - cx * rw[k]), Q = ry.map((v, k) => v - cy * rw[k]);
+    const ru = rw.map((w, k) => 0.5 * w + (c * P[k] + sn * Q[k]) / (sz * a));
+    const rv = rw.map((w, k) => 0.5 * w - (-sn * P[k] + c * Q[k]) / sz);
+    return [...ru, ...rv, ...rw].map((v) => +v.toPrecision(7));
+  }
+
+  /** The rows for the mirrored side: x taken to 2·centre − x first. */
+  const mirrorRows = (rows, c) => [0, 4, 8].flatMap((o) => [-rows[o], rows[o + 1], rows[o + 2], +(rows[o + 3] + 2 * c * rows[o]).toPrecision(7)]);
+
+  function stencilAt(st, x, y, z) {
+    const r = st.stencil.rows, w = r[8] * x + r[9] * y + r[10] * z + r[11];
+    if (w <= 1e-6) return 0;
+    const u = (r[0] * x + r[1] * y + r[2] * z + r[3]) / w, v = (r[4] * x + r[5] * y + r[6] * z + r[7]) / w;
+    const val = sample(st.stencilPic, u, v, st.stencil.tile);
+    return st.stencil.invert ? (st.stencil.tile || (u >= 0 && v >= 0 && u <= 1 && v <= 1) ? 1 - val : 0) : val;
+  }
+
+  /** The stencil drawn over the view, where it lies. */
+  function showStencil() {
+    const box = $('#fg-stencil');
+    if (!box) return;
+    const pic = stencil && stencil.shown ? gray(stencil.id) : null;
+    box.hidden = !tool || !pic;
+    if (box.hidden) return;
+    const stage = $('#fg-canvas').getBoundingClientRect(), holder = box.parentElement.getBoundingClientRect();
+    const h = stencil.size * stage.height, w = h * (pic.w / pic.h);
+    if (box.dataset.id !== stencil.id + (stencil.invert ? '-i' : '')) {
+      box.dataset.id = stencil.id + (stencil.invert ? '-i' : '');
+      box.width = pic.w; box.height = pic.h;
+      const img = box.getContext('2d').createImageData(pic.w, pic.h);
+      for (let i = 0; i < pic.g.length; i++) { const v = stencil.invert ? 255 - pic.g[i] : pic.g[i]; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = v; img.data[i * 4 + 3] = 255; }
+      box.getContext('2d').putImageData(img, 0, 0);
+    }
+    Object.assign(box.style, { width: `${w}px`, height: `${h}px`, left: `${stage.left - holder.left + stencil.fx * stage.width - w / 2}px`, top: `${stage.top - holder.top + stencil.fy * stage.height - h / 2}px`, transform: `rotate(${stencil.angle}deg)`, opacity: String(stencil.opacity) });
+  }
+
+  /** A picture as a tip or stencil: read by the app, kept in the recipe. */
+  async function pickPicture(purpose) {
+    try {
+      const r = await req('forge.picture.pick', { purpose });
+      if (!r || r.cancelled) return null;
+      if (pictures().length >= 24) { notice('A recipe keeps at most 24 pictures: remove one first', 2400); return null; }
+      clearTimeout(snapTimer); pushHistory();
+      pictures().push(r.picture);
+      pushHistory();
+      return r.picture;
+    } catch (err) { hooks.showError(err); return null; }
+  }
+
+  const usedPicture = (id) => recipe.layers.some((l) => (l.strokes || []).some((st) => st.tip === id || (st.stencil && st.stencil.picture === id)));
+
+  function removePicture(id) {
+    if (usedPicture(id)) { notice('Strokes use that picture: clear them first', 2200); return; }
+    clearTimeout(snapTimer); pushHistory();
+    recipe.pictures = pictures().filter((p) => p.id !== id);
+    pushHistory();
+    grays.delete(id);
+    if (brush.tip === id) brush.tip = '';
+    if (stencil && stencil.id === id) stencil = null;
+    renderBrushBar(); showStencil();
+  }
 
   function setBrush(key, value) {
     brush[key] = value;
@@ -406,6 +523,7 @@ window.NoorForge = (() => {
     if (viewer) { viewer.setPainter(tool ? PAINTER : null); if (!tool) viewer.setBrush(null); }
     if (tool) ensureTexels();
     renderBrushBar();
+    showStencil();
   }
 
   function renderBrushBar() {
@@ -435,8 +553,73 @@ window.NoorForge = (() => {
         el('span', { class: 'pref-hint', text: 'Pen pressure:' }), check('pressureSize', 'size', 'A pen\'s pressure makes the brush smaller'), check('pressureFlow', 'flow', 'A pen\'s pressure makes the paint lighter'),
         check('mirror', 'Mirror across X', 'Paint the other side too (mirrored across the model\'s middle, left to right)'),
         el('span', { class: 'pref-hint fg-into', text: layer ? `Into “${layer.name}” · Alt+drag turns the model · Shift+click: a straight line` : 'Choose a layer' }),
-        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null));
+        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null),
+      tipRow(num), stencilRow(check));
+    drawTip();
+    showStencil();
     keepFocus();
+  }
+
+  function tipRow(num) {
+    if (brush.tip && !gray(brush.tip)) brush.tip = '';
+    const sel = el('select', { id: 'fg-tip', 'aria-label': 'Brush tip' }, el('option', { value: '', text: 'Round (hardness)' }),
+      el('optgroup', { label: 'NoorForge' }, ...(lists.tips || []).map((t) => el('option', { value: t.id, text: t.name }))),
+      ...(pictures().some((p) => p.id[0] === 't') ? [el('optgroup', { label: 'Pictures' }, ...pictures().filter((p) => p.id[0] === 't').map((p) => el('option', { value: p.id, text: p.name })))] : []),
+      el('option', { value: '+', text: 'A picture…' }));
+    sel.value = brush.tip;
+    sel.addEventListener('change', async () => {
+      if (sel.value === '+') { const p = await pickPicture('tip'); setBrush('tip', p ? p.id : brush.tip); return; }
+      setBrush('tip', sel.value);
+    });
+    const isPicture = brush.tip && brush.tip[0] === 't' && pictures().some((p) => p.id === brush.tip);
+    return el('div', { class: 'sb-row' },
+      el('label', { class: 'sb-inline', title: 'The brush\'s shape: round (its hardness), a NoorForge tip, or any picture (a NoorSketch painting too)' }, el('span', { text: 'Tip' }), sel),
+      el('canvas', { id: 'fg-tipview', class: 'fg-tipview', width: '40', height: '40', 'aria-hidden': 'true' }),
+      isPicture ? el('button', { class: 'icon-btn', title: 'Remove this picture from the recipe', 'aria-label': 'Remove the tip picture', onclick: () => removePicture(brush.tip) }, '✕') : null,
+      brush.tip ? num('angle', 'Angle', 0, 359, 1, 'The tip\'s turn (clockwise, as you look)') : null,
+      brush.tip ? num('jitter', 'Turn at random', 0, 1, 0.01, 'Each dab turned at random, up to a whole turn') : null);
+  }
+
+  function drawTip() {
+    const c = $('#fg-tipview');
+    if (!c) return;
+    const ctx = c.getContext('2d'), img = ctx.createImageData(40, 40), pic = gray(brush.tip);
+    for (let y = 0; y < 40; y++) for (let x = 0; x < 40; x++) {
+      const u = (x + 0.5) / 20 - 1, v = 1 - (y + 0.5) / 20, d = Math.hypot(u, v);
+      const val = pic ? sample(pic, (u + 1) / 2, (1 - v) / 2) : d >= 1 ? 0 : d <= brush.hardness ? 1 : smooth(0, 1, (1 - d) / Math.max(1e-4, 1 - brush.hardness));
+      const k = (y * 40 + x) * 4;
+      img.data[k] = img.data[k + 1] = img.data[k + 2] = 235; img.data[k + 3] = Math.round(val * 255);
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  function stencilRow(check) {
+    const stencils = pictures().filter((p) => p.id[0] === 's');
+    if (stencil && !stencils.some((p) => p.id === stencil.id)) stencil = null;
+    const sel = el('select', { id: 'fg-stencil-pick', 'aria-label': 'Stencil' }, el('option', { value: '', text: 'No stencil' }),
+      ...stencils.map((p) => el('option', { value: p.id, text: p.name })), el('option', { value: '+', text: 'A picture…' }));
+    sel.value = stencil ? stencil.id : '';
+    const place = (id) => { stencil = id ? { id, fx: 0.5, fy: 0.5, size: 0.7, angle: 0, tile: false, invert: false, opacity: 0.45, shown: true, ...(stencil && stencil.id === id ? stencil : {}) } : null; renderBrushBar(); };
+    sel.addEventListener('change', async () => {
+      if (sel.value === '+') { const p = await pickPicture('stencil'); place(p ? p.id : stencil && stencil.id); return; }
+      place(sel.value);
+    });
+    const st = (key, label, title) => {
+      const c = el('input', { type: 'checkbox', checked: stencil[key] || undefined, 'data-stencil': key });
+      c.addEventListener('change', () => { stencil[key] = c.checked; showStencil(); });
+      return el('label', { class: 'sb-inline', title }, c, el('span', { text: label }));
+    };
+    const op = stencil ? el('input', { type: 'range', min: '0.1', max: '0.9', step: '0.05', value: String(stencil.opacity), 'aria-label': 'How see-through the stencil is shown', 'data-stencil': 'opacity' }) : null;
+    if (op) op.addEventListener('input', () => { stencil.opacity = Number(op.value); showStencil(); });
+    return el('div', { class: 'sb-row' },
+      el('label', { class: 'sb-inline', title: 'A picture laid over the view: paint gets through where it is white. Hold S: drag to move it, wheel to size it, Shift+wheel to turn it' }, el('span', { text: 'Stencil' }), sel),
+      stencil ? st('shown', 'show', 'Show it over the view (and paint through it)') : null,
+      stencil ? st('tile', 'repeat', 'Repeat it beyond its edges') : null,
+      stencil ? st('invert', 'black lets paint through', 'Turn it around: black lets paint through') : null,
+      op ? el('label', { class: 'fg-bnum', title: 'How strongly it is drawn over the view' }, el('span', { text: 'Shown' }), op) : null,
+      stencil ? el('button', { class: 'utility-btn', id: 'fg-stencil-fit', title: 'Back to the middle, upright', onclick: () => { Object.assign(stencil, { fx: 0.5, fy: 0.5, size: 0.7, angle: 0 }); showStencil(); } }, 'Centre') : null,
+      stencil ? el('button', { class: 'icon-btn', title: 'Remove this picture from the recipe', 'aria-label': 'Remove the stencil picture', onclick: () => removePicture(stencil.id) }, '✕') : null,
+      stencil ? el('span', { class: 'pref-hint', text: 'Hold S: drag moves it · wheel sizes it · Shift+wheel turns it' }) : null);
   }
 
   const texKey = () => `${recipe.model}|${Math.min(512, recipe.size)}|${recipe.aoRays}|${recipe.aoDistance}|${recipe.edgeWidth}`;
@@ -492,17 +675,30 @@ window.NoorForge = (() => {
   const smooth = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
 
   /** One dab into the overlay: the same coverage the app paints (ForgePaint.Coverage). */
-  function overlayDab(st, x, y, z, size, flow) {
+  function overlayDab(st, x, y, z, size, flow, index) {
     if (!texels || !overlay) return;
     const r = st.radius * Math.max(0.02, size), f0 = st.flow * flow, v = st.view, hard = st.hardness;
     if (f0 <= 0) return;
-    near([x, y, z], r, (s, t) => {
+    const tip = gray(st.tip), axes = tip ? screenAxes(v) : null;
+    const angle = (st.angle + st.jitter * 360 * (hash(index, st.seed) - 0.5)) * Math.PI / 180, ca = Math.cos(angle), sa = Math.sin(angle);
+    near([x, y, z], r * 1.415, (s, t) => {
       const f = texels.sets[s], b = t * 7;
-      const d = Math.hypot(f[b] - x, f[b + 1] - y, f[b + 2] - z) / r;
-      if (d >= 1) return;
+      const ox = f[b] - x, oy = f[b + 1] - y, oz = f[b + 2] - z;
+      const d = Math.hypot(ox, oy, oz) / r;
+      if (d >= 1.415) return;
       const facing = smooth(-0.05, 0.25, -(f[b + 3] * v[0] + f[b + 4] * v[1] + f[b + 5] * v[2]));
       if (facing <= 0) return;
-      const fall = d <= hard ? 1 : smooth(0, 1, (1 - d) / Math.max(1e-4, 1 - hard));
+      let fall;
+      if (!tip) { if (d >= 1) return; fall = d <= hard ? 1 : smooth(0, 1, (1 - d) / Math.max(1e-4, 1 - hard)); }
+      else {
+        if (Math.abs(ox * v[0] + oy * v[1] + oz * v[2]) > r) return;
+        const a = (ox * axes.right[0] + oy * axes.right[1] + oz * axes.right[2]) / r, bb = (ox * axes.up[0] + oy * axes.up[1] + oz * axes.up[2]) / r;
+        const tu = ca * a - sa * bb, tv = sa * a + ca * bb; // turned clockwise by the angle
+        if (Math.abs(tu) > 1 || Math.abs(tv) > 1) return;
+        fall = sample(tip, (tu + 1) / 2, (1 - tv) / 2);
+      }
+      if (st.stencil) fall *= stencilAt(st, f[b], f[b + 1], f[b + 2]);
+      if (fall <= 0) return;
       const c = overlay.cover[s];
       c[t] = 1 - (1 - c[t]) * (1 - f0 * fall * facing);
       overlay.bytes[s][t] = Math.round(c[t] * 255);
@@ -534,7 +730,7 @@ window.NoorForge = (() => {
     for (const st of stroke.strokes) {
       const x = st.mirrored ? 2 * texels.center - p[0] : p[0];
       st.dabs.push(+x.toFixed(5), +p[1].toFixed(5), +p[2].toFixed(5), +size.toFixed(3), +flow.toFixed(3));
-      overlayDab(st, x, p[1], p[2], size, flow);
+      overlayDab(st, x, p[1], p[2], size, flow, st.dabs.length / 5 - 1);
     }
     stroke.last = p;
   }
@@ -552,7 +748,14 @@ window.NoorForge = (() => {
   }
 
   function beginStroke(hit) {
-    const st = (mirrored) => ({ erase: erasing, radius: +radius().toFixed(5), hardness: brush.hardness, flow: brush.flow, view: mirrored ? [-hit.dir[0], hit.dir[1], hit.dir[2]] : hit.dir.map((v) => +v.toFixed(5)), dabs: [], part: -1, mirrored });
+    const seed = Math.floor(Math.random() * 1e9);
+    const rows = stencil && stencil.shown && gray(stencil.id) ? stencilRows() : null;
+    const st = (mirrored) => ({
+      erase: erasing, radius: +radius().toFixed(5), hardness: brush.hardness, flow: brush.flow, view: (mirrored ? [-hit.dir[0], hit.dir[1], hit.dir[2]] : hit.dir).map((v) => +v.toFixed(5)), dabs: [], part: -1,
+      tip: brush.tip && gray(brush.tip) ? brush.tip : '', angle: brush.angle, jitter: brush.jitter, seed,
+      stencil: rows ? { picture: stencil.id, rows: mirrored ? mirrorRows(rows, texels.center) : rows, tile: stencil.tile, invert: stencil.invert } : null,
+      mirrored, stencilPic: rows ? gray(stencil.id) : null,
+    });
     stroke = { strokes: brush.mirror ? [st(false), st(true)] : [st(false)], last: null };
     startOverlay(erasing);
   }
@@ -561,7 +764,7 @@ window.NoorForge = (() => {
     if (!stroke) return;
     const done = stroke.strokes.filter((st) => st.dabs.length);
     stroke = null;
-    if (done.length) commitStrokes(done.map(({ mirrored, ...st }) => st));
+    if (done.length) commitStrokes(done.map(({ mirrored, stencilPic, ...st }) => st));
   }
 
   /** New strokes into the chosen layer: one undo step each, then textured again. */
@@ -580,13 +783,22 @@ window.NoorForge = (() => {
   let rafPending = false;
   const frame = () => { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; showOverlay(); }); };
 
+  let stencilDrag = null;
   const PAINTER = {
+    wheel(e) {
+      if (!stencilKey || !stencil) return false;
+      if (e.shiftKey) stencil.angle = (stencil.angle + (e.deltaY > 0 ? 5 : -5) + 360) % 360;
+      else stencil.size = Math.max(0.05, Math.min(6, stencil.size * (e.deltaY > 0 ? 1 / 1.08 : 1.08)));
+      showStencil();
+      return true;
+    },
     hover(e) {
       if (!e || !tool) { viewer.setBrush(null); return; }
       const hit = viewer.pick(e.clientX, e.clientY);
       viewer.setBrush(hit && tool === 'brush' ? hit.point : null, radius(), brush.hardness);
     },
     down(e) {
+      if (stencilKey && stencil) { stencilDrag = { x: e.clientX, y: e.clientY }; return true; }
       if (!tool || !recipe.layers[selected]) return false;
       if (!texels || texels.key !== texKey()) { ensureTexels(); notice('Getting the model ready for painting…', 1400); return false; }
       const hit = viewer.pick(e.clientX, e.clientY);
@@ -608,6 +820,13 @@ window.NoorForge = (() => {
       return true;
     },
     move(e) {
+      if (stencilDrag) {
+        const r = $('#fg-canvas').getBoundingClientRect();
+        stencil.fx += (e.clientX - stencilDrag.x) / r.width; stencil.fy += (e.clientY - stencilDrag.y) / r.height;
+        stencilDrag = { x: e.clientX, y: e.clientY };
+        showStencil();
+        return;
+      }
       if (!stroke) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
       for (const ev of evs.length ? evs : [e]) {
@@ -619,7 +838,7 @@ window.NoorForge = (() => {
       }
       frame();
     },
-    up() { endStroke(); },
+    up() { if (stencilDrag) { stencilDrag = null; return; } endStroke(); },
   };
 
   /** 🪣: the whole part under the click (its texels' part), into the layer. */
@@ -702,6 +921,13 @@ window.NoorForge = (() => {
 
   return {
     init, open, close, toggle, isOpen, openAsset, _paintAt: (hits, opts) => paintHits(hits, opts),
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, tool, erasing, brush: { ...brush }, texels: texels ? { size: texels.size, sets: texels.sets.length } : null, painting: !!stroke, overlay: !!overlay && overlay.cover.some((c) => c.some((v) => v > 0.05)), render: render ? clone(render) : null, history: history.length }),
+    /** For tests: the stencil's u, v (as the app works them out) at the surface under a point of the canvas. */
+    _stencilUv: (x, y) => {
+      const hit = viewer && stencil && viewer.pick(x, y);
+      if (!hit) return null;
+      const r = stencilRows(), [px, py, pz] = hit.point, w = r[8] * px + r[9] * py + r[10] * pz + r[11];
+      return [(r[0] * px + r[1] * py + r[2] * pz + r[3]) / w, (r[4] * px + r[5] * py + r[6] * pz + r[7]) / w];
+    },
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, tool, erasing, brush: { ...brush }, stencil: stencil ? { ...stencil } : null, stencilKey, texels: texels ? { size: texels.size, sets: texels.sets.length } : null, painting: !!stroke, overlay: !!overlay && overlay.cover.some((c) => c.some((v) => v > 0.05)), render: render ? clone(render) : null, history: history.length }),
   };
 })();

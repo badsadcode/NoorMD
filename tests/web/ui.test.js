@@ -5658,6 +5658,46 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('✕ Clear the painting', (await layerNow()).strokes.length === 0);
       await page.keyboard.press('Control+z');
       check('…and Ctrl+Z brings it back', (await layerNow()).strokes.length === 5);
+      // Brush tips: NoorForge's and a picture's, turned; each stroke keeps its tip, angle, jitter and seed.
+      await page.click('#fg-tool-brush');
+      await page.selectOption('#fg-tip', 'square');
+      await page.waitForSelector('#fg-brushbar input[data-brush="angle"]');
+      check('a tip can be chosen, its picture shown, with an angle and a random turn', (await FS()).brush.tip === 'square' && await page.$eval('#fg-tipview', (c) => c.getContext('2d').getImageData(20, 20, 1, 1).data[3] > 200));
+      await page.$eval('#fg-brushbar input[data-brush="angle"]', (i) => { i.value = '30'; i.dispatchEvent(new Event('input')); });
+      await page.$eval('#fg-brushbar input[data-brush="jitter"]', (i) => { i.value = '0.5'; i.dispatchEvent(new Event('input')); });
+      await page.waitForTimeout(700);
+      await page.mouse.move(box.x - 20, box.y - 6); await page.mouse.down(); await page.mouse.move(box.x + 10, box.y - 2); await page.mouse.up();
+      l = await layerNow();
+      let last = l.strokes.at(-1);
+      check('…and the stroke keeps them (the app paints the same)', last.tip === 'square' && last.angle === 30 && last.jitter === 0.5 && Number.isInteger(last.seed) && !last.stencil);
+      await page.selectOption('#fg-tip', '+');
+      await waitFn(page, () => NoorForge._state().brush.tip === 'tmock1');
+      st = await FS();
+      check('“A picture…” makes it a tip, kept in the recipe', st.recipe.pictures.length === 1 && st.recipe.pictures[0].id === 'tmock1' && (await page.$$eval('#fg-tip optgroup[label="Pictures"] option', (o) => o.length)) === 1);
+      // A stencil: laid over the view; S+drag moves it, S+wheel sizes it; strokes carry where it lay.
+      await page.selectOption('#fg-tip', '');
+      await page.selectOption('#fg-stencil-pick', '+');
+      await waitFn(page, () => NoorForge._state().stencil);
+      check('“A picture…” as a stencil lays it over the view', !(await page.isHidden('#fg-stencil')) && (await FS()).recipe.pictures.some((p) => p.id === 'smock2'));
+      const fx0 = (await FS()).stencil.fx;
+      await page.keyboard.down('s');
+      await page.mouse.move(box.x, box.y); await page.mouse.down(); await page.mouse.move(box.x + 60, box.y); await page.mouse.up();
+      await page.mouse.wheel(0, -100);
+      await page.keyboard.up('s');
+      st = await FS();
+      check('holding S, a drag moves the stencil and the wheel sizes it (no stroke)', st.stencil.fx > fx0 + 0.02 && st.stencil.size > 0.7 && (await layerNow()).strokes.length === l.strokes.length && !st.stencilKey);
+      await page.waitForTimeout(700);
+      await page.mouse.move(box.x - 20, box.y + 6); await page.mouse.down(); await page.mouse.move(box.x + 10, box.y + 8); await page.mouse.up();
+      last = (await layerNow()).strokes.at(-1);
+      if (shots) await page.screenshot({ path: `${shots}/65c-noorforge-stencil.png` });
+      // Where it shows is where it paints: at points on the model, the stencil's u, v from the app's rows match where they are in its picture on screen.
+      const sb = await page.$eval('#fg-stencil', (c) => { const r = c.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; });
+      const uvs = [];
+      for (const [x, y] of [[box.x, box.y], [box.x + 12, box.y - 10]]) uvs.push([await page.evaluate(([px, py]) => NoorForge._stencilUv(px, py), [x, y]), [(x - sb.l) / sb.w, (y - sb.t) / sb.h]]);
+      check('the stencil lands on the model where it shows over the view', uvs.every(([got, want]) => got && Math.abs(got[0] - want[0]) < 0.01 && Math.abs(got[1] - want[1]) < 0.01), JSON.stringify(uvs));
+      check('a stroke through the stencil keeps where it lay (its picture and the camera\'s rows)', last.stencil && last.stencil.picture === 'smock2' && last.stencil.rows.length === 12 && last.stencil.rows.every(Number.isFinite));
+      await page.click('#fg-brushbar [aria-label="Remove the stencil picture"]');
+      check('a picture strokes use can\'t be removed', (await FS()).recipe.pictures.some((p) => p.id === 'smock2'));
       await page.keyboard.press('Escape');
       check('Escape puts the brush down (NoorForge stays open)', (await FS()).tool === null && await page.evaluate(() => NoorForge.isOpen()) && await page.isHidden('#fg-brushbar'));
       if (shots) await page.screenshot({ path: `${shots}/65c-noorforge-paint.png` });

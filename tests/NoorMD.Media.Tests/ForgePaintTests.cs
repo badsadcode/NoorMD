@@ -108,4 +108,95 @@ public class ForgePaintTests
         var many = new ForgeLayer { Strokes = Enumerable.Range(0, ForgeLayer.MaxStrokes + 5).Select(_ => new ForgeStroke()).ToList() }.Clamped();
         Assert.Equal(ForgeLayer.MaxStrokes, many.Strokes.Count);
     }
+
+    // ---------------------------------------------------------------- tips and stencils
+
+    private static float[] Paint(ForgeBake bake, ForgeStroke stroke, ForgeRecipe? recipe = null) =>
+        ForgePaint.LayerMask(bake, new ForgeLayer { Mask = new ForgeMask { Kind = "none" }, Strokes = [stroke.Clamped()] }.Clamped(), 1, recipe == null ? null : recipe.Picture);
+
+    private static float At(ForgeBake b, float[] v, float x, float z) =>
+        v[Enumerable.Range(0, b.Size * b.Size).Where(i => b.Covered[i] == 1 && b.Normal[i].Y > 0.9f).MinBy(i => MathF.Abs(b.Position[i].X - x) + MathF.Abs(b.Position[i].Z - z))];
+
+    [Fact]
+    public void A_tip_gives_the_dab_its_shape_turned_by_its_angle()
+    {
+        var bake = Cube(128);
+        ForgeStroke Dab(string tip, double angle = 0) => new() { Radius = 0.3, View = [0, -1, 0], Tip = tip, Angle = angle, Dabs = [0, 1, 0, 1, 1] };
+        // Round misses the square's corner; the square tip covers it.
+        Assert.True(At(bake, Paint(bake, Dab("")), 0.24f, 0.24f) < 0.01);
+        Assert.True(At(bake, Paint(bake, Dab("square")), 0.24f, 0.24f) > 0.95);
+        // A picture: a tall bar. Looking down, the screen's up is −z: the bar runs along z, then along x turned 90°.
+        var bar = new byte[16 * 16];
+        for (var y = 0; y < 16; y++) for (var x = 6; x < 10; x++) bar[y * 16 + x] = 255;
+        var recipe = new ForgeRecipe { Pictures = [ForgePicture.From("tbar", "Bar", 16, 16, bar)] }.Clamped();
+        var upright = Paint(bake, Dab("tbar"), recipe);
+        Assert.True(At(bake, upright, 0, -0.2f) > 0.9 && At(bake, upright, 0.2f, 0) < 0.05);
+        var turned = Paint(bake, Dab("tbar", 90), recipe);
+        Assert.True(At(bake, turned, 0.2f, 0) > 0.9 && At(bake, turned, 0, -0.2f) < 0.05);
+        // A tip the recipe no longer has: painted round.
+        Assert.Equal(Paint(bake, Dab("")), Paint(bake, Dab("tnothere")));
+    }
+
+    [Fact]
+    public void Each_dab_turns_at_random_the_same_way_each_time_and_as_the_page_does()
+    {
+        Assert.Equal(0.18398142559453845, ForgePaint.Hash(5, 12345), 6);
+        Assert.Equal(0.6490454191807657, ForgePaint.Hash(1234567, 987654321), 6);
+        Assert.Equal(0.8289233199320734, ForgePaint.Hash(77, -5), 6);
+        var bake = Cube(96);
+        var st = new ForgeStroke { Radius = 0.2, View = [0, -1, 0], Tip = "scratches", Jitter = 1, Seed = 42, Dabs = [-0.2f, 1, 0, 1, 1, 0.2f, 1, 0, 1, 1] };
+        Assert.Equal(Paint(bake, st), Paint(bake, st));
+        Assert.NotEqual(Paint(bake, st), Paint(bake, new ForgeStroke { Radius = 0.2, View = [0, -1, 0], Tip = "scratches", Jitter = 1, Seed = 43, Dabs = st.Dabs }));
+    }
+
+    [Fact]
+    public void A_stencil_lets_paint_through_where_it_is_white_as_it_lay_over_the_view()
+    {
+        var bake = Cube(128);
+        // Seen straight down: u runs with x, v with z, across the cube's top (w = 1).
+        float[] rows = [1, 0, 0, 0.5f, 0, 0, 1, 0.5f, 0, 0, 0, 1];
+        var half = ForgePicture.From("shalf", "Half", 2, 1, [255, 0]); // white left, black right
+        var recipe = new ForgeRecipe { Pictures = [half] }.Clamped();
+        ForgeStroke Big(bool invert = false, bool tile = false, float[]? r = null) => new()
+        {
+            Radius = 0.8, Hardness = 1, View = [0, -1, 0], Dabs = [0, 1, 0, 1, 1], Stencil = new ForgeStencil { Picture = "shalf", Rows = r ?? rows, Invert = invert, Tile = tile },
+        };
+        var v = Paint(bake, Big(), recipe);
+        Assert.True(At(bake, v, -0.35f, 0) > 0.95 && At(bake, v, 0.35f, 0) < 0.05);
+        var inv = Paint(bake, Big(invert: true), recipe);
+        Assert.True(At(bake, inv, -0.35f, 0) < 0.05 && At(bake, inv, 0.35f, 0) > 0.95);
+        // Smaller than the top (u = 2x + 0.5): outside it nothing, unless it repeats.
+        float[] small = [2, 0, 0, 0.5f, 0, 0, 2, 0.5f, 0, 0, 0, 1];
+        Assert.True(At(bake, Paint(bake, Big(r: small), recipe), 0.4f, 0) < 0.05);
+        Assert.True(At(bake, Paint(bake, Big(tile: true, r: small), recipe), 0.375f, 0) > 0.85); // u = 1.25 → 0.25: white, repeated
+        // A stencil the recipe lost paints nothing; bad rows are dropped (no stencil).
+        Assert.True(Paint(bake, Big()).Max() == 0);
+        Assert.Null(new ForgeStroke { Stencil = new ForgeStencil { Picture = "shalf", Rows = [1, 2] } }.Clamped().Stencil);
+    }
+
+    [Fact]
+    public void Pictures_become_tips_and_stencils_and_stay_in_the_recipe()
+    {
+        // Dark marks on a light page: turned around (the mark paints). Fitted into a square for a tip.
+        var rgb = new float[40 * 20 * 3];
+        for (var i = 0; i < 40 * 20; i++) { var dark = i % 40 is > 15 and < 25; rgb[i * 3] = rgb[i * 3 + 1] = rgb[i * 3 + 2] = dark ? 0.05f : 0.95f; }
+        var tip = ForgePicture.FromImage("t1", "Mark", 40, 20, rgb, null, 128, square: true);
+        Assert.Equal((128, 128), (tip.Width, tip.Height));
+        Assert.True(tip.Sample(0.5f, 0.5f) > 0.9 && tip.Sample(0.1f, 0.5f) < 0.1 && tip.Sample(0.5f, 0.1f) == 0); // the mark; its page; the padding
+        // A painting's transparency is its shape; a stencil keeps its proportions.
+        var alpha = Enumerable.Range(0, 40 * 20).Select(i => i % 40 < 20 ? 1f : 0f).ToArray();
+        var st = ForgePicture.FromImage("s1", "Painting", 40, 20, rgb, alpha, 1024, square: false);
+        Assert.Equal((40, 20), (st.Width, st.Height));
+        Assert.True(st.Sample(0.2f, 0.5f) > 0.95 && st.Sample(0.8f, 0.5f) < 0.05);
+        // Kept in the recipe and read back; bad ones dropped.
+        var recipe = new ForgeRecipe { Pictures = [tip, st, new ForgePicture { Id = "../x", Width = 2, Height = 2, Data = "AAAA" }, new ForgePicture { Id = "big", Width = 5000, Height = 1 }] }.Clamped();
+        Assert.Equal(["t1", "s1"], recipe.Pictures.Select(p => p.Id));
+        var back = ForgeRecipe.FromJson(recipe.ToJson());
+        Assert.Equal(tip.Gray, back.Picture("t1")!.Gray);
+        Assert.Equal("Painting", back.Picture("s1")!.Name);
+        Assert.Contains("\"seed\"", new ForgeRecipe { Layers = [new ForgeLayer { Strokes = [new ForgeStroke { Tip = "chalk" }] }] }.Clamped().ToJson());
+        // NoorForge's own tips are drawn the same each time.
+        Assert.Equal(ForgeTips.Get("splatter")!.Gray, ForgeTips.Get("splatter")!.Gray);
+        Assert.All(ForgeTips.All, t => Assert.True(ForgeTips.Get(t.Id)!.Gray.Count(b => b > 128) > 200, t.Id));
+    }
 }

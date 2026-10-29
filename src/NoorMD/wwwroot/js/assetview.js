@@ -523,7 +523,7 @@ window.NoorAssetView = (() => {
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
-    canvas.addEventListener('wheel', (e) => { e.preventDefault(); zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); if (painter && painter.wheel && painter.wheel(e)) return; zoom(e.deltaY > 0 ? 1.12 : 1 / 1.12); }, { passive: false });
     const resize = new ResizeObserver(() => { dirty = true; tick(); });
     resize.observe(canvas);
 
@@ -532,7 +532,17 @@ window.NoorAssetView = (() => {
     return {
       load,
       setMode(m) { mode = { shaded: 0, clay: 1, parts: 2, wind: 3, channel: 4 }[m] ?? 0; dirty = true; tick(); },
-      /** NoorForge's brush: { down(e) → true to paint, move(e), up(e), hover(e or null) }; null gives the mouse back. */
+      /** The camera now: its view-projection (column-major, as drawn) and the canvas's width / height. */
+      camera() {
+        const r = canvas.getBoundingClientRect();
+        const aspect = r.width / Math.max(1, r.height);
+        const eye = [target[0] + Math.sin(yaw) * Math.cos(pitch) * dist, target[1] + Math.sin(pitch) * dist, target[2] + Math.cos(yaw) * Math.cos(pitch) * dist];
+        const v = lookAt(eye, target, [0, 1, 0]), p = perspective(0.75, aspect, Math.max(0.01, dist / 500), dist * 20 + 100);
+        const m = new Array(16);
+        for (let c = 0; c < 4; c++) for (let rr = 0; rr < 4; rr++) { let sum = 0; for (let k = 0; k < 4; k++) sum += p[k * 4 + rr] * v[c * 4 + k]; m[c * 4 + rr] = sum; }
+        return { viewProj: m, aspect };
+      },
+      /** NoorForge's brush: { down(e) → true to paint, move(e), up(e), hover(e or null), wheel(e) → true when used }; null gives the mouse back. */
       setPainter(p) { painter = p || null; },
       /** The brush's ring on the surface (null: none), its radius in metres and its hardness (0–1). */
       setBrush(at, radius, hardness = 1) { brush = at ? [at[0], at[1], at[2], radius] : [0, 0, 0, 0]; brushHard = hardness; dirty = true; tick(); },

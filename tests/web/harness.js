@@ -545,7 +545,9 @@ function mockHostScript(initial) {
         smart: [{ id: 'mossy-stone', name: 'Mossy stone', description: 'Rock with moss on top.', layers: [layer('Stone', { material: 'stone-rock', scale: 1.5 }), layer('Moss', { material: 'stone-mossy', mask: { kind: 'top', amount: 0.3, softness: 0.3, invert: false, noise: 0.6, noiseScale: 0.4, index: 0 } })] },
           { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }, ...FORGE.mine],
         materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone' }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
-        masks: ['all', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
+        masks: ['all', 'none', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
+        tips: [{ id: 'square', name: 'Square', width: 8, height: 8, data: btoa(String.fromCharCode(...new Array(64).fill(255))) },
+          { id: 'chalk', name: 'Chalk', width: 8, height: 8, data: btoa(String.fromCharCode(...Array.from({ length: 64 }, (_, i) => (i % 3 ? 255 : 0)))) }],
       };
       case 'forge.model.pick': FORGE.picks++; return { path: 'C:\\Models\\Crate.glb', name: 'Crate', triangles: 1200, parts: ['Body', 'Lid'], size: [1, 0.8, 1], sets: [{ name: 'Wood', triangles: 1000, unwrapped: false }, { name: 'Metal', triangles: 200, unwrapped: true }] };
       case 'forge.render': {
@@ -555,6 +557,13 @@ function mockHostScript(initial) {
       }
       case 'forge.export': FORGE.exports.push(JSON.parse(JSON.stringify(p.recipe))); return { folder: 'C:\\Export', files: ['Crate_Wood_BaseColor.png', 'Crate_Wood_Normal.png', 'Crate.glb', 'Crate.noorforge.json'] };
       case 'forge.recipe.open': return { cancelled: true };
+      case 'forge.picture.pick': {
+        FORGE.pictures = (FORGE.pictures || 0) + 1;
+        const stencil = p.purpose === 'stencil', w = stencil ? 16 : 8, h = 8;
+        // A stencil white on its left half; a tip all white.
+        const data = btoa(String.fromCharCode(...Array.from({ length: w * h }, (_, i) => (!stencil || i % w < w / 2 ? 255 : 0))));
+        return { picture: { id: (stencil ? 's' : 't') + 'mock' + FORGE.pictures, name: stencil ? 'Leaves stencil' : 'Leaf photo', width: w, height: h, data } };
+      }
       case 'forge.texels': FORGE.texels = (FORGE.texels || 0) + 1; return { size: 64, sets: ['/_forge/texels/0.bin'] };
       case 'forge.fromAsset': FORGE.fromAsset = p.key; return { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] };
       default: throw new Error('Unknown forge command ' + type);
