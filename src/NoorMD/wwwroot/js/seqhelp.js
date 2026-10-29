@@ -140,11 +140,19 @@ window.NoorSeqHelp = (() => {
     { id: 'subbass', name: 'Sub bass', ins: { wave: 'sine', detune: 0, octave: -1, attack: 0.005, decay: 0.3, sustain: 0.9, release: 0.1, cutoff: 600, vibrato: 0 } },
     { id: 'synthbass', name: 'Synth bass', ins: { wave: 'saw', detune: 6, octave: -1, attack: 0.003, decay: 0.25, sustain: 0.5, release: 0.08, cutoff: 700, resonance: 2.5, filterEnvelope: 2, vibrato: 0 } },
     { id: 'wobble', name: 'Wobble bass', ins: { wave: 'saw', detune: 10, octave: -1, attack: 0.005, decay: 0.2, sustain: 0.9, release: 0.1, cutoff: 500, resonance: 4, vibrato: 0, lfo: 'filter', lfoRate: 2, lfoDepth: 0.7 } },
+    // Ideas from LMMS: a 303 (LB302), drums from a synth (Kicker), a drawn wave (BitInvader).
+    { id: 'acid', name: 'Acid bass (303: use Accent and Slide on notes)', ins: { wave: 'saw', detune: 0, octave: -1, attack: 0.002, decay: 0.3, sustain: 0.5, release: 0.04, cutoff: 320, resonance: 6, filterEnvelope: 3.5, filterDecay: 0.18, vibrato: 0 } },
+    { id: 'kick808', name: 'Kick: deep (808-ish)', ins: { wave: 'kick', detune: 0, attack: 0.001, decay: 0.6, sustain: 0, release: 0.05, cutoff: 20000, kickStart: 120, kickEnd: 42, kickSweep: 0.08, kickDrive: 0.1, kickClick: 0.15, kickNoise: 0, vibrato: 0 } },
+    { id: 'kickpunch', name: 'Kick: punchy', ins: { wave: 'kick', detune: 0, attack: 0.001, decay: 0.25, sustain: 0, release: 0.03, cutoff: 20000, kickStart: 230, kickEnd: 55, kickSweep: 0.03, kickDrive: 0.5, kickClick: 0.5, kickNoise: 0.05, vibrato: 0 } },
+    { id: 'tom', name: 'Tom (play it on different notes)', ins: { wave: 'kick', detune: 0, attack: 0.001, decay: 0.35, sustain: 0, release: 0.05, cutoff: 9000, kickStart: 190, kickEnd: 115, kickSweep: 0.1, kickDrive: 0.1, kickClick: 0.2, kickNoise: 0.08, vibrato: 0 } },
+    { id: 'zap', name: 'Zap / laser (drum synth)', ins: { wave: 'kick', detune: 0, octave: 1, attack: 0.001, decay: 0.2, sustain: 0, release: 0.03, cutoff: 20000, kickStart: 1800, kickEnd: 120, kickSweep: 0.05, kickDrive: 0.3, kickClick: 0, kickNoise: 0, vibrato: 0 } },
+    { id: 'drawnlead', name: 'Drawn lead (8-bit steps)', ins: { wave: 'drawn', tableSmooth: false, table: Array.from({ length: 64 }, (_, k) => [0.9, 0.5, 0.9, -0.2, -0.9, -0.5, -0.9, 0.2][Math.floor(k / 8)]), detune: 0, attack: 0.002, decay: 0.15, sustain: 0.7, release: 0.08, cutoff: 9000, vibrato: 12, vibratoRate: 6 } },
     { id: 'wind', name: 'Wind (noise)', ins: { wave: 'noise', detune: 0, attack: 1.2, decay: 1, sustain: 0.7, release: 2, cutoff: 900, resonance: 3, vibrato: 0, lfo: 'filter', lfoRate: 0.2, lfoDepth: 0.6 } },
   ];
   // What a preset leaves as it was: everything else goes back to the defaults first, so presets don't mix.
-  const DEFAULT_SYNTH = { wave: 'triangle', pulseWidth: 0.25, detune: 6, octave: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.2, cutoff: 8000, resonance: 0.7, filterEnvelope: 0, vibrato: 0, vibratoRate: 5, lfo: 'off', lfoRate: 4, lfoDepth: 0.3, fmRatio: 2, fmDepth: 0 };
-  const applyPreset = (ins, id) => { const p = PRESETS.find((x) => x.id === id); if (p) Object.assign(ins, DEFAULT_SYNTH, p.ins); return !!p; };
+  const DEFAULT_SYNTH = { wave: 'triangle', pulseWidth: 0.25, detune: 6, octave: 0, attack: 0.005, decay: 0.2, sustain: 0.6, release: 0.2, cutoff: 8000, resonance: 0.7, filterEnvelope: 0, filterDecay: 0, vibrato: 0, vibratoRate: 5, lfo: 'off', lfoRate: 4, lfoDepth: 0.3, fmRatio: 2, fmDepth: 0,
+    kickStart: 160, kickEnd: 45, kickSweep: 0.06, kickDrive: 0.2, kickClick: 0.3, kickNoise: 0, tableSmooth: true };
+  const applyPreset = (ins, id) => { const p = PRESETS.find((x) => x.id === id); if (p) Object.assign(ins, DEFAULT_SYNTH, JSON.parse(JSON.stringify(p.ins))); return !!p; };
 
   return { SCALES, chord, chords, PROGRESSIONS, chordBar, RHYTHMS, rhythmBar, vary, PRESETS, applyPreset, isMinorKey };
 })();

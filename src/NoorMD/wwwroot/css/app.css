@@ -1568,6 +1568,7 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .seq-empty { padding: 14px 4px; }
 .seq-rollwrap { overflow: auto; max-height: 420px; min-height: 160px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
 .seq-roll { display: block; }
+.seq-wavedraw { display: block; width: 100%; max-width: 512px; height: 140px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); cursor: crosshair; touch-action: none; }
 .seq-drums { display: grid; grid-template-columns: 110px repeat(var(--steps), minmax(18px, 1fr)); gap: 3px; margin-top: 6px; }
 .seq-drumrow { display: contents; }
 .seq-drumname { text-align: left; background: none; border: 0; color: var(--text); font: inherit; font-size: 12.5px; cursor: pointer; padding: 0 4px; }

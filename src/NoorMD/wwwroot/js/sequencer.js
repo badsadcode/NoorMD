@@ -23,10 +23,13 @@ window.NoorSequencer = (() => {
   const KIT = ['Kick', 'Snare', 'Clap', 'Closed hat', 'Open hat', 'Low tom', 'High tom', 'Rim'];
   const KIND_ICON = { synth: '🎹', drums: '🥁', sample: '🎙' };
   const KIND_LABEL = { synth: 'Synth', drums: 'Drum kit', sample: 'Sample (your WAV)' };
-  const WAVES = [['sine', 'Sine (soft, pure)'], ['triangle', 'Triangle (flute, soft lead)'], ['square', 'Square (retro, hollow)'], ['pulse', 'Pulse (nasal, chiptune)'], ['saw', 'Saw (bright, strings, brass)'], ['noise', 'Noise (wind, hiss)']];
+  const WAVES = [['sine', 'Sine (soft, pure)'], ['triangle', 'Triangle (flute, soft lead)'], ['square', 'Square (retro, hollow)'], ['pulse', 'Pulse (nasal, chiptune)'], ['saw', 'Saw (bright, strings, brass)'], ['noise', 'Noise (wind, hiss)'], ['kick', 'Kick (a drum synth: a falling sine)'], ['drawn', 'Drawn (draw your own wave)']];
+  // A drum synth (ideas from LMMS's Kicker): the pitch falls from Start to End (for C3: other notes tune it).
+  const KICK = [['kickStart', 'Start pitch', 30, 2000, 1, 'hz'], ['kickEnd', 'End pitch', 20, 1000, 1, 'hz'], ['kickSweep', 'Pitch fall time', 0.005, 1, 0.001, 's'],
+    ['kickDrive', 'Drive (warm ↔ crunchy)', 0, 1, 0.01, 'pct'], ['kickClick', 'Click', 0, 1, 0.01, 'pct'], ['kickNoise', 'Noise', 0, 1, 0.01, 'pct']];
   const SYNTH = [['octave', 'Octave', -3, 3, 1, 'num'], ['detune', 'Second voice detune (0 = one voice)', 0, 50, 0.5, 'cents'], ['attack', 'Attack', 0.001, 5, 0.001, 's'], ['decay', 'Decay', 0.001, 5, 0.001, 's'],
     ['sustain', 'Sustain', 0, 1, 0.01, 'pct'], ['release', 'Release', 0.001, 8, 0.001, 's'], ['cutoff', 'Filter cutoff', 40, 20000, 1, 'hz'], ['resonance', 'Filter resonance', 0.5, 10, 0.1, 'num'],
-    ['filterEnvelope', 'Filter follows the envelope (octaves)', -4, 6, 0.1, 'num'], ['vibrato', 'Vibrato depth', 0, 100, 1, 'cents'], ['vibratoRate', 'Vibrato speed', 0.1, 15, 0.1, 'rate']];
+    ['filterEnvelope', 'Filter follows the envelope (octaves)', -4, 6, 0.1, 'num'], ['filterDecay', 'Filter decay (0 = with the envelope; short = a 303 squelch)', 0, 2, 0.01, 's'], ['vibrato', 'Vibrato depth', 0, 100, 1, 'cents'], ['vibratoRate', 'Vibrato speed', 0.1, 15, 0.1, 'rate']];
   const DRUMS = [['drumTune', 'Tune (semitones)', -24, 24, 0.5, 'num'], ['drumDecay', 'Decay (longer ↔ shorter)', 0.2, 4, 0.05, 'x'], ['drumTone', 'Tone (dark ↔ bright)', 0, 1, 0.01, 'pct']];
   const SAMPLE = [['octave', 'Octave', -3, 3, 1, 'num'], ['attack', 'Attack', 0.001, 5, 0.001, 's'], ['decay', 'Decay', 0.001, 5, 0.001, 's'], ['sustain', 'Sustain', 0, 1, 0.01, 'pct'], ['release', 'Release', 0.001, 8, 0.001, 's']];
   const NEW_TRACK = {
@@ -965,6 +968,8 @@ window.NoorSequencer = (() => {
         g.beginPath(); g.moveTo(keyW + Math.min(steps, x.step + x.length) * stepW - 2, y + rowH / 2); g.lineTo(keyW + to.step * stepW + 2, tr * rowH + rowH / 2); g.stroke();
         g.lineWidth = 1;
       }
+      // An accent: a bright bar along the top.
+      if (x.accent) { g.fillStyle = text; g.fillRect(keyW + x.step * stepW + 2, y + 1, Math.max(4, w - 6), 2); }
       // Its place, if not the middle: a small mark to the left or right.
       if (x.pan) { g.fillStyle = text; g.fillRect(keyW + x.step * stepW + 3 + (x.pan > 0 ? Math.max(0, w - 12) : 0), y + rowH - 4, 6, 2); }
     }
@@ -987,6 +992,8 @@ window.NoorSequencer = (() => {
     if (!n) { box.replaceChildren(el('small', { class: 'pref-hint', text: 'Click a note to choose it: it can then slide into the next note (as a 303 bass line), sit to the left or right, or be softer or harder.' })); return; }
     const slide = el('input', { type: 'checkbox', id: 'seq-note-slide', checked: n.slide || undefined });
     slide.addEventListener('change', () => { if (slide.checked) n.slide = true; else delete n.slide; changed('grid'); drawRoll(); });
+    const accent = el('input', { type: 'checkbox', id: 'seq-note-accent', checked: n.accent || undefined });
+    accent.addEventListener('change', () => { if (accent.checked) n.accent = true; else delete n.accent; changed('grid'); drawRoll(); });
     const pan = el('input', { type: 'range', id: 'seq-note-pan', min: '-100', max: '100', step: '5', value: String(Math.round((n.pan || 0) * 100)), 'aria-label': 'Place of this note, left to right' });
     const panText = el('small', { id: 'seq-note-pantext' });
     const showPan = () => { const v = Number(pan.value); panText.textContent = v === 0 ? 'middle' : `${Math.abs(v)}% ${v < 0 ? 'left' : 'right'}`; };
@@ -1000,6 +1007,7 @@ window.NoorSequencer = (() => {
     const can = !!slideTarget(roll.pattern.notes, n);
     box.replaceChildren(el('strong', { text: `${noteName(n.pitch)} · step ${n.step + 1}` }),
       el('label', { class: 'sb-inline', title: can ? 'Glide into the next note without a new attack' : 'There is no later note in this pattern to slide into' }, slide, el('span', { text: '↗ Slide into the next note' })),
+      el('label', { class: 'sb-inline', title: 'Played harder: louder, and the filter opens further (a 303\'s accent)' }, accent, el('span', { text: '! Accent' })),
       el('label', { class: 'sb-inline', title: 'Where this note sits, left to right (double-click: the middle)' }, el('span', { text: 'Place' }), pan, panText),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Velocity' }), vel));
   }
@@ -1121,6 +1129,50 @@ window.NoorSequencer = (() => {
     return el('label', { class: 'sb-slider' }, el('span', { text: label }), input, el('span', { class: 'sb-numwrap' }, box, unit ? el('small', { text: unit }) : null));
   }
 
+  /** Draw one cycle of the wave with the mouse (ideas from LMMS's BitInvader); shapes to start from, smooth or stepped. */
+  function waveDrawer(ins, ti) {
+    const N = 64;
+    if (!Array.isArray(ins.table) || ins.table.length !== N) ins.table = Array.from({ length: N }, (_, k) => Math.sin((2 * Math.PI * k) / N));
+    const canvas = el('canvas', { class: 'seq-wavedraw', id: 'seq-wavedraw', width: '512', height: '140', 'aria-label': 'The drawn wave: drag to draw' });
+    const draw = () => {
+      const g = canvas.getContext('2d'), w = canvas.width, h = canvas.height;
+      const css = getComputedStyle(document.body);
+      g.clearRect(0, 0, w, h);
+      g.fillStyle = css.getPropertyValue('--border').trim() || '#444'; g.globalAlpha = 0.6; g.fillRect(0, h / 2, w, 1); g.globalAlpha = 1;
+      g.strokeStyle = css.getPropertyValue('--accent').trim() || '#7c5cff'; g.lineWidth = 2; g.beginPath();
+      ins.table.forEach((v, k) => {
+        const x0 = (k / N) * w, x1 = ((k + 1) / N) * w, y = h / 2 - v * (h / 2 - 4);
+        if (ins.tableSmooth === false) { if (k === 0) g.moveTo(x0, y); else g.lineTo(x0, y); g.lineTo(x1, y); } else if (k === 0) g.moveTo(x0, y); else g.lineTo(x0, y);
+      });
+      g.stroke();
+    };
+    let last = null;
+    const at = (e) => { const b = canvas.getBoundingClientRect(); return { k: Math.max(0, Math.min(N - 1, Math.floor(((e.clientX - b.left) / b.width) * N))), v: Math.max(-1, Math.min(1, 1 - (2 * (e.clientY - b.top)) / b.height)) }; };
+    const paint = (p) => {
+      // Fill between the last point and this one, so a quick stroke leaves no gaps.
+      if (last) { const [a, b] = last.k < p.k ? [last, p] : [p, last]; for (let k = a.k; k <= b.k; k++) ins.table[k] = Number((a.v + (b.v - a.v) * (b.k === a.k ? 1 : (k - a.k) / (b.k - a.k))).toFixed(4)); } else ins.table[p.k] = Number(p.v.toFixed(4));
+      last = p; draw();
+    };
+    canvas.addEventListener('mousedown', (e) => {
+      e.preventDefault(); last = null; paint(at(e));
+      const move = (ev) => paint(at(ev));
+      const up = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); last = null; changed(); hear(ti, 60 + song.key); };
+      window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    });
+    const shape = (f) => () => { ins.table = Array.from({ length: N }, (_, k) => Number(f(k / N).toFixed(4))); draw(); changed(); hear(ti, 60 + song.key); };
+    const smoothOnce = () => { const t = ins.table; ins.table = t.map((v, k) => Number(((t[(k - 1 + N) % N] + 2 * v + t[(k + 1) % N]) / 4).toFixed(4))); draw(); changed(); hear(ti, 60 + song.key); };
+    const smooth = el('input', { type: 'checkbox', id: 'seq-tablesmooth', checked: ins.tableSmooth !== false || undefined });
+    smooth.addEventListener('change', () => { ins.tableSmooth = smooth.checked; draw(); changed(); hear(ti, 60 + song.key); });
+    requestAnimationFrame(draw);
+    return el('div', { class: 'seq-wavebox' },
+      el('h4', { class: 'music-subhead', text: 'Drawn wave' }), canvas,
+      el('div', { class: 'sb-row' },
+        ...[['Sine', (x) => Math.sin(2 * Math.PI * x)], ['Triangle', (x) => 1 - 4 * Math.abs(x - 0.5)], ['Saw', (x) => 2 * x - 1], ['Square', (x) => (x < 0.5 ? 1 : -1)],
+          ['Random', () => Math.random() * 2 - 1]].map(([label, f]) => el('button', { class: 'utility-btn', 'data-shape': label.toLowerCase(), onclick: shape(f) }, label)),
+        el('button', { class: 'utility-btn', id: 'seq-tablesoften', title: 'Round off the corners a little (a softer sound)', onclick: smoothOnce }, 'Soften'),
+        el('label', { class: 'sb-inline', title: 'A smooth curve between the points, or steps (a gritty 8-bit sound)' }, smooth, el('span', { text: 'Smooth curve' }))));
+  }
+
   function instrumentPane(t) {
     const ins = t.instrument;
     const i = sel.track;
@@ -1153,6 +1205,8 @@ window.NoorSequencer = (() => {
       lfo.value = ins.lfo || 'off';
       lfo.addEventListener('change', () => { ins.lfo = lfo.value; changed('pane'); });
       out.push(el('h4', { class: 'music-subhead', text: 'Sound' }), el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Wave' }), wave), preset),
+        ...(ins.wave === 'drawn' ? [waveDrawer(ins, i)] : []),
+        ...(ins.wave === 'kick' ? [el('h4', { class: 'music-subhead', text: 'Kick' }), el('div', { class: 'sb-fields', id: 'seq-kick' }, ...KICK.map((f) => slider(ins, f)))] : []),
         el('div', { class: 'sb-fields' }, ...(ins.wave === 'pulse' ? [slider(ins, ['pulseWidth', 'Pulse width', 0.05, 0.5, 0.01, 'pct'])] : []), ...SYNTH.map((f) => slider(ins, f))),
         el('h4', { class: 'music-subhead', text: 'Movement' }),
         el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline', title: 'A slow wave that moves part of the sound, in time with the song' }, el('span', { text: 'LFO moves' }), lfo)),

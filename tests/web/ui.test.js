@@ -4854,6 +4854,57 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 59c. NoorSequencer, more from LMMS: an acid bass (accent, filter decay), a drum synth (Kicker), a drawn wave (BitInvader).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="0"]');
+      await page.selectOption('#seq-addtrack', 'synth');
+      await waitFn(page, () => NoorSequencer._state().song.tracks.length === 3);
+      await page.click('#seqbench [role=tab][data-tab="instrument"]');
+      await page.waitForSelector('#seq-preset');
+      const ins = async () => (await SQ()).song.tracks[2].instrument;
+      await page.selectOption('#seq-preset', 'acid');
+      let i = await ins();
+      check('the Acid bass preset: a resonant saw with its own quick filter decay', i.wave === 'saw' && i.filterDecay === 0.18 && i.resonance === 6 && i.octave === -1);
+      check('…and the filter decay has its own slider', !!(await page.$('#seqbench input[data-key="filterDecay"]')));
+      await page.selectOption('#seq-preset', 'kickpunch');
+      await page.waitForSelector('#seq-kick');
+      i = await ins();
+      check('a kick preset: the Kick wave with its pitch fall, drive and click', i.wave === 'kick' && i.kickStart === 230 && i.kickEnd === 55 && i.kickClick === 0.5 && i.sustain === 0);
+      check('…and the Kick settings show', (await page.$$('#seq-kick input[type=range]')).length === 6);
+      const heard = (await M()).notes.length;
+      await page.selectOption('#seq-wave', 'drawn');
+      await page.waitForSelector('#seq-wavedraw');
+      check('the Drawn wave shows a wave to draw (a sine at first) and is heard', (await ins()).table.length === 64 && Math.abs((await ins()).table[16] - 1) < 0.01 && (await M()).notes.length > heard);
+      await page.click('[data-shape="square"]');
+      i = await ins();
+      check('shapes to start from (a square)', i.table[0] === 1 && i.table[40] === -1);
+      const b = await page.$eval('#seq-wavedraw', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
+      await page.mouse.move(b.x + b.w * 0.05, b.y + b.h * 0.5); await page.mouse.down();
+      await page.mouse.move(b.x + b.w * 0.45, b.y + b.h * 0.5, { steps: 8 }); await page.mouse.up();
+      i = await ins();
+      check('dragging draws the wave (a flat line through the first half)', Math.abs(i.table[10]) < 0.1 && Math.abs(i.table[25]) < 0.1 && i.table[40] === -1, i.table.slice(0, 32));
+      await page.uncheck('#seq-tablesmooth');
+      check('…stepped instead of smooth, for an 8-bit sound', (await ins()).tableSmooth === false);
+      // An accent on a note.
+      await page.click('#seqbench [role=tab][data-tab="notes"]');
+      await waitFn(page, () => !!document.querySelector('#seq-startpattern, #seq-roll'));
+      if (await page.$('#seq-startpattern')) await page.click('#seq-startpattern');
+      await page.waitForSelector('#seq-roll');
+      await page.focus('#seq-roll');
+      await page.click('#seq-record');
+      await page.keyboard.press('a');
+      await page.waitForSelector('#seq-note-accent');
+      await page.check('#seq-note-accent');
+      check('a note can have an accent (louder, the filter opening further)', (await SQ()).song.tracks[2].patterns.at(-1).notes[0].accent === true);
+      check('no page errors with the new instruments', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 60. NoorSequencer help (stage 2): chords of the key, progressions, rhythms, variations, presets, arpeggiator, LFO, FM, humanize, automation.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
