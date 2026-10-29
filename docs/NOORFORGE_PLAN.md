@@ -85,6 +85,25 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - Brush tips from NoorSketch's brushes and any picture; a stencil (a picture laid over the view to paint through).
 - Erase, fill a part (by ID), a straight line, and undo; strokes kept in the recipe.
 
+### Done in preview.89 (stage 2, painting)
+
+- **🖌 Paint** (B) beside the view: the left button paints into the chosen layer's mask (Alt+drag still turns the
+  model). **＋ Paint layer** adds a colour layer shown only where painted ("Nowhere (only where painted)", a new smart
+  mask kind), the brush ready.
+- **The brush:** size (a share of the model; [ and ]), hardness, flow (dabs over each other build up), spacing; a pen's
+  pressure for size and / or flow; **mirror across X** (the other side painted too, as if seen from the mirrored side);
+  **Shift+click** a straight line from where the last stroke ended (finding the surface along it); **🧽 eraser** (E)
+  takes paint away — the smart mask's too, so a smart mask can be cleaned up by hand; **🪣 fill a part** (the part
+  under the click).
+- **How it paints:** each dab is a sphere on the surface; every texel within it that faces the painter is painted,
+  across UV seams and charts alike. A stroke is kept as its dabs (points in metres), the brush's settings and the
+  direction it was painted from, so the recipe repaints it at any texture size.
+- **Shown at once:** while painting, the page lays the stroke over the model (it knows where each preview texel is
+  on the model, and paints them as the app will); the app's textures replace it a moment after the stroke ends. A
+  ring shows the brush on the surface, an inner ring its hardness.
+- Every stroke is its own undo step; a layer tells how many strokes it has, and ✕ clears them.
+- Still to come for stage 2: brush tips (from NoorSketch's brushes and pictures) and a stencil.
+
 ## Stage 3 — more
 
 - Decals and stamps (a picture or text, placed on the surface), anchor masks (one layer's mask feeding another).

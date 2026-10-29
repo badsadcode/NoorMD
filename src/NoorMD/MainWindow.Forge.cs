@@ -81,9 +81,25 @@ public partial class MainWindow
     {
         if (!p.TryGetProperty("recipe", out var r) || r.ValueKind != JsonValueKind.Object) throw new BridgeError("Missing the recipe.");
         var raw = r.GetRawText();
-        if (raw.Length > 200_000) throw new BridgeError("That recipe is too big.");
+        if (raw.Length > 32_000_000) throw new BridgeError("That recipe is too big (its strokes are too many).");
         try { return ForgeRecipe.FromJson(raw); }
         catch (JsonException ex) { throw new BridgeError("The recipe can't be read: " + ex.Message); }
+    }
+
+    /// <summary>Seven floats a texel: position, normal, part (NaN for texels outside the charts).</summary>
+    private static byte[] ForgeTexels(ForgeBake bake)
+    {
+        var n = bake.Size * bake.Size;
+        var f = new float[n * 7];
+        for (var i = 0; i < n; i++)
+        {
+            if (bake.Covered[i] == 0) { f[i * 7] = float.NaN; continue; }
+            var p = bake.Position[i]; var nm = bake.Normal[i];
+            f[i * 7] = p.X; f[i * 7 + 1] = p.Y; f[i * 7 + 2] = p.Z; f[i * 7 + 3] = nm.X; f[i * 7 + 4] = nm.Y; f[i * 7 + 5] = nm.Z; f[i * 7 + 6] = bake.Part[i];
+        }
+        var bytes = new byte[f.Length * 4];
+        Buffer.BlockCopy(f, 0, bytes, 0, bytes.Length);
+        return bytes;
     }
 
     private static object ForgeModelInfo(string path, ForgeModel m)
@@ -106,7 +122,7 @@ public partial class MainWindow
         if (parts.Length == 2)
             lock (_forgePreviews)
                 if (_forgePreviews.TryGetValue(parts[0], out var files)) files.TryGetValue(parts[1], out data);
-        var type = path.EndsWith(".glb", StringComparison.Ordinal) ? "model/gltf-binary" : "image/png";
+        var type = path.EndsWith(".glb", StringComparison.Ordinal) ? "model/gltf-binary" : path.EndsWith(".bin", StringComparison.Ordinal) ? "application/octet-stream" : "image/png";
         e.Response = data != null
             ? env.CreateWebResourceResponse(new MemoryStream(data), 200, "OK", $"Content-Type: {type}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff")
             : env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain");
@@ -203,6 +219,32 @@ public partial class MainWindow
                         url = $"/_forge/{key}/model.glb", key, size, ms = sw.ElapsedMilliseconds,
                         sets = model.Sets.Select((s, i) => new { name = s.Name, maps = ForgePreviewMaps.Where(m => m != "mask" || files.ContainsKey($"{i}-mask.png")).ToDictionary(m => m, m => $"/_forge/{key}/{i}-{m}.png") }),
                     };
+                }
+                finally { ForgeGate.Release(); }
+            }
+            case "forge.texels":
+            {
+                // Where each texel of the preview's textures is on the model (and which way it faces, and its part), so
+                // the page can show a stroke while it is painted, exactly as the app will paint it.
+                var recipe = ForgeRecipeFrom(p);
+                if (recipe.Model == null) throw new BridgeError("Open a model first.");
+                await ForgeGate.WaitAsync();
+                try
+                {
+                    var model = await Task.Run(() => ForgeLoad(recipe.Model));
+                    var size = Math.Min(ForgePreviewSize, recipe.Size);
+                    var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                    await Task.Run(() =>
+                    {
+                        for (var s = 0; s < model.Sets.Count; s++) files[$"{s}-texels.bin"] = ForgeTexels(ForgeBakeFor(model, s, size, recipe));
+                    });
+                    var key = "t" + Guid.NewGuid().ToString("N")[..12];
+                    lock (_forgePreviews)
+                    {
+                        _forgePreviews[key] = files; _forgePreviewOrder.Enqueue(key);
+                        while (_forgePreviewOrder.Count > 4) _forgePreviews.Remove(_forgePreviewOrder.Dequeue());
+                    }
+                    return new { size, sets = Enumerable.Range(0, model.Sets.Count).Select(s => $"/_forge/{key}/{s}-texels.bin") };
                 }
                 finally { ForgeGate.Release(); }
             }

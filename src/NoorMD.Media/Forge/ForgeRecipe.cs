@@ -6,9 +6,9 @@ namespace NoorMD.Media.Forge;
 /// <summary>Where a layer shows (a smart mask): from the model's shape, broken up by noise, levelled.</summary>
 public sealed class ForgeMask
 {
-    public static readonly string[] Kinds = ["all", "edges", "cavity", "top", "bottom", "height", "part", "material"];
+    public static readonly string[] Kinds = ["all", "none", "edges", "cavity", "top", "bottom", "height", "part", "material"];
 
-    /// <summary>"all", "edges" (worn edges), "cavity" (dirt in creases and hidden corners), "top" (dust, moss, snow),
+    /// <summary>"all", "none" (only where it is painted), "edges" (worn edges), "cavity" (dirt in creases and hidden corners), "top" (dust, moss, snow),
     /// "bottom" (grime), "height" (a gradient up the model), "part" (one part), "material" (one texture set).</summary>
     public string Kind { get; set; } = "all";
     /// <summary>0–1: how much of the model it covers.</summary>
@@ -37,6 +37,8 @@ public sealed class ForgeMask
 /// <summary>One layer: a material (a Texture Bench preset, or plain values), where it shows, and how strongly.</summary>
 public sealed class ForgeLayer
 {
+    public const int MaxStrokes = 4000;
+
     public string Name { get; set; } = "Layer";
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
@@ -58,6 +60,8 @@ public sealed class ForgeLayer
     public bool UseHeight { get; set; } = true;
     public double NormalStrength { get; set; } = 1;
     public ForgeMask Mask { get; set; } = new();
+    /// <summary>Brush strokes into the mask, in order (painted on the model).</summary>
+    public List<ForgeStroke> Strokes { get; set; } = [];
 
     public ForgeLayer Clamped()
     {
@@ -67,6 +71,7 @@ public sealed class ForgeLayer
         Roughness = ForgeMask.C(Roughness, 0, 1); Metallic = ForgeMask.C(Metallic, 0, 1); Height = ForgeMask.C(Height, 0, 1); NormalStrength = ForgeMask.C(NormalStrength, 0, 3);
         Material = Material is { Length: <= 200 } m && !m.Any(char.IsControl) ? m : "";
         Mask = (Mask ?? new()).Clamped();
+        Strokes = (Strokes ?? []).Where(st => st != null).Take(MaxStrokes).Select(st => st.Clamped()).ToList();
         return this;
     }
 }

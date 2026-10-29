@@ -61,10 +61,12 @@ public static class ForgeCompositor
             var tintScale = tint / Lin(128);
             var mask = layer.Mask;
             var scale = (float)layer.Scale;
+            // Painted strokes: the mask worked out whole first (they add to it and take from it in order).
+            var painted = layer.Strokes.Count > 0 ? ForgePaint.LayerMask(bake, layer, setIndex) : null;
             Parallel.For(0, n, i =>
             {
                 if (bake.Covered[i] == 0) return;
-                var m = MaskAt(mask, bake, i, setIndex, span) * (float)layer.Opacity;
+                var m = (painted != null ? painted[i] : MaskAt(mask, bake, i, setIndex, span)) * (float)layer.Opacity;
                 if (m <= 0) return;
                 var p = bake.Position[i] / scale;
                 var ng = bake.Normal[i];
@@ -106,8 +108,8 @@ public static class ForgeCompositor
     {
         var n = bake.Size * bake.Size;
         var px = new byte[n];
-        var span = bake.BoundsMax - bake.BoundsMin;
-        Parallel.For(0, n, i => { if (bake.Covered[i] != 0) px[i] = B(MaskAt(layer.Mask, bake, i, setIndex, span) * (float)layer.Opacity); });
+        var v = ForgePaint.LayerMask(bake, layer, setIndex);
+        for (var i = 0; i < n; i++) if (bake.Covered[i] != 0) px[i] = B(v[i] * (float)layer.Opacity);
         Bleed(bake.Covered, bake.Size, px, 1);
         return px;
     }
@@ -120,6 +122,7 @@ public static class ForgeCompositor
         switch (mask.Kind)
         {
             case "all": return mask.Invert ? 0 : 1;
+            case "none": return mask.Invert ? 1 : 0;
             case "part": x = bake.Part[i] == mask.Index ? 1 : 0; return mask.Invert ? 1 - x : x;
             case "material": x = setIndex == mask.Index ? 1 : 0; return mask.Invert ? 1 - x : x;
             case "edges": x = bake.Curvature[i]; break;                                                  // −1…1, edges high

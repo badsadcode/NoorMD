@@ -20,6 +20,9 @@ public sealed class ForgeBake
     public required float[] Ao { get; init; }
     /// <summary>−1 (a crease, concave) … 0 (flat) … 1 (an edge, convex).</summary>
     public required float[] Curvature { get; init; }
+    /// <summary>The covered texels by position (made when a stroke first needs it).</summary>
+    public ForgeTexelGrid Grid => LazyInitializer.EnsureInitialized(ref _grid, () => new ForgeTexelGrid(this));
+    private ForgeTexelGrid? _grid;
     public required Vector3 BoundsMin { get; init; }
     public required Vector3 BoundsMax { get; init; }
 

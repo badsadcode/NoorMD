@@ -7,7 +7,7 @@ window.NoorForge = (() => {
   const req = (type, payload) => NoorBridge.request(type, payload);
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
-  const MASKS = { all: 'Everywhere', edges: 'Worn edges', cavity: 'Cracks and corners (dirt)', top: 'On top (dust, moss, snow)', bottom: 'Underneath (grime)', height: 'Low down (a gradient up the model)', part: 'One part', material: 'One material' };
+  const MASKS = { all: 'Everywhere', none: 'Nowhere (only where painted)', edges: 'Worn edges', cavity: 'Cracks and corners (dirt)', top: 'On top (dust, moss, snow)', bottom: 'Underneath (grime)', height: 'Low down (a gradient up the model)', part: 'One part', material: 'One material' };
   const MAPS = [['basecolor', 'Colour'], ['normal', 'Normal'], ['orm', 'AO · rough · metal'], ['height', 'Height'], ['ao', 'Baked AO'], ['curvature', 'Curvature'], ['mask', 'Mask (this layer)']];
   // What the 3D view shows: lit, or one channel on the model as it is (no light).
   const VIEWS = [['shaded', 'Textured'], ['clay', 'Clay (the shape)'], ['basecolor', 'Colour only'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['metallic', 'Metal'], ['height', 'Height'],
@@ -25,6 +25,16 @@ window.NoorForge = (() => {
   let render = null;       // the last preview
   let shownSet = 0;
   let view = 'shaded';
+  // Painting (stage 2): the tool, the brush, where each texel is on the model, the stroke being painted.
+  let tool = null;         // null, 'brush' or 'fill'
+  let erasing = false;
+  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false };
+  let brush = (() => { try { return { ...BRUSH_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.forge.brush') || '{}') }; } catch { return { ...BRUSH_DEFAULTS }; } })();
+  let texels = null;       // { key, size, sets: [Float32Array (7 a texel)], grid, center }
+  let texelsLoading = null;
+  let stroke = null;       // { strokes: [the stroke (and its mirror)], last: [x, y, z] }
+  let overlay = null;      // { cover: [Float32Array per set], bytes: [Uint8Array per set], erase }
+  let paintVersion = 0;    // strokes committed (the preview clears the overlay once it shows them all)
   let renderTimer = null, renderGen = 0;
   const history = []; let future = []; let lastSnapshot = '';
 
@@ -99,6 +109,7 @@ window.NoorForge = (() => {
   async function preview() {
     if (!recipe || !recipe.model) { setStatus(model ? '' : 'Open a model (GLB or OBJ) to texture it: 📂 above, or a model from the Asset Bench.'); return; }
     const gen = ++renderGen;
+    const version = paintVersion;
     setStatus('Texturing…');
     try {
       const r = await req('forge.render', { recipe, maskLayer: recipe.layers.length ? selected : -1 });
@@ -110,6 +121,7 @@ window.NoorForge = (() => {
         if (!res.ok) throw new Error('The textured model could not be loaded for the preview.');
         if (gen !== renderGen) return;
         await viewer.load(await res.arrayBuffer());
+        if (version === paintVersion && !stroke) { overlay = null; viewer.setPaint(null); }
         await applyView(gen);
       }
       renderMaps();
@@ -160,12 +172,14 @@ window.NoorForge = (() => {
             el('div', { class: 'tb-view-col', id: 'fg-view-col' },
               el('div', { class: 'tb-views', role: 'group', 'aria-label': 'Preview' },
                 (() => { const s = el('select', { id: 'fg-view', 'aria-label': 'Show', title: 'The model lit, or one channel on it as it is' }, ...VIEWS.map(([v, t]) => el('option', { value: v, text: t }))); s.addEventListener('change', () => { view = s.value; applyView(); }); return s; })(),
+                el('button', { class: 'icon-btn', id: 'fg-paint', title: 'Paint on the model (B) — into the chosen layer\'s mask', 'aria-label': 'Paint', 'aria-pressed': 'false', onclick: () => setTool(tool ? null : 'brush') }, '🖌'),
                 el('span', { class: 'sb-fx-space' }),
                 el('button', { class: 'icon-btn', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => viewer && viewer.zoom(1.2) }, '−'),
                 el('button', { class: 'icon-btn', title: 'Zoom in', 'aria-label': 'Zoom in', onclick: () => viewer && viewer.zoom(1 / 1.2) }, '+'),
                 el('button', { class: 'icon-btn', title: 'Back to the whole model', 'aria-label': 'Reset the view', onclick: () => viewer && viewer.reset() }, '⟲'),
                 el('button', { class: 'icon-btn', id: 'fg-side', title: 'The model big, the settings in a column on the right; or the settings under the model', 'aria-label': 'Settings beside the model', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
                 el('button', { class: 'icon-btn', id: 'fg-list', title: 'Show or hide the list on the left', 'aria-label': 'The list', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
+              el('div', { class: 'fg-brushbar', id: 'fg-brushbar', hidden: true }),
               el('div', { class: 'tb-stage' }, el('canvas', { id: 'fg-canvas', class: 'tb-canvas', role: 'img', 'aria-label': 'The textured model: drag to turn it, wheel to zoom', title: 'Drag: turn · wheel: zoom · right-drag: move' })),
               el('p', { class: 'pref-hint sb-status', id: 'fg-status', 'aria-live': 'polite' }),
               el('div', { class: 'fg-maps', id: 'fg-maps' })),
@@ -181,9 +195,15 @@ window.NoorForge = (() => {
     $('#fg-size').addEventListener('change', (e) => { recipe.size = Number(e.target.value); changed(); });
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
+      if (e.key === 'Escape' && !typing && tool) { e.preventDefault(); e.stopPropagation(); setTool(null); return; }
       if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; }
       if (typing) return;
       const k = e.key.toLowerCase();
+      if (!e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (k === 'b') { e.preventDefault(); setTool(tool === 'brush' && !erasing ? null : 'brush', false); return; }
+        if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
+        if ((k === '[' || k === ']') && tool) { e.preventDefault(); setBrush('size', Math.max(0.2, Math.min(25, +(brush.size * (k === ']' ? 1.2 : 1 / 1.2)).toFixed(2)))); return; }
+      }
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (k === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
     });
@@ -274,7 +294,7 @@ window.NoorForge = (() => {
     if (!list) return;
     // Top of the stack first, as in a painting program.
     list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off'), 'data-layer': String(i), role: 'button', tabindex: '0',
-      onclick: () => { selected = i; renderLayers(); renderLayerEditor(); schedule(); } }, // its mask, shown
+      onclick: () => { selected = i; renderLayers(); renderLayerEditor(); renderBrushBar(); schedule(); } }, // its mask, shown
       el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden (click to show)', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); l.visible = !l.visible; changed('layers'); } }, l.visible ? '👁' : '◌'),
       el('span', { class: 'fg-swatch', style: `background:${l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}` }),
       el('span', { class: 'fg-layername', text: l.name }),
@@ -283,16 +303,17 @@ window.NoorForge = (() => {
   }
 
   function layersPane() {
-    const add = (material) => {
-      const l = { name: material ? 'Material' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
-        height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 } };
-      recipe.layers.splice(selected + 1, 0, l); selected++; changed('all');
+    const add = (material, painted) => {
+      const l = { name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
+        height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
+      recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
     };
     const move = (d) => { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); };
     const out = [
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'fg-addmat', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(true) }, '＋ Material layer'),
         el('button', { class: 'utility-btn', id: 'fg-addplain', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(false) }, '＋ Colour layer'),
+        el('button', { class: 'utility-btn', id: 'fg-addpaint', title: 'A colour layer shown only where you paint it, with the brush ready', disabled: recipe.layers.length >= 32 || undefined, onclick: () => { add(false, true); setTool('brush', false); } }, '＋ Paint layer'),
         el('button', { class: 'icon-btn', title: 'Up the stack', 'aria-label': 'Move up', onclick: () => move(1) }, '↑'),
         el('button', { class: 'icon-btn', title: 'Down the stack', 'aria-label': 'Move down', onclick: () => move(-1) }, '↓'),
         el('button', { class: 'icon-btn', id: 'fg-dellayer', title: 'Remove this layer (Ctrl+Z brings it back)', 'aria-label': 'Remove the layer', disabled: !recipe.layers.length || undefined, onclick: () => { recipe.layers.splice(selected, 1); selected = Math.max(0, selected - 1); changed('all'); } }, '🗑')),
@@ -331,16 +352,20 @@ window.NoorForge = (() => {
         s.value = String(m.index); s.addEventListener('change', () => { m.index = Number(s.value); changed(); });
         return el('label', { class: 'sb-inline' }, el('span', { text: m.kind === 'part' ? 'Part' : 'Material' }), s);
       })() : null;
-    const shaped = !['all', 'part', 'material'].includes(m.kind);
-    box.replaceChildren(
+    const shaped = !['all', 'none', 'part', 'material'].includes(m.kind);
+    box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: 'Layer' }),
       el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
       el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
         ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01), slider(l, 'height', 'Height (mid: flat)', 0, 1, 0.01)])),
       el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
       el('h4', { class: 'music-subhead', text: 'Where it shows (smart mask)' }),
+      (l.strokes || []).length ? el('div', { class: 'sb-row', id: 'fg-strokes' },
+        el('span', { class: 'pref-hint', text: `Painted: ${l.strokes.length} stroke${l.strokes.length === 1 ? '' : 's'} (${l.strokes.filter((st) => st.erase).length} erasing)` }),
+        el('button', { class: 'utility-btn', id: 'fg-clearpaint', title: 'Remove this layer\'s painting (Ctrl+Z brings it back)', onclick: () => { l.strokes = []; paintVersion++; changed('all'); } }, '✕ Clear the painting')) : null,
       el('div', { class: 'sb-row' }, kind, which, el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Everywhere else instead' }))),
-      shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01), slider(m, 'noise', 'Break up with noise', 0, 1, 0.01), slider(m, 'noiseScale', 'Noise size (m)', 0.01, 5, 0.01)) : null);
+      shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01), slider(m, 'noise', 'Break up with noise', 0, 1, 0.01), slider(m, 'noiseScale', 'Noise size (m)', 0.01, 5, 0.01)) : null].filter(Boolean));
+    keepFocus();
   }
 
   function bakePane() {
@@ -357,6 +382,271 @@ window.NoorForge = (() => {
         slider(recipe, 'aoDistance', 'How far occlusion reaches (share of the model)', 0.01, 1, 0.01),
         slider(recipe, 'edgeWidth', 'How wide edges and creases are (share of the model)', 0, 0.2, 0.002)),
     ];
+  }
+
+  // ---------------------------------------------------------------- painting (stage 2)
+
+  const modelSize = () => (model ? Math.max(...model.size, 0.01) : 1);
+  const radius = () => (brush.size / 100) * modelSize();
+  const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+
+  function setBrush(key, value) {
+    brush[key] = value;
+    try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ }
+    renderBrushBar();
+  }
+
+  /** The brush on and off ('brush' or 'fill'; erasing for the brush), the mouse given to it or back to turning. */
+  function setTool(t, erase = erasing) {
+    if (t && !recipe.model) { notice('Open a model first', 1800); return; }
+    if (t && !recipe.layers.length) { notice('Add a layer to paint into first', 1800); return; }
+    tool = t; erasing = !!t && t === 'brush' && erase;
+    $('#fg-paint').setAttribute('aria-pressed', String(!!tool));
+    $('#forgebench').classList.toggle('fg-painting', !!tool);
+    if (viewer) { viewer.setPainter(tool ? PAINTER : null); if (!tool) viewer.setBrush(null); }
+    if (tool) ensureTexels();
+    renderBrushBar();
+  }
+
+  function renderBrushBar() {
+    const bar = $('#fg-brushbar');
+    if (!bar) return;
+    bar.hidden = !tool;
+    if (!tool) { bar.replaceChildren(); return; }
+    const layer = recipe.layers[selected];
+    const toolBtn = (id, label, title, on, click) => el('button', { class: 'icon-btn', id, title, 'aria-label': title, 'aria-pressed': String(on), onclick: click }, label);
+    const num = (key, label, min, max, step, title) => {
+      const r = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(brush[key]), 'aria-label': label, 'data-brush': key });
+      r.addEventListener('input', () => { brush[key] = Number(r.value); try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } r.nextSibling.textContent = fmt(key); });
+      return el('label', { class: 'fg-bnum', title }, el('span', { text: label }), r, el('small', { text: fmt(key) }));
+    };
+    const fmt = (key) => (key === 'size' ? `${brush.size}%` : `${Math.round(brush[key] * 100)}%`);
+    const check = (key, label, title) => { const c = el('input', { type: 'checkbox', checked: brush[key] || undefined, 'data-brush': key }); c.addEventListener('change', () => setBrush(key, c.checked)); return el('label', { class: 'sb-inline', title }, c, el('span', { text: label })); };
+    bar.replaceChildren(
+      el('div', { class: 'sb-row' },
+        toolBtn('fg-tool-brush', '🖌', 'Brush (B): paint the layer in', tool === 'brush' && !erasing, () => setTool('brush', false)),
+        toolBtn('fg-tool-erase', '🧽', 'Eraser (E): take the layer away (its smart mask too)', tool === 'brush' && erasing, () => setTool('brush', true)),
+        toolBtn('fg-tool-fill', '🪣', 'Fill a part: click it', tool === 'fill', () => setTool('fill')),
+        num('size', 'Size', 0.2, 25, 0.1, 'The brush\'s size, a share of the model ([ and ])'),
+        num('hardness', 'Hardness', 0, 1, 0.01, 'How much of the brush paints fully before it fades'),
+        num('flow', 'Flow', 0.02, 1, 0.01, 'How much each dab adds (going over builds it up)'),
+        num('spacing', 'Spacing', 0.05, 1, 0.01, 'How far apart the dabs are, a share of the brush')),
+      el('div', { class: 'sb-row' },
+        el('span', { class: 'pref-hint', text: 'Pen pressure:' }), check('pressureSize', 'size', 'A pen\'s pressure makes the brush smaller'), check('pressureFlow', 'flow', 'A pen\'s pressure makes the paint lighter'),
+        check('mirror', 'Mirror across X', 'Paint the other side too (mirrored across the model\'s middle, left to right)'),
+        el('span', { class: 'pref-hint fg-into', text: layer ? `Into “${layer.name}” · Alt+drag turns the model · Shift+click: a straight line` : 'Choose a layer' }),
+        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null));
+    keepFocus();
+  }
+
+  const texKey = () => `${recipe.model}|${Math.min(512, recipe.size)}|${recipe.aoRays}|${recipe.aoDistance}|${recipe.edgeWidth}`;
+
+  /** Where each texel of the preview is on the model, for showing a stroke at once (fetched when painting starts). */
+  async function ensureTexels() {
+    if (!recipe || !recipe.model) return null;
+    const key = texKey();
+    if (texels && texels.key === key) return texels;
+    if (texelsLoading && texelsLoading.key === key) return texelsLoading.promise;
+    const promise = (async () => {
+      try {
+        const r = await req('forge.texels', { recipe: { ...recipe, layers: [] } });
+        const sets = await Promise.all(r.sets.map(async (u) => new Float32Array(await (await fetch(u)).arrayBuffer())));
+        texels = { key, size: r.size, sets, ...buildGrid(sets) };
+        overlay = null;
+        return texels;
+      } catch (err) { hooks.showError(err); return null; } finally { texelsLoading = null; renderBrushBar(); }
+    })();
+    texelsLoading = { key, promise };
+    renderBrushBar();
+    return promise;
+  }
+
+  /** Texels in cells by position (as the app's ForgeTexelGrid): [set, texel] pairs per cell. */
+  function buildGrid(sets) {
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (const f of sets) for (let i = 0; i < f.length; i += 7) { if (Number.isNaN(f[i])) continue; for (let a = 0; a < 3; a++) { lo[a] = Math.min(lo[a], f[i + a]); hi[a] = Math.max(hi[a], f[i + a]); } }
+    const cell = Math.max(1e-4, Math.max(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) / 64);
+    const cells = new Map();
+    sets.forEach((f, s) => {
+      for (let i = 0, t = 0; i < f.length; i += 7, t++) {
+        if (Number.isNaN(f[i])) continue;
+        const k = cellKey(f[i], f[i + 1], f[i + 2], lo, cell);
+        let list = cells.get(k);
+        if (!list) cells.set(k, list = []);
+        list.push(s, t);
+      }
+    });
+    return { lo, cell, cells, center: (lo[0] + hi[0]) / 2 };
+  }
+  const cellKey = (x, y, z, lo, cell) => Math.floor((x - lo[0]) / cell) + Math.floor((y - lo[1]) / cell) * 4096 + Math.floor((z - lo[2]) / cell) * 16777216;
+
+  function near(at, r, each) {
+    const { lo, cell, cells } = texels;
+    const c0 = [0, 1, 2].map((a) => Math.floor((at[a] - r - lo[a]) / cell)), c1 = [0, 1, 2].map((a) => Math.floor((at[a] + r - lo[a]) / cell));
+    for (let x = c0[0]; x <= c1[0]; x++) for (let y = c0[1]; y <= c1[1]; y++) for (let z = c0[2]; z <= c1[2]; z++) {
+      const list = cells.get(x + y * 4096 + z * 16777216);
+      if (list) for (let i = 0; i < list.length; i += 2) each(list[i], list[i + 1]);
+    }
+  }
+
+  const smooth = (e0, e1, x) => { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
+
+  /** One dab into the overlay: the same coverage the app paints (ForgePaint.Coverage). */
+  function overlayDab(st, x, y, z, size, flow) {
+    if (!texels || !overlay) return;
+    const r = st.radius * Math.max(0.02, size), f0 = st.flow * flow, v = st.view, hard = st.hardness;
+    if (f0 <= 0) return;
+    near([x, y, z], r, (s, t) => {
+      const f = texels.sets[s], b = t * 7;
+      const d = Math.hypot(f[b] - x, f[b + 1] - y, f[b + 2] - z) / r;
+      if (d >= 1) return;
+      const facing = smooth(-0.05, 0.25, -(f[b + 3] * v[0] + f[b + 4] * v[1] + f[b + 5] * v[2]));
+      if (facing <= 0) return;
+      const fall = d <= hard ? 1 : smooth(0, 1, (1 - d) / Math.max(1e-4, 1 - hard));
+      const c = overlay.cover[s];
+      c[t] = 1 - (1 - c[t]) * (1 - f0 * fall * facing);
+      overlay.bytes[s][t] = Math.round(c[t] * 255);
+    });
+    overlay.dirty = true;
+  }
+
+  function showOverlay() {
+    if (!overlay || !overlay.dirty || !viewer) return;
+    overlay.dirty = false;
+    const layer = recipe.layers[selected];
+    const color = overlay.erase ? [0.05, 0.05, 0.06] : view === 'mask' ? [1, 1, 1] : layer && !layer.material ? hexRgb(layer.color) : [1, 0.62, 0.22];
+    viewer.setPaint(overlay.bytes.map((b) => ({ size: texels.size, data: b })), color, overlay.erase ? 0.6 : 0.85);
+  }
+
+  function startOverlay(erase) {
+    if (!texels) return;
+    if (!overlay || overlay.erase !== erase) {
+      const n = texels.size * texels.size;
+      overlay = { erase, cover: texels.sets.map(() => new Float32Array(n)), bytes: texels.sets.map(() => new Uint8Array(n)), dirty: true };
+    }
+  }
+
+  /** A pen's pressure (a mouse presses fully). */
+  const pressure = (e) => (e && e.pointerType === 'pen' ? Math.max(0.05, e.pressure || 0) : 1);
+
+  function addDab(p, pr) {
+    const size = brush.pressureSize ? pr : 1, flow = brush.pressureFlow ? pr : 1;
+    for (const st of stroke.strokes) {
+      const x = st.mirrored ? 2 * texels.center - p[0] : p[0];
+      st.dabs.push(+x.toFixed(5), +p[1].toFixed(5), +p[2].toFixed(5), +size.toFixed(3), +flow.toFixed(3));
+      overlayDab(st, x, p[1], p[2], size, flow);
+    }
+    stroke.last = p;
+  }
+
+  /** Dabs from the last one to a point, every spacing (a jump across a gap starts afresh). */
+  function dabTo(p, pr) {
+    if (!stroke.last) { addDab(p, pr); return; }
+    const step = Math.max(1e-5, brush.spacing * radius() * (brush.pressureSize ? pr : 1));
+    const l = stroke.last, dx = p[0] - l[0], dy = p[1] - l[1], dz = p[2] - l[2];
+    const d = Math.hypot(dx, dy, dz);
+    if (d > radius() * 6) { addDab(p, pr); return; }
+    const n = Math.floor(d / step);
+    for (let i = 1; i <= n; i++) addDab([l[0] + dx * (i * step / d), l[1] + dy * (i * step / d), l[2] + dz * (i * step / d)], pr);
+    if (n > 0) stroke.last = [l[0] + dx * (n * step / d), l[1] + dy * (n * step / d), l[2] + dz * (n * step / d)];
+  }
+
+  function beginStroke(hit) {
+    const st = (mirrored) => ({ erase: erasing, radius: +radius().toFixed(5), hardness: brush.hardness, flow: brush.flow, view: mirrored ? [-hit.dir[0], hit.dir[1], hit.dir[2]] : hit.dir.map((v) => +v.toFixed(5)), dabs: [], part: -1, mirrored });
+    stroke = { strokes: brush.mirror ? [st(false), st(true)] : [st(false)], last: null };
+    startOverlay(erasing);
+  }
+
+  function endStroke() {
+    if (!stroke) return;
+    const done = stroke.strokes.filter((st) => st.dabs.length);
+    stroke = null;
+    if (done.length) commitStrokes(done.map(({ mirrored, ...st }) => st));
+  }
+
+  /** New strokes into the chosen layer: one undo step each, then textured again. */
+  function commitStrokes(list) {
+    const layer = recipe.layers[selected];
+    if (!layer) return;
+    clearTimeout(snapTimer); pushHistory();
+    layer.strokes = (layer.strokes || []).concat(list);
+    pushHistory();
+    paintVersion++;
+    renderLayers(); renderLayerEditor();
+    schedule();
+  }
+
+  let lastLineEnd = null;    // where the last stroke ended (Shift+click draws a straight line from it)
+  let rafPending = false;
+  const frame = () => { if (rafPending) return; rafPending = true; requestAnimationFrame(() => { rafPending = false; showOverlay(); }); };
+
+  const PAINTER = {
+    hover(e) {
+      if (!e || !tool) { viewer.setBrush(null); return; }
+      const hit = viewer.pick(e.clientX, e.clientY);
+      viewer.setBrush(hit && tool === 'brush' ? hit.point : null, radius(), brush.hardness);
+    },
+    down(e) {
+      if (!tool || !recipe.layers[selected]) return false;
+      if (!texels || texels.key !== texKey()) { ensureTexels(); notice('Getting the model ready for painting…', 1400); return false; }
+      const hit = viewer.pick(e.clientX, e.clientY);
+      if (!hit) return false; // off the model: turns it, as usual
+      if (tool === 'fill') { fillPart(hit); return true; }
+      beginStroke(hit);
+      if (e.shiftKey && lastLineEnd) {
+        // A straight line from the last stroke's end, across the screen, each step finding the surface.
+        stroke.last = null;
+        addDab(lastLineEnd.point, 1);
+        const steps = Math.max(2, Math.ceil(Math.hypot(e.clientX - lastLineEnd.x, e.clientY - lastLineEnd.y) / 3));
+        for (let i = 1; i <= steps; i++) {
+          const h = viewer.pick(lastLineEnd.x + (e.clientX - lastLineEnd.x) * (i / steps), lastLineEnd.y + (e.clientY - lastLineEnd.y) * (i / steps));
+          if (h) dabTo(h.point, 1); else stroke.last = null;
+        }
+      } else addDab(hit.point, pressure(e));
+      lastLineEnd = { point: hit.point, x: e.clientX, y: e.clientY };
+      frame();
+      return true;
+    },
+    move(e) {
+      if (!stroke) return;
+      const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [];
+      for (const ev of evs.length ? evs : [e]) {
+        const hit = viewer.pick(ev.clientX, ev.clientY);
+        if (!hit) { stroke.last = null; continue; }
+        dabTo(hit.point, pressure(ev));
+        lastLineEnd = { point: hit.point, x: ev.clientX, y: ev.clientY };
+        viewer.setBrush(hit.point, radius(), brush.hardness);
+      }
+      frame();
+    },
+    up() { endStroke(); },
+  };
+
+  /** 🪣: the whole part under the click (its texels' part), into the layer. */
+  function fillPart(hit) {
+    let best = Infinity, part = -1;
+    // The nearest texel: in the cells around the point, further out until one is found.
+    for (const reach of [1, 3, 10]) {
+      near(hit.point, texels.cell * reach, (s, t) => {
+        const f = texels.sets[s], b = t * 7;
+        const d = Math.hypot(f[b] - hit.point[0], f[b + 1] - hit.point[1], f[b + 2] - hit.point[2]);
+        if (d < best) { best = d; part = f[b + 6]; }
+      });
+      if (part >= 0) break;
+    }
+    if (part < 0) return;
+    commitStrokes([{ erase: false, radius: 0.05, hardness: 1, flow: 1, view: [0, 0, -1], dabs: [], part }]);
+    notice(`Filled ${model && model.parts[part] ? `“${model.parts[part]}”` : 'the part'}`, 1400);
+  }
+
+  /** For tests and scripting: paint through points on the surface (each { point, dir }), as a stroke would. */
+  async function paintHits(hits, { erase = false } = {}) {
+    await ensureTexels();
+    erasing = erase;
+    beginStroke(hits[0]);
+    for (const h of hits) dabTo(h.point, 1);
+    showOverlay();
+    endStroke();
   }
 
   // ---------------------------------------------------------------- files
@@ -411,7 +701,7 @@ window.NoorForge = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen, openAsset,
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, render: render ? clone(render) : null, history: history.length }),
+    init, open, close, toggle, isOpen, openAsset, _paintAt: (hits, opts) => paintHits(hits, opts),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, tool, erasing, brush: { ...brush }, texels: texels ? { size: texels.size, sets: texels.sets.length } : null, painting: !!stroke, overlay: !!overlay && overlay.cover.some((c) => c.some((v) => v > 0.05)), render: render ? clone(render) : null, history: history.length }),
   };
 })();

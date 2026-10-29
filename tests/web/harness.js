@@ -10,6 +10,21 @@ const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/cs
 
 // Real audio fixtures for media tests: ids 1-4 are playable, other ids are "missing" (404).
 const FIXTURES = path.resolve(__dirname, '..', 'NoorMD.Media.Tests', 'Fixtures');
+/** The rock fixture's vertices as NoorForge texels (64×64: position, normal, part 0), for the brush's live preview. */
+function rockTexels() {
+  const buf = fs.readFileSync(path.join(FIXTURES, 'rock-lod0.glb'));
+  const jsonLen = buf.readUInt32LE(12);
+  const json = JSON.parse(buf.subarray(20, 20 + jsonLen).toString('utf8'));
+  const bin = buf.subarray(20 + jsonLen + 8);
+  const read = (i) => { const a = json.accessors[i], v = json.bufferViews[a.bufferView], off = (v.byteOffset || 0) + (a.byteOffset || 0); return Array.from({ length: a.count * 3 }, (_, k) => bin.readFloatLE(off + k * 4)); };
+  const prim = json.meshes[0].primitives[0];
+  const pos = read(prim.attributes.POSITION), nrm = read(prim.attributes.NORMAL);
+  const size = 64, out = new Float32Array(size * size * 7).fill(NaN);
+  for (let i = 0; i < Math.min(size * size, pos.length / 3); i++) {
+    out.set([pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2], 0], i * 7);
+  }
+  return Buffer.from(out.buffer);
+}
 const MEDIA = { 1: 'tone.mp3', 2: 'tone.ogg', 3: 'tone.flac', 4: 'tone.wav' };
 const MEDIA_TYPES = { '.mp3': 'audio/mpeg', '.ogg': 'audio/ogg', '.flac': 'audio/flac', '.wav': 'audio/wav', '.webm': 'video/webm' };
 const MAX_CHUNK = 2 * 1024 * 1024; // same as NoorMD.Media.MediaResponse
@@ -54,6 +69,8 @@ function serve() {
     if (url.pathname.startsWith('/_art/')) { res.writeHead(404); res.end(); return; }
     // Asset Bench previews: real GLBs made by the C# tree builder ("s" keys: separate branches).
     if (/^\/_asset\/r\d+\/lod\d\.glb$/.test(url.pathname)) { res.writeHead(200, { 'Content-Type': 'model/gltf-binary' }); res.end(fs.readFileSync(path.join(FIXTURES, 'rock-lod0.glb'))); return; }
+    // NoorForge's texels for painting: here the rock's vertices (where its surface is), 7 floats each, NaN after.
+    if (url.pathname === '/_forge/texels/0.bin') { res.writeHead(200, { 'Content-Type': 'application/octet-stream' }); res.end(rockTexels()); return; }
     const glb = /^\/_asset\/(k\d+)(s?)\/lod(\d)\.glb$/.exec(url.pathname);
     if (glb) { const f = glb[2] ? 'tree-separate.glb' : `tree-lod${Math.min(1, Number(glb[3]))}.glb`; res.writeHead(200, { 'Content-Type': 'model/gltf-binary' }); res.end(fs.readFileSync(path.join(FIXTURES, f))); return; }
     const pic = /^\/_(img|thumb)\/(\d+)$/.exec(url.pathname); // Gallery: every picture id under 900 is the same small photo
@@ -538,6 +555,7 @@ function mockHostScript(initial) {
       }
       case 'forge.export': FORGE.exports.push(JSON.parse(JSON.stringify(p.recipe))); return { folder: 'C:\\Export', files: ['Crate_Wood_BaseColor.png', 'Crate_Wood_Normal.png', 'Crate.glb', 'Crate.noorforge.json'] };
       case 'forge.recipe.open': return { cancelled: true };
+      case 'forge.texels': FORGE.texels = (FORGE.texels || 0) + 1; return { size: 64, sets: ['/_forge/texels/0.bin'] };
       case 'forge.fromAsset': FORGE.fromAsset = p.key; return { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] };
       default: throw new Error('Unknown forge command ' + type);
     }

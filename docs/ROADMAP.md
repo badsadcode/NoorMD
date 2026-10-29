@@ -56,7 +56,8 @@ first, and anything that conflicts with it waits.
 
 - NoorForge (texturing a model with layers and smart masks, after Substance Painter's idea), stage 1 first cut:
   preview.87; stage 1 finished (height, a Godot material, smart materials of your own, one channel in the 3D view):
-  preview.88. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
+  preview.88; stage 2 (painting on the model: brush, eraser, mirror, straight lines, fill a part): preview.89. See
+  [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
 
 ## Indie developer benches (concept)
 

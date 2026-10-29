@@ -5583,6 +5583,88 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 65c. NoorForge painting: the brush, the eraser, mirror, a straight line, fill a part, undo.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      const FM = () => page.evaluate(() => window.__mock.state.forge);
+      const layerNow = async () => { const st = await FS(); return st.recipe.layers[st.selected]; };
+      await page.keyboard.press('Control+Alt+f');
+      await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
+      await page.click('#fg-pick');
+      await waitFn(page, () => window.__mock.state.forge.renders.length >= 1 && NoorForge._state().render);
+      await page.click('#fg-addpaint');
+      await waitFn(page, () => NoorForge._state().texels);
+      let st = await FS();
+      const paintLayer = st.recipe.layers[st.selected];
+      check('＋ Paint layer adds a colour layer shown only where painted, with the brush ready', paintLayer.name === 'Paint' && paintLayer.mask.kind === 'none' && st.tool === 'brush' && !st.erasing
+        && !(await page.isHidden('#fg-brushbar')) && (await page.getAttribute('#fg-paint', 'aria-pressed')) === 'true');
+      check('…and the model\'s texels are fetched for showing strokes at once', (await FM()).texels === 1 && st.texels.size === 64);
+      await page.$eval('#fg-brushbar input[data-brush="size"]', (i) => { i.value = '20'; i.dispatchEvent(new Event('input')); });
+      await page.$eval('#fg-brushbar input[data-brush="spacing"]', (i) => { i.value = '0.1'; i.dispatchEvent(new Event('input')); });
+      const box = await page.$eval('#fg-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      // A stroke across the rock.
+      const renders0 = (await FM()).renders.length;
+      await page.mouse.move(box.x - 30, box.y);
+      await page.mouse.down();
+      for (let k = 1; k <= 12; k++) await page.mouse.move(box.x - 30 + k * 5, box.y + k);
+      st = await FS();
+      check('while painting, the stroke shows on the model at once', st.painting && st.overlay);
+      if (shots) await page.screenshot({ path: `${shots}/65c-noorforge-stroke.png` });
+      await page.mouse.up();
+      await waitFn(page, (n) => window.__mock.state.forge.renders.length > n && window.__mock.state.forge.renders.at(-1).layers.some((l) => (l.strokes || []).length), renders0);
+      let l = await layerNow();
+      check('a stroke goes into the layer (dabs on the surface, the brush\'s size and the view it was painted from)', l.strokes.length === 1 && l.strokes[0].dabs.length >= 25 && l.strokes[0].dabs.length % 5 === 0
+        && Math.abs(l.strokes[0].radius - 0.2) < 0.001 && !l.strokes[0].erase && l.strokes[0].view.length === 3);
+      check('…and is textured by the app (into this layer)', (await FM()).renders.at(-1).layers.find((x) => x.name === 'Paint').strokes.length === 1);
+      check('the layer tells how many strokes it has', /Painted: 1 stroke/.test(await page.textContent('#fg-strokes')));
+      // Alt+drag turns the model instead.
+      await page.keyboard.down('Alt');
+      await page.mouse.move(box.x, box.y); await page.mouse.down(); await page.mouse.move(box.x + 40, box.y); await page.mouse.up();
+      await page.keyboard.up('Alt');
+      check('Alt+drag turns the model (no stroke)', (await layerNow()).strokes.length === 1);
+      // The eraser (E), mirrored.
+      await page.keyboard.press('e');
+      await page.click('#fg-brushbar input[data-brush="mirror"]');
+      await page.waitForTimeout(700);
+      await page.mouse.move(box.x - 10, box.y); await page.mouse.down(); await page.mouse.move(box.x + 10, box.y + 4); await page.mouse.up();
+      l = await layerNow();
+      check('E: the eraser, and mirrored strokes paint the other side too (its view mirrored)', (await FS()).erasing && l.strokes.length === 3 && l.strokes[1].erase && l.strokes[2].erase
+        && Math.abs(l.strokes[2].view[0] + l.strokes[1].view[0]) < 1e-4 && Math.abs(l.strokes[2].dabs[0] - l.strokes[1].dabs[0]) > 1e-4);
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z takes the last stroke (both sides) back', (await layerNow()).strokes.length === 1);
+      await page.keyboard.press('Control+Shift+z');
+      check('…and Ctrl+Shift+Z puts it back', (await layerNow()).strokes.length === 3);
+      await page.click('#fg-brushbar input[data-brush="mirror"]');
+      // Shift+click: a straight line from where the last stroke ended.
+      await page.keyboard.press('e');
+      await page.waitForTimeout(700);
+      await page.keyboard.down('Shift');
+      await page.mouse.move(box.x - 40, box.y + 10); await page.mouse.down(); await page.mouse.up();
+      await page.keyboard.up('Shift');
+      l = await layerNow();
+      check('Shift+click paints a straight line from the last stroke\'s end', l.strokes.length === 4 && !l.strokes[3].erase && l.strokes[3].dabs.length >= 15);
+      // [ and ] size the brush.
+      await page.keyboard.press(']');
+      check('] makes the brush bigger', (await FS()).brush.size === 24);
+      await page.keyboard.press('[');
+      // Fill a part.
+      await page.click('#fg-tool-fill');
+      await page.waitForTimeout(700);
+      await page.mouse.click(box.x, box.y);
+      l = await layerNow();
+      check('🪣 fills the part under the click', l.strokes.length === 5 && l.strokes[4].part === 0);
+      await page.click('#fg-clearpaint');
+      check('✕ Clear the painting', (await layerNow()).strokes.length === 0);
+      await page.keyboard.press('Control+z');
+      check('…and Ctrl+Z brings it back', (await layerNow()).strokes.length === 5);
+      await page.keyboard.press('Escape');
+      check('Escape puts the brush down (NoorForge stays open)', (await FS()).tool === null && await page.evaluate(() => NoorForge.isOpen()) && await page.isHidden('#fg-brushbar'));
+      if (shots) await page.screenshot({ path: `${shots}/65c-noorforge-paint.png` });
+      check('no page errors while painting', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65. Asset Bench: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

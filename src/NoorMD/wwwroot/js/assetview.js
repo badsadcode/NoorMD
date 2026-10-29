@@ -126,13 +126,26 @@ window.NoorAssetView = (() => {
   const FS = `#version 300 es
     precision highp float;
     in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind; in vec4 vCol;
-    uniform sampler2D tColor, tNormal, tOrm; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint;
+    uniform sampler2D tColor, tNormal, tOrm, tPaint; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint, uHasPaint;
+    uniform vec4 uPaint, uBrush; uniform float uBrushHard;
     uniform vec4 uBase; uniform float uRough, uCutoff; uniform vec3 uEye, uSun, uPart, uEmissive;
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
+    // NoorForge painting: the stroke being painted (a coverage picture in UV space) over the result, and the brush's
+    // ring where it touches the surface (its inner ring: where the hardness ends).
+    vec3 painted(vec3 c) {
+      if (uHasPaint == 1) c = mix(c, uPaint.rgb, texture(tPaint, vUv).r * uPaint.a);
+      if (uBrush.w > 0.0) {
+        float d = distance(vPos, uBrush.xyz), w = max(uBrush.w * 0.05, fwidth(d) * 1.5);
+        float ring = 1.0 - smoothstep(0.0, w, abs(d - uBrush.w));
+        float inner = uBrushHard < 0.98 ? (1.0 - smoothstep(0.0, w, abs(d - uBrush.w * uBrushHard))) * 0.45 : 0.0;
+        c = mix(c, vec3(1.0, 0.95, 0.8), max(ring, inner) * 0.85);
+      }
+      return c;
+    }
     void main() {
       // One channel (NoorForge): the picture as it is, no light.
-      if (uMode == 4) { outColor = vec4(uHasColor == 1 ? texture(tColor, vUv).rgb : vec3(0.0), 1.0); return; }
+      if (uMode == 4) { outColor = vec4(painted(uHasColor == 1 ? texture(tColor, vUv).rgb : vec3(0.0)), 1.0); return; }
       vec4 base = uBase;
       if (uHasColor == 1) {
         vec4 t = texture(tColor, vUv);
@@ -170,7 +183,7 @@ window.NoorAssetView = (() => {
       vec3 col = albedo * (sky * 0.75 * ao + vec3(1.0, 0.95, 0.85) * (nl + back) * 1.35) + vec3(spec) * nl;
       if (uMode == 0) col += uEmissive * 1.4;          // glowing crystals and caps
       col = col / (col + vec3(0.9)) * 1.6;           // gentle tone mapping
-      outColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
+      outColor = vec4(painted(pow(col, vec3(1.0 / 2.2))), 1.0);
     }`;
   const GRID_VS = `#version 300 es
     in vec2 aPos; uniform mat4 uView, uProj; uniform float uSize; out vec2 vXZ;
@@ -192,6 +205,37 @@ window.NoorAssetView = (() => {
     precision highp float; out vec4 outColor; void main() { outColor = vec4(0.05, 0.05, 0.06, 0.55); }`;
 
   const PART_COLORS = [[0.55, 0.4, 0.28], [0.85, 0.45, 0.35], [0.4, 0.65, 0.85], [0.9, 0.75, 0.3], [0.55, 0.8, 0.45], [0.75, 0.5, 0.85], [0.35, 0.8, 0.75], [0.95, 0.55, 0.7]];
+
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const norm = (a) => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+
+  /** The nearest triangle a ray meets (Möller–Trumbore, both sides): { point, normal (towards the ray's start), material }. */
+  function rayCast(pick, o, d) {
+    const t = pick.tris;
+    let best = Infinity, bi = -1;
+    for (let i = 0; i < pick.count; i++) {
+      const b = i * 9;
+      const e1x = t[b + 3] - t[b], e1y = t[b + 4] - t[b + 1], e1z = t[b + 5] - t[b + 2];
+      const e2x = t[b + 6] - t[b], e2y = t[b + 7] - t[b + 1], e2z = t[b + 8] - t[b + 2];
+      const px = d[1] * e2z - d[2] * e2y, py = d[2] * e2x - d[0] * e2z, pz = d[0] * e2y - d[1] * e2x;
+      const det = e1x * px + e1y * py + e1z * pz;
+      if (det > -1e-12 && det < 1e-12) continue;
+      const inv = 1 / det;
+      const sx = o[0] - t[b], sy = o[1] - t[b + 1], sz = o[2] - t[b + 2];
+      const u = (sx * px + sy * py + sz * pz) * inv;
+      if (u < 0 || u > 1) continue;
+      const qx = sy * e1z - sz * e1y, qy = sz * e1x - sx * e1z, qz = sx * e1y - sy * e1x;
+      const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
+      if (v < 0 || u + v > 1) continue;
+      const dist = (e2x * qx + e2y * qy + e2z * qz) * inv;
+      if (dist > 1e-6 && dist < best) { best = dist; bi = i; }
+    }
+    if (bi < 0) return null;
+    const b = bi * 9;
+    let n = norm(cross([t[b + 3] - t[b], t[b + 4] - t[b + 1], t[b + 5] - t[b + 2]], [t[b + 6] - t[b], t[b + 7] - t[b + 1], t[b + 8] - t[b + 2]]));
+    if (n[0] * d[0] + n[1] * d[1] + n[2] * d[2] > 0) n = [-n[0], -n[1], -n[2]];
+    return { point: [o[0] + d[0] * best, o[1] + d[1] * best, o[2] + d[2] * best], normal: n, material: pick.mats[bi] };
+  }
 
   /** A viewer on a canvas. Returns { load(buffer), setMode, setWind, setWireframe, reset, zoom, state, destroy }. */
   function create(canvas) {
@@ -225,6 +269,10 @@ window.NoorAssetView = (() => {
     let scene = null;          // { draws: [...], textures: [...], bounds, windFrom }
     let mode = 0, wind = 0, wireframe = false;
     let channel = [];      // NoorForge: one channel's textures, per material
+    let paint = [], paintColor = [1, 1, 1, 0]; // NoorForge: the stroke being painted (R8 coverage per material)
+    let brush = [0, 0, 0, 0], brushHard = 1;
+    let painter = null;    // NoorForge's brush: takes the left button while painting
+    let pickTris = null;   // world-space triangles, made on the first pick
     let yaw = 0.6, pitch = 0.12, dist = 10, target = [0, 3, 0], height = 8;
     let raf = 0, start = performance.now(), dirty = true;
     const windDir = [0.8, 0, 0.6];
@@ -301,6 +349,26 @@ window.NoorAssetView = (() => {
       tick();
     }
 
+    /** Every drawn triangle in world space (9 floats each), with its material, for picking. */
+    function worldTriangles() {
+      let n = 0;
+      for (const d of scene.draws) n += d.indices.length / 3;
+      const tris = new Float32Array(n * 9), mats = new Int32Array(n);
+      let k = 0;
+      for (const d of scene.draws) {
+        const m = d.matrix, p = d.positions, idx = d.indices;
+        for (let i = 0; i < idx.length; i++) {
+          const v = idx[i] * 3, x = p[v], y = p[v + 1], z = p[v + 2];
+          tris[k * 3] = m[0] * x + m[4] * y + m[8] * z + m[12];
+          tris[k * 3 + 1] = m[1] * x + m[5] * y + m[9] * z + m[13];
+          tris[k * 3 + 2] = m[2] * x + m[6] * y + m[10] * z + m[14];
+          if (i % 3 === 2) mats[(k - 2) / 3] = d.matIndex ?? 0;
+          k++;
+        }
+      }
+      return { tris, mats, count: n };
+    }
+
     function frame() {
       if (!scene) return;
       const { lo, hi } = scene.bounds;
@@ -313,6 +381,7 @@ window.NoorAssetView = (() => {
     }
 
     function dispose() {
+      pickTris = null;
       if (!scene) return;
       for (const d of scene.draws) { gl.deleteVertexArray(d.vao); d.buffers.forEach((b) => gl.deleteBuffer(b)); if (d.lines) { gl.deleteVertexArray(d.lines.vao); gl.deleteBuffer(d.lines.vb); gl.deleteBuffer(d.lines.ib); } }
       scene.textures.forEach((t) => t && gl.deleteTexture(t));
@@ -372,7 +441,8 @@ window.NoorAssetView = (() => {
       gl.uniform1f(main.u.uTime, time); gl.uniform1f(main.u.uWind, wind); gl.uniform1f(main.u.uHeight, height);
       gl.uniform1i(main.u.uWindFrom, scene.windFrom); gl.uniform3fv(main.u.uWindDir, windDir);
       gl.uniform1i(main.u.uMode, mode);
-      gl.uniform1i(main.u.tColor, 0); gl.uniform1i(main.u.tNormal, 1); gl.uniform1i(main.u.tOrm, 2);
+      gl.uniform1i(main.u.tColor, 0); gl.uniform1i(main.u.tNormal, 1); gl.uniform1i(main.u.tOrm, 2); gl.uniform1i(main.u.tPaint, 3);
+      gl.uniform4fv(main.u.uPaint, paintColor); gl.uniform4fv(main.u.uBrush, brush); gl.uniform1f(main.u.uBrushHard, brushHard);
       for (const d of scene.draws) {
         const m = d.material;
         const tex = (unit, img, flag) => {
@@ -386,6 +456,11 @@ window.NoorAssetView = (() => {
           gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t);
           gl.uniform1i(main.u.uHasColor, t ? 1 : 0);
         } else tex(0, m ? m.colorImage : -1, 'uHasColor');
+        {
+          const t = paint[d.matIndex ?? 0] || null;
+          gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, t);
+          gl.uniform1i(main.u.uHasPaint, t ? 1 : 0);
+        }
         tex(1, m ? m.normalImage : -1, 'uHasNormal');
         tex(2, m ? m.ormImage : -1, 'uHasOrm');
         gl.uniform4fv(main.u.uBase, m ? m.color : [1, 1, 1, 1]);
@@ -427,9 +502,14 @@ window.NoorAssetView = (() => {
 
     // Orbit: drag to turn, wheel to zoom, right-drag or Shift+drag to move.
     let drag = null;
-    canvas.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging'); });
+    // A painter (NoorForge's brush) takes the left button when it wants it; Alt+drag still turns the model.
+    canvas.addEventListener('pointerdown', (e) => {
+      if (painter && e.button === 0 && !e.altKey && painter.down(e)) { drag = { paint: true }; canvas.setPointerCapture(e.pointerId); return; }
+      drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+    });
     canvas.addEventListener('pointermove', (e) => {
-      if (!drag) return;
+      if (painter && (!drag || drag.paint)) { if (drag) painter.move(e); else painter.hover(e); }
+      if (!drag || drag.paint) return;
       const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
       drag.x = e.clientX; drag.y = e.clientY;
       if (drag.pan) {
@@ -438,7 +518,8 @@ window.NoorAssetView = (() => {
       } else { yaw -= dx * 0.008; pitch = Math.max(-0.2, Math.min(1.45, pitch + dy * 0.006)); }
       dirty = true; tick();
     });
-    const end = () => { drag = null; canvas.classList.remove('dragging'); };
+    const end = (e) => { if (drag && drag.paint && painter) painter.up(e); drag = null; canvas.classList.remove('dragging'); };
+    canvas.addEventListener('pointerleave', () => { if (painter && !drag) painter.hover(null); });
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);
     canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -451,6 +532,45 @@ window.NoorAssetView = (() => {
     return {
       load,
       setMode(m) { mode = { shaded: 0, clay: 1, parts: 2, wind: 3, channel: 4 }[m] ?? 0; dirty = true; tick(); },
+      /** NoorForge's brush: { down(e) → true to paint, move(e), up(e), hover(e or null) }; null gives the mouse back. */
+      setPainter(p) { painter = p || null; },
+      /** The brush's ring on the surface (null: none), its radius in metres and its hardness (0–1). */
+      setBrush(at, radius, hardness = 1) { brush = at ? [at[0], at[1], at[2], radius] : [0, 0, 0, 0]; brushHard = hardness; dirty = true; tick(); },
+      /** The stroke being painted: per material { size, data: Uint8Array coverage } (or null), drawn in a colour. */
+      setPaint(layers, color = [1, 1, 1], strength = 0.85) {
+        (layers || []).forEach((l, i) => {
+          if (!l) return;
+          if (!paint[i]) {
+            paint[i] = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, paint[i]);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+          }
+          gl.bindTexture(gl.TEXTURE_2D, paint[i]);
+          gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+          gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, l.size, l.size, 0, gl.RED, gl.UNSIGNED_BYTE, l.data);
+        });
+        if (!layers) { paint.forEach((t) => t && gl.deleteTexture(t)); paint = []; }
+        paintColor = [color[0], color[1], color[2], strength];
+        dirty = true; tick();
+      },
+      /**
+       * What is under a point of the canvas (client coordinates): { point, normal, dir (the ray's), material } in
+       * world space, or null for nothing.
+       */
+      pick(clientX, clientY) {
+        if (!scene) return null;
+        if (!pickTris) pickTris = worldTriangles();
+        const r = canvas.getBoundingClientRect();
+        const x = ((clientX - r.left) / r.width) * 2 - 1, y = 1 - ((clientY - r.top) / r.height) * 2;
+        const eye = [target[0] + Math.sin(yaw) * Math.cos(pitch) * dist, target[1] + Math.sin(pitch) * dist, target[2] + Math.cos(yaw) * Math.cos(pitch) * dist];
+        const f = norm([target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]]);
+        const rt = norm(cross(f, [0, 1, 0])), up = cross(rt, f);
+        const t = Math.tan(0.75 / 2), aspect = r.width / Math.max(1, r.height);
+        const dir = norm([f[0] + rt[0] * x * t * aspect + up[0] * y * t, f[1] + rt[1] * x * t * aspect + up[1] * y * t, f[2] + rt[2] * x * t * aspect + up[2] * y * t]);
+        const hit = rayCast(pickTris, eye, dir);
+        return hit ? { point: hit.point, normal: hit.normal, dir, material: hit.material } : null;
+      },
       /** Pictures (one per material, as ImageBitmaps; null for none) shown unlit in the "channel" mode, as data. */
       setChannel(bitmaps) {
         channel.forEach((t) => t && gl.deleteTexture(t));
