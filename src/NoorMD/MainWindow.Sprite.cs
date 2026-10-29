@@ -20,6 +20,23 @@ public partial class MainWindow
 
     private static object SpriteWire(SpriteDoc doc) => JsonDocument.Parse(doc.ToJson()).RootElement.Clone();
 
+    /// <summary>Slices measured at an export's scale (their keys too).</summary>
+    private static List<SpriteSlice> ScaledSlices(List<SpriteSlice> slices, int scale) => slices.Select(x => new SpriteSlice
+    {
+        Name = x.Name, Color = x.Color, X = x.X * scale, Y = x.Y * scale, Width = x.Width * scale, Height = x.Height * scale, Nine = x.Nine,
+        CenterX = x.CenterX * scale, CenterY = x.CenterY * scale, CenterWidth = x.CenterWidth * scale, CenterHeight = x.CenterHeight * scale,
+        HasPivot = x.HasPivot, PivotX = x.PivotX * scale, PivotY = x.PivotY * scale,
+        Keys = x.Keys.Select(k => new SpriteSliceKey { Frame = k.Frame, X = k.X * scale, Y = k.Y * scale, Width = k.Width * scale, Height = k.Height * scale }).ToList(),
+    }).ToList();
+
+    /// <summary>Whether a layer is inside a group (at any depth).</summary>
+    private static bool IsInside(SpriteDoc doc, SpriteLayer l, string groupId)
+    {
+        var n = 0;
+        for (var p = l.Parent; p != null && n < 64; n++) { if (p == groupId) return true; p = doc.Layers.FirstOrDefault(x => x.Id == p)?.Parent; }
+        return false;
+    }
+
     private static SpriteDoc SpriteFrom(System.Text.Json.JsonElement p)
     {
         if (!p.TryGetProperty("sprite", out var s) || s.ValueKind != JsonValueKind.Object) throw new BridgeError("Missing the sprite.");
@@ -136,6 +153,8 @@ public partial class MainWindow
                 {
                     "gif" => (".gif", "GIF (*.gif)|*.gif", "Export an animated GIF"),
                     "godot" => (".tres", "Godot SpriteFrames (*.tres)|*.tres", "Export for Godot (the sheet, SpriteFrames and a scene go side by side)"),
+                    "unity" => (".png", "PNG (*.png)|*.png", "Export for Unity (the sheet, its .meta slicing it, an animation per tag)"),
+                    "paper2d" => (".png", "PNG (*.png)|*.png", "Export for Unreal Paper2D (the sheet and its JSON)"),
                     "frames" => (".png", "PNG (*.png)|*.png", "Export every frame (named …_0.png, …_1.png …)"),
                     "frame" => (".png", "PNG (*.png)|*.png", "Export the frame"),
                     _ => (".png", "PNG (*.png)|*.png", "Export a sprite sheet (its JSON goes beside it)"),
@@ -167,6 +186,32 @@ public partial class MainWindow
                                 files.Add(file);
                             }
                             break;
+                        case "unity":
+                        case "paper2d":
+                        {
+                            // The slices measured at the export's scale (for pivots and 9-slice borders).
+                            var scaled = ScaledSlices(slices, scale);
+                            var (us, placed) = SpriteExport.Pack(frames, layout, spacing);
+                            NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.EncodeBest(us.Width, us.Height, us.Rgba, indexedPalette));
+                            files.Add(target);
+                            if (kind == "paper2d")
+                            {
+                                var paperJson = Path.Combine(dir, baseName + ".json");
+                                File.WriteAllText(paperJson, Paper2D.Json(baseName, Path.GetFileName(target), us, placed, scaled));
+                                files.Add(paperJson);
+                                break;
+                            }
+                            var ppu = p.TryGetProperty("pixelsPerUnit", out var pu) && pu.TryGetInt32(out var pui) ? Math.Clamp(pui, 1, 4096) : 16;
+                            File.WriteAllText(target + ".meta", UnitySprite.Meta(baseName, us, placed, scaled, ppu * scale));
+                            files.Add(target + ".meta");
+                            foreach (var (animName, order) in GodotSprite.Animations(frames.Count, tags))
+                            {
+                                var anim = Path.Combine(dir, $"{baseName}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(animName, "")}.anim");
+                                File.WriteAllText(anim, UnitySprite.Anim(animName, baseName, order, placed, true));
+                                files.Add(anim);
+                            }
+                            break;
+                        }
                         case "godot":
                         {
                             // The sheet (packed unless a layout was chosen), the SpriteFrames, and a scene to drop in.
@@ -175,7 +220,11 @@ public partial class MainWindow
                             NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.EncodeBest(gs.Width, gs.Height, gs.Rgba, indexedPalette));
                             File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags));
                             var scene = Path.Combine(dir, baseName + ".tscn");
-                            File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
+                            // With hitboxes: an Area2D per slice and an AnimationPlayer keeping them with the frames.
+                            if (p.TryGetProperty("hitboxes", out var hb) && hb.ValueKind == JsonValueKind.True && slices.Count > 0)
+                                File.WriteAllText(scene, GodotSprite.HitboxScene(baseName, Path.GetFileName(target), frames.Select(f => f.Duration).ToList(), tags, ScaledSlices(slices, scale), frames[0].Width, frames[0].Height));
+                            else
+                                File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
                             files.Add(png); files.Add(target); files.Add(scene);
                             break;
                         }
@@ -203,6 +252,44 @@ public partial class MainWindow
                 var cel = doc.Cels.FirstOrDefault(c => c.Layer == layer.Id && c.Frame == at)
                     ?? new SpriteCel { Layer = layer.Id, Frame = at, Width = 1, Height = 1, Tiles = [0] };
                 var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "tiles", "");
+                if (p.TryGetProperty("all", out var allEl) && allEl.ValueKind == JsonValueKind.True)
+                {
+                    // Every tilemap layer in one scene: each tileset once (its picture and TileSet), a TileMap per layer.
+                    var lvl = new SaveFileDialog { Title = "Export every map layer for Godot (one scene; the tilesets go beside it)", FileName = stem + ".tscn", Filter = "Godot scene (*.tscn)|*.tscn", AddExtension = true };
+                    NativeCursor.Restore();
+                    if (lvl.ShowDialog(this) != true) return new { cancelled = true };
+                    var scenePath = lvl.FileName;
+                    var lvlDir = Path.GetDirectoryName(scenePath)!;
+                    var lvlBase = Path.GetFileNameWithoutExtension(scenePath);
+                    var outFiles = await Task.Run(() =>
+                    {
+                        var written = new List<string>();
+                        var tresFor = new Dictionary<int, string>();
+                        var maps = new List<GodotTiles.MapLayer>();
+                        foreach (var ml in doc.Layers.Where(l => l.Kind == "tilemap"))
+                        {
+                            var mts = doc.Tilesets[ml.Tileset];
+                            if (!tresFor.TryGetValue(ml.Tileset, out var tres))
+                            {
+                                var tsName = $"{lvlBase}_tiles{ml.Tileset + 1}";
+                                var atlasImg = GodotTiles.Atlas(mts);
+                                var png = Path.Combine(lvlDir, tsName + ".png");
+                                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.Encode(atlasImg.Width, atlasImg.Height, atlasImg.Rgba));
+                                tres = tsName + ".tres";
+                                File.WriteAllText(Path.Combine(lvlDir, tres), GodotTiles.TileSet(tsName + ".png", mts));
+                                written.Add(png); written.Add(Path.Combine(lvlDir, tres));
+                                tresFor[ml.Tileset] = tres;
+                            }
+                            var mc = doc.Cels.FirstOrDefault(c => c.Layer == ml.Id && c.Frame == at) ?? new SpriteCel { Layer = ml.Id, Frame = at, Width = 1, Height = 1, Tiles = [0] };
+                            var hidden = !ml.Visible || doc.Layers.Any(g => g.Kind == "group" && !g.Visible && IsInside(doc, ml, g.Id));
+                            maps.Add(new GodotTiles.MapLayer(ml.Name, tres, mc, mts, !hidden, ml.Opacity));
+                        }
+                        File.WriteAllText(scenePath, GodotTiles.Level(lvlBase, maps));
+                        written.Add(scenePath);
+                        return written;
+                    });
+                    return new { files = outFiles.Select(Path.GetFileName) };
+                }
                 var save = new SaveFileDialog { Title = "Export the tilemap for Godot (the tiles, a TileSet and a scene go side by side)", FileName = stem + ".tres", Filter = "Godot TileSet (*.tres)|*.tres", AddExtension = true };
                 NativeCursor.Restore();
                 if (save.ShowDialog(this) != true) return new { cancelled = true };

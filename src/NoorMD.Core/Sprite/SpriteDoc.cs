@@ -158,6 +158,15 @@ public sealed class SpriteSlice
     public bool HasPivot { get; set; }
     public int PivotX { get; set; }
     public int PivotY { get; set; }
+    /// <summary>A slice that moves with the frames (a hitbox): from each key's frame on, it is at the key's place.</summary>
+    public List<SpriteSliceKey> Keys { get; set; } = [];
+
+    /// <summary>Where the slice is on frame f.</summary>
+    public (int X, int Y, int Width, int Height) At(int f)
+    {
+        var k = Keys.LastOrDefault(k => k.Frame <= f);
+        return k == null ? (X, Y, Width, Height) : (k.X, k.Y, k.Width, k.Height);
+    }
 
     public SpriteSlice Checked(int spriteW, int spriteH)
     {
@@ -168,6 +177,12 @@ public sealed class SpriteSlice
         CenterX = Math.Clamp(CenterX, 0, Width - 1); CenterY = Math.Clamp(CenterY, 0, Height - 1);
         CenterWidth = Math.Clamp(CenterWidth, 1, Width - CenterX); CenterHeight = Math.Clamp(CenterHeight, 1, Height - CenterY);
         PivotX = Math.Clamp(PivotX, -SpriteDoc.MaxSide, SpriteDoc.MaxSide); PivotY = Math.Clamp(PivotY, -SpriteDoc.MaxSide, SpriteDoc.MaxSide);
+        Keys = (Keys ?? []).Where(k => k != null && k.Frame is >= 0 and < SpriteDoc.MaxFrames).GroupBy(k => k.Frame).Select(g => g.Last()).OrderBy(k => k.Frame).Take(SpriteDoc.MaxFrames).Select(k =>
+        {
+            k.Width = Math.Clamp(k.Width, 1, SpriteDoc.MaxSide * 2); k.Height = Math.Clamp(k.Height, 1, SpriteDoc.MaxSide * 2);
+            k.X = Math.Clamp(k.X, -SpriteDoc.MaxSide, spriteW); k.Y = Math.Clamp(k.Y, -SpriteDoc.MaxSide, spriteH);
+            return k;
+        }).ToList();
         return this;
     }
 }
@@ -225,6 +240,8 @@ public sealed class SpriteTileset
     public int TileHeight { get; set; } = 16;
     public int Count { get; set; }
     public string? Data { get; set; }
+    /// <summary>Autotiling: each terrain names the tile for every way its neighbours join it.</summary>
+    public List<SpriteTerrain> Terrains { get; set; } = [];
 
     private byte[]? _pixels;
     public byte[] Pixels() => _pixels ??= Data == null ? new byte[TileWidth * TileHeight * 4 * Count] : Convert.FromBase64String(Data);
@@ -243,6 +260,15 @@ public sealed class SpriteTileset
         if (TileWidth is < 1 or > 512 || TileHeight is < 1 or > 512) throw new InvalidDataException("Tiles are 1 to 512 pixels a side.");
         if (Count is < 0 or > MaxTiles) throw new InvalidDataException($"A tileset holds up to {MaxTiles} tiles.");
         if (Pixels().Length != TileWidth * TileHeight * 4 * Count) throw new InvalidDataException("A tileset's pixels don't match its tiles.");
+        Terrains = (Terrains ?? []).Where(t => t != null).Take(16).Select(t =>
+        {
+            t.Name = string.IsNullOrWhiteSpace(t.Name) ? "Terrain" : t.Name.Trim()[..Math.Min(t.Name.Trim().Length, 64)];
+            t.Color = SpriteDoc.IsColour(t.Color) ? t.Color : "#4caf50ff";
+            var tiles = new int[16];
+            for (var i = 0; i < 16 && t.Tiles != null && i < t.Tiles.Length; i++) tiles[i] = t.Tiles[i] >= 1 && t.Tiles[i] <= Count ? t.Tiles[i] : 0;
+            t.Tiles = tiles;
+            return t;
+        }).ToList();
         return this;
     }
 }
@@ -303,4 +329,25 @@ public sealed class SpriteCycle
     public int From { get; set; }
     public int To { get; set; }
     public int Fps { get; set; } = 8;
+}
+
+/// <summary>
+/// A terrain for autotiling by sides: Tiles[mask] is the tile drawn where the neighbours joining it are mask's bits —
+/// 1 above, 2 right, 4 below, 8 left (0: none of that shape).
+/// </summary>
+public sealed class SpriteTerrain
+{
+    public const int Up = 1, Right = 2, Down = 4, Left = 8;
+    public string Name { get; set; } = "Terrain";
+    public string Color { get; set; } = "#4caf50ff";
+    public int[] Tiles { get; set; } = new int[16];
+}
+
+public sealed class SpriteSliceKey
+{
+    public int Frame { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public int Width { get; set; } = 1;
+    public int Height { get; set; } = 1;
 }

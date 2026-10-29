@@ -22,7 +22,7 @@ public static class SpriteFile
         var manifest = new SpriteDoc
         {
             Version = doc.Version, Width = doc.Width, Height = doc.Height, Palette = doc.Palette, Layers = doc.Layers, Frames = doc.Frames, Tags = doc.Tags, Slices = doc.Slices,
-            Tilesets = doc.Tilesets.Select(t => new SpriteTileset { Name = t.Name, TileWidth = t.TileWidth, TileHeight = t.TileHeight, Count = t.Count }).ToList(),
+            Tilesets = doc.Tilesets.Select(t => new SpriteTileset { Name = t.Name, TileWidth = t.TileWidth, TileHeight = t.TileHeight, Count = t.Count, Terrains = t.Terrains }).ToList(),
             GridWidth = doc.GridWidth, GridHeight = doc.GridHeight, ColorMode = doc.ColorMode, Cycle = doc.Cycle,
             Cels = doc.Cels.Select(c => new SpriteCel { Layer = c.Layer, Frame = c.Frame, X = c.X, Y = c.Y, Width = c.Width, Height = c.Height, Opacity = c.Opacity, Link = c.Link, Tiles = c.Tiles }).ToList(),
         };

@@ -6207,6 +6207,122 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66i. NoorSprite: the motion path, onion skin by tag and as outlines, a timeline of thumbnails and dragged frames.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const a = (x, y, l, f) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
+      const dot = async (x, y) => { const p = await at(x, y); await page.mouse.click(p.x, p.y); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '32'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 32);
+      // Three frames, a dot moving right.
+      await page.keyboard.press('b');
+      await dot(4, 8);
+      await page.click('#sp-addframe'); await page.keyboard.press('Control+a'); await page.keyboard.press('Delete'); await page.keyboard.press('Control+d'); await dot(10, 8);
+      await page.click('#sp-addframe'); await page.keyboard.press('Control+a'); await page.keyboard.press('Delete'); await page.keyboard.press('Control+d'); await dot(16, 8);
+      check('three frames, a dot moving right', (await a(4, 8, 0, 0)) && (await a(10, 8, 0, 1)) && (await a(16, 8, 0, 2)));
+      // The motion path: drag frame 2's point down with the move tool.
+      await page.check('[data-view="path"]');
+      await page.keyboard.press('v');
+      const p = await at(10, 8);
+      await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.mouse.move(p.x - 3, p.y - 3); await page.mouse.down();
+      const q = await at(10, 12); await page.mouse.move(q.x - 3, q.y - 3, { steps: 6 }); await page.mouse.up();
+      let st = await SS();
+      check('dragging a point of the motion path moves that frame\'s picture (and goes there)', st.frame === 1 && (await a(10, 12, 0, 1)) === 255 && (await a(10, 8, 0, 1)) === 0 && (await a(4, 8, 0, 0)) === 255);
+      await page.keyboard.press('Control+z');
+      check('…one undo puts it back', (await a(10, 8, 0, 1)) === 255);
+      // Onion skin by tag, as outlines (drawn without errors; the options are kept).
+      await page.check('[data-view="onion"]'); await page.check('[data-view="onionTag"]'); await page.check('[data-view="onionOutline"]');
+      st = await SS();
+      check('onion skin: this tag only, as outlines', st.view.onionTag && st.view.onionOutline);
+      // Thumbnails.
+      await page.check('[data-view="thumbs"]');
+      check('thumbnails in the timeline: each frame and each picture', (await page.$$('#sp-timeline .sp-tl-frame canvas.sp-thumb')).length === 3 && (await page.$$('#sp-timeline .sp-tl-cel.pic canvas')).length === 3);
+      // Dragging frames: frame 3 to the start; Ctrl: a copy.
+      await page.dragAndDrop('#sp-timeline [data-frame="2"]', '#sp-timeline [data-frame="0"]');
+      check('a frame dragged to the start goes there with its picture', (await a(16, 8, 0, 0)) === 255 && (await a(4, 8, 0, 1)) === 255 && (await a(10, 8, 0, 2)) === 255 && (await SS()).frame === 0);
+      await page.evaluate(() => {
+        const dt = new DataTransfer(); dt.setData('text/x-noorsprite-frame', '0');
+        document.querySelector('#sp-timeline [data-frame="2"]').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, ctrlKey: true, bubbles: true, cancelable: true }));
+      });
+      st = await SS();
+      check('…Ctrl+drag copies it there instead', st.frames.length === 4 && (await a(16, 8, 0, 2)) === 255 && (await a(16, 8, 0, 0)) === 255 && (await a(10, 8, 0, 3)) === 255);
+      check('no page errors with paths, onion options and thumbnails', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66i-noorsprite-timeline.png` });
+      await page.close();
+    }
+
+    // ---- 66j. NoorSprite for games: terrains (autotiling), every map layer for Godot, hitboxes, Unity and Paper2D.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const TL = () => page.evaluate(() => NoorSprite._tiles());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // A 4 × 1 tilemap of 2 × 2 tiles; 16 different tiles drawn (tile n: n pixels lit, row by row).
+      const tiles = []; for (let n = 1; n <= 16; n++) { const px = []; for (let i = 0; i < 4; i++) px.push(...(i < (n % 4) + 1 ? [n * 10, 0, 0, 255] : [0, 0, 0, 0])); tiles.push(...px.map((v, i) => (i % 4 === 1 ? n * 15 : v))); }
+      await page.evaluate((t) => NoorSprite._load({ version: 1, width: 8, height: 2, palette: [], gridWidth: 2, gridHeight: 2, frames: [{ duration: 100 }, { duration: 100 }], tags: [],
+        layers: [{ id: 'm', name: 'Ground', visible: true, locked: false, opacity: 255, blend: 'normal', kind: 'tilemap', tileset: 0 }, { id: 'n', name: 'Top', visible: true, locked: false, opacity: 255, blend: 'normal', kind: 'tilemap', tileset: 0 }],
+        tilesets: [{ name: 'Grass', tileWidth: 2, tileHeight: 2, count: 16, data: btoa(String.fromCharCode(...t)) }], cels: [] }), tiles);
+      check('a tilemap sprite with 16 tiles opens', (await SS()).tilesets[0].count === 16 && !(await page.isHidden('#sp-tileset')));
+      await page.click('#sp-addterrain'); await page.waitForSelector('#sp-ter-ok');
+      await page.click('#sp-ter-inorder');
+      check('a terrain: 16 shapes, tiles 1–16 in order with one click', (await page.$$('.sp-ter-slot')).length === 16 && (await page.getAttribute('.sp-ter-slot[data-slot="5"]', 'title')).includes('tile 6'));
+      await page.fill('#sp-ter-name', 'Grass'); await page.click('#sp-ter-ok');
+      let st = await SS();
+      check('…drawing with it in tile mode', st.tileMode && !!(await page.$('#sp-tileset [data-terrain="0"][aria-pressed="true"]')));
+      await page.keyboard.press('b');
+      await strokeTo([[1, 1], [5, 1]]);
+      // Cells 0–2 of the terrain: 0 joins right (mask 2 → tile 3), 1 joins left and right (10 → tile 11), 2 joins left (8 → tile 9).
+      check('autotiling: each cell takes the tile for how its neighbours join it', (await TL()).join() === '3,11,9,0', await TL());
+      await page.keyboard.press('e');
+      await strokeTo([[3, 1], [3, 1]]);
+      check('taking a cell away fits its neighbours again', (await TL()).join() === '1,0,1,0', await TL());
+      // Every map layer for Godot.
+      await page.click('#sp-tiles-godot-all');
+      await waitFn(page, () => (window.__mock.state.sprite.tiles || []).length === 1);
+      let tx = (await SM()).tiles[0];
+      check('All map layers: one export with every layer', tx.all === true && tx.sprite.layers.filter((l) => l.kind === 'tilemap').length === 2 && tx.sprite.tilesets[0].terrains[0].name === 'Grass' && tx.sprite.tilesets[0].terrains[0].tiles[10] === 11);
+      // Hitboxes: a slice that moves with the frames.
+      await page.keyboard.press('t');
+      await page.keyboard.press('c');
+      await strokeTo([[0, 0], [1, 1]]);
+      await page.check('#sp-slicepanel [data-slice="moves"]');
+      await page.click('#sp-timeline [data-frame="1"]');
+      await page.fill('#sp-slicepanel [data-slice="x"]', '4'); await page.press('#sp-slicepanel [data-slice="x"]', 'Enter');
+      let w = await page.evaluate(() => NoorSprite._wire());
+      check('a slice that moves: frame 2 has its own place, frame 1 keeps its', w.slices[0].keys.length === 2 && w.slices[0].keys[1].frame === 1 && w.slices[0].keys[1].x === 4 && w.slices[0].x === 0 && /its own place/.test(await page.textContent('#sp-slice-keyinfo')));
+      await page.click('#sp-timeline [data-frame="0"]');
+      check('…back on frame 1 it is where it was', (await page.inputValue('#sp-slicepanel [data-slice="x"]')) === '0');
+      // Exports for Godot with hitboxes, Unity and Paper2D.
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      check('the export offers hitboxes (on: a slice moves), Unity and Paper2D', await page.isChecked('#sp-ex-hitboxes') && (await page.$$('#sp-ex-kind option[value="unity"], #sp-ex-kind option[value="paper2d"]')).length === 2);
+      await page.selectOption('#sp-ex-kind', 'godot'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      let ex = (await SM()).exports[0];
+      check('Godot with hitboxes: the moving slice\'s keys go along', ex.hitboxes === true && ex.slices[0].keys.length === 2);
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'unity'); await page.fill('#sp-ex-ppu', '32'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 2);
+      ex = (await SM()).exports[1];
+      check('Unity: pixels per unit sent', ex.kind === 'unity' && ex.pixelsPerUnit === 32);
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'paper2d'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 3);
+      check('Paper2D', (await SM()).exports[2].kind === 'paper2d');
+      check('no page errors with terrains, hitboxes and engine exports', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66j-noorsprite-games.png` });
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

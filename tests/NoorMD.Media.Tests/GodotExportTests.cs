@@ -220,11 +220,24 @@ public class GodotExportTests
         var tilePx = new byte[4 * 4 * 4 * 3];
         for (var t = 0; t < 3; t++) for (var i = 0; i < 16; i++) { tilePx[(t * 16 + i) * 4 + t] = 200; tilePx[(t * 16 + i) * 4 + 3] = 255; }
         var tileset = new NoorMD.Core.Sprite.SpriteTileset { Name = "Ground", TileWidth = 4, TileHeight = 4, Count = 3 }.WithPixels(tilePx);
+        // A terrain: tile 1 alone, tile 2 joined above, tile 3 joined on the right.
+        tileset.Terrains = [new NoorMD.Core.Sprite.SpriteTerrain { Name = "Grass", Color = "#40a040ff", Tiles = [1, 2, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }];
         var atlas = NoorMD.Core.Sprite.GodotTiles.Atlas(tileset);
         File.WriteAllBytes(Path.Combine(dir, "sprite", "ground.png"), NoorMD.Core.Sprite.SpritePng.Encode(atlas.Width, atlas.Height, atlas.Rgba));
         File.WriteAllText(Path.Combine(dir, "sprite", "ground.tres"), NoorMD.Core.Sprite.GodotTiles.TileSet("ground.png", tileset));
         var mapCel = new NoorMD.Core.Sprite.SpriteCel { Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3 | NoorMD.Core.Sprite.SpriteTilemap.FlipX, 3, 3, 3, 3, 3] }; // the first of the bottom row flipped
         File.WriteAllText(Path.Combine(dir, "sprite", "level.tscn"), NoorMD.Core.Sprite.GodotTiles.Scene("Level", "ground.tres", mapCel, tileset));
+        // Every map layer in one scene: the ground, and a hidden half see-through layer over it.
+        var topCel = new NoorMD.Core.Sprite.SpriteCel { Width = 2, Height = 1, Tiles = [2, 2] };
+        File.WriteAllText(Path.Combine(dir, "sprite", "world.tscn"), NoorMD.Core.Sprite.GodotTiles.Level("World",
+            [new("Ground", "ground.tres", mapCel, tileset, true, 255), new("Top", "ground.tres", topCel, tileset, false, 128)]));
+        // Hitboxes: a slice that moves on the second frame (and a still one), kept with the frames by an AnimationPlayer.
+        List<NoorMD.Core.Sprite.SpriteSlice> hitSlices =
+        [
+            new() { Name = "hit", X = 0, Y = 0, Width = 4, Height = 4, Keys = [new() { Frame = 0, X = 0, Y = 0, Width = 4, Height = 4 }, new() { Frame = 1, X = 8, Y = 8, Width = 6, Height = 2 }] },
+            new() { Name = "body", X = 4, Y = 4, Width = 8, Height = 8 },
+        ];
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero_hit.tscn"), NoorMD.Core.Sprite.GodotSprite.HitboxScene("Hero", "hero.tres", spriteFrames.Select(f => f.Duration).ToList(), spriteTags, hitSlices, 16, 16));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

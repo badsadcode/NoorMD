@@ -109,15 +109,17 @@ public static class AsepriteFile
                     {
                         int keys = (int)U32(d, 0), sflags = (int)U32(d, 4);
                         var (name, q) = Str(d, 12);
-                        // NoorSprite keeps a slice's first key (where it is on the first frame it is on).
+                        // The first key is the slice (its centre and pivot); later keys are where it moves to on their frames.
                         if (keys > 0 && q + 20 <= d.Length)
                         {
                             var sl = new SpriteSlice { Name = name, X = (int)U32(d, q + 4), Y = (int)U32(d, q + 8), Width = (int)U32(d, q + 12), Height = (int)U32(d, q + 16) };
                             var r = q + 20;
-                            if ((sflags & 1) != 0 && r + 16 <= d.Length) { sl.Nine = true; sl.CenterX = (int)U32(d, r); sl.CenterY = (int)U32(d, r + 4); sl.CenterWidth = (int)U32(d, r + 8); sl.CenterHeight = (int)U32(d, r + 12); r += 16; }
-                            if ((sflags & 2) != 0 && r + 8 <= d.Length) { sl.HasPivot = true; sl.PivotX = (int)U32(d, r); sl.PivotY = (int)U32(d, r + 4); }
+                            if ((sflags & 1) != 0 && r + 16 <= d.Length) { sl.Nine = true; sl.CenterX = (int)U32(d, r); sl.CenterY = (int)U32(d, r + 4); sl.CenterWidth = (int)U32(d, r + 8); sl.CenterHeight = (int)U32(d, r + 12); }
+                            if ((sflags & 2) != 0 && r + (sl.Nine ? 16 : 0) + 8 <= d.Length) { var pv = r + (sl.Nine ? 16 : 0); sl.HasPivot = true; sl.PivotX = (int)U32(d, pv); sl.PivotY = (int)U32(d, pv + 4); }
+                            var keySize = 20 + ((sflags & 1) != 0 ? 16 : 0) + ((sflags & 2) != 0 ? 8 : 0);
+                            for (int ki = 1, kq = q + keySize; ki < keys && kq + 20 <= d.Length; ki++, kq += keySize)
+                                sl.Keys.Add(new SpriteSliceKey { Frame = (int)U32(d, kq), X = (int)U32(d, kq + 4), Y = (int)U32(d, kq + 8), Width = (int)U32(d, kq + 12), Height = (int)U32(d, kq + 16) });
                             doc.Slices.Add(sl);
-                            if (keys > 1) notes.Add($"Slice “{name}” moves over the frames: NoorSprite keeps where it is first.");
                         }
                         break;
                     }
@@ -333,9 +335,11 @@ public static class AsepriteFile
     private static byte[] SliceChunk(SpriteSlice s)
     {
         var name = Encoding.UTF8.GetBytes(s.Name);
-        var size = 12 + 2 + name.Length + 20 + (s.Nine ? 16 : 0) + (s.HasPivot ? 8 : 0);
+        var keySize = 20 + (s.Nine ? 16 : 0) + (s.HasPivot ? 8 : 0);
+        var moves = s.Keys.Where(k => k.Frame > 0).ToList();
+        var size = 12 + 2 + name.Length + keySize * (1 + moves.Count);
         var d = new byte[size];
-        BinaryPrimitives.WriteUInt32LittleEndian(d, 1);
+        BinaryPrimitives.WriteUInt32LittleEndian(d, (uint)(1 + moves.Count));
         BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(4), (uint)((s.Nine ? 1 : 0) | (s.HasPivot ? 2 : 0)));
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(12), (ushort)name.Length);
         name.CopyTo(d, 14);
@@ -350,7 +354,22 @@ public static class AsepriteFile
             BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 8), (uint)s.CenterWidth); BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 12), (uint)s.CenterHeight);
             q += 16;
         }
-        if (s.HasPivot) { BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.PivotX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.PivotY); }
+        if (s.HasPivot) { BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.PivotX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.PivotY); q += 8; }
+        foreach (var k in moves)
+        {
+            // Each later key: its frame and place, the centre and pivot as the first's.
+            BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q), (uint)k.Frame);
+            BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), k.X); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 8), k.Y);
+            BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 12), (uint)k.Width); BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 16), (uint)k.Height);
+            q += 20;
+            if (s.Nine)
+            {
+                BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.CenterX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.CenterY);
+                BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 8), (uint)s.CenterWidth); BinaryPrimitives.WriteUInt32LittleEndian(d.AsSpan(q + 12), (uint)s.CenterHeight);
+                q += 16;
+            }
+            if (s.HasPivot) { BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q), s.PivotX); BinaryPrimitives.WriteInt32LittleEndian(d.AsSpan(q + 4), s.PivotY); q += 8; }
+        }
         return d;
     }
 

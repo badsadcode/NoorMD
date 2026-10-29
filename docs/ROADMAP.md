@@ -66,7 +66,9 @@ first, and anything that conflicts with it waits.
   slices, reference layers, packed sheets, Godot SpriteFrames and scenes: preview.96; tilemap layers, tilesets and
   Godot TileSets: preview.97; in-betweens and frame timing: preview.98; smooth lines, indexed colour and colour
   cycling, tiling, free and radial symmetry, turned tiles: preview.99; layer groups, gradients, pattern fills, squash
-  and smear in-betweens: preview.100. See
+  and smear in-betweens: preview.100; the motion path, onion skin by tag and as outlines, a timeline of thumbnails
+  and dragged frames, terrains (autotiling), every map layer in one Godot scene, hitboxes, Unity and Paper2D
+  exports: preview.102. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorCanvas (a layered photo and painting editor) is planned in
   [NOORCANVAS_PLAN.md](NOORCANVAS_PLAN.md); NoorSketch stays the small sketchpad it is.
 

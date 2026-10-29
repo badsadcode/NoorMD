@@ -185,6 +185,28 @@ one's own, a floating reference picture, pen pressure.
 - **In-betweens that look alive:** squash and stretch (longer along the move and thinner across, most in the middle)
   or a smear (copies trailing back to where it was a frame before).
 
+### Done in preview.102
+
+- **The motion path** (View): the layer's way through the frames — the middle of its picture on each, numbered and
+  joined; with the move tool, drag a frame's point to move that frame's picture (one undo step).
+- **Onion skin** from the frames of the tag you are in only, and as **outlines** (easier to see through).
+- **A timeline of thumbnails** (View): a small picture of each frame and of each layer's picture on it.
+- **Frames dragged** in the timeline to a new place, with their pictures; **Ctrl+drag** copies a frame there.
+- **Terrains** (autotiling, in the tileset panel): a terrain names the tile for each of the 16 ways its neighbours
+  can join a cell (by sides: up, right, down, left); drawing with it in tile mode — pencil, eraser, fill — gives each
+  cell the tile for how it joins, and fits its neighbours again. Kept in the file, and exported to Godot as a terrain
+  set (match sides) with each tile's peering bits.
+- **Every map layer in one Godot scene** ("All map layers…"): a TileMap per tilemap layer, bottom first, each with
+  its TileSet, hidden or see-through as the layer is.
+- **Hitboxes:** a slice can move with the frames (a place of its own from any frame on); kept in .noorsprite and
+  .aseprite files (Aseprite's slice keys) and in the sheet's JSON. The Godot export can make each slice an Area2D
+  with its CollisionShape2D, and an AnimationPlayer that turns the frames with their durations and moves the
+  hitboxes with them. All checked in headless Godot 4.4.
+- **Unity:** the sheet with its .meta — a sprite per frame (point filtering, no compression, pixels per unit, the
+  pivot and a 9-slice border from the slices) — and an AnimationClip (.anim) per tag swapping the sprites with each
+  frame's duration. **Unreal Paper2D:** the sheet and its JSON in the form Paper2D's sprite-sheet import reads, with
+  pivots. (Written to those formats; not opened in Unity or Unreal here.)
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

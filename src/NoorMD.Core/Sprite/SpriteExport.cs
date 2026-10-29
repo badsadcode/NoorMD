@@ -134,10 +134,17 @@ public static class SpriteExport
             ["layers"] = new JsonArray(layers.Where(l => !l.Reference).Select(l => (JsonNode)Layer(l, layers)).ToArray()),
             ["slices"] = new JsonArray(slices.Select(sl =>
             {
-                var key = new JsonObject { ["frame"] = 0, ["bounds"] = new JsonObject { ["x"] = sl.X * scale, ["y"] = sl.Y * scale, ["w"] = sl.Width * scale, ["h"] = sl.Height * scale } };
-                if (sl.Nine) key["center"] = new JsonObject { ["x"] = sl.CenterX * scale, ["y"] = sl.CenterY * scale, ["w"] = sl.CenterWidth * scale, ["h"] = sl.CenterHeight * scale };
-                if (sl.HasPivot) key["pivot"] = new JsonObject { ["x"] = sl.PivotX * scale, ["y"] = sl.PivotY * scale };
-                return (JsonNode)new JsonObject { ["name"] = sl.Name, ["color"] = sl.Color, ["keys"] = new JsonArray(key) };
+                JsonNode Key(int frame, int x, int y, int w, int h)
+                {
+                    var key = new JsonObject { ["frame"] = frame, ["bounds"] = new JsonObject { ["x"] = x * scale, ["y"] = y * scale, ["w"] = w * scale, ["h"] = h * scale } };
+                    if (sl.Nine) key["center"] = new JsonObject { ["x"] = sl.CenterX * scale, ["y"] = sl.CenterY * scale, ["w"] = sl.CenterWidth * scale, ["h"] = sl.CenterHeight * scale };
+                    if (sl.HasPivot) key["pivot"] = new JsonObject { ["x"] = sl.PivotX * scale, ["y"] = sl.PivotY * scale };
+                    return key;
+                }
+                // A slice that moves has a key for each frame it moves on (Aseprite's form).
+                var keys = new List<JsonNode> { Key(0, sl.X, sl.Y, sl.Width, sl.Height) };
+                foreach (var k in sl.Keys.Where(k => k.Frame > 0)) keys.Add(Key(k.Frame, k.X, k.Y, k.Width, k.Height));
+                return (JsonNode)new JsonObject { ["name"] = sl.Name, ["color"] = sl.Color, ["keys"] = new JsonArray(keys.ToArray()) };
             }).ToArray()),
         };
         return json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -207,6 +214,70 @@ public static class GodotSprite
             "{\n\"frames\": [" + string.Join(", ", a.Frames.Select(fi => $"{{\n\"duration\": {F(frames[fi].Duration / 100.0)},\n\"texture\": SubResource(\"AtlasTexture_{fi}\")\n}}")) + "],\n" +
             $"\"loop\": true,\n\"name\": &{Q(a.Name)},\n\"speed\": 10.0\n}}")));
         sb.Append("]\n");
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// A scene with an AnimatedSprite2D, an Area2D with a CollisionShape2D for each slice (a hitbox), and an
+    /// AnimationPlayer playing each tag: it turns the sprite's frames with their durations and moves and sizes the
+    /// hitboxes that move with the frames, so pictures and hitboxes stay together. Sizes are in the export's pixels.
+    /// </summary>
+    public static string HitboxScene(string nodeName, string framesFile, IReadOnlyList<int> durations, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteSlice> slices, int width, int height)
+    {
+        var anims = Animations(durations.Count, tags);
+        var names = new List<string>();
+        foreach (var sl in slices)
+        {
+            var n = new string(sl.Name.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
+            if (n.Length == 0) n = "Hitbox";
+            var u = n; var k = 2;
+            while (names.Contains(u)) u = $"{n} {k++}";
+            names.Add(u);
+        }
+        string Pos(SpriteSlice sl, int f) { var (x, y, w, h) = sl.At(f); return $"Vector2({F(x + w / 2.0 - width / 2.0)}, {F(y + h / 2.0 - height / 2.0)})"; }
+        string Size(SpriteSlice sl, int f) { var (_, _, w, h) = sl.At(f); return $"Vector2({w}, {h})"; }
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"[gd_scene load_steps={2 + slices.Count + anims.Count + 1} format=3]\n\n");
+        sb.Append($"[ext_resource type=\"SpriteFrames\" path={Q(framesFile)} id=\"1_frames\"]\n\n");
+        for (var i = 0; i < slices.Count; i++) sb.Append($"[sub_resource type=\"RectangleShape2D\" id=\"Shape_{i}\"]\nsize = {Size(slices[i], 0)}\n\n");
+        for (var a = 0; a < anims.Count; a++)
+        {
+            var (name, order) = anims[a];
+            var times = new List<double>(); var t = 0.0;
+            foreach (var fi in order) { times.Add(t); t += durations[fi] / 1000.0; }
+            var T = string.Join(", ", times.Select(F));
+            var ones = string.Join(", ", times.Select(_ => "1"));
+            var tracks = new List<(string Path, string Times, string Trans, string Values)>
+            {
+                (".:animation", "0", "1", $"&{Q(name)}"),
+                (".:frame", T, ones, string.Join(", ", Enumerable.Range(0, order.Count))),
+            };
+            for (var i = 0; i < slices.Count; i++)
+            {
+                if (slices[i].Keys.Count == 0) continue;
+                tracks.Add(($"{names[i]}/CollisionShape2D:position", T, ones, string.Join(", ", order.Select(fi => Pos(slices[i], fi)))));
+                tracks.Add(($"{names[i]}/CollisionShape2D:shape:size", T, ones, string.Join(", ", order.Select(fi => Size(slices[i], fi)))));
+            }
+            sb.Append($"[sub_resource type=\"Animation\" id=\"Animation_{a}\"]\nresource_name = {Q(name)}\nlength = {F(Math.Max(0.001, t))}\nloop_mode = 1\nstep = 0.001\n");
+            for (var k = 0; k < tracks.Count; k++)
+            {
+                var (path, times2, trans, values) = tracks[k];
+                sb.Append($"tracks/{k}/type = \"value\"\ntracks/{k}/imported = false\ntracks/{k}/enabled = true\ntracks/{k}/path = NodePath({Q(path)})\ntracks/{k}/interp = 0\ntracks/{k}/loop_wrap = true\n");
+                sb.Append($"tracks/{k}/keys = {{\n\"times\": PackedFloat32Array({times2}),\n\"transitions\": PackedFloat32Array({trans}),\n\"update\": 1,\n\"values\": [{values}]\n}}\n");
+            }
+            sb.Append('\n');
+        }
+        sb.Append("[sub_resource type=\"AnimationLibrary\" id=\"AnimationLibrary_1\"]\n_data = {\n");
+        sb.Append(string.Join(",\n", anims.Select((a, i) => $"&{Q(a.Name)}: SubResource(\"Animation_{i}\")")));
+        sb.Append("\n}\n\n");
+        var node = new string(nodeName.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
+        sb.Append($"[node name={Q(node.Length > 0 ? node : "Sprite")} type=\"AnimatedSprite2D\"]\ntexture_filter = 1\nsprite_frames = ExtResource(\"1_frames\")\nanimation = &{Q(anims[0].Name)}\n\n");
+        for (var i = 0; i < slices.Count; i++)
+        {
+            sb.Append($"[node name={Q(names[i])} type=\"Area2D\" parent=\".\"]\n\n");
+            sb.Append($"[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent={Q(names[i])}]\nposition = {Pos(slices[i], 0)}\nshape = SubResource(\"Shape_{i}\")\n\n");
+        }
+        sb.Append($"[node name=\"AnimationPlayer\" type=\"AnimationPlayer\" parent=\".\"]\nlibraries = {{\n&\"\": SubResource(\"AnimationLibrary_1\")\n}}\nautoplay = {Q(anims[0].Name)}\n");
         return sb.ToString();
     }
 
@@ -415,15 +486,40 @@ public static class GodotTiles
         sb.Append("[sub_resource type=\"TileSetAtlasSource\" id=\"TileSetAtlasSource_1\"]\n");
         sb.Append("texture = ExtResource(\"1_tiles\")\n");
         sb.Append($"texture_region_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
-        for (var n = 1; n <= ts.Count; n++) sb.Append($"{(n - 1) % cols}:{(n - 1) / cols}/0 = 0\n");
+        for (var n = 1; n <= ts.Count; n++)
+        {
+            var at = $"{(n - 1) % cols}:{(n - 1) / cols}/0";
+            sb.Append($"{at} = 0\n");
+            // A tile in a terrain: which terrain, and the sides it joins on (Godot's match-sides peering bits).
+            for (var t = 0; t < ts.Terrains.Count; t++)
+            {
+                var mask = Array.IndexOf(ts.Terrains[t].Tiles, n);
+                if (mask < 0) continue;
+                sb.Append($"{at}/terrain_set = 0\n{at}/terrain = {t}\n");
+                foreach (var (bit, side) in new[] { (SpriteTerrain.Right, "right_side"), (SpriteTerrain.Down, "bottom_side"), (SpriteTerrain.Left, "left_side"), (SpriteTerrain.Up, "top_side") })
+                    if ((mask & bit) != 0) sb.Append($"{at}/terrains_peering_bit/{side} = {t}\n");
+                break;
+            }
+        }
         sb.Append("\n[resource]\n");
         sb.Append($"tile_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
+        if (ts.Terrains.Count > 0)
+        {
+            sb.Append("terrain_set_0/mode = 2\n"); // match sides
+            for (var t = 0; t < ts.Terrains.Count; t++)
+            {
+                var c = ts.Terrains[t].Color;
+                double r = Convert.ToByte(c[1..3], 16) / 255.0, g = Convert.ToByte(c[3..5], 16) / 255.0, b = Convert.ToByte(c[5..7], 16) / 255.0;
+                sb.Append($"terrain_set_0/terrain_{t}/name = {Q(ts.Terrains[t].Name)}\n");
+                sb.Append(System.FormattableString.Invariant($"terrain_set_0/terrain_{t}/color = Color({r:0.###}, {g:0.###}, {b:0.###}, 1)\n"));
+            }
+        }
         sb.Append("sources/0 = SubResource(\"TileSetAtlasSource_1\")\n");
         return sb.ToString();
     }
 
-    /// <summary>A scene with a TileMap placing the cel's tiles (where a tile is 0, no cell).</summary>
-    public static string Scene(string nodeName, string tileSetFile, SpriteCel cel, SpriteTileset ts)
+    /// <summary>The cells of a TileMap (format 2) placing the cel's tiles: three numbers a cell.</summary>
+    public static List<int> TileData(SpriteCel cel, SpriteTileset ts)
     {
         var cols = Columns(ts);
         var data = new List<int>();
@@ -440,13 +536,52 @@ public static class GodotTiles
                 data.Add(0 | ((ax & 0xFFFF) << 16));              // source 0, atlas x
                 data.Add((ay & 0xFFFF) | (alt << 16));            // atlas y, the alternative (turning)
             }
-        var node = new string(nodeName.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
-        return "[gd_scene load_steps=2 format=3]\n\n" +
-            $"[ext_resource type=\"TileSet\" path={Q(tileSetFile)} id=\"1_tileset\"]\n\n" +
-            $"[node name={Q(node.Length > 0 ? node : "TileMap")} type=\"TileMap\"]\n" +
-            "texture_filter = 1\n" +
-            "tile_set = ExtResource(\"1_tileset\")\n" +
-            "format = 2\n" +
-            $"layer_0/tile_data = PackedInt32Array({string.Join(", ", data)})\n";
+        return data;
+    }
+
+    private static string NodeName(string name, string fallback)
+    {
+        var node = new string(name.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
+        return node.Length > 0 ? node : fallback;
+    }
+
+    /// <summary>A scene with a TileMap placing the cel's tiles (where a tile is 0, no cell).</summary>
+    public static string Scene(string nodeName, string tileSetFile, SpriteCel cel, SpriteTileset ts) =>
+        "[gd_scene load_steps=2 format=3]\n\n" +
+        $"[ext_resource type=\"TileSet\" path={Q(tileSetFile)} id=\"1_tileset\"]\n\n" +
+        $"[node name={Q(NodeName(nodeName, "TileMap"))} type=\"TileMap\"]\n" +
+        "texture_filter = 1\n" +
+        "tile_set = ExtResource(\"1_tileset\")\n" +
+        "format = 2\n" +
+        $"layer_0/tile_data = PackedInt32Array({string.Join(", ", TileData(cel, ts))})\n";
+
+    /// <summary>One map layer for <see cref="Level"/>: its name, its TileSet file, its tiles, shown or not, opacity.</summary>
+    public sealed record MapLayer(string Name, string TileSetFile, SpriteCel Cel, SpriteTileset Tileset, bool Visible, int Opacity);
+
+    /// <summary>
+    /// Every tilemap layer in one scene: a Node2D holding a TileMap per layer, bottom first (drawn in that order), each
+    /// with its own TileSet, hidden or see-through as the layer is.
+    /// </summary>
+    public static string Level(string rootName, IReadOnlyList<MapLayer> layers)
+    {
+        var files = layers.Select(l => l.TileSetFile).Distinct().ToList();
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"[gd_scene load_steps={files.Count + 1} format=3]\n\n");
+        for (var i = 0; i < files.Count; i++) sb.Append($"[ext_resource type=\"TileSet\" path={Q(files[i])} id=\"{i + 1}_tileset\"]\n");
+        sb.Append($"\n[node name={Q(NodeName(rootName, "Level"))} type=\"Node2D\"]\n");
+        var used = new HashSet<string>();
+        foreach (var l in layers)
+        {
+            var name = NodeName(l.Name, "Layer"); var k = 2;
+            while (!used.Add(name)) name = $"{NodeName(l.Name, "Layer")} {k++}";
+            sb.Append($"\n[node name={Q(name)} type=\"TileMap\" parent=\".\"]\n");
+            if (!l.Visible) sb.Append("visible = false\n");
+            if (l.Opacity < 255) sb.Append(System.FormattableString.Invariant($"modulate = Color(1, 1, 1, {l.Opacity / 255.0:0.###})\n"));
+            sb.Append("texture_filter = 1\n");
+            sb.Append($"tile_set = ExtResource(\"{files.IndexOf(l.TileSetFile) + 1}_tileset\")\n");
+            sb.Append("format = 2\n");
+            sb.Append($"layer_0/tile_data = PackedInt32Array({string.Join(", ", TileData(l.Cel, l.Tileset))})\n");
+        }
+        return sb.ToString();
     }
 }

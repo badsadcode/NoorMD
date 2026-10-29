@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '' };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -498,6 +498,9 @@ window.NoorSprite = (() => {
       })(),
       el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
+      el('div', { class: 'sb-row' }, check('onionTag', 'this tag only', 'Onion skin from the frames of the tag you are in, not past it'), check('onionOutline', 'outlines', 'Onion skin as outlines (easier to see through)')),
+      el('div', { class: 'sb-row' }, check('path', 'motion path', 'The layer\'s path through the frames (its picture\'s middle on each); with the move tool, drag a point to move that frame\'s picture'),
+        (() => { const c = el('input', { type: 'checkbox', checked: view.thumbs || undefined, 'data-view': 'thumbs' }); c.addEventListener('change', () => { view.thumbs = c.checked; renderTimeline(); keepFocus(); }); return el('label', { class: 'sb-inline', title: 'Small pictures in the timeline' }, c, el('span', { text: 'thumbnails' })); })()),
       el('div', { class: 'sb-row' },
         el('button', { class: 'icon-btn', title: 'Zoom out (−)', 'aria-label': 'Zoom out', onclick: () => zoomBy(-1) }, '−'),
         el('span', { id: 'sp-zoom', text: `${view.zoom * 100}%` }),
@@ -510,6 +513,9 @@ window.NoorSprite = (() => {
   function renderTimeline() {
     const box = $('#sp-timeline');
     if (!box) return;
+    // Thumbnails while the timeline is small enough for them to be quick.
+    const thumbs = view.thumbs && doc.frames.length * (doc.layers.length + 1) <= 600 && doc.width * doc.height <= 256 * 256;
+    box.classList.toggle('thumbs', thumbs);
     const head = el('div', { class: 'sp-tl-row sp-tl-head' },
       el('div', { class: 'sp-tl-name' },
         el('button', { class: 'icon-btn', id: 'sp-play', title: 'Play / stop (Enter)', 'aria-label': playing ? 'Stop' : 'Play', onclick: () => (playing ? stop() : play()) }, playing ? '■' : '▶'),
@@ -522,8 +528,11 @@ window.NoorSprite = (() => {
         el('button', { class: 'icon-btn', id: 'sp-tween', title: 'In-betweens: frames in which this layer moves to where it is on a later frame', 'aria-label': 'In-betweens', onclick: tweenDialog }, '⇢'),
         el('button', { class: 'icon-btn', id: 'sp-timing', title: 'Frame timing: scale or set the durations', 'aria-label': 'Frame timing', onclick: timingDialog }, '⏱'),
         el('button', { class: 'icon-btn', id: 'sp-addtag', title: 'A tag over frames (an animation: walk, jump…)', 'aria-label': 'New tag', onclick: () => tagDialog(null) }, '🏷')),
-      ...doc.frames.map((f, i) => el('button', { class: 'sp-tl-frame' + (i === frame ? ' on' : ''), 'data-frame': String(i), title: `Frame ${i + 1}: ${f.duration} ms (double-click: duration)`, onclick: () => goFrame(i), ondblclick: () => frameDialog(i) },
-        el('span', { text: String(i + 1) }), el('small', { text: `${f.duration}` }))));
+      ...doc.frames.map((f, i) => el('button', { class: 'sp-tl-frame' + (i === frame ? ' on' : ''), 'data-frame': String(i), draggable: 'true', title: `Frame ${i + 1}: ${f.duration} ms (double-click: duration; drag: move it, Ctrl+drag: copy it)`, onclick: () => goFrame(i), ondblclick: () => frameDialog(i),
+        ondragstart: (e) => { e.dataTransfer.setData('text/x-noorsprite-frame', String(i)); e.dataTransfer.effectAllowed = 'copyMove'; },
+        ondragover: (e) => { if ([...e.dataTransfer.types].includes('text/x-noorsprite-frame')) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } },
+        ondrop: (e) => { const from = Number(e.dataTransfer.getData('text/x-noorsprite-frame')); if (!Number.isInteger(from)) return; e.preventDefault(); moveFrameTo(from, i, e.ctrlKey); } },
+        thumbs ? thumbOf(compose(i), 36) : null, el('span', { text: String(i + 1) }), el('small', { text: `${f.duration}` }))));
     const tags = doc.tags.length ? el('div', { class: 'sp-tl-row sp-tl-tags' }, el('div', { class: 'sp-tl-name' }, el('small', { class: 'pref-hint', text: 'Tags' })),
       el('div', { class: 'sp-tl-tagband', style: `grid-template-columns: repeat(${doc.frames.length}, var(--sp-cell))` },
         ...doc.tags.map((t, ti) => el('button', { class: 'sp-tag', 'data-tag': String(ti), style: `grid-column: ${t.from + 1} / ${t.to + 2}; --c:${t.color.slice(0, 7)}`, title: `${t.name}: frames ${t.from + 1}–${t.to + 1}, ${t.direction} (click: play it; double-click: change)`,
@@ -554,7 +563,8 @@ window.NoorSprite = (() => {
           el('span', { class: 'sp-layername' + (l.reference ? ' ref' : ''), text: (l.reference ? '📌 ' : l.kind === 'tilemap' ? '▦ ' : '') + l.name })),
         ...doc.frames.map((_, fi) => {
           const c = doc.cels.get(key(l.id, fi));
-          return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (c && c.link ? ' linked' : '') + (fi === frame && li === layer ? ' on' : ''), 'data-cel': `${li}:${fi}`, title: c ? (c.link ? 'A picture linked to other frames (drawn once for all)' : 'A picture on this frame') : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } });
+          return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (c && c.link ? ' linked' : '') + (fi === frame && li === layer ? ' on' : '') + (thumbs && c ? ' pic' : ''), 'data-cel': `${li}:${fi}`, title: c ? (c.link ? 'A picture linked to other frames (drawn once for all)' : 'A picture on this frame') : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } },
+            thumbs && c ? thumbOf(c.px, 36) : null);
         }));
     });
     const layerBar = el('div', { class: 'sp-tl-row sp-tl-foot' }, el('div', { class: 'sp-tl-name' },
@@ -569,6 +579,38 @@ window.NoorSprite = (() => {
     box.replaceChildren(head, ...(tags ? [tags] : []), ...rows, layerBar);
     const on = box.querySelector('.sp-tl-frame.on');
     if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }
+
+  /** A small picture of the sprite's pixels, fitted in a square. */
+  function thumbOf(px, size) {
+    const cv = el('canvas', { width: String(size), height: String(size), class: 'sp-thumb', 'aria-hidden': 'true' }), ctx = cv.getContext('2d');
+    const k = Math.min(size / doc.width, size / doc.height), w = Math.max(1, Math.round(doc.width * k)), h = Math.max(1, Math.round(doc.height * k));
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(pixelsToCanvas(px, doc.width, doc.height), Math.floor((size - w) / 2), Math.floor((size - h) / 2), w, h);
+    return cv;
+  }
+
+  /** A frame dragged to another place in the timeline (with its pictures), or copied there. */
+  function moveFrameTo(from, to, copy) {
+    if (from === to && !copy) return;
+    change(copy ? 'Copy a frame' : 'Move a frame', (d) => {
+      if (copy) {
+        d.frames.splice(to, 0, { ...d.frames[from] });
+        const src = from >= to ? from + 1 : from;
+        shiftFrames(d, to, 1);
+        d.layers.forEach((l) => { const c = d.cels.get(key(l.id, src)); if (c) { const { link, ...plain } = c; void link; d.cels.set(key(l.id, to), plain); } });
+        frame = to;
+        return;
+      }
+      // The frames in their new order: old index for each new place.
+      const order = d.frames.map((_, i) => i);
+      order.splice(from, 1); order.splice(to, 0, from);
+      const cels = new Map();
+      for (const [k, c] of d.cels) { const i = k.lastIndexOf(':'), f = Number(k.slice(i + 1)); cels.set(key(k.slice(0, i), order.indexOf(f)), c); }
+      d.cels = cels;
+      d.frames = order.map((i) => d.frames[i]);
+      frame = to;
+    });
   }
 
   function goFrame(i) { commitFloating(); frame = Math.max(0, Math.min(doc.frames.length - 1, i)); renderAll(); keepFocus(); }
@@ -884,8 +926,10 @@ window.NoorSprite = (() => {
     if (view.onion && !playing) {
       for (const [f, tint] of [...Array.from({ length: view.onionBefore }, (_, i) => [frame - i - 1, [255, 60, 60]]), ...Array.from({ length: view.onionAfter }, (_, i) => [frame + i + 1, [60, 120, 255]])]) {
         if (f < 0 || f >= doc.frames.length) continue;
-        const px = compose(f);
-        for (let i = 0; i < px.length; i += 4) { px[i] = (px[i] + tint[0]) / 2; px[i + 1] = (px[i + 1] + tint[1]) / 2; px[i + 2] = (px[i + 2] + tint[2]) / 2; }
+        const tg = view.onionTag && doc.tags.find((t) => frame >= t.from && frame <= t.to);
+        if (tg && (f < tg.from || f > tg.to)) continue; // only this tag's frames
+        const px = view.onionOutline ? outlineOf(compose(f), doc.width, doc.height, tint) : compose(f);
+        if (!view.onionOutline) for (let i = 0; i < px.length; i += 4) { px[i] = (px[i] + tint[0]) / 2; px[i + 1] = (px[i + 1] + tint[1]) / 2; px[i + 2] = (px[i + 2] + tint[2]) / 2; }
         ctx.globalAlpha = view.onionAlpha / (Math.abs(f - frame));
         ctx.drawImage(pixelsToCanvas(px, doc.width, doc.height), o.x, o.y, W, H);
       }
@@ -927,7 +971,7 @@ window.NoorSprite = (() => {
       ctx.stroke();
       const at = tileMode && hover && !drag && cellAt(hover);
       if (at) {
-        if (tool === 'pencil' && ts.tiles[tileSel]) { ctx.globalAlpha = 0.6; ctx.drawImage(pixelsToCanvas(turnedTile(ts, tileSel | tileFlags), ts.tw, ts.th), o.x + at.c * tw, o.y + at.r * th, tw, th); ctx.globalAlpha = 1; }
+        if (tool === 'pencil' && terrainSel < 0 && ts.tiles[tileSel]) { ctx.globalAlpha = 0.6; ctx.drawImage(pixelsToCanvas(turnedTile(ts, tileSel | tileFlags), ts.tw, ts.th), o.x + at.c * tw, o.y + at.r * th, tw, th); ctx.globalAlpha = 1; }
         ctx.strokeStyle = '#ffaa28'; ctx.lineWidth = 2; ctx.strokeRect(o.x + at.c * tw + 1, o.y + at.r * th + 1, tw - 2, th - 2); ctx.lineWidth = 1;
       }
     }
@@ -942,6 +986,7 @@ window.NoorSprite = (() => {
     // The selection's edge (marching ants).
     if (selection) drawSelection(ctx, o, z);
     drawSlices(ctx, o, z);
+    if (view.path && !playing) drawPath(ctx, o, z);
     // The stabilizer's string, from the brush to the cursor.
     if (drag && drag.kind === 'stroke' && drag.lazy) {
       const L = drag.lazy, bx = o.x + L.x * z, by = o.y + L.y * z;
@@ -955,6 +1000,52 @@ window.NoorSprite = (() => {
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
       for (const [x, y] of brushPoints(hover.x, hover.y)) ctx.strokeRect(o.x + x * z + 0.5, o.y + y * z + 0.5, z - 1, z - 1);
     }
+  }
+
+  /** Only the edge of a picture (its pixels next to clear ones), in one colour: onion skin as outlines. */
+  function outlineOf(px, W, H, c) {
+    const out = new Uint8ClampedArray(px.length), a = (x, y) => x >= 0 && y >= 0 && x < W && y < H && px[(y * W + x) * 4 + 3] > 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (a(x, y) && (!a(x - 1, y) || !a(x + 1, y) || !a(x, y - 1) || !a(x, y + 1))) out.set([c[0], c[1], c[2], 255], (y * W + x) * 4);
+    return out;
+  }
+
+  // ---------------------------------------------------------------- the motion path
+
+  const boxCache = new WeakMap();
+  /** The middle of what a frame's cel on this layer shows (null when nothing). */
+  function celMiddle(f) {
+    const c = cel(layer, f);
+    if (!c) return null;
+    let b = boxCache.get(c.px);
+    if (b === undefined) { b = drawnBox(c.px, doc.width, doc.height); boxCache.set(c.px, b); }
+    return b && { x: (b.x0 + b.x1 + 1) / 2, y: (b.y0 + b.y1 + 1) / 2 };
+  }
+
+  /** The layer's path through the frames: where its picture's middle is on each, joined. */
+  function drawPath(ctx, o, z) {
+    const pts = doc.frames.map((_, f) => { const m = celMiddle(f); return m && drag && drag.kind === 'pathnode' && f === frame ? { x: m.x + drag.dx, y: m.y + drag.dy } : m; });
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255,200,40,0.85)'; ctx.setLineDash([4, 3]); ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    let started = false;
+    pts.forEach((pt) => { if (!pt) { started = false; return; } const X = o.x + pt.x * z, Y = o.y + pt.y * z; if (started) ctx.lineTo(X, Y); else { ctx.moveTo(X, Y); started = true; } });
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = '10px system-ui, sans-serif'; ctx.textAlign = 'center';
+    pts.forEach((pt, f) => {
+      if (!pt) return;
+      const X = o.x + pt.x * z, Y = o.y + pt.y * z, r = f === frame ? 6 : 4;
+      ctx.fillStyle = f === frame ? '#ffc828' : 'rgba(255,200,40,0.7)'; ctx.beginPath(); ctx.arc(X, Y, r, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillText(String(f + 1), X, Y - r - 3);
+    });
+    ctx.restore();
+  }
+
+  /** A press on a path's point (with the move tool): that frame's picture is dragged along. */
+  function pathNodeAt(p) {
+    if (!view.path || tool !== 'move') return -1;
+    let best = -1, bd = 9;
+    doc.frames.forEach((_, f) => { const m = celMiddle(f); if (!m) return; const o = origin(), d = Math.hypot(o.x + m.x * view.zoom - p.cx, o.y + m.y * view.zoom - p.cy); if (d < bd) { bd = d; best = f; } });
+    return best;
   }
 
   /** The current frame as shown: the sprite, a shape being drawn and a lifted selection on top. */
@@ -1154,6 +1245,14 @@ window.NoorSprite = (() => {
     if (t === 'picker') { pick(p, e.button === 2); drag = { kind: 'picker', right: e.button === 2 }; return; }
     if (['select', 'eselect', 'lasso', 'wand'].includes(t)) { startSelect(t, p, e); return; }
     if (t === 'slice') { startSlice(p); return; }
+    const node = t === 'move' && !floating ? pathNodeAt(p) : -1;
+    if (node >= 0) {
+      if (node !== frame) { frame = node; renderAll(); }
+      if (!canDraw()) return;
+      const c = cel();
+      drag = { kind: 'pathnode', px: p.x, py: p.y, base: c.px, dx: 0, dy: 0, preview: c.px };
+      return;
+    }
     if (t === 'move') { startMove(p); return; }
     if (!canDraw()) return;
     if (t === 'fill') {
@@ -1309,6 +1408,11 @@ window.NoorSprite = (() => {
       return;
     }
     if (drag.kind === 'shape') { drag.to = [p.x, p.y]; drag.preview = shapePreview(e); draw(); return; }
+    if (drag.kind === 'pathnode') {
+      const dx = p.x - drag.px, dy = p.y - drag.py;
+      if (dx !== drag.dx || dy !== drag.dy) { drag.dx = dx; drag.dy = dy; drag.preview = shifted(drag.base, doc.width, doc.height, dx, dy); draw(); }
+      return;
+    }
     if (drag.kind === 'gradient') { drag.to = [p.fx, p.fy]; drag.preview = gradientPixels(drag); draw(); return; }
     if (drag.kind === 'select') { moveSelect(p, e); return; }
     if (drag.kind === 'slice') { drag.to = [p.x, p.y]; draw(); return; }
@@ -1321,8 +1425,9 @@ window.NoorSprite = (() => {
     if (!d) return;
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'pathnode') { if (d.dx || d.dy) change(`Move frame ${frame + 1}'s picture`, (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); }); else draw(); }
     else if (d.kind === 'gradient') change('Gradient', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
-    else if (d.kind === 'tiles') putTiles(d.value ? 'Place tiles' : 'Take tiles away', d.map);
+    else if (d.kind === 'tiles') putTiles(d.terrain ? (d.on ? 'Draw a terrain' : 'Take a terrain away') : d.value ? 'Place tiles' : 'Take tiles away', d.map);
     else if (d.kind === 'select') endSelect(d);
     else if (d.kind === 'slice') endSlice(d);
     else draw();
@@ -1962,6 +2067,32 @@ window.NoorSprite = (() => {
   let tileMode = false;   // T: drawing tiles (else pixels) on a tilemap layer
   let tileSel = 1;        // the tile drawn with
   let tileFlags = 0;      // how it is turned: the bits below
+  let terrainSel = -1;    // drawing with a terrain (autotiling) instead of one tile
+
+  // Autotiling by sides: a terrain names the tile for each way its neighbours join (1 up, 2 right, 4 down, 8 left).
+  const SIDE_UP = 1, SIDE_RIGHT = 2, SIDE_DOWN = 4, SIDE_LEFT = 8;
+
+  /** Cells of a terrain take the tile for how their neighbours of the same terrain join them. */
+  function terrainFix(map, cols, rows, ter, cells) {
+    const isT = (i) => { const id = tileId(map[i]); return id > 0 && ter.tiles.includes(id); };
+    for (const i of cells) {
+      if (i < 0 || i >= map.length || !isT(i)) continue;
+      const c = i % cols, r = (i - c) / cols;
+      let m = 0;
+      if (r > 0 && isT(i - cols)) m |= SIDE_UP;
+      if (c < cols - 1 && isT(i + 1)) m |= SIDE_RIGHT;
+      if (r < rows - 1 && isT(i + cols)) m |= SIDE_DOWN;
+      if (c > 0 && isT(i - 1)) m |= SIDE_LEFT;
+      map[i] = ter.tiles[m] || ter.tiles[15] || ter.tiles.find(Boolean) || 0;
+    }
+  }
+
+  /** A cell made part of the terrain (or taken out), it and its neighbours fitted again. */
+  function placeTerrain(map, i, on, ter) {
+    const { cols, rows } = mapSize(doc, tilesetOf()), c = i % cols;
+    map[i] = on ? (ter.tiles[15] || ter.tiles.find(Boolean) || 0) : 0;
+    terrainFix(map, cols, rows, ter, [i, i - cols, i + cols, c > 0 ? i - 1 : -1, c < cols - 1 ? i + 1 : -1]);
+  }
 
   // A tile in a map: its number in the low 29 bits, then flipped across (bit 29), flipped down (30) and turned on
   // its diagonal (31) — as Aseprite keeps them; the diagonal first, then the flips.
@@ -2093,7 +2224,7 @@ window.NoorSprite = (() => {
   }
 
   function newTileset(d, tw, th) {
-    d.tilesets.push({ name: `Tiles ${d.tilesets.length + 1}`, tw, th, tiles: [null] });
+    d.tilesets.push({ name: `Tiles ${d.tilesets.length + 1}`, tw, th, tiles: [null], terrains: [] });
     return d.tilesets.length - 1;
   }
 
@@ -2157,6 +2288,29 @@ window.NoorSprite = (() => {
     const map = currentMap();
     if (t === 'picker') { if (map[at.i]) { tileSel = tileId(map[at.i]); tileFlags = tileBits(map[at.i]); renderTileset(); } return; }
     if (!canDraw()) return;
+    const ter = terrainSel >= 0 && (tilesetOf().terrains || [])[terrainSel];
+    if (ter) {
+      if (!ter.tiles.some(Boolean)) { notice('That terrain has no tiles yet (✎ to give it some)', 1600); return; }
+      const next = new Int32Array(map), on = !(t === 'eraser' || right);
+      if (t === 'fill') {
+        const { cols, rows } = mapSize(doc, tilesetOf()), from = tileId(next[at.i]), stack = [at.i], seen = new Set();
+        while (stack.length) {
+          const i = stack.pop();
+          if (seen.has(i) || tileId(next[i]) !== from) continue;
+          seen.add(i); next[i] = on ? (ter.tiles[15] || ter.tiles.find(Boolean)) : 0;
+          const c = i % cols, r = (i - c) / cols;
+          if (c > 0) stack.push(i - 1); if (c < cols - 1) stack.push(i + 1); if (r > 0) stack.push(i - cols); if (r < rows - 1) stack.push(i + cols);
+        }
+        terrainFix(next, cols, rows, ter, next.map((_, i) => i));
+        putTiles(on ? 'Fill with a terrain' : 'Take a terrain away', next);
+        return;
+      }
+      placeTerrain(next, at.i, on, ter);
+      drag = { kind: 'tiles', map: next, value: on ? 1 : 0, last: at, terrain: ter, on };
+      drag.preview = renderMap(doc, tilesetOf(), next);
+      draw();
+      return;
+    }
     if (!(t === 'eraser' || right) && tileSel >= tilesetOf().tiles.length) { notice('Choose a tile in the tileset first', 1400); return; }
     const n = t === 'eraser' || right ? 0 : (tileSel | tileFlags);
     const next = new Int32Array(map);
@@ -2184,7 +2338,10 @@ window.NoorSprite = (() => {
     const at = cellAt(p);
     if (!at || (drag.last && drag.last.i === at.i)) return;
     // Every cell between the last and this one, so a quick stroke leaves no gaps.
-    for (const [c, r] of linePoints(drag.last ? drag.last.c : at.c, drag.last ? drag.last.r : at.r, at.c, at.r)) drag.map[r * mapSize(doc, tilesetOf()).cols + c] = drag.value;
+    for (const [c, r] of linePoints(drag.last ? drag.last.c : at.c, drag.last ? drag.last.r : at.r, at.c, at.r)) {
+      const i = r * mapSize(doc, tilesetOf()).cols + c;
+      if (drag.terrain) placeTerrain(drag.map, i, drag.on, drag.terrain); else drag.map[i] = drag.value;
+    }
     drag.last = at;
     drag.preview = renderMap(doc, tilesetOf(), drag.map);
     draw();
@@ -2211,7 +2368,7 @@ window.NoorSprite = (() => {
       const cv = el('canvas', { width: String(ts.tw * z), height: String(ts.th * z) });
       const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(pixelsToCanvas(t, ts.tw, ts.th), 0, 0, ts.tw * z, ts.th * z);
       return el('button', { class: 'sp-tile' + (tileSel === i + 1 ? ' on' : ''), 'data-tile': String(i + 1), title: `Tile ${i + 1} (click: draw with it)`, 'aria-label': `Tile ${i + 1}`, 'aria-pressed': String(tileSel === i + 1),
-        onclick: () => { tileSel = i + 1; if (!tileMode) setTileMode(true); else renderTileset(); keepFocus(); } }, cv);
+        onclick: () => { tileSel = i + 1; terrainSel = -1; if (!tileMode) setTileMode(true); else renderTileset(); keepFocus(); } }, cv);
     });
     box.replaceChildren(
       el('h4', { class: 'music-subhead', text: `Tileset “${ts.name}”` }),
@@ -2223,16 +2380,57 @@ window.NoorSprite = (() => {
         el('button', { class: 'icon-btn' + (tileFlags & FLIP_D ? ' on' : ''), id: 'sp-tile-rot', title: 'Place it turned a quarter clockwise (R in tile mode)', 'aria-label': 'Turn the tile', onclick: () => turnTileToPlace('r') }, '⟳'),
         tileFlags ? el('button', { class: 'utility-btn', title: 'Upright again', onclick: () => { tileFlags = 0; renderTileset(); draw(); } }, 'upright') : null),
       tiles.length ? el('div', { class: 'sp-tiles', id: 'sp-tiles', role: 'listbox', 'aria-label': 'Tiles' }, ...tiles) : el('p', { class: 'pref-hint', text: 'Draw on the layer and its tiles appear here.' }),
+      el('h4', { class: 'music-subhead', text: 'Terrains (autotiling)' }),
+      el('div', { class: 'sb-row sp-terrains', role: 'group', 'aria-label': 'Terrains' },
+        ...(ts.terrains || []).map((tr, i) => el('span', { class: 'sp-terrain' + (terrainSel === i ? ' on' : '') },
+          el('button', { class: 'utility-btn', 'data-terrain': String(i), style: `--c:${tr.color.slice(0, 7)}`, 'aria-pressed': String(terrainSel === i), title: `Draw ${tr.name}: each cell takes the tile for how its neighbours join it`, onclick: () => { terrainSel = terrainSel === i ? -1 : i; if (terrainSel >= 0 && !tileMode) setTileMode(true); else { renderTileset(); draw(); } } }, tr.name),
+          el('button', { class: 'icon-btn', 'data-terrain-edit': String(i), title: 'Its tiles', 'aria-label': `Edit ${tr.name}`, onclick: () => terrainDialog(i) }, '✎'))),
+        el('button', { class: 'icon-btn', id: 'sp-addterrain', title: 'A terrain: the tile for every way neighbours join (16 shapes)', 'aria-label': 'New terrain', onclick: () => terrainDialog(null) }, '＋')),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'sp-tiles-godot', title: 'The tiles as a Godot TileSet and the map as a TileMap scene', onclick: exportTiles }, 'Godot TileSet…'),
+        el('button', { class: 'utility-btn', id: 'sp-tiles-godot-all', title: 'Every tilemap layer in one Godot scene (each with its TileSet)', onclick: () => exportTiles(true) }, 'All map layers…'),
         el('button', { class: 'utility-btn', title: 'Make it a plain layer again (the tiles stay as pixels)', onclick: makeImageLayer }, 'To a plain layer')));
   }
 
-  async function exportTiles() {
+  /** Which tile goes with each way the neighbours join: 16 shapes, a tile for each. */
+  function terrainDialog(ti) {
+    const ts = tilesetOf(), tsi = doc.layers[layer].tileset;
+    if (ts.tiles.length < 2) { notice('Draw some tiles first: a terrain is made of them', 1600); return; }
+    const tr = ti === null ? { name: `Terrain ${(ts.terrains || []).length + 1}`, color: '#4caf50ff', tiles: Array(16).fill(0) } : { ...ts.terrains[ti], tiles: [...ts.terrains[ti].tiles] };
+    let slot = 0;
+    NoorUI.modal({ label: 'Terrain', width: 520 }, (s, closeIt) => {
+      const name = el('input', { type: 'text', value: tr.name, maxlength: '64', id: 'sp-ter-name', 'aria-label': 'Name' });
+      const colour = el('input', { type: 'color', value: tr.color.slice(0, 7), 'aria-label': 'Colour' });
+      const slots = el('div', { class: 'sp-ter-slots', role: 'listbox', 'aria-label': 'Shapes' });
+      const tileCanvas = (n) => { const cv = el('canvas', { width: '24', height: '24' }); const c = cv.getContext('2d'); c.imageSmoothingEnabled = false; if (n && ts.tiles[n]) c.drawImage(pixelsToCanvas(ts.tiles[n], ts.tw, ts.th), 0, 0, 24, 24); return cv; };
+      // A shape: the middle and the sides that join, drawn small.
+      const shape = (m) => el('span', { class: 'sp-ter-shape', 'aria-hidden': 'true' }, el('i', { class: 'c' }), ...[[SIDE_UP, 'u'], [SIDE_RIGHT, 'r'], [SIDE_DOWN, 'd'], [SIDE_LEFT, 'l']].filter(([b]) => m & b).map(([, k]) => el('i', { class: k })));
+      const draw2 = () => slots.replaceChildren(...tr.tiles.map((n, m) => el('button', { class: 'sp-ter-slot' + (m === slot ? ' on' : ''), 'data-slot': String(m), title: `Joined: ${[[SIDE_UP, 'up'], [SIDE_RIGHT, 'right'], [SIDE_DOWN, 'down'], [SIDE_LEFT, 'left']].filter(([b]) => m & b).map(([, k]) => k).join(', ') || 'nothing'} — ${n ? `tile ${n}` : 'no tile'}`, onclick: () => { slot = m; draw2(); } }, shape(m), tileCanvas(n))));
+      const pick = el('div', { class: 'sp-tiles', role: 'listbox', 'aria-label': 'Tiles' }, ...ts.tiles.slice(1).map((_, i) => el('button', { class: 'sp-tile', 'data-pick': String(i + 1), title: `Tile ${i + 1}: put it in the chosen shape`, onclick: () => { tr.tiles[slot] = i + 1; slot = (slot + 1) % 16; draw2(); } }, tileCanvas(i + 1))));
+      draw2();
+      const ok = () => {
+        const t2 = { name: name.value.trim() || 'Terrain', color: colour.value + 'ff', tiles: tr.tiles };
+        closeIt();
+        change(ti === null ? 'New terrain' : 'Change a terrain', (d) => { const t0 = d.tilesets[tsi], list = [...(t0.terrains || [])]; if (ti === null) list.push(t2); else list[ti] = t2; d.tilesets[tsi] = { ...t0, terrains: list }; });
+        terrainSel = ti === null ? (tilesetOf().terrains.length - 1) : ti;
+        if (!tileMode) setTileMode(true); else renderTileset();
+      };
+      s.append(NoorUI.head(ti === null ? 'New terrain' : 'Terrain', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Name ', name), el('label', {}, 'Colour ', colour),
+          el('p', { class: 'pref-hint', text: 'Choose a shape, then the tile for it (the next shape is chosen for you). A cell of the terrain takes the tile for how its neighbours of the same terrain join it.' }),
+          slots, pick,
+          el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sp-ter-inorder', title: 'Tiles 1 to 16 in the shapes\' order', onclick: () => { tr.tiles = tr.tiles.map((_, m) => (m + 1 < ts.tiles.length ? m + 1 : 0)); draw2(); } }, 'Tiles 1–16 in order'))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
+          ...(ti === null ? [] : [el('button', { class: 'action', onclick: () => { closeIt(); change('Remove a terrain', (d) => { const t0 = d.tilesets[tsi]; d.tilesets[tsi] = { ...t0, terrains: t0.terrains.filter((_, j) => j !== ti) }; }); terrainSel = -1; renderTileset(); } }, 'Remove')]),
+          el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ter-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  async function exportTiles(all = false) {
     if (!isTilemap()) return;
     commitFloating();
     try {
-      const r = await req('sprite.tiles.export', { sprite: toWire(), layer: doc.layers[layer].id, frame, name: (file ? file.name.replace(/\.[^.]+$/, '') + '-' : '') + doc.layers[layer].name });
+      const r = await req('sprite.tiles.export', { sprite: toWire(), layer: doc.layers[layer].id, frame, all, name: all ? (file ? file.name.replace(/\.[^.]+$/, '') : 'level') : (file ? file.name.replace(/\.[^.]+$/, '') + '-' : '') + doc.layers[layer].name });
       if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
     } catch (err) { hooks.showError(err); }
   }
@@ -2241,8 +2439,14 @@ window.NoorSprite = (() => {
 
   let sliceSel = -1;
 
+  /** Where a slice is on frame f: its own place, or its key's from that frame on (a slice that moves: a hitbox). */
+  function sliceAt(sl, f = frame) {
+    const k = (sl.keys || []).filter((k2) => k2.frame <= f).pop();
+    return k ? { ...sl, x: k.x, y: k.y, width: k.width, height: k.height } : sl;
+  }
+
   function startSlice(p) {
-    const list = doc.slices || [];
+    const list = (doc.slices || []).map((sl) => sliceAt(sl));
     // A click inside a slice picks it; a drag elsewhere makes one.
     const hit = list.findIndex((sl) => p.x >= sl.x && p.y >= sl.y && p.x < sl.x + sl.width && p.y < sl.y + sl.height);
     if (hit >= 0) { sliceSel = hit; renderSlicePanel(); draw(); return; }
@@ -2260,7 +2464,7 @@ window.NoorSprite = (() => {
   }
 
   function drawSlices(ctx, o, z) {
-    const list = [...(doc.slices || [])];
+    const list = (doc.slices || []).map((sl) => sliceAt(sl));
     if (drag && drag.kind === 'slice') { const [a, b] = drag.from, [c, d2] = drag.to; list.push({ name: '', x: Math.min(a, c), y: Math.min(b, d2), width: Math.abs(c - a) + 1, height: Math.abs(d2 - b) + 1, color: '#0000ffff', drawing: true }); }
     if (!list.length || (tool !== 'slice' && !view.slices)) return;
     ctx.save();
@@ -2283,17 +2487,35 @@ window.NoorSprite = (() => {
     box.hidden = tool !== 'slice';
     if (box.hidden) return;
     if (!sl) { box.replaceChildren(el('h4', { class: 'music-subhead', text: 'Slices' }), el('p', { class: 'pref-hint', text: 'Drag a rectangle to make a slice; click one to choose it.' })); return; }
+    const moves = !!(sl.keys && sl.keys.length), here = sliceAt(sl);
     const num = (k, label, min, max) => {
-      const i = el('input', { type: 'number', class: 'sb-num', value: String(sl[k]), min: String(min), max: String(max), 'data-slice': k, 'aria-label': label });
-      i.addEventListener('change', () => change('Slice', (d) => { d.slices[sliceSel][k] = Math.round(Number(i.value) || 0); }));
+      const place = ['x', 'y', 'width', 'height'].includes(k);
+      const i = el('input', { type: 'number', class: 'sb-num', value: String(place ? here[k] : sl[k]), min: String(min), max: String(max), 'data-slice': k, 'aria-label': label });
+      i.addEventListener('change', () => change('Slice', (d) => {
+        const v = Math.round(Number(i.value) || 0), x = d.slices[sliceSel];
+        if (!place || !moves) { x[k] = v; return; }
+        // A slice that moves: this frame gets its own place (from here on, till the next key).
+        const at = sliceAt(x, frame), keys = (x.keys || []).filter((k2) => k2.frame !== frame);
+        keys.push({ frame, x: at.x, y: at.y, width: at.width, height: at.height, [k]: v });
+        x.keys = keys.sort((a, b) => a.frame - b.frame);
+      }));
       return el('label', { class: 'sb-inline' }, el('span', { text: label }), i);
     };
+    const movesBox = (() => {
+      const c = el('input', { type: 'checkbox', checked: moves || undefined, 'data-slice': 'moves' });
+      c.addEventListener('change', () => change(c.checked ? 'A slice that moves' : 'A slice that stays', (d) => { const x = d.slices[sliceSel]; x.keys = c.checked ? [{ frame: 0, x: x.x, y: x.y, width: x.width, height: x.height }] : []; }));
+      return el('label', { class: 'sb-inline', title: 'A hitbox: its place can differ on each frame (set it on a frame: it holds from there on)' }, c, el('span', { text: 'moves with the frames (a hitbox)' }));
+    })();
+    const ownKey = moves && sl.keys.some((k2) => k2.frame === frame && frame > 0);
     const flag = (k, label) => { const c = el('input', { type: 'checkbox', checked: sl[k] || undefined, 'data-slice': k }); c.addEventListener('change', () => change('Slice', (d) => { const x = d.slices[sliceSel]; x[k] = c.checked; if (k === 'nine' && c.checked && x.centerWidth <= 1) { x.centerX = Math.floor(x.width / 3); x.centerY = Math.floor(x.height / 3); x.centerWidth = Math.max(1, x.width - 2 * x.centerX); x.centerHeight = Math.max(1, x.height - 2 * x.centerY); } if (k === 'hasPivot' && c.checked) { x.pivotX = Math.floor(x.width / 2); x.pivotY = x.height - 1; } })); return el('label', { class: 'sb-inline' }, c, el('span', { text: label })); };
     const name = el('input', { type: 'text', value: sl.name, maxlength: '64', id: 'sp-slice-name', 'aria-label': 'Slice name' });
     name.addEventListener('change', () => change('Rename a slice', (d) => { d.slices[sliceSel].name = name.value.trim() || 'Slice'; }));
     box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: 'Slice' }), name,
+      movesBox,
+      moves ? el('small', { class: 'pref-hint', id: 'sp-slice-keyinfo', text: `Frame ${frame + 1}: ${ownKey ? 'its own place' : 'as on the frame before'}` }) : null,
       el('div', { class: 'sp-grid2' }, num('x', 'x', -2048, 2048), num('y', 'y', -2048, 2048), num('width', 'w', 1, 4096), num('height', 'h', 1, 4096)),
+      ownKey ? el('button', { class: 'utility-btn', id: 'sp-slice-unkey', title: 'This frame takes the place of the frame before', onclick: () => change('Slice', (d) => { const x = d.slices[sliceSel]; x.keys = x.keys.filter((k2) => k2.frame !== frame); }) }, 'As the frame before') : null,
       flag('nine', '9-slice centre (stretched part)'),
       sl.nine ? el('div', { class: 'sp-grid2' }, num('centerX', 'x', 0, 4096), num('centerY', 'y', 0, 4096), num('centerWidth', 'w', 1, 4096), num('centerHeight', 'h', 1, 4096)) : null,
       flag('hasPivot', 'pivot (origin)'),
@@ -2596,7 +2818,7 @@ window.NoorSprite = (() => {
     const tilesets = (d.tilesets || []).map((t) => {
       const n = t.tiles.length - 1, strip = new Uint8Array(t.tw * t.th * 4 * n);
       for (let j = 1; j <= n; j++) strip.set(t.tiles[j], (j - 1) * t.tw * t.th * 4);
-      return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}) };
+      return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
     return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), cels };
@@ -2607,7 +2829,7 @@ window.NoorSprite = (() => {
     d.tilesets = (w.tilesets || []).map((t) => {
       const size = t.tileWidth * t.tileHeight * 4, strip = t.data ? unb64(t.data) : new Uint8Array(0), tiles = [null];
       for (let j = 0; j < (t.count || 0); j++) tiles.push(new Uint8ClampedArray(strip.subarray(j * size, (j + 1) * size)));
-      return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles };
+      return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles, terrains: (t.terrains || []).map((x) => ({ name: x.name, color: x.color, tiles: [...x.tiles] })) };
     });
     for (const l of d.layers) {
       if (l.kind === 'group') { delete l.tileset; continue; }
@@ -2748,11 +2970,15 @@ window.NoorSprite = (() => {
       const kind = el('select', { id: 'sp-ex-kind', 'aria-label': 'What' },
         el('option', { value: 'sheet', text: 'A sprite sheet (PNG and JSON)' }), el('option', { value: 'gif', text: 'An animated GIF' }),
         el('option', { value: 'godot', text: 'Godot: SpriteFrames (an animation per tag) and an AnimatedSprite2D scene' }),
+        el('option', { value: 'unity', text: 'Unity: the sheet, its .meta (sprites, pivot, 9-slice) and an animation per tag' }),
+        el('option', { value: 'paper2d', text: 'Unreal Paper2D: the sheet and its JSON' }),
         el('option', { value: 'frame', text: 'This frame (PNG)' }), el('option', { value: 'frames', text: 'Every frame (PNG files)' }));
       const form = el('select', { id: 'sp-ex-form', 'aria-label': 'JSON' }, el('option', { value: 'hash', text: 'frames by name (hash)' }), el('option', { value: 'array', text: 'a list of frames (array)' }));
       const scale = el('select', { id: 'sp-ex-scale', 'aria-label': 'Scale' }, ...[1, 2, 3, 4, 5, 6, 8, 10].map((n) => el('option', { value: String(n), text: `${n}×` })));
       const layout = el('select', { id: 'sp-ex-layout', 'aria-label': 'Layout' }, el('option', { value: 'row', text: 'a row' }), el('option', { value: 'column', text: 'a column' }), el('option', { value: 'grid', text: 'a grid' }), el('option', { value: 'packed', text: 'packed (trimmed, the same frames once)' }));
       const spacing = el('input', { type: 'number', min: '0', max: '64', value: '0', id: 'sp-ex-spacing', 'aria-label': 'Space between frames' });
+      const hitboxes = el('input', { type: 'checkbox', id: 'sp-ex-hitboxes', checked: (doc.slices || []).some((sl) => sl.keys && sl.keys.length) || undefined });
+      const ppu = el('input', { type: 'number', min: '1', max: '4096', value: String(doc.gridWidth || 16), id: 'sp-ex-ppu', 'aria-label': 'Pixels per unit (Unity)' });
       const tag = el('select', { id: 'sp-ex-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
       const ok = async () => {
         const t = tag.value === '' ? null : doc.tags[Number(tag.value)];
@@ -2761,13 +2987,20 @@ window.NoorSprite = (() => {
         const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
         closeIt();
         try {
-          const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags, slices: doc.slices || [],
+          const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
+            // One tag's frames start at 0: a moving slice's keys follow them.
+            slices: (doc.slices || []).map((sl) => {
+              if (!t || !(sl.keys && sl.keys.length)) return sl;
+              const b = sliceAt(sl, t.from);
+              return { ...sl, x: b.x, y: b.y, width: b.width, height: b.height, keys: [{ frame: 0, x: b.x, y: b.y, width: b.width, height: b.height }, ...sl.keys.filter((k) => k.frame > t.from && k.frame <= t.to).map((k) => ({ ...k, frame: k.frame - t.from }))] };
+            }),
             layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference, ...(isGroup(l) ? { kind: 'group' } : {}), ...(l.parent ? { parent: l.parent } : {}) })), ...(doc.indexed ? { palette: doc.palette } : {}) });
           if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
         } catch (err) { hooks.showError(err); }
       };
       s.append(NoorUI.head('Export', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'What ', kind), el('label', {}, 'Frames ', tag), el('label', {}, 'Scale ', scale), el('label', {}, 'Sheet as ', layout), el('label', {}, 'Space between (px) ', spacing), el('label', {}, 'JSON ', form),
+          el('label', { title: 'Godot: an Area2D for each slice, moved with the frames by an AnimationPlayer' }, hitboxes, ' slices as hitboxes (Godot)'), el('label', {}, 'Pixels per unit (Unity) ', ppu),
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
     });

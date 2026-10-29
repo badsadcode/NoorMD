@@ -170,6 +170,31 @@ func _init() -> void:
 		check(level.get_used_cells(0).size() == 12, "…12 tiles in all", level.get_used_cells(0).size())
 		check(level.get_cell_alternative_tile(0, Vector2i(0, 2)) == 4096 and level.get_cell_atlas_coords(0, Vector2i(0, 2)) == Vector2i(0, 1), "…a flipped tile flipped (Godot's flip flag)", level.get_cell_alternative_tile(0, Vector2i(0, 2)))
 	level.free()
+	# Terrains (autotiling by sides).
+	check(tset.get_terrain_sets_count() == 1 and tset.get_terrain_set_mode(0) == TileSet.TERRAIN_MODE_MATCH_SIDES and tset.get_terrain_name(0, 0) == "Grass", "the tileset has its terrain (match sides)", tset.get_terrain_sets_count())
+	var src: TileSetAtlasSource = tset.get_source(0)
+	var t2: TileData = src.get_tile_data(Vector2i(1, 0), 0)
+	var t3: TileData = src.get_tile_data(Vector2i(0, 1), 0)
+	check(t2.terrain_set == 0 and t2.terrain == 0 and t2.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_SIDE) == 0 and t2.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE) == -1, "…tile 2 joins above", [t2.terrain_set, t2.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_SIDE)])
+	check(t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE) == 0 and t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_SIDE) == -1, "…tile 3 joins on the right", t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE))
+	# Every map layer in one scene.
+	var world: Node = load("res://sprite/world.tscn").instantiate()
+	check(world is Node2D and world.get_child_count() == 2 and world.get_child(0) is TileMap and world.get_child(0).name == "Ground", "every map layer in one scene, a TileMap each", world.get_child_count())
+	check(world.get_child(1).visible == false and is_equal_approx(world.get_child(1).modulate.a, 0.502) and world.get_child(1).get_used_cells(0).size() == 2, "…hidden and see-through as the layers were", [world.get_child(1).visible, world.get_child(1).modulate.a])
+	world.free()
+	# Hitboxes moving with the frames.
+	var hit: Node = load("res://sprite/hero_hit.tscn").instantiate()
+	var ap: AnimationPlayer = hit.get_node("AnimationPlayer")
+	check(hit is AnimatedSprite2D and ap != null and ap.has_animation("walk") and ap.autoplay == "walk", "hitboxes: an AnimationPlayer playing the tags", ap)
+	var shape: CollisionShape2D = hit.get_node("hit/CollisionShape2D")
+	check(hit.get_node("hit") is Area2D and shape.shape is RectangleShape2D and shape.shape.size == Vector2(4, 4) and shape.position == Vector2(-6, -6), "…an Area2D a slice, where the slice is", [shape.position, shape.shape.size])
+	var walk: Animation = ap.get_animation("walk")
+	var pos_track := walk.find_track(NodePath("hit/CollisionShape2D:position"), Animation.TYPE_VALUE)
+	var size_track := walk.find_track(NodePath("hit/CollisionShape2D:shape:size"), Animation.TYPE_VALUE)
+	check(walk.get_track_count() == 4 and pos_track >= 0 and walk.track_get_key_value(pos_track, 1) == Vector2(3, 1) and walk.track_get_key_value(size_track, 1) == Vector2(6, 2), "…the moving one moved on frame 2", [walk.get_track_count(), walk.track_get_key_value(pos_track, 1) if pos_track >= 0 else null])
+	var frame_track := walk.find_track(NodePath(".:frame"), Animation.TYPE_VALUE)
+	check(frame_track >= 0 and walk.track_get_key_count(frame_track) == 6 and is_equal_approx(walk.track_get_key_time(frame_track, 1), 0.1), "…the frames turning with their durations", walk.track_get_key_count(frame_track) if frame_track >= 0 else -1)
+	hit.free()
 
 	# The shader itself: its code loads and declares what the plugin sets.
 	var shader: Shader = load("res://addons/noor_trees/noor_tree_wind.gdshader")
