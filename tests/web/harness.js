@@ -626,6 +626,14 @@ function mockHostScript(initial) {
       case 'cal.schedule.png': CAL.pictures = (CAL.pictures || []).concat([{ name: p.name, bytes: p.data.length, png: p.data.startsWith('data:image/png;base64,') }]); return { path: 'C:\\Users\\me\\Stream schedule.png' };
       case 'cal.agenda': CAL.agendas = (CAL.agendas || []).concat([p]); return { markdown: `## Agenda · from ${p.from}\n\n**Today**\n- 19:00 Test entry\n` };
       case 'cal.note.current': return { path: 'Streams/Plan.md', name: 'Plan' };
+      case 'cal.fromText': {
+        // A tiny stand-in for the app's parser: "14 Nov 19:00" (this year), else nothing found.
+        CAL.fromText = (CAL.fromText || []).concat([p.text]);
+        const m = /(\d{1,2}) Nov (\d{2}):(\d{2})/.exec(p.text);
+        if (!m) return { found: null };
+        const y = new Date().getFullYear();
+        return { found: { start: `${y}-11-${m[1].padStart(2, '0')}T${m[2]}:${m[3]}`, end: null, allDay: false, title: p.text.replace(/^.*?\d{2}:\d{2}\s*/, '') } };
+      }
       case 'cal.save': {
         const e = JSON.parse(JSON.stringify(p.entry));
         if (!e.id) e.id = 'n' + (CAL.saves.length + 1);

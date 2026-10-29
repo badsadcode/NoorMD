@@ -5264,6 +5264,37 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 64d. Calendar: "Add to calendar" from a line of a note.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Plan\n\nFriday 14 Nov 19:00 Stream with Ola\n\nNo date in this one\n', path: 'C:\\Plan.md', fileName: 'Plan.md', title: 'Plan' } }, { width: 1400, height: 950 });
+      const CM = () => page.evaluate(() => window.__mock.state.calendar);
+      const clickLine = async (t) => {
+        const sel = `#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p >> text=${t}`;
+        await page.waitForSelector(sel);
+        await page.click(sel); await page.waitForTimeout(200); await page.click(sel); await page.waitForTimeout(100);
+      };
+      await clickLine('Stream with Ola');
+      await page.evaluate(() => window.NoorMD.runCommand('cal.fromText'));
+      await page.waitForSelector('#cal-e-title');
+      check('the line under the cursor goes to the app to find its date', (await CM()).fromText.at(-1) === 'Friday 14 Nov 19:00 Stream with Ola');
+      const y = await page.evaluate(() => new Date().getFullYear());
+      check('the entry opens with the day, the time and the rest of the line as its title', (await page.inputValue('#cal-e-title')) === 'Stream with Ola'
+        && (await page.inputValue('#cal-e-startday')) === `${y}-11-14` && (await page.inputValue('#cal-e-starttime')) === '19:00' && (await page.inputValue('#cal-e-endtime')) === '20:00');
+      check('…with the note linked (when it is in the Vault)', /Plan/.test(await page.textContent('#cal-e-note-open')));
+      await page.click('#cal-e-save');
+      await waitFn(page, () => !document.querySelector('#cal-e-title'));
+      const saved = (await CM()).saves.at(-1);
+      check('saving adds it to the calendar', saved.title === 'Stream with Ola' && saved.start === `${y}-11-14T19:00` && saved.note === 'Streams/Plan.md');
+      // A line without a date: the entry opens on the chosen day, titled by the line.
+      await page.keyboard.press('Escape');
+      await clickLine('No date in this one');
+      await page.evaluate(() => window.NoorMD.runCommand('cal.fromText'));
+      await page.waitForSelector('#cal-e-title');
+      check('no date found: it says so, and the entry is still started from the line', (await page.inputValue('#cal-e-title')) === 'No date in this one' && await page.isChecked('#cal-e-allday'));
+      check('no page errors adding from a note', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 64c. Calendar: days off (a vacation planner): drag across days, mark them off, the days are tinted, work days counted.
     {
       const { page, errors } = await open(browser, url, {}, { width: 1400, height: 950 });

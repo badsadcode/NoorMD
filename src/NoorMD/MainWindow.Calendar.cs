@@ -166,6 +166,21 @@ public partial class MainWindow
                 BroadcastSchedule();
                 return new { entry = gone };
             }
+            case "cal.fromText":
+            {
+                // "Add to calendar" from a line of a note: the day, time and title written in it (or nothing found).
+                var text = req.GetString("text", 2000) ?? "";
+                var f = DateText.Find(text, DateTime.Now, System.Globalization.CultureInfo.CurrentCulture);
+                return new
+                {
+                    found = f == null ? null : new
+                    {
+                        start = f.AllDay ? CalendarTime.Day(f.Start) : CalendarTime.Time(f.Start),
+                        end = f.End is { } e ? CalendarTime.Time(e) : null,
+                        allDay = f.AllDay, title = f.Title,
+                    },
+                };
+            }
             case "cal.schedule":
             {
                 // The week's streams as text to post (plain, Discord, X) and as data for the picture.

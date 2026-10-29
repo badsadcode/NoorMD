@@ -60,7 +60,11 @@ tried before the next.
   that can be inserted into a note.
 - **Public holidays** for a chosen country, worked out by rules (no download), shown as all-day days.
 
-Done in preview.80: everything above except "Add to calendar" from a date in a note, which is still to come. 18
+Done in preview.80, and "Add to calendar" from a note in preview.84 (Insert › Add to calendar, or the command
+palette): the selected text or the line under the cursor is read for a day and a time or time range — "Fri 14 Nov
+19:00", "2026-11-14", "14.11.", "November 14th at 7pm", "tomorrow 10:30–12", "next Monday", in English and the
+Windows language (numbers day-first unless the language writes the month first) — the rest of the line becomes the
+title, and the entry editor opens with the note linked, to check and save. 18
 countries have holidays (Easter-based ones by the Gregorian computus; UK, Irish, Australian and New Zealand
 substitute days; US observed days). The Discord text uses Discord's own time stamps, so each reader sees their own
 time; the X text stays within 280 characters. The overlays are `next-stream.html` and `schedule.html`.

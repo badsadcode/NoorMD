@@ -1331,6 +1331,7 @@
     ['texture.toggle', 'Texture Bench (stone, wood, metal… materials for games)', 'Tools', 'Ctrl+Alt+T', () => NoorTexture.toggle()],
     ['seq.toggle', 'NoorSequencer (compose loops and music for games)', 'Tools', 'Ctrl+Alt+Q', () => NoorSequencer.toggle()],
     ['cal.toggle', 'Calendar (important days, birthdays, reminders)', 'Tools', 'Ctrl+Alt+C', () => NoorCalendar.toggle()],
+    ['cal.fromText', 'Add to calendar (the date in the selected text or this line)…', 'Insert', '', () => NoorCalendar.addFromText(selectionOrLine())],
     ['assets.toggle', 'Asset Bench (trees for games, realistic or stylized)', 'Tools', 'Ctrl+Alt+M', () => NoorAssets.toggle()],
     ['radio.find', 'Radio: find stations online…', 'Tools', '', () => { NoorRadio.open(); NoorRadio.findOnline(); }],
     ['voice.toggle', 'Voice notes (recorder)', 'Tools', '', () => NoorVoice.toggle()],
@@ -1434,6 +1435,18 @@
   function refreshChrome() {
     if (!chromeReady || chromeTimer) return;
     chromeTimer = requestAnimationFrame(() => { chromeTimer = 0; NoorChrome.refresh(); });
+  }
+
+  /** The selected text, or (nothing selected) the line the cursor is on: for "Add to calendar". */
+  function selectionOrLine() {
+    if (!editor) return '';
+    try {
+      const sel = editor.getSelectedText ? editor.getSelectedText() : '';
+      if (sel && sel.trim()) return sel.split('\n').find((l) => l.trim()) || '';
+      if (editor.isWysiwygMode()) return editor.wwEditor.view.state.selection.$from.parent.textContent || '';
+      const [line] = editor.getSelection()[0];
+      return md().split('\n')[line - 1] || '';
+    } catch { return ''; }
   }
 
   function headingLevel() {

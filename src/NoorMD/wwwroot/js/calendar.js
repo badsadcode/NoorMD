@@ -693,6 +693,32 @@ window.NoorCalendar = (() => {
     });
   }
 
+  /**
+   * "Add to calendar" from a line of a note: the app finds the day, time and title written in it; the entry editor
+   * opens with them (and with the note linked, if it is in the Vault), to check and save.
+   */
+  async function addFromText(text) {
+    const line = String(text || '').trim();
+    if (!line) { notice('Select a line with a date (or put the cursor on it) first', 2200); return; }
+    let found = null, note = null;
+    try { found = (await req('cal.fromText', { text: line })).found; } catch (err) { hooks.showError(err); return; }
+    try { note = (await req('cal.note.current')).path; } catch { /* not a note in the Vault: no link */ }
+    await open();
+    const title = (found && found.title) || line.replace(/^\s*(?:[-*+]\s+(?:\[[ xX]\]\s+)?|#{1,6}\s+|>\s*)/, '').slice(0, 200);
+    const base = { id: '', title, notes: '', category: 'appointment', color: '', repeat: null, skip: [], moved: [], sinceYear: null, note, game: null, platform: null };
+    if (!found) {
+      notice('No date found in that line: choose the day in the entry', 2600);
+      editEntry({ ...base, allDay: true, start: dayKey(selected), end: dayKey(selected), reminders: [] }, null);
+      return;
+    }
+    const s0 = parse(found.start);
+    cursor = selected = startOfDay(s0);
+    await refresh();
+    editEntry(found.allDay
+      ? { ...base, allDay: true, start: found.start, end: found.start, reminders: [-540] }
+      : { ...base, allDay: false, start: found.start, end: found.end || timeKey(new Date(s0.getTime() + 3600000)), reminders: [15] }, null);
+  }
+
   async function deleteEntry(entry) {
     try {
       const r = await req('cal.delete', { id: entry.id });
@@ -771,7 +797,7 @@ window.NoorCalendar = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen,
+    init, open, close, toggle, isOpen, addFromText,
     _state: () => ({ view, cursor: dayKey(cursor), selected: dayKey(selected), entries: clone(entries), occurrences: occurrences.map((o) => ({ entryId: o.entryId, date: o.date, start: o.start, end: o.end, allDay: o.allDay, age: o.age })), cards: [...cards.keys()], search, lastDeleted: lastDeleted ? lastDeleted.id : null, weekStartsMonday, rangeEnd: rangeEnd ? dayKey(rangeEnd) : null, daysOff }),
   };
 })();
