@@ -4011,6 +4011,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and remembers the choices', await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')).target === 'unreal'));
       await page.click('#tb-reveal');
       await waitFn(page, () => window.__mock.state.texture.opened === 'D:\\Game\\Materials');
+      // A material set: several presets at one texel density, their brightness compared.
+      await page.click('#tb-set summary');
+      for (const id of ['bricks-red', 'stone-cobbles', 'metal-brushed']) await page.check(`#tb-set-list [data-set="${id}"]`);
+      await page.fill('#tb-set-name', 'Ground'); await page.dispatchEvent('#tb-set-name', 'change');
+      await page.click('#tb-set-run');
+      await waitFn(page, () => !!document.querySelector('#tb-set-result'));
+      const sx = (await page.evaluate(() => window.__mock.state.texture.sets[0]));
+      check('a material set exports the chosen presets at one size and tile size', sx.presets.length === 3 && sx.name === 'Ground' && sx.size === 2048 && sx.tileMetres === 4);
+      check('…and shows each one\'s brightness, flagging the odd one out', /512 px per metre/.test(await page.textContent('#tb-set-result')) && (await page.$$('#tb-set-result .warn')).length === 1 && /brighter/.test(await page.textContent('[data-set-material="Brushed metal"]')));
       page.once('dialog', () => {});
       await page.click('#tb-save');
       await page.waitForSelector('.modal input, dialog input, [role=dialog] input');

@@ -695,6 +695,13 @@ function mockHostScript(initial) {
         return { folder: 'D:\\Game\\Materials', files: names.map((n) => `${stem}_${n}.png`), recipe: stem + '.noortex.json', paintings,
           gallery: p.gallery ? names.length : null, vault: p.vault ? `Materials/${stem}.noortex.json` : null, notes: [] };
       }
+      case 'texture.set': {
+        TEX.sets = (TEX.sets || []).concat([JSON.parse(JSON.stringify(p))]);
+        const names = { 'bricks-red': 'Red bricks', 'stone-cobbles': 'Cobblestones', 'metal-brushed': 'Brushed metal' };
+        const lum = { 'bricks-red': 0.21, 'stone-cobbles': 0.18, 'metal-brushed': 0.52 };
+        return { done: p.presets.length, total: p.presets.length, folder: 'D:\\Game\\Materials', set: `${p.name}.set.json`, pixelsPerMetre: p.size / p.tileMetres, median: 0.21,
+          materials: p.presets.map((id) => ({ name: names[id], luminance: lum[id], note: lum[id] > 0.21 * 1.6 ? 'much brighter than the set' : null })) };
+      }
       case 'texture.reveal': TEX.opened = p.folder; return null;
       case 'texture.batch.pick': return { pictures: ['moss', 'rust', 'sand'].map((n) => ({ path: `D:\\Textures\\${n}_albedo.png`, name: `${n}_albedo.png` })) };
       case 'texture.batch.cancel': TEX.batchCancelled = true; return null;

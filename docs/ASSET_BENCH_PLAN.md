@@ -385,9 +385,13 @@ wider (the big cards stand out past its short limbs), the maple coarser; finer l
 pine body. Not a clear win, so it stays a choice (Leaves & bark → what one card shows), the defaults unchanged. The
 bigger step is a real branch picture (a photographed or 3D-rendered leaf atlas) as your own leaf picture.
 
-Engine-agnostic notes from Thornwake still to do: Texture Bench real-world scale (metres per tile, height as 16-bit PNG
-with its range in centimetres, both in the manifest) and material sets (several materials at one texel density and
-consistent names, with each one's average albedo brightness shown). For rocks (stage 2): the pivot at the centre of
+Leaves at a distance (preview.75): cut-out leaves thin out with distance (the smaller mipmaps average their alpha
+away). The preview and the Godot shader raise the alpha by the mip level, so far and low-detail trees keep their
+coverage. Leaves let light through from behind: KHR_materials_diffuse_transmission on the leaf and moss materials
+(optional: engines that don't know it ignore it), and the Godot plugin (v3) lights cut-out leaves from behind.
+
+Engine-agnostic notes from Thornwake: the Texture Bench's real-world scale and material sets are done (preview.75,
+docs/TEXTURE_BENCH_PLAN.md). For rocks (stage 2): the pivot at the centre of
 the ground contact, levels as files or nodes, and simple convex collision pieces in the GLB named by Godot's glTF
 convention (-convcolonly), several for arches and the like.
 

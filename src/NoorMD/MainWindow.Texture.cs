@@ -290,6 +290,78 @@ public partial class MainWindow
         return new { done, total = jobs.Count, cancelled = _textureBatchCancel && done < jobs.Count, skipped, folder = folders.Count == 1 ? first : root, folders = folders.Count, project = place.Project?.Name };
     }
 
+    /// <summary>
+    /// A material set: several presets (built-in or yours) exported together at one size and one real-world scale, so
+    /// they share a texel density, named by the export settings, with a set file listing each one's maps and albedo
+    /// brightness; ones much darker or brighter than the rest are flagged (a game blending them would show it).
+    /// </summary>
+    private async Task<object> TextureSetAsync(JsonElement p)
+    {
+        var ids = p.TryGetProperty("presets", out var ps) && ps.ValueKind == JsonValueKind.Array
+            ? ps.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString()!).Distinct().Take(64).ToList() : [];
+        if (ids.Count < 2) throw new BridgeError("Choose at least two materials for a set.");
+        var setName = NoorMD.Core.Export.ExportLayouts.Segment(p.TryGetProperty("name", out var nm) && nm.ValueKind == JsonValueKind.String ? nm.GetString() ?? "" : "");
+        if (setName.Length == 0) setName = "Material set";
+        if (setName.Length > 60) setName = setName[..60];
+        var size = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 1024);
+        if (size is not (512 or 1024 or 2048 or 4096)) throw new BridgeError("Choose 512, 1024, 2048 or 4096 pixels.");
+        var tile = NoorMD.Core.Bridge.Json.OptDouble(p, "tileMetres") ?? 2;
+        var target = (p.TryGetProperty("target", out var tg) && tg.ValueKind == JsonValueKind.String ? tg.GetString() : null) ?? "generic";
+        var files = TextureOutputs(p, target);
+        var recipes = new List<TextureRecipe>();
+        foreach (var id in ids)
+        {
+            var r = id.StartsWith("user:", StringComparison.Ordinal) ? TextureRecipe.FromJson(await File.ReadAllTextAsync(UserTexturePath(id))) : TexturePresets.Make(id);
+            AllowTextureImages(r);
+            r.TileMetres = tile;
+            recipes.Add(r.Clamped());
+        }
+        var place = ExportPlaceFrom(p, "texture");
+        var root = ExportBase(place, $"Save the set “{setName}” ({recipes.Count} materials, {size} × {size}) in… (you can make a new folder here)");
+        if (root == null) return new { cancelled = true };
+        var jobs = recipes.Select(r => (Recipe: r, Plan: PlanTextureSet(r, size, root, place, files))).ToList();
+        var setFile = Path.Combine(root, NoorMD.Core.Export.ExportLayouts.FileName(setName, "Material set") + ".set.json");
+        var how = AskReplace([.. jobs.SelectMany(j => j.Plan.Targets), setFile], $"the set “{setName}”");
+        if (how == null) return new { cancelled = true };
+        _textureBatchCancel = false;
+        var made = new List<(string Name, string Folder, List<string> Files, (float R, float G, float B, float Luminance) Mean)>();
+        foreach (var (recipe, plan) in jobs)
+        {
+            if (_textureBatchCancel) break;
+            PushEvent("texture.batchProgress", new { done = made.Count, total = jobs.Count, name = recipe.Name });
+            TextureMaps maps;
+            await TextureGate.WaitAsync();
+            try { maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage)); }
+            finally { TextureGate.Release(); }
+            var result = await WriteTextureSetAsync(recipe, maps, plan, files, how == "keep");
+            made.Add((recipe.Name, result.Folder, result.Written.Select(f => Path.GetRelativePath(root, f).Replace('\\', '/')).ToList(), maps.AlbedoMean()));
+        }
+        PushEvent("texture.batchProgress", new { done = made.Count, total = jobs.Count, name = "" });
+        var median = made.Select(m => m.Mean.Luminance).OrderBy(v => v).ElementAtOrDefault(made.Count / 2);
+        string? Flag(float l) => median <= 0 ? null : l < median * 0.6f ? "much darker than the set" : l > median * 1.6f ? "much brighter than the set" : null;
+        var set = new
+        {
+            generator = "NoorMD Texture Bench",
+            kind = "material set",
+            name = setName,
+            size,
+            tileMetres = Math.Round(tile, 4),
+            pixelsPerMetre = Math.Round(size / tile, 4),
+            albedoLuminanceMedian = Math.Round(median, 4),
+            materials = made.Select(m => new { name = m.Name, files = m.Files, albedoLuminance = Math.Round(m.Mean.Luminance, 4), albedoMeanLinear = new[] { Math.Round(m.Mean.R, 4), Math.Round(m.Mean.G, 4), Math.Round(m.Mean.B, 4) }, note = Flag(m.Mean.Luminance) }),
+        };
+        var setPath = ExportTarget(root, Path.GetFileName(setFile), how == "keep", new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        await File.WriteAllTextAsync(setPath, JsonSerializer.Serialize(set, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
+        _textureFolders.Add(root);
+        Log.Info($"Texture Bench: material set “{setName}”, {made.Count} of {jobs.Count} materials");
+        return new
+        {
+            done = made.Count, total = jobs.Count, cancelled = _textureBatchCancel && made.Count < jobs.Count, folder = root, set = Path.GetFileName(setPath),
+            pixelsPerMetre = Math.Round(size / tile, 1), median = Math.Round(median, 3),
+            materials = made.Select(m => new { name = m.Name, luminance = Math.Round(m.Mean.Luminance, 3), note = Flag(m.Mean.Luminance) }),
+        };
+    }
+
     /// <summary>A file's place in an export: as named (replacing, after asking), or numbered beside what is there.</summary>
     private static string ExportTarget(string folder, string fileName, bool keep, HashSet<string> taken)
     {
@@ -487,6 +559,7 @@ public partial class MainWindow
                     return new { folder, files = written.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), paintings = travelling.Layers.Count(l => l.Type == "painted" && l.Path != null), gallery, vault, notes };
                 }
                 case "texture.batch": return await TextureBatchAsync(p);
+                case "texture.set": return await TextureSetAsync(p);
                 case "texture.batch.cancel": _textureBatchCancel = true; return null;
                 case "texture.batch.pick":
                 {

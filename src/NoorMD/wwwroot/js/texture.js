@@ -132,6 +132,8 @@ window.NoorTexture = (() => {
   let hooks = { showError: (e) => console.error(e) };
   let built = false;
   let presets = { builtIn: [], mine: [] };
+  // A material set being put together: the chosen presets, its name, and the last export's result.
+  const matSet = { ids: new Set(), name: 'Ground', result: null, running: false };
   let recipe = null;
   let tab = 'layers';
   let render = null; // { key, size, maps: { albedo: url, … }, ms }
@@ -848,6 +850,7 @@ el('span', { class: 'tb-zoom' },
         el('button', { class: 'action primary', id: 'tb-export', onclick: exportMaps }, '⤓ Export PNG maps…'),
         el('button', { class: 'action', id: 'tb-save', onclick: savePreset }, '★ Save as my preset…')),
       batchSection(),
+      setSection(),
       el('p', { class: 'pref-hint', id: 'tb-export-status', text: 'Every map tiles seamlessly at any size. The recipe (.noortex.json) is saved with the maps: open it later to make another size or change it. Unreal gets DirectX normals and an ORM map (occlusion, roughness, metallic) unless you choose otherwise above.' }),
     ];
   }
@@ -947,6 +950,42 @@ el('span', { class: 'tb-zoom' },
         el('button', { class: 'action primary', id: 'tb-batch-run', disabled: !n || batch.running || undefined, onclick: runBatch }, n ? `⤓ Make PBR maps for ${n} picture${n === 1 ? '' : 's'}…` : '⤓ Make PBR maps…'),
         batch.running ? el('button', { class: 'action', id: 'tb-batch-cancel', onclick: () => req('texture.batch.cancel').catch(hooks.showError) }, 'Stop after this one') : null),
       el('p', { class: 'pref-hint', id: 'tb-batch-status', 'aria-live': 'polite', text: batch.progress || '' }));
+  }
+
+  /** Several materials exported together at one size and one real-world scale, with their brightness compared. */
+  function setSection() {
+    const all = [...presets.builtIn.map((p) => ({ id: p.id, name: p.name, family: p.family })), ...presets.mine.map((p) => ({ id: p.id, name: p.name, family: 'Mine' }))];
+    const families = [...new Set(all.map((p) => p.family))];
+    const n = matSet.ids.size;
+    const name = el('input', { type: 'text', id: 'tb-set-name', value: matSet.name, maxlength: '60', 'aria-label': 'Set name' });
+    name.addEventListener('change', () => { matSet.name = name.value.trim() || 'Material set'; });
+    const r = matSet.result;
+    return el('details', { class: 'sb-fxgroup tb-set', id: 'tb-set', open: n || r ? true : undefined },
+      el('summary', { text: `Material set: several materials at one texel density${n ? ` (${n})` : ''}` }),
+      el('p', { class: 'pref-hint', text: `Exported together at the size above and one real-world scale (one tile covers ${recipe.tileMetres || 2} m, as set above), so they match in a game; named by the settings above; a set file lists each one with its albedo brightness, and ones much darker or brighter than the rest are flagged.` }),
+      el('div', { class: 'tb-set-list', id: 'tb-set-list' }, ...families.map((f) => el('div', { class: 'sb-row' }, el('strong', { text: f }),
+        ...all.filter((p) => p.family === f).map((p) => {
+          const c = el('input', { type: 'checkbox', 'data-set': p.id, checked: matSet.ids.has(p.id) || undefined });
+          c.addEventListener('change', () => { if (c.checked) matSet.ids.add(p.id); else matSet.ids.delete(p.id); const b = $('#tb-set-run'); if (b) { b.disabled = matSet.ids.size < 2 || matSet.running; b.textContent = `⤓ Export the set (${matSet.ids.size})…`; } });
+          return el('label', { class: 'sb-inline' }, c, el('span', { text: p.name }));
+        })))),
+      el('div', { class: 'sb-row' },
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Set name' }), name),
+        el('button', { class: 'action primary', id: 'tb-set-run', disabled: n < 2 || matSet.running || undefined, onclick: runSet }, `⤓ Export the set (${n})…`)),
+      r ? el('div', { class: 'tb-set-result', id: 'tb-set-result' },
+        el('p', { class: 'pref-hint', text: `${r.done} of ${r.total} materials in ${r.set} · ${r.pixelsPerMetre} px per metre · average albedo across the set ${r.median} (linear)` }),
+        ...r.materials.map((m) => el('div', { class: 'sb-row' + (m.note ? ' warn' : ''), 'data-set-material': m.name },
+          el('span', { text: m.name }), el('small', { text: `albedo ${m.luminance}` }), m.note ? el('small', { class: 'tb-set-note', text: `⚠ ${m.note}` }) : null))) : null);
+  }
+
+  async function runSet() {
+    const p = exportPrefs();
+    matSet.running = true;
+    try {
+      const r = await req('texture.set', { presets: [...matSet.ids], name: matSet.name, size: p.size, tileMetres: recipe.tileMetres || 2, target: p.target, ...writeOptions(), ...(where ? where.payload() : {}) });
+      if (r && !r.cancelled) { matSet.result = r; notice(`Set “${matSet.name}”: ${r.done} materials exported`, 1800); }
+    } catch (err) { hooks.showError(err); }
+    finally { matSet.running = false; renderEditor(); }
   }
 
   async function runBatch() {

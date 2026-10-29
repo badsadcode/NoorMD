@@ -53,6 +53,23 @@ tried before the next.
   material's name) and the recipe kept in the open Vault's Materials folder with its paintings and a picture;
   a recipe opened from the Vault opens in the Texture Bench.
 
+## For games: real-world size and material sets (preview.75)
+
+From Thornwake's notes (engine-agnostic: any game wants these):
+* **Real-world size**: a material says how much ground one tile covers (metres, default 2) and what its height map's
+  full range stands for (centimetres, default 4: about 2–8 for soil and grass, up to 20 for scree and rock). Both are
+  in the recipe and on the Export tab, which also shows the texel density (pixels per metre at the export size) and
+  the albedo's average brightness in linear light (grass and soil look natural about 0.15–0.35).
+* **A manifest beside the maps** (`<name>.material.json`): the scale, the texel density, the height's range (and
+  that low is where water collects), the albedo's average (linear RGB and luminance), and each map's file, colour
+  space, normal convention, bits and channels.
+* **Material sets**: several presets (built-in or yours) exported together at one size and one tile size, so they
+  share a texel density, named by the export settings; `<set>.set.json` lists each material with its files and
+  brightness, and the bench shows them, flagging any much darker or brighter than the set's median (a game blending
+  them would show it).
+* Tests: the brightness is measured in linear light; the scale's limits; the UI (texel density, brightness, the set
+  export and its flag); the self-test checks the manifest.
+
 ## Later (only if real use asks)
 
 - A node view of the material, animated noise, and imported meshes for the preview.
