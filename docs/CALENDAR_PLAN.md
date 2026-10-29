@@ -50,7 +50,7 @@ tried before the next.
 
 ## Stage 2 — notes, holidays and streams (done: preview.80)
 
-- **Stream entries:** title, game or category, platform, and a short description.
+- **Stream entries:** title, category or game (any kind of stream, not only games), platform, and a short description.
 - **Stream Desk:**
   - a "Next stream" and a "This week" overlay for OBS (served on the loopback overlay server like Now Playing,
     live-updating);

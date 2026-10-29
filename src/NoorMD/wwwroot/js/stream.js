@@ -333,7 +333,7 @@ window.NoorStream = (() => {
           row('Labels', input(sc, 'nextLabel', { type: 'text', placeholder: 'Next stream', 'aria-label': 'Next stream label' }, changed), input(sc, 'liveLabel', { type: 'text', placeholder: 'Live now', 'aria-label': 'Live label' }, changed), input(sc, 'weekTitle', { type: 'text', placeholder: 'This week', 'aria-label': 'Week title' }, changed)),
           row('Clock', select(sc, 'clock', { auto: 'As Windows shows it', 24: '24-hour', 12: '12-hour (am/pm)' }, changed)),
           el('div', { class: 'sd-checks' },
-            el('label', { class: 'inline' }, input(sc, 'showGame', { type: 'checkbox' }, changed), 'Game'),
+            el('label', { class: 'inline' }, input(sc, 'showGame', { type: 'checkbox' }, changed), 'Category or game'),
             el('label', { class: 'inline' }, input(sc, 'showPlatform', { type: 'checkbox' }, changed), 'Platform'),
             el('label', { class: 'inline' }, input(sc, 'showCountdown', { type: 'checkbox' }, changed), 'Countdown'),
             el('label', { class: 'inline' }, input(sc, 'mondayFirst', { type: 'checkbox' }, () => { changed(); setTab('schedule'); }), 'Weeks start on Monday'),

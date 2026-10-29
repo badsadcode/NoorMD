@@ -482,9 +482,9 @@ window.NoorCalendar = (() => {
 
       const since = el('input', { type: 'number', id: 'cal-e-since', min: '1', max: '9999', value: e.sinceYear ? String(e.sinceYear) : '', class: 'cal-num', placeholder: 'year', 'aria-label': 'Since the year (for the age)' });
       const sinceRow = row('Born / since', since, el('small', { class: 'pref-hint', text: 'for the age ("turns 30")' }));
-      const game = el('input', { type: 'text', id: 'cal-e-game', value: e.game || '', maxlength: '120', placeholder: 'game or category', 'aria-label': 'Game or category' });
+      const game = el('input', { type: 'text', id: 'cal-e-game', value: e.game || '', maxlength: '120', placeholder: 'a game, Art, Music, Just Chatting…', 'aria-label': 'Category or game' });
       const platform = el('input', { type: 'text', id: 'cal-e-platform', value: e.platform || '', maxlength: '60', placeholder: 'Twitch, YouTube…', 'aria-label': 'Platform' });
-      const streamRow = row('Game, platform', game, platform);
+      const streamRow = row('Category, platform', game, platform);
       // The note this entry belongs to (a note in the Vault): open it, or link the note on screen.
       const noteBox = el('div', { class: 'cal-inline', id: 'cal-e-note' });
       const drawNote = () => noteBox.replaceChildren(
