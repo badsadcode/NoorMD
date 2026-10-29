@@ -48,6 +48,12 @@ window.NoorSequencer = (() => {
   let volume = (() => { try { const v = Number(localStorage.getItem('noormd.seq.volume')); return localStorage.getItem('noormd.seq.volume') != null && Number.isFinite(v) ? Math.max(0, Math.min(1, v)) : 0.8; } catch { return 0.8; } })();
   let newVelocity = 0.8;
   let newLength = 2;
+  // Ideas from LMMS: another track's notes faded behind the piano roll, and the computer keyboard as a piano.
+  let ghost = -1; // the track whose pattern in this bar shows behind the roll (-1: none)
+  let keyOctave = 4; // the A key plays C of this octave
+  let recording = false; // the keyboard writes notes: at the playhead while playing, else one after another
+  const heldKeys = new Map(); // key code → { note, at (bars, while playing) | step: true }
+  const PIANO_KEYS = { KeyA: 0, KeyW: 1, KeyS: 2, KeyE: 3, KeyD: 4, KeyF: 5, KeyT: 6, KeyG: 7, KeyY: 8, KeyH: 9, KeyU: 10, KeyJ: 11, KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16 };
   let render = null; // { url, fromBar, toBar, barSeconds, loop, seconds }
   let renderGen = 0, renderTimer = null, renderStale = true;
   let where = null;
@@ -382,6 +388,48 @@ window.NoorSequencer = (() => {
     $('#seq-scale').addEventListener('change', (e) => { song.scale = e.target.value; changed('pane'); });
     new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); if (roll) sizeRoll(); }).observe(root);
     root.addEventListener('keydown', onKey);
+    root.addEventListener('keyup', (e) => { if (heldKeys.has(e.code)) pianoUp(e.code); });
+  }
+
+  // ---------------------------------------------------------------- the computer keyboard as a piano
+
+  function pianoDown(code, pitch) {
+    if (!roll) return;
+    const r = roll, steps = song.beatsPerBar * 4;
+    hear(sel.track, pitch, newVelocity);
+    if (!recording) return;
+    let note;
+    const at = currentBarPosition();
+    if (at != null) {
+      // Playing: the note goes where the playhead is, if the bar playing is this pattern.
+      const bar = Math.floor(at);
+      if (r.track.sequence[bar] !== currentPattern()) { setStatus(`Recording writes into pattern ${currentPattern()}: it isn't playing in bar ${bar + 1}`); return; }
+      note = { step: Math.min(steps - 1, Math.round((at - bar) * steps)), length: 1, pitch, velocity: newVelocity };
+      heldKeys.set(code, { note, at });
+    } else {
+      // Stopped: one note after another from where you last clicked; keys pressed together make a chord.
+      note = { step: Math.max(0, Math.min(steps - 1, r.cursor || 0)), length: newLength, pitch, velocity: newVelocity };
+      heldKeys.set(code, { note, step: true });
+    }
+    r.pattern.notes = r.pattern.notes.filter((x) => !(x.step === note.step && x.pitch === note.pitch));
+    r.pattern.notes.push(note);
+    r.pattern.notes.sort((a, b) => a.step - b.step || a.pitch - b.pitch);
+    r.selected = note;
+    changed('grid'); drawRoll(); refreshNoteEditor();
+  }
+
+  function pianoUp(code) {
+    const h = heldKeys.get(code);
+    heldKeys.delete(code);
+    if (!h || !roll) return;
+    const steps = song.beatsPerBar * 4;
+    if (h.step) {
+      if (![...heldKeys.values()].some((x) => x.step)) roll.cursor = ((roll.cursor || 0) + newLength) % steps;
+    } else {
+      const now = currentBarPosition();
+      if (now != null && now > h.at) { h.note.length = Math.max(1, Math.min(steps * 8, Math.round((now - h.at) * steps))); changed('grid'); }
+    }
+    drawRoll();
   }
 
   function onKey(e) {
@@ -389,6 +437,11 @@ window.NoorSequencer = (() => {
     if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; } // in the whole window, Esc goes back to NoorMD
     if (typing) return;
     const k = e.key.toLowerCase();
+    // The piano roll has the keyboard: A–; play notes (W, E, T, Y, U, O, P the black keys), Z and X change the octave.
+    if (roll && e.target === roll.canvas && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      if (e.code in PIANO_KEYS) { e.preventDefault(); if (!e.repeat) pianoDown(e.code, 12 * (keyOctave + 1) + PIANO_KEYS[e.code]); return; }
+      if (e.code === 'KeyZ' || e.code === 'KeyX') { e.preventDefault(); keyOctave = Math.max(1, Math.min(7, keyOctave + (e.code === 'KeyX' ? 1 : -1))); const o = $('#seq-octave'); if (o) o.textContent = `C${keyOctave}`; return; }
+    }
     if (e.key === ' ' && !e.target.closest('button')) { e.preventDefault(); playStop(); }
     else if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
     else if (k === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
@@ -701,7 +754,7 @@ window.NoorSequencer = (() => {
     else if (!t) pane.replaceChildren(el('p', { class: 'pref-hint', text: 'Add a track to start.' }));
     else if (tab === 'instrument') pane.replaceChildren(...instrumentPane(t));
     else pane.replaceChildren(...notesPane(t));
-    if (roll) { sizeRoll(); scrollRollToNotes(); }
+    if (roll) { sizeRoll(); scrollRollToNotes(); refreshNoteEditor(); }
     if (document.activeElement === document.body && isOpen()) $('#seqbench').focus({ preventScroll: true });
   }
 
@@ -741,8 +794,23 @@ window.NoorSequencer = (() => {
     const len = el('select', { id: 'seq-length', 'aria-label': 'Length of new notes' }, ...[[1, '1/16'], [2, '1/8'], [4, '1/4 (a beat)'], [8, '1/2'], [16, 'a bar']].map(([v, l]) => el('option', { value: String(v), text: l })));
     len.value = String(newLength);
     len.addEventListener('change', () => { newLength = Number(len.value); });
-    const canvas = el('canvas', { class: 'seq-roll', id: 'seq-roll', tabindex: '0', role: 'img', 'aria-label': `Piano roll of pattern ${n}: ${pattern.notes.length} notes` });
-    roll = { canvas, track: t, pattern, rows: [], rowH: 14, keyW: 46, stepW: 24, playhead: -1, drag: null, cursor: 0 };
+    const canvas = el('canvas', { class: 'seq-roll', id: 'seq-roll', tabindex: '0', role: 'img', 'aria-label': `Piano roll of pattern ${n}: ${pattern.notes.length} notes. With it focused, the keys A to semicolon play notes; Z and X change the octave.` });
+    roll = { canvas, track: t, pattern, rows: [], rowH: 14, keyW: 46, stepW: 24, playhead: -1, drag: null, cursor: 0, selected: null };
+    // Ghost notes: another track's pattern in this bar, faded behind (to write a melody over the bass or the chords).
+    const others = song.tracks.map((x, i) => ({ x, i })).filter(({ x, i }) => i !== sel.track && x.kind !== 'drums' && x.sequence[sel.bar] > 0);
+    if (!others.some((o) => o.i === ghost)) ghost = -1;
+    const ghostSel = el('select', { id: 'seq-ghost', 'aria-label': 'Show another track\'s notes behind', title: 'Another track\'s notes in this bar, faded behind the roll (to write over the bass or the chords)' },
+      el('option', { value: '-1', text: others.length ? 'No ghost notes' : 'No other track plays here' }), ...others.map(({ x, i }) => el('option', { value: String(i), text: `👻 ${x.name} (pattern ${x.sequence[sel.bar]})` })));
+    ghostSel.value = String(ghost);
+    ghostSel.disabled = !others.length || undefined;
+    ghostSel.addEventListener('change', () => { ghost = Number(ghostSel.value); drawRoll(); });
+    const rec = el('button', { class: 'utility-btn' + (recording ? ' active' : ''), id: 'seq-record', 'aria-pressed': String(recording),
+      title: 'Record from the computer keyboard (click the roll first): while the song plays, notes go where the playhead is; when stopped, one after another from where you last clicked',
+      onclick: () => { recording = !recording; rec.classList.toggle('active', recording); rec.setAttribute('aria-pressed', String(recording)); rec.textContent = recording ? '⏺ Recording' : '⏺ Record'; canvas.focus({ preventScroll: true }); } }, recording ? '⏺ Recording' : '⏺ Record');
+    const keysRow = el('div', { class: 'sb-row', id: 'seq-keysrow' },
+      el('label', { class: 'sb-inline' }, ghostSel), rec,
+      el('span', { class: 'sb-inline', title: 'Z and X change the octave the keyboard plays' }, '🎹 ', el('strong', { id: 'seq-octave', text: `C${keyOctave}` })),
+      el('small', { class: 'pref-hint', text: 'Click the roll, then play with the keys A S D F G H J K (W E T Y U O P are the black keys); Z / X octave.' }));
     setupRoll(roll);
     const ti = sel.track;
     const chordRow = el('div', { class: 'sb-row seq-chords', id: 'seq-chords' },
@@ -763,9 +831,10 @@ window.NoorSequencer = (() => {
       el('label', { class: 'sb-inline', title: 'Only the notes of the key and scale are shown (they always sound right together)' }, lock, el('span', { text: 'Scale lock' })),
       el('label', { class: 'sb-inline' }, el('span', { text: 'New notes' }), len),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Velocity' }), velocity), clear,
-      el('small', { class: 'pref-hint', text: 'Click to add a note, drag to lengthen; drag a note to move it, its right end to resize; click or right-click a note to remove it.' })),
-    chordRow,
-    el('div', { class: 'seq-rollwrap', id: 'seq-rollwrap' }, canvas)];
+      el('small', { class: 'pref-hint', text: 'Click to add a note, drag to lengthen; drag a note to move it, its right end to resize; click a note to choose it, click it again or right-click to remove it.' })),
+    chordRow, keysRow,
+    el('div', { class: 'seq-rollwrap', id: 'seq-rollwrap' }, canvas),
+    el('div', { class: 'sb-row seq-noteedit', id: 'seq-noteedit' })];
   }
 
   function drumGrid(t, pattern) {
@@ -861,6 +930,19 @@ window.NoorSequencer = (() => {
       g.fillRect(keyW + s * stepW - (s === steps ? 1 : 0), 0, 1, rows.length * rowH);
     }
     g.globalAlpha = 1;
+    // Ghost notes behind: outlines in the text colour.
+    const gt = ghost >= 0 ? song.tracks[ghost] : null;
+    const gn = gt && gt !== roll.track ? gt.sequence[sel.bar] : 0;
+    if (gn > 0 && gt.patterns[gn - 1]) {
+      for (const x of gt.patterns[gn - 1].notes) {
+        const r = rows.indexOf(x.pitch + 12 * ((gt.instrument.octave || 0) - (roll.track.instrument.octave || 0)));
+        if (r < 0) continue;
+        const w = Math.min(x.length, steps - x.step) * stepW;
+        g.fillStyle = text; g.globalAlpha = 0.1; g.fillRect(keyW + x.step * stepW + 1, r * rowH + 1, w - 2, rowH - 2);
+        g.strokeStyle = text; g.globalAlpha = 0.45; g.strokeRect(keyW + x.step * stepW + 1.5, r * rowH + 1.5, w - 3, rowH - 3);
+      }
+      g.globalAlpha = 1;
+    }
     for (const x of roll.pattern.notes) {
       const r = rows.indexOf(x.pitch);
       if (r < 0) continue;
@@ -874,8 +956,52 @@ window.NoorSequencer = (() => {
       g.fillRect(keyW + x.step * stepW + w - 4, y + 3, 2, rowH - 6);
       // Rings on past the bar's end (it carries into the next bar).
       if (x.step + x.length > steps) { g.fillStyle = accent; g.fillText('›', keyW + steps * stepW - 8, y + rowH / 2); }
+      if (x === roll.selected) { g.strokeStyle = text; g.lineWidth = 2; g.strokeRect(keyW + x.step * stepW + 1, y + 1, w - 2, rowH - 2); g.lineWidth = 1; }
+      // A slide: a line into the note it glides to.
+      const to = x.slide ? slideTarget(roll.pattern.notes, x) : null;
+      const tr = to ? rows.indexOf(to.pitch) : -1;
+      if (tr >= 0) {
+        g.strokeStyle = accent; g.lineWidth = 2;
+        g.beginPath(); g.moveTo(keyW + Math.min(steps, x.step + x.length) * stepW - 2, y + rowH / 2); g.lineTo(keyW + to.step * stepW + 2, tr * rowH + rowH / 2); g.stroke();
+        g.lineWidth = 1;
+      }
+      // Its place, if not the middle: a small mark to the left or right.
+      if (x.pan) { g.fillStyle = text; g.fillRect(keyW + x.step * stepW + 3 + (x.pan > 0 ? Math.max(0, w - 12) : 0), y + rowH - 4, 6, 2); }
     }
     if (roll.playhead >= 0) { g.fillStyle = text; g.fillRect(keyW + roll.playhead * stepW, 0, 2, rows.length * rowH); }
+  }
+
+  /** The note a sliding note glides into (as the app plays it): the next to start, of a chord the nearest pitch. */
+  function slideTarget(notes, x) {
+    const later = notes.filter((n) => n.step > x.step);
+    if (!later.length) return null;
+    const at = Math.min(...later.map((n) => n.step));
+    return later.filter((n) => n.step === at).sort((a, b) => Math.abs(a.pitch - x.pitch) - Math.abs(b.pitch - x.pitch))[0];
+  }
+
+  /** The chosen note: it can slide into the next one, sit left or right, and be softer or harder. */
+  function refreshNoteEditor() {
+    const box = $('#seq-noteedit');
+    if (!box || !roll) return;
+    const n = roll.selected && roll.pattern.notes.includes(roll.selected) ? roll.selected : null;
+    if (!n) { box.replaceChildren(el('small', { class: 'pref-hint', text: 'Click a note to choose it: it can then slide into the next note (as a 303 bass line), sit to the left or right, or be softer or harder.' })); return; }
+    const slide = el('input', { type: 'checkbox', id: 'seq-note-slide', checked: n.slide || undefined });
+    slide.addEventListener('change', () => { if (slide.checked) n.slide = true; else delete n.slide; changed('grid'); drawRoll(); });
+    const pan = el('input', { type: 'range', id: 'seq-note-pan', min: '-100', max: '100', step: '5', value: String(Math.round((n.pan || 0) * 100)), 'aria-label': 'Place of this note, left to right' });
+    const panText = el('small', { id: 'seq-note-pantext' });
+    const showPan = () => { const v = Number(pan.value); panText.textContent = v === 0 ? 'middle' : `${Math.abs(v)}% ${v < 0 ? 'left' : 'right'}`; };
+    pan.addEventListener('input', () => { const v = Number(pan.value) / 100; if (v) n.pan = v; else delete n.pan; showPan(); drawRoll(); });
+    pan.addEventListener('change', () => changed('grid'));
+    pan.addEventListener('dblclick', () => { pan.value = '0'; delete n.pan; showPan(); changed('grid'); drawRoll(); });
+    showPan();
+    const vel = el('input', { type: 'range', id: 'seq-note-velocity', min: '5', max: '100', step: '1', value: String(Math.round(n.velocity * 100)), 'aria-label': 'How hard this note is' });
+    vel.addEventListener('input', () => { n.velocity = Number(vel.value) / 100; drawRoll(); });
+    vel.addEventListener('change', () => changed('grid'));
+    const can = !!slideTarget(roll.pattern.notes, n);
+    box.replaceChildren(el('strong', { text: `${noteName(n.pitch)} · step ${n.step + 1}` }),
+      el('label', { class: 'sb-inline', title: can ? 'Glide into the next note without a new attack' : 'There is no later note in this pattern to slide into' }, slide, el('span', { text: '↗ Slide into the next note' })),
+      el('label', { class: 'sb-inline', title: 'Where this note sits, left to right (double-click: the middle)' }, el('span', { text: 'Place' }), pan, panText),
+      el('label', { class: 'sb-inline' }, el('span', { text: 'Velocity' }), vel));
   }
 
   function setupRoll(r) {
@@ -890,7 +1016,7 @@ window.NoorSequencer = (() => {
     r.canvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       const n = hit(at(e));
-      if (n) { r.pattern.notes.splice(r.pattern.notes.indexOf(n), 1); changed('grid'); drawRoll(); }
+      if (n) { r.pattern.notes.splice(r.pattern.notes.indexOf(n), 1); if (r.selected === n) r.selected = null; changed('grid'); drawRoll(); refreshNoteEditor(); }
     });
     r.canvas.addEventListener('mousedown', (e) => {
       if (e.button !== 0) return;
@@ -901,12 +1027,15 @@ window.NoorSequencer = (() => {
       e.preventDefault();
       const n = hit(pos);
       if (n) {
+        const wasSelected = r.selected === n;
+        r.selected = n;
         const endX = r.keyW + (n.step + n.length) * r.stepW;
-        r.drag = { note: n, mode: pos.x > endX - 7 ? 'resize' : 'move', from: pos, start: { step: n.step, pitch: n.pitch, length: n.length }, moved: false };
+        r.drag = { note: n, mode: pos.x > endX - 7 ? 'resize' : 'move', from: pos, start: { step: n.step, pitch: n.pitch, length: n.length }, moved: false, wasSelected };
       } else {
         r.cursor = pos.step;
         const note = { step: pos.step, length: Math.min(newLength, steps() * 8), pitch: pos.pitch, velocity: newVelocity };
         r.pattern.notes.push(note);
+        r.selected = note;
         r.drag = { note, mode: 'resize', from: pos, start: { step: note.step, pitch: note.pitch, length: note.length }, moved: true, fresh: true };
         hear(ti(), note.pitch, note.velocity);
         drawRoll();
@@ -938,11 +1067,12 @@ window.NoorSequencer = (() => {
         r.drag = null;
         if (!d) return;
         // A click on a note (no drag) removes it.
-        if (!d.moved && !d.fresh) r.pattern.notes.splice(r.pattern.notes.indexOf(d.note), 1);
+        // Choosing a note is a click on it too: a note already chosen is removed by a click, a new one only chosen.
+        if (!d.moved && !d.fresh && d.wasSelected) { r.pattern.notes.splice(r.pattern.notes.indexOf(d.note), 1); r.selected = null; }
         else if (d.mode === 'resize') newLength = Math.min(16, d.note.length);
         r.pattern.notes.sort((a, b) => a.step - b.step || a.pitch - b.pitch);
         changed('grid');
-        drawRoll();
+        drawRoll(); refreshNoteEditor();
         const l = $('#seq-length'); if (l && [...l.options].some((o) => o.value === String(newLength))) l.value = String(newLength);
       };
       window.addEventListener('mousemove', move);
@@ -1399,6 +1529,6 @@ window.NoorSequencer = (() => {
     init, open, close, toggle, isOpen,
     /** Another player started: the song stops. */
     stopForOther: () => { if (wantPlay || !audio.paused) stopPlaying(); noteAudio.pause(); audition.pause(); },
-    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), time: audio.currentTime, render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
+    _state: () => ({ song: song ? clone(song) : null, sel: { ...sel }, tab, playFrom, loopMode, scaleLock, playing: !audio.paused, src: audio.getAttribute('src'), time: audio.currentTime, ghost, recording, keyOctave, selectedNote: roll && roll.selected ? { ...roll.selected } : null, render: render ? { ...render } : null, history: history.length, future: future.length, volume, noteSrc: noteAudio.getAttribute('src'), listenLayer, audition: audition.getAttribute('src'), roll: roll ? { rows: roll.rows.length, rowH: roll.rowH, keyW: roll.keyW, stepW: roll.stepW, top: roll.rows[0] } : null }),
   };
 })();

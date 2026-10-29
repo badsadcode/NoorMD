@@ -15,7 +15,17 @@ public sealed class SongNote
     public int Length { get; set; } = 1;
     public int Pitch { get; set; } = 60;
     public double Velocity { get; set; } = 0.8;
+    /// <summary>Left (−1) to right (1), on top of the track's place.</summary>
+    public double Pan { get; set; }
+    /// <summary>Glides into the next note (no new attack), as a 303 bass line does.</summary>
+    public bool Slide { get; set; }
 }
+
+/// <summary>
+/// A note as it is played: from the song's start, in sixteenths. <paramref name="Slides"/>: where (sixteenths from
+/// the note's start) it glides, and to how many semitones from its own pitch; or null.
+/// </summary>
+public readonly record struct PlayedNote(double Step, double Length, int Pitch, double Velocity, double Pan = 0, IReadOnlyList<(double At, int To)>? Slides = null);
 
 /// <summary>One bar of notes.</summary>
 public sealed class SongPattern
@@ -214,6 +224,8 @@ public sealed class SongRecipe
                     n.Step = Math.Clamp(n.Step, 0, steps - 1); n.Length = Math.Clamp(n.Length, 1, steps * 8);
                     n.Pitch = t.Kind == "drums" ? Math.Clamp(n.Pitch, 0, KitRows.Length - 1) : Math.Clamp(n.Pitch, 0, 127);
                     n.Velocity = C(n.Velocity, 0.05, 1);
+                    n.Pan = C(n.Pan, -1, 1);
+                    if (t.Kind == "drums") n.Slide = false;
                     return n;
                 }).OrderBy(n => n.Step).ThenBy(n => n.Pitch).ToList();
             t.Sequence = (t.Sequence ?? []).Take(Bars).Select(s => Math.Clamp(s, 0, t.Patterns.Count)).ToList();
@@ -426,8 +438,12 @@ public static class SequencerEngine
                 var played = Played(song, track, trackIndex, bar);
                 for (var k = 0; k < played.Count; k++)
                 {
-                    var (step, noteSteps, pitch, velocity) = played[k];
+                    var (step, noteSteps, pitch, velocity, pan, slides) = played[k];
                     var note = new SongNote { Step = 0, Length = 1, Pitch = pitch, Velocity = velocity };
+                    // A note's own place: equal power, the middle as loud as before.
+                    var na = (pan + 1) * Math.PI / 4;
+                    double nl = pan == 0 ? 1 : Math.Cos(na) * Math.Sqrt(2), nr = pan == 0 ? 1 : Math.Sin(na) * Math.Sqrt(2);
+                    var bend = Bend(slides, song.StepSeconds);
                     var songSeconds = step * song.StepSeconds;
                     var start = songSeconds - fromBar * song.BarSeconds;
                     var seconds = noteSteps * song.StepSeconds;
@@ -435,13 +451,12 @@ public static class SequencerEngine
                     var at = (int)Math.Round(start * sr);
                     switch (track.Kind)
                     {
-                        case "drums": Drum(L, at, note, track.Instrument, sr, new SoundRng(seed)); break;
-                        case "sample": SampleVoice(L, at, note, seconds, track.Instrument, sample!, sr); break;
-                        default: Synth(L, at, note, seconds, track.Instrument, sr, new SoundRng(seed), songSeconds, At(track.FilterAutomation, step / song.StepsPerBar, 0)); break;
+                        case "drums": Drum(new Out(L, R, nl, nr), at, note, track.Instrument, sr, new SoundRng(seed)); break;
+                        case "sample": SampleVoice(new Out(L, R, nl, nr), at, note, seconds, track.Instrument, sample!, sr, bend); break;
+                        default: Synth(new Out(L, R, nl, nr), at, note, seconds, track.Instrument, sr, new SoundRng(seed), songSeconds, At(track.FilterAutomation, step / song.StepsPerBar, 0), bend); break;
                     }
                 }
             }
-            Array.Copy(L, R, total);
             if (track.Effects.Count > 0) SoundEffects.Apply(track.Effects, L, R, sr, files: samples);
             // Level automation (after the effects, so a fade takes the echoes with it).
             if (track.GainAutomation.Count > 0)
@@ -495,15 +510,15 @@ public static class SequencerEngine
     /// The notes of a track's bar as they are played: arpeggiated if its instrument says so, swung, and humanized
     /// (seeded: the same song plays the same). Step is from the song's start, in sixteenths (fractional).
     /// </summary>
-    internal static List<(double Step, double Length, int Pitch, double Velocity)> Played(SongRecipe song, SongTrack track, int trackIndex, int bar)
+    internal static List<PlayedNote> Played(SongRecipe song, SongTrack track, int trackIndex, int bar)
     {
-        var result = new List<(double, double, int, double)>();
+        var result = new List<PlayedNote>();
         var number = bar < track.Sequence.Count ? track.Sequence[bar] : 0;
         if (number <= 0 || number > track.Patterns.Count) return result;
         var notes = track.Patterns[number - 1].Notes;
         var ins = track.Instrument;
         var rng = new SoundRng((ulong)(uint)song.Seed * 0xD1B54A32D192ED69UL ^ (ulong)(trackIndex * 15485863 + bar * 32452843 + 7));
-        var raw = new List<(int Step, double Length, int Pitch, double Velocity)>();
+        var raw = new List<(int Step, double Length, int Pitch, double Velocity, double Pan, List<(double At, int To)>? Slides)>();
         if (ins.Arp != "off" && track.Kind != "drums")
         {
             foreach (var group in notes.GroupBy(n => n.Step))
@@ -521,13 +536,15 @@ public static class SequencerEngine
                 for (int s = 0, k = 0; s < length; s += ins.ArpRate, k++)
                 {
                     var len = Math.Min(ins.ArpRate, length - s);
-                    if (ins.Arp == "chord") foreach (var p in pitches) raw.Add((group.Key + s, len, p, velocity));
-                    else raw.Add((group.Key + s, len, ins.Arp == "random" ? order[(int)(rng.NextDouble() * order.Count) % order.Count] : order[k % order.Count], velocity));
+                    var pan = group.Average(n => n.Pan);
+                    if (ins.Arp == "chord") foreach (var p in pitches) raw.Add((group.Key + s, len, p, velocity, pan, null));
+                    else raw.Add((group.Key + s, len, ins.Arp == "random" ? order[(int)(rng.NextDouble() * order.Count) % order.Count] : order[k % order.Count], velocity, pan, null));
                 }
             }
         }
-        else raw.AddRange(notes.Select(n => (n.Step, (double)n.Length, n.Pitch, n.Velocity)));
-        foreach (var (step, length, pitch, velocity) in raw.OrderBy(n => n.Step).ThenBy(n => n.Pitch))
+        else if (track.Kind != "drums" && notes.Any(n => n.Slide)) raw.AddRange(Slid(notes));
+        else raw.AddRange(notes.Select(n => (n.Step, (double)n.Length, n.Pitch, n.Velocity, n.Pan, (List<(double, int)>?)null)));
+        foreach (var (step, length, pitch, velocity, pan, slides) in raw.OrderBy(n => n.Step).ThenBy(n => n.Pitch))
         {
             var at = bar * song.StepsPerBar + step + (step % 2 == 1 ? song.Swing : 0);
             var v = velocity;
@@ -537,9 +554,72 @@ public static class SequencerEngine
                 at += rng.Bipolar() * 0.02 * track.Humanize / song.StepSeconds;
                 v = Math.Clamp(v * (1 + rng.Bipolar() * 0.25 * track.Humanize), 0.05, 1);
             }
-            result.Add((Math.Max(0, at), length, pitch, v));
+            result.Add(new PlayedNote(Math.Max(0, at), length, pitch, v, pan, slides));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Notes that slide: a sliding note and the one after it (the next to start; of a chord, the nearest pitch) become
+    /// one held note that glides to the next pitch when that note starts, without a new attack. Chains carry on.
+    /// </summary>
+    private static List<(int Step, double Length, int Pitch, double Velocity, double Pan, List<(double At, int To)>? Slides)> Slid(List<SongNote> notes)
+    {
+        var list = notes.OrderBy(n => n.Step).ThenBy(n => n.Pitch).ToList();
+        var used = new HashSet<SongNote>();
+        var raw = new List<(int, double, int, double, double, List<(double, int)>?)>();
+        foreach (var first in list)
+        {
+            if (!used.Add(first)) continue;
+            var cur = first;
+            var end = (double)(first.Step + first.Length);
+            List<(double, int)>? slides = null;
+            while (cur.Slide)
+            {
+                var c = cur;
+                var later = list.Where(n => n.Step > c.Step && !used.Contains(n)).ToList();
+                if (later.Count == 0) break;
+                var at = later.Min(n => n.Step);
+                var next = later.Where(n => n.Step == at).OrderBy(n => Math.Abs(n.Pitch - c.Pitch)).First();
+                used.Add(next);
+                (slides ??= []).Add((next.Step - first.Step, next.Pitch - first.Pitch));
+                end = Math.Max(end, next.Step + next.Length);
+                cur = next;
+            }
+            raw.Add((first.Step, end - first.Step, first.Pitch, first.Velocity, first.Pan, slides));
+        }
+        return raw;
+    }
+
+    /// <summary>How long a slide takes: quick, as on a 303.</summary>
+    public const double GlideSeconds = 0.07;
+
+    /// <summary>The pitch bend of a sliding note in semitones at a time (seconds from its start), or null.</summary>
+    private static Func<double, double>? Bend(IReadOnlyList<(double At, int To)>? slides, double stepSeconds)
+    {
+        if (slides == null || slides.Count == 0) return null;
+        return t =>
+        {
+            double offset = 0, from = 0;
+            foreach (var (at, to) in slides)
+            {
+                var start = at * stepSeconds;
+                if (t < start) break;
+                var target = to;
+                // Gliding from where the last slide got to.
+                var k = Math.Min(1, (t - start) / GlideSeconds);
+                offset = from + (target - from) * k;
+                from = target;
+            }
+            return offset;
+        };
+    }
+
+    /// <summary>Where a voice goes: both channels, each with its gain (a note's own place).</summary>
+    private readonly record struct Out(double[] L, double[] R, double Gl, double Gr)
+    {
+        public int Length => L.Length;
+        public void Add(int i, double x) { L[i] += x * Gl; R[i] += x * Gr; }
     }
 
     /// <summary>What rings on after the loop's end is added to its start, so the loop repeats seamlessly.</summary>
@@ -575,7 +655,7 @@ public static class SequencerEngine
         return 0;
     }
 
-    private static void Synth(double[] buf, int at, SongNote note, double held, SongInstrument i, int sr, SoundRng rng, double songSeconds = 0, double filterShift = 0)
+    private static void Synth(Out buf, int at, SongNote note, double held, SongInstrument i, int sr, SoundRng rng, double songSeconds = 0, double filterShift = 0, Func<double, double>? bend = null)
     {
         var fmPhase = 0.0;
         var cutoffBase = i.Cutoff * Math.Pow(2, filterShift);
@@ -594,6 +674,7 @@ public static class SequencerEngine
             var env = Envelope(t, held, i);
             if (env <= 0 && t > held) break;
             var vib = i.Vibrato > 0 ? Math.Pow(2, i.Vibrato / 1200 * Math.Sin(2 * Math.PI * i.VibratoRate * t)) : 1;
+            if (bend != null) vib *= Math.Pow(2, bend(t) / 12);
             // The LFO runs with the song (its phase from the song's start), so held and repeated notes move together.
             var lfo = i.Lfo == "off" ? 0 : Math.Sin(2 * Math.PI * i.LfoRate * (songSeconds + t));
             if (i.Lfo == "pitch") vib *= Math.Pow(2, lfo * i.LfoDepth * 2 / 12);
@@ -623,31 +704,32 @@ public static class SequencerEngine
                 phase[v] = (p + dt) % 1;
             }
             if ((n & 15) == 0) filter.Set(cutoffBase * Math.Pow(2, i.FilterEnvelope * env + (i.Lfo == "filter" ? lfo * i.LfoDepth * 3 : 0)), i.Resonance, sr);
-            buf[at + n] += filter.Low(s) * env * amp * tremolo;
+            buf.Add(at + n, filter.Low(s) * env * amp * tremolo);
         }
     }
 
     /// <summary>A note of a sample: played faster or slower for its pitch, looped while held if asked, shaped by the envelope.</summary>
-    private static void SampleVoice(double[] buf, int at, SongNote note, double held, SongInstrument i, SampleAudio s, int sr)
+    private static void SampleVoice(Out buf, int at, SongNote note, double held, SongInstrument i, SampleAudio s, int sr, Func<double, double>? bend = null)
     {
         var rate = Math.Pow(2, (note.Pitch + 12 * i.Octave - i.RootNote) / 12.0) * s.Rate / sr;
         var len = s.Left.Length;
-        var total = i.Loop ? (int)((held + i.Release) * sr) + 1 : (int)Math.Min((held + i.Release) * sr, len / rate) + 1;
+        var total = i.Loop || bend != null ? (int)((held + i.Release) * sr) + 1 : (int)Math.Min((held + i.Release) * sr, len / rate) + 1;
         var amp = note.Velocity * 0.9;
-        for (var n = 0; n < total && at + n < buf.Length; n++)
+        var read = 0.0; // where in the sample (a slide changes the speed as it goes)
+        for (var n = 0; n < total && at + n < buf.Length; n++, read += bend == null ? rate : rate * Math.Pow(2, bend((double)n / sr) / 12))
         {
             if (at + n < 0) continue;
-            var pos = n * rate;
+            var pos = read;
             if (i.Loop) pos %= len; else if (pos >= len - 1) break;
             var k = (int)pos; var f = pos - k;
             var k2 = Math.Min(len - 1, k + 1);
             var v = ((s.Left[k] + s.Right[k]) * (1 - f) + (s.Left[k2] + s.Right[k2]) * f) * 0.5;
-            buf[at + n] += v * Envelope((double)n / sr, held, i) * amp;
+            buf.Add(at + n, v * Envelope((double)n / sr, held, i) * amp);
         }
     }
 
     /// <summary>The synthesised kit: each row a recipe of tone and noise, tuned, stretched and brightened by the track.</summary>
-    private static void Drum(double[] buf, int at, SongNote note, SongInstrument ins, int sr, SoundRng rng)
+    private static void Drum(Out buf, int at, SongNote note, SongInstrument ins, int sr, SoundRng rng)
     {
         var tune = Math.Pow(2, ins.DrumTune / 12);
         var stretch = ins.DrumDecay;
@@ -656,7 +738,7 @@ public static class SequencerEngine
         double hp = 0, hpPrev = 0;
         var bp = new Svf();
         var bpSet = false;
-        void Add(int n, double x) { if (at + n >= 0 && at + n < buf.Length) buf[at + n] += x * v; }
+        void Add(int n, double x) { if (at + n >= 0 && at + n < buf.Length) buf.Add(at + n, x * v); }
         double Noise() => rng.Bipolar();
         double HighPass(double x, double cutoff) { var a = Math.Exp(-2 * Math.PI * cutoff / sr); var y = a * (hp + x - hpPrev); hpPrev = x; hp = y; return y; }
         double BandPass(double x, double cutoff) { if (!bpSet) { bp.Set(cutoff, 1.6, sr); bpSet = true; } bp.Low(x); return bp.Band; }
@@ -781,8 +863,21 @@ public static class SequencerEngine
                     var off = t.Kind == "drums" ? on + stepTicks / 2 : on + Math.Max(1, (long)Math.Round(note.Length * stepTicks));
                     var pitch = t.Kind == "drums" ? GmDrums[note.Pitch] : Math.Clamp(note.Pitch + 12 * t.Instrument.Octave, 0, 127);
                     var vel = (byte)Math.Clamp((int)Math.Round(note.Velocity * 127), 1, 127);
-                    events.Add((on, 1, [(byte)(0x90 | ch), (byte)pitch, vel]));
-                    events.Add((off, 0, [(byte)(0x80 | ch), (byte)pitch, 0]));
+                    // A sliding note: each pitch it glides to as a note of its own (MIDI has no slide of its own here).
+                    var parts = new List<(long On, long Off, int Pitch)>();
+                    var segStart = on; var segPitch = pitch;
+                    foreach (var (at, to) in note.Slides ?? [])
+                    {
+                        var cut = on + (long)Math.Round(at * stepTicks);
+                        if (cut > segStart) parts.Add((segStart, cut, segPitch));
+                        segStart = cut; segPitch = Math.Clamp(pitch + to, 0, 127);
+                    }
+                    parts.Add((segStart, Math.Max(segStart + 1, off), segPitch));
+                    foreach (var (pOn, pOff, pp) in parts)
+                    {
+                        events.Add((pOn, 1, [(byte)(0x90 | ch), (byte)pp, vel]));
+                        events.Add((pOff, 0, [(byte)(0x80 | ch), (byte)pp, 0]));
+                    }
                 }
             }
             var b = new List<byte>();

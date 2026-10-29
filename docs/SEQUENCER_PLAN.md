@@ -68,3 +68,23 @@ keeps whether you want it playing (from ▶ until ■, the song's end, another p
 re-render it carries on from the same spot (also when several edits come quickly, while one render is still loading),
 and the button shows ■ throughout. ■ cancels a re-render still due, so it never starts again by itself. UI test: an
 edit while the loop plays renders again and keeps playing; ■ stops it for good.
+
+## Ideas from LMMS (preview.83)
+
+LMMS (an open-source music maker, GPL) was looked at for ideas only; nothing of its code is used.
+
+- **Ghost notes:** the piano roll can show another track's pattern in the same bar, faded behind its own notes
+  (to write a melody over the bass or the chords). Pick the track above the roll; a different octave setting is
+  allowed for.
+- **The computer keyboard as a piano:** with the roll focused, A S D F G H J K ; play the white keys and W E T Y U O P
+  the black ones (by position, so other keyboard layouts work); Z and X change the octave (A plays C4 at first).
+- **⏺ Record:** while the song plays, a key writes a note where the playhead is (if that bar plays the pattern on
+  screen), as long as it was held; when stopped, notes are written one after another from where you last clicked, as
+  long as new notes, and keys pressed together make a chord.
+- **The chosen note:** a click on a note chooses it (a second click, or a right-click, removes it). Below the roll:
+  **↗ Slide into the next note** — the note and the next one become one held note that glides to the next pitch
+  (70 ms, no new attack), as on a 303 bass line, chains allowed; **Place** left to right (on top of the track's pan);
+  and its velocity. MIDI export writes each pitch of a slide as a note of its own.
+
+Also in preview.83: an edit while playing is rendered into a second player that takes over at the same spot (no stop
+and no jump back), and rendered previews are served in byte ranges so seeking works however much has loaded.

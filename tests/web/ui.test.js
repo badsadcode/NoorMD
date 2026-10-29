@@ -4756,6 +4756,90 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 59b. NoorSequencer, ideas from LMMS: ghost notes, the computer keyboard as a piano (and recording), slides and a place per note.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const M = () => page.evaluate(() => window.__mock.state.seq);
+      await page.evaluate(() => { try { ['noormd.seq.export', 'noormd.seq.loop', 'noormd.seq.lock'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      // A second melodic track, playing in bar 1 too.
+      await page.click('#seq-grid .seq-cell[data-track="0"][data-bar="0"]');
+      await page.selectOption('#seq-addtrack', 'synth');
+      await waitFn(page, () => NoorSequencer._state().song.tracks.length === 3);
+      await page.click('#seqbench [role=tab][data-tab="notes"]');
+      await waitFn(page, () => !!document.querySelector('#seq-startpattern, #seq-roll'));
+      if (await page.$('#seq-startpattern')) await page.click('#seq-startpattern');
+      await page.waitForSelector('#seq-roll');
+      const first = (await SQ()).song.tracks[0];
+      check('ghost notes: the other tracks playing in this bar are offered', (await page.$$eval('#seq-ghost option', (o) => o.map((x) => x.textContent))).some((t) => t.includes(first.name)));
+      await page.selectOption('#seq-ghost', '0');
+      check('…and the chosen one shows behind the roll', (await SQ()).ghost === 0);
+      // The computer keyboard plays the track's instrument once the roll has the focus.
+      await page.focus('#seq-roll');
+      const heard = (await M()).notes.length;
+      await page.keyboard.press('a');
+      await waitFn(page, (n) => window.__mock.state.seq.notes.length > n, heard);
+      check('A plays middle C (the C of octave 4) with the track\'s sound', (await M()).notes.at(-1).pitch === 60 && (await M()).notes.at(-1).track === 2);
+      await page.keyboard.press('x');
+      await page.keyboard.press('w');
+      await waitFn(page, (n) => window.__mock.state.seq.notes.length > n + 1, heard);
+      check('X goes an octave up; W is the black key (C♯)', (await M()).notes.at(-1).pitch === 73 && (await page.textContent('#seq-octave')) === 'C5');
+      check('…and playing without Record writes nothing', (await SQ()).song.tracks[2].patterns.at(-1).notes.length === 0);
+      // Record, stopped: one note after another from the start (as long as new notes), keys together make a chord.
+      await page.click('#seq-record');
+      check('Record is on', (await SQ()).recording && (await page.getAttribute('#seq-record', 'aria-pressed')) === 'true');
+      await page.keyboard.press('a');
+      await page.keyboard.press('d');
+      await page.keyboard.down('a'); await page.keyboard.down('g'); await page.keyboard.up('a'); await page.keyboard.up('g');
+      const rec = (await SQ()).song.tracks[2].patterns.at(-1).notes.map((n) => `${n.step}:${n.pitch}`).sort();
+      check('step recording: notes one after another, keys pressed together on the same step', rec.join() === ['0:72', '2:76', '4:72', '4:79'].sort().join(), rec);
+      // The chosen note (the last written): slide and place.
+      check('the last note written is chosen, with its own settings below the roll', !!(await SQ()).selectedNote && await page.isVisible('#seq-note-slide'));
+      const pat = () => page.evaluate(() => NoorSequencer._state().song.tracks[2].patterns.at(-1).notes);
+      // Choose the first note (step 0) by its keys: click on it.
+      const R = (await SQ()).roll;
+      const where = () => page.evaluate(({ keyW, stepW, rowH }) => {
+        const c = document.querySelector('#seq-roll'); const b = c.getBoundingClientRect();
+        const steps = [0, 2, 4, 5, 7, 9, 11]; const rows = []; for (let x = 96; x >= 24; x--) if (steps.includes(x % 12)) rows.push(x);
+        const row = rows.indexOf(72); document.querySelector('#seq-rollwrap').scrollTop = Math.max(0, row * rowH - 100);
+        c.scrollIntoView({ block: 'nearest' });
+        const b2 = c.getBoundingClientRect();
+        return { x: b2.left + keyW + stepW / 2, y: b2.top + row * rowH + rowH / 2 };
+      }, R);
+      let pos = await where();
+      await page.mouse.click(pos.x, pos.y);
+      check('a click on a note chooses it (it isn\'t removed)', (await SQ()).selectedNote && (await SQ()).selectedNote.step === 0 && (await pat()).length === 4);
+      await page.check('#seq-note-slide');
+      check('↗ Slide: the note glides into the next one', (await pat()).find((n) => n.step === 0).slide === true);
+      await page.$eval('#seq-note-pan', (i) => { i.value = '-60'; i.dispatchEvent(new Event('input')); i.dispatchEvent(new Event('change')); });
+      check('Place: the note sits to the left', (await pat()).find((n) => n.step === 0).pan === -0.6 && /60% left/.test(await page.textContent('#seq-note-pantext')));
+      pos = await where();
+      await page.mouse.click(pos.x, pos.y);
+      check('a second click on the chosen note removes it', (await pat()).length === 3);
+      // Recording while the song plays: the note goes where the playhead is.
+      await page.evaluate(() => { window.__mock.state.seq.longAudio = true; });
+      if ((await SQ()).loopMode) await page.click('#seq-loop');
+      await page.focus('#seq-roll');
+      await page.keyboard.press('Space');
+      await waitFn(page, () => NoorSequencer._state().playing && NoorSequencer._state().time > 0.4, null, { timeout: 8000 });
+      const bar0 = (await SQ()).render.barSeconds;
+      await page.focus('#seq-roll');
+      const t0 = (await SQ()).time;
+      await page.keyboard.down('j');
+      await page.waitForTimeout(400);
+      await page.keyboard.up('j');
+      const live = (await pat()).find((n) => n.pitch === 83);
+      const expect = Math.round((t0 / bar0) * 16);
+      check('recording while playing writes the note at the playhead, as long as it was held', !!live && Math.abs(live.step - expect) <= 2 && live.length >= 1, { live, expect });
+      await page.keyboard.press('Space');
+      await page.evaluate(() => { window.__mock.state.seq.longAudio = false; });
+      if (shots) await page.screenshot({ path: `${shots}/59b-sequencer-keys.png` });
+      check('no page errors with the LMMS ideas', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 60. NoorSequencer help (stage 2): chords of the key, progressions, rhythms, variations, presets, arpeggiator, LFO, FM, humanize, automation.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
