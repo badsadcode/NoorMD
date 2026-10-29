@@ -30,6 +30,13 @@ public static class ForgeSmart
             Plain("Grime", "#2b2418", 0.95, 0, new ForgeMask { Kind = "height", Amount = 0.25, Noise = 0.5, NoiseScale = 0.2 }),
             Plain("Dirt in corners", "#1e1a14", 1, 0, new ForgeMask { Kind = "cavity", Amount = 0.35, Noise = 0.3 }),
         ]),
+        new("chipped-paint", "Chipped paint, rust drips", "Painted steel chipped at its edges, dark rims round the chips, rust running down from them.", () =>
+        [
+            new ForgeLayer { Id = "paint", Name = "Paint", Color = "#8a2e2e", Roughness = 0.45, UseNormal = false },
+            new ForgeLayer { Id = "chips", Name = "Chips (bare metal)", Material = "metal-brushed", Scale = 0.5, Mask = new ForgeMask { Kind = "chips", Amount = 0.3, Noise = 0.7, NoiseScale = 0.05 } },
+            new ForgeLayer { Id = "rim", Name = "Dark rims", Color = "#181414", Roughness = 0.7, UseNormal = false, Opacity = 0.6, Mask = new ForgeMask { Kind = "layer", Layer = "chips", Ring = true, Spread = 0.02, Amount = 0.6, Noise = 0 } },
+            new ForgeLayer { Id = "rust", Name = "Rust drips", Material = "metal-rusty", Scale = 0.4, Mask = new ForgeMask { Kind = "drips", Layer = "chips", Length = 0.3, Amount = 0.5, Noise = 0.8, NoiseScale = 0.02, Softness = 0.2 } },
+        ]),
         new("rusty-iron", "Rusty iron", "Dark iron rusting from its corners and underside.", () =>
         [
             Mat("Iron", "metal-brushed", 0.5, "#707070"),

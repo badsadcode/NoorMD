@@ -90,7 +90,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorSequencer (compose music) · in it: play / stop · play the loop · undo / redo · on a song-grid cell: pattern number · next / previous pattern · rest · new pattern · move · on the piano roll: play notes (white / black keys) · octave down / up | Ctrl+Alt+Q · Space · L · Ctrl+Z / Ctrl+Y · 0–9 · + / − (or the wheel) · Delete · N · arrow keys · A S D F G H J K ; / W E T Y U O P · Z / X |
 | Asset Bench (trees for games) · in it: variation · wireframe · play the wind · undo / redo · turn · zoom · move | Ctrl+Alt+M · V · W · Space · Ctrl+Z / Ctrl+Y · drag · wheel or + / − · right-drag or Shift+drag |
 | NoorForge (texture a model) · in it: undo / redo · turn · zoom · move | Ctrl+Alt+F · Ctrl+Z / Ctrl+Y · drag · wheel · right-drag |
-| NoorForge painting: brush on/off · eraser · brush size · turn while painting · straight line · put the brush down | B · E · [ / ] · Alt+drag · Shift+click · Escape |
+| NoorForge painting: brush on/off · eraser · stamp a decal · brush size · turn while painting · straight line · put the brush down | B · E · T · [ / ] · Alt+drag · Shift+click · Escape |
 | NoorForge stencil: move · size · turn | hold S and drag · hold S and wheel · hold S and Shift+wheel |
 | Calendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |
 | Gallery (your pictures) | Ctrl+Alt+G |

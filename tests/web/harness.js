@@ -559,10 +559,10 @@ function mockHostScript(initial) {
       case 'forge.recipe.open': return { cancelled: true };
       case 'forge.picture.pick': {
         FORGE.pictures = (FORGE.pictures || 0) + 1;
-        const stencil = p.purpose === 'stencil', w = stencil ? 16 : 8, h = 8;
+        const stencil = p.purpose === 'stencil' || p.purpose === 'decal', w = stencil ? 16 : 8, h = 8;
         // A stencil white on its left half; a tip all white.
         const data = btoa(String.fromCharCode(...Array.from({ length: w * h }, (_, i) => (!stencil || i % w < w / 2 ? 255 : 0))));
-        return { picture: { id: (stencil ? 's' : 't') + 'mock' + FORGE.pictures, name: stencil ? 'Leaves stencil' : 'Leaf photo', width: w, height: h, data } };
+        return { picture: { id: (p.purpose === 'decal' ? 'd' : stencil ? 's' : 't') + 'mock' + FORGE.pictures, name: p.purpose === 'decal' ? 'Logo' : stencil ? 'Leaves stencil' : 'Leaf photo', width: w, height: h, data } };
       }
       case 'forge.texels': FORGE.texels = (FORGE.texels || 0) + 1; return { size: 64, sets: ['/_forge/texels/0.bin'] };
       case 'forge.fromAsset': FORGE.fromAsset = p.key; return { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 400, parts: ['Rock'], size: [1.2, 0.9, 1.1], sets: [{ name: 'Rock', triangles: 400, unwrapped: true }] };

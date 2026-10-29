@@ -123,6 +123,20 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - Particles (rain streaks, drips running down), procedural edge chips.
 - Export presets per engine (Godot, Unity URP/HDRP, Unreal), texture-set atlases, LOD textures.
 
+### Done in preview.91 (stage 3, first part)
+
+- **Another layer's mask:** a layer's mask can follow one below it — as it is, **where it isn't**, **spread** over a
+  distance (grown and softened on the model itself, in 3D, so UV seams don't cut it), or **only a rim** around it.
+  Every layer has an id the masks name it by, so moving layers about keeps what follows what.
+- **Chipped edges:** worn edges broken into chunks (a chip size and how chunky), ragged at their borders.
+- **Drips running down:** from worn top edges, or from another layer's mask, over a length, fading as they go, in
+  streaks (a width and how streaky), on the sides of the model.
+- **🏷 Decals** (T, in the painting tools): a picture (its proportions kept, up to 1024 across) or **text** (a font,
+  drawn into a picture), placed where you click — flat on the surface, or as you look at it — at a size and an angle.
+  A decal is kept as one stroke with its picture as the tip, so it repaints at any size like the rest.
+- A new smart material: **Chipped paint, rust drips** (paint, bare-metal chips, dark rims round them, rust running
+  down from them).
+
 ## Non-goals
 
 - A modeller or sculpting tool (Blender is for that), or animated textures.

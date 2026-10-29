@@ -7,7 +7,11 @@ window.NoorForge = (() => {
   const req = (type, payload) => NoorBridge.request(type, payload);
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
-  const MASKS = { all: 'Everywhere', none: 'Nowhere (only where painted)', edges: 'Worn edges', cavity: 'Cracks and corners (dirt)', top: 'On top (dust, moss, snow)', bottom: 'Underneath (grime)', height: 'Low down (a gradient up the model)', part: 'One part', material: 'One material' };
+  const MASKS = { all: 'Everywhere', none: 'Nowhere (only where painted)', edges: 'Worn edges', chips: 'Chipped edges', cavity: 'Cracks and corners (dirt)', top: 'On top (dust, moss, snow)', bottom: 'Underneath (grime)',
+    height: 'Low down (a gradient up the model)', drips: 'Drips running down', layer: 'Another layer\'s mask', part: 'One part', material: 'One material' };
+  const newId = () => 'L' + Math.random().toString(36).slice(2, 9);
+  /** Every layer has an id (the masks that follow a layer name it by its id). */
+  const ensureIds = () => { const seen = new Set(); for (const l of recipe.layers) { if (!l.id || seen.has(l.id)) l.id = newId(); seen.add(l.id); } };
   const MAPS = [['basecolor', 'Colour'], ['normal', 'Normal'], ['orm', 'AO · rough · metal'], ['height', 'Height'], ['ao', 'Baked AO'], ['curvature', 'Curvature'], ['mask', 'Mask (this layer)']];
   // What the 3D view shows: lit, or one channel on the model as it is (no light).
   const VIEWS = [['shaded', 'Textured'], ['clay', 'Clay (the shape)'], ['basecolor', 'Colour only'], ['normal', 'Normal'], ['roughness', 'Roughness'], ['metallic', 'Metal'], ['height', 'Height'],
@@ -73,6 +77,7 @@ window.NoorForge = (() => {
   function setRecipe(r, fresh) {
     if (!fresh && recipe) pushHistory();
     recipe = r;
+    ensureIds();
     if (fresh) { history.length = 0; future = []; selected = recipe.layers.length - 1; } // the top layer, as in a painting program
     selected = Math.max(0, Math.min(recipe.layers.length - 1, selected));
     lastSnapshot = JSON.stringify(recipe);
@@ -210,6 +215,7 @@ window.NoorForge = (() => {
         if (k === 's' && tool && stencil) { e.preventDefault(); stencilKey = true; $('#forgebench').classList.add('fg-stencil-move'); return; }
         if (k === 'b') { e.preventDefault(); setTool(tool === 'brush' && !erasing ? null : 'brush', false); return; }
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
+        if (k === 't' && tool) { e.preventDefault(); setTool('stamp'); return; }
         if ((k === '[' || k === ']') && tool) { e.preventDefault(); setBrush('size', Math.max(0.2, Math.min(25, +(brush.size * (k === ']' ? 1.2 : 1 / 1.2)).toFixed(2)))); return; }
       }
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
@@ -242,7 +248,7 @@ window.NoorForge = (() => {
   }
 
   function smartButton(s) {
-    return el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description ? s.description + ' ' : ''}(replaces the layers; Ctrl+Z brings them back)`, onclick: () => { recipe.layers = clone(s.layers); selected = recipe.layers.length - 1; changed('all'); } }, s.name);
+    return el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description ? s.description + ' ' : ''}(replaces the layers; Ctrl+Z brings them back)`, onclick: () => { recipe.layers = clone(s.layers); ensureIds(); selected = recipe.layers.length - 1; changed('all'); } }, s.name);
   }
 
   async function saveSmart() {
@@ -312,7 +318,7 @@ window.NoorForge = (() => {
 
   function layersPane() {
     const add = (material, painted) => {
-      const l = { name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
+      const l = { id: newId(), name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
         height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
       recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
     };
@@ -353,6 +359,22 @@ window.NoorForge = (() => {
     kind.addEventListener('change', () => { m.kind = kind.value; changed('all'); });
     const invert = el('input', { type: 'checkbox', id: 'fg-maskinvert', checked: m.invert || undefined });
     invert.addEventListener('change', () => { m.invert = invert.checked; changed(); });
+    // A layer below to follow ("layer"), or for drips to run down from.
+    const below = recipe.layers.slice(0, selected);
+    const follow = m.kind === 'layer' || m.kind === 'drips'
+      ? (() => {
+        const s = el('select', { id: 'fg-masklayer', 'aria-label': m.kind === 'layer' ? 'Which layer' : 'Drips from' },
+          ...(m.kind === 'drips' ? [el('option', { value: '', text: 'worn top edges' })] : below.length ? [] : [el('option', { value: '', text: '— no layer below —' })]),
+          ...below.map((b) => el('option', { value: b.id, text: b.name })));
+        if (m.kind === 'layer' && !below.some((b) => b.id === m.layer) && below.length) m.layer = below[below.length - 1].id;
+        s.value = m.layer || '';
+        s.addEventListener('change', () => { m.layer = s.value; changed(); });
+        return el('label', { class: 'sb-inline' }, el('span', { text: m.kind === 'layer' ? 'Layer' : 'From' }), s);
+      })() : null;
+    const ring = m.kind === 'layer' ? (() => { const c = el('input', { type: 'checkbox', id: 'fg-maskring', checked: m.ring || undefined }); c.addEventListener('change', () => { m.ring = c.checked; changed(); }); return el('label', { class: 'sb-inline', title: 'Only the spread around that mask (a rim), not the mask itself' }, c, el('span', { text: 'only a rim around it' })); })() : null;
+    if (m.spread === undefined) m.spread = 0;
+    if (m.length === undefined) m.length = 0.3;
+    if (m.layer === undefined) m.layer = '';
     const which = m.kind === 'part' || m.kind === 'material'
       ? (() => {
         const names = model ? (m.kind === 'part' ? model.parts : model.sets.map((s) => s.name)) : [];
@@ -371,8 +393,12 @@ window.NoorForge = (() => {
       (l.strokes || []).length ? el('div', { class: 'sb-row', id: 'fg-strokes' },
         el('span', { class: 'pref-hint', text: `Painted: ${l.strokes.length} stroke${l.strokes.length === 1 ? '' : 's'} (${l.strokes.filter((st) => st.erase).length} erasing)` }),
         el('button', { class: 'utility-btn', id: 'fg-clearpaint', title: 'Remove this layer\'s painting (Ctrl+Z brings it back)', onclick: () => { l.strokes = []; paintVersion++; changed('all'); } }, '✕ Clear the painting')) : null,
-      el('div', { class: 'sb-row' }, kind, which, el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Everywhere else instead' }))),
-      shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01), slider(m, 'noise', 'Break up with noise', 0, 1, 0.01), slider(m, 'noiseScale', 'Noise size (m)', 0.01, 5, 0.01)) : null].filter(Boolean));
+      el('div', { class: 'sb-row' }, kind, which, follow, el('label', { class: 'sb-inline' }, invert, el('span', { text: m.kind === 'layer' ? 'Where that layer isn\'t' : 'Everywhere else instead' })), ring),
+      shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01),
+        ...(m.kind === 'layer' ? [slider(m, 'spread', 'Spread (m)', 0, 0.5, 0.005)] : []),
+        ...(m.kind === 'drips' ? [slider(m, 'length', 'Length (m)', 0.01, 3, 0.01)] : []),
+        slider(m, 'noise', m.kind === 'chips' ? 'Chunkiness' : m.kind === 'drips' ? 'Streaks' : 'Break up with noise', 0, 1, 0.01),
+        slider(m, 'noiseScale', m.kind === 'chips' ? 'Chip size (m)' : m.kind === 'drips' ? 'Streak width (m)' : 'Noise size (m)', 0.005, 5, 0.005)) : null].filter(Boolean));
     keepFocus();
   }
 
@@ -538,13 +564,23 @@ window.NoorForge = (() => {
       r.addEventListener('input', () => { brush[key] = Number(r.value); try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } r.nextSibling.textContent = fmt(key); });
       return el('label', { class: 'fg-bnum', title }, el('span', { text: label }), r, el('small', { text: fmt(key) }));
     };
-    const fmt = (key) => (key === 'size' ? `${brush.size}%` : `${Math.round(brush[key] * 100)}%`);
+    const fmt = (key) => (key === 'size' ? `${brush.size}%` : key === 'angle' ? `${brush.angle}°` : `${Math.round(brush[key] * 100)}%`);
     const check = (key, label, title) => { const c = el('input', { type: 'checkbox', checked: brush[key] || undefined, 'data-brush': key }); c.addEventListener('change', () => setBrush(key, c.checked)); return el('label', { class: 'sb-inline', title }, c, el('span', { text: label })); };
+    const tools = [
+      toolBtn('fg-tool-brush', '🖌', 'Brush (B): paint the layer in', tool === 'brush' && !erasing, () => setTool('brush', false)),
+      toolBtn('fg-tool-erase', '🧽', 'Eraser (E): take the layer away (its smart mask too)', tool === 'brush' && erasing, () => setTool('brush', true)),
+      toolBtn('fg-tool-fill', '🪣', 'Fill a part: click it', tool === 'fill', () => setTool('fill')),
+      toolBtn('fg-tool-stamp', '🏷', 'Stamp a decal (T): a picture or text, placed where you click', tool === 'stamp', () => setTool('stamp'))];
+    if (tool === 'stamp') {
+      bar.replaceChildren(el('div', { class: 'sb-row' }, ...tools, ...stampControls()), el('div', { class: 'sb-row' },
+        el('span', { class: 'pref-hint fg-into', text: layer ? `Click the model to place it in “${layer.name}” · Alt+drag turns the model` : 'Choose a layer' }),
+        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null));
+      drawStamp(); showStencil(); keepFocus();
+      return;
+    }
     bar.replaceChildren(
       el('div', { class: 'sb-row' },
-        toolBtn('fg-tool-brush', '🖌', 'Brush (B): paint the layer in', tool === 'brush' && !erasing, () => setTool('brush', false)),
-        toolBtn('fg-tool-erase', '🧽', 'Eraser (E): take the layer away (its smart mask too)', tool === 'brush' && erasing, () => setTool('brush', true)),
-        toolBtn('fg-tool-fill', '🪣', 'Fill a part: click it', tool === 'fill', () => setTool('fill')),
+        ...tools,
         num('size', 'Size', 0.2, 25, 0.1, 'The brush\'s size, a share of the model ([ and ])'),
         num('hardness', 'Hardness', 0, 1, 0.01, 'How much of the brush paints fully before it fades'),
         num('flow', 'Flow', 0.02, 1, 0.01, 'How much each dab adds (going over builds it up)'),
@@ -558,6 +594,111 @@ window.NoorForge = (() => {
     drawTip();
     showStencil();
     keepFocus();
+  }
+
+  // ---- the stamp: a decal (a picture of the recipe, or text made into one) placed where you click
+  const STAMP_DEFAULTS = { picture: '', size: 12, angle: 0, facing: 'surface', font: 'sans', bold: true };
+  let stamp = (() => { try { return { ...STAMP_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.forge.stamp') || '{}') }; } catch { return { ...STAMP_DEFAULTS }; } })();
+  const setStamp = (key, value) => { stamp[key] = value; try { localStorage.setItem('noormd.forge.stamp', JSON.stringify(stamp)); } catch { /* not kept */ } renderBrushBar(); };
+  const FONTS = { sans: 'Segoe UI, Arial, sans-serif', serif: 'Georgia, Times New Roman, serif', mono: 'Consolas, Courier New, monospace', hand: 'Segoe Print, Comic Sans MS, cursive', stencil: 'Impact, Arial Black, sans-serif' };
+
+  function stampControls() {
+    const decals = pictures().filter((p) => p.id[0] === 'd');
+    if (stamp.picture && !decals.some((p) => p.id === stamp.picture)) stamp.picture = '';
+    if (!stamp.picture && decals.length) stamp.picture = decals[decals.length - 1].id;
+    const sel = el('select', { id: 'fg-stamp-pick', 'aria-label': 'Decal' }, ...(decals.length ? [] : [el('option', { value: '', text: '— none yet —' })]),
+      ...decals.map((p) => el('option', { value: p.id, text: p.name })), el('option', { value: '+', text: 'A picture…' }), el('option', { value: 'T', text: 'Text…' }));
+    sel.value = stamp.picture;
+    sel.addEventListener('change', async () => {
+      if (sel.value === '+') { const p = await pickPicture('decal'); setStamp('picture', p ? p.id : stamp.picture); return; }
+      if (sel.value === 'T') { const p = await textDecal(); setStamp('picture', p ? p.id : stamp.picture); return; }
+      setStamp('picture', sel.value);
+    });
+    const range = (key, label, min, max, step, unit, title) => {
+      const r = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(stamp[key]), 'aria-label': label, 'data-stamp': key });
+      r.addEventListener('input', () => { stamp[key] = Number(r.value); r.nextSibling.textContent = `${stamp[key]}${unit}`; try { localStorage.setItem('noormd.forge.stamp', JSON.stringify(stamp)); } catch { /* not kept */ } });
+      return el('label', { class: 'fg-bnum', title }, el('span', { text: label }), r, el('small', { text: `${stamp[key]}${unit}` }));
+    };
+    const facing = el('select', { id: 'fg-stamp-facing', 'aria-label': 'Facing' }, el('option', { value: 'surface', text: 'flat on the surface' }), el('option', { value: 'view', text: 'as you look at it' }));
+    facing.value = stamp.facing;
+    facing.addEventListener('change', () => setStamp('facing', facing.value));
+    const font = el('select', { id: 'fg-stamp-font', 'aria-label': 'Font for text' }, ...Object.keys(FONTS).map((f) => el('option', { value: f, text: { sans: 'Sans', serif: 'Serif', mono: 'Mono', hand: 'Handwriting', stencil: 'Bold block' }[f] })));
+    font.value = stamp.font;
+    font.addEventListener('change', () => setStamp('font', font.value));
+    return [
+      el('label', { class: 'sb-inline', title: 'What to stamp: a picture (its shape where transparent, else its brightness) or text' }, el('span', { text: 'Decal' }), sel),
+      el('canvas', { id: 'fg-stampview', class: 'fg-tipview fg-stampview', width: '80', height: '40', 'aria-hidden': 'true' }),
+      stamp.picture ? el('button', { class: 'icon-btn', title: 'Remove this decal from the recipe', 'aria-label': 'Remove the decal picture', onclick: () => removePicture(stamp.picture) }, '✕') : null,
+      range('size', 'Size', 0.5, 100, 0.5, '%', 'Its height, a share of the model'),
+      range('angle', 'Angle', 0, 359, 1, '°', 'Its turn, clockwise'),
+      el('label', { class: 'sb-inline', title: 'Flat on the surface where you click, or projected as you look at it' }, el('span', { text: 'Lies' }), facing),
+      el('label', { class: 'sb-inline', title: 'The font for “Text…”' }, el('span', { text: 'Font' }), font)];
+  }
+
+  function drawStamp() {
+    const c = $('#fg-stampview');
+    if (!c) return;
+    const ctx = c.getContext('2d'), pic = gray(stamp.picture), img = ctx.createImageData(80, 40);
+    if (pic) {
+      const k = Math.min(80 / pic.w, 40 / pic.h), w = pic.w * k, h = pic.h * k;
+      for (let y = 0; y < 40; y++) for (let x = 0; x < 80; x++) {
+        const u = (x + 0.5 - (80 - w) / 2) / w, v = (y + 0.5 - (40 - h) / 2) / h, o = (y * 80 + x) * 4;
+        img.data[o] = img.data[o + 1] = img.data[o + 2] = 235; img.data[o + 3] = Math.round(sample(pic, u, v) * 255);
+      }
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+
+  /** Text as a decal: drawn here (white on nothing), kept in the recipe as a picture like any other. */
+  async function textDecal() {
+    const text = await NoorUI.prompt('Text decal', 'The text to place on the model:', '', { okLabel: 'Make it' });
+    if (!text || !text.trim()) return null;
+    if (pictures().length >= 24) { notice('A recipe keeps at most 24 pictures: remove one first', 2400); return null; }
+    const pic = textPicture(text.trim(), FONTS[stamp.font] || FONTS.sans, stamp.bold);
+    clearTimeout(snapTimer); pushHistory();
+    pictures().push(pic);
+    pushHistory();
+    return pic;
+  }
+
+  /** Text drawn into a greyscale picture (one line per line of text, centred), at most 1024 across. */
+  function textPicture(text, family, bold) {
+    const lines = text.split(/\r?\n/).slice(0, 6), size = 160, pad = 16;
+    const c = document.createElement('canvas'), ctx = c.getContext('2d');
+    ctx.font = `${bold ? 'bold ' : ''}${size}px ${family}`;
+    const width = Math.max(...lines.map((l) => ctx.measureText(l).width), 1);
+    const scale = Math.min(1, (1024 - pad * 2) / width, (1024 - pad * 2) / (lines.length * size * 1.15));
+    c.width = Math.max(1, Math.ceil(width * scale + pad * 2)); c.height = Math.max(1, Math.ceil(lines.length * size * 1.15 * scale + pad * 2));
+    ctx.font = `${bold ? 'bold ' : ''}${size * scale}px ${family}`;
+    ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    lines.forEach((l, i) => ctx.fillText(l, c.width / 2, pad + (i + 0.5) * size * 1.15 * scale));
+    const data = ctx.getImageData(0, 0, c.width, c.height).data, g = new Uint8Array(c.width * c.height);
+    for (let i = 0; i < g.length; i++) g[i] = data[i * 4 + 3];
+    let bin = '';
+    for (let i = 0; i < g.length; i += 8192) bin += String.fromCharCode(...g.subarray(i, i + 8192));
+    return { id: 'd' + Math.random().toString(36).slice(2, 12), name: `“${text.slice(0, 30)}”`, width: c.width, height: c.height, data: btoa(bin) };
+  }
+
+  /** The surface's way out around a point (the texels near it, averaged), steadier than one triangle's. */
+  function surfaceNormal(point, r) {
+    let n = [0, 0, 0];
+    near(point, r, (s, t) => {
+      const f = texels.sets[s], b = t * 7;
+      if (Math.hypot(f[b] - point[0], f[b + 1] - point[1], f[b + 2] - point[2]) <= r) { n[0] += f[b + 3]; n[1] += f[b + 4]; n[2] += f[b + 5]; }
+    });
+    const l = Math.hypot(...n);
+    return l > 1e-6 ? n.map((v) => v / l) : null;
+  }
+
+  /** 🏷: the decal placed at the click (one dab with its picture as the tip), facing out of the surface or as seen. */
+  function placeStamp(hit) {
+    const pic = gray(stamp.picture);
+    if (!pic) { notice('Choose a picture or text for the decal first', 1800); return; }
+    const r = (stamp.size / 100) * modelSize() / 2;
+    const n = stamp.facing === 'view' ? null : surfaceNormal(hit.point, r * 0.5) || hit.normal;
+    const view = n ? n.map((v) => -v) : hit.dir;
+    commitStrokes([{ erase: false, radius: +r.toFixed(5), hardness: 1, flow: 1, view: view.map((v) => +v.toFixed(5)), dabs: [...hit.point.map((v) => +v.toFixed(5)), 1, 1], part: -1,
+      tip: stamp.picture, angle: stamp.angle, jitter: 0, seed: 0, stencil: null }]);
   }
 
   function tipRow(num) {
@@ -680,12 +821,13 @@ window.NoorForge = (() => {
     const r = st.radius * Math.max(0.02, size), f0 = st.flow * flow, v = st.view, hard = st.hardness;
     if (f0 <= 0) return;
     const tip = gray(st.tip), axes = tip ? screenAxes(v) : null;
+    const aspect = tip ? tip.w / tip.h : 1, reach = tip ? 1.415 * Math.max(1, aspect) : 1;
     const angle = (st.angle + st.jitter * 360 * (hash(index, st.seed) - 0.5)) * Math.PI / 180, ca = Math.cos(angle), sa = Math.sin(angle);
-    near([x, y, z], r * 1.415, (s, t) => {
+    near([x, y, z], r * reach, (s, t) => {
       const f = texels.sets[s], b = t * 7;
       const ox = f[b] - x, oy = f[b + 1] - y, oz = f[b + 2] - z;
       const d = Math.hypot(ox, oy, oz) / r;
-      if (d >= 1.415) return;
+      if (d >= reach) return;
       const facing = smooth(-0.05, 0.25, -(f[b + 3] * v[0] + f[b + 4] * v[1] + f[b + 5] * v[2]));
       if (facing <= 0) return;
       let fall;
@@ -694,8 +836,8 @@ window.NoorForge = (() => {
         if (Math.abs(ox * v[0] + oy * v[1] + oz * v[2]) > r) return;
         const a = (ox * axes.right[0] + oy * axes.right[1] + oz * axes.right[2]) / r, bb = (ox * axes.up[0] + oy * axes.up[1] + oz * axes.up[2]) / r;
         const tu = ca * a - sa * bb, tv = sa * a + ca * bb; // turned clockwise by the angle
-        if (Math.abs(tu) > 1 || Math.abs(tv) > 1) return;
-        fall = sample(tip, (tu + 1) / 2, (1 - tv) / 2);
+        if (Math.abs(tu) > aspect || Math.abs(tv) > 1) return;
+        fall = sample(tip, (tu / aspect + 1) / 2, (1 - tv) / 2);
       }
       if (st.stencil) fall *= stencilAt(st, f[b], f[b + 1], f[b + 2]);
       if (fall <= 0) return;
@@ -795,6 +937,7 @@ window.NoorForge = (() => {
     hover(e) {
       if (!e || !tool) { viewer.setBrush(null); return; }
       const hit = viewer.pick(e.clientX, e.clientY);
+      if (tool === 'stamp') { viewer.setBrush(hit ? hit.point : null, (stamp.size / 100) * modelSize() / 2, 1); return; }
       viewer.setBrush(hit && tool === 'brush' ? hit.point : null, radius(), brush.hardness);
     },
     down(e) {
@@ -804,6 +947,7 @@ window.NoorForge = (() => {
       const hit = viewer.pick(e.clientX, e.clientY);
       if (!hit) return false; // off the model: turns it, as usual
       if (tool === 'fill') { fillPart(hit); return true; }
+      if (tool === 'stamp') { placeStamp(hit); return true; }
       beginStroke(hit);
       if (e.shiftKey && lastLineEnd) {
         // A straight line from the last stroke's end, across the screen, each step finding the surface.
@@ -890,7 +1034,7 @@ window.NoorForge = (() => {
       model = r;
       recipe.model = r.path;
       recipe.name = r.name;
-      if (isRock && lists.smart.some((x) => x.id === 'mossy-stone')) { recipe.layers = smartLayers('mossy-stone'); selected = recipe.layers.length - 1; }
+      if (isRock && lists.smart.some((x) => x.id === 'mossy-stone')) { recipe.layers = smartLayers('mossy-stone'); ensureIds(); selected = recipe.layers.length - 1; }
       render = null;
       changed('all'); renderAll();
       notice(`“${r.name}” is in NoorForge: choose a smart material or build up layers`, 2600);
@@ -922,12 +1066,13 @@ window.NoorForge = (() => {
   return {
     init, open, close, toggle, isOpen, openAsset, _paintAt: (hits, opts) => paintHits(hits, opts),
     /** For tests: the stencil's u, v (as the app works them out) at the surface under a point of the canvas. */
+    _textPicture: (text) => textPicture(text, FONTS.sans, true),
     _stencilUv: (x, y) => {
       const hit = viewer && stencil && viewer.pick(x, y);
       if (!hit) return null;
       const r = stencilRows(), [px, py, pz] = hit.point, w = r[8] * px + r[9] * py + r[10] * pz + r[11];
       return [(r[0] * px + r[1] * py + r[2] * pz + r[3]) / w, (r[4] * px + r[5] * py + r[6] * pz + r[7]) / w];
     },
-    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, tool, erasing, brush: { ...brush }, stencil: stencil ? { ...stencil } : null, stencilKey, texels: texels ? { size: texels.size, sets: texels.sets.length } : null, painting: !!stroke, overlay: !!overlay && overlay.cover.some((c) => c.some((v) => v > 0.05)), render: render ? clone(render) : null, history: history.length }),
+    _state: () => ({ recipe: recipe ? clone(recipe) : null, model, selected, tab, view, viewMode: viewer ? viewer.state().mode : null, tool, erasing, brush: { ...brush }, stencil: stencil ? { ...stencil } : null, stencilKey, stamp: { ...stamp }, texels: texels ? { size: texels.size, sets: texels.sets.length } : null, painting: !!stroke, overlay: !!overlay && overlay.cover.some((c) => c.some((v) => v > 0.05)), render: render ? clone(render) : null, history: history.length }),
   };
 })();

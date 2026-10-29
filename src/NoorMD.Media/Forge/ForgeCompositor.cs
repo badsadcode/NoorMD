@@ -51,8 +51,12 @@ public static class ForgeCompositor
         var color = new Vector3[n]; var rough = new float[n]; var metal = new float[n]; var world = new Vector3[n]; var height = new float[n];
         for (var i = 0; i < n; i++) { color[i] = new Vector3(0.5f); rough[i] = 0.8f; world[i] = bake.Normal[i]; height[i] = 0.5f; }
         var span = bake.BoundsMax - bake.BoundsMin;
+        // Each layer's mask as worked out, for the layers above that follow it.
+        var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
         foreach (var layer in recipe.Layers)
         {
+            var mk = ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id));
+            masks[layer.Id] = mk;
             if (!layer.Visible || layer.Opacity <= 0) continue;
             var maps = layer.Material.Length > 0 ? materials(layer.Material) : null;
             var tint = Hex(layer.Color);
@@ -61,12 +65,10 @@ public static class ForgeCompositor
             var tintScale = tint / Lin(128);
             var mask = layer.Mask;
             var scale = (float)layer.Scale;
-            // Painted strokes: the mask worked out whole first (they add to it and take from it in order).
-            var painted = layer.Strokes.Count > 0 ? ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture) : null;
             Parallel.For(0, n, i =>
             {
                 if (bake.Covered[i] == 0) return;
-                var m = (painted != null ? painted[i] : MaskAt(mask, bake, i, setIndex, span)) * (float)layer.Opacity;
+                var m = mk[i] * (float)layer.Opacity;
                 if (m <= 0) return;
                 var p = bake.Position[i] / scale;
                 var ng = bake.Normal[i];
@@ -104,18 +106,25 @@ public static class ForgeCompositor
     }
 
     /// <summary>Where one layer shows (its mask times its opacity), 0–255 a texel: for looking at it on the model.</summary>
-    public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null)
+    public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null) =>
+        Mask(bake, new ForgeRecipe { Layers = [layer] }, 0, setIndex, pictures);
+
+    /// <summary>A layer of a recipe's mask (with the masks below it, for one that follows another).</summary>
+    public static byte[] Mask(ForgeBake bake, ForgeRecipe recipe, int layerIndex, int setIndex, Func<string, ForgePicture?>? pictures = null)
     {
         var n = bake.Size * bake.Size;
         var px = new byte[n];
-        var v = ForgePaint.LayerMask(bake, layer, setIndex, pictures);
+        var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        float[] v = [];
+        for (var k = 0; k <= layerIndex; k++) masks[recipe.Layers[k].Id] = v = ForgePaint.LayerMask(bake, recipe.Layers[k], setIndex, pictures ?? recipe.Picture, id => masks.GetValueOrDefault(id));
+        var layer = recipe.Layers[layerIndex];
         for (var i = 0; i < n; i++) if (bake.Covered[i] != 0) px[i] = B(v[i] * (float)layer.Opacity);
         Bleed(bake.Covered, bake.Size, px, 1);
         return px;
     }
 
     /// <summary>The mask's value at a texel, 0–1.</summary>
-    internal static float MaskAt(ForgeMask mask, ForgeBake bake, int i, int setIndex, Vector3 span)
+    internal static float MaskAt(ForgeMask mask, ForgeBake bake, int i, int setIndex, Vector3 span, float[]? given = null)
     {
         float x;
         var a = (float)mask.Amount;
@@ -126,18 +135,21 @@ public static class ForgeCompositor
             case "part": x = bake.Part[i] == mask.Index ? 1 : 0; return mask.Invert ? 1 - x : x;
             case "material": x = setIndex == mask.Index ? 1 : 0; return mask.Invert ? 1 - x : x;
             case "edges": x = bake.Curvature[i]; break;                                                  // −1…1, edges high
+            case "chips": x = ForgeMasks.Chips(bake, i, mask); break;                                    // edges, broken into chunks
+            case "layer" or "drips": x = given?[i] ?? 0; break;                                          // worked out for the whole model
             case "cavity": x = MathF.Max(-bake.Curvature[i], Math.Clamp((1 - bake.Ao[i]) * 2.5f, 0, 1)); break; // creases and hidden places
             case "top": x = bake.Normal[i].Y; break;                                                     // −1…1, up high
             case "bottom": x = -bake.Normal[i].Y; break;
             default: x = span.Y > 1e-6f ? 1 - (bake.Position[i].Y - bake.BoundsMin.Y) / span.Y : 0; break; // height: low on the model high
         }
         // Noise moves the border about (in metres, on the surface), so edges and patches look natural.
-        if (mask.Noise > 0) x += (Fbm(bake.Position[i] / (float)mask.NoiseScale) - 0.5f) * 2 * (float)mask.Noise * (mask.Kind is "edges" or "top" or "bottom" ? 0.6f : 0.4f);
+        // (Chips and drips use theirs for the chunks and the streaks.)
+        if (mask.Noise > 0 && mask.Kind is not ("chips" or "drips")) x += (Fbm(bake.Position[i] / (float)mask.NoiseScale) - 0.5f) * 2 * (float)mask.Noise * (mask.Kind is "edges" or "top" or "bottom" ? 0.6f : 0.4f);
         // Amount moves the threshold: more amount, more of the model covered.
-        var threshold = mask.Kind is "edges" or "top" or "bottom" ? 1 - 2 * a : 1 - a;
+        var threshold = mask.Kind is "edges" or "chips" or "top" or "bottom" ? 1 - 2 * a : 1 - a;
         var soft = 0.02f + (float)mask.Softness * 0.5f;
         var v = Smooth(threshold - soft, threshold + soft, x);
-        return mask.Invert ? 1 - v : v;
+        return mask.Invert && mask.Kind != "layer" ? 1 - v : v; // (a followed layer was turned round before)
     }
 
     private static float Smooth(float e0, float e1, float x) { var t = Math.Clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }

@@ -6,7 +6,7 @@ namespace NoorMD.Media.Forge;
 /// <summary>Where a layer shows (a smart mask): from the model's shape, broken up by noise, levelled.</summary>
 public sealed class ForgeMask
 {
-    public static readonly string[] Kinds = ["all", "none", "edges", "cavity", "top", "bottom", "height", "part", "material"];
+    public static readonly string[] Kinds = ["all", "none", "edges", "chips", "cavity", "top", "bottom", "height", "drips", "layer", "part", "material"];
 
     /// <summary>"all", "none" (only where it is painted), "edges" (worn edges), "cavity" (dirt in creases and hidden corners), "top" (dust, moss, snow),
     /// "bottom" (grime), "height" (a gradient up the model), "part" (one part), "material" (one texture set).</summary>
@@ -15,6 +15,7 @@ public sealed class ForgeMask
     public double Amount { get; set; } = 0.5;
     /// <summary>0–1: a hard border to a soft one.</summary>
     public double Softness { get; set; } = 0.3;
+    /// <summary>The other way round ("layer": follows where that layer isn't).</summary>
     public bool Invert { get; set; }
     /// <summary>0–1: noise breaking the border up (patches, not lines).</summary>
     public double Noise { get; set; } = 0.3;
@@ -22,12 +23,22 @@ public sealed class ForgeMask
     public double NoiseScale { get; set; } = 0.25;
     /// <summary>"part": which part; "material": which texture set (by index).</summary>
     public int Index { get; set; }
+    /// <summary>"layer": the layer (below) whose mask this one follows, by id; "drips": the layer they run down from ("" for worn top edges).</summary>
+    public string Layer { get; set; } = "";
+    /// <summary>"layer": how far, in metres, that mask spreads (grows and softens) first.</summary>
+    public double Spread { get; set; }
+    /// <summary>"layer": only the spread around that mask (a rim), not the mask itself.</summary>
+    public bool Ring { get; set; }
+    /// <summary>"drips": how far they run down, in metres.</summary>
+    public double Length { get; set; } = 0.3;
 
     public ForgeMask Clamped()
     {
         Kind = Kinds.Contains(Kind) ? Kind : "all";
         Amount = C(Amount, 0, 1); Softness = C(Softness, 0, 1); Noise = C(Noise, 0, 1); NoiseScale = C(NoiseScale, 0.005, 100);
         Index = Math.Clamp(Index, 0, 4095);
+        Layer = Layer is { Length: <= 40 } l && l.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? l : "";
+        Spread = C(Spread, 0, 10); Length = C(Length, 0.005, 50);
         return this;
     }
 
@@ -39,6 +50,8 @@ public sealed class ForgeLayer
 {
     public const int MaxStrokes = 4000;
 
+    /// <summary>Names the layer for others' masks to follow ("layer" and "drips" masks).</summary>
+    public string Id { get; set; } = "";
     public string Name { get; set; } = "Layer";
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
@@ -109,6 +122,18 @@ public sealed class ForgeRecipe
         Size = Sizes.Contains(Size) ? Size : 1024;
         AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2);
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).Select(l => l.Clamped()).ToList();
+        // Every layer has an id of its own (letters, digits, '-' and '_').
+        var ids = new HashSet<string>();
+        for (var k = 0; k < Layers.Count; k++)
+        {
+            var id = Layers[k].Id;
+            if (id.Length is 0 or > 40 || !id.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') || !ids.Add(id))
+            {
+                var n = k + 1;
+                while (!ids.Add(id = $"L{n}")) n++;
+            }
+            Layers[k].Id = id;
+        }
         Pictures = (Pictures ?? []).Where(p => p != null).Select(p => p.Clamped()).OfType<ForgePicture>().DistinctBy(p => p.Id).Take(MaxPictures).ToList();
         return this;
     }

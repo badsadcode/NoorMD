@@ -161,11 +161,13 @@ public partial class MainWindow
             }
             case "forge.picture.pick":
             {
-                // A picture as a brush tip (128 square) or a stencil (up to 1024): read once, kept in the recipe.
-                var stencil = req.GetString("purpose", 20) == "stencil";
+                // A picture as a brush tip (128 square), a stencil or a decal (up to 1024, its proportions kept): read once,
+                // kept in the recipe.
+                var purpose = req.GetString("purpose", 20) ?? "tip";
+                var stencil = purpose is "stencil" or "decal";
                 var dlg = new OpenFileDialog
                 {
-                    Title = stencil ? "A picture to paint through (a stencil)" : "A picture as a brush tip",
+                    Title = purpose == "decal" ? "A picture to place on the model (a decal)" : stencil ? "A picture to paint through (a stencil)" : "A picture as a brush tip",
                     Filter = "Pictures (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch|All files (*.*)|*.*",
                     CheckFileExists = true,
                 };
@@ -175,7 +177,7 @@ public partial class MainWindow
                 _textureImageFiles.Add(full); // read because it was picked here
                 var image = await Task.Run(() => LoadTextureImage(full));
                 if (image == null) throw new BridgeError("That picture can't be read.");
-                var id = (stencil ? "s" : "t") + Guid.NewGuid().ToString("N")[..10];
+                var id = (purpose == "decal" ? "d" : stencil ? "s" : "t") + Guid.NewGuid().ToString("N")[..10];
                 var picture = await Task.Run(() => ForgePicture.FromImage(id, Path.GetFileNameWithoutExtension(full), image.Width, image.Height, image.Rgb, image.Alpha, stencil ? 1024 : 128, square: !stencil));
                 return new { picture = new { id = picture.Id, name = picture.Name, width = picture.Width, height = picture.Height, data = picture.Data } };
             }
@@ -223,7 +225,7 @@ public partial class MainWindow
                         var bake = ForgeBakeFor(model, s, size, recipe);
                         var tex = ForgeCompositor.Compose(model, s, bake, recipe, ForgeMaterial);
                         foreach (var m in new[] { "basecolor", "normal", "orm", "roughness", "metallic", "height" }) files[$"{s}-{m}.png"] = tex.Png(m);
-                        if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe.Layers[maskLayer], s, recipe.Picture));
+                        if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe, maskLayer, s));
                         files[$"{s}-ao.png"] = PngWriter.Gray(size, size, bake.Ao.Select(v => (byte)Math.Clamp(v * 255, 0, 255)).ToArray());
                         files[$"{s}-curvature.png"] = PngWriter.Gray(size, size, bake.Curvature.Select(v => (byte)Math.Clamp(128 + v * 127, 0, 255)).ToArray());
                         return tex;

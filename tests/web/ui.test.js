@@ -5546,6 +5546,27 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#fg-maskkind', 'part');
       await page.waitForSelector('#fg-maskindex');
       check('“One part” offers the model\'s parts', (await page.$$eval('#fg-maskindex option', (o) => o.map((x) => x.textContent))).join() === 'Body,Lid');
+      // Another layer's mask: only the layers below are offered; spread, turned round, a rim.
+      await page.selectOption('#fg-maskkind', 'layer');
+      await page.waitForSelector('#fg-masklayer');
+      st = await FS();
+      check('“Another layer\'s mask” offers the layers below it (and follows the one just below)', (await page.$$eval('#fg-masklayer option', (o) => o.map((x) => x.textContent))).join() === 'Stone,Moss'
+        && st.recipe.layers.at(-1).mask.layer === st.recipe.layers[1].id && st.recipe.layers.every((x) => /^[A-Za-z0-9_-]+$/.test(x.id)));
+      await page.$eval('#fg-layeredit input[data-key="spread"]', (i) => { i.value = '0.05'; i.dispatchEvent(new Event('input')); });
+      await page.click('#fg-maskring');
+      await page.click('#fg-maskinvert');
+      st = await FS();
+      check('…spread, as a rim, where that layer isn\'t', st.recipe.layers.at(-1).mask.spread === 0.05 && st.recipe.layers.at(-1).mask.ring && st.recipe.layers.at(-1).mask.invert
+        && /Where that layer isn't/.test(await page.textContent('#fg-layeredit')));
+      await page.selectOption('#fg-maskkind', 'drips');
+      await page.waitForSelector('#fg-layeredit input[data-key="length"]');
+      check('drips run down from worn top edges or a layer below, with a length and streaks', (await page.$$eval('#fg-masklayer option', (o) => o.map((x) => x.textContent))).join() === 'worn top edges,Stone,Moss'
+        && /Streak width/.test(await page.textContent('#fg-layeredit')));
+      await page.selectOption('#fg-maskkind', 'chips');
+      await page.waitForSelector('#fg-layeredit input[data-key="noiseScale"]');
+      check('chipped edges have a chip size and chunkiness', /Chip size/.test(await page.textContent('#fg-layeredit')) && /Chunkiness/.test(await page.textContent('#fg-layeredit')));
+      await page.selectOption('#fg-maskkind', 'part');
+      await page.waitForSelector('#fg-maskindex');
       await page.selectOption('#fg-material', 'metal-rusty');
       check('a layer can take a Texture Bench material (named after it)', (await FS()).recipe.layers.at(-1).material === 'metal-rusty' && (await FS()).recipe.layers.at(-1).name === 'Rusty metal');
       await page.waitForTimeout(700); // the delete its own undo step
@@ -5698,6 +5719,28 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a stroke through the stencil keeps where it lay (its picture and the camera\'s rows)', last.stencil && last.stencil.picture === 'smock2' && last.stencil.rows.length === 12 && last.stencil.rows.every(Number.isFinite));
       await page.click('#fg-brushbar [aria-label="Remove the stencil picture"]');
       check('a picture strokes use can\'t be removed', (await FS()).recipe.pictures.some((p) => p.id === 'smock2'));
+      // 🏷 Stamp: text made into a decal, placed where clicked, flat on the surface.
+      await page.keyboard.press('t');
+      check('T: the stamp tool', (await FS()).tool === 'stamp' && !!(await page.$('#fg-stamp-pick')));
+      await page.selectOption('#fg-stamp-pick', 'T');
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'NOOR 7');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => (NoorForge._state().stamp.picture || '').startsWith('d'));
+      st = await FS();
+      const textPic = st.recipe.pictures.find((p) => p.id === st.stamp.picture);
+      check('“Text…” draws the text into a decal picture kept in the recipe (wider than tall)', textPic && textPic.width > textPic.height * 2 && textPic.name.includes('NOOR 7')
+        && await page.$eval('#fg-stampview', (c) => { const d = c.getContext('2d').getImageData(0, 0, 80, 40).data; let on = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 128) on++; return on > 40; }));
+      const n0 = (await layerNow()).strokes.length;
+      await page.waitForTimeout(700);
+      await page.mouse.click(box.x, box.y);
+      l = await layerNow();
+      last = l.strokes.at(-1);
+      check('a click places it: one dab, its picture as the tip, facing out of the surface', l.strokes.length === n0 + 1 && last.tip === textPic.id && last.dabs.length === 5 && last.view.length === 3
+        && Math.abs(Math.hypot(...last.view) - 1) < 0.01 && Math.abs(last.radius - 0.06) < 0.001);
+      await page.selectOption('#fg-stamp-pick', '+');
+      await waitFn(page, () => NoorForge._state().stamp.picture === 'dmock3');
+      check('“A picture…” makes a picture a decal', (await FS()).recipe.pictures.some((p) => p.id === 'dmock3'));
       await page.keyboard.press('Escape');
       check('Escape puts the brush down (NoorForge stays open)', (await FS()).tool === null && await page.evaluate(() => NoorForge.isOpen()) && await page.isHidden('#fg-brushbar'));
       if (shots) await page.screenshot({ path: `${shots}/65c-noorforge-paint.png` });

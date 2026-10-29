@@ -89,12 +89,21 @@ public sealed class ForgeStencil
 public static class ForgePaint
 {
     /// <summary>The layer's mask with its strokes, 0–1 a texel (before the layer's opacity).</summary>
-    public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null)
+    /// <param name="layers">The masks of the layers below, by id (for masks that follow one).</param>
+    public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null, Func<string, float[]?>? layers = null)
     {
         var n = bake.Size * bake.Size;
         var v = new float[n];
         var span = bake.BoundsMax - bake.BoundsMin;
-        Parallel.For(0, n, i => { if (bake.Covered[i] != 0) v[i] = ForgeCompositor.MaskAt(layer.Mask, bake, i, setIndex, span); });
+        var mask = layer.Mask;
+        var anchor = mask.Layer.Length > 0 ? layers?.Invoke(mask.Layer) : null;
+        var given = mask.Kind switch
+        {
+            "layer" => anchor != null ? ForgeMasks.Follow(bake, anchor, mask) : null,
+            "drips" => ForgeMasks.Drips(bake, anchor, mask),
+            _ => null,
+        };
+        Parallel.For(0, n, i => { if (bake.Covered[i] != 0) v[i] = ForgeCompositor.MaskAt(mask, bake, i, setIndex, span, given); });
         foreach (var stroke in layer.Strokes) Apply(bake, stroke, v, pictures);
         return v;
     }
@@ -124,6 +133,9 @@ public static class ForgePaint
             var view = Vector3.Normalize(new Vector3(stroke.View[0], stroke.View[1], stroke.View[2]));
             var hard = (float)stroke.Hardness;
             var (right, up) = ScreenAxes(view);
+            // A tip keeps its picture's proportions: the radius is half its height, its width follows.
+            var aspect = tip == null ? 1 : (float)tip.Width / Math.Max(1, tip.Height);
+            var reach = tip == null ? 1 : 1.415f * MathF.Max(1, aspect);
             for (var d = 0; d < stroke.DabCount; d++)
             {
                 var at = new Vector3(stroke.Dabs[d * 5], stroke.Dabs[d * 5 + 1], stroke.Dabs[d * 5 + 2]);
@@ -132,11 +144,11 @@ public static class ForgePaint
                 if (flow <= 0) continue;
                 var angle = (float)((stroke.Angle + stroke.Jitter * 360 * (Hash(d, stroke.Seed) - 0.5)) * Math.PI / 180);
                 float ca = MathF.Cos(angle), sa = MathF.Sin(angle);
-                grid.Near(at, r, i =>
+                grid.Near(at, r * reach, i =>
                 {
                     var off = bake.Position[i] - at;
                     var t = off.Length() / r;
-                    if (t >= 1.415f) return;
+                    if (t >= reach) return;
                     // Only what faces the painter (fading at the silhouette), as a brush on the screen would reach.
                     var facing = Smooth(-0.05f, 0.25f, -Vector3.Dot(bake.Normal[i], view));
                     if (facing <= 0) return;
@@ -152,8 +164,8 @@ public static class ForgePaint
                         if (MathF.Abs(Vector3.Dot(off, view)) > r) return;
                         float a = Vector3.Dot(off, right) / r, b = Vector3.Dot(off, up) / r;
                         float tu = ca * a - sa * b, tv = sa * a + ca * b; // turned clockwise by the angle
-                        if (MathF.Abs(tu) > 1 || MathF.Abs(tv) > 1) return;
-                        f = tip.Sample((tu + 1) * 0.5f, (1 - tv) * 0.5f);
+                        if (MathF.Abs(tu) > aspect || MathF.Abs(tv) > 1) return;
+                        f = tip.Sample((tu / aspect + 1) * 0.5f, (1 - tv) * 0.5f);
                         if (f <= 0) return;
                     }
                     var k = keep.TryGetValue(i, out var have) ? have : 1;
