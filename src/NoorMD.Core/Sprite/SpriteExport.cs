@@ -222,8 +222,12 @@ public static class GodotSprite
     /// AnimationPlayer playing each tag: it turns the sprite's frames with their durations and moves and sizes the
     /// hitboxes that move with the frames, so pictures and hitboxes stay together. Sizes are in the export's pixels.
     /// </summary>
-    public static string HitboxScene(string nodeName, string framesFile, IReadOnlyList<int> durations, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteSlice> slices, int width, int height)
+    public static string HitboxScene(string nodeName, string framesFile, IReadOnlyList<int> durations, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteSlice> slices, int width, int height,
+        IReadOnlyDictionary<int, string>? sounds = null)
     {
+        // Sounds: a frame's sound file (beside the scene), played by an AudioStreamPlayer2D when the frame comes.
+        sounds ??= new Dictionary<int, string>();
+        var soundFiles = sounds.Values.Distinct().ToList();
         var anims = Animations(durations.Count, tags);
         var names = new List<string>();
         foreach (var sl in slices)
@@ -237,8 +241,10 @@ public static class GodotSprite
         string Pos(SpriteSlice sl, int f) { var (x, y, w, h) = sl.At(f); return $"Vector2({F(x + w / 2.0 - width / 2.0)}, {F(y + h / 2.0 - height / 2.0)})"; }
         string Size(SpriteSlice sl, int f) { var (_, _, w, h) = sl.At(f); return $"Vector2({w}, {h})"; }
         var sb = new System.Text.StringBuilder();
-        sb.Append($"[gd_scene load_steps={2 + slices.Count + anims.Count + 1} format=3]\n\n");
-        sb.Append($"[ext_resource type=\"SpriteFrames\" path={Q(framesFile)} id=\"1_frames\"]\n\n");
+        sb.Append($"[gd_scene load_steps={2 + soundFiles.Count + slices.Count + anims.Count + 1} format=3]\n\n");
+        sb.Append($"[ext_resource type=\"SpriteFrames\" path={Q(framesFile)} id=\"1_frames\"]\n");
+        for (var i = 0; i < soundFiles.Count; i++) sb.Append($"[ext_resource type=\"AudioStream\" path={Q(soundFiles[i])} id=\"{i + 2}_sound\"]\n");
+        sb.Append('\n');
         for (var i = 0; i < slices.Count; i++) sb.Append($"[sub_resource type=\"RectangleShape2D\" id=\"Shape_{i}\"]\nsize = {Size(slices[i], 0)}\n\n");
         for (var a = 0; a < anims.Count; a++)
         {
@@ -265,6 +271,15 @@ public static class GodotSprite
                 sb.Append($"tracks/{k}/type = \"value\"\ntracks/{k}/imported = false\ntracks/{k}/enabled = true\ntracks/{k}/path = NodePath({Q(path)})\ntracks/{k}/interp = 0\ntracks/{k}/loop_wrap = true\n");
                 sb.Append($"tracks/{k}/keys = {{\n\"times\": PackedFloat32Array({times2}),\n\"transitions\": PackedFloat32Array({trans}),\n\"update\": 1,\n\"values\": [{values}]\n}}\n");
             }
+            var heard = order.Select((fi, j) => (fi, j)).Where(x => sounds.ContainsKey(x.fi)).ToList();
+            if (heard.Count > 0)
+            {
+                var k = tracks.Count;
+                sb.Append($"tracks/{k}/type = \"audio\"\ntracks/{k}/imported = false\ntracks/{k}/enabled = true\ntracks/{k}/path = NodePath(\"Sound\")\n");
+                sb.Append($"tracks/{k}/keys = {{\n\"clips\": [");
+                sb.Append(string.Join(", ", heard.Select(x => $"{{\n\"end_offset\": 0.0,\n\"start_offset\": 0.0,\n\"stream\": ExtResource(\"{soundFiles.IndexOf(sounds[x.fi]) + 2}_sound\")\n}}")));
+                sb.Append($"],\n\"times\": PackedFloat32Array({string.Join(", ", heard.Select(x => F(times[x.j])))})\n}}\ntracks/{k}/use_blend = true\n");
+            }
             sb.Append('\n');
         }
         sb.Append("[sub_resource type=\"AnimationLibrary\" id=\"AnimationLibrary_1\"]\n_data = {\n");
@@ -277,6 +292,7 @@ public static class GodotSprite
             sb.Append($"[node name={Q(names[i])} type=\"Area2D\" parent=\".\"]\n\n");
             sb.Append($"[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent={Q(names[i])}]\nposition = {Pos(slices[i], 0)}\nshape = SubResource(\"Shape_{i}\")\n\n");
         }
+        if (soundFiles.Count > 0) sb.Append("[node name=\"Sound\" type=\"AudioStreamPlayer2D\" parent=\".\"]\n\n");
         sb.Append($"[node name=\"AnimationPlayer\" type=\"AnimationPlayer\" parent=\".\"]\nlibraries = {{\n&\"\": SubResource(\"AnimationLibrary_1\")\n}}\nautoplay = {Q(anims[0].Name)}\n");
         return sb.ToString();
     }

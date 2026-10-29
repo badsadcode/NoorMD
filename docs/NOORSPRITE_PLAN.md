@@ -207,6 +207,23 @@ one's own, a floating reference picture, pen pressure.
   frame's duration. **Unreal Paper2D:** the sheet and its JSON in the form Paper2D's sprite-sheet import reads, with
   pivots. (Written to those formats; not opened in Unity or Unreal here.)
 
+### Done in preview.103
+
+- **With the other benches** (☰): this frame to **NoorForge** as a decal for the stamp tool (its shape, grown by whole
+  steps to stay crisp); this frame — or on a tilemap layer, its tiles in a row — to the **Texture Bench** as a new
+  material (a picture of the app's own, allowed for it); a **sound for a frame** (a .wav, .ogg or .mp3 you choose —
+  NoorSequencer's and the Sound Bench's exports among them), ♪ in the timeline, played by the Godot export's
+  AnimationPlayer each time the frame comes (the sound copied beside the scene; checked in headless Godot 4.4).
+- **The Gallery** shows .noorsprite and .aseprite files (their first frame as the preview, composed by the app) and
+  opens them — or any picture — in NoorSprite (Open in › NoorSprite).
+- **The command search** (Ctrl+K here, ⌕): every NoorSprite command by name — tools, menus, palette, view, frames,
+  layers — Enter runs it. **Shortcuts of your own:** ⌨ beside a command, then press the keys; they go first, and are
+  kept on this computer.
+- **A floating reference picture:** a picture in a window of its own over NoorSprite — dragged by its title,
+  resized from its corner, made see-through — to look at while drawing.
+- **Pen pressure** (pencil and eraser): with a pen, pressing lightly draws thinner, up to the brush size.
+- Still to come: sprites shown inside Vault notes.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

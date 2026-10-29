@@ -68,7 +68,8 @@ first, and anything that conflicts with it waits.
   cycling, tiling, free and radial symmetry, turned tiles: preview.99; layer groups, gradients, pattern fills, squash
   and smear in-betweens: preview.100; the motion path, onion skin by tag and as outlines, a timeline of thumbnails
   and dragged frames, terrains (autotiling), every map layer in one Godot scene, hitboxes, Unity and Paper2D
-  exports: preview.102. See
+  exports: preview.102; NoorForge decals, the Texture Bench, frame sounds, sprites in the Gallery, the command search,
+  shortcuts of one's own, a floating reference, pen pressure: preview.103. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorCanvas (a layered photo and painting editor) is planned in
   [NOORCANVAS_PLAN.md](NOORCANVAS_PLAN.md); NoorSketch stays the small sketchpad it is.
 

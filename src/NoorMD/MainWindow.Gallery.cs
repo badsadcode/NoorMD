@@ -109,6 +109,8 @@ public partial class MainWindow
         foreach (var ext in new[] { ".jpg", ".png" })
             if (File.Exists(stem + ext) && File.GetLastWriteTimeUtc(stem + ext) >= src.LastWriteTimeUtc) return stem + ext;
         Directory.CreateDirectory(ThumbFolder);
+        if (ImageFormats.IsSprite(img.Path))
+            return NoorMD.Core.Sprite.SpriteRender.Thumbnail(img.Path, size) is { } spng ? WriteBytes(stem + ".png", spng) : null;
         if (Decode(img.Path, size) is { } frame)
         {
             var alpha = Path.GetExtension(img.Path).ToLowerInvariant() is ".png" or ".gif" or ".webp" or ".ico" or ".tif" or ".tiff"; // may be see-through
@@ -433,6 +435,13 @@ public partial class MainWindow
                     var i = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "index") ?? -1);
                     if (i >= 0 && i < list.Count && !list[i].Detected) { list.RemoveAt(i); SaveEditors(list); }
                     return new { editors = Editors().Select(e => new { name = e.Name, detected = e.Detected }) };
+                }
+                case "gallery.toSprite":
+                {
+                    // A picture or a sprite chosen in the Gallery, opened in NoorSprite.
+                    var img = Ids(p, "ids").Take(1).Select(id => Gallery.Get(id)).FirstOrDefault(i => i != null && File.Exists(i.Path)) ?? throw new BridgeError("That picture is not there any more.");
+                    var full = Path.GetFullPath(img.Path);
+                    return await Task.Run<object>(() => SpriteOpenPath(full));
                 }
                 case "gallery.toTexture":
                 {

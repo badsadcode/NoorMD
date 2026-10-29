@@ -30,7 +30,7 @@ window.NoorSprite = (() => {
   let layer = 0, frame = 0; // the layer (index, bottom first) and frame being drawn
   let tool = 'pencil';
   let fg = [0, 0, 0, 255], bg = [255, 255, 255, 255];
-  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, radial: 0, axisX: null, axisY: null, ink: 'simple', dither: 0, custom: false, stabilize: 0, gradShape: 'linear', gradBlend: 'dither', pattern: 'solid' };
+  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, radial: 0, axisX: null, axisY: null, ink: 'simple', dither: 0, custom: false, stabilize: 0, pressure: false, gradShape: 'linear', gradBlend: 'dither', pattern: 'solid' };
   let brushImage = null;    // a brush cut from the sprite: { px, w, h }
   // Ordered dithering (a 4 × 4 Bayer matrix): a pixel is drawn when its cell is under the level (of 16).
   // The stabilizer: the brush hangs on a string this long (screen pixels) behind the cursor, so lines come out smooth.
@@ -221,6 +221,7 @@ window.NoorSprite = (() => {
           el('button', { class: 'icon-btn', id: 'sp-open', title: 'Open a sprite (.noorsprite, .aseprite) or a PNG (Ctrl+O here)', 'aria-label': 'Open', onclick: openFile }, '📂'),
           el('button', { class: 'icon-btn', id: 'sp-save', title: 'Save (Ctrl+S here; Ctrl+Shift+S: save as)', 'aria-label': 'Save', onclick: () => save(false) }, '💾'),
           el('button', { class: 'icon-btn', id: 'sp-export', title: 'Export: PNG, frames, a sprite sheet with JSON, an animated GIF (Ctrl+E here)', 'aria-label': 'Export', onclick: exportDialog }, '⤓'),
+          el('button', { class: 'icon-btn', id: 'sp-cmd', title: 'Find a command (Ctrl+K here); give any a shortcut of your own', 'aria-label': 'Commands', onclick: commandSearch }, '⌕'),
           el('button', { class: 'icon-btn', id: 'sp-menu', title: 'Sprite and edit: canvas size, scale, flip, rotate, crop, import a sheet…', 'aria-label': 'More', onclick: (e) => moreMenu(e.currentTarget) }, '☰'),
           NoorDock.fullButton('NoorSprite'),
           el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move NoorSprite', onclick: (e) => NoorDock.showMenu('sprite', e.currentTarget) }, '⊞'),
@@ -379,6 +380,7 @@ window.NoorSprite = (() => {
     };
     const parts = [];
     if (['pencil', 'eraser', 'line'].includes(tool)) parts.push(num('size', 'Size', 1, 64, 'The brush in pixels ([ and ])'), check('round', 'round', 'A round brush (else square)'));
+    if (tool === 'pencil' || tool === 'eraser') parts.push(check('pressure', 'pen pressure', 'With a pen: pressing lightly draws thinner (up to the size)'));
     if (tool === 'pencil') {
       parts.push(check('perfect', 'pixel-perfect', 'Lines one pixel wide without doubled corners (size 1)'));
       const inkSel = el('select', { 'data-opt': 'ink', 'aria-label': 'Ink', title: 'Shading: each pixel steps along the palette (left click one way, right click the other)' }, el('option', { value: 'simple', text: 'plain' }), el('option', { value: 'shade', text: 'shading' }));
@@ -429,6 +431,15 @@ window.NoorSprite = (() => {
     $('#sp-options').replaceChildren(el('strong', { text: (TOOLS.find((t) => t[0] === tool) || [])[2] || '' }), ...parts);
   }
 
+  /** The frame's sound: its name, choose one, take it away. */
+  function soundRow() {
+    const snd = doc.frames[frame].sound;
+    return el('div', { class: 'sb-row', id: 'sp-sound' },
+      el('span', { class: 'pref-hint', text: snd ? `♪ ${snd.name}` : 'No sound' }),
+      el('button', { class: 'utility-btn', id: 'sp-sound-pick', title: 'A sound this frame plays when it comes (footsteps, a swing): exported with Godot animations', onclick: () => frameSound(false) }, snd ? 'Another…' : 'A sound…'),
+      snd ? el('button', { class: 'icon-btn', id: 'sp-sound-clear', title: 'No sound', 'aria-label': 'Take the sound away', onclick: () => frameSound(true) }, '✕') : null);
+  }
+
   function renderLayerProps() {
     const box = $('#sp-layerprops');
     if (!box) return;
@@ -459,7 +470,7 @@ window.NoorSprite = (() => {
         ingroup,
         el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sp-ungroup', title: 'The layers stay; the group goes', onclick: ungroup }, 'Ungroup')),
         el('h4', { class: 'music-subhead', text: `Frame ${frame + 1}` }),
-        el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur)].filter(Boolean));
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur), soundRow()].filter(Boolean));
       return;
     }
     box.replaceChildren(...[
@@ -471,7 +482,7 @@ window.NoorSprite = (() => {
       el('label', { class: 'sb-inline', title: 'This frame\'s picture on the layer' }, el('span', { text: 'Cel opacity' }), cop),
       c && c.link ? el('div', { class: 'sb-row', id: 'sp-linkinfo' }, el('span', { class: 'pref-hint', text: `🔗 on ${linkCount()} frames` }), el('button', { class: 'utility-btn', id: 'sp-unlink', title: 'This frame gets a picture of its own', onclick: unlinkCel }, 'Unlink')) : null,
       el('h4', { class: 'music-subhead', text: `Frame ${frame + 1}` }),
-      el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur)].filter(Boolean));
+      el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur), soundRow()].filter(Boolean));
   }
 
   function renderViewOpts() {
@@ -532,7 +543,7 @@ window.NoorSprite = (() => {
         ondragstart: (e) => { e.dataTransfer.setData('text/x-noorsprite-frame', String(i)); e.dataTransfer.effectAllowed = 'copyMove'; },
         ondragover: (e) => { if ([...e.dataTransfer.types].includes('text/x-noorsprite-frame')) { e.preventDefault(); e.dataTransfer.dropEffect = e.ctrlKey ? 'copy' : 'move'; } },
         ondrop: (e) => { const from = Number(e.dataTransfer.getData('text/x-noorsprite-frame')); if (!Number.isInteger(from)) return; e.preventDefault(); moveFrameTo(from, i, e.ctrlKey); } },
-        thumbs ? thumbOf(compose(i), 36) : null, el('span', { text: String(i + 1) }), el('small', { text: `${f.duration}` }))));
+        thumbs ? thumbOf(compose(i), 36) : null, el('span', { text: String(i + 1) + (f.sound ? '♪' : '') }), el('small', { text: `${f.duration}` }))));
     const tags = doc.tags.length ? el('div', { class: 'sp-tl-row sp-tl-tags' }, el('div', { class: 'sp-tl-name' }, el('small', { class: 'pref-hint', text: 'Tags' })),
       el('div', { class: 'sp-tl-tagband', style: `grid-template-columns: repeat(${doc.frames.length}, var(--sp-cell))` },
         ...doc.tags.map((t, ti) => el('button', { class: 'sp-tag', 'data-tag': String(ti), style: `grid-column: ${t.from + 1} / ${t.to + 2}; --c:${t.color.slice(0, 7)}`, title: `${t.name}: frames ${t.from + 1}–${t.to + 1}, ${t.direction} (click: play it; double-click: change)`,
@@ -1129,13 +1140,13 @@ window.NoorSprite = (() => {
   // ---------------------------------------------------------------- drawing
 
   /** The pixels a brush covers around a point (square or round, of the brush's size), mirrored as asked. */
-  function brushPoints(x, y) {
+  function brushPoints(x, y, size = opts.size) {
     if (opts.custom && brushImage && tool === 'pencil') {
       const pts = [], ox = x - Math.floor(brushImage.w / 2), oy = y - Math.floor(brushImage.h / 2);
       for (let by = 0; by < brushImage.h; by++) for (let bx = 0; bx < brushImage.w; bx++) if (brushImage.px[(by * brushImage.w + bx) * 4 + 3]) pts.push([ox + bx, oy + by]);
       return mirrored(pts);
     }
-    const s = opts.size, r = (s - 1) / 2, pts = [];
+    const s = size, r = (s - 1) / 2, pts = [];
     for (let dy = -Math.floor(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.floor(r); dx <= Math.ceil(r); dx++) {
       if (s > 1 && opts.round && (dx - (s % 2 ? 0 : 0.5)) ** 2 + (dy - (s % 2 ? 0 : 0.5)) ** 2 > (s / 2) ** 2 + 0.25) continue;
       pts.push([x + dx - (s % 2 ? 0 : 0), y + dy]);
@@ -1268,7 +1279,7 @@ window.NoorSprite = (() => {
       const base = cel();
       drag = { kind: 'stroke', colour: t === 'eraser' ? [0, 0, 0, 0] : colour, last: [p.x, p.y], preview: base ? new Uint8ClampedArray(base.px) : new Uint8ClampedArray(doc.width * doc.height * 4), original: base ? base.px : null, trail: [],
         ink: t === 'pencil' ? opts.ink : 'simple', shadeDir: e.button === 2 ? -1 : 1, shaded: new Set(), custom: t === 'pencil' && opts.custom && brushImage,
-        lazy: opts.stabilize ? { x: p.fx, y: p.fy, cx: p.cx, cy: p.cy } : null };
+        lazy: opts.stabilize ? { x: p.fx, y: p.fy, cx: p.cx, cy: p.cy } : null, pen: e.pointerType === 'pen', pressure: e.pressure || 0.5 };
       stamp(p.x, p.y);
       draw();
       return;
@@ -1308,7 +1319,9 @@ window.NoorSprite = (() => {
       }
     }
     if (d.custom) { stampImage(x, y); return; }
-    for (const [px, py] of brushPoints(x, y)) ink(px, py);
+    // A pen pressed lightly draws thinner (size × pressure).
+    const size = opts.pressure && d.pen ? Math.max(1, Math.round(opts.size * Math.max(0.05, d.pressure))) : opts.size;
+    for (const [px, py] of brushPoints(x, y, size)) ink(px, py);
   }
 
   /** One pixel of a stroke by its ink: plain, dithered (some pixels only), or shading (a step along the palette). */
@@ -1392,6 +1405,7 @@ window.NoorSprite = (() => {
     if (drag.kind === 'picker') { pick(p, drag.right); return; }
     if (drag.kind === 'tiles') { tileMove(p); return; }
     if (drag.kind === 'stroke') {
+      if (drag.pen) drag.pressure = e.pressure || drag.pressure;
       let to = [p.x, p.y];
       if (drag.lazy) {
         // The brush is pulled along only when the cursor is further away than the string is long.
@@ -1722,7 +1736,16 @@ window.NoorSprite = (() => {
   }
 
   function moreMenu(anchor) {
-    const items = [
+    const items = moreItems();
+    NoorUI.modal({ label: 'Sprite', width: 320 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('Sprite and edit', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
+    });
+    void anchor;
+  }
+
+  /** The ☰ menu's items (also found by the command search). */
+  function moreItems() {
+    return [
       ['Canvas size…', canvasDialog], ['Scale the sprite…', scaleDialog], ['Crop to the selection', cropToSelection], null,
       ['Flip the sprite left ↔ right', () => transform('flipH', 'sprite')], ['Flip the sprite top ↕ bottom', () => transform('flipV', 'sprite')],
       ['Turn the sprite 90° clockwise', () => transform('rotR', 'sprite')], ['Turn the sprite 90° anticlockwise', () => transform('rotL', 'sprite')], null,
@@ -1732,14 +1755,11 @@ window.NoorSprite = (() => {
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
-      ['A picture to trace (a reference layer)…', () => importPicture('reference')],
+      ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
+      ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to the Texture Bench (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
       ['Save as…', () => save(true)],
     ];
-    NoorUI.modal({ label: 'Sprite', width: 320 }, (s, closeIt) => {
-      s.append(NoorUI.head('Sprite and edit', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
-    });
-    void anchor;
   }
 
   function canvasDialog() {
@@ -2756,13 +2776,18 @@ window.NoorSprite = (() => {
   }
 
   function paletteMenu() {
-    const items = [['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
+    const items = paletteItems();
+    NoorUI.modal({ label: 'Palette', width: 320 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('Palette', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
+    });
+  }
+
+  /** The palette menu's items (also found by the command search). */
+  function paletteItems() {
+    return [['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
       ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
       ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette], null,
       [doc.indexed ? 'RGB colour (any colour; leave indexed)' : 'Indexed colour (every pixel a palette colour)', () => setIndexed(!doc.indexed)], ['Colour cycling…', cycleDialog]];
-    NoorUI.modal({ label: 'Palette', width: 320 }, (s, closeIt) => {
-      s.append(NoorUI.head('Palette', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
-    });
   }
 
   // ---- recovery drafts
@@ -2987,7 +3012,8 @@ window.NoorSprite = (() => {
         const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
         closeIt();
         try {
-          const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
+          const sounds = which.map((f, i) => (doc.frames[f].sound ? { frame: i, path: doc.frames[f].sound.path } : null)).filter(Boolean);
+          const r = await req('sprite.export', { kind: kind.value, frames, sounds, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
             // One tag's frames start at 0: a moving slice's keys follow them.
             slices: (doc.slices || []).map((sl) => {
               if (!t || !(sl.keys && sl.keys.length)) return sl;
@@ -3006,6 +3032,153 @@ window.NoorSprite = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- to other benches
+
+  /** This frame as a NoorForge decal: its shape (where it is drawn) in white, grown by whole steps to be crisp. */
+  async function toForge() {
+    if (!window.NoorForge || !NoorForge.addPicture) { notice('NoorForge isn\'t here', 1500); return; }
+    const px = compose(frame, doc, null, true), W = doc.width, H = doc.height;
+    const k = Math.max(1, Math.min(Math.floor(1024 / Math.max(W, H)), Math.floor(256 / Math.max(W, H)) || 1));
+    const w = W * k, h = H * k, g = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) g[y * w + x] = px[((Math.floor(y / k)) * W + Math.floor(x / k)) * 4 + 3];
+    if (!g.some(Boolean)) { notice('Nothing drawn on this frame', 1400); return; }
+    await NoorForge.addPicture({ name: `${file ? file.name.replace(/\.[^.]+$/, '') : 'Sprite'} ${frame + 1}`, width: w, height: h, data: b64(g) });
+  }
+
+  /** This frame (or a tilemap layer's tileset) into the Texture Bench, as a photo layer of a new material. */
+  async function toTexture() {
+    if (!window.NoorTexture) { notice('The Texture Bench isn\'t here', 1500); return; }
+    let w = doc.width, h = doc.height, px = compose(frame, doc, null, true), name = file ? file.name.replace(/\.[^.]+$/, '') : 'sprite';
+    if (isTilemap()) {
+      // The tileset in a row, to make a material of the tiles.
+      const ts = tilesetOf(), n = ts.tiles.length - 1;
+      if (n > 0) { w = ts.tw * n; h = ts.th; px = new Uint8ClampedArray(w * h * 4); for (let i = 1; i <= n; i++) for (let y = 0; y < h; y++) px.set(ts.tiles[i].subarray(y * ts.tw * 4, (y + 1) * ts.tw * 4), (y * w + (i - 1) * ts.tw) * 4); name = `${name}-${ts.name}`; }
+    }
+    try {
+      const r = await req('sprite.toTexture', { name, width: w, height: h, data: b64(new Uint8Array(px.buffer)) });
+      await NoorTexture.fromPictures([r], 'new');
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** A sound for this frame (played when it comes, in engine exports); none takes it away. */
+  async function frameSound(clear = false) {
+    if (clear) { change('No sound', (d) => { d.frames[frame] = { duration: d.frames[frame].duration }; }); return; }
+    try {
+      const r = await req('sprite.sound.pick');
+      if (!r || r.cancelled) return;
+      change('A sound', (d) => { d.frames[frame] = { ...d.frames[frame], sound: { path: r.path, name: r.name } }; });
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** A sprite or a picture handed over (the Gallery's "Open in NoorSprite"). */
+  async function openFrom(r) {
+    await open();
+    if (dirty() && !await NoorUI.confirm('Open another sprite?', 'The sprite open now has changes not saved.', 'Open')) return;
+    if (r.sprite) { setDoc(fromWire(r.sprite), { path: r.path, name: r.name }); if (r.notes && r.notes.length) notice(r.notes.join(' '), 4000); }
+    else if (r.image) setDoc(pictureSprite(r.image), null);
+  }
+
+  // ---------------------------------------------------------------- the command search and shortcuts of one's own
+
+  /** Everything NoorSprite does, by name: what the search finds and what a shortcut of one's own can run. */
+  function commands() {
+    const flip = (k, label) => [`view.${k}`, `${view[k] ? 'Hide' : 'Show'} ${label}`, () => { view[k] = !view[k]; renderAll(); }];
+    const list = [
+      ...TOOLS.map(([id, , title]) => [`tool.${id}`, `Tool: ${title}`, () => setTool(id)]),
+      ['file.new', 'New sprite…', newDialog], ['file.open', 'Open a sprite…', openFile], ['file.save', 'Save', () => save(false)], ['file.saveas', 'Save as…', () => save(true)], ['file.export', 'Export…', exportDialog],
+      ['edit.undo', 'Undo', () => undo(false)], ['edit.redo', 'Redo', () => undo(true)], ['edit.copy', 'Copy', () => copy(false)], ['edit.cut', 'Cut', () => copy(true)], ['edit.paste', 'Paste', paste],
+      ['edit.all', 'Select all', selectAll], ['edit.none', 'Select nothing', deselect], ['edit.invert', 'Turn the selection round', invertSelection], ['edit.delete', 'Delete what is selected', () => clearSelection()],
+      ['frame.new', 'New frame (a copy)', () => addFrame(true)], ['frame.empty', 'New empty frame', () => addFrame(false)], ['frame.linked', 'New linked frame', () => addFrame(true, true)], ['frame.remove', 'Remove the frame', removeFrame],
+      ['frame.earlier', 'Move the frame earlier', () => moveFrame(-1)], ['frame.later', 'Move the frame later', () => moveFrame(1)], ['frame.tween', 'In-betweens…', tweenDialog], ['frame.timing', 'Frame timing…', timingDialog],
+      ['frame.tag', 'New tag…', () => tagDialog(null)], ['frame.play', 'Play / stop', () => (playing ? stop() : play())],
+      ['layer.new', 'New layer', addLayer], ['layer.group', 'New group', addGroup], ['layer.ungroup', 'Ungroup', ungroup], ['layer.tilemap', 'New tilemap layer', addTilemapLayer], ['layer.duplicate', 'Duplicate the layer', duplicateLayer],
+      ['layer.remove', 'Remove the layer', removeLayer], ['layer.merge', 'Merge down', mergeDown], ['layer.up', 'Layer up', () => moveLayer(1)], ['layer.down', 'Layer down', () => moveLayer(-1)],
+      ['tiles.mode', 'Tiles / pixels (tilemap layer)', () => setTileMode(!tileMode)], ['brush.smooth', 'Smooth lines: stronger (round to off)', () => cycleSmooth()],
+      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'),
+      ['view.tiled', 'Tiling: both ways / off', () => { view.tiled = view.tiled ? '' : 'both'; renderAll(); }], ['view.in', 'Zoom in', () => zoomBy(1)], ['view.out', 'Zoom out', () => zoomBy(-1)], ['view.fit', 'Fit the sprite in view', () => { fitZoom(); draw(); }],
+      ['view.reference', 'A floating reference picture…', floatingReference],
+      ...moreItems().filter(Boolean).map(([name, fn]) => [`sprite.${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`, name, fn]),
+      ...paletteItems().filter(Boolean).map(([name, fn]) => [`palette.${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`, `Palette: ${name}`, fn]),
+    ];
+    return list.map(([id, name, run]) => ({ id, name, run }));
+  }
+
+  // Shortcuts of one's own: a key (with Ctrl, Alt, Shift) for any command, kept in this browser's storage.
+  let myKeys = {};
+  try { myKeys = JSON.parse(localStorage.getItem('noorsprite.shortcuts') || '{}') || {}; } catch { myKeys = {}; }
+  const saveKeys = () => { try { localStorage.setItem('noorsprite.shortcuts', JSON.stringify(myKeys)); } catch { /* kept for now only */ } };
+  const comboOf = (e) => `${e.ctrlKey || e.metaKey ? 'Ctrl+' : ''}${e.altKey ? 'Alt+' : ''}${e.shiftKey ? 'Shift+' : ''}${e.key.length === 1 ? e.key.toUpperCase() : e.key}`;
+  const keysFor = (id) => Object.keys(myKeys).filter((k) => myKeys[k] === id);
+
+  function cycleSmooth() {
+    const i = STABILIZERS.findIndex(([v]) => v === opts.stabilize);
+    opts.stabilize = STABILIZERS[(i + 1) % STABILIZERS.length][0];
+    renderOptions();
+    notice(`Smooth lines: ${STABILIZERS.find(([v]) => v === opts.stabilize)[1]}`, 1000);
+  }
+
+  /** Ctrl+K: find a command by name and run it; ⌨ gives it a shortcut of one's own. */
+  function commandSearch() {
+    const all = commands();
+    NoorUI.modal({ label: 'NoorSprite commands', width: 520 }, (s2, closeIt) => {
+      const input = el('input', { type: 'text', id: 'sp-cmd-input', placeholder: 'What to do… (Enter runs the first)', 'aria-label': 'Find a command' });
+      const list = el('div', { class: 'sp-cmd-list', id: 'sp-cmd-list', role: 'listbox' });
+      let shown = [], pick = 0, capturing = null;
+      const run = (c) => { closeIt(); setTimeout(() => { c.run(); keepFocus(); }, 0); };
+      const render = () => {
+        const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+        shown = all.filter((c) => words.every((w) => c.name.toLowerCase().includes(w))).slice(0, 60);
+        pick = Math.min(pick, Math.max(0, shown.length - 1));
+        list.replaceChildren(...shown.map((c, i) => el('div', { class: 'sp-cmd' + (i === pick ? ' on' : ''), role: 'option', 'data-cmd': c.id, 'aria-selected': String(i === pick) },
+          el('button', { class: 'utility-btn sp-cmd-run', onclick: () => run(c) }, c.name),
+          el('span', { class: 'sp-cmd-keys', text: capturing === c.id ? 'press the keys…' : keysFor(c.id).join(', ') }),
+          el('button', { class: 'icon-btn', 'data-setkey': c.id, title: 'A shortcut of your own for this (press it; Backspace takes it away)', 'aria-label': `Shortcut for ${c.name}`, onclick: () => { capturing = c.id; render(); input.focus(); } }, '⌨'))));
+      };
+      input.addEventListener('input', () => { pick = 0; render(); });
+      // Keys: arrows choose, Enter runs; while a shortcut is being set, the next key is it.
+      s2.addEventListener('keydown', (e) => {
+        if (capturing) {
+          if (['Control', 'Shift', 'Alt', 'Meta'].includes(e.key)) return;
+          e.preventDefault(); e.stopPropagation();
+          for (const k of keysFor(capturing)) delete myKeys[k];
+          if (e.key !== 'Backspace' && e.key !== 'Escape') myKeys[comboOf(e)] = capturing;
+          capturing = null; saveKeys(); render();
+          return;
+        }
+        if (e.key === 'ArrowDown') { e.preventDefault(); pick = Math.min(shown.length - 1, pick + 1); render(); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); pick = Math.max(0, pick - 1); render(); }
+        else if (e.key === 'Enter' && shown[pick]) { e.preventDefault(); run(shown[pick]); }
+      }, true);
+      s2.append(NoorUI.head('Commands', closeIt), el('div', { class: 'modal-body sp-dlg' }, input, list));
+      render();
+      setTimeout(() => input.focus(), 0);
+    });
+  }
+
+  // A floating reference picture: a picture to look at while drawing, in a window of its own over NoorSprite.
+  async function floatingReference() {
+    try {
+      const r = await req('sprite.picture.pick');
+      if (!r || r.cancelled) return;
+      const im = r.image, cv = el('canvas', { width: String(im.width), height: String(im.height), class: 'sp-ref-canvas' });
+      cv.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(unb64(im.data)), im.width, im.height), 0, 0);
+      $('#sp-refwin')?.remove();
+      const head = el('div', { class: 'sp-ref-head' }, el('span', { text: `📌 ${r.name || 'Reference'}` }),
+        el('input', { type: 'range', min: '0.1', max: '1', step: '0.05', value: '1', 'aria-label': 'See-through', title: 'How see-through', oninput: (e) => { win.style.opacity = e.target.value; } }),
+        el('button', { class: 'icon-btn', title: 'Close', 'aria-label': 'Close the reference', onclick: () => win.remove() }, '✕'));
+      const win = el('div', { class: 'sp-refwin', id: 'sp-refwin', role: 'dialog', 'aria-label': 'Reference picture' }, head, el('div', { class: 'sp-ref-body' }, cv));
+      $('#spritebench').append(win);
+      // Dragged by its title; resized from its corner (the picture fits).
+      head.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('button, input')) return;
+        const sx = e.clientX - win.offsetLeft, sy = e.clientY - win.offsetTop;
+        const mv = (ev) => { win.style.left = `${ev.clientX - sx}px`; win.style.top = `${ev.clientY - sy}px`; };
+        const up = () => { document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up); };
+        document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+      });
+    } catch (err) { hooks.showError(err); }
+  }
+
   // ---------------------------------------------------------------- keys
 
   function onKey(e) {
@@ -3013,6 +3186,10 @@ window.NoorSprite = (() => {
     if (typing) return;
     const k = e.key.toLowerCase(), ctrl = e.ctrlKey || e.metaKey;
     const handled = () => { e.preventDefault(); e.stopPropagation(); };
+    // A shortcut of one's own goes first.
+    const mine = myKeys[comboOf(e)];
+    if (mine) { const c = commands().find((x) => x.id === mine); if (c) { handled(); c.run(); return; } }
+    if (ctrl && k === 'k' && !e.shiftKey) { handled(); commandSearch(); return; }
     if (e.key === ' ' && !ctrl) { spaceHeld = true; setCursor(); handled(); return; }
     if (e.key === 'Alt') { altHeld = true; setCursor(); handled(); return; }
     if (e.key === 'Escape') { handled(); if (floating) { commitFloating(); return; } if (selection) { deselect(); return; } if (!document.body.classList.contains('zen')) close(); return; }
@@ -3051,7 +3228,7 @@ window.NoorSprite = (() => {
     if (k === '0') { handled(); fitZoom(); draw(); return; }
     if (k === 'n' && e.shiftKey) { handled(); addLayer(); return; }
     if (k === 't') { handled(); setTileMode(!tileMode); return; }
-    if (k === 's') { handled(); const i = STABILIZERS.findIndex(([v]) => v === opts.stabilize); opts.stabilize = STABILIZERS[(i + 1) % STABILIZERS.length][0]; renderOptions(); notice(`Smooth lines: ${STABILIZERS.find(([v]) => v === opts.stabilize)[1]}`, 1000); return; }
+    if (k === 's') { handled(); cycleSmooth(); return; }
     const t = TOOLS.find((x) => x[3] === k);
     if (t) { handled(); setTool(t[0]); }
   }
@@ -3060,7 +3237,7 @@ window.NoorSprite = (() => {
   setInterval(() => { if (built && isOpen() && selection && !drag) draw(); }, 120);
 
   return {
-    init, open, close, toggle, isOpen,
+    init, open, close, toggle, isOpen, openFrom,
     _state: () => doc && ({
       width: doc.width, height: doc.height, layers: doc.layers.map((l) => ({ ...l })), frames: doc.frames.map((f) => ({ ...f })), tags: doc.tags.map((t) => ({ ...t })), palette: [...doc.palette],
       layer, frame, tool, fg: [...fg], bg: [...bg], opts: { ...opts }, view: { ...view }, history: history.length, future: future.length, dirty: dirty(), file,

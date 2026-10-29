@@ -549,6 +549,8 @@ function mockHostScript(initial) {
       case 'sprite.draft.clear': SPRITE.clears = (SPRITE.clears || 0) + 1; return { ok: true };
       case 'sprite.picture.pick': return { name: 'sheet', image: { width: 8, height: 4, data: px(8, 4, (x) => (x < 4 ? [255, 0, 0, 255] : [0, 0, 255, 255])) } };
       case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
+      case 'sprite.toTexture': SPRITE.toTexture = (SPRITE.toTexture || []).concat([{ name: p.name, width: p.width, height: p.height }]); return { path: `C:\\Local\\Sprite\\ToTexture\\${p.name}.png`, name: `${p.name}.png`, width: p.width, height: p.height };
+      case 'sprite.sound.pick': return { path: 'C:\\Sounds\\step.wav', name: 'step.wav' };
       case 'sprite.tiles.export': SPRITE.tiles = (SPRITE.tiles || []).concat([JSON.parse(JSON.stringify(p))]); return { files: [`${p.name}.png`, `${p.name}.tres`, `${p.name}_map.tscn`] };
       case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
       default: throw new Error('Unknown sprite command ' + type);
@@ -1120,6 +1122,7 @@ function mockHostScript(initial) {
       case 'gallery.editors': return GAL.editors;
       case 'gallery.editor.add': GAL.editors.push({ name: 'Affinity Photo 2', detected: false }); return { editors: GAL.editors };
       case 'gallery.editor.remove': GAL.editors.splice(p.index, 1); return { editors: GAL.editors };
+      case 'gallery.toSprite': GAL.toSprite = [...p.ids]; return { image: { width: 1, height: 1, data: '/wAA/w==' }, name: 'x.png' };
       case 'gallery.openWith': GAL.opened.push({ ids: [...p.ids], how: p.how, editor: p.editor }); return null;
       case 'gallery.toTexture': GAL.toTexture = (GAL.toTexture || []).concat([[...p.ids]]); GAL.toTextureMany = !!p.many; return { pictures: p.ids.map(get).map((i) => ({ path: `C:\\Pics\\${i.name}.jpg`, name: i.name + '.jpg', width: 1600, height: 1200 })), skipped: [] };
       case 'gallery.duplicates': { const by = new Map(); GAL.images.forEach((i) => { const k = i.id % 4; by.set(k, [...(by.get(k) || []), i]); }); return [...by.values()].filter((g) => g.length > 1).slice(0, 2).map((g) => ({ kind: 'same', items: g.slice(0, 3).map((i) => ({ ...i })) })); }

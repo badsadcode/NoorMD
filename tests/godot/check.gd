@@ -191,9 +191,11 @@ func _init() -> void:
 	var walk: Animation = ap.get_animation("walk")
 	var pos_track := walk.find_track(NodePath("hit/CollisionShape2D:position"), Animation.TYPE_VALUE)
 	var size_track := walk.find_track(NodePath("hit/CollisionShape2D:shape:size"), Animation.TYPE_VALUE)
-	check(walk.get_track_count() == 4 and pos_track >= 0 and walk.track_get_key_value(pos_track, 1) == Vector2(3, 1) and walk.track_get_key_value(size_track, 1) == Vector2(6, 2), "…the moving one moved on frame 2", [walk.get_track_count(), walk.track_get_key_value(pos_track, 1) if pos_track >= 0 else null])
+	check(walk.get_track_count() == 5 and pos_track >= 0 and walk.track_get_key_value(pos_track, 1) == Vector2(3, 1) and walk.track_get_key_value(size_track, 1) == Vector2(6, 2), "…the moving one moved on frame 2", [walk.get_track_count(), walk.track_get_key_value(pos_track, 1) if pos_track >= 0 else null])
 	var frame_track := walk.find_track(NodePath(".:frame"), Animation.TYPE_VALUE)
 	check(frame_track >= 0 and walk.track_get_key_count(frame_track) == 6 and is_equal_approx(walk.track_get_key_time(frame_track, 1), 0.1), "…the frames turning with their durations", walk.track_get_key_count(frame_track) if frame_track >= 0 else -1)
+	var audio_track := walk.find_track(NodePath("Sound"), Animation.TYPE_AUDIO)
+	check(hit.get_node("Sound") is AudioStreamPlayer2D and audio_track >= 0 and walk.track_get_key_count(audio_track) == 2 and walk.audio_track_get_key_stream(audio_track, 0) is AudioStream and is_equal_approx(walk.track_get_key_time(audio_track, 0), 0.1), "…a frame's sound played each time the frame comes", walk.track_get_key_count(audio_track) if audio_track >= 0 else -1)
 	hit.free()
 
 	# The shader itself: its code loads and declares what the plugin sets.

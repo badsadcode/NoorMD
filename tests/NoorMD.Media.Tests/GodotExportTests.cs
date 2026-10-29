@@ -237,7 +237,17 @@ public class GodotExportTests
             new() { Name = "hit", X = 0, Y = 0, Width = 4, Height = 4, Keys = [new() { Frame = 0, X = 0, Y = 0, Width = 4, Height = 4 }, new() { Frame = 1, X = 8, Y = 8, Width = 6, Height = 2 }] },
             new() { Name = "body", X = 4, Y = 4, Width = 8, Height = 8 },
         ];
-        File.WriteAllText(Path.Combine(dir, "sprite", "hero_hit.tscn"), NoorMD.Core.Sprite.GodotSprite.HitboxScene("Hero", "hero.tres", spriteFrames.Select(f => f.Duration).ToList(), spriteTags, hitSlices, 16, 16));
+        // A footstep on frame 2: a short WAV (8 kHz, 16-bit, 0.05 s of a tone), played by the AnimationPlayer.
+        var pcm = Enumerable.Range(0, 400).SelectMany(i => BitConverter.GetBytes((short)(Math.Sin(i * 0.3) * 8000))).ToArray();
+        using (var wav = new MemoryStream())
+        {
+            void S(string t) => wav.Write(System.Text.Encoding.ASCII.GetBytes(t));
+            void I(int v) => wav.Write(BitConverter.GetBytes(v));
+            void H(short v) => wav.Write(BitConverter.GetBytes(v));
+            S("RIFF"); I(36 + pcm.Length); S("WAVE"); S("fmt "); I(16); H(1); H(1); I(8000); I(16000); H(2); H(16); S("data"); I(pcm.Length); wav.Write(pcm);
+            File.WriteAllBytes(Path.Combine(dir, "sprite", "step.wav"), wav.ToArray());
+        }
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero_hit.tscn"), NoorMD.Core.Sprite.GodotSprite.HitboxScene("Hero", "hero.tres", spriteFrames.Select(f => f.Duration).ToList(), spriteTags, hitSlices, 16, 16, new Dictionary<int, string> { [1] = "step.wav" }));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

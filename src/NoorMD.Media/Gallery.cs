@@ -15,7 +15,10 @@ public static class ImageFormats
     private static readonly HashSet<string> Previewed = new(StringComparer.OrdinalIgnoreCase)
     {
         ".psd", ".psb", ".afphoto", ".afdesign", ".afpub", ".tif", ".tiff", ".heic", ".heif", ".jxl", ".kra", ".xcf", ".ico",
+        ".noorsprite", ".aseprite", ".ase",
     };
+    /// <summary>Sprites (NoorSprite's and Aseprite's): their first frame is the preview, and NoorSprite opens them.</summary>
+    public static bool IsSprite(string path) => Path.GetExtension(path).ToLowerInvariant() is ".noorsprite" or ".aseprite" or ".ase";
     public static bool IsImage(string path) => Web.ContainsKey(Path.GetExtension(path)) || Previewed.Contains(Path.GetExtension(path));
     /// <summary>Whether the browser can show the file itself (otherwise NoorMD makes a preview).</summary>
     public static bool IsWeb(string path) => Web.ContainsKey(Path.GetExtension(path));

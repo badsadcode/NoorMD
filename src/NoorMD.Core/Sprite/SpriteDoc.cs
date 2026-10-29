@@ -68,7 +68,12 @@ public sealed class SpriteDoc
             l.Opacity = Math.Clamp(l.Opacity, 0, 255);
             l.Blend = SpriteLayer.Blends.Contains(l.Blend) ? l.Blend : "normal";
         }
-        foreach (var f in Frames) f.Duration = Math.Clamp(f.Duration, 1, 65535);
+        foreach (var f in Frames)
+        {
+            f.Duration = Math.Clamp(f.Duration, 1, 65535);
+            if (f.Sound != null && (string.IsNullOrWhiteSpace(f.Sound.Path) || f.Sound.Path.Length > 2000)) f.Sound = null;
+            if (f.Sound != null) f.Sound.Name = string.IsNullOrWhiteSpace(f.Sound.Name) ? System.IO.Path.GetFileName(f.Sound.Path) : f.Sound.Name[..Math.Min(f.Sound.Name.Length, 120)];
+        }
         var seen = new HashSet<(string, int)>();
         Tilesets = (Tilesets ?? []).Where(t => t != null).Take(64).Select(t => t.Checked()).ToList();
         var groups = new HashSet<string>();
@@ -191,6 +196,14 @@ public sealed class SpriteFrame
 {
     /// <summary>How long it shows, in milliseconds.</summary>
     public int Duration { get; set; } = 100;
+    /// <summary>A sound the frame plays when it comes (a file the user chose), for engine exports.</summary>
+    public SpriteSound? Sound { get; set; }
+}
+
+public sealed class SpriteSound
+{
+    public string Path { get; set; } = "";
+    public string Name { get; set; } = "";
 }
 
 public sealed class SpriteCel

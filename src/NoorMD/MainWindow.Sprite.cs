@@ -20,6 +20,27 @@ public partial class MainWindow
 
     private static object SpriteWire(SpriteDoc doc) => JsonDocument.Parse(doc.ToJson()).RootElement.Clone();
 
+    /// <summary>A sprite (.noorsprite, .aseprite) or a picture, as NoorSprite opens it: the file the user chose.</summary>
+    private static object SpriteOpenPath(string path)
+    {
+        var name = Path.GetFileName(path);
+        try
+        {
+            if (path.EndsWith(SpriteFile.Extension, StringComparison.OrdinalIgnoreCase))
+                return new { sprite = SpriteWire(SpriteFile.Load(path)), path, name, notes = Array.Empty<string>() };
+            if (path.EndsWith(".aseprite", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ase", StringComparison.OrdinalIgnoreCase))
+            {
+                if (new FileInfo(path).Length > SpriteFile.MaxFileBytes) throw new BridgeError("That file is too large.");
+                var (doc, notes) = AsepriteFile.Read(File.ReadAllBytes(path));
+                return new { sprite = SpriteWire(doc), path, name, notes };
+            }
+            var (w, h, rgba) = SpritePicture(path);
+            if (w > SpriteDoc.MaxSide || h > SpriteDoc.MaxSide) throw new BridgeError($"A sprite is at most {SpriteDoc.MaxSide} pixels a side; that picture is {w} × {h}.");
+            return new { image = new { width = w, height = h, data = Convert.ToBase64String(rgba) }, name };
+        }
+        catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+    }
+
     /// <summary>Slices measured at an export's scale (their keys too).</summary>
     private static List<SpriteSlice> ScaledSlices(List<SpriteSlice> slices, int scale) => slices.Select(x => new SpriteSlice
     {
@@ -81,22 +102,28 @@ public partial class MainWindow
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var path = dlg.FileName;
-                var name = Path.GetFileName(path);
-                try
-                {
-                    if (path.EndsWith(SpriteFile.Extension, StringComparison.OrdinalIgnoreCase))
-                        return new { sprite = SpriteWire(await Task.Run(() => SpriteFile.Load(path))), path, name, notes = Array.Empty<string>() };
-                    if (path.EndsWith(".aseprite", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ase", StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (new FileInfo(path).Length > SpriteFile.MaxFileBytes) throw new BridgeError("That file is too large.");
-                        var (doc, notes) = await Task.Run(() => AsepriteFile.Read(File.ReadAllBytes(path)));
-                        return new { sprite = SpriteWire(doc), path, name, notes };
-                    }
-                    var (w, h, rgba) = await Task.Run(() => SpritePicture(path));
-                    if (w > SpriteDoc.MaxSide || h > SpriteDoc.MaxSide) throw new BridgeError($"A sprite is at most {SpriteDoc.MaxSide} pixels a side; that picture is {w} × {h}.");
-                    return new { image = new { width = w, height = h, data = Convert.ToBase64String(rgba) }, name };
-                }
-                catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+                return await Task.Run(() => SpriteOpenPath(path));
+            }
+            case "sprite.toTexture":
+            {
+                // A frame or a tileset for the Texture Bench: written as a PNG of the app's own and allowed for it.
+                int w = p.GetProperty("width").GetInt32(), h = p.GetProperty("height").GetInt32();
+                var data = Convert.FromBase64String(p.GetProperty("data").GetString() ?? "");
+                if (w < 1 || h < 1 || w > 4096 || h > 4096 || data.Length != w * h * 4) throw new BridgeError("The picture doesn't match its size.");
+                var name = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 120) is { Length: > 0 } n ? n : "sprite", "");
+                var folder = Path.Combine(App.Paths.Local, "Sprite", "ToTexture");
+                Directory.CreateDirectory(folder);
+                var file = Path.Combine(folder, $"{name}-{DateTime.UtcNow:yyyyMMddHHmmssfff}.png");
+                await Task.Run(() => NoorMD.Core.Documents.AtomicFile.WriteAllBytes(file, SpritePng.Encode(w, h, data)));
+                _textureImageFiles.Add(Path.GetFullPath(file));
+                return new { path = Path.GetFullPath(file), name = name + ".png", width = w, height = h };
+            }
+            case "sprite.sound.pick":
+            {
+                var dlg = new OpenFileDialog { Title = "A sound for this frame (a footstep, a swing…)", Filter = "Sounds (*.wav;*.ogg;*.mp3)|*.wav;*.ogg;*.mp3", CheckFileExists = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                return new { path = dlg.FileName, name = Path.GetFileName(dlg.FileName) };
             }
             case "sprite.picture.pick":
             {
@@ -221,8 +248,22 @@ public partial class MainWindow
                             File.WriteAllText(target, GodotSprite.SpriteFrames(baseName + ".png", placed, tags));
                             var scene = Path.Combine(dir, baseName + ".tscn");
                             // With hitboxes: an Area2D per slice and an AnimationPlayer keeping them with the frames.
-                            if (p.TryGetProperty("hitboxes", out var hb) && hb.ValueKind == JsonValueKind.True && slices.Count > 0)
-                                File.WriteAllText(scene, GodotSprite.HitboxScene(baseName, Path.GetFileName(target), frames.Select(f => f.Duration).ToList(), tags, ScaledSlices(slices, scale), frames[0].Width, frames[0].Height));
+                            // Frames' sounds: the files the sprite names, copied beside the scene.
+                            var sounds = new Dictionary<int, string>();
+                            if (p.TryGetProperty("sounds", out var se) && se.ValueKind == JsonValueKind.Array)
+                                foreach (var s in se.EnumerateArray())
+                                {
+                                    var fi = s.TryGetProperty("frame", out var fe2) && fe2.TryGetInt32(out var fv) ? fv : -1;
+                                    var from = s.TryGetProperty("path", out var pe) ? pe.GetString() : null;
+                                    if (fi < 0 || fi >= frames.Count || string.IsNullOrEmpty(from) || !File.Exists(from) || new FileInfo(from).Length > 64L * 1024 * 1024) continue;
+                                    if (Path.GetExtension(from).ToLowerInvariant() is not (".wav" or ".ogg" or ".mp3")) continue;
+                                    var to = Path.Combine(dir, Path.GetFileName(from));
+                                    if (!string.Equals(Path.GetFullPath(from), Path.GetFullPath(to), StringComparison.OrdinalIgnoreCase)) { File.Copy(from, to, true); files.Add(to); }
+                                    sounds[fi] = Path.GetFileName(from);
+                                }
+                            var withHitboxes = p.TryGetProperty("hitboxes", out var hb) && hb.ValueKind == JsonValueKind.True && slices.Count > 0;
+                            if (withHitboxes || sounds.Count > 0)
+                                File.WriteAllText(scene, GodotSprite.HitboxScene(baseName, Path.GetFileName(target), frames.Select(f => f.Duration).ToList(), tags, withHitboxes ? ScaledSlices(slices, scale) : [], frames[0].Width, frames[0].Height, sounds));
                             else
                                 File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
                             files.Add(png); files.Add(target); files.Add(scene);

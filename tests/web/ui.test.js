@@ -6323,6 +6323,118 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66k. NoorSprite: the command search, shortcuts of one's own, a floating reference picture, pen pressure.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '32'); await page.fill('#sp-nh', '32'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 32);
+      // Ctrl+K: NoorSprite's own command search.
+      await page.keyboard.press('Control+k');
+      await page.waitForSelector('#sp-cmd-input');
+      check('Ctrl+K in NoorSprite opens its command search (not the app\'s)', !!(await page.$('#sp-cmd-list .sp-cmd')) && (await page.$$('#sp-cmd-list .sp-cmd')).length > 40);
+      await page.fill('#sp-cmd-input', 'new group');
+      check('…typing narrows it', (await page.$$eval('#sp-cmd-list .sp-cmd-run', (n) => n.map((x) => x.textContent))).join('|') === 'New group');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorSprite._state().layers.length === 2);
+      check('…Enter runs it', (await SS()).layers.some((l) => l.kind === 'group'));
+      // A shortcut of one's own: Shift+O shows onion skin.
+      await page.keyboard.press('Control+k'); await page.waitForSelector('#sp-cmd-input');
+      await page.fill('#sp-cmd-input', 'onion');
+      await page.click('#sp-cmd-list [data-setkey="view.onion"]');
+      await page.keyboard.press('Shift+O');
+      check('⌨ then a key: the command has a shortcut of its own', /Shift\+O/.test(await page.textContent('#sp-cmd-list [data-cmd="view.onion"] .sp-cmd-keys')));
+      await page.keyboard.press('Escape');
+      await page.keyboard.press('Shift+O');
+      check('…pressing it runs the command', (await SS()).view.onion === true);
+      await page.keyboard.press('Shift+O');
+      check('…again (it toggles)', (await SS()).view.onion === false);
+      check('…and it is remembered', (await page.evaluate(() => localStorage.getItem('noorsprite.shortcuts'))).includes('view.onion'));
+      // A floating reference picture.
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("A floating reference picture")');
+      await page.waitForSelector('#sp-refwin');
+      const before = await page.$eval('#sp-refwin', (w) => w.offsetLeft);
+      const h = await page.$('#sp-refwin .sp-ref-head span'); const hb = await h.boundingBox();
+      await page.mouse.move(hb.x + 5, hb.y + 5); await page.mouse.down(); await page.mouse.move(hb.x - 95, hb.y + 25, { steps: 5 }); await page.mouse.up();
+      check('a floating reference picture: a window over NoorSprite, dragged by its title', (await page.$eval('#sp-refwin', (w) => w.offsetLeft)) < before - 50 && (await SS()).layers.length === 2);
+      await page.click('#sp-refwin [aria-label="Close the reference"]');
+      check('…and closed', !(await page.$('#sp-refwin')));
+      // Pen pressure: a light pen draws thinner.
+      await page.keyboard.press('b');
+      await page.click('#sp-timeline [data-layer="1"] .sp-tl-name');
+      await page.fill('[data-opt="size"]', '5'); await page.press('[data-opt="size"]', 'Enter');
+      await page.check('[data-opt="pressure"]');
+      const pen = async (x, y, pressure) => page.evaluate(([x2, y2, pr]) => {
+        const p = NoorSprite._screen(x2, y2), cv = document.getElementById('sp-canvas');
+        const o = { pointerId: 7, pointerType: 'pen', pressure: pr, clientX: p.x, clientY: p.y, bubbles: true, button: 0, buttons: 1 };
+        cv.dispatchEvent(new PointerEvent('pointerdown', o)); cv.dispatchEvent(new PointerEvent('pointerup', { ...o, buttons: 0 }));
+      }, [x, y, pressure]);
+      await pen(8, 8, 0.2);
+      await pen(20, 20, 1);
+      const a = (x, y) => page.evaluate(([p, q]) => NoorSprite._pixel(p, q)[3], [x, y]);
+      check('pen pressure: pressed lightly a dot, pressed hard the whole brush', (await a(8, 8)) === 255 && (await a(9, 8)) === 0 && (await a(22, 20)) === 255 && (await a(18, 20)) === 255);
+      check('no page errors with commands, shortcuts, the reference and pressure', errors.length === 0, errors);
+      await page.evaluate(() => localStorage.removeItem('noorsprite.shortcuts'));
+      await page.close();
+    }
+
+    // ---- 66l. NoorSprite with the other benches: a decal for NoorForge, a material in the Texture Bench, frame sounds, the Gallery.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 3, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '8'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      await page.keyboard.press('b');
+      const p0 = await at(2, 2); await page.mouse.click(p0.x, p0.y);
+      // A decal for NoorForge: the frame's shape, grown by whole steps.
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("This frame to NoorForge")');
+      await waitFn(page, () => window.NoorForge && NoorForge.isOpen() && NoorForge._state().recipe && (NoorForge._state().recipe.pictures || []).length === 1);
+      const pic = await page.evaluate(() => NoorForge._state().recipe.pictures[0]);
+      const g = await page.evaluate((d) => { const b = atob(d); return [b.length, b.charCodeAt(0), b.charCodeAt(40 * 256 + 40)]; }, pic.data);
+      check('This frame to NoorForge: a decal of its shape (16× bigger, white where drawn)', pic.width === 256 && pic.height === 128 && g[0] === 256 * 128 && g[1] === 0 && g[2] === 255 && pic.id[0] === 'd');
+      // The Texture Bench.
+      await page.evaluate(() => NoorSprite.open());
+      await waitFn(page, () => NoorSprite.isOpen() && document.querySelector('#spritebench').offsetParent);
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("This frame to the Texture Bench")');
+      await waitFn(page, () => (window.__mock.state.sprite.toTexture || []).length === 1);
+      await waitFn(page, () => window.NoorTexture && NoorTexture.isOpen());
+      check('This frame to the Texture Bench: a picture of the app\'s own, a new material from it', (await SM()).toTexture[0].width === 16);
+      // A frame's sound.
+      await page.evaluate(() => NoorSprite.open());
+      await waitFn(page, () => NoorSprite.isOpen() && document.querySelector('#spritebench').offsetParent);
+      await page.click('#sp-sound-pick');
+      await waitFn(page, () => NoorSprite._state().frames[0].sound);
+      check('a frame gets a sound (♪ in the timeline)', (await SS()).frames[0].sound.name === 'step.wav' && /♪/.test(await page.textContent('#sp-timeline [data-frame="0"]')));
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'godot'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      check('…sent with the Godot export', (await SM()).exports[0].sounds[0].path === 'C:\\Sounds\\step.wav' && (await SM()).exports[0].sounds[0].frame === 0);
+      check('…kept in the sprite', (await page.evaluate(() => NoorSprite._wire())).frames[0].sound.name === 'step.wav');
+      await page.click('#sp-sound-clear');
+      check('…and taken away', !(await SS()).frames[0].sound);
+      // The Gallery: Open in › NoorSprite.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.sprite.saves || []).length >= 1);
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('#gallery:not([hidden]) .gallery-tile');
+      await page.click('.gallery-tile[data-index="0"]', { button: 'right' });
+      await page.hover('.menu-popup .menu-item:has-text("Open in")');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("NoorSprite")');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state().width === 1);
+      check('Gallery › Open in › NoorSprite opens the picture as a sprite', (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,0,0,255');
+      check('no page errors with the other benches', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

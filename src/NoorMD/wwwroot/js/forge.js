@@ -691,6 +691,23 @@ window.NoorForge = (() => {
     return pic;
   }
 
+  /**
+   * A picture from another bench (NoorSprite's frame) as a decal: greyscale, white paints ({ name, width, height,
+   * data: base64 of a byte a pixel }); chosen for the stamp tool.
+   */
+  async function addPicture(pic) {
+    await open();
+    if (pictures().length >= 24) { notice('A recipe keeps at most 24 pictures: remove one first', 2400); return null; }
+    if (!pic || !(pic.width >= 1 && pic.width <= 1024 && pic.height >= 1 && pic.height <= 1024)) return null;
+    const p = { id: 'd' + Math.random().toString(36).slice(2, 12), name: String(pic.name || 'Picture').slice(0, 60), width: pic.width, height: pic.height, data: pic.data };
+    clearTimeout(snapTimer); pushHistory();
+    pictures().push(p);
+    pushHistory();
+    stamp.picture = p.id;
+    notice(`${p.name}: a decal for the stamp tool`, 2000);
+    return p;
+  }
+
   /** Text drawn into a greyscale picture (one line per line of text, centred), at most 1024 across. */
   function textPicture(text, family, bold) {
     const lines = text.split(/\r?\n/).slice(0, 6), size = 160, pad = 16;
@@ -1113,7 +1130,7 @@ window.NoorForge = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen, openAsset, _paintAt: (hits, opts) => paintHits(hits, opts),
+    init, open, close, toggle, isOpen, openAsset, addPicture, _paintAt: (hits, opts) => paintHits(hits, opts),
     /** For tests: the stencil's u, v (as the app works them out) at the surface under a point of the canvas. */
     _textPicture: (text) => textPicture(text, FONTS.sans, true),
     _stencilUv: (x, y) => {

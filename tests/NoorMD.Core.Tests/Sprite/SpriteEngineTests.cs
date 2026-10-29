@@ -81,4 +81,38 @@ public class SpriteEngineTests
         Assert.Equal(2, keys[1].GetProperty("frame").GetInt32());
         Assert.Equal(4, keys[1].GetProperty("bounds").GetProperty("x").GetInt32()); // at the export's scale
     }
+
+    [Fact]
+    public void The_app_composes_a_frame_for_thumbnails_and_keeps_frame_sounds()
+    {
+        // Two layers: red at (0,0) under a half see-through blue layer in a hidden-free group; a reference layer left out.
+        byte[] One(byte r, byte g, byte b) => [r, g, b, 255, 0, 0, 0, 0];
+        var doc = new SpriteDoc
+        {
+            Width = 2, Height = 1, Frames = [new SpriteFrame { Sound = new SpriteSound { Path = @"C:\s\step.wav", Name = "step.wav" } }],
+            Layers = [new SpriteLayer { Id = "ref", Name = "R", Reference = true }, new SpriteLayer { Id = "a", Name = "A" }, new SpriteLayer { Id = "g", Name = "G", Kind = "group", Opacity = 128 }, new SpriteLayer { Id = "b", Name = "B", Parent = "g" }],
+            Cels =
+            [
+                new SpriteCel { Layer = "ref", Frame = 0, Width = 2, Height = 1 }.WithPixels([0, 255, 0, 255, 0, 255, 0, 255]),
+                new SpriteCel { Layer = "a", Frame = 0, Width = 2, Height = 1 }.WithPixels(One(255, 0, 0)),
+                new SpriteCel { Layer = "b", Frame = 0, Width = 2, Height = 1 }.WithPixels(One(0, 0, 255)),
+            ],
+        }.Checked();
+        var px = SpriteRender.Frame(doc, 0);
+        Assert.Equal(255, px[3]);
+        Assert.InRange(px[0], 120, 135);   // red under half blue (the group's opacity)
+        Assert.InRange(px[2], 120, 135);
+        Assert.Equal(0, px[7]);            // the reference layer isn't there
+        var (w, h, big) = SpriteRender.Fit(2, 1, px, 64);
+        Assert.Equal((64, 32), (w, h));    // grown by a whole step (32×)
+        Assert.Equal(px[0], big[0]);
+        var path = Path.Combine(Path.GetTempPath(), $"noorsprite-{Guid.NewGuid():N}.noorsprite");
+        try
+        {
+            SpriteFile.Save(path, doc);
+            Assert.Equal((64, 32), SpritePng.Decode(SpriteRender.Thumbnail(path, 64)!) is var (tw, th, _) ? (tw, th) : (0, 0));
+            Assert.Equal("step.wav", SpriteFile.Load(path).Frames[0].Sound!.Name);
+        }
+        finally { File.Delete(path); }
+    }
 }

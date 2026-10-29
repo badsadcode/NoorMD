@@ -466,6 +466,7 @@ window.NoorGallery = (() => {
     const eds = status.editors || [];
     return [
       { label: '🧱 Texture Bench', sub: () => textureMenu(ids) },
+      { label: '👾 NoorSprite', disabled: ids.length !== 1 || !window.NoorSprite, run: () => req('gallery.toSprite', { ids }).then((r) => NoorSprite.openFrom(r)).catch(hooks.showError) },
       '-',
       ...eds.map((e, i) => ({ label: e.name, run: () => req('gallery.openWith', { ids, how: 'editor', editor: i }).catch(hooks.showError) })),
       ...(eds.length ? ['-'] : []),
