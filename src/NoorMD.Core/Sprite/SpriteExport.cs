@@ -131,7 +131,7 @@ public static class SpriteExport
             ["app"] = "NoorMD NoorSprite", ["version"] = "1", ["image"] = $"{name}.png", ["format"] = "RGBA8888",
             ["size"] = new JsonObject { ["w"] = sheet.Width, ["h"] = sheet.Height }, ["scale"] = scale.ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["frameTags"] = new JsonArray(tags.Select(t => (JsonNode)new JsonObject { ["name"] = t.Name, ["from"] = t.From, ["to"] = t.To, ["direction"] = t.Direction, ["color"] = t.Color }).ToArray()),
-            ["layers"] = new JsonArray(layers.Where(l => !l.Reference).Select(l => (JsonNode)new JsonObject { ["name"] = l.Name, ["opacity"] = l.Opacity, ["blendMode"] = l.Blend }).ToArray()),
+            ["layers"] = new JsonArray(layers.Where(l => !l.Reference).Select(l => (JsonNode)Layer(l, layers)).ToArray()),
             ["slices"] = new JsonArray(slices.Select(sl =>
             {
                 var key = new JsonObject { ["frame"] = 0, ["bounds"] = new JsonObject { ["x"] = sl.X * scale, ["y"] = sl.Y * scale, ["w"] = sl.Width * scale, ["h"] = sl.Height * scale } };
@@ -141,6 +141,15 @@ public static class SpriteExport
             }).ToArray()),
         };
         return json.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>A layer as Aseprite's JSON has it: a group with no blend, a layer in a group naming it.</summary>
+    private static JsonNode Layer(SpriteLayer l, IReadOnlyList<SpriteLayer> all)
+    {
+        var o = new JsonObject { ["name"] = l.Name };
+        if (l.Parent != null && all.FirstOrDefault(g => g.Id == l.Parent) is { } g) o["group"] = g.Name;
+        if (l.Kind != "group") { o["opacity"] = l.Opacity; o["blendMode"] = l.Blend; }
+        return o;
     }
 
     /// <summary>A sheet and its JSON in one go (the hash form; tags and layers).</summary>

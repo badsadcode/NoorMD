@@ -5496,7 +5496,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const px = (x, y, l, f) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d), [x, y, l === undefined ? null : l, f]);
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
       const click = async (x, y, opts) => { const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
-      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 4 }); } await page.mouse.up(); };
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 4 }); } await page.mouse.up(); };
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
       let st = await SS();
@@ -5821,7 +5821,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const SS = () => page.evaluate(() => NoorSprite._state());
       const SM = () => page.evaluate(() => window.__mock.state.sprite);
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
-      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
       await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
@@ -5882,7 +5882,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const SM = () => page.evaluate(() => window.__mock.state.sprite);
       const TL = () => page.evaluate(() => NoorSprite._tiles());
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
-      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
       await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
@@ -6009,7 +6009,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const SS = () => page.evaluate(() => NoorSprite._state());
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
       const a = (x, y, l, f) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
-      const strokeTo = async (pts, steps = 5) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps }); } await page.mouse.up(); };
+      const strokeTo = async (pts, steps = 5) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps }); } await page.mouse.up(); };
       const fresh = async (w, h) => { await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok'); await page.fill('#sp-nw', String(w)); await page.fill('#sp-nh', String(h)); await page.click('#sp-new-ok'); const sure = await page.waitForSelector('button.action.primary:has-text("New sprite")', { timeout: 1500 }).catch(() => null); if (sure) await sure.click(); await waitFn(page, (ww) => NoorSprite._state().width === ww, w); };
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
@@ -6103,6 +6103,107 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a turned tile left alone keeps its turn when the tile is drawn on', (tl[1] & 0x1fffffff) !== 0 && (tl[1] & ~0x1fffffff) !== 0);
       check('no page errors in this NoorSprite batch', errors.length === 0, errors);
       if (shots) await page.screenshot({ path: `${shots}/66g-noorsprite-batch.png` });
+      await page.close();
+    }
+
+    // ---- 66h. NoorSprite: layer groups, gradients, pattern fills, squash and smear in-betweens.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const px = (x, y, l, f) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d), [x, y, l, f]);
+      const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      const names = async () => page.$$eval('#sp-timeline .sp-layername', (n) => n.map((x) => x.textContent));
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      // Groups.
+      await page.keyboard.press('b');
+      await strokeTo([[1, 1], [1, 1]]);
+      await page.click('#sp-addgroup');
+      let st = await SS();
+      check('📁 puts the layer in a new group (the group first, then what is in it)', st.layers.length === 2 && st.layers[0].kind === 'group' && st.layers[1].parent === st.layers[0].id && st.layer === 0);
+      check('…the timeline shows the group above its layer, the layer indented', (await names()).join('|') === '📁 Group 1|Layer 1' && !!(await page.$('#sp-timeline .sp-tl-group')));
+      await page.click('#sp-addlayer');
+      st = await SS();
+      check('a new layer on a group goes in it, at the top', st.layers.length === 3 && st.layers[2].parent === st.layers[0].id && st.layer === 2 && (await names()).join('|') === '📁 Group 1|Layer 2|Layer 1');
+      await strokeTo([[2, 2], [2, 2]]);
+      await page.click('#sp-timeline [data-layer="0"] .sp-tl-name');
+      await page.click('#sp-timeline [data-layer="0"] .sp-tl-name .icon-btn[aria-label^="Show"]');
+      check('hiding the group hides what is in it', (await px(1, 1, null))[3] === 0 && (await px(2, 2, null))[3] === 0);
+      await page.keyboard.press('Control+z');
+      await page.fill('#sp-opacity', '128'); await page.$eval('#sp-opacity', (i) => i.dispatchEvent(new Event('change')));
+      check('the group\'s opacity is its layers\'', (await px(1, 1, null))[3] === 128);
+      await page.keyboard.press('Control+z');
+      await page.click('[data-fold="0"]');
+      check('a group folds (its layers out of sight)', (await names()).join('|') === '📁 Group 1' && (await SS()).layers[0].collapsed);
+      await page.click('[data-fold="0"]');
+      // Out of the group and back in.
+      await page.click('#sp-timeline [data-layer="2"] .sp-tl-name');
+      await page.selectOption('#sp-ingroup', '');
+      st = await SS();
+      check('a layer taken out of its group goes to the top, on its own', !st.layers[st.layer].parent && st.layer === 2 && (await names()).join('|') === 'Layer 2|📁 Group 1|Layer 1');
+      await page.selectOption('#sp-ingroup', st.layers[0].id);
+      st = await SS();
+      check('…and back into the group', st.layers[st.layer].parent === st.layers[0].id && (await names()).join('|') === '📁 Group 1|Layer 2|Layer 1');
+      // Moving: up past the group's edge takes a layer out of it.
+      await page.click('#sp-timeline [data-layer="1"] .sp-tl-name');
+      await page.click('#sp-timeline .sp-tl-foot [aria-label="Layer up"]');
+      check('↑ moves a layer past the one beside it, within the group', (await names()).join('|') === '📁 Group 1|Layer 1|Layer 2');
+      await page.click('#sp-timeline .sp-tl-foot [aria-label="Layer up"]');
+      check('↑ at the top of a group takes it out, above the group', (await names()).join('|') === 'Layer 1|📁 Group 1|Layer 2');
+      // Saved with the group.
+      const w = await page.evaluate(() => NoorSprite._wire());
+      check('the sprite keeps the group and who is in it', w.layers.some((l) => l.kind === 'group') && w.layers.filter((l) => l.parent).length === 1 && w.cels.every((c) => w.layers.find((l) => l.id === c.layer).kind !== 'group'));
+      await page.click('#sp-timeline [data-layer="0"] .sp-tl-name');
+      await page.click('#sp-ungroup');
+      check('Ungroup: the layers stay, the group goes', (await names()).join('|') === 'Layer 1|Layer 2' && (await SS()).layers.every((l) => !l.parent && l.kind !== 'group'));
+      // Gradient (dithered): two colours only, in an even pattern.
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '4'); await page.click('#sp-new-ok');
+      const sure = await page.waitForSelector('button.action.primary:has-text("New sprite")', { timeout: 1500 }).catch(() => null); if (sure) await sure.click();
+      await waitFn(page, () => NoorSprite._state().height === 4);
+      await page.keyboard.press('d');
+      check('D: the gradient tool, dithered and straight at first', (await SS()).tool === 'gradient' && (await page.inputValue('#sp-gradblend')) === 'dither');
+      await strokeTo([[0, 1], [15, 1]]);
+      const row = []; for (let x = 0; x < 16; x++) row.push((await px(x, 0)).join());
+      check('a dithered gradient: the drawing colour on the left, the second on the right, only those two', row[0] === '0,0,0,255' && row[15] === '255,255,255,255' && new Set(row).size === 2);
+      await page.selectOption('#sp-gradblend', 'smooth');
+      await strokeTo([[0, 1], [15, 1]]);
+      const mid = (await px(8, 0))[0];
+      check('…smooth: every shade between', mid > 100 && mid < 160);
+      // Pattern fill.
+      await page.keyboard.press('g');
+      await page.selectOption('#sp-pattern', 'checker');
+      await page.click('#sp-tools [data-tool="fill"]');
+      await page.keyboard.press('Control+a'); await page.keyboard.press('Delete'); await page.keyboard.press('Control+d');
+      await strokeTo([[3, 2], [3, 2]]);
+      check('a pattern fill: checkers of the two colours', (await px(0, 0)).join() === '0,0,0,255' && (await px(1, 0)).join() === '255,255,255,255' && (await px(1, 1)).join() === '0,0,0,255');
+      // In-betweens with squash and stretch, and a smear.
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '48'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      const sure2 = await page.waitForSelector('button.action.primary:has-text("New sprite")', { timeout: 1500 }).catch(() => null); if (sure2) await sure2.click();
+      await waitFn(page, () => NoorSprite._state().width === 48);
+      await page.keyboard.press('u'); await page.check('[data-opt="filled"]');
+      await strokeTo([[2, 6], [5, 9]]);
+      await page.click('#sp-addframe');
+      await page.keyboard.press('Control+a'); await page.keyboard.press('Delete'); await page.keyboard.press('Control+d');
+      await strokeTo([[42, 6], [45, 9]]);
+      await page.keyboard.press(',');
+      await page.click('#sp-tween'); await page.waitForSelector('#sp-tw-ok');
+      await page.fill('#sp-tw-count', '1'); await page.selectOption('#sp-tw-style', 'squash'); await page.click('#sp-tw-ok');
+      // The middle frame: the 4×4 box at x 22–25 stretched across (about 5 wide) and squashed down (about 3 high).
+      let wide = 0, high = 0; for (let x = 15; x < 33; x++) if ((await px(x, 7, 0, 1))[3]) wide++; for (let y = 2; y < 14; y++) if ((await px(23, y, 0, 1))[3]) high++;
+      check('squash and stretch: the middle frame longer along the move, thinner across', wide > 4 && high < 4, [wide, high]);
+      await page.keyboard.press('Control+z');
+      await page.click('#sp-tween'); await page.waitForSelector('#sp-tw-ok');
+      await page.fill('#sp-tw-count', '1'); await page.selectOption('#sp-tw-style', 'smear'); await page.click('#sp-tw-ok');
+      let trail = 0; for (let x = 0; x < 48; x++) if ((await px(x, 7, 0, 1))[3]) trail++;
+      check('a smear: the middle frame trails back towards where it was', trail > 12, trail);
+      check('no page errors with groups, gradients, patterns and smears', errors.length === 0, errors);
+      if (shots) await page.screenshot({ path: `${shots}/66h-noorsprite-groups.png` });
       await page.close();
     }
 

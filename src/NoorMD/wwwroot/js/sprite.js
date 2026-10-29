@@ -18,7 +18,7 @@ window.NoorSprite = (() => {
   };
   const TOOLS = [
     ['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['fill', '🪣', 'Fill (G)', 'g'], ['line', '╱', 'Line (L)', 'l'],
-    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'],
+    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
     ['select', '⬚', 'Select a rectangle (M)', 'm'], ['eselect', '◌', 'Select an ellipse', null], ['lasso', '➰', 'Lasso (Q)', 'q'], ['wand', '🪄', 'Magic wand (W)', 'w'],
     ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
   ];
@@ -30,11 +30,17 @@ window.NoorSprite = (() => {
   let layer = 0, frame = 0; // the layer (index, bottom first) and frame being drawn
   let tool = 'pencil';
   let fg = [0, 0, 0, 255], bg = [255, 255, 255, 255];
-  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, radial: 0, axisX: null, axisY: null, ink: 'simple', dither: 0, custom: false, stabilize: 0 };
+  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, radial: 0, axisX: null, axisY: null, ink: 'simple', dither: 0, custom: false, stabilize: 0, gradShape: 'linear', gradBlend: 'dither', pattern: 'solid' };
   let brushImage = null;    // a brush cut from the sprite: { px, w, h }
   // Ordered dithering (a 4 × 4 Bayer matrix): a pixel is drawn when its cell is under the level (of 16).
   // The stabilizer: the brush hangs on a string this long (screen pixels) behind the cursor, so lines come out smooth.
   const STABILIZERS = [[0, 'off'], [16, 'gentle'], [32, 'medium'], [64, 'strong'], [112, 'very strong']];
+  // Fill patterns: where the first colour goes (else the second).
+  const PATTERNS = {
+    solid: ['solid', () => true], checker: ['checkers', (x, y) => ((x + y) & 1) === 0], dots: ['dots', (x, y) => (x & 1) === 0 && (y & 1) === 0],
+    hlines: ['lines across', (x, y) => (y & 1) === 0], vlines: ['lines down', (x) => (x & 1) === 0], diag: ['diagonals', (x, y) => ((x + y) & 3) === 0],
+    bricks: ['bricks', (x, y) => (y & 3) === 3 || ((x + ((y >> 2) & 1) * 4) & 7) === 0], b25: ['25 %', (x, y) => BAYER[(y & 3) * 4 + (x & 3)] < 4], b75: ['75 %', (x, y) => BAYER[(y & 3) * 4 + (x & 3)] < 12],
+  };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
   let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '' };
@@ -106,6 +112,27 @@ window.NoorSprite = (() => {
 
   const cel = (l = layer, f = frame) => doc.cels.get(key(doc.layers[l].id, f)) || null;
 
+  // ---------------------------------------------------------------- layer groups
+
+  // A group is a layer of kind 'group' with no pictures; the layers in it name it as their parent and come right after
+  // it in the list (the group first, then what is in it, bottom first — as Aseprite keeps them).
+  const isGroup = (l) => !!l && l.kind === 'group';
+  /** The layers a layer is in, nearest first. */
+  function ancestors(d, l) {
+    const out = [];
+    for (let p = l.parent, n = 0; p && n < 64; n++) { const g = d.layers.find((x) => x.id === p); if (!g) break; out.push(g); p = g.parent; }
+    return out;
+  }
+  const shown = (d, l) => l.visible && ancestors(d, l).every((g) => g.visible);
+  const lockedLayer = (d, l) => l.locked || ancestors(d, l).some((g) => g.locked);
+  /** The index of the last layer inside group gi (gi itself when it is empty or not a group). */
+  function blockEnd(d, gi) {
+    const id = d.layers[gi].id;
+    let e = gi;
+    while (e + 1 < d.layers.length && ancestors(d, d.layers[e + 1]).some((g) => g.id === id)) e++;
+    return e;
+  }
+
   /**
    * A cel put in place; a linked cel (one picture on several frames) puts the same picture on every frame it is
    * linked to, so drawing on one draws on all.
@@ -157,11 +184,12 @@ window.NoorSprite = (() => {
   function compose(f, d = doc, only = null, forExport = false) {
     const n = d.width * d.height, out = new Uint8ClampedArray(n * 4);
     d.layers.forEach((l, li) => {
-      if (only ? !only.includes(li) : !l.visible) return;
+      if (isGroup(l)) return;
+      if (only ? !only.includes(li) : !shown(d, l)) return;
       if (forExport && l.reference) return;
       const c = d.cels.get(key(l.id, f));
       if (!c) return;
-      const k = (l.opacity / 255) * (c.opacity / 255);
+      const k = (l.opacity / 255) * (c.opacity / 255) * (only ? 1 : ancestors(d, l).reduce((m, g) => m * g.opacity / 255, 1));
       if (k <= 0) return;
       const px = c.px;
       for (let i = 0; i < n; i++) {
@@ -381,6 +409,19 @@ window.NoorSprite = (() => {
       if (opts.mirrorX || opts.mirrorY || opts.radial) parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Axes' }), axis('axisX', 'Vertical axis at x'), axis('axisY', 'Horizontal axis at y')),
         el('button', { class: 'utility-btn', id: 'sp-axes-middle', title: 'The axes back in the middle', onclick: () => { opts.axisX = opts.axisY = null; renderOptions(); draw(); } }, 'Middle'));
     }
+    if (tool === 'fill' && !tilesOn()) {
+      const pat = el('select', { 'data-opt': 'pattern', id: 'sp-pattern', 'aria-label': 'Pattern', title: 'Fill with a pattern of the two colours (right click swaps them)' }, ...Object.entries(PATTERNS).map(([v, [l]]) => el('option', { value: v, text: l })));
+      pat.value = opts.pattern; pat.addEventListener('change', () => { opts.pattern = pat.value; keepFocus(); });
+      parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Pattern' }), pat));
+    }
+    if (tool === 'gradient') {
+      const shape = el('select', { 'data-opt': 'gradShape', id: 'sp-gradshape', 'aria-label': 'Gradient shape' }, el('option', { value: 'linear', text: 'straight' }), el('option', { value: 'radial', text: 'round' }));
+      shape.value = opts.gradShape; shape.addEventListener('change', () => { opts.gradShape = shape.value; keepFocus(); });
+      const blend = el('select', { 'data-opt': 'gradBlend', id: 'sp-gradblend', 'aria-label': 'Gradient blend', title: 'Dithered: only the two colours, mixed in an even pattern (pixel art); smooth: every colour between' }, el('option', { value: 'dither', text: 'dithered' }), el('option', { value: 'smooth', text: 'smooth' }));
+      blend.value = opts.gradBlend; blend.addEventListener('change', () => { opts.gradBlend = blend.value; keepFocus(); });
+      parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Shape' }), shape), el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
+        el('span', { class: 'pref-hint', text: 'Inside the selection when there is one' }));
+    }
     if (tool === 'fill' || tool === 'wand') parts.push(check('contiguous', 'touching only', 'Only the area touching the click (else every pixel of that colour)'), num('tolerance', 'Tolerance', 0, 255, 'How different a colour may be and still count as the same'));
     if (tool === 'rect' || tool === 'ellipse') parts.push(check('filled', 'filled', 'Filled (else only the outline); Shift: a square or a circle'));
     if (['select', 'eselect', 'lasso', 'wand'].includes(tool)) parts.push(el('span', { class: 'pref-hint', text: 'Shift: add · Alt: take away · Ctrl+A all · Ctrl+D none · Ctrl+Shift+I turn round' }));
@@ -402,10 +443,30 @@ window.NoorSprite = (() => {
     cop.addEventListener('change', () => change('Cel opacity', (d) => { const k = key(d.layers[layer].id, frame); const old = d.cels.get(k); if (old) putCel(d, k, { ...old, opacity: Number(cop.value) }); }));
     const dur = el('input', { type: 'number', min: '1', max: '65535', value: String(doc.frames[frame].duration), class: 'sb-num', id: 'sp-duration', 'aria-label': 'Frame duration (ms)' });
     dur.addEventListener('change', () => { const v = Math.max(1, Math.min(65535, Math.round(Number(dur.value) || 100))); change('Frame duration', (d) => { d.frames[frame].duration = v; }); });
+    // Which group the layer is in (not itself or a group inside it).
+    const inside = new Set(doc.layers.slice(layer, blockEnd(doc, layer) + 1).map((x) => x.id));
+    const groupsTo = doc.layers.filter((g) => isGroup(g) && !inside.has(g.id));
+    const ingroup = groupsTo.length || l.parent ? (() => {
+      const sel = el('select', { id: 'sp-ingroup', 'aria-label': 'In group' }, el('option', { value: '', text: 'no group' }), ...groupsTo.map((g) => el('option', { value: g.id, text: g.name })));
+      sel.value = l.parent || '';
+      sel.addEventListener('change', () => moveIntoGroup(sel.value || null));
+      return el('label', { class: 'sb-inline', title: 'Put the layer in a group (at its top), or take it out' }, el('span', { text: 'In' }), sel);
+    })() : null;
+    if (isGroup(l)) {
+      box.replaceChildren(...[
+        el('h4', { class: 'music-subhead', text: `Group “${l.name}”` }),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
+        ingroup,
+        el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sp-ungroup', title: 'The layers stay; the group goes', onclick: ungroup }, 'Ungroup')),
+        el('h4', { class: 'music-subhead', text: `Frame ${frame + 1}` }),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur)].filter(Boolean));
+      return;
+    }
     box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: `Layer “${l.name}”` }),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
+      ingroup,
       (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-reference', checked: l.reference || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A reference layer' : 'Not a reference layer', (d) => { d.layers[layer].reference = c2.checked; })); return el('label', { class: 'sb-inline', title: 'A picture to draw over or trace: shown here, never exported' }, c2, el('span', { text: 'reference (not exported)' })); })(),
       el('label', { class: 'sb-inline', title: 'This frame\'s picture on the layer' }, el('span', { text: 'Cel opacity' }), cop),
       c && c.link ? el('div', { class: 'sb-row', id: 'sp-linkinfo' }, el('span', { class: 'pref-hint', text: `🔗 on ${linkCount()} frames` }), el('button', { class: 'utility-btn', id: 'sp-unlink', title: 'This frame gets a picture of its own', onclick: unlinkCel }, 'Unlink')) : null,
@@ -467,10 +528,27 @@ window.NoorSprite = (() => {
       el('div', { class: 'sp-tl-tagband', style: `grid-template-columns: repeat(${doc.frames.length}, var(--sp-cell))` },
         ...doc.tags.map((t, ti) => el('button', { class: 'sp-tag', 'data-tag': String(ti), style: `grid-column: ${t.from + 1} / ${t.to + 2}; --c:${t.color.slice(0, 7)}`, title: `${t.name}: frames ${t.from + 1}–${t.to + 1}, ${t.direction} (click: play it; double-click: change)`,
           onclick: () => play(ti), ondblclick: () => tagDialog(ti) }, t.name)))) : null;
-    const rows = [...doc.layers.keys()].reverse().map((li) => {
+    // Top first, a group's row above its layers (folded groups hide them).
+    const order = [];
+    const walk = (pid, depth) => {
+      const kids = [];
+      doc.layers.forEach((l, i) => { if ((l.parent || null) === pid) kids.push(i); });
+      for (const i of kids.reverse()) { order.push([i, depth]); if (isGroup(doc.layers[i]) && !doc.layers[i].collapsed) walk(doc.layers[i].id, depth + 1); }
+    };
+    walk(null, 0);
+    const rows = order.map(([li, depth]) => {
       const l = doc.layers[li];
+      if (isGroup(l)) {
+        return el('div', { class: 'sp-tl-row sp-tl-group' + (li === layer ? ' on' : ''), 'data-layer': String(li) },
+          el('div', { class: 'sp-tl-name', style: `padding-left:${4 + depth * 12}px`, onclick: () => { layer = li; renderAll(); keepFocus(); }, ondblclick: () => renameLayer(li) },
+            el('button', { class: 'icon-btn', 'aria-expanded': String(!l.collapsed), title: l.collapsed ? 'Unfold the group' : 'Fold the group', 'aria-label': `Fold ${l.name}`, 'data-fold': String(li), onclick: (e) => { e.stopPropagation(); toggleCollapsed(li); } }, l.collapsed ? '▸' : '▾'),
+            el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide the group)' : 'Hidden', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.visible ? 'Hide a group' : 'Show a group', (d) => { d.layers[li].visible = !l.visible; }); } }, l.visible ? '👁' : '◌'),
+            el('button', { class: 'icon-btn', 'aria-pressed': String(l.locked), title: l.locked ? 'Locked (click to unlock)' : 'Unlocked', 'aria-label': `Lock ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.locked ? 'Unlock a group' : 'Lock a group', (d) => { d.layers[li].locked = !l.locked; }); } }, l.locked ? '🔒' : '🔓'),
+            el('span', { class: 'sp-layername sp-groupname', text: `📁 ${l.name}` })),
+          ...doc.frames.map(() => el('span', { class: 'sp-tl-cel sp-tl-none', 'aria-hidden': 'true' })));
+      }
       return el('div', { class: 'sp-tl-row' + (li === layer ? ' on' : ''), 'data-layer': String(li) },
-        el('div', { class: 'sp-tl-name', onclick: () => { layer = li; renderAll(); keepFocus(); }, ondblclick: () => renameLayer(li) },
+        el('div', { class: 'sp-tl-name', style: depth ? `padding-left:${4 + depth * 12}px` : null, onclick: () => { layer = li; renderAll(); keepFocus(); }, ondblclick: () => renameLayer(li) },
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.visible ? 'Hide a layer' : 'Show a layer', (d) => { d.layers[li].visible = !l.visible; }); } }, l.visible ? '👁' : '◌'),
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.locked), title: l.locked ? 'Locked (click to unlock)' : 'Unlocked', 'aria-label': `Lock ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.locked ? 'Unlock a layer' : 'Lock a layer', (d) => { d.layers[li].locked = !l.locked; }); } }, l.locked ? '🔒' : '🔓'),
           el('span', { class: 'sp-layername' + (l.reference ? ' ref' : ''), text: (l.reference ? '📌 ' : l.kind === 'tilemap' ? '▦ ' : '') + l.name })),
@@ -481,6 +559,7 @@ window.NoorSprite = (() => {
     });
     const layerBar = el('div', { class: 'sp-tl-row sp-tl-foot' }, el('div', { class: 'sp-tl-name' },
       el('button', { class: 'icon-btn', id: 'sp-addlayer', title: 'New layer (Shift+N)', 'aria-label': 'New layer', onclick: addLayer }, '＋'),
+      el('button', { class: 'icon-btn', id: 'sp-addgroup', title: 'New group holding this layer (Ctrl+G here)', 'aria-label': 'New group', onclick: addGroup }, '📁'),
       el('button', { class: 'icon-btn', id: 'sp-addtilemap', title: 'New tilemap layer: draw with tiles of the grid\'s size', 'aria-label': 'New tilemap layer', onclick: addTilemapLayer }, '▦'),
       el('button', { class: 'icon-btn', title: 'Duplicate the layer', 'aria-label': 'Duplicate the layer', onclick: duplicateLayer }, '⧉'),
       el('button', { class: 'icon-btn', id: 'sp-dellayer', title: 'Remove the layer', 'aria-label': 'Remove the layer', disabled: doc.layers.length < 2 || undefined, onclick: removeLayer }, '🗑'),
@@ -553,40 +632,107 @@ window.NoorSprite = (() => {
     });
   }
 
+  /** A new layer above this one (in its group; on a group, at the top inside it). */
   function addLayer() {
     change('New layer', (d) => {
-      d.layers.splice(layer + 1, 0, { id: newId(), name: `Layer ${d.layers.length + 1}`, visible: true, locked: false, opacity: 255, blend: 'normal' });
-      layer++;
+      const cur = d.layers[layer], inGroup = isGroup(cur), at = (inGroup ? blockEnd(d, layer) : isGroup(cur) ? layer : blockEnd(d, layer)) + 1;
+      const parent = inGroup ? cur.id : cur.parent;
+      d.layers.splice(at, 0, { id: newId(), name: `Layer ${d.layers.filter((l) => !isGroup(l)).length + 1}`, visible: true, locked: false, opacity: 255, blend: 'normal', ...(parent ? { parent } : {}) });
+      layer = at;
     });
+  }
+
+  /** A new group holding this layer (or this group). */
+  function addGroup() {
+    change('New group', (d) => {
+      const cur = d.layers[layer], id = newId();
+      d.layers.splice(layer, 0, { id, name: `Group ${d.layers.filter(isGroup).length + 1}`, visible: true, locked: false, opacity: 255, blend: 'normal', kind: 'group', ...(cur.parent ? { parent: cur.parent } : {}) });
+      d.layers[layer + 1] = { ...cur, parent: id };
+    });
+  }
+
+  /** The group's layers out of it, the group gone. */
+  function ungroup() {
+    const g = doc.layers[layer];
+    if (!isGroup(g)) return;
+    change('Ungroup', (d) => {
+      const gid = d.layers[layer].id, up = d.layers[layer].parent;
+      d.layers = d.layers.filter((l) => l.id !== gid).map((l) => (l.parent === gid ? (up ? { ...l, parent: up } : (({ parent, ...rest }) => (void parent, rest))(l)) : l));
+      layer = Math.min(layer, d.layers.length - 1);
+    });
+  }
+
+  /** This layer (with what is in it) into a group, at the top inside it — or out of every group (gid null). */
+  function moveIntoGroup(gid) {
+    const cur = doc.layers[layer];
+    if ((cur.parent || null) === gid) return;
+    change(gid ? 'Into a group' : 'Out of the group', (d) => {
+      const s0 = layer, e0 = blockEnd(d, layer), block = d.layers.slice(s0, e0 + 1);
+      if (gid && block.some((l) => l.id === gid)) return; // not into itself
+      d.layers.splice(s0, e0 - s0 + 1);
+      const head = gid ? { ...block[0], parent: gid } : (({ parent, ...rest }) => (void parent, rest))(block[0]);
+      const gi = gid ? d.layers.findIndex((l) => l.id === gid) : -1;
+      const at = gid ? blockEnd(d, gi) + 1 : d.layers.length;
+      d.layers.splice(at, 0, head, ...block.slice(1));
+      layer = at;
+    });
+  }
+
+  function toggleCollapsed(li) {
+    change(doc.layers[li].collapsed ? 'Unfold a group' : 'Fold a group', (d) => { d.layers[li] = { ...d.layers[li], collapsed: !d.layers[li].collapsed }; });
   }
 
   function duplicateLayer() {
     change('Duplicate a layer', (d) => {
-      const src = d.layers[layer], id = newId();
-      d.layers.splice(layer + 1, 0, { ...src, id, name: `${src.name} copy` });
-      d.frames.forEach((_, f) => { const c = d.cels.get(key(src.id, f)); if (c) d.cels.set(key(id, f), c); });
-      layer++;
+      // The layer (a group with everything in it), new ids, just above it.
+      const e = blockEnd(d, layer), block = d.layers.slice(layer, e + 1), ids = new Map(block.map((l) => [l.id, newId()]));
+      const copies = block.map((l, i) => ({ ...l, id: ids.get(l.id), name: i === 0 ? `${l.name} copy` : l.name, ...(l.parent && ids.has(l.parent) ? { parent: ids.get(l.parent) } : {}) }));
+      d.layers.splice(e + 1, 0, ...copies);
+      for (const l of block) d.frames.forEach((_, f) => { const c = d.cels.get(key(l.id, f)); if (c) d.cels.set(key(ids.get(l.id), f), c); });
+      layer = e + 1;
     });
   }
 
   function removeLayer() {
-    if (doc.layers.length < 2) return;
-    change('Remove a layer', (d) => {
-      const id = d.layers[layer].id;
-      d.frames.forEach((_, f) => d.cels.delete(key(id, f)));
-      d.layers.splice(layer, 1);
-      layer = Math.max(0, layer - 1);
+    const e = blockEnd(doc, layer);
+    if (doc.layers.filter((l, i) => !isGroup(l) && (i < layer || i > e)).length < 1) { notice('A sprite keeps at least one layer', 1400); return; }
+    change(isGroup(doc.layers[layer]) ? 'Remove a group' : 'Remove a layer', (d) => {
+      for (const l of d.layers.slice(layer, e + 1)) d.frames.forEach((_, f) => d.cels.delete(key(l.id, f)));
+      d.layers.splice(layer, e - layer + 1);
+      layer = Math.max(0, Math.min(d.layers.length - 1, layer - 1));
     });
   }
 
+  /**
+   * Up or down past the next layer (or group, whole) beside it in its group; at the group's edge, out of the group
+   * (above it or below it).
+   */
   function moveLayer(by) {
-    const to = layer + by;
-    if (to < 0 || to >= doc.layers.length) return;
-    change('Move a layer', (d) => { [d.layers[layer], d.layers[to]] = [d.layers[to], d.layers[layer]]; layer = to; });
+    const d0 = doc, s0 = layer, e0 = blockEnd(d0, s0), me = d0.layers[s0], parent = me.parent || null;
+    let target = null; // [insert index after removing the block, new parent]
+    if (by > 0) {
+      const n = e0 + 1;
+      if (n < d0.layers.length && (d0.layers[n].parent || null) === parent) target = [blockEnd(d0, n) - (e0 - s0), parent];
+      else if (parent) { const gi = d0.layers.findIndex((l) => l.id === parent); target = [blockEnd(d0, gi) - (e0 - s0), d0.layers[gi].parent || null]; }
+    } else {
+      // The sibling just below: the start of the block that ends right before us.
+      let p = s0 - 1;
+      if (p >= 0 && d0.layers[p].id === parent) { target = [p, d0.layers[p].parent || null]; } // at the group's bottom: out, below the group
+      else if (p >= 0) { while (p >= 0 && (d0.layers[p].parent || null) !== parent) p--; if (p >= 0) target = [p, parent]; }
+    }
+    if (!target) return;
+    change('Move a layer', (d) => {
+      const block = d.layers.splice(s0, e0 - s0 + 1);
+      const head = target[1] ? { ...block[0], parent: target[1] } : (({ parent: _p, ...rest }) => (void _p, rest))(block[0]);
+      d.layers.splice(target[0], 0, head, ...block.slice(1));
+      layer = target[0];
+    });
   }
 
   function mergeDown() {
     if (layer === 0) return;
+    const top0 = doc.layers[layer], below0 = doc.layers[layer - 1];
+    if (isGroup(top0) || isGroup(below0) || (top0.parent || null) !== (below0.parent || null)) { notice('Merge down joins two layers side by side in the same group', 1800); return; }
     change('Merge down', (d) => {
       const top = d.layers[layer], below = d.layers[layer - 1];
       d.frames.forEach((_, f) => {
@@ -990,8 +1136,9 @@ window.NoorSprite = (() => {
   }
 
   function canDraw() {
-    if (doc.layers[layer].locked) { notice('That layer is locked (🔒 in the timeline)', 1500); return false; }
-    if (!doc.layers[layer].visible) { notice('That layer is hidden', 1200); return false; }
+    if (isGroup(doc.layers[layer])) { notice('A group has no picture of its own: choose a layer in it', 1600); return false; }
+    if (lockedLayer(doc, doc.layers[layer])) { notice('That layer is locked (🔒 in the timeline)', 1500); return false; }
+    if (!shown(doc, doc.layers[layer])) { notice('That layer is hidden', 1200); return false; }
     return true;
   }
 
@@ -1013,7 +1160,8 @@ window.NoorSprite = (() => {
       if (p.x < 0 || p.y < 0 || p.x >= doc.width || p.y >= doc.height) return;
       const src = (cel() || { px: new Uint8ClampedArray(doc.width * doc.height * 4) }).px;
       const pts = mirrored([[p.x, p.y]]).flatMap(([x, y]) => (x >= 0 && y >= 0 && x < doc.width && y < doc.height ? fillPoints(src, x, y, opts.contiguous, opts.tolerance) : []));
-      change('Fill', () => { const px = editable(); for (const [x, y] of pts) plot(px, x, y, colour); });
+      const [c1, c2] = e.button === 2 ? [bg, fg] : [fg, bg], pf = (PATTERNS[opts.pattern] || PATTERNS.solid)[1];
+      change(opts.pattern === 'solid' ? 'Fill' : 'Pattern fill', () => { const px = editable(); for (const [x, y] of pts) plot(px, x, y, pf(x, y) ? c1 : c2); });
       return;
     }
     if (t === 'pencil' || t === 'eraser') {
@@ -1023,6 +1171,13 @@ window.NoorSprite = (() => {
         ink: t === 'pencil' ? opts.ink : 'simple', shadeDir: e.button === 2 ? -1 : 1, shaded: new Set(), custom: t === 'pencil' && opts.custom && brushImage,
         lazy: opts.stabilize ? { x: p.fx, y: p.fy, cx: p.cx, cy: p.cy } : null };
       stamp(p.x, p.y);
+      draw();
+      return;
+    }
+    if (t === 'gradient') {
+      const base = cel();
+      drag = { kind: 'gradient', from: [p.fx, p.fy], to: [p.fx, p.fy], c1: e.button === 2 ? bg : fg, c2: e.button === 2 ? fg : bg, base: base ? base.px : new Uint8ClampedArray(doc.width * doc.height * 4) };
+      drag.preview = gradientPixels(drag);
       draw();
       return;
     }
@@ -1103,6 +1258,22 @@ window.NoorSprite = (() => {
     notice(`A ${w} × ${h} brush from the sprite`, 1400);
   }
 
+  /** A gradient from one colour to the other along the drag (straight) or out from where it began (round). */
+  function gradientPixels(d) {
+    const px = new Uint8ClampedArray(d.base), W = doc.width, H = doc.height;
+    const [x0, y0] = d.from, [x1, y1] = d.to, dx = x1 - x0, dy = y1 - y0, len2 = dx * dx + dy * dy || 1, len = Math.sqrt(len2);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!inside(x, y)) continue;
+      const cx = x + 0.5, cy = y + 0.5;
+      let t = opts.gradShape === 'radial' ? Math.hypot(cx - x0, cy - y0) / len : ((cx - x0) * dx + (cy - y0) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const o = (y * W + x) * 4;
+      if (opts.gradBlend === 'dither') px.set(t * 16 > BAYER[(y & 3) * 4 + (x & 3)] + 0.5 ? d.c2 : d.c1, o);
+      else for (let k = 0; k < 4; k++) px[o + k] = Math.round(d.c1[k] + (d.c2[k] - d.c1[k]) * t);
+    }
+    return px;
+  }
+
   function shapePreview(e, d = drag) {
     const px = new Uint8ClampedArray(d.base);
     let [x1, y1] = d.to;
@@ -1138,6 +1309,7 @@ window.NoorSprite = (() => {
       return;
     }
     if (drag.kind === 'shape') { drag.to = [p.x, p.y]; drag.preview = shapePreview(e); draw(); return; }
+    if (drag.kind === 'gradient') { drag.to = [p.fx, p.fy]; drag.preview = gradientPixels(drag); draw(); return; }
     if (drag.kind === 'select') { moveSelect(p, e); return; }
     if (drag.kind === 'slice') { drag.to = [p.x, p.y]; draw(); return; }
     if (drag.kind === 'move') { floating.x = drag.fx + (p.x - drag.px); floating.y = drag.fy + (p.y - drag.py); draw(); }
@@ -1149,6 +1321,7 @@ window.NoorSprite = (() => {
     if (!d) return;
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'gradient') change('Gradient', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'tiles') putTiles(d.value ? 'Place tiles' : 'Take tiles away', d.map);
     else if (d.kind === 'select') endSelect(d);
     else if (d.kind === 'slice') endSlice(d);
@@ -1675,7 +1848,25 @@ window.NoorSprite = (() => {
    * In-betweens: `count` new frames before frame `to`, in which this layer's picture on frame `from` moves (eased)
    * towards where it is on frame `to`; the other layers keep frame `from`'s pictures.
    */
-  function tween(from, to, count, ease) {
+  /** A picture scaled (nearest) about a point: sx across, sy down. */
+  function scaledAbout(px, W, H, cx, cy, sx, sy) {
+    const out = new Uint8ClampedArray(W * H * 4);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const qx = Math.floor(cx + (x + 0.5 - cx) / sx), qy = Math.floor(cy + (y + 0.5 - cy) / sy);
+      if (qx < 0 || qy < 0 || qx >= W || qy >= H) continue;
+      out.set(px.subarray((qy * W + qx) * 4, (qy * W + qx) * 4 + 4), (y * W + x) * 4);
+    }
+    return out;
+  }
+
+  /** b under a: where a is clear, b shows. */
+  function under(a, b) {
+    const out = new Uint8ClampedArray(a);
+    for (let i = 0; i < out.length; i += 4) if (!out[i + 3] && b[i + 3]) out.set(b.subarray(i, i + 4), i);
+    return out;
+  }
+
+  function tween(from, to, count, ease, style = 'move') {
     const lid = doc.layers[layer].id, a = doc.cels.get(key(lid, from)), b = doc.cels.get(key(lid, to));
     const W = doc.width, H = doc.height, ba = a && drawnBox(a.px, W, H), bb = b && drawnBox(b.px, W, H);
     if (!ba || !bb) { notice('This layer needs a picture on both frames to move between', 2000); return false; }
@@ -1691,7 +1882,20 @@ window.NoorSprite = (() => {
           const c = d.cels.get(key(l.id, from));
           if (!c) return;
           const { link, ...plain } = c; void link;
-          d.cels.set(key(l.id, at), l.id === lid ? { ...plain, px: shifted(c.px, W, H, Math.round(dx * t), Math.round(dy * t)) } : plain);
+          if (l.id !== lid) { d.cels.set(key(l.id, at), plain); return; }
+          const ox = Math.round(dx * t), oy = Math.round(dy * t);
+          let px = shifted(c.px, W, H, ox, oy);
+          if (style === 'squash') {
+            // Stretched along the move (most in the middle of it), thinner across, about the picture's middle.
+            const k = 1 + 0.35 * Math.sin(Math.PI * (i / (count + 1))), across = Math.abs(dx) >= Math.abs(dy);
+            const mx = (ba.x0 + ba.x1 + 1) / 2 + ox, my = (ba.y0 + ba.y1 + 1) / 2 + oy;
+            px = scaledAbout(px, W, H, mx, my, across ? k : 1 / k, across ? 1 / k : k);
+          } else if (style === 'smear') {
+            // Copies trailing back towards where it was a frame before, under the picture.
+            const pt = f((i - 1) / (count + 1)), px0 = Math.round(dx * pt), py0 = Math.round(dy * pt);
+            for (const q of [0.25, 0.5, 0.75]) px = under(px, shifted(c.px, W, H, Math.round(px0 + (ox - px0) * q), Math.round(py0 + (oy - py0) * q)));
+          }
+          d.cels.set(key(l.id, at), { ...plain, px });
         });
       }
       frame = to;
@@ -1706,15 +1910,16 @@ window.NoorSprite = (() => {
       const to = el('input', { type: 'number', min: String(frame + 2), max: String(doc.frames.length), value: String(frame + 2), id: 'sp-tw-to', 'aria-label': 'To frame' });
       const count = el('input', { type: 'number', min: '1', max: '30', value: '3', id: 'sp-tw-count', 'aria-label': 'How many frames' });
       const ease = el('select', { id: 'sp-tw-ease', 'aria-label': 'Easing' }, ...[['linear', 'evenly'], ['inout', 'slow – fast – slow'], ['in', 'speeding up'], ['out', 'slowing down']].map(([v, l]) => el('option', { value: v, text: l })));
+      const style = el('select', { id: 'sp-tw-style', 'aria-label': 'How it moves' }, ...[['move', 'as it is'], ['squash', 'squash and stretch'], ['smear', 'with a smear behind']].map(([v, l]) => el('option', { value: v, text: l })));
       const ok = () => {
         const b = Math.max(frame + 1, Math.min(doc.frames.length - 1, Number(to.value) - 1)), n = Math.max(1, Math.min(30, Math.round(Number(count.value) || 1)));
         closeIt();
-        tween(frame, b, n, ease.value);
+        tween(frame, b, n, ease.value, style.value);
       };
       s.append(NoorUI.head('In-betweens', closeIt),
         el('div', { class: 'modal-body sp-dlg' },
           el('p', { class: 'pref-hint', text: `The layer “${doc.layers[layer].name}” moves from frame ${frame + 1} to where it is on the frame you choose; new frames go in between.` }),
-          el('label', {}, 'To frame ', to), el('label', {}, 'New frames ', count), el('label', {}, 'Moving ', ease)),
+          el('label', {}, 'To frame ', to), el('label', {}, 'New frames ', count), el('label', {}, 'Moving ', ease), el('label', {}, 'Looks ', style)),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-tw-ok', onclick: ok }, 'Make them'))));
     });
   }
@@ -2393,7 +2598,7 @@ window.NoorSprite = (() => {
       for (let j = 1; j <= n; j++) strip.set(t.tiles[j], (j - 1) * t.tw * t.th * 4);
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}) };
     });
-    const layers = d.layers.map((l) => (l.kind === 'tilemap' ? l : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
+    const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
     return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), cels };
   }
 
@@ -2404,7 +2609,11 @@ window.NoorSprite = (() => {
       for (let j = 0; j < (t.count || 0); j++) tiles.push(new Uint8ClampedArray(strip.subarray(j * size, (j + 1) * size)));
       return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles };
     });
-    for (const l of d.layers) if (l.kind !== 'tilemap' || !d.tilesets[l.tileset]) { delete l.kind; delete l.tileset; }
+    for (const l of d.layers) {
+      if (l.kind === 'group') { delete l.tileset; continue; }
+      if (l.kind !== 'tilemap' || !d.tilesets[l.tileset]) { delete l.kind; delete l.tileset; }
+    }
+    for (const l of d.layers) if (!l.parent) delete l.parent;
     const kinds = new Map(d.layers.map((l) => [l.id, l]));
     for (const c of w.cels || []) {
       const l = kinds.get(c.layer);
@@ -2553,7 +2762,7 @@ window.NoorSprite = (() => {
         closeIt();
         try {
           const r = await req('sprite.export', { kind: kind.value, frames, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags, slices: doc.slices || [],
-            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference })), ...(doc.indexed ? { palette: doc.palette } : {}) });
+            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference, ...(isGroup(l) ? { kind: 'group' } : {}), ...(l.parent ? { parent: l.parent } : {}) })), ...(doc.indexed ? { palette: doc.palette } : {}) });
           if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
         } catch (err) { hooks.showError(err); }
       };
@@ -2586,6 +2795,7 @@ window.NoorSprite = (() => {
       if (k === 'i' && e.shiftKey) { handled(); invertSelection(); return; }
       if (k === 'c') { handled(); copy(false); return; }
       if (k === 'b') { handled(); brushFromSelection(); return; }
+      if (k === 'g') { handled(); if (e.shiftKey) ungroup(); else addGroup(); return; }
       if (k === 'x') { handled(); copy(true); return; }
       if (k === 'v') { handled(); paste(); return; }
       return;

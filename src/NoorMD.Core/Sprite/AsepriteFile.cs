@@ -7,7 +7,7 @@ namespace NoorMD.Core.Sprite;
 /// <summary>
 /// Aseprite's .aseprite / .ase files, read and written from its published file specification (no Aseprite or
 /// LibreSprite code). Reading takes RGBA, greyscale and indexed sprites (their pixels as RGBA, an indexed one marked
-/// so), image layers (groups and tilemaps are passed over, their names noted), raw, linked and compressed cels, frame
+/// so), image layers and groups (tilemaps are passed over, their names noted), raw, linked and compressed cels, frame
 /// durations, tags and the palette. Writing makes an RGBA sprite with compressed cels, the palette, layers and tags —
 /// or an indexed one when the sprite is indexed and every pixel is a palette colour.
 /// </summary>
@@ -36,6 +36,7 @@ public static class AsepriteFile
         // Layers as the file lists them; null for the ones passed over (groups, tilemaps).
         var layers = new List<SpriteLayer?>();
         var skipped = new List<string>();
+        var groupAt = new List<string>(); // the open group at each level
         var p = 128;
         for (var f = 0; f < frames; f++)
         {
@@ -57,24 +58,28 @@ public static class AsepriteFile
                 {
                     case ChunkLayer:
                     {
-                        int flags = U16(d, 0), kind = U16(d, 2), blend = U16(d, 10), opacity = d[12];
+                        int flags = U16(d, 0), kind = U16(d, 2), level = U16(d, 4), blend = U16(d, 10), opacity = d[12];
                         var (name, after) = Str(d, 16);
-                        if (kind != 0) { layers.Add(null); skipped.Add($"{(kind == 1 ? "group" : "tilemap")} “{name}”"); break; }
+                        if (kind is not (0 or 1)) { layers.Add(null); skipped.Add($"tilemap “{name}”"); break; }
+                        // A layer's group: the last group seen one level up.
+                        while (groupAt.Count > level) groupAt.RemoveAt(groupAt.Count - 1);
                         var layer = new SpriteLayer
                         {
                             Id = $"L{layers.Count + 1}", Name = name, Visible = (flags & 1) != 0, Locked = (flags & 2) == 0, Reference = (flags & 64) != 0,
+                            Kind = kind == 1 ? "group" : "image", Collapsed = kind == 1 && (flags & 32) != 0, Parent = level > 0 && groupAt.Count == level ? groupAt[level - 1] : null,
                             Opacity = (headerFlags & 1) != 0 ? opacity : 255,
                             Blend = blend < BlendNames.Length && SpriteLayer.Blends.Contains(BlendNames[blend]) ? BlendNames[blend] : "normal",
                         };
                         if (blend < BlendNames.Length && !SpriteLayer.Blends.Contains(BlendNames[blend])) notes.Add($"Layer “{name}” blends as {BlendNames[blend]}, which NoorSprite shows as normal.");
                         layers.Add(layer); doc.Layers.Add(layer);
+                        if (kind == 1) { while (groupAt.Count > level) groupAt.RemoveAt(groupAt.Count - 1); groupAt.Add(layer.Id); }
                         _ = after;
                         break;
                     }
                     case ChunkCel:
                     {
                         int li = U16(d, 0), x = (short)U16(d, 2), y = (short)U16(d, 4), opacity = d[6], celType = U16(d, 7);
-                        if (li >= layers.Count || layers[li] == null) break;
+                        if (li >= layers.Count || layers[li] == null || layers[li]!.Kind == "group") break;
                         var layer = layers[li]!;
                         SpriteCel? cel = null;
                         if (celType == 1)
@@ -163,7 +168,7 @@ public static class AsepriteFile
             }
             p += frameBytes;
         }
-        if (doc.Layers.Count == 0) throw new InvalidDataException("That sprite has no image layers NoorSprite can show.");
+        if (doc.Layers.All(l => l.Kind == "group")) throw new InvalidDataException("That sprite has no image layers NoorSprite can show.");
         if (skipped.Count > 0) notes.Add($"Left out: {string.Join(", ", skipped)} (their image layers are kept, flat).");
         doc.Palette = palette.Take(SpriteDoc.MaxPalette).Select(c => $"#{c.R:x2}{c.G:x2}{c.B:x2}{c.A:x2}").ToList();
         if (depth == 8) doc.ColorMode = "indexed";
@@ -185,7 +190,7 @@ public static class AsepriteFile
                 flat.Cels.Remove(c);
                 flat.Cels.Add(new SpriteCel { Layer = c.Layer, Frame = c.Frame, Width = flat.Width, Height = flat.Height, Opacity = c.Opacity, Link = c.Link }.WithPixels(px));
             }
-            foreach (var l in flat.Layers) { l.Kind = "image"; l.Tileset = 0; }
+            foreach (var l in flat.Layers.Where(l => l.Kind == "tilemap")) { l.Kind = "image"; l.Tileset = 0; }
             flat.Tilesets = [];
             doc = flat.Checked();
         }
@@ -212,7 +217,7 @@ public static class AsepriteFile
             {
                 chunks.Add((ChunkColorProfile, [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])); // sRGB
                 if (outPalette.Count > 0) chunks.Add((ChunkPalette, PaletteChunk(outPalette)));
-                foreach (var l in doc.Layers) chunks.Add((ChunkLayer, LayerChunk(l)));
+                foreach (var l in doc.Layers) chunks.Add((ChunkLayer, LayerChunk(l, Depth(doc, l))));
                 if (doc.Tags.Count > 0) chunks.Add((ChunkTags, TagsChunk(doc.Tags)));
                 foreach (var sl in doc.Slices) chunks.Add((ChunkSlice, SliceChunk(sl)));
             }
@@ -244,11 +249,21 @@ public static class AsepriteFile
         return bytes;
     }
 
-    private static byte[] LayerChunk(SpriteLayer l)
+    private static int Depth(SpriteDoc doc, SpriteLayer l)
+    {
+        var n = 0;
+        for (var p = l.Parent; p != null && n < 64; n++) p = doc.Layers.FirstOrDefault(x => x.Id == p)?.Parent;
+        return n;
+    }
+
+    private static byte[] LayerChunk(SpriteLayer l, int level)
     {
         var name = Encoding.UTF8.GetBytes(l.Name);
         var d = new byte[18 + name.Length];
-        BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)((l.Visible ? 1 : 0) | (l.Locked ? 0 : 2) | (l.Reference ? 64 : 0)));
+        var group = l.Kind == "group";
+        BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)((l.Visible ? 1 : 0) | (l.Locked ? 0 : 2) | (l.Reference ? 64 : 0) | (group && l.Collapsed ? 32 : 0)));
+        BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(2), (ushort)(group ? 1 : 0));
+        BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(4), (ushort)level);
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(10), (ushort)Math.Max(0, Array.IndexOf(BlendNames, l.Blend)));
         d[12] = (byte)l.Opacity;
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(16), (ushort)name.Length);

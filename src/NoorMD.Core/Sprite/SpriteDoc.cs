@@ -71,11 +71,16 @@ public sealed class SpriteDoc
         foreach (var f in Frames) f.Duration = Math.Clamp(f.Duration, 1, 65535);
         var seen = new HashSet<(string, int)>();
         Tilesets = (Tilesets ?? []).Where(t => t != null).Take(64).Select(t => t.Checked()).ToList();
+        var groups = new HashSet<string>();
         foreach (var l in Layers)
         {
-            l.Kind = l.Kind == "tilemap" && l.Tileset >= 0 && l.Tileset < Tilesets.Count ? "tilemap" : "image";
-            if (l.Kind == "image") l.Tileset = 0;
+            l.Kind = l.Kind == "group" ? "group" : l.Kind == "tilemap" && l.Tileset >= 0 && l.Tileset < Tilesets.Count ? "tilemap" : "image";
+            if (l.Kind != "tilemap") l.Tileset = 0;
+            // A layer in a group comes after the group (the group first, then what is in it, bottom first).
+            if (l.Parent != null && !groups.Contains(l.Parent)) l.Parent = null;
+            if (l.Kind == "group") groups.Add(l.Id);
         }
+        Cels.RemoveAll(c => c != null && groups.Contains(c.Layer)); // a group has no pictures of its own
         var kinds = Layers.ToDictionary(l => l.Id);
         Cels = Cels.Where(c => c != null && ids.Contains(c.Layer) && c.Frame >= 0 && c.Frame < Frames.Count && c.Width > 0 && c.Height > 0
             && c.Width <= MaxSide && c.Height <= MaxSide && seen.Add((c.Layer, c.Frame))).ToList();
@@ -118,6 +123,10 @@ public sealed class SpriteLayer
 {
     public static readonly string[] Blends = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "add", "difference"];
     public string Id { get; set; } = "";
+    /// <summary>The group the layer is in (a group layer's id), or none.</summary>
+    public string? Parent { get; set; }
+    /// <summary>A group shown folded in the timeline.</summary>
+    public bool Collapsed { get; set; }
     public string Name { get; set; } = "Layer";
     public bool Visible { get; set; } = true;
     public bool Locked { get; set; }
@@ -126,7 +135,7 @@ public sealed class SpriteLayer
     public string Blend { get; set; } = "normal";
     /// <summary>A picture to draw over or trace: shown, never exported.</summary>
     public bool Reference { get; set; }
-    /// <summary>"image", or "tilemap" (its cels are tiles of a tileset).</summary>
+    /// <summary>"image", "tilemap" (its cels are tiles of a tileset) or "group" (layers in it, no pictures of its own).</summary>
     public string Kind { get; set; } = "image";
     public int Tileset { get; set; }
 }

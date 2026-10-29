@@ -171,6 +171,20 @@ one's own, a floating reference picture, pen pressure.
   quarter, kept with the tile (as Aseprite keeps them), drawn turned, and exported to Godot with its flip and
   transpose flags (checked in headless Godot 4.4).
 
+### Done in preview.100
+
+- **Layer groups** (📁, Ctrl+G; Ctrl+Shift+G ungroups): a group holds layers (and groups); hiding, locking and its
+  opacity go for everything in it; it folds in the timeline (▸ ▾), where its row sits above its layers, indented. A new
+  layer on a group goes in it; ↑ / ↓ move a layer (a group with all it holds) past the next one beside it, and out of
+  its group at the edge; "In" puts a layer into any group or takes it out; duplicating a group copies all it holds.
+  Kept in .noorsprite and .aseprite files (Aseprite's groups opened and saved), and named in the sheet's JSON.
+- **Gradients** (D): dragged from the drawing colour to the second — straight or round, **dithered** (only the two
+  colours, in an even 4 × 4 pattern, as pixel artists do) or smooth; inside the selection when there is one.
+- **Pattern fills** (the fill tool's Pattern): checkers, dots, lines across or down, diagonals, bricks, 25 % and 75 %
+  of the two colours (the right button swaps them).
+- **In-betweens that look alive:** squash and stretch (longer along the move and thinner across, most in the middle)
+  or a smear (copies trailing back to where it was a frame before).
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

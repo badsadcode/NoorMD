@@ -139,12 +139,18 @@ public class SpriteTests
         var chunks1 = new List<(ushort, byte[])> { (0x2005, [.. Cel(1, 0, 0, 1), .. W(0)]) };
         var file = Ase(2, 2, 8, [(100, chunks0), (60, chunks1)]);
         var (doc, notes) = AsepriteFile.Read(file);
-        Assert.Equal(["Paint"], doc.Layers.Select(l => l.Name));
-        Assert.Contains(notes, n => n.Contains("group “Group”"));
+        Assert.Equal(["Group", "Paint"], doc.Layers.Select(l => l.Name));
+        Assert.Equal(("group", doc.Layers[0].Id), (doc.Layers[0].Kind, doc.Layers[1].Parent));
+        Assert.Empty(notes);
         Assert.Equal("indexed", doc.ColorMode);
-        var c0 = doc.Cel(doc.Layers[0].Id, 0)!;
+        var c0 = doc.Cel(doc.Layers[1].Id, 0)!;
         Assert.Equal(new byte[] { 255, 0, 0, 255, 0, 0, 255, 255, 0, 0, 0, 0, 255, 0, 0, 255 }, c0.Pixels());
-        Assert.Equal(c0.Pixels(), doc.Cel(doc.Layers[0].Id, 1)!.Pixels());
+        Assert.Equal(c0.Pixels(), doc.Cel(doc.Layers[1].Id, 1)!.Pixels());
+        // Written back, the group and what is in it stay so.
+        var back = AsepriteFile.Read(AsepriteFile.Write(doc)).Sprite;
+        Assert.Equal(["Group", "Paint"], back.Layers.Select(l => l.Name));
+        Assert.Equal(back.Layers[0].Id, back.Layers[1].Parent);
+        Assert.Equal(c0.Pixels(), back.Cel(back.Layers[1].Id, 0)!.Pixels());
         Assert.Equal([100, 60], doc.Frames.Select(f => f.Duration));
     }
 
