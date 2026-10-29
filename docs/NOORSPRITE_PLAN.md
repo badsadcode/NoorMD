@@ -121,6 +121,21 @@ NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and p
   (.tscn) with sharp pixels, playing the first animation. Checked in headless Godot 4.4 on CI.
 - Still to come for stage 3: tilemap layers and tilesets (and Godot TileSets), animation helpers.
 
+### Done in preview.97 (stage 3, tilemaps)
+
+- **Tilemap layers** (▦ in the timeline, or ☰): a layer drawn as a grid of tiles from a tileset of the grid's size.
+  Draw pixels as anywhere and the tiles follow, as in Aseprite's automatic mode — an empty cell has no tile, the same
+  picture twice is one tile, a tile used only there changes in place (and wherever else it is drawn), anything new
+  joins the tileset. **Tiles** (T, or a tile chosen in the panel): the pencil places the chosen tile (a stroke fills
+  every cell it crosses), fill puts it in the touching cells alike, the eraser takes tiles away, the eyedropper picks
+  one; the cell under the cursor shows the tile that would go there.
+- Any picture layer can be **made a tilemap** (cut into tiles, the same ones stored once), and back.
+- Kept as tiles in .noorsprite files (the tileset as a picture, the cels as tile numbers); .aseprite files get the
+  tilemap drawn as a picture layer.
+- **Godot TileSet:** the tileset as a picture, a TileSet (.tres) with an atlas of it and a scene with a TileMap
+  placing the tiles as drawn, sharp pixels — checked in headless Godot 4.4 on CI.
+- Still to come for stage 3: animation helpers.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

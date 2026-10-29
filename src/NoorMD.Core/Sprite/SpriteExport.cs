@@ -369,3 +369,72 @@ public static class GifWriter
 
     private static void Word(System.IO.Stream s, int v) { s.WriteByte((byte)v); s.WriteByte((byte)(v >> 8)); }
 }
+
+/// <summary>
+/// Godot 4 files for a tilemap: the tileset's tiles in one picture (a grid), a TileSet (.tres) with an atlas of them,
+/// and a scene with a TileMap (format 2) placing them as the tilemap layer does — sharp pixels.
+/// </summary>
+public static class GodotTiles
+{
+    private static string Q(string v) => "\"" + v.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+
+    /// <summary>How many tiles a row of the tileset's picture holds.</summary>
+    public static int Columns(SpriteTileset ts) => Math.Max(1, (int)Math.Ceiling(Math.Sqrt(Math.Max(1, ts.Count))));
+
+    /// <summary>Tiles 1…Count in a grid, row by row (tile n at column (n−1) % columns, row (n−1) / columns).</summary>
+    public static SpriteImage Atlas(SpriteTileset ts)
+    {
+        var cols = Columns(ts);
+        var rows = Math.Max(1, (ts.Count + cols - 1) / cols);
+        int w = cols * ts.TileWidth, h = rows * ts.TileHeight;
+        var px = new byte[w * h * 4];
+        for (var n = 1; n <= ts.Count; n++)
+        {
+            var tile = ts.Tile(n);
+            int ox = (n - 1) % cols * ts.TileWidth, oy = (n - 1) / cols * ts.TileHeight;
+            for (var y = 0; y < ts.TileHeight; y++) Array.Copy(tile, y * ts.TileWidth * 4, px, ((oy + y) * w + ox) * 4, ts.TileWidth * 4);
+        }
+        return new SpriteImage(w, h, px, 0);
+    }
+
+    public static string TileSet(string imageFile, SpriteTileset ts)
+    {
+        var cols = Columns(ts);
+        var sb = new System.Text.StringBuilder();
+        sb.Append("[gd_resource type=\"TileSet\" load_steps=3 format=3]\n\n");
+        sb.Append($"[ext_resource type=\"Texture2D\" path={Q(imageFile)} id=\"1_tiles\"]\n\n");
+        sb.Append("[sub_resource type=\"TileSetAtlasSource\" id=\"TileSetAtlasSource_1\"]\n");
+        sb.Append("texture = ExtResource(\"1_tiles\")\n");
+        sb.Append($"texture_region_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
+        for (var n = 1; n <= ts.Count; n++) sb.Append($"{(n - 1) % cols}:{(n - 1) / cols}/0 = 0\n");
+        sb.Append("\n[resource]\n");
+        sb.Append($"tile_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
+        sb.Append("sources/0 = SubResource(\"TileSetAtlasSource_1\")\n");
+        return sb.ToString();
+    }
+
+    /// <summary>A scene with a TileMap placing the cel's tiles (where a tile is 0, no cell).</summary>
+    public static string Scene(string nodeName, string tileSetFile, SpriteCel cel, SpriteTileset ts)
+    {
+        var cols = Columns(ts);
+        var data = new List<int>();
+        for (var y = 0; y < cel.Height; y++)
+            for (var x = 0; x < cel.Width; x++)
+            {
+                var n = cel.Tiles![y * cel.Width + x];
+                if (n == 0) continue;
+                int ax = (n - 1) % cols, ay = (n - 1) / cols;
+                data.Add((x & 0xFFFF) | ((y & 0xFFFF) << 16));   // the cell
+                data.Add(0 | ((ax & 0xFFFF) << 16));              // source 0, atlas x
+                data.Add(ay & 0xFFFF);                            // atlas y, no alternative
+            }
+        var node = new string(nodeName.Where(c => char.IsLetterOrDigit(c) || c is '_' or ' ' or '-').ToArray()).Trim();
+        return "[gd_scene load_steps=2 format=3]\n\n" +
+            $"[ext_resource type=\"TileSet\" path={Q(tileSetFile)} id=\"1_tileset\"]\n\n" +
+            $"[node name={Q(node.Length > 0 ? node : "TileMap")} type=\"TileMap\"]\n" +
+            "texture_filter = 1\n" +
+            "tile_set = ExtResource(\"1_tileset\")\n" +
+            "format = 2\n" +
+            $"layer_0/tile_data = PackedInt32Array({string.Join(", ", data)})\n";
+    }
+}

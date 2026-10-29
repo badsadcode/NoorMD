@@ -159,6 +159,17 @@ func _init() -> void:
 	check(hero is AnimatedSprite2D and hero.sprite_frames is SpriteFrames and hero.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST and hero.autoplay == "walk", "…and the scene is an AnimatedSprite2D with sharp pixels, playing walk", hero)
 	hero.free()
 
+	# NoorSprite tilemaps: the TileSet (an atlas of the tiles) and a TileMap placing them.
+	var tset = load("res://sprite/ground.tres")
+	check(tset is TileSet and tset.get_source_count() == 1 and (tset.get_source(0) as TileSetAtlasSource).get_tiles_count() == 3 and tset.tile_size == Vector2i(4, 4), "a NoorSprite tileset loads as a TileSet of 3 tiles", tset)
+	var level: Node = load("res://sprite/level.tscn").instantiate()
+	check(level is TileMap and level.texture_filter == CanvasItem.TEXTURE_FILTER_NEAREST, "…and its tilemap as a TileMap with sharp pixels", level)
+	if level is TileMap:
+		check(level.get_cell_source_id(0, Vector2i(1, 0)) == 0 and level.get_cell_atlas_coords(0, Vector2i(1, 0)) == Vector2i(1, 0), "…tile 2 where it was drawn", level.get_cell_atlas_coords(0, Vector2i(1, 0)))
+		check(level.get_cell_atlas_coords(0, Vector2i(5, 2)) == Vector2i(0, 1) and level.get_cell_source_id(0, Vector2i(2, 1)) == -1, "…tile 3 along the bottom, nothing in the empty row", [level.get_cell_atlas_coords(0, Vector2i(5, 2)), level.get_cell_source_id(0, Vector2i(2, 1))])
+		check(level.get_used_cells(0).size() == 12, "…12 tiles in all", level.get_used_cells(0).size())
+	level.free()
+
 	# The shader itself: its code loads and declares what the plugin sets.
 	var shader: Shader = load("res://addons/noor_trees/noor_tree_wind.gdshader")
 	check(shader != null and shader.code.contains("shader_type spatial"), "the wind shader loads")

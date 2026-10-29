@@ -57,7 +57,7 @@ window.NoorSprite = (() => {
   // ---------------------------------------------------------------- the sprite
 
   function blank(width, height, background) {
-    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], slices: [], gridWidth: 16, gridHeight: 16, cels: new Map() };
+    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], slices: [], tilesets: [], gridWidth: 16, gridHeight: 16, cels: new Map() };
     const id = newId();
     d.layers.push({ id, name: background ? 'Background' : 'Layer 1', visible: true, locked: false, opacity: 255, blend: 'normal' });
     if (background) {
@@ -69,15 +69,17 @@ window.NoorSprite = (() => {
   }
 
   /** A new snapshot of the sprite: the pictures are shared until something replaces one. */
-  const snapshot = (d) => ({ ...d, palette: [...d.palette], layers: d.layers.map((l) => ({ ...l })), frames: d.frames.map((f) => ({ ...f })), tags: d.tags.map((t) => ({ ...t })), slices: (d.slices || []).map((x) => ({ ...x })), cels: new Map(d.cels) });
+  const snapshot = (d) => ({ ...d, palette: [...d.palette], layers: d.layers.map((l) => ({ ...l })), frames: d.frames.map((f) => ({ ...f })), tags: d.tags.map((t) => ({ ...t })), slices: (d.slices || []).map((x) => ({ ...x })), tilesets: (d.tilesets || []).map((t) => ({ ...t, tiles: [...t.tiles] })), cels: new Map(d.cels) });
 
   /** A change: the sprite before it kept for undo (with where we were), then the change made to a fresh snapshot. */
   function change(label, fn) {
     history.push({ label, doc, layer, frame });
     if (history.length > 200) { history.shift(); if (savedAt && !history.includes(savedAt)) savedAt = 'lost'; }
     future = [];
+    const prev = doc;
     doc = snapshot(doc);
     fn(doc);
+    normalizeTilemaps(doc, prev);
     layer = Math.max(0, Math.min(doc.layers.length - 1, layer));
     frame = Math.max(0, Math.min(doc.frames.length - 1, frame));
     afterChange();
@@ -213,6 +215,7 @@ window.NoorSprite = (() => {
           el('div', { class: 'sp-preview-box' }, el('canvas', { id: 'sp-preview', class: 'sp-preview', role: 'img', 'aria-label': 'Preview at real size' }),
             el('small', { class: 'pref-hint', id: 'sp-preview-label' })),
           el('div', { class: 'sp-layerprops', id: 'sp-layerprops' }),
+          el('div', { class: 'sp-tileset', id: 'sp-tileset', hidden: true }),
           el('div', { class: 'sp-viewopts', id: 'sp-viewopts' }))),
       el('div', { class: 'sp-timeline', id: 'sp-timeline' }));
     ($('#app') || document.body).append(root);
@@ -268,7 +271,7 @@ window.NoorSprite = (() => {
   function renderAll() {
     if (!built || !doc) return;
     $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}`;
-    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel();
+    renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderTileset();
     fitCanvas(); draw(); drawPreview(); status();
     keepFocus();
   }
@@ -277,7 +280,7 @@ window.NoorSprite = (() => {
     $('#sp-tools').replaceChildren(...TOOLS.map(([id, icon, title]) => el('button', { class: 'icon-btn sp-tool' + (tool === id ? ' on' : ''), 'data-tool': id, title, 'aria-label': title, 'aria-pressed': String(tool === id), onclick: () => setTool(id) }, icon)));
   }
 
-  function setTool(t) { if (t !== 'move') commitFloating(); tool = t; renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
+  function setTool(t) { if (t !== 'move') commitFloating(); if (tilesOn() && !['pencil', 'eraser', 'fill', 'picker', 'hand', 'slice'].includes(t)) tileMode = false; tool = t; renderTileset(); renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
 
   function renderColours() {
     $('#sp-fg').style.setProperty('--c', `rgba(${fg[0]},${fg[1]},${fg[2]},${fg[3] / 255})`);
@@ -436,7 +439,7 @@ window.NoorSprite = (() => {
         el('div', { class: 'sp-tl-name', onclick: () => { layer = li; renderAll(); keepFocus(); }, ondblclick: () => renameLayer(li) },
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.visible ? 'Hide a layer' : 'Show a layer', (d) => { d.layers[li].visible = !l.visible; }); } }, l.visible ? '👁' : '◌'),
           el('button', { class: 'icon-btn', 'aria-pressed': String(l.locked), title: l.locked ? 'Locked (click to unlock)' : 'Unlocked', 'aria-label': `Lock ${l.name}`, onclick: (e) => { e.stopPropagation(); change(l.locked ? 'Unlock a layer' : 'Lock a layer', (d) => { d.layers[li].locked = !l.locked; }); } }, l.locked ? '🔒' : '🔓'),
-          el('span', { class: 'sp-layername' + (l.reference ? ' ref' : ''), text: (l.reference ? '📌 ' : '') + l.name })),
+          el('span', { class: 'sp-layername' + (l.reference ? ' ref' : ''), text: (l.reference ? '📌 ' : l.kind === 'tilemap' ? '▦ ' : '') + l.name })),
         ...doc.frames.map((_, fi) => {
           const c = doc.cels.get(key(l.id, fi));
           return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (c && c.link ? ' linked' : '') + (fi === frame && li === layer ? ' on' : ''), 'data-cel': `${li}:${fi}`, title: c ? (c.link ? 'A picture linked to other frames (drawn once for all)' : 'A picture on this frame') : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } });
@@ -444,6 +447,7 @@ window.NoorSprite = (() => {
     });
     const layerBar = el('div', { class: 'sp-tl-row sp-tl-foot' }, el('div', { class: 'sp-tl-name' },
       el('button', { class: 'icon-btn', id: 'sp-addlayer', title: 'New layer (Shift+N)', 'aria-label': 'New layer', onclick: addLayer }, '＋'),
+      el('button', { class: 'icon-btn', id: 'sp-addtilemap', title: 'New tilemap layer: draw with tiles of the grid\'s size', 'aria-label': 'New tilemap layer', onclick: addTilemapLayer }, '▦'),
       el('button', { class: 'icon-btn', title: 'Duplicate the layer', 'aria-label': 'Duplicate the layer', onclick: duplicateLayer }, '⧉'),
       el('button', { class: 'icon-btn', id: 'sp-dellayer', title: 'Remove the layer', 'aria-label': 'Remove the layer', disabled: doc.layers.length < 2 || undefined, onclick: removeLayer }, '🗑'),
       el('button', { class: 'icon-btn', title: 'Layer up', 'aria-label': 'Layer up', onclick: () => moveLayer(1) }, '↑'),
@@ -723,12 +727,25 @@ window.NoorSprite = (() => {
       for (let y = doc.gridHeight; y < doc.height; y += doc.gridHeight) { ctx.moveTo(o.x, o.y + y * z + 0.5); ctx.lineTo(o.x + W, o.y + y * z + 0.5); }
       ctx.stroke();
     }
+    if (isTilemap()) {
+      // The tilemap's cells; in tile mode, the cell under the cursor with the tile that would go there.
+      const ts = tilesetOf(), tw = ts.tw * z, th = ts.th * z;
+      ctx.strokeStyle = tileMode ? 'rgba(255,170,40,0.6)' : 'rgba(255,170,40,0.25)'; ctx.beginPath();
+      for (let x = tw; x < W; x += tw) { ctx.moveTo(o.x + x + 0.5, o.y); ctx.lineTo(o.x + x + 0.5, o.y + H); }
+      for (let y = th; y < H; y += th) { ctx.moveTo(o.x, o.y + y + 0.5); ctx.lineTo(o.x + W, o.y + y + 0.5); }
+      ctx.stroke();
+      const at = tileMode && hover && !drag && cellAt(hover);
+      if (at) {
+        if (tool === 'pencil' && ts.tiles[tileSel]) { ctx.globalAlpha = 0.6; ctx.drawImage(pixelsToCanvas(ts.tiles[tileSel], ts.tw, ts.th), o.x + at.c * tw, o.y + at.r * th, tw, th); ctx.globalAlpha = 1; }
+        ctx.strokeStyle = '#ffaa28'; ctx.lineWidth = 2; ctx.strokeRect(o.x + at.c * tw + 1, o.y + at.r * th + 1, tw - 2, th - 2); ctx.lineWidth = 1;
+      }
+    }
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(o.x - 0.5, o.y - 0.5, W + 1, H + 1);
     // The selection's edge (marching ants).
     if (selection) drawSelection(ctx, o, z);
     drawSlices(ctx, o, z);
     // The brush under the cursor.
-    if (hover && ['pencil', 'eraser'].includes(tool) && !spaceHeld && !altHeld) {
+    if (hover && ['pencil', 'eraser'].includes(tool) && !spaceHeld && !altHeld && !tilesOn()) {
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
       for (const [x, y] of brushPoints(hover.x, hover.y)) ctx.strokeRect(o.x + x * z + 0.5, o.y + y * z + 0.5, z - 1, z - 1);
     }
@@ -798,7 +815,9 @@ window.NoorSprite = (() => {
     let colour = '';
     if (at) { const px = compose(frame); const i = (at.y * doc.width + at.x) * 4; colour = ` · ${hex([px[i], px[i + 1], px[i + 2], px[i + 3]])}`; }
     const sel = selection ? ` · selection ${selection.x1 - selection.x0 + 1} × ${selection.y1 - selection.y0 + 1}` : '';
-    s.textContent = `${at ? `${at.x}, ${at.y}${colour}` : `${doc.width} × ${doc.height}`} · ${view.zoom * 100}%${sel} · ${doc.layers[layer].name}, frame ${frame + 1}${doc.layers[layer].locked ? ' (locked)' : ''}`;
+    let tile = '';
+    if (isTilemap()) { const c = at && cellAt(at), n = c ? currentMap()[c.i] : 0; tile = ` · ${tileMode ? 'tiles' : 'pixels'}${c ? ` · cell ${c.c}, ${c.r}: ${n ? `tile ${n}` : 'none'}` : ''}`; }
+    s.textContent = `${at ? `${at.x}, ${at.y}${colour}` : `${doc.width} × ${doc.height}`}${tile} · ${view.zoom * 100}%${sel} · ${doc.layers[layer].name}, frame ${frame + 1}${doc.layers[layer].locked ? ' (locked)' : ''}`;
   }
 
   function setCursor() {
@@ -907,6 +926,7 @@ window.NoorSprite = (() => {
     if (playing) stop();
     const t = altHeld && !['select', 'eselect', 'lasso', 'wand'].includes(tool) ? 'picker' : tool;
     const colour = e.button === 2 ? bg : fg;
+    if (tilesOn() && ['pencil', 'eraser', 'fill', 'picker'].includes(t)) { tileDown(t, p, e.button === 2); return; }
     if (t === 'picker') { pick(p, e.button === 2); drag = { kind: 'picker', right: e.button === 2 }; return; }
     if (['select', 'eselect', 'lasso', 'wand'].includes(t)) { startSelect(t, p, e); return; }
     if (t === 'slice') { startSlice(p); return; }
@@ -1021,6 +1041,7 @@ window.NoorSprite = (() => {
     if (!drag) { draw(); status(); return; }
     if (drag.kind === 'pan') { view.panX += p.cx - drag.cx; view.panY += p.cy - drag.cy; drag.cx = p.cx; drag.cy = p.cy; draw(); return; }
     if (drag.kind === 'picker') { pick(p, drag.right); return; }
+    if (drag.kind === 'tiles') { tileMove(p); return; }
     if (drag.kind === 'stroke') {
       const pts = linePoints(drag.last[0], drag.last[1], p.x, p.y).slice(1);
       for (const [x, y] of pts) stamp(x, y);
@@ -1040,6 +1061,7 @@ window.NoorSprite = (() => {
     if (!d) return;
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'tiles') putTiles(d.value ? 'Place tiles' : 'Take tiles away', d.map);
     else if (d.kind === 'select') endSelect(d);
     else if (d.kind === 'slice') endSlice(d);
     else draw();
@@ -1203,8 +1225,10 @@ window.NoorSprite = (() => {
       mask[ty * W + tx] = 1;
     }
     // No extra undo step: put down with the move it came from.
+    const prev = doc;
     doc = snapshot(doc);
     putCel(doc, k, { px, opacity: old ? old.opacity : 255 });
+    normalizeTilemaps(doc, prev);
     selection = bounds(mask);
     renderAll();
   }
@@ -1339,6 +1363,7 @@ window.NoorSprite = (() => {
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
       ['Save as…', () => save(true)],
@@ -1392,6 +1417,239 @@ window.NoorSprite = (() => {
     if (layer < 0) layer = 0;
     history = []; future = []; savedAt = null; selection = null; floating = null;
     fitZoom(); renderAll();
+  }
+
+  // ---------------------------------------------------------------- stage 3: tilemaps
+
+  // A tilemap layer's cel keeps its pixels (px, drawn and composed like any cel) and the grid of tile numbers they
+  // are made of (map, cols × rows from the sprite's top left; 0: no tile). A tileset is { name, tw, th, tiles },
+  // tiles[n] a tile's pixels for n ≥ 1. Drawing pixels on a tilemap works out its tiles afterwards, as Aseprite's
+  // "auto" mode does; drawing tiles places them and the pixels follow.
+  let tileMode = false;   // T: drawing tiles (else pixels) on a tilemap layer
+  let tileSel = 1;        // the tile drawn with
+
+  const isTilemap = (l = layer, d = doc) => !!d.layers[l] && d.layers[l].kind === 'tilemap';
+  const tilesetOf = (l = layer, d = doc) => d.tilesets[d.layers[l].tileset];
+  const mapSize = (d, ts) => ({ cols: Math.ceil(d.width / ts.tw), rows: Math.ceil(d.height / ts.th) });
+  const tilesOn = () => tileMode && isTilemap();
+
+  /** A grid of tiles drawn as the sprite's pixels. */
+  function renderMap(d, ts, map) {
+    const W = d.width, H = d.height, px = new Uint8ClampedArray(W * H * 4), { cols, rows } = mapSize(d, ts);
+    for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+      const t = ts.tiles[map[r * cols + c]];
+      if (!t) continue;
+      const x0 = c * ts.tw, w = Math.min(ts.tw, W - x0);
+      for (let y = 0; y < ts.th && r * ts.th + y < H; y++) px.set(t.subarray(y * ts.tw * 4, (y * ts.tw + w) * 4), ((r * ts.th + y) * W + x0) * 4);
+    }
+    return px;
+  }
+
+  /** One cell of a picture as a tile (past the sprite's edge, and wherever alpha is 0, clear). */
+  function cellOf(d, ts, px, c, r) {
+    const t = new Uint8ClampedArray(ts.tw * ts.th * 4), W = d.width, x0 = c * ts.tw, w = Math.min(ts.tw, W - x0);
+    for (let y = 0; y < ts.th && r * ts.th + y < d.height; y++) t.set(px.subarray(((r * ts.th + y) * W + x0) * 4, ((r * ts.th + y) * W + x0 + w) * 4), y * ts.tw * 4);
+    for (let i = 0; i < t.length; i += 4) if (!t[i + 3]) t[i] = t[i + 1] = t[i + 2] = 0;
+    return t;
+  }
+
+  const sameTile = (a, b) => { if (!a || !b || a.length !== b.length) return false; for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false; return true; };
+  const clearTile = (t) => { for (let i = 3; i < t.length; i += 4) if (t[i]) return false; return true; };
+  const tileHash = (t) => { let h = 2166136261; for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t[i], 16777619); return h >>> 0; };
+
+  /**
+   * After a change: every tilemap cel whose pixels changed gets its tiles worked out again — an empty cell is no tile,
+   * an unchanged cell keeps its tile, a tile like one already there is that one, a tile used only there is changed in
+   * place, else a new tile joins the set; then every map drawing from a changed tileset is drawn again.
+   */
+  function normalizeTilemaps(d, prev) {
+    if (!d.tilesets || !d.tilesets.length) return;
+    d.tilesets.forEach((_, ti) => {
+      const layerIds = new Set(d.layers.filter((l) => l.kind === 'tilemap' && l.tileset === ti).map((l) => l.id));
+      if (!layerIds.size) return;
+      const ofSet = [...d.cels].filter(([k]) => layerIds.has(k.slice(0, k.lastIndexOf(':'))));
+      const changed = ofSet.filter(([, c]) => !c.map || c.mapPx !== c.px);
+      if (!changed.length) return;
+      const ts = d.tilesets[ti] = { ...d.tilesets[ti], tiles: [...d.tilesets[ti].tiles] };
+      const { cols, rows } = mapSize(d, ts);
+      const oldMap = (k, c) => { const m = c.map || (prev && prev.cels.get(k) && prev.cels.get(k).map); return m && m.length === cols * rows ? m : null; };
+      // How often each tile is used (a map shared by linked cels counted once).
+      const uses = new Map(), counted = new Set();
+      for (const [k, c] of ofSet) { const m = oldMap(k, c); if (m && !counted.has(m)) { counted.add(m); for (const n of m) uses.set(n, (uses.get(n) || 0) + 1); } }
+      const index = new Map();
+      const indexAdd = (n) => { const h = tileHash(ts.tiles[n]); index.set(h, [...(index.get(h) || []), n]); };
+      for (let n = 1; n < ts.tiles.length; n++) indexAdd(n);
+      const find = (t) => (index.get(tileHash(t)) || []).find((n) => sameTile(ts.tiles[n], t)) || 0;
+      let edited = false;
+      const done = new Map(); // px → its new map (linked cels share both)
+      for (const [k, c] of changed) {
+        if (done.has(c.px)) { d.cels.set(k, { ...c, map: done.get(c.px), mapPx: c.px }); continue; }
+        const was = oldMap(k, c), map = new Int32Array(cols * rows);
+        for (let r = 0; r < rows; r++) for (let col = 0; col < cols; col++) {
+          const i = r * cols + col, t = cellOf(d, ts, c.px, col, r), old = was ? was[i] : 0;
+          let n;
+          if (clearTile(t)) n = 0;
+          else if (old && sameTile(ts.tiles[old], t)) n = old;
+          else if ((n = find(t))) { /* the same as a tile there already */ }
+          else if (old && uses.get(old) === 1) {
+            const h = tileHash(ts.tiles[old]);
+            index.set(h, (index.get(h) || []).filter((x) => x !== old));
+            ts.tiles[old] = t; indexAdd(old); n = old; edited = true;
+          } else if (ts.tiles.length <= 4096) { n = ts.tiles.length; ts.tiles.push(t); indexAdd(n); }
+          else n = 0;
+          if (n !== old) { if (old) uses.set(old, uses.get(old) - 1); if (n) uses.set(n, (uses.get(n) || 0) + 1); }
+          map[i] = n;
+        }
+        done.set(c.px, map);
+        d.cels.set(k, { ...c, map, mapPx: c.px });
+      }
+      if (!edited) return;
+      // A tile changed in place: wherever else it is drawn, it changes too.
+      for (const [k] of ofSet) {
+        const c = d.cels.get(k), px = renderMap(d, ts, c.map);
+        d.cels.set(k, { ...c, px, mapPx: px });
+      }
+    });
+  }
+
+  function newTileset(d, tw, th) {
+    d.tilesets.push({ name: `Tiles ${d.tilesets.length + 1}`, tw, th, tiles: [null] });
+    return d.tilesets.length - 1;
+  }
+
+  /** A new tilemap layer above this one, its tiles the grid's size. */
+  function addTilemapLayer() {
+    change('New tilemap layer', (d) => {
+      const ts = newTileset(d, d.gridWidth, d.gridHeight);
+      d.layers.splice(layer + 1, 0, { id: newId(), name: `Tilemap ${d.layers.filter((l) => l.kind === 'tilemap').length + 1}`, visible: true, locked: false, opacity: 255, blend: 'normal', kind: 'tilemap', tileset: ts });
+      layer++;
+    });
+    tileMode = false; tileSel = 1;
+    notice(`A tilemap layer of ${doc.gridWidth} × ${doc.gridHeight} tiles: draw, and the tileset grows (T: place tiles)`, 2600);
+  }
+
+  /** This layer becomes a tilemap: its pictures cut into tiles of the grid's size (the same tiles stored once). */
+  function makeTilemap() {
+    if (isTilemap()) { notice('This layer is a tilemap already', 1200); return; }
+    if (doc.layers[layer].reference) { notice('A reference layer can\'t be a tilemap', 1400); return; }
+    change('Layer to tilemap', (d) => {
+      const ts = newTileset(d, d.gridWidth, d.gridHeight);
+      d.layers[layer] = { ...d.layers[layer], kind: 'tilemap', tileset: ts };
+    });
+    notice(`${tilesetOf().tiles.length - 1} tile${tilesetOf().tiles.length === 2 ? '' : 's'} of ${doc.gridWidth} × ${doc.gridHeight}`, 1800);
+  }
+
+  /** A tilemap layer back to a plain picture layer (the tiles stay as pixels). */
+  function makeImageLayer() {
+    if (!isTilemap()) return;
+    change('Tilemap to layer', (d) => {
+      const l = { ...d.layers[layer] }; delete l.kind; delete l.tileset;
+      d.layers[layer] = l;
+      d.frames.forEach((_, f) => { const k = key(l.id, f), c = d.cels.get(k); if (c) { const { map, mapPx, ...rest } = c; void map; void mapPx; d.cels.set(k, rest); } });
+    });
+    tileMode = false;
+  }
+
+  function setTileMode(on) {
+    if (on && !isTilemap()) { notice('Tiles are drawn on a tilemap layer (☰ or ▦ in the timeline makes one)', 2000); return; }
+    commitFloating();
+    tileMode = on;
+    if (on && ['line', 'rect', 'ellipse', 'select', 'eselect', 'lasso', 'wand', 'move'].includes(tool)) tool = 'pencil';
+    renderAll();
+    notice(on ? 'Tiles: the pencil places the chosen tile, the eraser takes tiles away' : 'Pixels: drawing changes the tiles', 1400);
+  }
+
+  /** The cell under a sprite pixel, or null off the map. */
+  function cellAt(p) {
+    const ts = tilesetOf(), { cols, rows } = mapSize(doc, ts), c = Math.floor(p.x / ts.tw), r = Math.floor(p.y / ts.th);
+    return p.x < 0 || p.y < 0 || c >= cols || r >= rows ? null : { c, r, i: r * cols + c };
+  }
+
+  function currentMap() {
+    const ts = tilesetOf(), { cols, rows } = mapSize(doc, ts), c = cel();
+    return c && c.map && c.map.length === cols * rows ? c.map : new Int32Array(cols * rows);
+  }
+
+  /** A press on the canvas in tile mode: place, take away, fill or pick tiles. */
+  function tileDown(t, p, right) {
+    const at = cellAt(p);
+    if (!at) return;
+    const map = currentMap();
+    if (t === 'picker') { if (map[at.i]) { tileSel = map[at.i]; renderTileset(); } return; }
+    if (!canDraw()) return;
+    const n = t === 'eraser' || right ? 0 : tileSel;
+    if (n >= tilesetOf().tiles.length) { notice('Choose a tile in the tileset first', 1400); return; }
+    const next = new Int32Array(map);
+    if (t === 'fill') {
+      const { cols, rows } = mapSize(doc, tilesetOf()), from = next[at.i];
+      if (from === n) return;
+      const stack = [at.i];
+      while (stack.length) {
+        const i = stack.pop();
+        if (next[i] !== from) continue;
+        next[i] = n;
+        const c = i % cols, r = (i - c) / cols;
+        if (c > 0) stack.push(i - 1); if (c < cols - 1) stack.push(i + 1); if (r > 0) stack.push(i - cols); if (r < rows - 1) stack.push(i + cols);
+      }
+      putTiles(n ? 'Fill with a tile' : 'Take tiles away', next);
+      return;
+    }
+    next[at.i] = n;
+    drag = { kind: 'tiles', map: next, value: n, last: at };
+    drag.preview = renderMap(doc, tilesetOf(), next);
+    draw();
+  }
+
+  function tileMove(p) {
+    const at = cellAt(p);
+    if (!at || (drag.last && drag.last.i === at.i)) return;
+    // Every cell between the last and this one, so a quick stroke leaves no gaps.
+    for (const [c, r] of linePoints(drag.last ? drag.last.c : at.c, drag.last ? drag.last.r : at.r, at.c, at.r)) drag.map[r * mapSize(doc, tilesetOf()).cols + c] = drag.value;
+    drag.last = at;
+    drag.preview = renderMap(doc, tilesetOf(), drag.map);
+    draw();
+  }
+
+  function putTiles(label, map) {
+    change(label, (d) => {
+      const k = key(d.layers[layer].id, frame), px = renderMap(d, d.tilesets[d.layers[layer].tileset], map);
+      const old = d.cels.get(k);
+      putCel(d, k, { px, opacity: old ? old.opacity : 255, map, mapPx: px });
+    });
+  }
+
+  /** The tileset of the layer: its tiles to choose from, and pixels / tiles. */
+  function renderTileset() {
+    const box = $('#sp-tileset');
+    if (!box) return;
+    if (!isTilemap()) { box.hidden = true; box.replaceChildren(); return; }
+    box.hidden = false;
+    const ts = tilesetOf(), z = Math.max(1, Math.floor(32 / Math.max(ts.tw, ts.th)));
+    if (tileSel >= ts.tiles.length) tileSel = Math.max(1, ts.tiles.length - 1);
+    const mode = (on, label, title) => el('button', { class: 'utility-btn' + (tileMode === on ? ' on' : ''), 'aria-pressed': String(tileMode === on), 'data-tilemode': on ? 'tiles' : 'pixels', title, onclick: () => setTileMode(on) }, label);
+    const tiles = ts.tiles.slice(1).map((t, i) => {
+      const cv = el('canvas', { width: String(ts.tw * z), height: String(ts.th * z) });
+      const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(pixelsToCanvas(t, ts.tw, ts.th), 0, 0, ts.tw * z, ts.th * z);
+      return el('button', { class: 'sp-tile' + (tileSel === i + 1 ? ' on' : ''), 'data-tile': String(i + 1), title: `Tile ${i + 1} (click: draw with it)`, 'aria-label': `Tile ${i + 1}`, 'aria-pressed': String(tileSel === i + 1),
+        onclick: () => { tileSel = i + 1; if (!tileMode) setTileMode(true); else renderTileset(); keepFocus(); } }, cv);
+    });
+    box.replaceChildren(
+      el('h4', { class: 'music-subhead', text: `Tileset “${ts.name}”` }),
+      el('small', { class: 'pref-hint', id: 'sp-tileinfo', text: `${ts.tiles.length - 1} tile${ts.tiles.length === 2 ? '' : 's'} of ${ts.tw} × ${ts.th}` }),
+      el('div', { class: 'sb-row', role: 'group', 'aria-label': 'Draw' }, mode(false, 'Pixels', 'Draw pixels; the tiles follow (T)'), mode(true, 'Tiles', 'Place whole tiles (T)')),
+      tiles.length ? el('div', { class: 'sp-tiles', id: 'sp-tiles', role: 'listbox', 'aria-label': 'Tiles' }, ...tiles) : el('p', { class: 'pref-hint', text: 'Draw on the layer and its tiles appear here.' }),
+      el('div', { class: 'sb-row' },
+        el('button', { class: 'utility-btn', id: 'sp-tiles-godot', title: 'The tiles as a Godot TileSet and the map as a TileMap scene', onclick: exportTiles }, 'Godot TileSet…'),
+        el('button', { class: 'utility-btn', title: 'Make it a plain layer again (the tiles stay as pixels)', onclick: makeImageLayer }, 'To a plain layer')));
+  }
+
+  async function exportTiles() {
+    if (!isTilemap()) return;
+    commitFloating();
+    try {
+      const r = await req('sprite.tiles.export', { sprite: toWire(), layer: doc.layers[layer].id, frame, name: (file ? file.name.replace(/\.[^.]+$/, '') + '-' : '') + doc.layers[layer].name });
+      if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
+    } catch (err) { hooks.showError(err); }
   }
 
   // ---------------------------------------------------------------- stage 3: slices
@@ -1721,9 +1979,17 @@ window.NoorSprite = (() => {
 
   /** The sprite as the app takes it: cels cropped to what they hold, pixels as base64. */
   function toWire(d = doc) {
-    const cels = [];
+    const cels = [], kinds = new Map(d.layers.map((l) => [l.id, l]));
     for (const [k, c] of d.cels) {
       const i = k.lastIndexOf(':'), id = k.slice(0, i), f = Number(k.slice(i + 1));
+      const l = kinds.get(id);
+      if (l && l.kind === 'tilemap') {
+        // A tilemap cel: its tiles' numbers, row by row (the pixels come from the tileset).
+        const { cols, rows } = mapSize(d, d.tilesets[l.tileset]);
+        if (!c.map || !c.map.some((n) => n)) continue;
+        cels.push({ layer: id, frame: f, x: 0, y: 0, width: cols, height: rows, opacity: c.opacity, tiles: [...c.map], ...(c.link ? { link: c.link } : {}) });
+        continue;
+      }
       let x0 = d.width, y0 = d.height, x1 = -1, y1 = -1;
       for (let y = 0; y < d.height; y++) for (let x = 0; x < d.width; x++) if (c.px[(y * d.width + x) * 4 + 3]) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
       if (x1 < 0) continue; // empty: no cel
@@ -1731,12 +1997,38 @@ window.NoorSprite = (() => {
       for (let y = 0; y < h; y++) px.set(c.px.subarray(((y0 + y) * d.width + x0) * 4, ((y0 + y) * d.width + x0 + w) * 4), y * w * 4);
       cels.push({ layer: id, frame: f, x: x0, y: y0, width: w, height: h, opacity: c.opacity, data: b64(px), ...(c.link ? { link: c.link } : {}) });
     }
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers: d.layers, frames: d.frames, tags: d.tags, slices: d.slices || [], gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
+    const tilesets = (d.tilesets || []).map((t) => {
+      const n = t.tiles.length - 1, strip = new Uint8Array(t.tw * t.th * 4 * n);
+      for (let j = 1; j <= n; j++) strip.set(t.tiles[j], (j - 1) * t.tw * t.th * 4);
+      return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}) };
+    });
+    const layers = d.layers.map((l) => (l.kind === 'tilemap' ? l : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
   }
 
   function fromWire(w) {
     const d = { width: w.width, height: w.height, palette: w.palette || [], layers: w.layers.map((l) => ({ ...l })), frames: w.frames.map((f) => ({ ...f })), tags: (w.tags || []).map((t) => ({ ...t })), slices: (w.slices || []).map((x) => ({ ...x })), gridWidth: w.gridWidth || 16, gridHeight: w.gridHeight || 16, cels: new Map() };
+    d.tilesets = (w.tilesets || []).map((t) => {
+      const size = t.tileWidth * t.tileHeight * 4, strip = t.data ? unb64(t.data) : new Uint8Array(0), tiles = [null];
+      for (let j = 0; j < (t.count || 0); j++) tiles.push(new Uint8ClampedArray(strip.subarray(j * size, (j + 1) * size)));
+      return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles };
+    });
+    for (const l of d.layers) if (l.kind !== 'tilemap' || !d.tilesets[l.tileset]) { delete l.kind; delete l.tileset; }
+    const kinds = new Map(d.layers.map((l) => [l.id, l]));
     for (const c of w.cels || []) {
+      const l = kinds.get(c.layer);
+      if (l && l.kind === 'tilemap' && c.tiles) {
+        // Tiles at the cel's place on the grid (the app keeps them from the top left).
+        const ts = d.tilesets[l.tileset], { cols, rows } = mapSize(d, ts), map = new Int32Array(cols * rows);
+        const ox = Math.round((c.x || 0) / ts.tw), oy = Math.round((c.y || 0) / ts.th);
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+          const tx = ox + x, ty = oy + y, n = c.tiles[y * c.width + x];
+          if (tx >= 0 && ty >= 0 && tx < cols && ty < rows && n > 0 && n < ts.tiles.length) map[ty * cols + tx] = n;
+        }
+        const px = renderMap(d, ts, map);
+        d.cels.set(key(c.layer, c.frame), { px, opacity: c.opacity ?? 255, map, mapPx: px, ...(c.link ? { link: c.link } : {}) });
+        continue;
+      }
       const px = new Uint8ClampedArray(d.width * d.height * 4), src = unb64(c.data);
       for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
         const tx = c.x + x, ty = c.y + y;
@@ -1919,6 +2211,7 @@ window.NoorSprite = (() => {
     if (k === '-') { handled(); zoomBy(-1); return; }
     if (k === '0') { handled(); fitZoom(); draw(); return; }
     if (k === 'n' && e.shiftKey) { handled(); addLayer(); return; }
+    if (k === 't') { handled(); setTileMode(!tileMode); return; }
     const t = TOOLS.find((x) => x[3] === k);
     if (t) { handled(); setTool(t[0]); }
   }
@@ -1934,7 +2227,10 @@ window.NoorSprite = (() => {
       selection: selection ? { x0: selection.x0, y0: selection.y0, x1: selection.x1, y1: selection.y1, count: selection.mask.reduce((a, b) => a + b, 0) } : null,
       floating: floating ? { x: floating.x, y: floating.y, w: floating.w, h: floating.h } : null, playing: !!playing,
       cels: [...doc.cels.keys()],
+      tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
     }),
+    /** For tests: a tilemap cel's tile numbers (row by row). */
+    _tiles: (l = layer, f = frame) => { const c = doc.cels.get(key(doc.layers[l].id, f)); return c && c.map ? [...c.map] : null; },
     /** For tests: a pixel of a cel (or of the composed frame when layer is null). */
     _pixel: (x, y, l = layer, f = frame) => { const px = l === null ? compose(f) : (doc.cels.get(key(doc.layers[l].id, f)) || { px: new Uint8ClampedArray(doc.width * doc.height * 4) }).px; const i = (y * doc.width + x) * 4; return [px[i], px[i + 1], px[i + 2], px[i + 3]]; },
     /** For tests: where a sprite pixel's middle is on the screen. */

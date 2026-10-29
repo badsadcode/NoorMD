@@ -173,6 +173,21 @@ public static class AsepriteFile
     public static byte[] Write(SpriteDoc doc)
     {
         doc.Checked();
+        // Tilemap layers go as image layers, their tiles drawn (NoorSprite doesn't write Aseprite's tilesets yet).
+        if (doc.Layers.Any(l => l.Kind == "tilemap"))
+        {
+            var flat = SpriteDoc.FromJson(doc.ToJson());
+            foreach (var c in flat.Cels.Where(c => c.Tiles != null).ToList())
+            {
+                var l = flat.Layers.First(x => x.Id == c.Layer);
+                var px = SpriteTilemap.Render(c, doc.Tilesets[l.Tileset], flat.Width, flat.Height);
+                flat.Cels.Remove(c);
+                flat.Cels.Add(new SpriteCel { Layer = c.Layer, Frame = c.Frame, Width = flat.Width, Height = flat.Height, Opacity = c.Opacity, Link = c.Link }.WithPixels(px));
+            }
+            foreach (var l in flat.Layers) { l.Kind = "image"; l.Tileset = 0; }
+            flat.Tilesets = [];
+            doc = flat.Checked();
+        }
         using var ms = new MemoryStream();
         var header = new byte[128];
         BinaryPrimitives.WriteUInt16LittleEndian(header.AsSpan(4), HeaderMagic);

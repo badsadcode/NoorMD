@@ -5875,6 +5875,84 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66e. NoorSprite stage 3: tilemap layers and tilesets.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const TL = () => page.evaluate(() => NoorSprite._tiles());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const strokeTo = async (pts) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 5 }); } await page.mouse.up(); };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '32'); await page.fill('#sp-nh', '32'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 32);
+      check('the tileset panel is hidden on a plain layer', await page.isHidden('#sp-tileset'));
+      await page.click('#sp-addtilemap');
+      let st = await SS();
+      check('▦ makes a tilemap layer with a tileset of the grid\'s size (16 × 16), empty', st.layers[st.layer].kind === 'tilemap' && st.tilesets.length === 1 && st.tilesets[0].tw === 16 && st.tilesets[0].count === 0 && !(await page.isHidden('#sp-tileset')) && /▦/.test(await page.textContent('#sp-timeline')));
+      // Pixels: the tiles follow.
+      await page.keyboard.press('b');
+      await strokeTo([[1, 1], [5, 1]]);
+      check('drawing pixels makes a tile', (await SS()).tilesets[0].count === 1 && (await TL()).join() === '1,0,0,0' && (await page.$$('#sp-tiles .sp-tile')).length === 1);
+      await strokeTo([[17, 1], [21, 1]]);
+      check('the same drawing in another cell is the same tile', (await SS()).tilesets[0].count === 1 && (await TL()).join() === '1,1,0,0');
+      await strokeTo([[2, 5], [2, 5]]);
+      check('changing a tile used twice makes a new one (the other cell keeps its tile)', (await SS()).tilesets[0].count === 2 && (await TL()).join() === '2,1,0,0' && (await page.evaluate(() => NoorSprite._pixel(18, 5)))[3] === 0);
+      await strokeTo([[3, 6], [3, 6]]);
+      check('changing a tile used once changes it in place', (await SS()).tilesets[0].count === 2 && (await TL()).join() === '2,1,0,0');
+      // Tiles: place, fill, take away, pick.
+      await page.click('#sp-tiles [data-tile="1"]');
+      st = await SS();
+      check('choosing a tile switches to tile mode', st.tileMode && st.tileSel === 1 && /tiles/.test(await page.textContent('#sp-status')));
+      await strokeTo([[4, 20], [4, 20]]);
+      check('the pencil places the tile, its pixels with it', (await TL()).join() === '2,1,1,0' && (await page.evaluate(() => NoorSprite._pixel(1, 17))).join() === '0,0,0,255');
+      await page.keyboard.press('g');
+      await strokeTo([[20, 20], [20, 20]]);
+      check('fill puts the tile in the empty cells touching', (await TL()).join() === '2,1,1,1');
+      await page.keyboard.press('e');
+      await strokeTo([[20, 20], [20, 20]]);
+      check('the eraser takes a tile away', (await TL()).join() === '2,1,1,0' && (await page.evaluate(() => NoorSprite._pixel(17, 17)))[3] === 0);
+      await page.keyboard.press('i');
+      await strokeTo([[4, 4], [4, 4]]);
+      check('the eyedropper picks a tile', (await SS()).tileSel === 2);
+      await page.keyboard.press('b');
+      await strokeTo([[20, 20], [4, 20]]);
+      check('a stroke places tiles in every cell it crosses', (await TL()).join() === '2,1,2,2');
+      await page.keyboard.press('Control+z');
+      check('undo takes tiles back', (await TL()).join() === '2,1,1,0');
+      await page.keyboard.press('t');
+      check('T: back to pixels', !(await SS()).tileMode);
+      // Kept in the sprite as tiles; opened again the same.
+      const w = await page.evaluate(() => NoorSprite._wire());
+      const tc = w.cels.find((c) => c.tiles);
+      check('the sprite carries the tileset and the tiles\' numbers', w.tilesets.length === 1 && w.tilesets[0].count === 2 && w.tilesets[0].tileWidth === 16 && !!w.tilesets[0].data && tc && tc.width === 2 && tc.tiles.join() === '2,1,1,0' && !tc.data && w.layers.some((l) => l.kind === 'tilemap' && l.tileset === 0));
+      await page.evaluate((x) => NoorSprite._load(x), w);
+      st = await SS();
+      check('…and opens again with its tiles', st.tilesets[0].count === 2 && (await page.evaluate(() => NoorSprite._tiles(1))).join() === '2,1,1,0' && (await page.evaluate(() => NoorSprite._pixel(1, 17, 1))).join() === '0,0,0,255');
+      // Godot.
+      await page.click('#sp-timeline [data-layer="1"] .sp-tl-name');
+      await page.click('#sp-tiles-godot');
+      await waitFn(page, () => (window.__mock.state.sprite.tiles || []).length === 1);
+      const tx = (await SM()).tiles[0];
+      check('Godot TileSet: the sprite and the layer go to the app', tx.layer === w.layers[1].id && tx.sprite.tilesets.length === 1 && tx.frame === 0);
+      // A plain layer made a tilemap.
+      await page.click('#sp-timeline [data-layer="0"] .sp-tl-name');
+      await strokeTo([[1, 1], [1, 1]]);
+      await strokeTo([[17, 17], [17, 17]]);
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Make this layer a tilemap")');
+      st = await SS();
+      check('a picture layer becomes a tilemap: the same tiles once', st.layers[0].kind === 'tilemap' && st.tilesets.length === 2 && st.tilesets[1].count === 1 && (await page.evaluate(() => NoorSprite._tiles(0))).join() === '1,0,0,1');
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.sprite.saves || []).length >= 1);
+      const saved = (await SM()).saves.at(-1).sprite;
+      check('saved with both tilesets', saved.tilesets.length === 2 && saved.cels.filter((c) => c.tiles).length === 2);
+      if (shots) await page.screenshot({ path: `${shots}/66e-noorsprite-tilemaps.png` });
+      check('no page errors in NoorSprite tilemaps', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

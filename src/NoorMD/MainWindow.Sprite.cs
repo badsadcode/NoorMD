@@ -188,6 +188,36 @@ public partial class MainWindow
                 });
                 return new { files = written.Select(Path.GetFileName) };
             }
+            case "sprite.tiles.export":
+            {
+                // A tilemap layer for Godot: its tileset as a picture, a TileSet (.tres) and a scene with a TileMap.
+                var doc = SpriteFrom(p);
+                var layerId = req.GetString("layer", 64);
+                var layer = doc.Layers.FirstOrDefault(l => l.Id == layerId) ?? throw new BridgeError("No such layer.");
+                if (layer.Kind != "tilemap") throw new BridgeError("That layer isn't a tilemap.");
+                var ts = doc.Tilesets[layer.Tileset];
+                var at = p.TryGetProperty("frame", out var fe) && fe.TryGetInt32(out var fi) ? Math.Clamp(fi, 0, doc.Frames.Count - 1) : 0;
+                var cel = doc.Cels.FirstOrDefault(c => c.Layer == layer.Id && c.Frame == at)
+                    ?? new SpriteCel { Layer = layer.Id, Frame = at, Width = 1, Height = 1, Tiles = [0] };
+                var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "tiles", "");
+                var save = new SaveFileDialog { Title = "Export the tilemap for Godot (the tiles, a TileSet and a scene go side by side)", FileName = stem + ".tres", Filter = "Godot TileSet (*.tres)|*.tres", AddExtension = true };
+                NativeCursor.Restore();
+                if (save.ShowDialog(this) != true) return new { cancelled = true };
+                var target = save.FileName;
+                var dir = Path.GetDirectoryName(target)!;
+                var baseName = Path.GetFileNameWithoutExtension(target);
+                var written = await Task.Run(() =>
+                {
+                    var atlas = GodotTiles.Atlas(ts);
+                    var png = Path.Combine(dir, baseName + ".png");
+                    NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.Encode(atlas.Width, atlas.Height, atlas.Rgba));
+                    File.WriteAllText(target, GodotTiles.TileSet(baseName + ".png", ts));
+                    var scene = Path.Combine(dir, baseName + "_map.tscn");
+                    File.WriteAllText(scene, GodotTiles.Scene(layer.Name, Path.GetFileName(target), cel, ts));
+                    return new List<string> { png, target, scene };
+                });
+                return new { files = written.Select(Path.GetFileName) };
+            }
             case "sprite.palette.open":
             {
                 var dlg = new OpenFileDialog { Title = "Open a palette", Filter = "Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt", CheckFileExists = true };

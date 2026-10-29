@@ -216,6 +216,15 @@ public class GodotExportTests
         List<NoorMD.Core.Sprite.SpriteTag> spriteTags = [new() { Name = "walk", From = 0, To = 3, Direction = "pingpong" }, new() { Name = "idle", From = 0, To = 0 }];
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tres"), NoorMD.Core.Sprite.GodotSprite.SpriteFrames("hero.png", placed, spriteTags));
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tscn"), NoorMD.Core.Sprite.GodotSprite.Scene("Hero", "hero.tres", "walk"));
+        // A tilemap: its tileset as a TileSet, and a scene with a TileMap of it.
+        var tilePx = new byte[4 * 4 * 4 * 3];
+        for (var t = 0; t < 3; t++) for (var i = 0; i < 16; i++) { tilePx[(t * 16 + i) * 4 + t] = 200; tilePx[(t * 16 + i) * 4 + 3] = 255; }
+        var tileset = new NoorMD.Core.Sprite.SpriteTileset { Name = "Ground", TileWidth = 4, TileHeight = 4, Count = 3 }.WithPixels(tilePx);
+        var atlas = NoorMD.Core.Sprite.GodotTiles.Atlas(tileset);
+        File.WriteAllBytes(Path.Combine(dir, "sprite", "ground.png"), NoorMD.Core.Sprite.SpritePng.Encode(atlas.Width, atlas.Height, atlas.Rgba));
+        File.WriteAllText(Path.Combine(dir, "sprite", "ground.tres"), NoorMD.Core.Sprite.GodotTiles.TileSet("ground.png", tileset));
+        var mapCel = new NoorMD.Core.Sprite.SpriteCel { Width = 6, Height = 3, Tiles = [1, 2, 3, 1, 2, 3, 0, 0, 0, 0, 0, 0, 3, 3, 3, 3, 3, 3] };
+        File.WriteAllText(Path.Combine(dir, "sprite", "level.tscn"), NoorMD.Core.Sprite.GodotTiles.Scene("Level", "ground.tres", mapCel, tileset));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

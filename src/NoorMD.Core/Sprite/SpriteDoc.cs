@@ -27,6 +27,8 @@ public sealed class SpriteDoc
     public List<SpriteTag> Tags { get; set; } = [];
     /// <summary>Named rectangles on the sprite (a 9-slice centre, a pivot): for UI panels, hit boxes, origins.</summary>
     public List<SpriteSlice> Slices { get; set; } = [];
+    /// <summary>Tilesets the tilemap layers draw from.</summary>
+    public List<SpriteTileset> Tilesets { get; set; } = [];
     /// <summary>The grid drawn over the sprite (tiles), in pixels.</summary>
     public int GridWidth { get; set; } = 16;
     public int GridHeight { get; set; } = 16;
@@ -58,12 +60,30 @@ public sealed class SpriteDoc
         }
         foreach (var f in Frames) f.Duration = Math.Clamp(f.Duration, 1, 65535);
         var seen = new HashSet<(string, int)>();
+        Tilesets = (Tilesets ?? []).Where(t => t != null).Take(64).Select(t => t.Checked()).ToList();
+        foreach (var l in Layers)
+        {
+            l.Kind = l.Kind == "tilemap" && l.Tileset >= 0 && l.Tileset < Tilesets.Count ? "tilemap" : "image";
+            if (l.Kind == "image") l.Tileset = 0;
+        }
+        var kinds = Layers.ToDictionary(l => l.Id);
         Cels = Cels.Where(c => c != null && ids.Contains(c.Layer) && c.Frame >= 0 && c.Frame < Frames.Count && c.Width > 0 && c.Height > 0
             && c.Width <= MaxSide && c.Height <= MaxSide && seen.Add((c.Layer, c.Frame))).ToList();
         foreach (var c in Cels)
         {
             c.Opacity = Math.Clamp(c.Opacity, 0, 255);
             if (c.Link != null && (c.Link.Length is 0 or > 40 || !c.Link.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_'))) c.Link = null;
+            var cl = kinds[c.Layer];
+            if (cl.Kind == "tilemap")
+            {
+                // A tilemap cel: Width × Height tiles, each a tile's number in the layer's tileset (0: none).
+                var ts = Tilesets[cl.Tileset];
+                if (c.Tiles == null || c.Tiles.Length != c.Width * c.Height) throw new InvalidDataException("A tilemap's tiles don't match its size.");
+                for (var t = 0; t < c.Tiles.Length; t++) if (c.Tiles[t] < 0 || c.Tiles[t] > ts.Count) c.Tiles[t] = 0;
+                c.Data = null;
+                continue;
+            }
+            c.Tiles = null;
             if (c.Data != null && c.Pixels().Length != c.Width * c.Height * 4) throw new InvalidDataException("A cel's pixels don't match its size.");
         }
         Tags = Tags.Where(t => t != null).Take(256).Select(t =>
@@ -96,6 +116,9 @@ public sealed class SpriteLayer
     public string Blend { get; set; } = "normal";
     /// <summary>A picture to draw over or trace: shown, never exported.</summary>
     public bool Reference { get; set; }
+    /// <summary>"image", or "tilemap" (its cels are tiles of a tileset).</summary>
+    public string Kind { get; set; } = "image";
+    public int Tileset { get; set; }
 }
 
 public sealed class SpriteSlice
@@ -150,6 +173,8 @@ public sealed class SpriteCel
     public string? Data { get; set; }
     /// <summary>Cels of a layer with the same link are one picture on several frames (drawn on one, changed on all).</summary>
     public string? Link { get; set; }
+    /// <summary>A tilemap cel's tiles (row by row, Width × Height), each a tile's number (0: none).</summary>
+    public int[]? Tiles { get; set; }
 
     private byte[]? _pixels;
     public byte[] Pixels() => _pixels ??= Data == null ? new byte[Width * Height * 4] : Convert.FromBase64String(Data);
@@ -164,4 +189,67 @@ public sealed class SpriteTag
     public int To { get; set; }
     public string Direction { get; set; } = "forward";
     public string Color { get; set; } = "#3c6ad4ff";
+}
+
+/// <summary>
+/// Tiles of one size; a tilemap layer's cels are grids of their numbers. Tile 0 is no tile; tiles 1…Count are in
+/// <see cref="Data"/>, one under the other (a strip TileWidth wide, Count × TileHeight high), RGBA as base64.
+/// </summary>
+public sealed class SpriteTileset
+{
+    public const int MaxTiles = 4096;
+    public string Name { get; set; } = "Tiles";
+    public int TileWidth { get; set; } = 16;
+    public int TileHeight { get; set; } = 16;
+    public int Count { get; set; }
+    public string? Data { get; set; }
+
+    private byte[]? _pixels;
+    public byte[] Pixels() => _pixels ??= Data == null ? new byte[TileWidth * TileHeight * 4 * Count] : Convert.FromBase64String(Data);
+    public SpriteTileset WithPixels(byte[] rgba) { _pixels = rgba; Data = Convert.ToBase64String(rgba); return this; }
+
+    /// <summary>Tile n (1…Count) as RGBA.</summary>
+    public byte[] Tile(int n)
+    {
+        var size = TileWidth * TileHeight * 4;
+        return n < 1 || n > Count ? new byte[size] : Pixels().AsSpan((n - 1) * size, size).ToArray();
+    }
+
+    public SpriteTileset Checked()
+    {
+        Name = string.IsNullOrWhiteSpace(Name) ? "Tiles" : Name.Trim()[..Math.Min(Name.Trim().Length, 64)];
+        if (TileWidth is < 1 or > 512 || TileHeight is < 1 or > 512) throw new InvalidDataException("Tiles are 1 to 512 pixels a side.");
+        if (Count is < 0 or > MaxTiles) throw new InvalidDataException($"A tileset holds up to {MaxTiles} tiles.");
+        if (Pixels().Length != TileWidth * TileHeight * 4 * Count) throw new InvalidDataException("A tileset's pixels don't match its tiles.");
+        return this;
+    }
+}
+
+public static class SpriteTilemap
+{
+    /// <summary>A tilemap cel drawn as pixels (Width × Height tiles), cut to the sprite's size.</summary>
+    public static byte[] Render(SpriteCel cel, SpriteTileset ts, int width, int height)
+    {
+        var px = new byte[width * height * 4];
+        int tw = ts.TileWidth, th = ts.TileHeight;
+        for (var ty = 0; ty < cel.Height; ty++)
+            for (var tx = 0; tx < cel.Width; tx++)
+            {
+                var n = cel.Tiles![ty * cel.Width + tx];
+                if (n == 0) continue;
+                var tile = ts.Tile(n);
+                for (var y = 0; y < th; y++)
+                {
+                    var py = cel.Y + ty * th + y;
+                    if (py < 0 || py >= height) continue;
+                    for (var x = 0; x < tw; x++)
+                    {
+                        var pxx = cel.X + tx * tw + x;
+                        if (pxx < 0 || pxx >= width) continue;
+                        Array.Copy(tile, (y * tw + x) * 4, px, (py * width + pxx) * 4, 4);
+                    }
+                }
+            }
+        return px;
+    }
 }

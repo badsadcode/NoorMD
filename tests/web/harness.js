@@ -549,6 +549,7 @@ function mockHostScript(initial) {
       case 'sprite.draft.clear': SPRITE.clears = (SPRITE.clears || 0) + 1; return { ok: true };
       case 'sprite.picture.pick': return { name: 'sheet', image: { width: 8, height: 4, data: px(8, 4, (x) => (x < 4 ? [255, 0, 0, 255] : [0, 0, 255, 255])) } };
       case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
+      case 'sprite.tiles.export': SPRITE.tiles = (SPRITE.tiles || []).concat([JSON.parse(JSON.stringify(p))]); return { files: [`${p.name}.png`, `${p.name}.tres`, `${p.name}_map.tscn`] };
       case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
       default: throw new Error('Unknown sprite command ' + type);
     }
