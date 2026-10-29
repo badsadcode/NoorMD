@@ -23,7 +23,7 @@ public static class SpriteFile
         {
             Version = doc.Version, Width = doc.Width, Height = doc.Height, Palette = doc.Palette, Layers = doc.Layers, Frames = doc.Frames, Tags = doc.Tags,
             GridWidth = doc.GridWidth, GridHeight = doc.GridHeight,
-            Cels = doc.Cels.Select(c => new SpriteCel { Layer = c.Layer, Frame = c.Frame, X = c.X, Y = c.Y, Width = c.Width, Height = c.Height, Opacity = c.Opacity }).ToList(),
+            Cels = doc.Cels.Select(c => new SpriteCel { Layer = c.Layer, Frame = c.Frame, X = c.X, Y = c.Y, Width = c.Width, Height = c.Height, Opacity = c.Opacity, Link = c.Link }).ToList(),
         };
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))

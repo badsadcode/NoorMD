@@ -1777,6 +1777,7 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .spritebench .sp-tl-frame.on { background: color-mix(in srgb, var(--accent) 30%, transparent); }
 .spritebench .sp-tl-cel { height: 26px; position: relative; }
 .spritebench .sp-tl-cel.full::after { content: ''; position: absolute; inset: 8px; border-radius: 50%; background: var(--text); opacity: .7; }
+.spritebench .sp-tl-cel.linked::after { border-radius: 2px; inset: 9px 0; background: var(--accent); opacity: .85; }
 .spritebench .sp-tl-cel.on { background: color-mix(in srgb, var(--accent) 34%, transparent); }
 .spritebench .sp-tl-tagband { display: grid; align-items: center; }
 .spritebench .sp-tag { margin: 2px 1px; height: 18px; font-size: 11px; border: 0; border-radius: 4px; background: var(--c); color: #fff; text-shadow: 0 1px 1px rgba(0,0,0,.6); overflow: hidden; white-space: nowrap; cursor: pointer; }

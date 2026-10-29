@@ -61,7 +61,8 @@ first, and anything that conflicts with it waits.
   preview.91; high-poly bakes, the Asset Bench's lower levels with the closest baked on, export presets per engine:
   preview.92; atlases and smaller copies for lower levels (stage 3 finished): preview.93. See
   [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
-- NoorSprite (pixel art and animation, after the ideas of Aseprite and LibreSprite), stage 1: preview.94. See
+- NoorSprite (pixel art and animation, after the ideas of Aseprite and LibreSprite), stage 1: preview.94; stage 2
+  (shading, dithering, brushes from the sprite, outline, palette files, linked cels, RotSprite, Scale2x): preview.95. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorCanvas (a layered photo and painting editor) is planned in
   [NOORCANVAS_PLAN.md](NOORCANVAS_PLAN.md); NoorSketch stays the small sketchpad it is.
 

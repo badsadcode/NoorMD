@@ -2065,7 +2065,7 @@
     }
     // NoorSprite keeps its own Ctrl shortcuts (save, open, new, export, select, copy, paste, undo, redo) while it has the keyboard.
     const toSprite = e.target && ((e.target.closest && e.target.closest('#spritebench')) || (e.target === document.body && window.NoorSprite && NoorSprite.isOpen() && $('#spritebench') && $('#spritebench').offsetParent));
-    if (ctrl && !e.altKey && toSprite && ['s', 'o', 'n', 'e', 'a', 'd', 'c', 'x', 'v', 'z', 'y', 'i'].includes(key)) return;
+    if (ctrl && !e.altKey && toSprite && ['s', 'o', 'n', 'e', 'a', 'd', 'c', 'x', 'v', 'z', 'y', 'i', 'b'].includes(key)) return;
     // Menus first: Alt+letter / F10 open them, and while one is open its keys belong to it.
     if (!(e.getModifierState && e.getModifierState('AltGraph')) && NoorChrome.handleKey(e)) { e.stopPropagation(); return; }
     if (e.target && e.target.closest && e.target.closest('.menu-popup, #menubar') && !ctrl) return;

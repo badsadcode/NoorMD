@@ -16,6 +16,7 @@ namespace NoorMD;
 public partial class MainWindow
 {
     private const long SpriteMaxPicture = 64L * 1024 * 1024;
+    private static string SpriteDraftFolder => Path.Combine(App.Paths.Local, "Sprite");
 
     private static object SpriteWire(SpriteDoc doc) => JsonDocument.Parse(doc.ToJson()).RootElement.Clone();
 
@@ -171,6 +172,49 @@ public partial class MainWindow
                     return files;
                 });
                 return new { files = written.Select(Path.GetFileName) };
+            }
+            case "sprite.palette.open":
+            {
+                var dlg = new OpenFileDialog { Title = "Open a palette", Filter = "Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt", CheckFileExists = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                try { return new { palette = SpritePalette.Read(await File.ReadAllBytesAsync(dlg.FileName), Path.GetExtension(dlg.FileName)), name = Path.GetFileNameWithoutExtension(dlg.FileName) }; }
+                catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "sprite.palette.save":
+            {
+                if (!p.TryGetProperty("palette", out var pal) || pal.ValueKind != JsonValueKind.Array) throw new BridgeError("No palette.");
+                var colours = pal.EnumerateArray().Select(c => c.GetString() ?? "").ToList();
+                var dlg = new SaveFileDialog { Title = "Save the palette", FileName = "palette", Filter = "GIMP palette (*.gpl)|*.gpl|JASC palette (*.pal)|*.pal|Hex list (*.hex)|*.hex", AddExtension = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                await File.WriteAllBytesAsync(dlg.FileName, SpritePalette.Write(colours, Path.GetExtension(dlg.FileName), Path.GetFileNameWithoutExtension(dlg.FileName)));
+                return new { name = Path.GetFileName(dlg.FileName) };
+            }
+            case "sprite.draft.save":
+            {
+                // An unsaved sprite kept in the app's own folder now and then, to bring back after a crash.
+                var doc = SpriteFrom(p);
+                Directory.CreateDirectory(SpriteDraftFolder);
+                await Task.Run(() => SpriteFile.Save(Path.Combine(SpriteDraftFolder, "draft.noorsprite"), doc));
+                await File.WriteAllTextAsync(Path.Combine(SpriteDraftFolder, "draft.json"), JsonSerializer.Serialize(new { name = req.GetString("name", 200) ?? "", path = req.GetString("path", 2000) ?? "", savedUtc = DateTime.UtcNow }));
+                return new { ok = true };
+            }
+            case "sprite.draft.load":
+            {
+                var file = Path.Combine(SpriteDraftFolder, "draft.noorsprite");
+                if (!File.Exists(file)) return new { none = true };
+                try
+                {
+                    var info = File.Exists(Path.Combine(SpriteDraftFolder, "draft.json")) ? JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(SpriteDraftFolder, "draft.json"))).RootElement.Clone() : default;
+                    return new { sprite = SpriteWire(await Task.Run(() => SpriteFile.Load(file))), name = info.ValueKind == JsonValueKind.Object && info.TryGetProperty("name", out var n) ? n.GetString() : "", path = info.ValueKind == JsonValueKind.Object && info.TryGetProperty("path", out var pp) ? pp.GetString() : "", savedUtc = File.GetLastWriteTimeUtc(file) };
+                }
+                catch (Exception ex) when (ex is InvalidDataException or JsonException or IOException) { return new { none = true, broken = ex.Message }; }
+            }
+            case "sprite.draft.clear":
+            {
+                foreach (var f in new[] { "draft.noorsprite", "draft.json" }) { var path = Path.Combine(SpriteDraftFolder, f); if (File.Exists(path)) File.Delete(path); }
+                return new { ok = true };
             }
             default:
                 throw new BridgeError($"Unknown command \"{req.Type}\".");

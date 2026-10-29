@@ -61,6 +61,7 @@ public sealed class SpriteDoc
         foreach (var c in Cels)
         {
             c.Opacity = Math.Clamp(c.Opacity, 0, 255);
+            if (c.Link != null && (c.Link.Length is 0 or > 40 || !c.Link.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '-' or '_'))) c.Link = null;
             if (c.Data != null && c.Pixels().Length != c.Width * c.Height * 4) throw new InvalidDataException("A cel's pixels don't match its size.");
         }
         Tags = Tags.Where(t => t != null).Take(256).Select(t =>
@@ -110,6 +111,8 @@ public sealed class SpriteCel
     public int Opacity { get; set; } = 255;
     /// <summary>RGBA, 4 bytes a pixel, as base64 (between the page and the app; files keep it as a PNG).</summary>
     public string? Data { get; set; }
+    /// <summary>Cels of a layer with the same link are one picture on several frames (drawn on one, changed on all).</summary>
+    public string? Link { get; set; }
 
     private byte[]? _pixels;
     public byte[] Pixels() => _pixels ??= Data == null ? new byte[Width * Height * 4] : Convert.FromBase64String(Data);

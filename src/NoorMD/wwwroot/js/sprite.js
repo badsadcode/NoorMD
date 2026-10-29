@@ -30,7 +30,11 @@ window.NoorSprite = (() => {
   let layer = 0, frame = 0; // the layer (index, bottom first) and frame being drawn
   let tool = 'pencil';
   let fg = [0, 0, 0, 255], bg = [255, 255, 255, 255];
-  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false };
+  let opts = { size: 1, round: false, perfect: true, contiguous: true, tolerance: 0, filled: false, mirrorX: false, mirrorY: false, ink: 'simple', dither: 0, custom: false };
+  let brushImage = null;    // a brush cut from the sprite: { px, w, h }
+  // Ordered dithering (a 4 × 4 Bayer matrix): a pixel is drawn when its cell is under the level (of 16).
+  const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+  const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
   let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35 };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
@@ -97,12 +101,34 @@ window.NoorSprite = (() => {
 
   const cel = (l = layer, f = frame) => doc.cels.get(key(doc.layers[l].id, f)) || null;
 
+  /**
+   * A cel put in place; a linked cel (one picture on several frames) puts the same picture on every frame it is
+   * linked to, so drawing on one draws on all.
+   */
+  function putCel(d, k, c) {
+    const old = d.cels.get(k), link = old && old.link;
+    const next = link ? { ...c, link } : c;
+    d.cels.set(k, next);
+    if (!link) return;
+    const lid = k.slice(0, k.lastIndexOf(':'));
+    for (const [k2, c2] of d.cels) if (k2 !== k && c2.link === link && k2.slice(0, k2.lastIndexOf(':')) === lid) d.cels.set(k2, { ...next });
+  }
+
+  /** How many frames a cel's picture is on (1 when it isn't linked). */
+  function linkCount(l = layer, f = frame) {
+    const c = cel(l, f);
+    if (!c || !c.link) return 1;
+    let n = 0;
+    for (const [k, c2] of doc.cels) if (c2.link === c.link && k.slice(0, k.lastIndexOf(':')) === doc.layers[l].id) n++;
+    return n;
+  }
+
   /** The current cel's pixels to draw into: a copy (the old stays with undo), or a new empty one. */
   function editable(d = doc) {
     const k = key(d.layers[layer].id, frame);
     const old = d.cels.get(k);
     const px = old ? new Uint8ClampedArray(old.px) : new Uint8ClampedArray(d.width * d.height * 4);
-    d.cels.set(k, { px, opacity: old ? old.opacity : 255 });
+    putCel(d, k, { px, opacity: old ? old.opacity : 255 });
     return px;
   }
 
@@ -173,7 +199,8 @@ window.NoorSprite = (() => {
             el('button', { class: 'icon-btn sp-swap', title: 'Swap (X)', 'aria-label': 'Swap colours', onclick: swapColours }, '⇄')),
           el('div', { class: 'sp-palette-head' },
             el('select', { id: 'sp-palette-pick', 'aria-label': 'Palette' }),
-            el('button', { class: 'icon-btn', title: 'Add the colour to the palette', 'aria-label': 'Add to palette', onclick: addToPalette }, '＋')),
+            el('button', { class: 'icon-btn', title: 'Add the colour to the palette', 'aria-label': 'Add to palette', onclick: addToPalette }, '＋'),
+            el('button', { class: 'icon-btn', id: 'sp-palmenu', title: 'Palette: sort, a ramp, the sprite\'s colours, load and save…', 'aria-label': 'Palette menu', onclick: paletteMenu }, '⋯')),
           el('div', { class: 'sp-palette', id: 'sp-palette', role: 'listbox', 'aria-label': 'Palette (click: draw with it; right-click: second colour; Shift+click: remove)' })),
         el('div', { class: 'sp-centre' },
           el('div', { class: 'sp-options', id: 'sp-options' }),
@@ -223,6 +250,7 @@ window.NoorSprite = (() => {
     if (!doc) { doc = blank(32, 32, null); fitZoom(); }
     renderAll();
     $('#spritebench').focus({ preventScroll: true });
+    offerDraft();
   }
 
   async function close() {
@@ -264,8 +292,9 @@ window.NoorSprite = (() => {
     const named = Object.keys(PALETTES).find((n) => PALETTES[n].split(' ').map((c) => `#${c}ff`).join() === doc.palette.join());
     $('#sp-palette-pick').value = named || '';
     const current = hex(fg);
-    box.replaceChildren(...doc.palette.map((c, i) => el('button', { class: 'sp-pal' + (c === current ? ' on' : ''), 'data-index': String(i), 'data-colour': c, title: `${c} (click: draw with it; right-click: second colour; Shift+click: remove)`, style: `--c:${c}`,
+    box.replaceChildren(...doc.palette.map((c, i) => el('button', { class: 'sp-pal' + (c === current ? ' on' : ''), 'data-index': String(i), 'data-colour': c, title: `${c} (click: draw with it; right-click: second colour; double-click: change it; Shift+click: remove)`, style: `--c:${c}`,
       onclick: (e) => { if (e.shiftKey) { change('Remove a colour', (d) => { d.palette.splice(i, 1); }); return; } fg = parseHex(c); renderColours(); renderPalette(); keepFocus(); },
+      ondblclick: () => editSwatch(i),
       oncontextmenu: (e) => { e.preventDefault(); bg = parseHex(c); renderColours(); } })));
   }
 
@@ -310,7 +339,16 @@ window.NoorSprite = (() => {
     };
     const parts = [];
     if (['pencil', 'eraser', 'line'].includes(tool)) parts.push(num('size', 'Size', 1, 64, 'The brush in pixels ([ and ])'), check('round', 'round', 'A round brush (else square)'));
-    if (tool === 'pencil') parts.push(check('perfect', 'pixel-perfect', 'Lines one pixel wide without doubled corners (size 1)'));
+    if (tool === 'pencil') {
+      parts.push(check('perfect', 'pixel-perfect', 'Lines one pixel wide without doubled corners (size 1)'));
+      const inkSel = el('select', { 'data-opt': 'ink', 'aria-label': 'Ink', title: 'Shading: each pixel steps along the palette (left click one way, right click the other)' }, el('option', { value: 'simple', text: 'plain' }), el('option', { value: 'shade', text: 'shading' }));
+      inkSel.value = opts.ink; inkSel.addEventListener('change', () => { opts.ink = inkSel.value; keepFocus(); });
+      const dith = el('select', { 'data-opt': 'dither', 'aria-label': 'Dithering', title: 'Draw only some pixels, in an even pattern (ordered dithering)' }, ...DITHERS.map(([v, l]) => el('option', { value: String(v), text: l })));
+      dith.value = String(opts.dither); dith.addEventListener('change', () => { opts.dither = Number(dith.value); keepFocus(); });
+      parts.push(el('label', { class: 'sb-inline' }, el('span', { text: 'Ink' }), inkSel), el('label', { class: 'sb-inline' }, el('span', { text: 'Pattern' }), dith));
+      if (brushImage) parts.push(check('custom', `the brush cut from the sprite (${brushImage.w} × ${brushImage.h})`, 'Draw with the picture cut with Ctrl+B'));
+      else parts.push(el('span', { class: 'pref-hint', text: 'Ctrl+B: a brush from the selection' }));
+    }
     if (['pencil', 'eraser', 'line', 'rect', 'ellipse', 'fill'].includes(tool)) parts.push(check('mirrorX', 'mirror ↔', 'Draw the other side too, mirrored left to right'), check('mirrorY', 'mirror ↕', 'Draw the other half too, mirrored top to bottom'));
     if (tool === 'fill' || tool === 'wand') parts.push(check('contiguous', 'touching only', 'Only the area touching the click (else every pixel of that colour)'), num('tolerance', 'Tolerance', 0, 255, 'How different a colour may be and still count as the same'));
     if (tool === 'rect' || tool === 'ellipse') parts.push(check('filled', 'filled', 'Filled (else only the outline); Shift: a square or a circle'));
@@ -330,16 +368,17 @@ window.NoorSprite = (() => {
     op.addEventListener('change', () => change('Layer opacity', (d) => { d.layers[layer].opacity = Number(op.value); }));
     const c = cel();
     const cop = el('input', { type: 'range', min: '0', max: '255', value: String(c ? c.opacity : 255), id: 'sp-celopacity', 'aria-label': 'Cel opacity', disabled: !c || undefined });
-    cop.addEventListener('change', () => change('Cel opacity', (d) => { const k = key(d.layers[layer].id, frame); const old = d.cels.get(k); if (old) d.cels.set(k, { ...old, opacity: Number(cop.value) }); }));
+    cop.addEventListener('change', () => change('Cel opacity', (d) => { const k = key(d.layers[layer].id, frame); const old = d.cels.get(k); if (old) putCel(d, k, { ...old, opacity: Number(cop.value) }); }));
     const dur = el('input', { type: 'number', min: '1', max: '65535', value: String(doc.frames[frame].duration), class: 'sb-num', id: 'sp-duration', 'aria-label': 'Frame duration (ms)' });
     dur.addEventListener('change', () => { const v = Math.max(1, Math.min(65535, Math.round(Number(dur.value) || 100))); change('Frame duration', (d) => { d.frames[frame].duration = v; }); });
-    box.replaceChildren(
+    box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: `Layer “${l.name}”` }),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
       el('label', { class: 'sb-inline', title: 'This frame\'s picture on the layer' }, el('span', { text: 'Cel opacity' }), cop),
+      c && c.link ? el('div', { class: 'sb-row', id: 'sp-linkinfo' }, el('span', { class: 'pref-hint', text: `🔗 on ${linkCount()} frames` }), el('button', { class: 'utility-btn', id: 'sp-unlink', title: 'This frame gets a picture of its own', onclick: unlinkCel }, 'Unlink')) : null,
       el('h4', { class: 'music-subhead', text: `Frame ${frame + 1}` }),
-      el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur));
+      el('label', { class: 'sb-inline' }, el('span', { text: 'Shows for (ms)' }), dur)].filter(Boolean));
   }
 
   function renderViewOpts() {
@@ -376,6 +415,7 @@ window.NoorSprite = (() => {
         el('button', { class: 'icon-btn', id: 'sp-play', title: 'Play / stop (Enter)', 'aria-label': playing ? 'Stop' : 'Play', onclick: () => (playing ? stop() : play()) }, playing ? '■' : '▶'),
         el('button', { class: 'icon-btn', id: 'sp-addframe', title: 'New frame: a copy of this one (Alt+N)', 'aria-label': 'New frame', onclick: () => addFrame(true) }, '＋'),
         el('button', { class: 'icon-btn', title: 'New empty frame', 'aria-label': 'New empty frame', onclick: () => addFrame(false) }, '□'),
+        el('button', { class: 'icon-btn', id: 'sp-addlinked', title: 'New linked frame: the same pictures, drawn once for both (Alt+Shift+N)', 'aria-label': 'New linked frame', onclick: () => addFrame(true, true) }, '🔗'),
         el('button', { class: 'icon-btn', id: 'sp-delframe', title: 'Remove this frame', 'aria-label': 'Remove the frame', disabled: doc.frames.length < 2 || undefined, onclick: removeFrame }, '🗑'),
         el('button', { class: 'icon-btn', title: 'Move the frame earlier', 'aria-label': 'Frame earlier', onclick: () => moveFrame(-1) }, '◀'),
         el('button', { class: 'icon-btn', title: 'Move the frame later', 'aria-label': 'Frame later', onclick: () => moveFrame(1) }, '▶'),
@@ -395,7 +435,7 @@ window.NoorSprite = (() => {
           el('span', { class: 'sp-layername', text: l.name })),
         ...doc.frames.map((_, fi) => {
           const c = doc.cels.get(key(l.id, fi));
-          return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (fi === frame && li === layer ? ' on' : ''), 'data-cel': `${li}:${fi}`, title: c ? 'A picture on this frame' : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } });
+          return el('button', { class: 'sp-tl-cel' + (c ? ' full' : '') + (c && c.link ? ' linked' : '') + (fi === frame && li === layer ? ' on' : ''), 'data-cel': `${li}:${fi}`, title: c ? (c.link ? 'A picture linked to other frames (drawn once for all)' : 'A picture on this frame') : 'Empty', 'aria-label': `${l.name}, frame ${fi + 1}`, onclick: () => { layer = li; goFrame(fi); } });
         }));
     });
     const layerBar = el('div', { class: 'sp-tl-row sp-tl-foot' }, el('div', { class: 'sp-tl-name' },
@@ -412,13 +452,33 @@ window.NoorSprite = (() => {
 
   function goFrame(i) { commitFloating(); frame = Math.max(0, Math.min(doc.frames.length - 1, i)); renderAll(); keepFocus(); }
 
-  function addFrame(copy) {
-    change(copy ? 'New frame' : 'New empty frame', (d) => {
+  /** A new frame after this one: a copy, empty, or linked (the same pictures, drawn on once for both). */
+  function addFrame(copy, linked = false) {
+    change(linked ? 'New linked frame' : copy ? 'New frame' : 'New empty frame', (d) => {
       const at = frame + 1;
       d.frames.splice(at, 0, { duration: d.frames[frame].duration });
       shiftFrames(d, at, 1);
-      if (copy) d.layers.forEach((l) => { const c = d.cels.get(key(l.id, frame)); if (c) d.cels.set(key(l.id, at), c); });
+      if (copy) d.layers.forEach((l) => {
+        const c = d.cels.get(key(l.id, frame));
+        if (!c) return;
+        if (linked) {
+          const lc = { ...c, link: c.link || 'k' + Math.random().toString(36).slice(2, 9) };
+          d.cels.set(key(l.id, frame), lc); d.cels.set(key(l.id, at), { ...lc });
+        } else { const { link, ...plain } = c; void link; d.cels.set(key(l.id, at), plain); }
+      });
       frame = at;
+    });
+  }
+
+  function unlinkCel() {
+    change('Unlink', (d) => {
+      const lid = d.layers[layer].id, k = key(lid, frame), c = d.cels.get(k);
+      if (!c || !c.link) return;
+      const { link, ...plain } = c;
+      d.cels.set(k, plain);
+      // A frame left alone with the link has nothing to be linked to.
+      const rest = [...d.cels].filter(([k2, c2]) => c2.link === link && k2.slice(0, k2.lastIndexOf(':')) === lid);
+      if (rest.length === 1) { const { link: l2, ...p2 } = rest[0][1]; void l2; d.cels.set(rest[0][0], p2); }
     });
   }
 
@@ -749,6 +809,11 @@ window.NoorSprite = (() => {
 
   /** The pixels a brush covers around a point (square or round, of the brush's size), mirrored as asked. */
   function brushPoints(x, y) {
+    if (opts.custom && brushImage && tool === 'pencil') {
+      const pts = [], ox = x - Math.floor(brushImage.w / 2), oy = y - Math.floor(brushImage.h / 2);
+      for (let by = 0; by < brushImage.h; by++) for (let bx = 0; bx < brushImage.w; bx++) if (brushImage.px[(by * brushImage.w + bx) * 4 + 3]) pts.push([ox + bx, oy + by]);
+      return mirrored(pts);
+    }
     const s = opts.size, r = (s - 1) / 2, pts = [];
     for (let dy = -Math.floor(r); dy <= Math.ceil(r); dy++) for (let dx = -Math.floor(r); dx <= Math.ceil(r); dx++) {
       if (s > 1 && opts.round && (dx - (s % 2 ? 0 : 0.5)) ** 2 + (dy - (s % 2 ? 0 : 0.5)) ** 2 > (s / 2) ** 2 + 0.25) continue;
@@ -851,7 +916,8 @@ window.NoorSprite = (() => {
     if (t === 'pencil' || t === 'eraser') {
       // The stroke draws into a copy shown as it goes; it becomes one undo step when the button is let go.
       const base = cel();
-      drag = { kind: 'stroke', colour: t === 'eraser' ? [0, 0, 0, 0] : colour, last: [p.x, p.y], preview: base ? new Uint8ClampedArray(base.px) : new Uint8ClampedArray(doc.width * doc.height * 4), original: base ? base.px : null, trail: [] };
+      drag = { kind: 'stroke', colour: t === 'eraser' ? [0, 0, 0, 0] : colour, last: [p.x, p.y], preview: base ? new Uint8ClampedArray(base.px) : new Uint8ClampedArray(doc.width * doc.height * 4), original: base ? base.px : null, trail: [],
+        ink: t === 'pencil' ? opts.ink : 'simple', shadeDir: e.button === 2 ? -1 : 1, shaded: new Set(), custom: t === 'pencil' && opts.custom && brushImage };
       stamp(p.x, p.y);
       draw();
       return;
@@ -883,7 +949,53 @@ window.NoorSprite = (() => {
         }
       }
     }
-    for (const [px, py] of brushPoints(x, y)) plot(d.preview, px, py, d.colour);
+    if (d.custom) { stampImage(x, y); return; }
+    for (const [px, py] of brushPoints(x, y)) ink(px, py);
+  }
+
+  /** One pixel of a stroke by its ink: plain, dithered (some pixels only), or shading (a step along the palette). */
+  function ink(x, y) {
+    const d = drag;
+    if (!inside(x, y)) return;
+    if (opts.dither && tool === 'pencil' && BAYER[(y & 3) * 4 + (x & 3)] >= opts.dither) return;
+    if (d.ink === 'shade') {
+      const i = (y * doc.width + x) * 4;
+      if (d.shaded.has(i)) return; // once a stroke
+      d.shaded.add(i);
+      const c = hex([d.preview[i], d.preview[i + 1], d.preview[i + 2], d.preview[i + 3]]);
+      const at = doc.palette.indexOf(c), to = at + d.shadeDir;
+      if (at < 0 || to < 0 || to >= doc.palette.length) return;
+      d.preview.set(parseHex(doc.palette[to]), i);
+      return;
+    }
+    plot(d.preview, x, y, d.colour);
+  }
+
+  /** A brush cut from the sprite, stamped centred on a point (its own colours; mirrored too). */
+  function stampImage(x, y) {
+    const b = brushImage, ox = x - Math.floor(b.w / 2), oy = y - Math.floor(b.h / 2);
+    for (let by = 0; by < b.h; by++) for (let bx = 0; bx < b.w; bx++) {
+      const s = (by * b.w + bx) * 4;
+      if (!b.px[s + 3]) continue;
+      const c = [b.px[s], b.px[s + 1], b.px[s + 2], b.px[s + 3]];
+      for (const [mx, my] of mirrored([[ox + bx, oy + by]])) if (inside(mx, my)) plot(drag.preview, mx, my, c);
+    }
+  }
+
+  /** Ctrl+B: the selection (or the whole cel) becomes the pencil's brush. */
+  function brushFromSelection() {
+    const c = cel();
+    if (!c) { notice('Nothing here to make a brush of', 1200); return; }
+    const W = doc.width, s = selection || bounds(new Uint8Array(W * doc.height).fill(1));
+    const w = s.x1 - s.x0 + 1, h = s.y1 - s.y0 + 1, px = new Uint8ClampedArray(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = ((s.y0 + y) * W + s.x0 + x) * 4; if (s.mask[(s.y0 + y) * W + s.x0 + x]) px.set(c.px.subarray(i, i + 4), (y * w + x) * 4); }
+    if (!px.some((v, i) => i % 4 === 3 && v)) { notice('That part is empty', 1200); return; }
+    if (w > 64 || h > 64) { notice('A brush is at most 64 × 64', 1500); return; }
+    brushImage = { px, w, h };
+    opts.custom = true;
+    commitFloating(); selection = null;
+    setTool('pencil');
+    notice(`A ${w} × ${h} brush from the sprite`, 1400);
   }
 
   function shapePreview(e, d = drag) {
@@ -919,8 +1031,8 @@ window.NoorSprite = (() => {
     const d = drag;
     drag = null;
     if (!d) return;
-    if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : 'Draw', (doc2) => { doc2.cels.set(key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
-    else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { doc2.cels.set(key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'select') endSelect(d);
     else draw();
   }
@@ -1045,7 +1157,7 @@ window.NoorSprite = (() => {
       px.set(c.px.subarray(i, i + 4), (y * w + x) * 4);
       rest.fill(0, i, i + 4);
     }
-    change('Move', (d) => { d.cels.set(key(d.layers[layer].id, frame), { px: rest, opacity: c.opacity }); });
+    change('Move', (d) => { putCel(d, key(d.layers[layer].id, frame), { px: rest, opacity: c.opacity }); });
     floating = { px, w, h, x: s.x0, y: s.y0 };
     selection = null;
     return true;
@@ -1084,7 +1196,7 @@ window.NoorSprite = (() => {
     }
     // No extra undo step: put down with the move it came from.
     doc = snapshot(doc);
-    doc.cels.set(k, { px, opacity: old ? old.opacity : 255 });
+    putCel(doc, k, { px, opacity: old ? old.opacity : 255 });
     selection = bounds(mask);
     renderAll();
   }
@@ -1217,6 +1329,8 @@ window.NoorSprite = (() => {
       ['Turn the sprite 90° clockwise', () => transform('rotR', 'sprite')], ['Turn the sprite 90° anticlockwise', () => transform('rotL', 'sprite')], null,
       ['Flip the layer ↔', () => transform('flipH', 'layer')], ['Flip the layer ↕', () => transform('flipV', 'layer')],
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
+      ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
+      ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
       ['Save as…', () => save(true)],
     ];
@@ -1262,12 +1376,272 @@ window.NoorSprite = (() => {
     });
   }
 
-  function setDoc(d, f) {
+  function setDoc(d, f, restoring = false) {
     stop();
+    if (!restoring) req('sprite.draft.clear').catch(() => {});
     doc = d; file = f; layer = Math.min(layer, d.layers.length - 1); frame = 0;
     if (layer < 0) layer = 0;
     history = []; future = []; savedAt = null; selection = null; floating = null;
     fitZoom(); renderAll();
+  }
+
+  // ---------------------------------------------------------------- stage 2: colours, outlines, rotation, upscaling
+
+  const rgbaKey = (px, i) => (px[i] << 24 | px[i + 1] << 16 | px[i + 2] << 8 | px[i + 3]) >>> 0;
+  const near = (px, i, c, tol) => Math.max(Math.abs(px[i] - c[0]), Math.abs(px[i + 1] - c[1]), Math.abs(px[i + 2] - c[2]), Math.abs(px[i + 3] - c[3])) <= tol;
+
+  /** The cels a change reaches: this one, the layer's on every frame, or every one. */
+  function scopeKeys(d, scope) {
+    const keys = [];
+    for (const k of d.cels.keys()) {
+      const i = k.lastIndexOf(':'), id = k.slice(0, i), f = Number(k.slice(i + 1));
+      if (scope === 'sprite' || (scope === 'layer' && id === d.layers[layer].id) || (scope === 'cel' && id === d.layers[layer].id && f === frame)) keys.push(k);
+    }
+    return keys;
+  }
+
+  const scopeSelect = (id) => el('select', { id, 'aria-label': 'Where' }, el('option', { value: 'cel', text: 'this layer, this frame' }), el('option', { value: 'layer', text: 'this layer, every frame' }), el('option', { value: 'sprite', text: 'the whole sprite' }));
+
+  /** Every pixel of one colour (within a tolerance) made another. */
+  function replaceColour(from, to, tol, scope) {
+    change('Replace colour', (d) => {
+      for (const k of scopeKeys(d, scope)) {
+        const c = d.cels.get(k), px = new Uint8ClampedArray(c.px);
+        let any = false;
+        for (let i = 0; i < px.length; i += 4) if ((!selection || selection.mask[i / 4]) && near(px, i, from, tol)) { px.set(to, i); any = true; }
+        if (any) d.cels.set(k, { ...c, px });
+      }
+    });
+  }
+
+  function replaceDialog() {
+    NoorUI.modal({ label: 'Replace colour', width: 380 }, (s, closeIt) => {
+      const from = el('input', { type: 'color', value: hex(bg).slice(0, 7), id: 'sp-rep-from', 'aria-label': 'From' });
+      const to = el('input', { type: 'color', value: hex(fg).slice(0, 7), id: 'sp-rep-to', 'aria-label': 'To' });
+      const tol = el('input', { type: 'number', min: '0', max: '255', value: '0', id: 'sp-rep-tol', 'aria-label': 'Tolerance' });
+      const where = scopeSelect('sp-rep-where');
+      s.append(NoorUI.head('Replace colour', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'This colour ', from), el('label', {}, 'becomes ', to), el('label', {}, 'Tolerance ', tol), el('label', {}, 'In ', where),
+          el('p', { class: 'pref-hint', text: 'Its alpha is kept from the colours as they are (the second colour, the drawing colour); only inside the selection when there is one.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-rep-ok', onclick: () => { const a = parseHex(from.value + hex(bg).slice(7)), b = parseHex(to.value + hex(fg).slice(7)); closeIt(); replaceColour(a, b, Number(tol.value) || 0, where.value); } }, 'Replace'))));
+    });
+  }
+
+  /** An outline in the drawing colour: outside the shape (around it) or inside (its edge), 4- or 8-connected. */
+  function outline(where, eight, scope) {
+    commitFloating();
+    change('Outline', (d) => {
+      const W = d.width, H = d.height;
+      for (const k of scopeKeys(d, scope)) {
+        const c = d.cels.get(k), src = c.px, px = new Uint8ClampedArray(src);
+        const solid = (x, y) => x >= 0 && y >= 0 && x < W && y < H && src[(y * W + x) * 4 + 3] > 0;
+        const nb = eight ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+          if (selection && !selection.mask[y * W + x]) continue;
+          const me = solid(x, y);
+          if (where === 'outside' ? !me && nb.some(([dx, dy]) => solid(x + dx, y + dy)) : me && nb.some(([dx, dy]) => !solid(x + dx, y + dy))) px.set(fg, (y * W + x) * 4);
+        }
+        d.cels.set(k, { ...c, px });
+      }
+    });
+  }
+
+  function outlineDialog() {
+    NoorUI.modal({ label: 'Outline', width: 360 }, (s, closeIt) => {
+      const where = el('select', { id: 'sp-out-where', 'aria-label': 'Where' }, el('option', { value: 'outside', text: 'around the shape' }), el('option', { value: 'inside', text: 'on its edge, inside' }));
+      const conn = el('select', { id: 'sp-out-conn', 'aria-label': 'Corners' }, el('option', { value: '4', text: 'sides only (round corners)' }), el('option', { value: '8', text: 'corners too (square)' }));
+      const scope = scopeSelect('sp-out-scope');
+      s.append(NoorUI.head('Outline', closeIt), el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Where ', where), el('label', {}, 'Touching ', conn), el('label', {}, 'In ', scope), el('p', { class: 'pref-hint', text: 'In the drawing colour.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-out-ok', onclick: () => { closeIt(); outline(where.value, conn.value === '8', scope.value); } }, 'Outline'))));
+    });
+  }
+
+  /** Scale2x / Scale3x (EPX): pixel art made 2× or 3× bigger with its diagonals smoothed, not blurred. */
+  function scaleXBR(px, w, h, n) {
+    const W = w * n, o = new Uint8ClampedArray(W * h * n * 4);
+    const at = (x, y) => { x = Math.max(0, Math.min(w - 1, x)); y = Math.max(0, Math.min(h - 1, y)); return rgbaKey(px, (y * w + x) * 4); };
+    const put = (x, y, v) => { const i = (y * W + x) * 4; o[i] = v >>> 24; o[i + 1] = (v >>> 16) & 255; o[i + 2] = (v >>> 8) & 255; o[i + 3] = v & 255; };
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const A = at(x - 1, y - 1), B = at(x, y - 1), C = at(x + 1, y - 1), D = at(x - 1, y), E = at(x, y), F = at(x + 1, y), G = at(x - 1, y + 1), H = at(x, y + 1), I = at(x + 1, y + 1);
+      let e;
+      if (n === 2) e = B !== H && D !== F ? [D === B ? D : E, B === F ? F : E, D === H ? D : E, H === F ? F : E] : [E, E, E, E];
+      else e = B !== H && D !== F ? [
+        D === B ? D : E, (D === B && E !== C) || (B === F && E !== A) ? B : E, B === F ? F : E,
+        (D === B && E !== G) || (D === H && E !== A) ? D : E, E, (B === F && E !== I) || (H === F && E !== C) ? F : E,
+        D === H ? D : E, (D === H && E !== I) || (H === F && E !== G) ? H : E, H === F ? F : E] : Array(9).fill(E);
+      for (let k = 0; k < n * n; k++) put(x * n + (k % n), y * n + Math.floor(k / n), e[k]);
+    }
+    return o;
+  }
+
+  function scaleSmart(n) {
+    const nw = doc.width * n, nh = doc.height * n;
+    if (nw > 2048 || nh > 2048) { notice('That would be over 2048 pixels a side', 1800); return; }
+    commitFloating();
+    change(`Scale${n}x`, (d) => {
+      for (const [k, c] of [...d.cels]) d.cels.set(k, { ...c, px: scaleXBR(c.px, d.width, d.height, n) });
+      d.width = nw; d.height = nh;
+    });
+    selection = null; fitZoom(); draw();
+  }
+
+  /**
+   * RotSprite-style rotation: the picture made 8× bigger with Scale2x three times (edges stay clean), turned there,
+   * and each pixel taken back from the middle of its 8 × 8 — so a turned sprite keeps crisp single-pixel lines.
+   */
+  function rotsprite(px, w, h, degrees, cx, cy, mask) {
+    let big = px, bw = w, bh = h;
+    for (let k = 0; k < 3; k++) { big = scaleXBR(big, bw, bh, 2); bw *= 2; bh *= 2; }
+    const a = (-degrees * Math.PI) / 180, ca = Math.cos(a), sa = Math.sin(a);
+    const o = new Uint8ClampedArray(px.length);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      if (mask && !mask[y * w + x]) { o.set(px.subarray((y * w + x) * 4, (y * w + x) * 4 + 4), (y * w + x) * 4); continue; }
+      const dx = x + 0.5 - cx, dy = y + 0.5 - cy;
+      const sx = (cx + dx * ca - dy * sa) * 8, sy = (cy + dx * sa + dy * ca) * 8;
+      const ix = Math.floor(sx), iy = Math.floor(sy);
+      if (ix < 0 || iy < 0 || ix >= bw || iy >= bh) continue;
+      const sxp = Math.floor(ix / 8), syp = Math.floor(iy / 8);
+      if (mask && !mask[syp * w + sxp]) continue; // only what was selected turns
+      o.set(big.subarray((iy * bw + ix) * 4, (iy * bw + ix) * 4 + 4), (y * w + x) * 4);
+    }
+    return o;
+  }
+
+  function rotateDialog() {
+    NoorUI.modal({ label: 'Rotate', width: 360 }, (s, closeIt) => {
+      const deg = el('input', { type: 'number', min: '-360', max: '360', value: '15', id: 'sp-rot-deg', 'aria-label': 'Degrees' });
+      const scope = scopeSelect('sp-rot-scope');
+      s.append(NoorUI.head('Rotate (pixel art stays crisp)', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Degrees (clockwise) ', deg), el('label', {}, 'In ', scope), el('p', { class: 'pref-hint', text: 'Turns about the middle of the selection, or of the sprite; RotSprite-style, so lines stay one pixel wide.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-rot-ok', onclick: () => { const v = Number(deg.value) || 0; closeIt(); rotate(v, scope.value); } }, 'Rotate'))));
+    });
+  }
+
+  function rotate(degrees, scope) {
+    commitFloating();
+    const W = doc.width, H = doc.height, s2 = selection;
+    const cx = s2 ? (s2.x0 + s2.x1 + 1) / 2 : W / 2, cy = s2 ? (s2.y0 + s2.y1 + 1) / 2 : H / 2;
+    change('Rotate', (d) => { for (const k of scopeKeys(d, scope)) { const c = d.cels.get(k); d.cels.set(k, { ...c, px: rotsprite(c.px, W, H, degrees, cx, cy, s2 && s2.mask) }); } });
+  }
+
+  // ---- palettes
+
+  function sortPalette(by) {
+    const lum = (c) => { const [r, g, b] = parseHex(c); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    const hue = (c) => { const [r, g, b] = parseHex(c).map((v) => v / 255); const mx = Math.max(r, g, b), mn = Math.min(r, g, b), dl = mx - mn; if (dl < 0.08) return 400 + lum(c) / 255; const h = mx === r ? ((g - b) / dl) % 6 : mx === g ? (b - r) / dl + 2 : (r - g) / dl + 4; return ((h * 60) + 360) % 360 + lum(c) / 1000; };
+    change('Sort the palette', (d) => { d.palette = by === 'reverse' ? [...d.palette].reverse() : [...d.palette].sort((a, b) => (by === 'hue' ? hue(a) - hue(b) : lum(a) - lum(b))); });
+  }
+
+  /** A ramp of colours from the drawing colour to the second, added to the palette. */
+  async function rampDialog() {
+    const v = await NoorUI.prompt('A ramp', 'How many colours from the drawing colour to the second (they are added to the palette):', '6', { type: 'number', okLabel: 'Add' });
+    const n = Math.max(2, Math.min(32, Number(v) || 0));
+    if (!v) return;
+    const cs = Array.from({ length: n }, (_, i) => hex(fg.map((a, k) => Math.round(a + ((bg[k] - a) * i) / (n - 1)))));
+    change('A ramp', (d) => { for (const c of cs) if (!d.palette.includes(c) && d.palette.length < 256) d.palette.push(c); });
+  }
+
+  /** The sprite's own colours as the palette (up to 256). */
+  function paletteFromSprite() {
+    const seen = new Set();
+    for (const c of doc.cels.values()) for (let i = 0; i < c.px.length; i += 4) if (c.px[i + 3]) { seen.add(hex([c.px[i], c.px[i + 1], c.px[i + 2], c.px[i + 3]])); if (seen.size > 256) break; }
+    if (seen.size > 256) { notice('The sprite has more than 256 colours: the first 256 are taken', 2000); }
+    change('Palette from the sprite', (d) => { d.palette = [...seen].slice(0, 256); });
+  }
+
+  /** Every pixel made the nearest colour of the palette (alpha kept). */
+  function snapToPalette() {
+    if (!doc.palette.length) return;
+    const pal = doc.palette.map(parseHex);
+    change('To the palette', (d) => {
+      const cache = new Map();
+      for (const [k, c] of [...d.cels]) {
+        const px = new Uint8ClampedArray(c.px);
+        for (let i = 0; i < px.length; i += 4) {
+          if (!px[i + 3]) continue;
+          const key2 = (px[i] << 16) | (px[i + 1] << 8) | px[i + 2];
+          let best = cache.get(key2);
+          if (!best) { let bd = Infinity; for (const p2 of pal) { const dd = (p2[0] - px[i]) ** 2 * 3 + (p2[1] - px[i + 1]) ** 2 * 4 + (p2[2] - px[i + 2]) ** 2 * 2; if (dd < bd) { bd = dd; best = p2; } } cache.set(key2, best); }
+          px[i] = best[0]; px[i + 1] = best[1]; px[i + 2] = best[2];
+        }
+        d.cels.set(k, { ...c, px });
+      }
+    });
+  }
+
+  /** A palette colour changed: with every pixel of the old colour in the sprite changed too (as an indexed sprite would). */
+  function editSwatch(i) {
+    const old = doc.palette[i];
+    NoorUI.modal({ label: 'Palette colour', width: 360 }, (s, closeIt) => {
+      const picker = el('input', { type: 'color', value: old.slice(0, 7), id: 'sp-sw-colour', 'aria-label': 'Colour' });
+      const alpha = el('input', { type: 'range', min: '0', max: '255', value: String(parseInt(old.slice(7, 9), 16)), 'aria-label': 'Alpha' });
+      const recolour = el('input', { type: 'checkbox', checked: true, id: 'sp-sw-recolour' });
+      s.append(NoorUI.head(`Palette colour ${i + 1}`, closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Colour ', picker), el('label', {}, 'Alpha ', alpha), el('label', {}, recolour, ' change the sprite\'s pixels of this colour too')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-sw-ok', onclick: () => {
+            const nc = picker.value + Number(alpha.value).toString(16).padStart(2, '0'), from = parseHex(old), to = parseHex(nc), doPx = recolour.checked;
+            closeIt();
+            change('Palette colour', (d) => {
+              d.palette[i] = nc;
+              if (doPx) for (const [k, c] of [...d.cels]) { const px = new Uint8ClampedArray(c.px); let any = false; for (let p2 = 0; p2 < px.length; p2 += 4) if (near(px, p2, from, 0)) { px.set(to, p2); any = true; } if (any) d.cels.set(k, { ...c, px }); }
+            });
+            if (hex(fg) === old) fg = to;
+          } }, 'OK'))));
+    });
+  }
+
+  async function loadPalette() {
+    try {
+      const r = await req('sprite.palette.open');
+      if (!r || r.cancelled) return;
+      change('Load a palette', (d) => { d.palette = r.palette.slice(0, 256); });
+      notice(`${r.palette.length} colours from ${r.name}`, 1500);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function savePalette() {
+    try { const r = await req('sprite.palette.save', { palette: doc.palette }); if (r && !r.cancelled) notice(`Saved ${r.name}`, 1400); } catch (err) { hooks.showError(err); }
+  }
+
+  function paletteMenu() {
+    const items = [['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
+      ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
+      ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette]];
+    NoorUI.modal({ label: 'Palette', width: 320 }, (s, closeIt) => {
+      s.append(NoorUI.head('Palette', closeIt), el('div', { class: 'modal-body sp-menu' }, ...items.map((it) => (it ? el('button', { class: 'utility-btn', onclick: () => { closeIt(); it[1](); } }, it[0]) : el('hr')))));
+    });
+  }
+
+  // ---- recovery drafts
+
+  let draftedAt = null, draftChecked = false;
+  async function saveDraft() {
+    if (!built || !doc || !dirty() || drag) return;
+    const last = history[history.length - 1];
+    if (last === draftedAt) return;
+    draftedAt = last;
+    try { await req('sprite.draft.save', { sprite: toWire(), name: file ? file.name : '', path: file ? file.path : '' }); } catch { /* next time */ }
+  }
+  setInterval(saveDraft, 20000);
+
+  /** On first opening: an unsaved sprite from last time, brought back if wanted. */
+  async function offerDraft() {
+    if (draftChecked) return;
+    draftChecked = true;
+    try {
+      const r = await req('sprite.draft.load');
+      if (!r || r.none || !r.sprite) return;
+      const when = r.savedUtc ? new Date(r.savedUtc).toLocaleString() : 'earlier';
+      if (await NoorUI.confirm('Bring back the sprite?', `NoorSprite has a sprite you hadn't saved (${r.name || 'Untitled'}, ${when}).`, 'Bring it back')) {
+        setDoc(fromWire(r.sprite), r.path ? { path: r.path, name: r.name } : null, true);
+        history.push({ label: 'Brought back', doc: blank(1, 1, null), layer: 0, frame: 0 }); // unsaved: it shows as changed
+        renderAll();
+      } else req('sprite.draft.clear').catch(() => {});
+    } catch { /* none */ }
   }
 
   // ---------------------------------------------------------------- files
@@ -1282,7 +1656,7 @@ window.NoorSprite = (() => {
       if (x1 < 0) continue; // empty: no cel
       const w = x1 - x0 + 1, h = y1 - y0 + 1, px = new Uint8Array(w * h * 4);
       for (let y = 0; y < h; y++) px.set(c.px.subarray(((y0 + y) * d.width + x0) * 4, ((y0 + y) * d.width + x0 + w) * 4), y * w * 4);
-      cels.push({ layer: id, frame: f, x: x0, y: y0, width: w, height: h, opacity: c.opacity, data: b64(px) });
+      cels.push({ layer: id, frame: f, x: x0, y: y0, width: w, height: h, opacity: c.opacity, data: b64(px), ...(c.link ? { link: c.link } : {}) });
     }
     return { version: 1, width: d.width, height: d.height, palette: d.palette, layers: d.layers, frames: d.frames, tags: d.tags, gridWidth: d.gridWidth, gridHeight: d.gridHeight, cels };
   }
@@ -1296,7 +1670,7 @@ window.NoorSprite = (() => {
         if (tx < 0 || ty < 0 || tx >= d.width || ty >= d.height) continue;
         px.set(src.subarray((y * c.width + x) * 4, (y * c.width + x) * 4 + 4), (ty * d.width + tx) * 4);
       }
-      d.cels.set(key(c.layer, c.frame), { px, opacity: c.opacity ?? 255 });
+      d.cels.set(key(c.layer, c.frame), { px, opacity: c.opacity ?? 255, ...(c.link ? { link: c.link } : {}) });
     }
     return d;
   }
@@ -1328,6 +1702,7 @@ window.NoorSprite = (() => {
       if (!r || r.cancelled) return;
       file = { path: r.path, name: r.name };
       savedAt = history.length ? history[history.length - 1] : null;
+      req('sprite.draft.clear').catch(() => {});
       renderAll();
       notice(`Saved ${r.name}`, 1400);
     } catch (err) { hooks.showError(err); }
@@ -1435,11 +1810,12 @@ window.NoorSprite = (() => {
       if (k === 'd') { handled(); deselect(); return; }
       if (k === 'i' && e.shiftKey) { handled(); invertSelection(); return; }
       if (k === 'c') { handled(); copy(false); return; }
+      if (k === 'b') { handled(); brushFromSelection(); return; }
       if (k === 'x') { handled(); copy(true); return; }
       if (k === 'v') { handled(); paste(); return; }
       return;
     }
-    if (e.altKey && k === 'n') { handled(); addFrame(true); return; }
+    if (e.altKey && k === 'n') { handled(); addFrame(true, e.shiftKey); return; }
     if (e.altKey) return;
     if (e.key === 'Enter') { handled(); if (floating) commitFloating(); else if (playing) stop(); else play(); return; }
     if (e.key === 'Delete' || e.key === 'Backspace') { handled(); clearSelection(); return; }
@@ -1475,6 +1851,7 @@ window.NoorSprite = (() => {
     /** For tests: where a sprite pixel's middle is on the screen. */
     _screen: (x, y) => { const r = $('#sp-canvas').getBoundingClientRect(), o = origin(); return { x: r.left + o.x + (x + 0.5) * view.zoom, y: r.top + o.y + (y + 0.5) * view.zoom }; },
     _wire: () => toWire(),
+    _draft: () => saveDraft(),
     /** For tests: a sprite as the app sends one, opened. */
     _load: (w) => setDoc(fromWire(w), null),
   };

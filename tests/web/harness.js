@@ -532,6 +532,7 @@ function mockHostScript(initial) {
   // NoorSprite: the app keeps files; here a small sprite to open, a picture to import, and what was saved / exported.
   const SPRITE = { saves: [], exports: [] };
   function spriteMock(type, p) {
+    if (state.sprite && state.sprite !== SPRITE) Object.assign(SPRITE, state.sprite); // what a test set up before
     state.sprite = SPRITE;
     const px = (w, h, f) => { const b = new Uint8Array(w * h * 4); for (let i = 0; i < w * h; i++) b.set(f(i % w, Math.floor(i / w)), i * 4); let s2 = ''; for (const v of b) s2 += String.fromCharCode(v); return btoa(s2); };
     switch (type) {
@@ -541,6 +542,11 @@ function mockHostScript(initial) {
         frames: [{ duration: 100 }, { duration: 200 }], tags: [{ name: 'idle', from: 0, to: 1, direction: 'pingpong', color: '#ff004dff' }],
         cels: [{ layer: 'bg', frame: 0, x: 0, y: 6, width: 8, height: 2, opacity: 255, data: px(8, 2, () => [41, 173, 255, 255]) },
           { layer: 'hero', frame: 1, x: 3, y: 3, width: 2, height: 2, opacity: 255, data: px(2, 2, () => [255, 0, 77, 255]) }] } };
+      case 'sprite.palette.open': return { name: 'lospec', palette: ['#0d2b45ff', '#203c56ff', '#544e68ff', '#8d697aff', '#d08159ff', '#ffaa5eff', '#ffd4a3ff', '#ffecd6ff'] };
+      case 'sprite.palette.save': SPRITE.palettes = (SPRITE.palettes || []).concat([p.palette]); return { name: 'palette.gpl' };
+      case 'sprite.draft.save': SPRITE.drafts = (SPRITE.drafts || 0) + 1; SPRITE.draft = p; return { ok: true };
+      case 'sprite.draft.load': return SPRITE.offerDraft ? { sprite: SPRITE.offerDraft, name: 'lost.noorsprite', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
+      case 'sprite.draft.clear': SPRITE.clears = (SPRITE.clears || 0) + 1; return { ok: true };
       case 'sprite.picture.pick': return { name: 'sheet', image: { width: 8, height: 4, data: px(8, 4, (x) => (x < 4 ? [255, 0, 0, 255] : [0, 0, 255, 255])) } };
       case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
       case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };

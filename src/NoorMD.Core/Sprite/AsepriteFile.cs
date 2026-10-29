@@ -81,7 +81,11 @@ public static class AsepriteFile
                             // Linked: the same picture as on another frame (copied: NoorSprite doesn't link yet).
                             var from = U16(d, 16);
                             var src = doc.Cel(layer.Id, from);
-                            if (src != null) cel = new SpriteCel { Layer = layer.Id, Frame = f, X = src.X, Y = src.Y, Width = src.Width, Height = src.Height, Opacity = opacity }.WithPixels((byte[])src.Pixels().Clone());
+                            if (src != null)
+                            {
+                                src.Link ??= $"k{layer.Id}x{from}";
+                                cel = new SpriteCel { Layer = layer.Id, Frame = f, X = src.X, Y = src.Y, Width = src.Width, Height = src.Height, Opacity = opacity, Link = src.Link }.WithPixels((byte[])src.Pixels().Clone());
+                            }
                         }
                         else if (celType is 0 or 2)
                         {
@@ -178,7 +182,12 @@ public static class AsepriteFile
                 if (doc.Tags.Count > 0) chunks.Add((ChunkTags, TagsChunk(doc.Tags)));
             }
             for (var li = 0; li < doc.Layers.Count; li++)
-                if (doc.Cel(doc.Layers[li].Id, f) is { } cel) chunks.Add((ChunkCel, CelChunk(li, cel)));
+            {
+                if (doc.Cel(doc.Layers[li].Id, f) is not { } cel) continue;
+                // A linked cel after its first frame is written as a link to that frame.
+                var first = cel.Link == null ? null : doc.Cels.Where(c => c.Layer == cel.Layer && c.Link == cel.Link).MinBy(c => c.Frame);
+                chunks.Add((ChunkCel, first != null && first.Frame < f ? LinkedCelChunk(li, cel, first.Frame) : CelChunk(li, cel)));
+            }
             var body = new MemoryStream();
             foreach (var (type, data) in chunks)
             {
@@ -225,6 +234,18 @@ public static class AsepriteFile
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(16), (ushort)c.Width);
         BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(18), (ushort)c.Height);
         z.ToArray().CopyTo(d, 20);
+        return d;
+    }
+
+    private static byte[] LinkedCelChunk(int layer, SpriteCel c, int frame)
+    {
+        var d = new byte[18];
+        BinaryPrimitives.WriteUInt16LittleEndian(d, (ushort)layer);
+        BinaryPrimitives.WriteInt16LittleEndian(d.AsSpan(2), (short)c.X);
+        BinaryPrimitives.WriteInt16LittleEndian(d.AsSpan(4), (short)c.Y);
+        d[6] = (byte)c.Opacity;
+        BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(7), 1); // linked
+        BinaryPrimitives.WriteUInt16LittleEndian(d.AsSpan(16), (ushort)frame);
         return d;
     }
 

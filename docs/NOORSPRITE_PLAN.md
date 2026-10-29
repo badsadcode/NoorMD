@@ -77,6 +77,27 @@ NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and p
   2× / 3× with a pixel-art upscaler (Scale2x / EPX).
 - Recovery drafts like the editor's.
 
+### Done in preview.95 (stage 2)
+
+- **Inks and patterns** (the pencil): **shading** — each pixel steps one along the palette (left click one way,
+  right click the other; once a stroke), so a palette ramp shades as you go over it; **dithering** patterns (12 % to
+  88 %, an ordered 4 × 4 Bayer matrix fixed to the sprite, so strokes join up).
+- **Brushes from the sprite** (Ctrl+B): the selection becomes the pencil's brush, stamped with its own colours
+  (mirrored too).
+- **Outline** (around the shape or on its edge, sides only or corners too) and **Replace a colour** (with a
+  tolerance) — in this cel, the layer on every frame, or the whole sprite; inside the selection when there is one.
+- **Palettes:** double-click a colour to change it — every pixel of that colour changes with it, as in an indexed
+  sprite; sort by hue or brightness, reverse, a ramp from the drawing colour to the second, the sprite's own
+  colours, make every pixel a palette colour; load GIMP .gpl, JASC and RIFF .pal and .hex palettes, save .gpl, .pal
+  or .hex.
+- **Linked cels** (🔗, Alt+Shift+N): a new frame with the same pictures, drawn once for both; the timeline shows
+  them joined; Unlink gives a frame its own. Kept linked in .noorsprite and .aseprite files (both ways).
+- **Rotate by any angle** without mush (RotSprite-style: 8× by Scale2x three times, turned, each pixel taken from the
+  middle of its block) and **Scale2x / Scale3x** upscaling (diagonals smoothed, not blocks).
+- **Recovery:** an unsaved sprite is kept as a draft every 20 seconds; the next time NoorSprite opens it offers it
+  back.
+- Still to come from stage 2: a true indexed colour mode (pixels as palette indices).
+
 ## Stage 3 — for games
 
 - Tilemap layers and tilesets (draw with tiles; the tileset grows as you draw), slices (named rectangles, 9-slice
