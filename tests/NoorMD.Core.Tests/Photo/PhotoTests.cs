@@ -102,7 +102,7 @@ public class PhotoTests
         {
             Layers =
             [
-                new PhotoLayer { Id = "p", Parent = "g1", Blend = "sparkle", Opacity = 3, Kind = "shape", X = 99999, Y = -99999, Name = "  " },
+                new PhotoLayer { Id = "p", Parent = "g1", Blend = "sparkle", Opacity = 3, Kind = "hologram", X = 99999, Y = -99999, Name = "  " },
                 new PhotoLayer { Id = "g1", Kind = "group", Parent = "g2" },
                 new PhotoLayer { Id = "g2", Kind = "group", Parent = "g1" },
                 new PhotoLayer { Id = "q", Parent = "p", Opacity = double.NaN },
