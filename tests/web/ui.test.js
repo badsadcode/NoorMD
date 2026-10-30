@@ -6824,6 +6824,113 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66u. NoorSprite: stacking, effects, a scene, seams, a timelapse, a contact sheet, snapshots, a shared palette.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const ST = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const px = (x, y, l = 0, f = 0) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d).join(), [x, y, l, f]);
+      const menu = async (text) => { await page.click('#sp-menu'); await page.click(`.sp-menu .utility-btn:has-text("${text}")`); };
+      const palMenu = async (text) => { await page.click('#sp-palmenu'); await page.click(`.sp-menu .utility-btn:has-text("${text}")`); };
+      // A sprite: layers of pixels ({ "x,y": colour } each, frame 0), and anything else of the sprite's.
+      const load = (w, h, layers, extra = {}) => page.evaluate(([W, H, LS, X]) => {
+        const enc = (P) => { const data = new Uint8Array(W * H * 4); for (const [k, c] of Object.entries(P)) { const [x, y] = k.split(',').map(Number); data.set(c, (y * W + x) * 4); } let s = ''; data.forEach((v) => { s += String.fromCharCode(v); }); return btoa(s); };
+        NoorSprite._load({ version: 1, width: W, height: H, palette: ['#000000ff', '#ffffffff'], layers: LS.map((_, i) => ({ id: `L${i}`, name: `Layer ${i}`, visible: true, locked: false, opacity: 255, blend: 'normal' })),
+          frames: [{ duration: 100 }], tags: [], cels: LS.map((P, i) => ({ layer: `L${i}`, frame: 0, x: 0, y: 0, width: W, height: H, opacity: 255, data: enc(P) })), ...X });
+      }, [w, h, layers, extra]);
+      const square = (c) => { const o = {}; for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) o[`${x},${y}`] = c; return o; };
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // Sprite stacking: three slices, turning frames made of them.
+      await load(8, 8, [square([255, 0, 0, 255]), square([0, 255, 0, 255]), square([0, 0, 255, 255])]);
+      await menu('Sprite stacking'); await page.waitForSelector('#sp-stack-make');
+      check('sprite stacking: the slices shown stacked', (await page.$eval('#sp-stack-view', (c) => c.width)) > 0 && /3 slices/.test(await page.textContent('.modal-body')));
+      await page.uncheck('#sp-stack-spin'); await page.selectOption('#sp-stack-count', '8'); await page.click('#sp-stack-make');
+      await waitFn(page, () => NoorSprite._state().frames.length === 8);
+      let st = await ST();
+      const rows = await page.evaluate(() => { const s = NoorSprite._state(), out = {}; for (let y = 0; y < s.height; y++) for (let x = 0; x < s.width; x++) { const p = NoorSprite._pixel(x, y, 0, 0); if (p[3]) { const k = p.slice(0, 3).join(); out[k] = Math.min(out[k] ?? 99, y); } } return out; });
+      check('…turning frames: a new sprite, a frame a step round, the top slice drawn highest', st.tags[0].name === 'turn' && st.tags[0].to === 7 && rows['0,0,255'] < rows['0,255,0'] && rows['0,255,0'] < rows['255,0,0'], rows);
+      // Effects: frames drawn in the palette's colours, on a new layer.
+      await load(32, 32, [{}]);
+      await menu('Effects'); await page.waitForSelector('#sp-fx-ok');
+      await page.selectOption('#sp-fx-kind', 'explosion'); await page.fill('#sp-fx-frames', '6'); await page.dispatchEvent('#sp-fx-frames', 'change');
+      await page.click('#sp-fx-ok');
+      await waitFn(page, () => NoorSprite._state().layers.length === 2);
+      st = await ST();
+      const fx = await page.evaluate(() => { let drawn = 0, off = 0; for (let f = 0; f < 6; f++) for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) { const p = NoorSprite._pixel(x, y, 1, f); if (!p[3]) continue; drawn++; if (!['0,0,0', '255,255,255'].includes(p.slice(0, 3).join())) off++; } return { drawn, off }; });
+      check('effects: an explosion over 6 frames on a new layer, in the palette\'s colours', st.frames.length === 6 && st.layers[1].name === 'Explosion' && fx.drawn > 50 && fx.off === 0, fx);
+      // In a scene.
+      await menu('In a scene'); await page.waitForSelector('#sp-scene-view');
+      await waitFn(page, () => /px a second/.test(document.getElementById('sp-scene-readout').textContent));
+      check('in a scene: the animation moving over the ground, its speed per frame told', /40 px a second/.test(await page.textContent('#sp-scene-readout')));
+      await page.click('.modal .action.primary:has-text("Done")');
+      // Seams: a column that doesn't join the other side.
+      const grey = {}; for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) grey[`${x},${y}`] = x === 0 ? [255, 0, 0, 255] : [128, 128, 128, 255];
+      await load(8, 8, [grey]);
+      await page.click('#sp-viewopts [data-view="seams"]');
+      let seams = await page.evaluate(() => NoorSprite._seams());
+      check('seams: every row where the left edge doesn\'t meet the right', seams.across.length === 8 && seams.down.length === 0 && (await ST()).view.seams === true, seams);
+      await menu('Move round by half');
+      await waitFn(page, () => NoorSprite._pixel(4, 0, 0, 0).join() === '255,0,0,255');
+      seams = await page.evaluate(() => NoorSprite._seams());
+      check('…☰ › Move round by half: the edges to the middle, the seams with them', seams.across.length === 0 && (await px(4, 0)) === '255,0,0,255');
+      // A timelapse: the steps of the drawing.
+      await load(8, 8, [{}]);
+      await page.keyboard.press('b');
+      for (const [x, y] of [[1, 1], [2, 2], [3, 3]]) { const q = await at(x, y); await page.mouse.click(q.x, q.y); }
+      await waitFn(page, () => NoorSprite._state().lapse === 4);
+      await menu('Timelapse'); await page.waitForSelector('#sp-tl-ok');
+      check('a timelapse: the steps kept as you draw', /4 steps/.test(await page.textContent('#sp-tl-count')));
+      await page.click('#sp-tl-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).some((e) => /timelapse/.test(e.name)));
+      let ex = (await SM()).exports.find((e) => /timelapse/.test(e.name));
+      check('…saved as a GIF: a frame a step, the last held', ex.kind === 'gif' && ex.frames.length === 4 && ex.frames[3].duration === 1500 && ex.frames[0].duration === 83);
+      // A contact sheet: every tag in a row, named.
+      await load(8, 8, [square([0, 0, 0, 255])], { frames: [{ duration: 100 }, { duration: 100 }, { duration: 100 }], tags: [{ name: 'idle', from: 0, to: 0, direction: 'forward', color: '#3c6ad4ff' }, { name: 'walk', from: 1, to: 2, direction: 'forward', color: '#3c6ad4ff' }] });
+      await page.click('#sp-share'); await page.waitForSelector('#sp-sh-ok');
+      await page.selectOption('#sp-sh-format', 'contact'); await page.fill('#sp-sh-scale', '4'); await page.click('#sp-sh-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).some((e) => /-sheet$/.test(e.name)));
+      ex = (await SM()).exports.find((e) => /-sheet$/.test(e.name));
+      check('a contact sheet: a PNG of every tag in a row, bigger', ex.kind === 'frame' && ex.frames[0].width === 8 + 2 * (32 + 8) && ex.frames[0].height === 8 + 2 * (24 + 4 + 32 + 8));
+      // Snapshots: one taken, the sprite changed, compared, gone back to (and undone).
+      await load(8, 8, [{ '1,1': [0, 0, 0, 255] }]);
+      await menu('Snapshots'); await page.waitForSelector('#sp-snap-take');
+      await page.fill('#sp-snap-name', 'before the hat'); await page.click('#sp-snap-take');
+      await waitFn(page, () => NoorSprite._state().snapshots.length === 1);
+      check('📸 a snapshot taken, listed with its picture', (await ST()).snapshots[0] === 'before the hat' && (await page.$$('#sp-snaps .sp-snap-thumb')).length === 1 && (await page.evaluate(() => NoorSprite._wire().snapshots[0].sprite.width)) === 8);
+      await page.click('.modal .action:has-text("Done")');
+      await page.keyboard.press('b');
+      await page.evaluate(() => NoorSprite._setColour([255, 0, 0, 255]));
+      const q = await at(5, 5); await page.mouse.click(q.x, q.y);
+      await menu('Snapshots'); await page.click('#sp-snaps .sp-snap-compare');
+      await page.waitForSelector('#sp-cmp-now');
+      check('…compared side by side with now', (await page.$eval('#sp-cmp-then', (c) => c.width)) === (await page.$eval('#sp-cmp-now', (c) => c.width)));
+      await page.check('#sp-cmp-blink');
+      check('…or blinking between them in one place', await page.$eval('.sp-cmp-row', (r) => r.classList.contains('sp-cmp-over')));
+      await page.click('.modal .action:has-text("Go back to it")');
+      await waitFn(page, () => NoorSprite._pixel(5, 5, 0, 0)[3] === 0);
+      check('…gone back to: the sprite as it was, the snapshot kept', (await px(1, 1)) === '0,0,0,255' && (await ST()).snapshots.length === 1);
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorSprite._pixel(5, 5, 0, 0)[3] === 255);
+      check('…and Ctrl+Z brings the change back', (await px(5, 5)) === '255,0,0,255');
+      // A shared palette: shared as a file; another sprite changing it changes this one when it opens; saving writes it.
+      await load(8, 8, [{ '0,0': [255, 255, 255, 255] }]);
+      await palMenu('Share this palette with other sprites');
+      await waitFn(page, () => NoorSprite._state().paletteLink);
+      check('🎨 the palette shared as a file', (await ST()).paletteLink === 'C:\\Game\\shared.gpl' && (await SM()).sharedFile.join() === '#000000ff,#ffffffff');
+      await page.evaluate(() => { window.__mock.state.sprite.sharedFile[1] = '#ff00ffff'; });
+      await load(8, 8, [{ '0,0': [255, 255, 255, 255] }], { paletteLink: 'C:\\Game\\shared.gpl' });
+      await waitFn(page, () => NoorSprite._state().palette[1] === '#ff00ffff');
+      check('…a sprite sharing it, opened after the file changed: its palette and its pixels of that colour follow', (await px(0, 0)) === '255,0,255,255');
+      await palMenu('Reverse');
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => window.__mock.state.sprite.paletteWrites === 1);
+      check('…saving writes the palette out to the shared file', (await SM()).sharedFile.join() === '#ff00ffff,#000000ff');
+      check('no page errors with stacking, effects, scenes, seams, timelapses, snapshots, shared palettes', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

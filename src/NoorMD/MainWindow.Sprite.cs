@@ -56,6 +56,27 @@ public partial class MainWindow
         NoorMD.Core.Documents.AtomicFile.WriteAllText(SpriteLinksFile, JsonSerializer.Serialize(all.Take(200).ToList()));
     }
 
+    /// <summary>Shared palette files chosen here (to share a sprite's palette, or to use one): the only ones read or written by path.</summary>
+    private static string SpritePalettesFile => Path.Combine(SpriteDraftFolder, "palettes.json");
+    private static HashSet<string> SpritePalettes()
+    {
+        try { return new HashSet<string>(JsonSerializer.Deserialize<List<string>>(File.ReadAllText(SpritePalettesFile)) ?? [], StringComparer.OrdinalIgnoreCase); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+    }
+    private static void AddSpritePalette(string path)
+    {
+        var all = SpritePalettes(); all.Add(Path.GetFullPath(path));
+        Directory.CreateDirectory(SpriteDraftFolder);
+        NoorMD.Core.Documents.AtomicFile.WriteAllText(SpritePalettesFile, JsonSerializer.Serialize(all.Take(200).ToList()));
+    }
+    private static string SharedPalette(BridgeRequest req)
+    {
+        var path = req.GetString("path", 2000);
+        if (string.IsNullOrEmpty(path) || !SpritePalettes().Contains(Path.GetFullPath(path)) || Path.GetExtension(path).ToLowerInvariant() is not (".gpl" or ".pal" or ".hex" or ".txt"))
+            throw new BridgeError("That palette file isn't one shared here: choose it once with ⋯ › Use a shared palette file.");
+        return path;
+    }
+
     /// <summary>Slices measured at an export's scale (their keys too).</summary>
     private static List<SpriteSlice> ScaledSlices(List<SpriteSlice> slices, int scale) => slices.Select(x => new SpriteSlice
     {
@@ -541,6 +562,46 @@ public partial class MainWindow
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 try { return new { palette = SpritePalette.Read(await File.ReadAllBytesAsync(dlg.FileName), Path.GetExtension(dlg.FileName)), name = Path.GetFileNameWithoutExtension(dlg.FileName) }; }
                 catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "sprite.palette.link":
+            {
+                // A palette file to share: a new one with this sprite's colours, or one there already (its colours come in).
+                var create = NoorMD.Core.Bridge.Json.IsTrue(p, "create");
+                string file;
+                if (create)
+                {
+                    if (!p.TryGetProperty("palette", out var pal) || pal.ValueKind != JsonValueKind.Array) throw new BridgeError("No palette.");
+                    var dlg = new SaveFileDialog { Title = "Share the palette: a file other sprites can use", FileName = "palette", Filter = "GIMP palette (*.gpl)|*.gpl|Hex list (*.hex)|*.hex|JASC palette (*.pal)|*.pal", AddExtension = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    file = dlg.FileName;
+                    await File.WriteAllBytesAsync(file, SpritePalette.Write(pal.EnumerateArray().Select(c => c.GetString() ?? "").ToList(), Path.GetExtension(file), Path.GetFileNameWithoutExtension(file)));
+                }
+                else
+                {
+                    var dlg = new OpenFileDialog { Title = "Use a shared palette file", Filter = "Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt", CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    file = dlg.FileName;
+                }
+                AddSpritePalette(file);
+                try { return new { path = file, name = Path.GetFileName(file), palette = SpritePalette.Read(await File.ReadAllBytesAsync(file), Path.GetExtension(file)) }; }
+                catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "sprite.palette.read":
+            {
+                var file = SharedPalette(req);
+                if (!File.Exists(file)) return new { missing = true };
+                if (new FileInfo(file).Length > 1024 * 1024) throw new BridgeError("That palette file is too large.");
+                try { return new { palette = SpritePalette.Read(await File.ReadAllBytesAsync(file), Path.GetExtension(file)), name = Path.GetFileName(file) }; }
+                catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+            }
+            case "sprite.palette.write":
+            {
+                var file = SharedPalette(req);
+                if (!p.TryGetProperty("palette", out var pal) || pal.ValueKind != JsonValueKind.Array) throw new BridgeError("No palette.");
+                NoorMD.Core.Documents.AtomicFile.WriteAllBytes(file, SpritePalette.Write(pal.EnumerateArray().Select(c => c.GetString() ?? "").Take(256).ToList(), Path.GetExtension(file), Path.GetFileNameWithoutExtension(file)));
+                return new { ok = true, name = Path.GetFileName(file) };
             }
             case "sprite.palette.save":
             {

@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false, isoGrid: false, collision: false, collisionTol: 1, previewScale: 0 };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false, isoGrid: false, collision: false, collisionTol: 1, previewScale: 0, seams: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -92,6 +92,7 @@ window.NoorSprite = (() => {
     normalizeBones(doc, prev);
     layer = Math.max(0, Math.min(doc.layers.length - 1, layer));
     frame = Math.max(0, Math.min(doc.frames.length - 1, frame));
+    recordLapse();
     afterChange();
   }
 
@@ -534,6 +535,7 @@ window.NoorSprite = (() => {
         return el('label', { class: 'sb-inline' }, el('span', { text: 'Seen' }), t);
       })(),
       el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh, check('isoGrid', 'diamonds', 'The grid as isometric diamonds: the grid size is a diamond\'s width × height (like 32 × 16)')),
+      check('seams', 'seams', 'Marks the rows and columns where the edges don\'t join when it repeats (for seamless tiles; ☰ › Move round by half brings them to the middle)'),
       check('collision', 'collision shape', 'The polygon traced around this frame\'s solid pixels: what Export › Godot › collision shape writes'),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
       el('div', { class: 'sb-row' }, check('onionTag', 'this tag only', 'Onion skin from the frames of the tag you are in, not past it'), check('onionOutline', 'outlines', 'Onion skin as outlines (easier to see through)')),
@@ -1041,6 +1043,7 @@ window.NoorSprite = (() => {
     drawBones(ctx, o, z);
     drawFontGuide(ctx, o, z);
     if (view.collision) drawCollision(ctx, o, z);
+    if (view.seams) drawSeams(ctx, o, z);
     if (view.jaggies) {
       const c = cel();
       if (c) { ctx.save(); ctx.strokeStyle = '#ff2a55'; ctx.lineWidth = 2; for (const i of jaggies(c.px, doc.width, doc.height)) ctx.strokeRect(o.x + (i % doc.width) * z + 1, o.y + Math.floor(i / doc.width) * z + 1, z - 2, z - 2); ctx.restore(); }
@@ -1889,7 +1892,9 @@ window.NoorSprite = (() => {
       ['Facing the other way (a tag mirrored)…', mirrorTagDialog], ['Directions (4 or 8 from one tag)…', directionsDialog], ['Update the mirrored tags', updateMirrors], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
-      ['Share: a GIF or a video…', shareDialog], ['An atlas of many sprites (one sheet, JSON and Godot)…', packAtlas], null,
+      ['Share: a GIF or a video…', shareDialog], ['Timelapse (the drawing, step by step)…', timelapseDialog], ['Snapshots (named versions, compared)…', snapshotsDialog], ['An atlas of many sprites (one sheet, JSON and Godot)…', packAtlas], null,
+      ['Sprite stacking (layers as slices, seen turning)…', stackDialog], ['Effects (explosion, smoke, sparkles, a slash, dust)…', effectsDialog], ['In a scene (the animation moving over a background)…', sceneDialog], null,
+      ['Move round by half (the seams to the middle, to paint)', wrapHalf], null,
       ['Normal maps (for lit sprites)…', normalsDialog], ['A bitmap font (letters in the grid\'s cells)…', fontDialog], null,
       ['Check the colours (too close, barely used)…', colourCheck], ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
@@ -1942,6 +1947,8 @@ window.NoorSprite = (() => {
     if (layer < 0) layer = 0;
     history = []; future = []; savedAt = null; selection = null; floating = null;
     fitZoom(); renderAll();
+    recordLapse(true);
+    if (d.paletteLink) refreshSharedPalette(); else sharedPal = null;
   }
 
   // ---------------------------------------------------------------- indexed colour
@@ -2929,6 +2936,8 @@ window.NoorSprite = (() => {
     return [['A hue-shifted ramp from the drawing colour…', hueRampDialog], ['From Lospec (by name)…', lospecPalette], null, ['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
       ['Check the colours (too close, barely used)…', colourCheck], ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
       ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette], null,
+      ...(doc.paletteLink ? [[`Stop sharing ${doc.paletteLink.split(/[\\/]/).pop()} (keep the colours)`, () => change('Stop sharing the palette', (d) => { delete d.paletteLink; })]]
+        : [['Share this palette with other sprites (a palette file)…', () => sharePalette(true)], ['Use a shared palette file…', () => sharePalette(false)]]), null,
       [doc.indexed ? 'RGB colour (any colour; leave indexed)' : 'Indexed colour (every pixel a palette colour)', () => setIndexed(!doc.indexed)], ['Colour cycling…', cycleDialog]];
   }
 
@@ -2988,7 +2997,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}), ...(t.iso ? { isometric: true } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.exportLink ? { exportLink: d.exportLink } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.exportLink ? { exportLink: d.exportLink } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), ...(d.snapshots && d.snapshots.length ? { snapshots: d.snapshots } : {}), ...(d.paletteLink ? { paletteLink: d.paletteLink } : {}), cels };
   }
 
   function fromWire(w) {
@@ -3033,6 +3042,8 @@ window.NoorSprite = (() => {
     if (w.audio) d.audio = { ...w.audio };
     if (w.exportLink) d.exportLink = { ...w.exportLink };
     if (w.font) d.font = { ...w.font };
+    if (w.snapshots && w.snapshots.length) d.snapshots = w.snapshots.filter((x) => x && x.sprite).map((x) => ({ name: x.name, savedUtc: x.savedUtc, sprite: x.sprite }));
+    if (w.paletteLink) d.paletteLink = w.paletteLink;
     d.indexed = w.colorMode === 'indexed';
     d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
     normalizeIndexed(d, null);
@@ -3069,6 +3080,7 @@ window.NoorSprite = (() => {
       req('sprite.draft.clear').catch(() => {});
       renderAll();
       notice(`Saved ${r.name}`, 1400);
+      await writeSharedPalette();
       // A live link: exported again to the game project, the same way.
       if (doc.exportLink) {
         try { const x = await runExport(doc.exportLink); if (x && !x.cancelled) notice(`Saved ${r.name}, and exported again: ${x.files.join(', ')}`, 2200); } catch (err) { hooks.showError(err); }
@@ -3228,7 +3240,8 @@ window.NoorSprite = (() => {
     commitFloating();
     const vt = videoType(), longest = Math.max(doc.width, doc.height);
     NoorUI.modal({ label: 'Share', width: 420 }, (s2, closeIt) => {
-      const fmt = el('select', { id: 'sp-sh-format', 'aria-label': 'As' }, el('option', { value: 'gif', text: 'an animated GIF' }), ...(vt ? [el('option', { value: 'video', text: vt.includes('mp4') ? 'a video (MP4)' : 'a video (WebM)' })] : []));
+      const fmt = el('select', { id: 'sp-sh-format', 'aria-label': 'As' }, el('option', { value: 'gif', text: 'an animated GIF' }), ...(vt ? [el('option', { value: 'video', text: vt.includes('mp4') ? 'a video (MP4)' : 'a video (WebM)' })] : []),
+        el('option', { value: 'contact', text: 'a contact sheet (PNG): every animation in a row, named' }));
       const scale = el('input', { type: 'number', min: '1', max: '32', value: String(Math.max(1, Math.min(32, Math.floor(480 / longest) || 1))), id: 'sp-sh-scale', 'aria-label': 'Bigger by' });
       const clear = el('input', { type: 'checkbox', id: 'sp-sh-clear', checked: true });
       const bgc = el('input', { type: 'color', value: '#1d1f24', id: 'sp-sh-bg', 'aria-label': 'Background' });
@@ -3243,6 +3256,16 @@ window.NoorSprite = (() => {
         const bg = parseHex(bgc.value + 'ff'), fill = (px) => { if (fmt.value === 'gif' && clear.checked) return px; const o = new Uint8ClampedArray(px); for (let i = 0; i < o.length; i += 4) { const a = o[i + 3] / 255; for (let c = 0; c < 3; c++) o[i + c] = Math.round(o[i + c] * a + bg[c] * (1 - a)); o[i + 3] = 255; } return o; };
         const frames = order.map((f) => ({ px: fill(compose(f, doc, null, true)), duration: doc.frames[f].duration }));
         const name = (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : '');
+        if (fmt.value === 'contact') {
+          const cs = contactSheet(k, clear.checked ? null : bgc.value);
+          if (cs.w > 2048 || cs.h > 2048) { notice(`That would be ${cs.w} × ${cs.h}: make it less big (at most 2048 a side)`, 2400); return; }
+          closeIt();
+          try {
+            const r = await req('sprite.export', { kind: 'frame', frames: [{ width: cs.w, height: cs.h, duration: 100, data: b64(new Uint8Array(cs.px.buffer)) }], scale: 1, name: `${name}-sheet`, tags: [], slices: [], layers: [] });
+            if (r && !r.cancelled) notice(`A contact sheet: ${r.files.join(', ')}`, 2400);
+          } catch (err) { hooks.showError(err); }
+          return;
+        }
         closeIt();
         try {
           if (fmt.value === 'gif') {
@@ -3259,7 +3282,7 @@ window.NoorSprite = (() => {
       };
       s2.append(NoorUI.head('Share', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Bigger by whole steps (sharp pixels), for a post or a message.' }),
-          el('label', {}, 'As ', fmt), el('label', {}, 'Frames ', tag), el('label', {}, 'Bigger by ', scale), size, el('label', {}, clear, ' see-through (a GIF; else this background) '), el('label', {}, 'Background ', bgc), el('label', {}, 'Times through (a video) ', plays)),
+          el('label', {}, 'As ', fmt), el('label', {}, 'Frames ', tag), el('label', {}, 'Bigger by ', scale), size, el('label', {}, clear, ' see-through (a GIF or a contact sheet; else this background) '), el('label', {}, 'Background ', bgc), el('label', {}, 'Times through (a video) ', plays)),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-sh-ok', onclick: ok }, 'Share…'))));
     });
   }
@@ -4276,6 +4299,542 @@ window.NoorSprite = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- sprite stacking: slices seen turning in fake 3D
+
+  // Each layer is a slice of a model, the bottom layer the lowest: drawn turned, one above the other, a few pixels up
+  // each, they look like a solid thing seen from above at an angle (as top-down games draw cars, houses, trees).
+  const stackSettings = { angle: 30, spacing: 1, tilt: 1, spin: true, solid: true };
+
+  /** The slices (the visible layers' pictures on frame f, bottom first) turned by `deg` and stacked: { px, w, h }. */
+  function stackPicture(f, deg, spacing, tilt = 1, solid = true, d = doc) {
+    const W = d.width, H = d.height, slices = d.layers.map((l, i) => [l, i]).filter(([l]) => !isGroup(l) && shown(d, l) && !l.reference && !l.normals).map(([l]) => d.cels.get(key(l.id, f))).filter(Boolean);
+    const side = Math.ceil(Math.hypot(W, H)) + 2, rise = Math.max(0, slices.length - 1) * spacing;
+    const fh = Math.ceil(side * tilt) + 1, w = side, h = fh + rise;
+    const out = new Uint8ClampedArray(w * h * 4), a = (deg * Math.PI) / 180, c = Math.cos(a), s = Math.sin(a);
+    slices.forEach((cel2, i) => {
+      // A solid stack: each slice drawn on every pixel row up to the next one, so there are no gaps.
+      const reps = solid ? Math.max(1, spacing) : 1;
+      for (let r = 0; r < reps; r++) {
+        const up = i * spacing + r;
+        for (let y = 0; y < fh; y++) for (let x = 0; x < w; x++) {
+          // The pixel's place turned back into the slice (nearest: the pixels stay pixels).
+          const ox = x + 0.5 - w / 2, oy = (y + 0.5 - fh / 2) / tilt;
+          const sx = Math.floor(ox * c + oy * s + W / 2), sy = Math.floor(-ox * s + oy * c + H / 2);
+          if (sx < 0 || sy < 0 || sx >= W || sy >= H) continue;
+          const si = (sy * W + sx) * 4;
+          if (cel2.px[si + 3] < 128) continue;
+          const ty = y + rise - up;
+          if (ty < 0 || ty >= h) continue;
+          out.set(cel2.px.subarray(si, si + 4), (ty * w + x) * 4);
+        }
+      }
+    });
+    return { px: out, w, h };
+  }
+
+  function stackDialog() {
+    commitFloating();
+    const solidLayers = doc.layers.filter((l) => !isGroup(l) && shown(doc, l) && !l.reference && !l.normals).length;
+    let timer = null;
+    NoorUI.modal({ label: 'Sprite stacking', width: 460, onClose: () => clearInterval(timer) }, (s2, closeIt) => {
+      const cv = el('canvas', { id: 'sp-stack-view', class: 'sp-stack-view' });
+      const angle = el('input', { type: 'range', min: '0', max: '359', value: String(stackSettings.angle), id: 'sp-stack-angle', 'aria-label': 'Turned by' });
+      const spacing = el('input', { type: 'number', min: '1', max: '8', value: String(stackSettings.spacing), id: 'sp-stack-spacing', class: 'sb-num', 'aria-label': 'Pixels between slices' });
+      const tilt = el('select', { id: 'sp-stack-tilt', 'aria-label': 'Seen from' }, el('option', { value: '1', text: 'above (flat)' }), el('option', { value: '0.75', text: 'an angle (¾)' }), el('option', { value: '0.5', text: 'low (½)' }));
+      tilt.value = String(stackSettings.tilt);
+      const spin = el('input', { type: 'checkbox', id: 'sp-stack-spin', checked: stackSettings.spin || undefined });
+      const count = el('select', { id: 'sp-stack-count', 'aria-label': 'Turns' }, ...[8, 16, 24, 32, 64].map((n) => el('option', { value: String(n), text: `${n} frames` })));
+      count.value = '16';
+      const paint = () => {
+        stackSettings.angle = Number(angle.value); stackSettings.spacing = Math.max(1, Math.min(8, Number(spacing.value) || 1)); stackSettings.tilt = Number(tilt.value);
+        const p = stackPicture(frame, stackSettings.angle, stackSettings.spacing, stackSettings.tilt), z = Math.max(1, Math.floor(300 / Math.max(p.w, p.h)));
+        cv.width = p.w * z; cv.height = p.h * z;
+        const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(pixelsToCanvas(p.px, p.w, p.h), 0, 0, cv.width, cv.height);
+      };
+      const runSpin = () => { clearInterval(timer); stackSettings.spin = spin.checked; if (spin.checked) timer = setInterval(() => { angle.value = String((Number(angle.value) + 3) % 360); paint(); }, 60); };
+      angle.addEventListener('input', paint); spacing.addEventListener('change', paint); tilt.addEventListener('change', paint); spin.addEventListener('change', runSpin);
+      const make = async () => {
+        const n = Number(count.value), sp = stackSettings.spacing, tl = stackSettings.tilt;
+        if (dirty() && !await NoorUI.confirm('Make the turning frames?', 'They become a new sprite; the one open now has changes not saved.', 'Make them')) return;
+        closeIt();
+        const first = stackPicture(frame, 0, sp, tl), d = blank(first.w, first.h, null), id = d.layers[0].id;
+        d.layers[0].name = 'Turning';
+        d.frames = [];
+        for (let i = 0; i < n; i++) { d.cels.set(key(id, i), { px: stackPicture(frame, (360 * i) / n, sp, tl).px, opacity: 255 }); d.frames.push({ duration: 80 }); }
+        d.tags = [{ name: 'turn', from: 0, to: n - 1, direction: 'forward', color: '#3c6ad4ff' }];
+        d.palette = [...doc.palette];
+        setDoc(d, null);
+        notice(`${n} frames turning all the way round (a new sprite: export it as you like)`, 2400);
+      };
+      s2.append(NoorUI.head('Sprite stacking', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('p', { class: 'pref-hint', text: `Each layer is a slice, the bottom layer the lowest (${solidLayers} slice${solidLayers === 1 ? '' : 's'} now): drawn turned and stacked, they look solid.` }),
+          el('div', { class: 'sp-stack-box' }, cv),
+          el('label', {}, 'Turned ', angle), el('label', {}, spin, ' turning'), el('label', {}, 'Pixels between slices ', spacing), el('label', {}, 'Seen from ', tilt),
+          el('label', {}, 'As frames: ', count)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Close'),
+          el('button', { class: 'action primary', id: 'sp-stack-make', title: 'A new sprite of it turning all the way round, a frame a step', onclick: make }, 'Make the turning frames'))));
+      paint(); runSpin();
+    });
+  }
+
+  // ---------------------------------------------------------------- effects: explosions, smoke, sparkles, slashes, dust
+
+  /** A repeatable random number from 0 to 1 (mulberry32). */
+  function seeded(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+
+  // Each effect's colours, hottest or brightest first: the nearest colours in the palette (so it stays in it).
+  const EFFECTS = {
+    explosion: ['an explosion', ['#ffffff', '#fff27a', '#ffb02e', '#e8452c', '#8a2b2b', '#4a3a3a']],
+    smoke: ['smoke', ['#e6e6e6', '#b4b4b4', '#828282', '#555555']],
+    sparkle: ['sparkles', ['#ffffff', '#fff6a0', '#7fd8ff']],
+    slash: ['a slash', ['#ffffff', '#cfe8ff', '#6fa8ff']],
+    dust: ['a dust puff', ['#e8d8b8', '#c2a878', '#8a7454']],
+  };
+
+  function effectColours(kind) {
+    const pal = doc.palette.map(parseHex).filter((c) => c[3] === 255);
+    return EFFECTS[kind][1].map((h) => {
+      const t = parseHex(h + 'ff');
+      if (!pal.length) return t;
+      return pal.reduce((b, c) => (palDist(c, t[0], t[1], t[2], 255) < palDist(b, t[0], t[1], t[2], 255) ? c : b), pal[0]);
+    });
+  }
+
+  /** An effect's frames, each a full-size picture (W × H), centred on (cx, cy), `n` frames long. */
+  function effectFrames(kind, n, W, H, cx, cy, size, seed) {
+    const rnd = seeded(seed), cols = effectColours(kind), frames = [];
+    const put = (px, x, y, c) => { x = Math.round(x); y = Math.round(y); if (x >= 0 && y >= 0 && x < W && y < H) px.set(c, (y * W + x) * 4); };
+    const disc = (px, x0, y0, r, c, holes = 0, f = 0) => {
+      for (let y = Math.floor(y0 - r); y <= Math.ceil(y0 + r); y++) for (let x = Math.floor(x0 - r); x <= Math.ceil(x0 + r); x++) {
+        if ((x + 0.5 - x0) ** 2 + (y + 0.5 - y0) ** 2 > r * r) continue;
+        if (holes && BAYER[(y & 3) * 4 + (x & 3)] < holes * 16 && (holes > 0.7 || (x * 7 + y * 13 + f) % 3)) continue; // breaking up, all gone at the end
+        put(px, x, y, c);
+      }
+    };
+    const R = size / 2;
+    if (kind === 'explosion') {
+      // Blobs thrown out from the middle: hot and growing first, then cooling, breaking up into smoke.
+      const blobs = Array.from({ length: 7 + Math.floor(rnd() * 5) }, () => ({ a: rnd() * Math.PI * 2, d: 0.2 + rnd() * 0.5, r: 0.25 + rnd() * 0.2 }));
+      for (let f = 0; f < n; f++) {
+        const t = f / Math.max(1, n - 1), px = new Uint8ClampedArray(W * H * 4), grow = 1 - (1 - t) ** 3;
+        const heat = Math.min(cols.length - 1, Math.floor(t * cols.length * 1.1));
+        for (const b of blobs) {
+          const bx = cx + Math.cos(b.a) * b.d * R * grow * 1.2, by = cy + Math.sin(b.a) * b.d * R * grow * 1.2 - t * R * 0.3, r = R * b.r * (0.6 + grow * 0.8);
+          disc(px, bx, by, r, cols[Math.min(cols.length - 1, heat + 1)], Math.max(0, t - 0.55) * 2, f);
+          disc(px, bx, by, r * 0.6, cols[heat], Math.max(0, t - 0.5) * 2, f + 1);
+        }
+        if (t < 0.4) disc(px, cx, cy, R * 0.35 * (1 - t), cols[0]);
+        frames.push(px);
+      }
+    } else if (kind === 'smoke') {
+      const puffs = Array.from({ length: 5 }, (_, i) => ({ x: (rnd() - 0.5) * R * 0.6, d: i / 5, r: 0.25 + rnd() * 0.15 }));
+      for (let f = 0; f < n; f++) {
+        const t = f / Math.max(1, n - 1), px = new Uint8ClampedArray(W * H * 4);
+        for (const p of puffs) {
+          const age = Math.max(0, t - p.d * 0.5);
+          if (age <= 0) continue;
+          const r = R * p.r * (0.6 + age * 1.4), y = cy + R * 0.6 - age * R * 1.6;
+          disc(px, cx + p.x + Math.sin(age * 6 + p.d * 9) * R * 0.15, y, r, cols[Math.min(cols.length - 1, Math.floor(age * cols.length))], Math.max(0, age - 0.5) * 1.8, f);
+        }
+        frames.push(px);
+      }
+    } else if (kind === 'sparkle') {
+      const stars = Array.from({ length: 4 + Math.floor(rnd() * 4) }, () => ({ x: cx + (rnd() - 0.5) * size, y: cy + (rnd() - 0.5) * size, born: rnd() * 0.6, len: 1 + Math.floor(rnd() * Math.max(1, R / 4)) }));
+      for (let f = 0; f < n; f++) {
+        const t = f / Math.max(1, n - 1), px = new Uint8ClampedArray(W * H * 4);
+        for (const s of stars) {
+          const age = (t - s.born) / 0.4;
+          if (age < 0 || age > 1) continue;
+          const arm = Math.round(s.len * Math.sin(age * Math.PI));
+          put(px, s.x, s.y, cols[0]);
+          for (let k = 1; k <= arm; k++) { const c = cols[Math.min(cols.length - 1, k)]; put(px, s.x + k, s.y, c); put(px, s.x - k, s.y, c); put(px, s.x, s.y + k, c); put(px, s.x, s.y - k, c); }
+        }
+        frames.push(px);
+      }
+    } else if (kind === 'slash') {
+      // A crescent swept round an arc, thick in the middle of the swing, gone at the end.
+      for (let f = 0; f < n; f++) {
+        const t = f / Math.max(1, n - 1), px = new Uint8ClampedArray(W * H * 4);
+        const head = -2.4 + t * 3.2, tail = head - 1.6 * Math.sin(Math.min(1, t * 1.6) * Math.PI / 2) * (1 - t * 0.6);
+        const thick = Math.max(1, R * 0.28 * Math.sin(Math.PI * Math.min(1, t * 1.3)));
+        for (let k = 0; k <= 64; k++) {
+          const u = k / 64, a = tail + (head - tail) * u, w = thick * Math.sin(Math.PI * u);
+          for (let j = 0; j <= w; j += 0.5) {
+            const rr = R * 0.9 - j, c = cols[Math.min(cols.length - 1, Math.floor((j / Math.max(1, w)) * cols.length))];
+            put(px, cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, c);
+          }
+        }
+        if (t > 0.9) px.fill(0);
+        frames.push(px);
+      }
+    } else {
+      // Dust: little puffs rolling out both ways along the ground.
+      const puffs = Array.from({ length: 6 }, (_, i) => ({ dir: i % 2 ? 1 : -1, sp: 0.5 + rnd() * 0.6, r: 0.18 + rnd() * 0.12 }));
+      for (let f = 0; f < n; f++) {
+        const t = f / Math.max(1, n - 1), px = new Uint8ClampedArray(W * H * 4);
+        for (const p of puffs) {
+          const x = cx + p.dir * p.sp * R * (1 - (1 - t) ** 2), r = R * p.r * (1 - t * 0.7) + 0.5, y = cy + R * 0.5 - r - t * R * 0.2;
+          disc(px, x, y, r, cols[Math.min(cols.length - 1, Math.floor(t * cols.length))], Math.max(0, t - 0.6) * 2, f);
+        }
+        frames.push(px);
+      }
+    }
+    return frames;
+  }
+
+  function effectsDialog() {
+    commitFloating();
+    let timer = null, frames = [], shownAt = 0;
+    NoorUI.modal({ label: 'Effects', width: 460, onClose: () => clearInterval(timer) }, (s2, closeIt) => {
+      const kind = el('select', { id: 'sp-fx-kind', 'aria-label': 'Effect' }, ...Object.entries(EFFECTS).map(([k, [l]]) => el('option', { value: k, text: l })));
+      const n = el('input', { type: 'number', min: '2', max: '32', value: '8', id: 'sp-fx-frames', class: 'sb-num', 'aria-label': 'Frames' });
+      const size = el('input', { type: 'number', min: '4', max: String(Math.max(doc.width, doc.height)), value: String(Math.min(doc.width, doc.height)), id: 'sp-fx-size', class: 'sb-num', 'aria-label': 'Size' });
+      const seed = el('input', { type: 'number', min: '1', max: '99999', value: '7', id: 'sp-fx-seed', class: 'sb-num', 'aria-label': 'Variation' });
+      const cv = el('canvas', { id: 'sp-fx-view', class: 'sp-stack-view' });
+      const make = () => {
+        frames = effectFrames(kind.value, Math.max(2, Math.min(32, Number(n.value) || 8)), doc.width, doc.height, doc.width / 2, doc.height / 2, Math.max(4, Number(size.value) || 16), Number(seed.value) || 1);
+        const z = Math.max(1, Math.floor(240 / Math.max(doc.width, doc.height)));
+        cv.width = doc.width * z; cv.height = doc.height * z;
+      };
+      const tick = () => {
+        const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.fillStyle = '#1d1f24'; ctx.fillRect(0, 0, cv.width, cv.height);
+        if (frames.length) ctx.drawImage(pixelsToCanvas(frames[shownAt % frames.length], doc.width, doc.height), 0, 0, cv.width, cv.height);
+        shownAt++;
+      };
+      for (const i of [kind, n, size, seed]) i.addEventListener('change', make);
+      const ok = () => {
+        const fr = frames;
+        closeIt();
+        change(`Effect: ${EFFECTS[kind.value][0]}`, (d) => {
+          // A new layer above this one, from this frame on (more frames when the sprite has too few).
+          const id = newId(), start = frame;
+          while (d.frames.length < start + fr.length) d.frames.push({ duration: 80 });
+          d.layers.splice(layer + 1, 0, { id, name: EFFECTS[kind.value][0].replace(/^an? /, '').replace(/^./, (c) => c.toUpperCase()), visible: true, locked: false, opacity: 255, blend: 'normal', ...(doc.layers[layer].parent ? { parent: doc.layers[layer].parent } : {}) });
+          fr.forEach((px, i) => { if (px.some((v, j) => j % 4 === 3 && v)) d.cels.set(key(id, start + i), { px, opacity: 255 }); });
+          layer++;
+        });
+        notice(`${fr.length} frames on a new layer, from frame ${frame + 1}: draw over them as you like`, 2400);
+      };
+      s2.append(NoorUI.head('Effects', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Frames made for you in your palette\'s colours, on a new layer from this frame on — a start to draw over.' }),
+          el('div', { class: 'sp-stack-box' }, cv),
+          el('label', {}, 'Effect ', kind), el('label', {}, 'Frames ', n), el('label', {}, 'Size (px) ', size), el('label', { title: 'Another number, another one of the same kind' }, 'Variation ', seed)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-fx-ok', onclick: ok }, 'Add it'))));
+      make(); tick(); timer = setInterval(tick, 90);
+    });
+  }
+
+  // ---------------------------------------------------------------- in a scene: the animation moving over a background
+
+  async function sceneDialog() {
+    commitFloating();
+    let raf = 0, backPic = null;
+    const t0 = doc.tags.findIndex((t) => frame >= t.from && frame <= t.to);
+    NoorUI.modal({ label: 'In a scene', width: 720, onClose: () => cancelAnimationFrame(raf) }, (s2, closeIt) => {
+      const cv = el('canvas', { id: 'sp-scene-view', class: 'sp-scene-view', width: '680', height: '300' });
+      const tag = el('select', { id: 'sp-scene-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
+      tag.value = t0 >= 0 ? String(t0) : '';
+      const speed = el('input', { type: 'range', min: '0', max: '200', value: '40', id: 'sp-scene-speed', 'aria-label': 'Speed (pixels a second)' });
+      const zoom = el('select', { id: 'sp-scene-zoom', 'aria-label': 'Zoom' }, ...[1, 2, 3, 4, 6].map((z) => el('option', { value: String(z), text: `${z}×` })));
+      zoom.value = String(Math.max(1, Math.min(6, Math.floor(200 / doc.height))));
+      const follow = el('input', { type: 'checkbox', id: 'sp-scene-follow' });
+      const bgc = el('input', { type: 'color', value: '#5c94fc', id: 'sp-scene-bg', 'aria-label': 'Sky' });
+      const ground = el('input', { type: 'color', value: '#3a7d2c', id: 'sp-scene-ground', 'aria-label': 'Ground' });
+      const readout = el('small', { class: 'pref-hint', id: 'sp-scene-readout' });
+      const pickBack = async () => {
+        try {
+          const r = await req('sprite.picture.pick');
+          if (!r || r.cancelled) return;
+          backPic = pixelsToCanvas(unb64(r.image.data), r.image.width, r.image.height);
+          const c2 = document.createElement('canvas'); c2.width = r.image.width; c2.height = r.image.height; c2.getContext('2d').drawImage(backPic, 0, 0);
+          backPic = c2;
+        } catch (err) { hooks.showError(err); }
+      };
+      const frameImgs = new Map();
+      const imgOf = (f) => { if (!frameImgs.has(f)) { const c2 = document.createElement('canvas'); c2.width = doc.width; c2.height = doc.height; c2.getContext('2d').putImageData(new ImageData(compose(f, doc, null, true), doc.width, doc.height), 0, 0); frameImgs.set(f, c2); } return frameImgs.get(f); };
+      let start = performance.now();
+      const loop = (now) => {
+        const t = tag.value === '' ? null : doc.tags[Number(tag.value)], order = t ? GODOT_ORDER(t) : doc.frames.map((_, i) => i);
+        const total = order.reduce((a, f) => a + doc.frames[f].duration, 0) || 1, ms = (now - start) % total;
+        let f = order[0];
+        for (let acc = 0, i = 0; i < order.length; i++) { acc += doc.frames[order[i]].duration; if (ms < acc) { f = order[i]; break; } }
+        const z = Number(zoom.value), sp = Number(speed.value), secs = (now - start) / 1000, W = cv.width, H = cv.height, gy = H - 40;
+        const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+        // The sprite walks across (and round again), or stays in the middle with the world going by.
+        const travel = sp * secs * z, sw = doc.width * z, sx = follow.checked ? (W - sw) / 2 : ((travel % (W + sw)) + W + sw) % (W + sw) - sw, scroll = follow.checked ? travel : 0;
+        ctx.fillStyle = bgc.value; ctx.fillRect(0, 0, W, H);
+        if (backPic) {
+          const bh = backPic.height * z, bw = backPic.width * z, ox = -(scroll % bw);
+          for (let x = ox - bw; x < W; x += bw) ctx.drawImage(backPic, x, gy - bh, bw, bh);
+        }
+        ctx.fillStyle = ground.value; ctx.fillRect(0, gy, W, H - gy);
+        // Ground marks every 8 pixels: they move as fast as the feet should.
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        for (let x = -((scroll % (8 * z)) + 8 * z) % (8 * z); x < W; x += 8 * z) ctx.fillRect(Math.round(x), gy, Math.max(1, z), Math.max(2, z * 2));
+        ctx.drawImage(imgOf(f), Math.round(sx), gy - doc.height * z, sw, doc.height * z);
+        const per = order.length ? (sp * total / 1000) / order.length : 0;
+        readout.textContent = `${sp} px a second · ${per.toFixed(1)} px a frame on average (${order.length} frames, ${(total / 1000).toFixed(2)} s round) — a foot on the ground should move back about this much a frame`;
+        raf = requestAnimationFrame(loop);
+      };
+      tag.addEventListener('change', () => { start = performance.now(); });
+      s2.append(NoorUI.head('In a scene', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, cv, readout,
+          el('div', { class: 'sb-row' }, el('label', {}, 'Frames ', tag), el('label', {}, 'Speed ', speed), el('label', {}, 'Zoom ', zoom), el('label', { title: 'The sprite stays in the middle and the world goes by' }, follow, ' follow it')),
+          el('div', { class: 'sb-row' }, el('label', {}, 'Sky ', bgc), el('label', {}, 'Ground ', ground),
+            el('button', { class: 'utility-btn', id: 'sp-scene-pic', title: 'A picture behind it (repeated across), standing on the ground', onclick: pickBack }, 'A background picture…'))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+      raf = requestAnimationFrame(loop);
+    });
+  }
+
+  // ---------------------------------------------------------------- seams: where a tile doesn't join itself
+
+  /**
+   * The rows and columns where the sprite's edges don't join when it repeats: a pixel and the one it meets across
+   * the edge differ much more than neighbours inside it usually do. { across: [y…], down: [x…] }
+   */
+  function seamsOf(px, W, H) {
+    const diff = (i, j) => Math.abs(px[i] - px[j]) + Math.abs(px[i + 1] - px[j + 1]) + Math.abs(px[i + 2] - px[j + 2]) + Math.abs(px[i + 3] - px[j + 3]);
+    let sum = 0, n = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x + 1 < W; x++) { sum += diff((y * W + x) * 4, (y * W + x + 1) * 4); n++; }
+    for (let y = 0; y + 1 < H; y++) for (let x = 0; x < W; x++) { sum += diff((y * W + x) * 4, ((y + 1) * W + x) * 4); n++; }
+    const limit = Math.max(40, (n ? sum / n : 0) * 2.5), across = [], down = [];
+    for (let y = 0; y < H; y++) if (diff((y * W + W - 1) * 4, y * W * 4) > limit) across.push(y);
+    for (let x = 0; x < W; x++) if (diff(((H - 1) * W + x) * 4, x * 4) > limit) down.push(x);
+    return { across, down };
+  }
+
+  function drawSeams(ctx, o, z) {
+    const s = seamsOf(compose(frame, doc, null, true), doc.width, doc.height), W = doc.width, H = doc.height;
+    ctx.save(); ctx.fillStyle = 'rgba(255,40,90,0.9)';
+    for (const y of s.across) { ctx.fillRect(o.x - 4, o.y + y * z, 3, z); ctx.fillRect(o.x + W * z + 1, o.y + y * z, 3, z); }
+    for (const x of s.down) { ctx.fillRect(o.x + x * z, o.y - 4, z, 3); ctx.fillRect(o.x + x * z, o.y + H * z + 1, z, 3); }
+    ctx.restore();
+    return s;
+  }
+
+  /** Every layer of this frame moved round by half (what goes off one side comes in the other): the seams in the middle, to paint over. */
+  function wrapHalf() {
+    commitFloating();
+    const W = doc.width, H = doc.height, dx = Math.floor(W / 2), dy = Math.floor(H / 2);
+    change('Moved round by half', (d) => {
+      for (const l of d.layers) {
+        if (isGroup(l) || l.kind === 'tilemap') continue;
+        const k = key(l.id, frame), c = d.cels.get(k);
+        if (!c) continue;
+        const o = new Uint8ClampedArray(c.px.length);
+        for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const s = (y * W + x) * 4; o.set(c.px.subarray(s, s + 4), (((y + dy) % H) * W + (x + dx) % W) * 4); }
+        putCel(d, k, { ...c, px: o });
+      }
+    });
+    notice('The edges are in the middle now: paint the seams away, and do it again to move them back', 2400);
+  }
+
+  // ---------------------------------------------------------------- a shared palette: one palette file, many sprites
+
+  // doc.paletteLink: a palette file (chosen here) the sprite shares. When the sprite opens its colours come in —
+  // a colour changed in the file changes the sprite's pixels of it, by its place in the palette — and saving the
+  // sprite writes its palette out, so the other sprites sharing it follow when they open.
+  let sharedPal = null; // the file's colours as last read or written (joined), to know when to write
+
+  /** New palette colours put in by place: entry i's pixels become the new entry i (indexed: the index does it). */
+  function applyPalette(colours, label) {
+    const old = doc.palette, changed = colours.length !== old.length || colours.some((c, i) => c !== old[i]);
+    if (!changed) return 0;
+    let n = 0;
+    change(label, (d) => {
+      const swap = new Map();
+      old.forEach((c, i) => { if (colours[i] && colours[i] !== c && !swap.has(c)) swap.set(rgbaKey(parseHex(c), 0), parseHex(colours[i])); });
+      d.palette = [...colours];
+      if (d.indexed || !swap.size) return;
+      for (const [k, c] of [...d.cels]) {
+        if (c.map) continue;
+        const px = new Uint8ClampedArray(c.px);
+        let any = false;
+        for (let i = 0; i < px.length; i += 4) { const to = swap.get(rgbaKey(px, i)); if (to) { px.set(to, i); any = true; n++; } }
+        if (any) d.cels.set(k, { ...c, px });
+      }
+    });
+    return Math.max(1, n);
+  }
+
+  /** The shared palette file read again (on opening a sprite that shares one). */
+  async function refreshSharedPalette() {
+    if (!doc || !doc.paletteLink) { sharedPal = null; return; }
+    try {
+      const r = await req('sprite.palette.read', { path: doc.paletteLink });
+      if (!r || r.missing) { notice(`The shared palette file is gone (${doc.paletteLink}): the sprite keeps its own`, 3000); sharedPal = null; return; }
+      sharedPal = r.palette.join();
+      if (applyPalette(r.palette, 'The shared palette changed')) notice(`The shared palette (${r.name}) changed: the sprite follows it`, 2600);
+    } catch (err) { notice(err.message || String(err), 3000); }
+  }
+
+  async function sharePalette(create) {
+    try {
+      const r = await req('sprite.palette.link', create ? { create: true, palette: doc.palette } : { create: false });
+      if (!r || r.cancelled) return;
+      sharedPal = r.palette.join();
+      if (!create) applyPalette(r.palette, 'A shared palette');
+      change(create ? 'Share the palette' : 'Use a shared palette', (d) => { d.paletteLink = r.path; });
+      notice(create ? `The palette is shared as ${r.name}: other sprites can use it, and saving writes changes to it` : `This sprite shares ${r.name} now`, 2800);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** On saving: the palette written out to the shared file when it changed here. */
+  async function writeSharedPalette() {
+    if (!doc.paletteLink || doc.palette.join() === sharedPal) return;
+    try { await req('sprite.palette.write', { path: doc.paletteLink, palette: doc.palette }); sharedPal = doc.palette.join(); } catch (err) { notice(err.message || String(err), 3000); }
+  }
+
+  // ---------------------------------------------------------------- timelapse: the drawing, step by step
+
+  // After every change the frame being drawn is kept (in this session only), to play back as a GIF or a video.
+  // Kept under 48 MB: past that every other step goes. A new size starts it again.
+  const lapse = { on: true, steps: [], bytes: 0, w: 0, h: 0 };
+  function recordLapse(restart = false) {
+    if (!doc) return;
+    if (restart || doc.width !== lapse.w || doc.height !== lapse.h) { lapse.steps = []; lapse.bytes = 0; lapse.w = doc.width; lapse.h = doc.height; }
+    if (!lapse.on) return;
+    const px = compose(frame, doc, null, true), last = lapse.steps[lapse.steps.length - 1];
+    if (last && last.length === px.length && last.every((v, i) => v === px[i])) return;
+    lapse.steps.push(px); lapse.bytes += px.length;
+    if (lapse.bytes > 48 * 1024 * 1024) { lapse.steps = lapse.steps.filter((_, i) => i % 2 === 0 || i === lapse.steps.length - 1); lapse.bytes = lapse.steps.length * px.length; }
+  }
+
+  function timelapseDialog() {
+    commitFloating();
+    const vt = videoType(), longest = Math.max(doc.width, doc.height);
+    NoorUI.modal({ label: 'Timelapse', width: 420 }, (s2, closeIt) => {
+      const on = el('input', { type: 'checkbox', id: 'sp-tl-on', checked: lapse.on || undefined });
+      on.addEventListener('change', () => { lapse.on = on.checked; if (on.checked) recordLapse(); });
+      const fmt = el('select', { id: 'sp-tl-format', 'aria-label': 'As' }, el('option', { value: 'gif', text: 'an animated GIF' }), ...(vt ? [el('option', { value: 'video', text: vt.includes('mp4') ? 'a video (MP4)' : 'a video (WebM)' })] : []));
+      const speed = el('input', { type: 'number', min: '1', max: '50', value: '12', id: 'sp-tl-speed', class: 'sb-num', 'aria-label': 'Steps a second' });
+      const scale = el('input', { type: 'number', min: '1', max: '32', value: String(Math.max(1, Math.min(32, Math.floor(480 / longest) || 1))), id: 'sp-tl-scale', class: 'sb-num', 'aria-label': 'Bigger by' });
+      const bgc = el('input', { type: 'color', value: '#1d1f24', id: 'sp-tl-bg', 'aria-label': 'Background' });
+      const ok = async () => {
+        if (lapse.steps.length < 2) { notice('Draw a little first: the timelapse has nothing to show yet', 1800); return; }
+        const k = Math.max(1, Math.min(32, Number(scale.value) || 1)), ms = Math.max(20, Math.round(1000 / Math.max(1, Number(speed.value) || 12)));
+        // At most 600 steps (evenly chosen); the last held for a second and a half.
+        const n = lapse.steps.length, take = n <= 600 ? lapse.steps : Array.from({ length: 600 }, (_, i) => lapse.steps[Math.round((i * (n - 1)) / 599)]);
+        const bg = parseHex(bgc.value + 'ff'), flat = (px) => { const o = new Uint8ClampedArray(px); for (let i = 0; i < o.length; i += 4) { const a = o[i + 3] / 255; for (let c = 0; c < 3; c++) o[i + c] = Math.round(o[i + c] * a + bg[c] * (1 - a)); o[i + 3] = 255; } return o; };
+        const frames = take.map((px, i) => ({ px: flat(px), duration: i === take.length - 1 ? 1500 : ms }));
+        const name = (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + '-timelapse';
+        closeIt();
+        try {
+          if (fmt.value === 'gif') {
+            const r = await req('sprite.export', { kind: 'gif', frames: frames.map((f) => ({ width: lapse.w, height: lapse.h, duration: f.duration, data: b64(new Uint8Array(f.px.buffer)) })), scale: Math.min(10, k), name, tags: [], slices: [], layers: [] });
+            if (r && !r.cancelled) notice(`The timelapse: ${r.files.join(', ')}`, 2400);
+            return;
+          }
+          notice('Recording the timelapse (it plays through as it records)…', 2000);
+          const blob = await recordVideo(frames, k, bgc.value, 1, vt);
+          const r = await req('sprite.video.save', { data: b64(new Uint8Array(await blob.arrayBuffer())), ext: vt.includes('mp4') ? '.mp4' : '.webm', name });
+          if (r && !r.cancelled) notice(`The timelapse: ${r.files.join(', ')}`, 2400);
+        } catch (err) { hooks.showError(err); }
+      };
+      s2.append(NoorUI.head('Timelapse', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('p', { class: 'pref-hint', id: 'sp-tl-count', text: `${lapse.steps.length} step${lapse.steps.length === 1 ? '' : 's'} kept of the frame you were drawing (since this sprite was opened; kept until NoorSprite closes, not in the file).` }),
+          el('label', {}, on, ' keep the steps as I draw'), el('label', {}, 'As ', fmt), el('label', {}, 'Steps a second ', speed), el('label', {}, 'Bigger by ', scale), el('label', {}, 'Background ', bgc)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Close'), el('button', { class: 'action primary', id: 'sp-tl-ok', onclick: ok }, 'Save it…'))));
+    });
+  }
+
+  // ---------------------------------------------------------------- a contact sheet: every animation, named, bigger
+
+  /** Every tag in a row of its frames (or every frame when there are none), named above, `k` times bigger. */
+  function contactSheet(k, background) {
+    const rows = doc.tags.length ? doc.tags.map((t) => ({ name: t.name, frames: GODOT_ORDER(t).filter((f, i, a) => a.indexOf(f) === i) })) : [{ name: file ? file.name.replace(/\.[^.]+$/, '') : 'Frames', frames: doc.frames.map((_, i) => i) }];
+    const gap = Math.max(4, 2 * k), label = Math.max(12, Math.min(28, 6 * k)), fw = doc.width * k, fh = doc.height * k;
+    const W = gap + Math.max(...rows.map((r) => r.frames.length)) * (fw + gap), H = gap + rows.length * (label + 4 + fh + gap);
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    if (background) { ctx.fillStyle = background; ctx.fillRect(0, 0, W, H); }
+    const lum = background ? parseHex(background + 'ff').slice(0, 3).reduce((a, v, i) => a + v * [0.3, 0.59, 0.11][i], 0) : 0;
+    ctx.fillStyle = background && lum > 140 ? '#111' : '#eee';
+    ctx.font = `${label}px sans-serif`; ctx.textBaseline = 'top';
+    rows.forEach((r, ri) => {
+      const y = gap + ri * (label + 4 + fh + gap);
+      ctx.fillText(r.name, gap, y);
+      r.frames.forEach((f, i) => ctx.drawImage(pixelsToCanvas(compose(f, doc, null, true), doc.width, doc.height), gap + i * (fw + gap), y + label + 4, fw, fh));
+    });
+    return { w: W, h: H, px: ctx.getImageData(0, 0, W, H).data };
+  }
+
+  // ---------------------------------------------------------------- snapshots: named versions kept with the sprite
+
+  // doc.snapshots = [{ name, savedUtc, sprite (as the app sends it) }]: saved in the file, compared, gone back to.
+  function takeSnapshot(name) {
+    const { snapshots, paletteLink, ...rest } = toWire(); void snapshots; void paletteLink;
+    change(`Snapshot “${name}”`, (d) => { d.snapshots = [...(d.snapshots || []), { name, savedUtc: new Date().toISOString(), sprite: rest }].slice(-32); });
+  }
+
+  function snapshotsDialog() {
+    commitFloating();
+    NoorUI.modal({ label: 'Snapshots', width: 520 }, (s2, closeIt) => {
+      const name = el('input', { type: 'text', id: 'sp-snap-name', maxlength: '80', placeholder: 'A name (like “before the new hair”)', 'aria-label': 'Snapshot name' });
+      const list = el('div', { class: 'sp-snaps', id: 'sp-snaps' });
+      const render = () => {
+        const snaps = doc.snapshots || [];
+        list.replaceChildren(...(snaps.length ? snaps.map((sn, i) => {
+          const d2 = fromWire(sn.sprite), z = Math.max(1, Math.floor(48 / Math.max(d2.width, d2.height)));
+          const cv = el('canvas', { width: String(d2.width * z), height: String(d2.height * z), class: 'sp-snap-thumb' });
+          const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(pixelsToCanvas(compose(Math.min(frame, d2.frames.length - 1), d2, null, true), d2.width, d2.height), 0, 0, cv.width, cv.height);
+          return el('div', { class: 'sb-row sp-snap', 'data-snap': String(i) }, cv,
+            el('span', { class: 'sp-snap-name' }, el('strong', { text: sn.name }), el('small', { text: ` ${new Date(sn.savedUtc).toLocaleString()} · ${d2.width} × ${d2.height}, ${d2.frames.length} frame${d2.frames.length === 1 ? '' : 's'}` })),
+            el('button', { class: 'utility-btn sp-snap-compare', title: 'Side by side with the sprite as it is', onclick: () => { closeIt(); compareSnapshot(i); } }, 'Compare'),
+            el('button', { class: 'utility-btn sp-snap-back', title: 'The sprite as it was then (Ctrl+Z undoes it; the snapshots stay)', onclick: () => { closeIt(); restoreSnapshot(i); } }, 'Go back to it'),
+            el('button', { class: 'icon-btn sp-snap-remove', title: 'Remove this snapshot', 'aria-label': `Remove ${sn.name}`, onclick: () => { change('Remove a snapshot', (d) => { d.snapshots = d.snapshots.filter((_, j) => j !== i); }); render(); } }, '✕'));
+        }) : [el('p', { class: 'pref-hint', text: 'None yet. A snapshot keeps the whole sprite as it is now, saved in its file.' })]));
+      };
+      const take = () => { takeSnapshot(name.value.trim() || `Snapshot ${(doc.snapshots || []).length + 1}`); name.value = ''; render(); };
+      name.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); take(); } });
+      s2.append(NoorUI.head('Snapshots', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('div', { class: 'sb-row' }, name, el('button', { class: 'action primary', id: 'sp-snap-take', onclick: take }, 'Take a snapshot')), list),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Done'))));
+      render();
+      setTimeout(() => name.focus(), 0);
+    });
+  }
+
+  function restoreSnapshot(i) {
+    const sn = doc.snapshots[i], back = fromWire(sn.sprite);
+    change(`Back to “${sn.name}”`, (d) => {
+      const keep = { snapshots: d.snapshots, paletteLink: d.paletteLink, exportLink: d.exportLink };
+      for (const k of Object.keys(d)) delete d[k];
+      Object.assign(d, back, keep);
+      if (!keep.paletteLink) delete d.paletteLink;
+      if (!keep.exportLink) delete d.exportLink;
+    });
+    selection = null; fitZoom(); renderAll();
+    notice(`The sprite as it was at “${sn.name}” (Ctrl+Z: back again)`, 2200);
+  }
+
+  /** The snapshot and the sprite side by side, frame by frame (or one over the other, to blink between). */
+  function compareSnapshot(i) {
+    const sn = doc.snapshots[i], then = fromWire(sn.sprite);
+    let f = Math.min(frame, then.frames.length - 1, doc.frames.length - 1), blink = null;
+    NoorUI.modal({ label: 'Compare', width: 760, onClose: () => clearInterval(blink) }, (s2, closeIt) => {
+      const z = Math.max(1, Math.floor(320 / Math.max(doc.width, doc.height, then.width, then.height)));
+      const a = el('canvas', { id: 'sp-cmp-then', class: 'sp-cmp' }), b = el('canvas', { id: 'sp-cmp-now', class: 'sp-cmp' });
+      const label = el('small', { class: 'pref-hint', id: 'sp-cmp-frame' });
+      const paint = (cv, d, fr) => { cv.width = d.width * z; cv.height = d.height * z; const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.clearRect(0, 0, cv.width, cv.height); if (fr < d.frames.length) ctx.drawImage(pixelsToCanvas(compose(fr, d, null, true), d.width, d.height), 0, 0, cv.width, cv.height); };
+      const render = () => { paint(a, then, f); paint(b, doc, f); label.textContent = `Frame ${f + 1} of ${Math.max(then.frames.length, doc.frames.length)}`; };
+      const step = (by) => { const n = Math.max(then.frames.length, doc.frames.length); f = (f + by + n) % n; render(); };
+      const blinkBox = el('input', { type: 'checkbox', id: 'sp-cmp-blink' });
+      blinkBox.addEventListener('change', () => { clearInterval(blink); b.hidden = false; a.closest('.sp-cmp-row').classList.toggle('sp-cmp-over', blinkBox.checked); if (blinkBox.checked) blink = setInterval(() => { b.hidden = !b.hidden; }, 500); });
+      s2.append(NoorUI.head(`“${sn.name}” and now`, closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('div', { class: 'sp-cmp-row' }, el('figure', {}, a, el('figcaption', { text: sn.name })), el('figure', {}, b, el('figcaption', { text: 'now' }))),
+          el('div', { class: 'sb-row' }, el('button', { class: 'icon-btn', 'aria-label': 'Frame before', onclick: () => step(-1) }, '◀'), label, el('button', { class: 'icon-btn', 'aria-label': 'Frame after', onclick: () => step(1) }, '▶'),
+            el('label', { title: 'The two in one place, switching twice a second: differences jump out' }, blinkBox, ' blink between them'))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => { closeIt(); restoreSnapshot(i); } }, 'Go back to it'), el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+      render();
+    });
+  }
+
   function commands() {
     const flip = (k, label) => [`view.${k}`, `${view[k] ? 'Hide' : 'Show'} ${label}`, () => { view[k] = !view[k]; renderAll(); }];
     const list = [
@@ -4289,7 +4848,7 @@ window.NoorSprite = (() => {
       ['layer.new', 'New layer', addLayer], ['layer.group', 'New group', addGroup], ['layer.ungroup', 'Ungroup', ungroup], ['layer.tilemap', 'New tilemap layer', addTilemapLayer], ['layer.duplicate', 'Duplicate the layer', duplicateLayer],
       ['layer.remove', 'Remove the layer', removeLayer], ['layer.merge', 'Merge down', mergeDown], ['layer.up', 'Layer up', () => moveLayer(1)], ['layer.down', 'Layer down', () => moveLayer(-1)],
       ['tiles.mode', 'Tiles / pixels (tilemap layer)', () => setTileMode(!tileMode)], ['brush.smooth', 'Smooth lines: stronger (round to off)', () => cycleSmooth()],
-      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'), flip('isoGrid', 'isometric diamonds (with the grid)'), flip('collision', 'the collision shape'),
+      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'), flip('isoGrid', 'isometric diamonds (with the grid)'), flip('collision', 'the collision shape'), flip('seams', 'the seams'),
       ['view.tiled', 'Tiling: both ways / off', () => { view.tiled = view.tiled ? '' : 'both'; renderAll(); }], ['view.in', 'Zoom in', () => zoomBy(1)], ['view.out', 'Zoom out', () => zoomBy(-1)], ['view.fit', 'Fit the sprite in view', () => { fitZoom(); draw(); }],
       ['view.reference', 'A floating reference picture…', floatingReference],
       ...moreItems().filter(Boolean).map(([name, fn]) => [`sprite.${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`, name, fn]),
@@ -4442,9 +5001,12 @@ window.NoorSprite = (() => {
       cels: [...doc.cels.keys()],
       tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
       indexed: !!doc.indexed, cycle: doc.cycle || null, cycling: !!cycling,
+      snapshots: (doc.snapshots || []).map((x) => x.name), paletteLink: doc.paletteLink || null, lapse: lapse.steps.length,
     }),
     /** For tests: a frame's normal map pixel. */
     _normal: (x, y, f = frame) => { const nm = normalMap(f); const i = (y * doc.width + x) * 4; return [nm[i], nm[i + 1], nm[i + 2], nm[i + 3]]; },
+    /** For tests: where the frame's edges don't join (seams). */
+    _seams: () => seamsOf(compose(frame, doc, null, true), doc.width, doc.height),
     /** For tests: how many doubled corners this cel has. */
     _jaggies: () => { const c = cel(); return c ? jaggies(c.px, doc.width, doc.height).length : 0; },
     /** For tests: the drawing colour. */

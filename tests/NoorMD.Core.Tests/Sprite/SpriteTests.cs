@@ -51,6 +51,28 @@ public class SpriteTests
     }
 
     [Fact]
+    public void Snapshots_and_a_shared_palette_are_kept_in_the_file()
+    {
+        var doc = Sample();
+        var then = Sample();
+        then.Width = 8; then.Cels = [then.Cels[0]]; then.Cels[0].Width = 8; then.Cels[0].WithPixels(new byte[8 * 12 * 4]);
+        then.Snapshots = [new SpriteSnapshot { Name = "nested", Sprite = Sample() }]; // a snapshot holds no snapshots of its own
+        doc.Snapshots = [new SpriteSnapshot { Name = "  before the new hair ", SavedUtc = "2026-10-30T10:00:00Z", Sprite = then }, new SpriteSnapshot { Name = "", Sprite = Sample() }];
+        doc.PaletteLink = @"C:\Game\shared.gpl";
+        var back = SpriteFile.FromBytes(SpriteFile.ToBytes(doc));
+        Assert.Equal(["before the new hair", "Snapshot"], back.Snapshots.Select(x => x.Name));
+        Assert.Equal("2026-10-30T10:00:00Z", back.Snapshots[0].SavedUtc);
+        Assert.Equal(8, back.Snapshots[0].Sprite!.Width);
+        Assert.Empty(back.Snapshots[0].Sprite!.Snapshots);
+        Assert.Equal(doc.Snapshots[1].Sprite!.Cels[1].Pixels(), back.Snapshots[1].Sprite!.Cels[1].Pixels());
+        Assert.Equal(@"C:\Game\shared.gpl", back.PaletteLink);
+        // The page's form carries them whole.
+        var wire = SpriteDoc.FromJson(back.ToJson());
+        Assert.Equal(2, wire.Snapshots.Count);
+        Assert.Equal(16, wire.Snapshots[1].Sprite!.Width);
+    }
+
+    [Fact]
     public void Sprites_that_dont_hold_together_are_refused_or_mended()
     {
         Assert.Throws<System.IO.InvalidDataException>(() => new SpriteDoc { Width = 0, Layers = [new SpriteLayer { Id = "a" }], Frames = [new SpriteFrame()] }.Checked());

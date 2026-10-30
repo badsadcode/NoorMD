@@ -543,6 +543,10 @@ function mockHostScript(initial) {
         cels: [{ layer: 'bg', frame: 0, x: 0, y: 6, width: 8, height: 2, opacity: 255, data: px(8, 2, () => [41, 173, 255, 255]) },
           { layer: 'hero', frame: 1, x: 3, y: 3, width: 2, height: 2, opacity: 255, data: px(2, 2, () => [255, 0, 77, 255]) }] } };
       case 'sprite.palette.open': return { name: 'lospec', palette: ['#0d2b45ff', '#203c56ff', '#544e68ff', '#8d697aff', '#d08159ff', '#ffaa5eff', '#ffd4a3ff', '#ffecd6ff'] };
+      // A shared palette file: SPRITE.sharedFile holds its colours (a test changes them as another sprite would).
+      case 'sprite.palette.link': if (p.create) SPRITE.sharedFile = [...p.palette]; else SPRITE.sharedFile = SPRITE.sharedFile || ['#000000ff', '#ff0000ff', '#00ff00ff']; return { path: 'C:\\Game\\shared.gpl', name: 'shared.gpl', palette: [...SPRITE.sharedFile] };
+      case 'sprite.palette.read': if (p.path !== 'C:\\Game\\shared.gpl') throw new Error('not shared here'); return SPRITE.sharedFile ? { palette: [...SPRITE.sharedFile], name: 'shared.gpl' } : { missing: true };
+      case 'sprite.palette.write': SPRITE.sharedFile = [...p.palette]; SPRITE.paletteWrites = (SPRITE.paletteWrites || 0) + 1; return { ok: true, name: 'shared.gpl' };
       case 'sprite.palette.save': SPRITE.palettes = (SPRITE.palettes || []).concat([p.palette]); return { name: 'palette.gpl' };
       case 'sprite.draft.save': SPRITE.drafts = (SPRITE.drafts || 0) + 1; SPRITE.draft = p; return { ok: true };
       case 'sprite.draft.load': return SPRITE.offerDraft ? { sprite: SPRITE.offerDraft, name: 'lost.noorsprite', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };

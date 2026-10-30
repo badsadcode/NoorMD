@@ -331,6 +331,29 @@ one's own, a floating reference picture, pen pressure.
   be in the game) or fitted; **Check the colours** (☰ or the palette ⋯) lists colours too close to tell apart and
   colours barely used, with one click to make them one.
 
+### Done in preview.113
+
+- **Sprite stacking** (☰): each layer a slice of a model, the bottom layer the lowest — shown turned and stacked (a
+  pixel or more between slices, seen from above or at an angle, turning by itself or by the slider), and made into
+  a new sprite of it turning all the way round (8 to 64 frames, tagged `turn`).
+- **Effects** (☰): an explosion, smoke, sparkles, a slash or a dust puff, drawn for you over as many frames as you
+  like, any size, another variation by number — in the palette's nearest colours, on a new layer from this frame on
+  (frames are added when there are too few). A start to draw over.
+- **In a scene** (☰): the animation (a tag, or every frame) moving across over a sky, the ground with marks every 8
+  pixels, and a picture of your choosing behind it, at a speed you set — or followed, the world going by — with how
+  far it moves a frame, to see that the feet don't slide.
+- **Seams:** View › seams marks the rows and columns where the edges don't join when it repeats; ☰ › Move round by
+  half brings the edges to the middle to paint over (and back again).
+- **Timelapse** (☰): every change to the frame you are drawing is kept while NoorSprite is open (under 48 MB), and
+  saved as a GIF or a video, a step at a time, the end held.
+- **A contact sheet** (📤 Share): every tag in a row of its frames, named above, bigger by whole steps, as a PNG —
+  for itch.io or a post.
+- **Snapshots** (☰): named versions kept in the sprite's file ("before the new hair"); compared side by side frame by
+  frame, or blinking in one place; gone back to (Ctrl+Z undoes that).
+- **A shared palette** (palette ⋯): the palette saved as a file other sprites use, or a palette file used; a sprite
+  sharing one takes the file's colours when it opens (its pixels of a changed colour change with it, by its place in
+  the palette) and writes its palette out when it is saved. Only files chosen in these dialogs are read or written.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

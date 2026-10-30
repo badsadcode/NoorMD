@@ -43,6 +43,10 @@ public sealed class SpriteDoc
     public string ColorMode { get; set; } = "rgba";
     /// <summary>Colour cycling: palette entries From…To turn round, Fps steps a second (indexed sprites).</summary>
     public SpriteCycle? Cycle { get; set; }
+    /// <summary>Named versions of the sprite kept with it ("before the new hair"), oldest first.</summary>
+    public List<SpriteSnapshot> Snapshots { get; set; } = [];
+    /// <summary>A palette file shared with other sprites: its colours come in when the sprite opens, and go out when it is saved.</summary>
+    public string? PaletteLink { get; set; }
     /// <summary>The grid drawn over the sprite (tiles), in pixels.</summary>
     public int GridWidth { get; set; } = 16;
     public int GridHeight { get; set; } = 16;
@@ -136,6 +140,14 @@ public sealed class SpriteDoc
         }).ToList();
         GridWidth = Math.Clamp(GridWidth, 1, MaxSide); GridHeight = Math.Clamp(GridHeight, 1, MaxSide);
         Slices = (Slices ?? []).Where(s => s != null).Take(256).Select(s => s.Checked(Width, Height)).ToList();
+        // A snapshot holds a whole sprite (no snapshots of its own); in a file's sprite.json only its name, the sprite beside it.
+        Snapshots = (Snapshots ?? []).Where(s => s != null).Take(SpriteSnapshot.Max).Select(s =>
+        {
+            s.Name = string.IsNullOrWhiteSpace(s.Name) ? "Snapshot" : s.Name.Trim()[..Math.Min(s.Name.Trim().Length, 80)];
+            if (s.Sprite != null) { s.Sprite.Snapshots = []; s.Sprite.PaletteLink = null; s.Sprite.Checked(); }
+            return s;
+        }).ToList();
+        PaletteLink = string.IsNullOrWhiteSpace(PaletteLink) || PaletteLink.Length > 2000 ? null : PaletteLink;
         return this;
     }
 
@@ -257,6 +269,15 @@ public sealed class SpriteCel
     private byte[]? _pixels;
     public byte[] Pixels() => _pixels ??= Data == null ? new byte[Width * Height * 4] : Convert.FromBase64String(Data);
     public SpriteCel WithPixels(byte[] rgba) { _pixels = rgba; Data = Convert.ToBase64String(rgba); return this; }
+}
+
+/// <summary>A named version of a sprite: the whole sprite as it was then.</summary>
+public sealed class SpriteSnapshot
+{
+    public const int Max = 32;
+    public string Name { get; set; } = "Snapshot";
+    public string? SavedUtc { get; set; }
+    public SpriteDoc? Sprite { get; set; }
 }
 
 public sealed class SpriteTag

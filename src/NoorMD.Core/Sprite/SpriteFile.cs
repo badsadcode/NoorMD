@@ -23,7 +23,8 @@ public static class SpriteFile
         {
             Version = doc.Version, Width = doc.Width, Height = doc.Height, Palette = doc.Palette, Layers = doc.Layers, Frames = doc.Frames, Tags = doc.Tags, Slices = doc.Slices,
             Tilesets = doc.Tilesets.Select(t => new SpriteTileset { Name = t.Name, TileWidth = t.TileWidth, TileHeight = t.TileHeight, Count = t.Count, Terrains = t.Terrains, Isometric = t.Isometric }).ToList(),
-            GridWidth = doc.GridWidth, GridHeight = doc.GridHeight, ColorMode = doc.ColorMode, Cycle = doc.Cycle, Bones = doc.Bones, Normals = doc.Normals, Audio = doc.Audio, Font = doc.Font, ExportLink = doc.ExportLink,
+            GridWidth = doc.GridWidth, GridHeight = doc.GridHeight, ColorMode = doc.ColorMode, Cycle = doc.Cycle, Bones = doc.Bones, Normals = doc.Normals, Audio = doc.Audio, Font = doc.Font, ExportLink = doc.ExportLink, PaletteLink = doc.PaletteLink,
+            Snapshots = doc.Snapshots.Where(x => x.Sprite != null).Select(x => new SpriteSnapshot { Name = x.Name, SavedUtc = x.SavedUtc }).ToList(),
             Cels = doc.Cels.Select(c => new SpriteCel { Layer = c.Layer, Frame = c.Frame, X = c.X, Y = c.Y, Width = c.Width, Height = c.Height, Opacity = c.Opacity, Link = c.Link, Tiles = c.Tiles }).ToList(),
         };
         using var ms = new MemoryStream();
@@ -38,6 +39,14 @@ public static class SpriteFile
                 var e = zip.CreateEntry($"tilesets/{t}.png", CompressionLevel.NoCompression);
                 using var s = e.Open();
                 s.Write(SpritePng.Encode(ts.TileWidth, ts.TileHeight * ts.Count, ts.Pixels()));
+            }
+            // Each snapshot: a whole sprite file of its own inside this one.
+            var kept = doc.Snapshots.Where(x => x.Sprite != null).ToList();
+            for (var i = 0; i < kept.Count; i++)
+            {
+                var e = zip.CreateEntry($"snapshots/{i}.noorsprite", CompressionLevel.NoCompression);
+                using var s = e.Open();
+                s.Write(ToBytes(kept[i].Sprite!));
             }
             foreach (var c in doc.Cels.Where(c => c.Tiles == null))
             {
@@ -73,6 +82,15 @@ public static class SpriteFile
             if (w != ts.TileWidth || h != ts.TileHeight * ts.Count) throw new InvalidDataException("A tileset's picture doesn't match its tiles.");
             ts.WithPixels(rgba);
         }
+        for (var i = 0; i < doc.Snapshots.Count; i++)
+        {
+            var e = zip.GetEntry($"snapshots/{i}.noorsprite");
+            if (e == null || e.Length > MaxFileBytes / 4) continue; // a snapshot that can't be read is let go, not the sprite
+            using var s = e.Open(); using var buf = new MemoryStream(); s.CopyTo(buf);
+            try { doc.Snapshots[i].Sprite = FromBytes(buf.ToArray()); }
+            catch (Exception ex) when (ex is InvalidDataException or System.Text.Json.JsonException) { }
+        }
+        doc.Snapshots = doc.Snapshots.Where(x => x.Sprite != null).ToList();
         foreach (var c in doc.Cels.Where(c => c.Tiles == null))
         {
             var e = zip.GetEntry($"cels/{c.Layer}-{c.Frame}.png") ?? throw new InvalidDataException($"A cel's picture is missing ({c.Layer}, frame {c.Frame + 1}).");
