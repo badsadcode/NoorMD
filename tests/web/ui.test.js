@@ -7187,6 +7187,67 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v-sequencer. NoorSequencer as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SQ = () => page.evaluate(() => NoorSequencer._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text) => page.click(`.menu-popup .menu-item:has-text("${text}")`);
+      await page.evaluate(() => { try { ['noormd.seq.loop', 'noorsequencer.settings'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+q');
+      await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
+      check('(NoorSequencer in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sequencer');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: NoorSequencer as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Song,Track,Pattern,Transport,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the song, its tempo and length)', /^NoorSequencer — Cozy exploration · 96 BPM, 8 bars$/.test(await page.textContent('#bench-title')));
+      // View › Mixer: the tabs as ticks.
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      await item('Mixer');
+      check('View › Mixer shows the mixer', (await SQ()).tab === 'mixer' && !!(await page.$('#seq-mixer')));
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      check('…and shows it ticked', (await page.getAttribute('.menu-popup .menu-item:has-text("Mixer")', 'aria-checked')) === 'true');
+      await page.keyboard.press('Escape');
+      // Alt+R: Transport › Loop, a tick item.
+      await page.keyboard.press('Alt+r');
+      await page.waitForSelector('.menu-popup');
+      check('Alt+R opens Transport, Play with its key', /Space$/.test(await page.textContent('.menu-popup .menu-item:has-text("Play")')));
+      await item('Loop: play');
+      check('Transport › Loop turns the loop on (the 🔁 button too)', (await SQ()).loopMode === true && (await page.getAttribute('#seq-loop', 'aria-pressed')) === 'true');
+      // Song › Scale › Dorian: the song changes, its title shows it is changed since it was opened.
+      await page.click('#menubar .menu-title[data-menu="2"]');
+      await page.hover('.menu-popup .menu-item:has-text("Scale")');
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Dorian")');
+      check('Song › Scale › Dorian sets the scale', (await SQ()).song.scale === 'dorian' && (await page.inputValue('#seq-scale')) === 'dorian');
+      check('…and the title marks the song as changed', /Cozy exploration •/.test(await page.textContent('#bench-title')));
+      // Pattern › New pattern.
+      const before = (await SQ()).song.tracks[0].patterns.length;
+      await page.click('#menubar .menu-title[data-menu="4"]'); await item('New pattern');
+      check('Pattern › New pattern adds one in the selected bar', (await SQ()).song.tracks[0].patterns.length === before + 1 && (await SQ()).song.tracks[0].sequence[0] === before + 1);
+      // Edit › Undo.
+      await page.click('#menubar .menu-title[data-menu="1"]'); await item('Undo');
+      check('Edit › Undo takes the new pattern back', (await SQ()).song.tracks[0].patterns.length === before);
+      // Edit › Settings: new notes and the keyboard's octave.
+      await page.click('#menubar .menu-title[data-menu="1"]'); await item('NoorSequencer settings');
+      await page.waitForSelector('#seq-set-ok');
+      await page.selectOption('#seq-set-length', '4'); await page.fill('#seq-set-octave', '5'); await page.click('#seq-set-ok');
+      check('NoorSequencer settings: new notes a beat long, the keyboard from C5, kept', (await SQ()).keyOctave === 5 && (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsequencer.settings')).length)) === 4);
+      // Help › shortcuts.
+      await page.click('#menubar .menu-title[data-menu="7"]'); await item('NoorSequencer shortcuts');
+      await page.waitForSelector('#seq-keys');
+      check('Help › NoorSequencer shortcuts: its keys listed', (await page.$$('#seq-keys tr')).length > 15);
+      await page.keyboard.press('Escape');
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, NoorSequencer still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSequencer.isOpen())));
+      await page.evaluate(() => { try { ['noormd.seq.loop', 'noorsequencer.settings'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      check('no page errors with NoorSequencer as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

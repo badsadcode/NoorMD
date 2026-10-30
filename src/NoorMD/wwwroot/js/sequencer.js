@@ -64,6 +64,7 @@ window.NoorSequencer = (() => {
   let where = null;
   const history = []; let future = [];
   let lastSnapshot = null, snapTimer = null;
+  let savedAs = null; // the song as last opened, saved or exported (to show • when it has changed since)
   // The song as heard. An edit while playing renders it again into a second player, which takes over at the same spot
   // once it is ready, so the music carries on without a stop or a jump back.
   let audio = makePlayer();
@@ -94,7 +95,7 @@ window.NoorSequencer = (() => {
       try { lists = await req('seq.templates'); } catch (err) { hooks.showError(err); return; }
       renderTemplates();
     }
-    if (!song) await loadTemplate('cozy');
+    if (!song) await loadTemplate(lists.templates.concat(lists.mine).some((t) => t.id === settings.start) ? settings.start : 'cozy');
     $('#seqbench').focus({ preventScroll: true });
   }
 
@@ -121,6 +122,7 @@ window.NoorSequencer = (() => {
     if (fresh) { clearTimeout(snapTimer); history.length = 0; future = []; sel = { track: 0, bar: 0 }; playFrom = 0; stopPlaying(); }
     fixSelection();
     lastSnapshot = JSON.stringify(song);
+    if (fresh) savedAs = lastSnapshot;
     renderAll();
     stale();
   }
@@ -378,6 +380,8 @@ window.NoorSequencer = (() => {
         el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderPane(); } }, label))),
       el('div', { class: 'sb-pane seq-pane', id: 'seq-pane' }));
     ($('#app') || document.body).append(root);
+    // In focus mode NoorSequencer is an app of its own: the window's menu bar becomes its menus.
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('sequencer', { name: 'NoorSequencer', title: appTitle, menus: appMenus });
     $('#seq-volume').addEventListener('input', (e) => setVolume(Number(e.target.value) / 100));
     setVolume(volume);
     setLoopMode(loopMode);
@@ -499,6 +503,7 @@ window.NoorSequencer = (() => {
     lp.value = listenLayer;
     $('#seq-undo').disabled = !history.length && lastSnapshot === JSON.stringify(song);
     $('#seq-redo').disabled = !future.length;
+    if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged();
   }
 
   /** Length: the sequences grow with rests or are cut; the loop stays inside. */
@@ -745,6 +750,32 @@ window.NoorSequencer = (() => {
     song.tracks.push({ id: '', ...base, name: same ? `${base.name} ${same + 1}` : base.name, pan: 0, mute: false, solo: false, effects: [], patterns: [{ notes: [] }], sequence: Array.from({ length: song.bars }, (_, b) => (b === sel.bar ? 1 : 0)) });
     sel.track = song.tracks.length - 1;
     tab = kind === 'sample' || kind === 'sf2' ? 'instrument' : 'notes';
+    changed('all');
+  }
+
+  /** The selected track one place up (-1) or down (1). */
+  function moveTrack(d) {
+    const i = sel.track, j = i + d;
+    if (!song || j < 0 || j >= song.tracks.length) return;
+    [song.tracks[i], song.tracks[j]] = [song.tracks[j], song.tracks[i]];
+    sel.track = j;
+    changed('all');
+  }
+
+  /** A copy of the selected track (its patterns, instrument and effects) just below it. */
+  function duplicateTrack() {
+    const t = track();
+    if (!t || song.tracks.length >= MAX_TRACKS) return;
+    const c = clone(t); c.id = ''; c.name = `${t.name} copy`.slice(0, 40);
+    song.tracks.splice(sel.track + 1, 0, c);
+    sel.track += 1;
+    changed('all');
+  }
+
+  function removeTrack() {
+    if (!track()) return;
+    song.tracks.splice(sel.track, 1);
+    fixSelection();
     changed('all');
   }
 
@@ -1183,7 +1214,7 @@ window.NoorSequencer = (() => {
     const i = sel.track;
     const name = el('input', { type: 'text', id: 'seq-trackname', value: t.name, maxlength: '40', spellcheck: 'false', 'aria-label': 'Track name' });
     name.addEventListener('input', () => { t.name = name.value; changed(); const b = $(`#seq-grid .seq-row[data-track="${i}"] .seq-trackname`); if (b) b.textContent = `${KIND_ICON[t.kind]} ${t.name}`; });
-    const move = (d) => { const j = i + d; if (j < 0 || j >= song.tracks.length) return; [song.tracks[i], song.tracks[j]] = [song.tracks[j], song.tracks[i]]; sel.track = j; changed('all'); };
+    const move = moveTrack;
     const out = [
       el('div', { class: 'sb-row' },
         el('label', { class: 'sb-inline' }, el('span', { text: KIND_ICON[t.kind] + ' ' + KIND_LABEL[t.kind] }), name),
@@ -1191,8 +1222,8 @@ window.NoorSequencer = (() => {
         el('button', { class: 'icon-btn', title: 'Move the track up', 'aria-label': 'Move up', disabled: i === 0 || undefined, onclick: () => move(-1) }, '↑'),
         el('button', { class: 'icon-btn', title: 'Move the track down', 'aria-label': 'Move down', disabled: i === song.tracks.length - 1 || undefined, onclick: () => move(1) }, '↓'),
         el('button', { class: 'utility-btn', id: 'seq-duptrack', title: 'A copy of this track (its patterns, instrument and effects)', disabled: song.tracks.length >= MAX_TRACKS || undefined,
-          onclick: () => { const c = clone(t); c.id = ''; c.name = `${t.name} copy`.slice(0, 40); song.tracks.splice(i + 1, 0, c); sel.track = i + 1; changed('all'); } }, '⧉ Duplicate'),
-        el('button', { class: 'utility-btn', id: 'seq-removetrack', title: 'Remove this track (Ctrl+Z brings it back)', onclick: () => { song.tracks.splice(i, 1); fixSelection(); changed('all'); } }, '✕ Remove')),
+          onclick: duplicateTrack }, '⧉ Duplicate'),
+        el('button', { class: 'utility-btn', id: 'seq-removetrack', title: 'Remove this track (Ctrl+Z brings it back)', onclick: removeTrack }, '✕ Remove')),
       el('div', { class: 'sb-fields' }, slider(t, ['gain', 'Level', -60, 12, 0.5, 'db']), slider(t, ['pan', 'Pan (left ↔ right)', -1, 1, 0.05, 'pan'])),
     ];
     if (t.kind === 'synth') {
@@ -1483,14 +1514,6 @@ window.NoorSequencer = (() => {
         el('div', { class: 'sb-fields' }, slider(b, ['gain', 'Level', -60, 12, 0.5, 'db'])),
         effectsRack(b.effects ||= [], 'bus'));
     };
-    const F = NoorSound.fx;
-    const addBus = (name, fx) => {
-      const id = buses.some((b) => b.id === 'B1') ? 'B2' : 'B1';
-      buses.push({ id, name, gain: 0, effects: [{ type: fx, bypass: false, out: 0, ...clone(F.NEW_FX[fx]), mix: 1 }] });
-      // A little of every melodic track to start with: you hear it at once.
-      for (const t of song.tracks) if (t.kind !== 'drums') (t.sends ||= {})[id] = 0.25;
-      changed('pane');
-    };
     const masterDb = render ? render.peakDb : null;
     return [
       el('p', { class: 'pref-hint', text: 'Every track’s level, place and sends in one place. Meters show how loud each part got in the last play (▶ to measure again); red means near full scale.' }),
@@ -1506,6 +1529,17 @@ window.NoorSequencer = (() => {
         el('span', { class: 'seq-meter' + (masterDb != null && masterDb > -1 ? ' hot' : '') }, el('i', { style: `width:${masterDb != null ? Math.max(0, Math.min(100, ((masterDb + 48) / 48) * 100)) : 0}%` }), el('small', { text: masterDb != null ? `${masterDb} dB` : '—' }))),
         el('div', { class: 'sb-fields' }, slider(song, ['masterGain', 'Master level', -24, 12, 0.5, 'db']))),
     ];
+  }
+
+  /** A send bus (up to two) with one shared effect: reverb or delay. */
+  function addBus(name, fx) {
+    const buses = song.buses ||= [];
+    if (buses.length >= 2) return;
+    const id = buses.some((b) => b.id === 'B1') ? 'B2' : 'B1';
+    buses.push({ id, name, gain: 0, effects: [{ type: fx, bypass: false, out: 0, ...clone(NoorSound.fx.NEW_FX[fx]), mix: 1 }] });
+    // A little of every melodic track to start with: you hear it at once.
+    for (const t of song.tracks) if (t.kind !== 'drums') (t.sends ||= {})[id] = 0.25;
+    changed('pane');
   }
 
   // ---------------------------------------------------------------- song & export
@@ -1577,6 +1611,17 @@ window.NoorSequencer = (() => {
     ];
   }
 
+  /** A new adaptive layer (up to four), named for the next of exploration, danger, combat, victory. */
+  function addLayer() {
+    const layers = (song.layers ||= []);
+    if (layers.length >= 4) return;
+    const names = ['Exploration', 'Danger', 'Combat', 'Victory'];
+    const name = names.find((n) => !layers.some((l) => l.name === n)) || `Layer ${layers.length + 1}`;
+    let k = 1; while (layers.some((l) => l.id === `L${k}`)) k++;
+    layers.push({ id: `L${k}`, name });
+    changed('all');
+  }
+
   /**
    * Adaptive layers: versions of the song for a game to switch between (exploration, danger, combat…), each a choice
    * of the song's tracks, all the same tempo and loop. Tracks with no layer ticked play in every layer.
@@ -1584,13 +1629,7 @@ window.NoorSequencer = (() => {
   function layersSection() {
     const layers = (song.layers ||= []);
     const add = el('button', { class: 'utility-btn', id: 'seq-addlayer', disabled: layers.length >= 4 || undefined, title: 'A new layer (up to four)',
-      onclick: () => {
-        const names = ['Exploration', 'Danger', 'Combat', 'Victory'];
-        const name = names.find((n) => !layers.some((l) => l.name === n)) || `Layer ${layers.length + 1}`;
-        let k = 1; while (layers.some((l) => l.id === `L${k}`)) k++;
-        layers.push({ id: `L${k}`, name });
-        changed('all');
-      } }, '＋ Add a layer');
+      onclick: addLayer }, '＋ Add a layer');
     const out = [el('h4', { class: 'music-subhead', text: 'Adaptive layers (game music that changes with the action)' })];
     if (!layers.length) {
       out.push(el('div', { class: 'sb-row' }, add, el('small', { class: 'pref-hint', text: 'Make versions of the loop for a game to switch between, such as exploration, danger and combat: each plays some of the tracks, all in time. Try the “Adaptive adventure” template.' })));
@@ -1664,6 +1703,7 @@ window.NoorSequencer = (() => {
       status.textContent = 'Rendering…';
       const r = await req('seq.export', { song, parts: { mix: !!p.mix, loop: !!p.loop, layers: !!p.layers && (song.layers || []).length > 0, stems: !!p.stems, midi: !!p.midi }, sampleRate: p.sampleRate, bits: p.bits, format: p.format, oggQuality: p.oggQuality, vault: !!p.vault, musicBench: !!p.musicBench, ...where.payload() });
       if (!r || r.cancelled) { status.textContent = 'Export cancelled.'; return; }
+      savedAs = JSON.stringify(song); renderHeader();
       const files = [...r.files, ...(r.stems ? [r.stems + '/'] : []), r.recipe];
       status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${r.music ? ' · added to the Music Bench' : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
         el('button', { class: 'utility-btn', id: 'seq-reveal', onclick: () => req('seq.reveal', { folder: r.folder }).catch(hooks.showError) }, 'Show in folder'));
@@ -1674,7 +1714,9 @@ window.NoorSequencer = (() => {
     try {
       const r = await req('seq.save', { song });
       lists.mine = r.mine;
+      savedAs = JSON.stringify(song);
       renderTemplates();
+      renderHeader();
       notice(r.replaced ? `“${song.name}” updated in My songs` : `“${song.name}” saved to My songs`);
       if (tab === 'song') renderPane();
     } catch (err) { hooks.showError(err); }
@@ -1692,6 +1734,174 @@ window.NoorSequencer = (() => {
       if (!isOpen()) await open();
       setSong(r.song, true);
     } catch (err) { hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- NoorSequencer as an app: its menus, settings, shortcuts
+
+  // In focus mode with NoorSequencer in the middle, the window's menu bar is NoorSequencer's own (see NoorChrome.registerBench).
+  const SETTINGS_KEY = 'noorsequencer.settings';
+  const SET_DEFAULTS = { start: 'cozy', length: 2, velocity: 0.8, octave: 4 };
+  const LENGTHS = [[1, '1/16'], [2, '1/8'], [4, '1/4 (a beat)'], [8, '1/2'], [16, 'a bar']];
+  let settings = { ...SET_DEFAULTS };
+  try { settings = { ...SET_DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
+
+  /** The settings put to work: how new notes start and where the computer keyboard plays. */
+  function applySettings() {
+    newLength = LENGTHS.some(([v]) => v === settings.length) ? settings.length : 2;
+    newVelocity = Math.max(0.05, Math.min(1, Number(settings.velocity) || 0.8));
+    keyOctave = Math.max(1, Math.min(7, Math.round(Number(settings.octave)) || 4));
+  }
+  applySettings();
+
+  function settingsDialog() {
+    NoorUI.modal({ label: 'NoorSequencer settings', width: 440 }, (s2, closeIt) => {
+      const options = [...lists.templates, ...lists.mine];
+      const start = el('select', { id: 'seq-set-start', 'aria-label': 'Start with' }, ...(options.length ? options : [{ id: 'cozy', name: 'Cozy exploration' }]).map((t) => el('option', { value: t.id, text: t.name })));
+      start.value = settings.start;
+      const len = el('select', { id: 'seq-set-length', 'aria-label': 'Length of new notes' }, ...LENGTHS.map(([v, l]) => el('option', { value: String(v), text: l })));
+      len.value = String(settings.length);
+      const vel = el('input', { type: 'number', id: 'seq-set-velocity', min: '5', max: '100', step: '1', value: String(Math.round(settings.velocity * 100)), class: 'seq-num', 'aria-label': 'Velocity of new notes (%)' });
+      const oct = el('input', { type: 'number', id: 'seq-set-octave', min: '1', max: '7', step: '1', value: String(settings.octave), class: 'seq-num', 'aria-label': 'Octave the computer keyboard plays' });
+      const ok = () => {
+        const n = (i, min, max, d) => Math.max(min, Math.min(max, Math.round(Number(i.value)) || d));
+        settings = { start: start.value || 'cozy', length: Number(len.value), velocity: n(vel, 5, 100, 80) / 100, octave: n(oct, 1, 7, 4) };
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
+        applySettings();
+        closeIt(); renderPane();
+        const o = $('#seq-octave'); if (o) o.textContent = `C${keyOctave}`;
+        notice('NoorSequencer settings kept', 1200);
+      };
+      s2.append(NoorUI.head('NoorSequencer settings', closeIt),
+        el('div', { class: 'modal-body' },
+          el('label', { class: 'sb-inline seq-dlgrow' }, el('span', { text: 'When NoorSequencer opens, start with' }), start),
+          el('h4', { class: 'music-subhead', text: 'New notes' }),
+          el('label', { class: 'sb-inline seq-dlgrow' }, el('span', { text: 'Length' }), len),
+          el('label', { class: 'sb-inline seq-dlgrow' }, el('span', { text: 'Velocity (%)' }), vel),
+          el('label', { class: 'sb-inline seq-dlgrow' }, el('span', { text: 'The computer keyboard plays from C' }), oct),
+          el('p', { class: 'pref-hint', text: 'The loop button, the scale lock, the listening volume and the export choices are remembered by themselves.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'seq-set-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  /** Every key NoorSequencer knows. */
+  function shortcutsDialog() {
+    const rows = [
+      ['Play / stop', 'Space'], ['Play the loop over and over / the song', 'L'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'],
+      ['A cell of the grid: move', '← → ↑ ↓'], ['A cell: play that pattern', '0–9 (two digits quickly for 10 and up)'], ['A cell: the next / the pattern before', '+ / −'],
+      ['A cell: a rest', 'Delete · Backspace · right-click'], ['A cell: a new pattern', 'N'], ['A cell: change the pattern', 'Mouse wheel'],
+      ['A bar number: play from there', 'Click'], ['A bar number: the loop ends there', 'Shift+click'], ['A bar number: the loop starts there', 'Alt+click'],
+      ['Piano roll: play notes (white keys)', 'A S D F G H J K L ;'], ['Piano roll: the black keys', 'W E T Y U O P'], ['Piano roll: octave down / up', 'Z / X'],
+      ['Piano roll: remove a note', 'Right-click'], ['Drums: a soft hit', 'Shift+click'],
+      ['Open / close NoorSequencer', 'Ctrl+Alt+Q'], ['Back to NoorMD (out of focus mode)', 'Esc'], ['Focus mode (NoorSequencer as an app) on / off', 'F11'],
+    ];
+    NoorUI.modal({ label: 'NoorSequencer shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorSequencer shortcuts', closeIt),
+        el('div', { class: 'modal-body' }, el('table', { class: 'sp-keys', id: 'seq-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  const dirty = () => !!song && JSON.stringify(song) !== savedAs;
+  const appTitle = () => `NoorSequencer — ${song ? song.name || 'Untitled' : 'Untitled'}${dirty() ? ' •' : ''}${song ? ` · ${Math.round(song.tempo)} BPM, ${song.bars} bar${song.bars === 1 ? '' : 's'}` : ''}`;
+
+  function showTab(id) { tab = id; renderPane(); }
+  /** A field at the top (tempo, bars, the loop…) ready to type in. */
+  function focusField(id) { const f = $(id); if (f) { f.focus(); if (f.select) f.select(); } }
+  const pattern = () => { const t = track(), n = currentPattern(); return t && n ? t.patterns[n - 1] : null; };
+  function setExportPref(key, value) { saveExportPrefs({ ...exportPrefs(), [key]: value }); if (tab === 'song') renderPane(); }
+  function setListen(id) { listenLayer = id; renderHeader(); renderGrid(); stale(); if (wantPlay) { stopPlaying(); playStop(); } }
+  function setRecording(on) {
+    recording = on;
+    const b = $('#seq-record');
+    if (b) { b.classList.toggle('active', recording); b.setAttribute('aria-pressed', String(recording)); b.textContent = recording ? '⏺ Recording' : '⏺ Record'; }
+    if (roll) roll.canvas.focus({ preventScroll: true });
+  }
+  function setOctave(d) { keyOctave = Math.max(1, Math.min(7, keyOctave + d)); const o = $('#seq-octave'); if (o) o.textContent = `C${keyOctave}`; }
+  function setGhost(i) { ghost = i; const g = $('#seq-ghost'); if (g) g.value = String(i); if (roll) drawRoll(); }
+  /** Other melodic tracks playing in this bar (for ghost notes), as the Notes tab offers them. */
+  const ghostChoices = () => (song ? song.tracks.map((x, i) => ({ x, i })).filter(({ x, i }) => i !== sel.track && x.kind !== 'drums' && x.sequence[sel.bar] > 0) : []);
+
+  /** NoorSequencer's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const back = () => setTimeout(() => { if (document.activeElement === document.body && isOpen()) $('#seqbench').focus({ preventScroll: true }); }, 0);
+    const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { run(); back(); }, ...more });
+    const noSong = () => !song;
+    const noTrack = () => !track();
+    const full = () => !song || song.tracks.length >= MAX_TRACKS;
+    const noPattern = () => !pattern();
+    const patternsFull = () => !track() || track().patterns.length >= MAX_PATTERNS;
+    const part = (key, label) => ({ label, checked: () => !!exportPrefs()[key], run: () => setExportPref(key, !exportPrefs()[key]) });
+    const tabTick = (id, label) => ({ label, checked: () => tab === id, run: () => { showTab(id); back(); } });
+    return [
+      ['File', 'f', () => [
+        { label: 'New song from a template', sub: () => (lists.templates.length ? lists.templates.map((t) => go(t.name, () => newFrom(t.id), '', { title: t.description })) : [{ label: 'No templates yet', disabled: true }]) },
+        { label: 'Open from My songs', sub: () => (lists.mine.length ? lists.mine.map((m) => go(m.name, () => newFrom(m.id), '', { title: m.description })) : [{ label: 'Nothing saved yet', disabled: true }]) },
+        go('Open a song (.noorsong.json)…', openSong), '-',
+        go('Save to My songs', saveSong, '', { disabled: noSong }), go('Rename the song…', () => focusField('#seq-name'), '', { disabled: noSong }), '-',
+        go('Export options…', () => $('#seq-exportbtn').click(), '', { disabled: noSong }), go('Export now', () => { showTab('song'); exportSong(); }, '', { disabled: noSong }),
+        { label: 'What to export', sub: () => [part('mix', 'The song'), part('loop', 'A seamless loop'), { ...part('layers', 'Each layer as a loop'), disabled: () => !(song && (song.layers || []).length) }, part('stems', 'Stems (each track on its own)'), part('midi', 'MIDI')] },
+        { label: 'Format', sub: () => [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']].map(([v, l]) => ({ label: l, checked: () => exportPrefs().format === v, run: () => setExportPref('format', v) })) },
+        part('vault', 'Also keep the song in my Vault'), part('musicBench', 'Also send the files to the Music Bench'), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorSequencer', close, 'Ctrl+Alt+Q'),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !song || (!history.length && lastSnapshot === JSON.stringify(song)) }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('Clear this pattern', () => { pattern().notes = []; changed('all'); }, '', { disabled: () => !pattern() || !pattern().notes.length }), '-',
+        go('NoorSequencer settings…', settingsDialog),
+      ]],
+      ['Song', 's', () => [
+        go('Tempo…', () => focusField('#seq-tempo'), '', { disabled: noSong }),
+        { label: 'Beats in a bar', disabled: noSong, sub: () => [2, 3, 4, 5, 6, 7].map((n) => ({ label: `${n}/4`, checked: () => song.beatsPerBar === n, run: () => { setBeats(n); renderHeader(); } })) },
+        { label: 'Key', disabled: noSong, sub: () => NOTE_NAMES.map((name, i) => ({ label: name, checked: () => song.key === i, run: () => { song.key = i; changed('pane'); } })) },
+        { label: 'Scale', disabled: noSong, sub: () => Object.keys(SCALE_STEPS).map((k) => ({ label: SCALE_LABEL[k], checked: () => song.scale === k, run: () => { song.scale = k; changed('pane'); } })) },
+        go('Swing…', () => focusField('#seq-swing'), '', { disabled: noSong }), go('Length (bars)…', () => focusField('#seq-bars'), '', { disabled: noSong }), go('The loop’s bars…', () => focusField('#seq-loopstart'), '', { disabled: noSong }), '-',
+        go('Chords for the song…', progressionDialog, '', { disabled: noSong }), '-',
+        go('Add an adaptive layer', () => { addLayer(); showTab('song'); }, '', { disabled: () => !song || (song.layers || []).length >= 4 }),
+        go('Hear the change between layers…', () => { showTab('song'); const b = $('#seq-thear'); if (b) { b.scrollIntoView({ block: 'center' }); b.focus({ preventScroll: true }); } }, '', { disabled: () => !song || !(song.layers || []).length }),
+        go('Check the loop', () => { showTab('song'); const b = $('#seq-loopcheck'); if (b) { b.scrollIntoView({ block: 'center' }); b.click(); } }, '', { disabled: noSong }), '-',
+        go('Kind, seed and master effects…', () => showTab('song'), '', { disabled: noSong }),
+      ]],
+      ['Track', 't', () => [
+        { label: 'Add a track', disabled: full, sub: () => Object.keys(KIND_LABEL).map((k) => go(`${KIND_ICON[k]} ${KIND_LABEL[k]}`, () => addTrack(k))) },
+        { label: 'Choose a track', disabled: noSong, sub: () => song.tracks.map((t, i) => ({ label: `${KIND_ICON[t.kind]} ${t.name}`, checked: () => sel.track === i, run: () => select(i, sel.bar) })) }, '-',
+        { label: 'Mute', checked: () => !!(track() && track().mute), disabled: noTrack, run: () => { track().mute = !track().mute; changed('grid'); if (tab === 'mixer') renderPane(); } },
+        { label: 'Solo', checked: () => !!(track() && track().solo), disabled: noTrack, run: () => { track().solo = !track().solo; changed('grid'); if (tab === 'mixer') renderPane(); } },
+        go('Hear a note of it', () => hear(sel.track, track().kind === 'drums' ? 0 : 60 + song.key, newVelocity), '', { disabled: noTrack }), '-',
+        go('Move up', () => moveTrack(-1), '', { disabled: () => !track() || sel.track === 0 }), go('Move down', () => moveTrack(1), '', { disabled: () => !track() || sel.track >= song.tracks.length - 1 }),
+        go('Duplicate', duplicateTrack, '', { disabled: () => !track() || full() }), go('Remove', removeTrack, '', { disabled: noTrack }), '-',
+        go('Instrument & effects…', () => showTab('instrument'), '', { disabled: noTrack }), go('Mixer…', () => showTab('mixer'), '', { disabled: noSong }),
+        go('Add a reverb bus', () => { addBus('Reverb', 'reverb'); showTab('mixer'); }, '', { disabled: () => !song || (song.buses || []).length >= 2 }),
+        go('Add an echo bus', () => { addBus('Echo', 'delay'); showTab('mixer'); }, '', { disabled: () => !song || (song.buses || []).length >= 2 }),
+      ]],
+      ['Pattern', 'p', () => [
+        { label: 'Plays in this bar', disabled: noTrack, sub: () => [{ label: 'Rest (nothing)', checked: () => currentPattern() === 0, run: () => setCell(sel.track, sel.bar, 0) },
+          ...track().patterns.map((p, k) => ({ label: `Pattern ${k + 1}${p.notes.length ? '' : ' (empty)'}`, checked: () => currentPattern() === k + 1, run: () => setCell(sel.track, sel.bar, k + 1) }))] }, '-',
+        go('New pattern', () => newPattern(false), 'N', { disabled: patternsFull }), go('Copy as new', () => newPattern(true), '', { disabled: () => noPattern() || patternsFull() }),
+        go('A variation (some notes changed)', varyPattern, '', { disabled: () => noPattern() || patternsFull() }), go('Fill the rests with it', () => { const t = track(), n = currentPattern(); t.sequence = t.sequence.map((x) => x || n); changed('grid'); }, '', { disabled: noPattern }),
+        go('Clear it', () => { pattern().notes = []; changed('all'); }, '', { disabled: () => !pattern() || !pattern().notes.length }), '-',
+        { label: 'Put in a chord of the key', disabled: () => !$('#seq-chords'), sub: () => NoorSeqHelp.chords(song.key, song.scale).map((c) => go(`${c.numeral}  ${c.name}`, () => { const b = $(`#seq-chords .seq-chord[data-degree="${c.degree}"]`); if (b) b.click(); }, '', { title: c.mood })) },
+        go('Chords for the song…', progressionDialog, '', { disabled: noSong }),
+        { label: 'A drum rhythm', disabled: () => !track() || track().kind !== 'drums' || noPattern(), sub: () => NoorSeqHelp.RHYTHMS.map((r) => go(r.name + (r.beats !== song.beatsPerBar ? ` (${r.beats}/4)` : ''), () => { pattern().notes = NoorSeqHelp.rhythmBar(r.id, song.beatsPerBar).notes; changed('all'); })) }, '-',
+        { label: 'Length of new notes', sub: () => LENGTHS.map(([v, l]) => ({ label: l, checked: () => newLength === v, run: () => { newLength = v; const s = $('#seq-length'); if (s) s.value = String(v); } })) },
+      ]],
+      ['Transport', 'r', () => [
+        go(wantPlay || !audio.paused ? 'Stop' : 'Play', playStop, 'Space', { disabled: noSong }),
+        go('Play from the start', () => { barClick(0, {}); if (!wantPlay) playStop(); }, '', { disabled: noSong }),
+        { label: 'Loop: play the loop’s bars over and over', keys: 'L', checked: () => loopMode, run: () => setLoopMode(!loopMode) },
+        { label: 'Listen to', disabled: () => !song || !(song.layers || []).length, sub: () => [{ label: 'The whole song', checked: () => !listenLayer, run: () => setListen('') }, ...(song.layers || []).map((l) => ({ label: l.name, checked: () => listenLayer === l.id, run: () => setListen(l.id) }))] },
+        { label: 'Listening volume', sub: () => [100, 80, 60, 40, 20].map((v) => ({ label: `${v}%`, checked: () => Math.round(volume * 100) === v, run: () => setVolume(v / 100) })) }, '-',
+        { label: 'Record from the computer keyboard', checked: () => recording, run: () => setRecording(!recording) },
+        go('Keyboard an octave down', () => setOctave(-1), 'Z'), go('Keyboard an octave up', () => setOctave(1), 'X'),
+      ]],
+      ['View', 'v', () => [
+        tabTick('notes', 'Notes'), tabTick('instrument', 'Instrument & effects'), tabTick('mixer', 'Mixer'), tabTick('song', 'Song & export'), '-',
+        { label: 'Scale lock (only the notes of the key)', checked: () => scaleLock, run: () => { scaleLock = !scaleLock; try { localStorage.setItem('noormd.seq.lock', scaleLock ? 'on' : 'off'); } catch { /* private storage off */ } renderPane(); } },
+        { label: 'Ghost notes (another track behind)', disabled: () => !roll || !ghostChoices().length, sub: () => [{ label: 'None', checked: () => ghost === -1, run: () => setGhost(-1) },
+          ...ghostChoices().map(({ x, i }) => ({ label: `${x.name} (pattern ${x.sequence[sel.bar]})`, checked: () => ghost === i, run: () => setGhost(i) }))] }, '-',
+        { id: 'view.focus', label: 'Focus mode (NoorSequencer as an app)' },
+      ]],
+      ['Help', 'h', () => [go('NoorSequencer shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   return {
