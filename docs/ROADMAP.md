@@ -5,6 +5,11 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorPhoto, round two (preview.120; ideas from PhotoCraft, no code): layer styles (drop shadow, outer and inner
+  glow, inner shadow, bevel and emboss, colour and gradient overlays, stroke; fill opacity; ready-made styles; copy
+  and paste), live on any layer and drawn from its shape; shape layers that stay changeable (rectangle, rounded,
+  ellipse, polygon, star, line) and a pen for curved paths, with their fill, stroke and dashes in Properties and free
+  transform that keeps them shapes; text typed right on the picture, as a line or in a box the words wrap in.
 - NoorPhoto (preview.119): a layered photo and painting editor (Ctrl+Alt+J, or Tools). Pixel, group, fill, adjustment
   and text layers with 27 blend modes, opacity, masks and clipping; brushes with pen pressure, the clone stamp,
   healing, smudge / blur / sharpen and dodge / burn / sponge; selections (rectangle, ellipse, lasso, straight lines,

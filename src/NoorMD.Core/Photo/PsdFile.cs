@@ -55,8 +55,11 @@ public static class PsdFile
         if (kept.Count < doc.Layers.Count) Note("Adjustment layers aren't in the PSD as layers; the flattened picture has them.");
         if (doc.Layers.Any(l => l.Kind == "text")) Note("Text layers are saved as pictures in the PSD.");
         if (doc.Layers.Any(l => l.Kind == "fill")) Note("Fill layers are saved as pictures in the PSD.");
+        if (doc.Layers.Any(l => l.Kind == "shape")) Note("Shape layers are saved as pictures in the PSD.");
         if (doc.Layers.Any(l => l.Filters is { ValueKind: System.Text.Json.JsonValueKind.Array } f && f.GetArrayLength() > 0))
             Note("Live filters are saved applied, as part of the layers' pictures.");
+        if (doc.Layers.Any(l => l.Styles is { ValueKind: System.Text.Json.JsonValueKind.Object } st && st.EnumerateObject().Any(e => e.Value.ValueKind == System.Text.Json.JsonValueKind.Object && e.Value.TryGetProperty("on", out var o) && o.ValueKind == System.Text.Json.JsonValueKind.True)))
+            Note("Layer styles are saved applied, as part of the layers' pictures.");
         var keptIds = kept.Select(l => l.Id).ToHashSet();
         var children = kept.Where(l => l.Parent != null && keptIds.Contains(l.Parent)).GroupBy(l => l.Parent!).ToDictionary(g => g.Key, g => g.ToList());
         var recs = new List<Rec>();

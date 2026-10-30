@@ -40,7 +40,8 @@ window.NoorPhoto = (() => {
     ['fill', '🪣', 'Paint bucket (G)', 'g'],
     ['gradient', '▤', 'Gradient (G twice): drag across', null],
     ['text', 'T', 'Text (T): click to write', 't'],
-    ['shape', '▭', 'Shapes (U): rectangle, ellipse, line', 'u'],
+    ['shape', '▭', 'Shapes (U): rectangle, ellipse, polygon, star, line; they stay changeable', 'u'],
+    ['pen', '✒️', 'Pen (P): click for corners, drag for curves; click the first point to close', 'p'],
     ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
     ['zoom', '🔍', 'Zoom (Z): click in, Alt+click out', 'z'],
     ['rotate', '⟲', 'Turn the view (Shift+R; double-click: straight again)', null],
@@ -57,7 +58,7 @@ window.NoorPhoto = (() => {
   let brush = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false };
   let opts = {
     selMode: 'new', feather: 0, tolerance: 32, contiguous: true, allLayers: false, antiAlias: true,
-    gradShape: 'linear', gradTo: 'bg', gradReverse: false, shape: 'rect', shapeFill: true, shapeStroke: 0, smudgeMode: 'smudge', strength: 0.5,
+    gradShape: 'linear', gradTo: 'bg', gradReverse: false, shape: 'rect', shapeFill: true, shapeStroke: 0, shapeDash: 'solid', shapeRadius: 20, shapeSides: 5, starInner: 45, smudgeMode: 'smudge', strength: 0.5,
     dodgeMode: 'dodge', exposure: 0.3, range: 'midtones', cloneAligned: true, cloneAll: false, cropRatio: '', fillAll: false,
   };
   let composite = null, needCompose = true;
@@ -119,7 +120,7 @@ window.NoorPhoto = (() => {
 
   function makeLayer(props) {
     return { id: newId(), name: 'Layer', kind: 'pixel', parent: null, visible: true, locked: false, opacity: 1, blend: 'normal', clip: false, x: 0, y: 0,
-      canvas: null, mask: null, fill: null, adjust: null, text: null, filters: [], collapsed: false, ver: ++VER, ...props };
+      canvas: null, mask: null, fill: null, adjust: null, text: null, shape: null, filters: [], styles: null, fillOpacity: 1, collapsed: false, ver: ++VER, ...props };
   }
   function makeMask(x, y, w, h, background = 255) {
     const c = canvas(w, h);
@@ -159,6 +160,7 @@ window.NoorPhoto = (() => {
   function boundsOf(l) {
     if (l.kind === 'pixel' && l.canvas) return { x: l.x, y: l.y, w: l.canvas.width, h: l.canvas.height };
     if (l.kind === 'text') { const t = textCanvas(l); return { x: l.x, y: l.y, w: t.width, h: t.height }; }
+    if (l.kind === 'shape') return shapeBounds(l);
     if (l.kind === 'group') return descendants(l.id).filter((k) => k.kind !== 'group').map(boundsOf).reduce((a, b) => (a ? union(a, b) : b), null) || { x: 0, y: 0, w: D.doc.width, h: D.doc.height };
     return { x: 0, y: 0, w: D.doc.width, h: D.doc.height };
   }
@@ -184,12 +186,12 @@ window.NoorPhoto = (() => {
   /** Everything about the layers but the pixels (shared): enough to put the document back as it was. */
   function snap() {
     return { width: D.doc.width, height: D.doc.height, guides: D.doc.guides.map((g) => ({ ...g })), active: D.active,
-      layers: D.doc.layers.map((l) => ({ ref: l, props: { ...l, mask: l.mask ? { ...l.mask } : null, filters: JSON.parse(JSON.stringify(l.filters || [])), fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text) } })) };
+      layers: D.doc.layers.map((l) => ({ ref: l, props: { ...l, mask: l.mask ? { ...l.mask } : null, filters: JSON.parse(JSON.stringify(l.filters || [])), fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text), styles: clone(l.styles), shape: clone(l.shape) } })) };
   }
   const clone = (o) => (o == null ? o : JSON.parse(JSON.stringify(o)));
   function restore(s) {
     D.doc.width = s.width; D.doc.height = s.height; D.doc.guides = s.guides.map((g) => ({ ...g }));
-    D.doc.layers = s.layers.map(({ ref, props }) => { Object.assign(ref, props, { mask: props.mask ? { ...props.mask } : null, filters: clone(props.filters), fill: clone(props.fill), adjust: clone(props.adjust), text: clone(props.text) }); ref.ver = ++VER; if (ref.mask) ref.mask.ver = ++VER; return ref; });
+    D.doc.layers = s.layers.map(({ ref, props }) => { Object.assign(ref, props, { mask: props.mask ? { ...props.mask } : null, filters: clone(props.filters), fill: clone(props.fill), adjust: clone(props.adjust), text: clone(props.text), styles: clone(props.styles), shape: clone(props.shape) }); ref.ver = ++VER; if (ref.mask) ref.mask.ver = ++VER; return ref; });
     D.active = s.active && byId(s.active) ? s.active : (D.doc.layers[D.doc.layers.length - 1] || {}).id;
     needCompose = true;
   }
@@ -272,6 +274,9 @@ window.NoorPhoto = (() => {
     if (l.adjust) s += ':a' + JSON.stringify(l.adjust);
     if (l.fill) s += ':F' + JSON.stringify(l.fill);
     if (l.text) s += ':t' + JSON.stringify(l.text);
+    if (l.styles) s += ':s' + JSON.stringify(l.styles);
+    if (l.shape) s += ':g' + JSON.stringify(l.shape);
+    if (l.fillOpacity !== 1 && l.fillOpacity !== undefined) s += ':o' + l.fillOpacity;
     if (l.kind === 'group') s += '[' + kids(l.id).map(sig).join(';') + ']';
     return s;
   }
@@ -314,19 +319,37 @@ window.NoorPhoto = (() => {
   function itemCanvas(l) {
     let c = null, x = 0, y = 0;
     if (l.kind === 'pixel') { const p = layerPixels(l); if (!p) return null; c = p.canvas; x = p.x; y = p.y; }
-    else if (l.kind === 'text') { c = draft && draft.l === l ? draft.canvas : withFilters(l, textCanvas(l)); x = l.x; y = l.y; }
+    else if (l.kind === 'text') { if (l.typing) return null; c = draft && draft.l === l ? draft.canvas : withFilters(l, textCanvas(l)); x = l.x; y = l.y; }
     else if (l.kind === 'fill') { c = draft && draft.l === l ? draft.canvas : withFilters(l, fillCanvas(l)); }
+    else if (l.kind === 'shape') { c = transform && transform.l === l ? transform.preview() : draft && draft.l === l ? draft.canvas : withFilters(l, shapeCanvas(l)); }
     else if (l.kind === 'group') { c = canvas(D.doc.width, D.doc.height); renderItems(kids(l.id), c); }
     if (!c) return null;
+    let res = { canvas: c, x, y };
     if (l.mask && l.mask.enabled && !(D.editMask && D.showMaskOnly)) {
       const W = D.doc.width, H = D.doc.height, t = canvas(W, H), tx = g2(t);
       tx.drawImage(c, x, y);
       tx.globalCompositeOperation = 'destination-in';
       tx.drawImage(maskFull(l), 0, 0);
-      return { canvas: t, x: 0, y: 0 };
+      res = { canvas: t, x: 0, y: 0 };
     }
-    return { canvas: c, x, y };
+    return styled(l, res);
   }
+
+  const styleCache = new WeakMap();
+  /** The layer's styles (shadow, glow, stroke, bevel…) and fill opacity, drawn round its picture. */
+  function styled(l, res) {
+    const S = window.NoorPhotoStyle;
+    if (!S || !(S.any(l.styles) || (l.fillOpacity ?? 1) < 1) || noStyles) return res;
+    const changing = (live && live.l === l) || (transform && transform.l === l) || (draft && draft.l === l) || l.kind === 'group';
+    const key = `${sig(l)}|${D.doc.width}x${D.doc.height}|${D.editMask && D.showMaskOnly ? 1 : 0}`;
+    const hit = styleCache.get(l);
+    if (!changing && hit && hit.key === key) return hit.res;
+    let out;
+    try { out = S.render(res, l.styles || {}, l.fillOpacity ?? 1, D.doc.width, D.doc.height); } catch (err) { console.warn('NoorPhoto: layer style', err); return res; }
+    if (!changing) styleCache.set(l, { key, res: out });
+    return out;
+  }
+  let noStyles = false;
 
   /** A pixel layer's picture: with the stroke being painted, a transform being made, or its live filters. */
   function layerPixels(l) {
@@ -397,11 +420,26 @@ window.NoorPhoto = (() => {
     const t = l.text || {}, key = JSON.stringify(t);
     const hit = textCache.get(l);
     if (hit && hit.key === key) return hit.canvas;
-    const lines = String(t.text || ' ').split('\n'), size = t.size || 48, lh = size * (t.lineHeight || 1.25);
+    const size = t.size || 48, lh = size * (t.lineHeight || 1.25);
     const m = g2(canvas(1, 1));
     m.font = textFont(t);
     if ('letterSpacing' in m) m.letterSpacing = `${t.tracking || 0}px`;
-    const w = Math.max(1, ...lines.map((s) => Math.ceil(m.measureText(s).width))) + Math.ceil(size * 0.2), h = Math.ceil(lh * lines.length + size * 0.3);
+    // Paragraph text (a box): words wrap at its width; point text: each line as long as it is.
+    let lines = String(t.text || ' ').split('\n');
+    if (t.box > 0) {
+      const room = Math.max(1, t.box - size * 0.2);
+      lines = lines.flatMap((para) => {
+        const out = [];
+        let cur = '';
+        for (const word of para.split(/(\s+)/)) {
+          const next = cur + word;
+          if (cur && m.measureText(next.trimEnd()).width > room && word.trim()) { out.push(cur.trimEnd()); cur = word.trimStart(); } else cur = next;
+        }
+        out.push(cur);
+        return out;
+      });
+    }
+    const w = t.box > 0 ? Math.ceil(t.box) : Math.max(1, ...lines.map((s) => Math.ceil(m.measureText(s).width))) + Math.ceil(size * 0.2), h = Math.ceil(lh * lines.length + size * 0.3);
     const c = canvas(w, h), x = g2(c);
     x.font = m.font;
     if ('letterSpacing' in x) x.letterSpacing = `${t.tracking || 0}px`;
@@ -611,8 +649,10 @@ window.NoorPhoto = (() => {
       drag.path.forEach((p, i) => { const q = toScreen(p.x, p.y); if (i) x.lineTo(q.x, q.y); else x.moveTo(q.x, q.y); });
       x.stroke(); x.setLineDash([]);
     }
-    if (drag && drag.rect && (tool === 'marquee' || tool === 'ellipse' || tool === 'shape')) outlineRect(x, drag.rect, tool === 'ellipse' || (tool === 'shape' && opts.shape === 'ellipse'));
+    if (drag && drag.rect && (tool === 'marquee' || tool === 'ellipse' || tool === 'shape' || tool === 'text')) outlineRect(x, drag.rect, tool === 'ellipse' || (tool === 'shape' && opts.shape === 'ellipse'));
     if (drag && drag.line) { const a = toScreen(drag.line.x0, drag.line.y0), b = toScreen(drag.line.x1, drag.line.y1); x.strokeStyle = '#fff'; x.setLineDash([5, 3]); x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); x.setLineDash([]); }
+    if (typing) placeTyping();
+    if (pen || tool === 'pen') drawPen(x);
     if (cropBox) drawCrop(x, s);
     if (transform) drawTransformBox(x);
     if (D.cloneFrom && (tool === 'clone' || tool === 'heal') && hover) {
@@ -1132,32 +1172,89 @@ window.NoorPhoto = (() => {
     commitPixels('Gradient', s.l, s.target, s.before, { x: 0, y: 0, w: c.width, h: c.height }, () => applyPaint(c, s.l, s.target, s.buf, s.how()));
   }
 
-  /** The shape tool: a rectangle, an ellipse or a line, on a layer of its own. */
-  function makeShape(r, line) {
-    const W = D.doc.width, H = D.doc.height, c = canvas(W, H), x = g2(c);
-    x.fillStyle = fg; x.strokeStyle = opts.shapeStroke > 0 && opts.shapeFill ? bg : fg; x.lineWidth = Math.max(1, opts.shapeStroke || 2);
-    x.lineCap = 'round'; x.lineJoin = 'round';
-    if (line) { x.lineWidth = Math.max(1, opts.shapeStroke || brush.size / 4); x.beginPath(); x.moveTo(line.x0, line.y0); x.lineTo(line.x1, line.y1); x.stroke(); }
-    else {
-      x.beginPath();
-      if (opts.shape === 'ellipse') x.ellipse(r.x + r.w / 2, r.y + r.h / 2, r.w / 2, r.h / 2, 0, 0, Math.PI * 2);
-      else if (opts.shape === 'rounded') x.roundRect(r.x, r.y, r.w, r.h, Math.min(r.w, r.h) * 0.15);
-      else x.rect(r.x, r.y, r.w, r.h);
-      if (opts.shapeFill) x.fill();
-      if (opts.shapeStroke > 0 || !opts.shapeFill) x.stroke();
-    }
-    const name = line ? 'Line' : opts.shape === 'ellipse' ? 'Ellipse' : 'Rectangle';
-    addLayerAbove(makeLayer({ name, canvas: c }), name);
-    rememberColour(fg);
+  /** Text: a new text layer where you clicked, or the text layer clicked on edited. */
+  /** The text layer under a point (the active one first), or null. */
+  function textUnder(p) {
+    const inside = (k) => { const b = boundsOf(k); return p.x >= b.x && p.y >= b.y && p.x <= b.x + b.w && p.y <= b.y + b.h; };
+    const l = L();
+    if (l && l.kind === 'text' && inside(l)) return l;
+    return [...D.doc.layers].reverse().find((k) => k.kind === 'text' && k.visible && !k.locked && inside(k)) || null;
+  }
+  /** Text: typed right on the picture. A click starts a line (point text), a drag a box the words wrap in. */
+  function textAt(p, box) {
+    const hit = box ? null : textUnder(p);
+    if (hit) { D.active = hit.id; startTyping(hit, false); return; }
+    const size = Math.max(12, Math.round(Math.min(D.doc.width, D.doc.height) / 12));
+    const t = { text: '', font: settings.font, size, colour: fg, bold: false, italic: false, align: 'left', lineHeight: 1.25, tracking: 0 };
+    if (box) t.box = Math.round(box.w);
+    const before = snap(), a = L();
+    const l = makeLayer({ kind: 'text', name: 'Text', text: t, x: Math.round(box ? box.x : p.x - size * 0.1), y: Math.round(box ? box.y : p.y - size * 1.05), parent: a ? a.parent : null });
+    D.doc.layers.splice(a ? D.doc.layers.indexOf(a) + 1 : D.doc.layers.length, 0, l);
+    tidy(); D.active = l.id;
+    startTyping(l, true, before);
   }
 
-  /** Text: a new text layer where you clicked, or the text layer clicked on edited. */
-  function textAt(p) {
-    const l = L();
-    if (l && l.kind === 'text') { const b = boundsOf(l); if (p.x >= b.x && p.y >= b.y && p.x <= b.x + b.w && p.y <= b.y + b.h) { textDialog(l); return; } }
-    const hit = [...D.doc.layers].reverse().find((k) => k.kind === 'text' && k.visible && (() => { const b = boundsOf(k); return p.x >= b.x && p.y >= b.y && p.x <= b.x + b.w && p.y <= b.y + b.h; })());
-    if (hit) { D.active = hit.id; renderLayers(); textDialog(hit); return; }
-    textDialog(null, p);
+  // Typing: a text box over the picture where the layer is (the layer itself hidden meanwhile), the same font, size
+  // and colour at the view's zoom. Esc, Ctrl+Enter, ✓ or a click elsewhere finishes; ✕ in the bar throws it away.
+  let typing = null; // { l, fresh, before, old, box }
+  function startTyping(l, fresh, before) {
+    if (typing) finishTyping(true);
+    const box = el('textarea', { class: 'ph-typing', id: 'ph-typing', spellcheck: 'true', 'aria-label': 'Type the text', 'data-noi18n': '', wrap: l.text.box ? 'soft' : 'off' });
+    box.value = l.text.text || '';
+    typing = { l, fresh, before: before || snap(), old: clone(l.text), box };
+    l.typing = true; touch(l);
+    box.addEventListener('input', () => { l.text = { ...l.text, text: box.value }; placeTyping(); });
+    box.addEventListener('keydown', (e) => {
+      e.stopPropagation();
+      if (e.key === 'Escape' || (e.key === 'Enter' && (e.ctrlKey || e.metaKey))) { e.preventDefault(); finishTyping(true); }
+    });
+    $('#ph-stage').append(box);
+    placeTyping();
+    renderOptions(); renderLayers(); draw();
+    setTimeout(() => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }, 0);
+  }
+  function placeTyping() {
+    if (!typing) return;
+    const { l, box } = typing, t = l.text, z = D.view.zoom, at = toScreen(l.x, l.y), size = t.size || 48;
+    Object.assign(box.style, {
+      left: `${at.x}px`, top: `${at.y + size * 0.2 * z}px`, font: textFont({ ...t, size: size * z }), lineHeight: `${size * (t.lineHeight || 1.25) * z}px`,
+      letterSpacing: `${(t.tracking || 0) * z}px`, color: t.colour || '#000', textAlign: t.align || 'left', paddingLeft: `${size * 0.1 * z}px`, paddingRight: `${size * 0.1 * z}px`,
+      transform: D.view.angle ? `rotate(${D.view.angle}deg)` : '', transformOrigin: '0 0',
+    });
+    if (t.box) box.style.width = `${t.box * z}px`;
+    else { box.style.width = '10px'; box.style.width = `${Math.max(size * z, box.scrollWidth + size * 0.3 * z)}px`; }
+    box.style.height = '10px'; box.style.height = `${Math.max(size * 1.3 * z, box.scrollHeight)}px`;
+  }
+  function finishTyping(keep) {
+    const tp = typing;
+    if (!tp) return;
+    typing = null;
+    tp.box.remove();
+    const l = tp.l;
+    delete l.typing;
+    const empty = !String(l.text.text || '').trim();
+    if (!keep || empty) {
+      if (tp.fresh) { D.doc.layers = D.doc.layers.filter((k) => k !== l); D.active = tp.before.active; }
+      else l.text = tp.old;
+      touch(l); afterChange(); renderOptions();
+      return;
+    }
+    l.name = l.text.text.split('\n')[0].slice(0, 40) || 'Text';
+    touch(l);
+    if (tp.fresh || JSON.stringify(tp.old) !== JSON.stringify(l.text)) {
+      const after = snap();
+      pushStep(tp.fresh ? 'Text' : 'Edit text', () => restore(tp.before), () => restore(after));
+    } else afterChange();
+    rememberColour(l.text.colour);
+    renderOptions();
+    $('#ph-canvas').focus({ preventScroll: true });
+  }
+  /** While typing, the bar's font settings change the text being typed. */
+  function setTypingStyle(k, v) {
+    if (!typing) return;
+    typing.l.text = { ...typing.l.text, [k]: v };
+    placeTyping();
+    typing.box.focus();
   }
   function textDialog(l, at) {
     const t = l ? { ...l.text } : { text: '', font: settings.font, size: Math.max(12, Math.round(Math.min(D.doc.width, D.doc.height) / 12)), colour: fg, bold: false, italic: false, align: 'left', lineHeight: 1.25, tracking: 0 };
@@ -1190,6 +1287,158 @@ window.NoorPhoto = (() => {
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ph-text-ok', onclick: ok }, 'OK'))));
       setTimeout(() => area.focus(), 0);
     });
+  }
+
+  // ---------------------------------------------------------------- shape layers and the pen
+
+  // A shape layer keeps its geometry (a rectangle, an ellipse, a polygon, a star, a line or a pen path), its fill and
+  // its stroke, so it stays sharp and changeable: it is drawn afresh whenever it is shown. l.shape.m is the transform
+  // free transform gave it; l.x, l.y move it.
+  function shapePath(sh) {
+    const p = new Path2D();
+    if (sh.type === 'line') { p.moveTo(sh.x0, sh.y0); p.lineTo(sh.x1, sh.y1); return p; }
+    if (sh.type === 'path') {
+      const pts = sh.points || [];
+      if (!pts.length) return p;
+      p.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) p.bezierCurveTo(pts[i - 1].ox, pts[i - 1].oy, pts[i].ix, pts[i].iy, pts[i].x, pts[i].y);
+      if (sh.closed && pts.length > 2) { const a = pts[pts.length - 1], b = pts[0]; p.bezierCurveTo(a.ox, a.oy, b.ix, b.iy, b.x, b.y); p.closePath(); }
+      return p;
+    }
+    const { x, y, w, h } = sh, cx = x + w / 2, cy = y + h / 2;
+    if (sh.type === 'ellipse') { p.ellipse(cx, cy, Math.abs(w / 2), Math.abs(h / 2), 0, 0, Math.PI * 2); return p; }
+    if (sh.type === 'rounded') { p.roundRect(x, y, w, h, Math.min(Math.abs(w), Math.abs(h)) / 2 * clamp((sh.radius ?? 20) / 100, 0, 1)); return p; }
+    if (sh.type === 'polygon' || sh.type === 'star') {
+      const n = clamp(Math.round(sh.sides || 5), 3, 64), pts = sh.type === 'star' ? n * 2 : n;
+      for (let i = 0; i < pts; i++) {
+        const a = -Math.PI / 2 + i * Math.PI * 2 / pts, k = sh.type === 'star' && i % 2 ? clamp((sh.inner ?? 45) / 100, 0.05, 1) : 1;
+        const px2 = cx + Math.cos(a) * w / 2 * k, py2 = cy + Math.sin(a) * h / 2 * k;
+        if (i) p.lineTo(px2, py2); else p.moveTo(px2, py2);
+      }
+      p.closePath(); return p;
+    }
+    p.rect(x, y, w, h);
+    return p;
+  }
+  const shapeMatrix = (l) => { const m = l.shape && l.shape.m ? new DOMMatrix(l.shape.m) : new DOMMatrix(); return new DOMMatrix().translate(l.x || 0, l.y || 0).multiply(m); };
+  const DASHES = { solid: null, dashed: (w) => [w * 3, w * 2], dotted: (w) => [0.001, w * 2] };
+  const shapeCache = new WeakMap();
+  function shapeCanvas(l) {
+    const W = D.doc.width, H = D.doc.height, key = `${W}x${H}|${l.x},${l.y}|${JSON.stringify(l.shape)}`;
+    const hit = shapeCache.get(l);
+    if (hit && hit.key === key) return hit.canvas;
+    const c = canvas(W, H), x = g2(c), sh = l.shape || {}, path = shapePath(sh);
+    x.setTransform(shapeMatrix(l));
+    if (sh.fill && sh.type !== 'line' && (sh.type !== 'path' || sh.closed)) { x.fillStyle = sh.fill; x.fill(path, 'nonzero'); }
+    if (sh.stroke && sh.stroke.width > 0) {
+      const w = sh.stroke.width, dash = DASHES[sh.stroke.dash || 'solid'];
+      x.strokeStyle = sh.stroke.colour || '#000000'; x.lineWidth = w; x.lineJoin = 'round'; x.lineCap = sh.stroke.dash === 'dotted' || sh.type === 'line' || (sh.type === 'path' && !sh.closed) ? 'round' : 'butt';
+      x.setLineDash(dash ? dash(w) : []);
+      x.stroke(path);
+    }
+    shapeCache.set(l, { key, canvas: c });
+    return c;
+  }
+  /** Where a shape is: its geometry's corners through its transform, grown by half its stroke. */
+  function shapeBounds(l) {
+    const sh = l.shape || {}, M = shapeMatrix(l);
+    let pts;
+    if (sh.type === 'line') pts = [[sh.x0, sh.y0], [sh.x1, sh.y1]];
+    else if (sh.type === 'path') pts = (sh.points || []).flatMap((q) => [[q.x, q.y], [q.ix, q.iy], [q.ox, q.oy]]);
+    else pts = [[sh.x, sh.y], [sh.x + sh.w, sh.y], [sh.x + sh.w, sh.y + sh.h], [sh.x, sh.y + sh.h]];
+    if (!pts.length) return { x: 0, y: 0, w: 1, h: 1 };
+    const tp = pts.map(([a, b]) => M.transformPoint(new DOMPoint(a, b))), pad = (sh.stroke ? sh.stroke.width / 2 : 0) + 1;
+    const xs = tp.map((q) => q.x), ys = tp.map((q) => q.y);
+    return { x: Math.min(...xs) - pad, y: Math.min(...ys) - pad, w: Math.max(...xs) - Math.min(...xs) + pad * 2, h: Math.max(...ys) - Math.min(...ys) + pad * 2 };
+  }
+  const SHAPE_NAMES = { rect: 'Rectangle', rounded: 'Rounded rectangle', ellipse: 'Ellipse', polygon: 'Polygon', star: 'Star', line: 'Line', path: 'Path' };
+  /** The shape tool: a shape layer of its own, filled with the foreground colour (stroke: the background colour). */
+  function makeShape(r, line) {
+    const sh = line ? { type: 'line', x0: line.x0, y0: line.y0, x1: line.x1, y1: line.y1 } : { type: opts.shape, x: r.x, y: r.y, w: r.w, h: r.h, radius: opts.shapeRadius, sides: opts.shapeSides, inner: opts.starInner };
+    sh.fill = !line && opts.shapeFill ? fg : null;
+    const sw = line ? Math.max(1, opts.shapeStroke || Math.max(2, Math.round(brush.size / 4))) : opts.shapeStroke;
+    sh.stroke = sw > 0 || !sh.fill ? { colour: line || !sh.fill ? fg : bg, width: Math.max(1, sw || 2), dash: opts.shapeDash } : null;
+    const name = uniqueName(SHAPE_NAMES[sh.type] || 'Shape');
+    addLayerAbove(makeLayer({ kind: 'shape', name, shape: sh }), name);
+    rememberColour(fg);
+  }
+  /** A selection from the shape layer's outline (filled). */
+  function selFromShape(l = L()) {
+    if (!l || l.kind !== 'shape') { notice('Choose a shape layer.', 1600); return; }
+    const path = shapePath(l.shape), M = shapeMatrix(l);
+    combineSel(shapeMask((x) => { x.setTransform(M); x.fill(path); }), 'new');
+  }
+
+  // The pen: click for corners, drag for curves, click the first point to close, Enter (or double-click) to finish
+  // an open path. With a path layer chosen, its points and handles can be dragged.
+  let pen = null; // { points: [{ x, y, ix, iy, ox, oy }] } being drawn (document pixels)
+  function penHit(sp) {
+    const l = L();
+    if (!l || l.kind !== 'shape' || l.shape.type !== 'path' || pen) return null;
+    const M = shapeMatrix(l), pts = l.shape.points || [];
+    for (let i = 0; i < pts.length; i++) for (const part of ['o', 'i', 'a']) {
+      const q = part === 'a' ? pts[i] : { x: pts[i][part + 'x'], y: pts[i][part + 'y'] }, d = M.transformPoint(new DOMPoint(q.x, q.y)), s = toScreen(d.x, d.y);
+      if (Math.hypot(s.x - sp.x, s.y - sp.y) <= 7 && (part === 'a' || Math.hypot(q.x - pts[i].x, q.y - pts[i].y) > 0.5)) return { l, i, part, inv: M.inverse() };
+    }
+    return null;
+  }
+  function penDown(p, e) {
+    const hit = penHit(p);
+    if (hit) return { kind: 'penedit', ...hit, before: snap() };
+    if (!pen) pen = { points: [] };
+    const pts = pen.points;
+    if (pts.length > 2) { const f = toScreen(pts[0].x, pts[0].y); if (Math.hypot(f.x - p.sx, f.y - p.sy) < 8) { finishPen(true); return null; } }
+    pts.push({ x: p.x, y: p.y, ix: p.x, iy: p.y, ox: p.x, oy: p.y });
+    void e;
+    return { kind: 'pennew' };
+  }
+  function penDrag(d, p, e) {
+    if (d.kind === 'pennew') {
+      const q = pen.points[pen.points.length - 1];
+      q.ox = p.x; q.oy = p.y;
+      // Alt: a corner with one handle; else the handle on the other side mirrors it.
+      if (!e.altKey) { q.ix = 2 * q.x - p.x; q.iy = 2 * q.y - p.y; }
+      return;
+    }
+    const sh = d.l.shape, q = sh.points[d.i], lp = d.inv.transformPoint(new DOMPoint(p.x, p.y));
+    if (d.part === 'a') { const dx = lp.x - q.x, dy = lp.y - q.y; Object.assign(q, { x: q.x + dx, y: q.y + dy, ix: q.ix + dx, iy: q.iy + dy, ox: q.ox + dx, oy: q.oy + dy }); }
+    else {
+      q[d.part + 'x'] = lp.x; q[d.part + 'y'] = lp.y;
+      if (!e.altKey) { const o = d.part === 'o' ? 'i' : 'o', len = Math.hypot(q[o + 'x'] - q.x, q[o + 'y'] - q.y), a = Math.atan2(lp.y - q.y, lp.x - q.x) + Math.PI; if (len > 0.5) { q[o + 'x'] = q.x + Math.cos(a) * len; q[o + 'y'] = q.y + Math.sin(a) * len; } }
+    }
+    touch(d.l);
+  }
+  function penUp(d) {
+    if (d.kind !== 'penedit') return;
+    const after = snap();
+    pushStep('Edit path', () => restore(d.before), () => restore(after));
+  }
+  function finishPen(closed) {
+    const pts = pen ? pen.points : [];
+    pen = null;
+    if (pts.length < 2) { draw(); return; }
+    const sh = { type: 'path', points: pts.map((q) => ({ ...q })), closed: !!closed, fill: closed && opts.shapeFill ? fg : null };
+    sh.stroke = !sh.fill || opts.shapeStroke > 0 ? { colour: sh.fill ? bg : fg, width: Math.max(1, opts.shapeStroke || 2), dash: opts.shapeDash } : null;
+    addLayerAbove(makeLayer({ kind: 'shape', name: uniqueName('Path'), shape: sh }), 'Pen path');
+  }
+  function drawPen(x) {
+    const l = L(), pts = pen ? pen.points : l && l.kind === 'shape' && l.shape.type === 'path' && tool === 'pen' ? l.shape.points : null;
+    if (!pts || !pts.length) return;
+    const M = pen ? new DOMMatrix() : shapeMatrix(l), sc = (q) => { const d = M.transformPoint(new DOMPoint(q.x, q.y)); return toScreen(d.x, d.y); };
+    x.save();
+    if (pen) {
+      x.strokeStyle = '#19d3ff'; x.lineWidth = 1.5; x.beginPath();
+      pts.forEach((q, i) => { const s = sc(q); if (!i) { x.moveTo(s.x, s.y); return; } const a = sc({ x: pts[i - 1].ox, y: pts[i - 1].oy }), b = sc({ x: q.ix, y: q.iy }); x.bezierCurveTo(a.x, a.y, b.x, b.y, s.x, s.y); });
+      if (hover) { const last = pts[pts.length - 1], a = sc({ x: last.ox, y: last.oy }); x.bezierCurveTo(a.x, a.y, hover.sx, hover.sy, hover.sx, hover.sy); }
+      x.stroke();
+    }
+    for (const q of pts) {
+      const s = sc(q), i = sc({ x: q.ix, y: q.iy }), o = sc({ x: q.ox, y: q.oy });
+      x.strokeStyle = 'rgba(25,211,255,.8)'; x.lineWidth = 1; x.beginPath(); x.moveTo(i.x, i.y); x.lineTo(o.x, o.y); x.stroke();
+      for (const h of [i, o]) if (Math.hypot(h.x - s.x, h.y - s.y) > 1) { x.beginPath(); x.arc(h.x, h.y, 3, 0, Math.PI * 2); x.fillStyle = '#19d3ff'; x.fill(); }
+      x.fillStyle = '#fff'; x.strokeStyle = '#19d3ff'; x.fillRect(s.x - 3.5, s.y - 3.5, 7, 7); x.strokeRect(s.x - 3.5, s.y - 3.5, 7, 7);
+    }
+    x.restore();
   }
 
   // ---------------------------------------------------------------- moving, cropping and free transform
@@ -1256,7 +1505,7 @@ window.NoorPhoto = (() => {
     if (R.w < 1 || R.h < 1) { draw(); return; }
     if (R.w > MAX_SIDE || R.h > MAX_SIDE) { notice(`A picture is at most ${MAX_SIDE} pixels a side.`, 2600); draw(); return; }
     change('Crop', () => {
-      for (const l of D.doc.layers) { if (l.kind === 'pixel' || l.kind === 'text') { l.x -= R.x; l.y -= R.y; } if (l.mask) { l.mask.x -= R.x; l.mask.y -= R.y; } touch(l); }
+      for (const l of D.doc.layers) { if (l.kind === 'pixel' || l.kind === 'text' || l.kind === 'shape') { l.x -= R.x; l.y -= R.y; } if (l.mask) { l.mask.x -= R.x; l.mask.y -= R.y; } touch(l); }
       D.doc.guides = D.doc.guides.map((g) => ({ ...g, at: g.at - (g.axis === 'x' ? R.x : R.y) }));
       D.doc.width = R.w; D.doc.height = R.h;
     });
@@ -1271,11 +1520,14 @@ window.NoorPhoto = (() => {
     const l = L();
     if (!l) return;
     if (l.locked) { notice('That layer is locked.', 2000); return; }
-    if (l.kind !== 'pixel' && l.kind !== 'text') { notice('Transform works on a pixel or text layer.', 2400); return; }
-    if (l.kind === 'text') { notice('Text layers move with the move tool; Layer › Rasterize to transform them freely.', 3200); return; }
-    const sel = selection && D.sel ? selBounds() : null;
+    if (l.kind !== 'pixel' && l.kind !== 'shape') { notice(l.kind === 'text' ? 'Text layers move with the move tool; Layer › Rasterize to transform them freely.' : 'Transform works on pixel and shape layers.', 3200); return; }
+    const sel = selection && D.sel && l.kind === 'pixel' ? selBounds() : null;
     let src, rect, hole = null;
-    if (sel) {
+    if (l.kind === 'shape') {
+      // A shape: its picture is shown moving; when laid down the shape's own transform changes (it stays a shape).
+      rect = intRect(shapeBounds(l));
+      src = canvas(rect.w, rect.h); g2(src).drawImage(shapeCanvas(l), -rect.x, -rect.y);
+    } else if (sel) {
       // The selected pixels, lifted (with a hole left where they were).
       src = canvas(sel.w, sel.h);
       const x = g2(src);
@@ -1412,7 +1664,19 @@ window.NoorPhoto = (() => {
     const q = t.corners, xs = q.map((c) => c.x), ys = q.map((c) => c.y);
     const r = intRect({ x: Math.min(...xs), y: Math.min(...ys), w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) });
     if (r.w < 1 || r.h < 1 || r.w > 16384 || r.h > 16384) { notice('That is too small or too big to lay down.', 2400); needCompose = true; draw(); return; }
-    const before = t.before, l = t.l, moved = warp(t.src, q, r.w, r.h, r);
+    const before = t.before, l = t.l;
+    if (l.kind === 'shape') {
+      const R = t.rect, a = (q[1].x - q[0].x) / R.w, b = (q[1].y - q[0].y) / R.w, c = (q[3].x - q[0].x) / R.h, d = (q[3].y - q[0].y) / R.h;
+      const A = new DOMMatrix([a, b, c, d, q[0].x - a * R.x - c * R.y, q[0].y - b * R.x - d * R.y]), M = A.multiply(shapeMatrix(l));
+      if (Math.abs((q[0].x + q[2].x) - (q[1].x + q[3].x)) > 0.5 || Math.abs((q[0].y + q[2].y) - (q[1].y + q[3].y)) > 0.5) notice('A shape keeps straight sides: perspective needs a pixel layer (Layer › Rasterize).', 3200);
+      l.shape = { ...l.shape, m: [M.a, M.b, M.c, M.d, M.e, M.f] }; l.x = 0; l.y = 0;
+      touch(l);
+      const after = snap();
+      pushStep(label, () => restore(before), () => restore(after));
+      renderOptions();
+      return;
+    }
+    const moved = warp(t.src, q, r.w, r.h, r);
     let pic;
     if (t.selection) {
       const all = union({ x: l.x, y: l.y, w: l.canvas.width, h: l.canvas.height }, r);
@@ -1433,7 +1697,7 @@ window.NoorPhoto = (() => {
     pushStep(label, () => restore(before), () => restore(after));
     renderOptions();
   }
-  function cancelGestures() { if (transform) cancelTransform(); cropBox = null; polygon = null; live = null; drag = null; }
+  function cancelGestures() { if (typing) finishTyping(true); if (transform) cancelTransform(); cropBox = null; polygon = null; pen = null; live = null; drag = null; }
 
   // ---------------------------------------------------------------- the mouse and the pen
 
@@ -1453,6 +1717,7 @@ window.NoorPhoto = (() => {
       cv.setPointerCapture(e.pointerId); setCursor(); return;
     }
     if (e.button === 2) return;
+    if (typing) { finishTyping(true); if (tool === 'text') return; }
     cv.setPointerCapture(e.pointerId);
     if (transform) {
       const hit = transformHit(p);
@@ -1487,7 +1752,8 @@ window.NoorPhoto = (() => {
       case 'fill': bucket(p); return;
       case 'gradient': { const s = startGradient(p); if (s) drag = { kind: 'gradient', s, line: s.line }; return; }
       case 'shape': drag = { kind: 'shape', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 }, line: opts.shape === 'line' ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null }; if (drag.line) drag.rect = null; return;
-      case 'text': textAt(p); return;
+      case 'text': { const hit = textUnder(p); if (hit) { textAt(p); return; } drag = { kind: 'textbox', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 } }; return; }
+      case 'pen': { const d = penDown(p, e); if (d) drag = d; draw(); return; }
       default:
         if (PAINTERS.has(tool)) {
           const s = startStroke(p, e);
@@ -1502,13 +1768,14 @@ window.NoorPhoto = (() => {
     if (!D) return;
     const p = pointAt(e);
     hover = { x: p.x, y: p.y, sx: p.sx, sy: p.sy };
-    if (!drag) { status(); if (PAINTERS.has(tool) || polygon || tool === 'clone' || tool === 'heal') draw(); setCursor(p); return; }
+    if (!drag) { status(); if (PAINTERS.has(tool) || polygon || pen || tool === 'clone' || tool === 'heal') draw(); setCursor(p); return; }
     switch (drag.kind) {
       case 'pan': { const a = -D.view.angle * Math.PI / 180, dx = (p.sx - drag.sx) / D.view.zoom, dy = (p.sy - drag.sy) / D.view.zoom; D.view.cx = drag.cx - (dx * Math.cos(a) - dy * Math.sin(a)); D.view.cy = drag.cy - (dx * Math.sin(a) + dy * Math.cos(a)); D.view.fitted = false; break; }
       case 'rotate': { const s = stageSize(), a = Math.atan2(p.sy - s.h / 2, p.sx - s.w / 2); let ang = drag.angle + (a - drag.a0) * 180 / Math.PI; if (e.shiftKey) ang = Math.round(ang / 15) * 15; D.view.angle = ((ang % 360) + 540) % 360 - 180; break; }
       case 'move': { let dx = Math.round(p.x - drag.start.x), dy = Math.round(p.y - drag.start.y); if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; } moveBy(drag, dx, dy); break; }
       case 'tmove': { const dx = Math.round(p.x - drag.start.x), dy = Math.round(p.y - drag.start.y); transform.corners = drag.corners.map((c) => ({ x: c.x + dx, y: c.y + dy })); needCompose = true; break; }
       case 'transform': dragTransform(drag, p, e); needCompose = true; break;
+      case 'textbox': drag.rect = { x: Math.min(drag.start.x, p.x), y: Math.min(drag.start.y, p.y), w: Math.abs(p.x - drag.start.x), h: Math.abs(p.y - drag.start.y) }; break;
       case 'rect': case 'shape': {
         if (drag.line) { drag.line.x1 = p.x; drag.line.y1 = p.y; if (e.shiftKey) { const a = Math.round(Math.atan2(p.y - drag.start.y, p.x - drag.start.x) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(p.x - drag.start.x, p.y - drag.start.y); drag.line.x1 = drag.start.x + Math.cos(a) * len; drag.line.y1 = drag.start.y + Math.sin(a) * len; } break; }
         let w = p.x - drag.start.x, h = p.y - drag.start.y;
@@ -1519,6 +1786,7 @@ window.NoorPhoto = (() => {
         break;
       }
       case 'lasso': drag.path.push({ x: p.x, y: p.y }); break;
+      case 'pennew': case 'penedit': penDrag(drag, p, e); break;
       case 'gradient': {
         let x1 = p.x, y1 = p.y;
         if (e.shiftKey) { const a = Math.round(Math.atan2(y1 - drag.line.y0, x1 - drag.line.x0) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(x1 - drag.line.x0, y1 - drag.line.y0); x1 = drag.line.x0 + Math.cos(a) * len; y1 = drag.line.y0 + Math.sin(a) * len; }
@@ -1559,6 +1827,8 @@ window.NoorPhoto = (() => {
         break;
       }
       case 'tmove': if (d.autoCommit) commitTransform('Move the selection'); break;
+      case 'penedit': penUp(d); break;
+      case 'textbox': if (d.rect.w > 12) textAt(d.start, d.rect); else textAt(d.start); break;
       case 'rect': {
         const r = d.rect;
         if (r.w < 1 || r.h < 1) { if (d.mode === 'new') deselect(); break; }
@@ -1637,7 +1907,7 @@ window.NoorPhoto = (() => {
     change('Duplicate layer', () => {
       const map = new Map();
       const copies = block(a).map((l) => {
-        const c = makeLayer({ ...l, id: newId(), name: l === a ? `${l.name} copy` : l.name, canvas: l.canvas ? copyOf(l.canvas) : null, mask: l.mask ? { ...l.mask, canvas: copyOf(l.mask.canvas), ver: ++VER } : null, fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text), filters: clone(l.filters) || [] });
+        const c = makeLayer({ ...l, id: newId(), name: l === a ? `${l.name} copy` : l.name, canvas: l.canvas ? copyOf(l.canvas) : null, mask: l.mask ? { ...l.mask, canvas: copyOf(l.mask.canvas), ver: ++VER } : null, fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text), styles: clone(l.styles), shape: clone(l.shape), filters: clone(l.filters) || [] });
         map.set(l.id, c.id);
         return c;
       });
@@ -1717,12 +1987,12 @@ window.NoorPhoto = (() => {
   }
   function rasterize() {
     const l = L();
-    if (!l || (l.kind === 'pixel' && !(l.filters || []).length && !l.mask)) { notice('That layer is pixels already.', 1600); return; }
+    if (!l || (l.kind === 'pixel' && !(l.filters || []).length && !l.mask && !(window.NoorPhotoStyle && NoorPhotoStyle.any(l.styles)) && (l.fillOpacity ?? 1) === 1)) { notice('That layer is pixels already.', 1600); return; }
     if (l.kind === 'adjust') { notice('An adjustment layer has no pixels: merge it down instead.', 2400); return; }
     change('Rasterize', () => {
       const c = rasterOf(l);
       for (const k of l.kind === 'group' ? descendants(l.id) : []) D.doc.layers.splice(D.doc.layers.indexOf(k), 1);
-      Object.assign(l, { kind: 'pixel', canvas: c, x: 0, y: 0, mask: null, fill: null, text: null, filters: [], adjust: null });
+      Object.assign(l, { kind: 'pixel', canvas: c, x: 0, y: 0, mask: null, fill: null, text: null, shape: null, filters: [], adjust: null, styles: null, fillOpacity: 1 });
       touch(l);
     });
   }
@@ -1739,7 +2009,7 @@ window.NoorPhoto = (() => {
       for (const k of a.kind === 'group' ? descendants(a.id) : []) D.doc.layers.splice(D.doc.layers.indexOf(k), 1);
       for (const k of under.kind === 'group' ? descendants(under.id) : []) D.doc.layers.splice(D.doc.layers.indexOf(k), 1);
       D.doc.layers.splice(D.doc.layers.indexOf(a), 1);
-      Object.assign(under, { kind: 'pixel', canvas: c, x: 0, y: 0, mask: null, fill: null, text: null, adjust: null, filters: [] });
+      Object.assign(under, { kind: 'pixel', canvas: c, x: 0, y: 0, mask: null, fill: null, text: null, shape: null, adjust: null, filters: [], styles: null, fillOpacity: 1 });
       touch(under);
       D.active = under.id;
     });
@@ -1900,6 +2170,7 @@ window.NoorPhoto = (() => {
         l.x = Math.round(l.x * sx); l.y = Math.round(l.y * sy);
         if (l.mask) { l.mask = { ...l.mask, canvas: scaled(l.mask.canvas, l.mask.canvas.width * sx, l.mask.canvas.height * sy, smooth), x: Math.round(l.mask.x * sx), y: Math.round(l.mask.y * sy), ver: ++VER }; }
         if (l.text) l.text = { ...l.text, size: Math.max(1, Math.round(l.text.size * Math.min(sx, sy))) };
+        if (l.shape) { const M = new DOMMatrix().scale(sx, sy).multiply(shapeMatrix({ ...l, x: l.x / sx, y: l.y / sy })); l.shape = { ...l.shape, m: [M.a, M.b, M.c, M.d, M.e, M.f] }; l.x = 0; l.y = 0; }
         touch(l);
       }
       D.doc.guides = D.doc.guides.map((g) => ({ ...g, at: g.at * (g.axis === 'x' ? sx : sy) }));
@@ -1910,7 +2181,7 @@ window.NoorPhoto = (() => {
   function canvasSize(w, h, ax, ay) {
     const dx = Math.round((w - D.doc.width) * ax), dy = Math.round((h - D.doc.height) * ay);
     change('Canvas size', () => {
-      for (const l of D.doc.layers) { if (l.kind === 'pixel' || l.kind === 'text') { l.x += dx; l.y += dy; } if (l.mask) { l.mask.x += dx; l.mask.y += dy; l.mask.ver = ++VER; } touch(l); }
+      for (const l of D.doc.layers) { if (l.kind === 'pixel' || l.kind === 'text' || l.kind === 'shape') { l.x += dx; l.y += dy; } if (l.mask) { l.mask.x += dx; l.mask.y += dy; l.mask.ver = ++VER; } touch(l); }
       D.doc.guides = D.doc.guides.map((g) => ({ ...g, at: g.at + (g.axis === 'x' ? dx : dy) }));
       D.doc.width = w; D.doc.height = h;
     });
@@ -1935,6 +2206,7 @@ window.NoorPhoto = (() => {
     change(label, () => {
       for (const l of D.doc.layers) {
         if (l.kind === 'text') { const r = map(textCanvas(l), l.x, l.y); Object.assign(l, { kind: 'pixel', canvas: r.canvas, x: r.x, y: r.y, text: null }); }
+        else if (l.kind === 'shape') { const M = turnMatrix(kind, W, H).multiply(shapeMatrix(l)); l.shape = { ...l.shape, m: [M.a, M.b, M.c, M.d, M.e, M.f] }; l.x = 0; l.y = 0; }
         else if (l.canvas) { const r = map(l.canvas, l.x, l.y); l.canvas = r.canvas; l.x = r.x; l.y = r.y; }
         if (l.mask) { const r = map(l.mask.canvas, l.mask.x, l.mask.y); l.mask = { ...l.mask, canvas: r.canvas, x: r.x, y: r.y, ver: ++VER }; }
         if (l.fill && l.fill.type === 'gradient') l.fill = { ...l.fill, angle: ((l.fill.angle || 0) + (kind === 'cw' ? 90 : kind === 'ccw' ? -90 : kind === '180' ? 180 : 0) + (kind === 'h' ? 180 - 2 * (l.fill.angle || 0) : kind === 'v' ? -2 * (l.fill.angle || 0) : 0)) % 360 };
@@ -1944,6 +2216,15 @@ window.NoorPhoto = (() => {
       D.doc.guides = [];
     });
     D.sel = null; D.selVer = ++VER; fit(); renderAll();
+  }
+  /** The matrix turning or flipping the whole picture (for shape layers, which keep their geometry). */
+  function turnMatrix(kind, W, H) {
+    const m = new DOMMatrix();
+    if (kind === 'cw') return m.translate(H, 0).rotate(90);
+    if (kind === 'ccw') return m.translate(0, W).rotate(-90);
+    if (kind === '180') return m.translate(W, H).rotate(180);
+    if (kind === 'h') return m.translate(W, 0).scale(-1, 1);
+    return m.translate(0, H).scale(1, -1);
   }
   /** Flips or turns just the active layer (around its own middle). */
   function turnLayer(kind) {
@@ -2288,6 +2569,75 @@ window.NoorPhoto = (() => {
     }).element.parentElement.classList.add('ph-side');
   }
 
+  // ---------------------------------------------------------------- layer styles
+
+  const STYLE_LABELS = { colour: 'Colour', opacity: 'Opacity', angle: 'Angle', distance: 'Distance', size: 'Size', spread: 'Spread', choke: 'Choke', blend: 'Blend', source: 'From', style: 'Style', depth: 'Depth', soften: 'Soften', altitude: 'Light height', highlight: 'Highlight', highlightOpacity: 'Highlight opacity', shadow: 'Shadow', shadowOpacity: 'Shadow opacity', direction: 'Direction', from: 'From', to: 'To', shape: 'Shape', reverse: 'Reversed', position: 'Position' };
+  const STYLE_CHOICES = {
+    source: [['edge', 'the edge'], ['centre', 'the middle']], style: [['inner', 'inner bevel'], ['outer', 'outer bevel'], ['emboss', 'emboss']], direction: [['up', 'up'], ['down', 'down']],
+    shape: [['linear', 'linear'], ['radial', 'radial']], position: [['outside', 'outside'], ['inside', 'inside'], ['centre', 'centred']],
+  };
+  const STYLE_RANGE = { distance: [0, 300, 'px'], size: [0, 250, 'px'], spread: [0, 100, '%'], choke: [0, 100, '%'], depth: [1, 1000, '%'], soften: [0, 16, 'px'], angle: [-180, 180, '°'], altitude: [0, 90, '°'] };
+  /** Layer › Layer style: the effects listed on the left (ticked: on), the chosen one's settings on the right; the picture shows them as you go. */
+  function styleDialog(l = L(), first, addFirst) {
+    const S = window.NoorPhotoStyle;
+    if (!S || !l) return;
+    if (l.kind === 'adjust') { notice('An adjustment layer has no pixels to style.', 2000); return; }
+    const old = clone(l.styles), oldFill = l.fillOpacity ?? 1;
+    let cur = clone(l.styles) || {}, fill = oldFill, chosen = first || (S.EFFECTS.find((e) => cur[e.id] && cur[e.id].on) || S.EFFECTS[0]).id;
+    const apply = () => { l.styles = clone(cur); l.fillOpacity = fill; touch(l); draw(); };
+    if (addFirst && first && !cur[first]) { cur[first] = S.defaults(first); apply(); }
+    NoorUI.modal({ label: 'Layer style', width: 560, onClose: (r) => { if (r !== 'ok') { l.styles = old; l.fillOpacity = oldFill; touch(l); } renderAll(); } }, (s, closeIt) => {
+      const list = el('div', { class: 'ph-stylelist', id: 'ph-stylelist', role: 'listbox', 'aria-label': 'Effects' }), pane = el('div', { class: 'ph-stylepane', id: 'ph-stylepane' });
+      const renderList = () => list.replaceChildren(...S.EFFECTS.map((e) => {
+        const tick = el('input', { type: 'checkbox', checked: (cur[e.id] && cur[e.id].on) || undefined, 'aria-label': e.name, 'data-effect': e.id });
+        tick.addEventListener('change', () => { cur[e.id] = { ...(cur[e.id] || S.defaults(e.id)), on: tick.checked }; chosen = e.id; apply(); renderList(); renderPane(); });
+        return el('div', { class: 'ph-styleitem' + (chosen === e.id ? ' on' : ''), role: 'option', 'aria-selected': chosen === e.id ? 'true' : 'false', onclick: (ev) => { if (ev.target === tick) return; chosen = e.id; renderList(); renderPane(); } }, tick, el('span', { text: e.name }));
+      }));
+      const renderPane = () => {
+        const e = S.EFFECTS.find((x) => x.id === chosen), v = { ...S.defaults(chosen), ...(cur[chosen] || {}) };
+        const set = (k, val) => { cur[chosen] = { ...v, ...(cur[chosen] || {}), [k]: val, on: true }; v[k] = val; apply(); renderList(); };
+        const rows = Object.keys(v).filter((k) => k !== 'on').map((k) => {
+          const val = v[k], label = STYLE_LABELS[k] || k, id = `ph-st-${k}`;
+          if (k === 'blend') { const sel = el('select', { id, 'aria-label': label }, ...BLENDS.filter(Boolean).map(([b, t]) => el('option', { value: b, text: t }))); sel.value = val; sel.addEventListener('change', () => set(k, sel.value)); return el('label', { class: 'ph-param' }, el('span', { text: label }), sel); }
+          if (STYLE_CHOICES[k]) { const sel = el('select', { id, 'aria-label': label }, ...STYLE_CHOICES[k].map(([a, t]) => el('option', { value: a, text: t }))); sel.value = val; sel.addEventListener('change', () => set(k, sel.value)); return el('label', { class: 'ph-param' }, el('span', { text: label }), sel); }
+          if (typeof val === 'boolean') { const c = el('input', { type: 'checkbox', id, checked: val || undefined }); c.addEventListener('change', () => set(k, c.checked)); return el('label', { class: 'ph-param ph-check' }, c, ' ', label); }
+          if (typeof val === 'string' && val.startsWith('#')) { const c = el('input', { type: 'color', id, value: val, 'aria-label': label }); c.addEventListener('input', () => set(k, c.value)); return el('label', { class: 'ph-param' }, el('span', { text: label }), c); }
+          const pct = /opacity/i.test(k), [min, max, unit] = pct ? [0, 100, '%'] : (STYLE_RANGE[k] || [0, 100, '']);
+          return paramControl({ key: `st-${k}`, label, type: 'range', min, max, step: 1, unit, value: pct ? Math.round(val * 100) : val }, () => (pct ? Math.round(v[k] * 100) : v[k]), (x) => set(k, pct ? x / 100 : x));
+        });
+        pane.replaceChildren(el('h4', { class: 'ph-subhead', text: e.name }), ...rows);
+      };
+      const fillCtl = paramControl({ key: 'fillop', label: 'Fill opacity', type: 'range', min: 0, max: 100, step: 1, unit: '%', value: Math.round(fill * 100) }, () => Math.round(fill * 100), (x) => { fill = x / 100; apply(); });
+      const presets = el('select', { id: 'ph-style-preset', 'aria-label': 'Ready-made styles' }, el('option', { value: '', text: 'Ready-made…' }), ...S.PRESETS.map((p, i) => el('option', { value: String(i), text: p.name })));
+      presets.addEventListener('change', () => { const p = S.PRESETS[Number(presets.value)]; if (p) { cur = clone(p.styles); chosen = Object.keys(cur)[0]; apply(); renderList(); renderPane(); } presets.value = ''; });
+      s.append(NoorUI.head('Layer style', closeIt),
+        el('div', { class: 'modal-body ph-dlg ph-fx' },
+          el('p', { class: 'pref-hint', text: 'Shadows, glows, a stroke, a bevel and overlays, drawn from the layer\'s shape; they stay changeable and follow the layer as it changes.' }),
+          el('div', { class: 'ph-row' }, presets, el('button', { class: 'action', id: 'ph-style-clear', onclick: () => { cur = {}; fill = 1; apply(); renderList(); renderPane(); } }, 'Clear all')),
+          fillCtl, el('div', { class: 'ph-stylebox' }, list, pane)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ph-style-ok', onclick: () => {
+          const now = clone(cur), nowFill = fill;
+          l.styles = old; l.fillOpacity = oldFill;
+          setProp(l, 'Layer style', () => { l.styles = Object.keys(now).length ? now : null; l.fillOpacity = nowFill; });
+          closeIt('ok');
+        } }, 'OK'))));
+      renderList(); renderPane();
+    }).element.parentElement.classList.add('ph-side');
+  }
+  let copiedStyle = null;
+  function copyStyle() { const l = L(); if (!l || !l.styles) { notice('This layer has no style to copy.', 1600); return; } copiedStyle = { styles: clone(l.styles), fillOpacity: l.fillOpacity ?? 1 }; notice('Style copied', 900); }
+  function pasteStyle() { const l = L(); if (!l || !copiedStyle) return; setProp(l, 'Paste layer style', () => { l.styles = clone(copiedStyle.styles); l.fillOpacity = copiedStyle.fillOpacity; }); }
+  function clearStyle() { const l = L(); if (l && (l.styles || (l.fillOpacity ?? 1) !== 1)) setProp(l, 'Clear layer style', () => { l.styles = null; l.fillOpacity = 1; }); }
+  function styleItems() {
+    const S = window.NoorPhotoStyle;
+    return [
+      { label: 'Layer style…', run: () => styleDialog() },
+      ...(S ? S.EFFECTS.map((e) => ({ label: `${e.name}…`, run: () => { const l = L(); if (l) styleDialog(l, e.id, true); } })) : []), '-',
+      { label: 'Ready-made', sub: () => (S ? S.PRESETS.map((p) => ({ label: p.name, run: () => { const l = L(); if (l) setProp(l, `Layer style: ${p.name}`, () => { l.styles = clone(p.styles); }); } })) : []) }, '-',
+      { label: 'Copy the style', run: copyStyle }, { label: 'Paste the style', run: pasteStyle, disabled: () => !copiedStyle }, { label: 'Clear the style', run: clearStyle },
+    ];
+  }
+
   // ---------------------------------------------------------------- building the bench
 
   const SETTINGS_KEY = 'noorphoto.settings';
@@ -2340,6 +2690,7 @@ window.NoorPhoto = (() => {
               btn('ph-layer-mask', '🎭', 'Add a mask (from the selection, if there is one)', () => addMask(true)),
               btn('ph-layer-adjust', '🎚️', 'New adjustment layer', (e) => NoorChrome.openMenu(e.currentTarget, adjustLayerItems())),
               btn('ph-layer-fill', '▧', 'New fill layer', (e) => NoorChrome.openMenu(e.currentTarget, [{ label: 'Colour…', run: () => newFillLayer('colour') }, { label: 'Gradient…', run: () => newFillLayer('gradient') }])),
+              btn('ph-layer-style', '✦', 'Layer style: shadow, glow, stroke, bevel…', (e) => NoorChrome.openMenu(e.currentTarget, styleItems())),
               btn('ph-layer-fx', 'ƒx', 'Add a live filter', (e) => NoorChrome.openMenu(e.currentTarget, filterItems(true))),
               btn('ph-layer-dup', '⧉', 'Duplicate (Ctrl+J)', duplicateLayer), btn('ph-layer-del', '🗑', 'Delete the layer', deleteLayer))),
           el('details', { class: 'ph-panel', open: true }, el('summary', { text: 'Properties' }), el('div', { class: 'ph-props', id: 'ph-props' })),
@@ -2365,7 +2716,7 @@ window.NoorPhoto = (() => {
     cv.addEventListener('pointermove', (e) => { if (NoorUI.hasOpenModal()) { if (pointPick && e.buttons) pointPick(pointAt(e)); return; } onMove(e); });
     cv.addEventListener('pointerup', onUp);
     cv.addEventListener('pointercancel', onUp);
-    cv.addEventListener('dblclick', () => { if (tool === 'polygon' && polygon) closePolygon(); else if (tool === 'rotate' && D) { D.view.angle = 0; draw(); } else if (tool === 'hand') fit(); else if (tool === 'crop' && cropBox) applyCrop(); });
+    cv.addEventListener('dblclick', () => { if (tool === 'pen' && pen) { pen.points.pop(); finishPen(false); } else if (tool === 'polygon' && polygon) closePolygon(); else if (tool === 'rotate' && D) { D.view.angle = 0; draw(); } else if (tool === 'hand') fit(); else if (tool === 'crop' && cropBox) applyCrop(); });
     cv.addEventListener('pointerleave', () => { hover = null; draw(); });
     cv.addEventListener('contextmenu', (e) => e.preventDefault());
     cv.addEventListener('wheel', onWheel, { passive: false });
@@ -2438,6 +2789,8 @@ window.NoorPhoto = (() => {
   }
   function setTool(id) {
     if (tool === 'polygon' && id !== 'polygon') polygon = null;
+    if (tool === 'pen' && id !== 'pen' && pen) finishPen(false);
+    if (typing && id !== 'text') finishTyping(true);
     if (tool === 'crop' && id !== 'crop') cropBox = null;
     tool = id;
     renderTools(); renderOptions(); setCursor(); draw();
@@ -2503,8 +2856,28 @@ window.NoorPhoto = (() => {
       case 'fill': items = [num('tolerance', opts, 'Tolerance', 0, 255), tick('contiguous', opts, 'touching only'), tick('allLayers', opts, 'all layers'), num('opacity', brush, 'Opacity', 1, 100, 1, 100, '%')]; break;
       case 'gradient': items = [pick('gradShape', opts, '', [['linear', 'Linear'], ['radial', 'Radial'], ['angle', 'Angle'], ['reflected', 'Reflected'], ['diamond', 'Diamond']]), pick('gradTo', opts, 'To', [['bg', 'the background colour'], ['clear', 'see-through']]), tick('gradReverse', opts, 'reversed'), num('opacity', brush, 'Opacity', 1, 100, 1, 100, '%')]; break;
       case 'crop': items = [pick('cropRatio', opts, 'Ratio', Object.keys(RATIOS).map((k) => [k, k || 'free'])), cropBox ? el('button', { class: 'action primary', id: 'ph-crop-ok', onclick: () => applyCrop() }, 'Crop (Enter)') : null, cropBox ? el('button', { class: 'action', onclick: () => { cropBox = null; renderOptions(); draw(); } }, 'Cancel') : el('span', { class: 'ph-hint', text: 'Drag the frame (it can go past the edges to make the canvas bigger).' })]; break;
-      case 'shape': items = [pick('shape', opts, '', [['rect', 'Rectangle'], ['rounded', 'Rounded rectangle'], ['ellipse', 'Ellipse'], ['line', 'Line']]), tick('shapeFill', opts, 'filled'), num('shapeStroke', opts, 'Outline', 0, 500, 1, 1, 'px'), el('span', { class: 'ph-hint', text: 'Each shape goes on a layer of its own.' })]; break;
-      case 'text': items = [el('span', { class: 'ph-hint', text: 'Click to write; click a text to change it.' })]; break;
+      case 'shape': case 'pen': items = [tool === 'shape' ? pick('shape', opts, '', [['rect', 'Rectangle'], ['rounded', 'Rounded rectangle'], ['ellipse', 'Ellipse'], ['polygon', 'Polygon'], ['star', 'Star'], ['line', 'Line']]) : el('span', { class: 'ph-hint', text: pen ? 'Enter or double-click: finish; click the first point: close; Esc: drop it.' : 'Click for corners, drag for curves (Alt: one handle). Drag the points of a chosen path to change it.' }),
+        tick('shapeFill', opts, 'filled'), num('shapeStroke', opts, 'Outline', 0, 500, 1, 1, 'px'), pick('shapeDash', opts, '', [['solid', 'solid'], ['dashed', 'dashed'], ['dotted', 'dotted']]),
+        tool === 'shape' && opts.shape === 'rounded' ? num('shapeRadius', opts, 'Corners', 0, 100, 1, 1, '%') : null, tool === 'shape' && (opts.shape === 'polygon' || opts.shape === 'star') ? num('shapeSides', opts, opts.shape === 'star' ? 'Points' : 'Sides', 3, 64) : null,
+        tool === 'shape' && opts.shape === 'star' ? num('starInner', opts, 'Inner', 5, 100, 1, 1, '%') : null, tool === 'shape' ? el('span', { class: 'ph-hint', text: 'Shift: square or circle; each shape is a layer that stays changeable.' }) : null]; break;
+      case 'text': {
+        const t = typing ? typing.l.text : { font: settings.font, size: 48, colour: fg, bold: false, italic: false, align: 'left' };
+        if (!typing) { items = [el('span', { class: 'ph-hint', text: 'Click to write a line, drag for a box the words wrap in; click a text to change it.' })]; break; }
+        const font = el('input', { type: 'text', id: 'ph-type-font', value: t.font, list: 'ph-fonts2', 'aria-label': 'Font', class: 'ph-fontin' });
+        const fonts = el('datalist', { id: 'ph-fonts2' }, ...['sans-serif', 'serif', 'monospace', 'Segoe UI', 'Arial', 'Georgia', 'Times New Roman', 'Verdana', 'Trebuchet MS', 'Impact', 'Comic Sans MS', 'Courier New', 'Consolas', 'Bahnschrift', 'Cambria', 'Calibri'].map((f) => el('option', { value: f })));
+        font.addEventListener('change', () => { settings.font = font.value.trim() || 'sans-serif'; saveSettings(); setTypingStyle('font', settings.font); });
+        const size = el('input', { type: 'number', id: 'ph-type-size', class: 'ph-num', min: '4', max: '2000', value: String(t.size), 'aria-label': 'Size' });
+        size.addEventListener('change', () => setTypingStyle('size', clamp(Number(size.value) || 48, 4, 2000)));
+        const colour = el('input', { type: 'color', id: 'ph-type-colour', value: t.colour, 'aria-label': 'Colour' });
+        colour.addEventListener('input', () => setTypingStyle('colour', colour.value));
+        const toggle = (k, glyph, title) => el('button', { class: 'utility-btn' + (t[k] ? ' on' : ''), title, 'aria-label': title, 'aria-pressed': t[k] ? 'true' : 'false', onclick: (e) => { setTypingStyle(k, !typing.l.text[k]); e.currentTarget.classList.toggle('on'); } }, glyph);
+        const align = el('select', { id: 'ph-type-align', 'aria-label': 'Alignment' }, el('option', { value: 'left', text: 'left' }), el('option', { value: 'center', text: 'centred' }), el('option', { value: 'right', text: 'right' }));
+        align.value = t.align || 'left';
+        align.addEventListener('change', () => setTypingStyle('align', align.value));
+        items = [el('label', { class: 'ph-opt' }, font, fonts), el('label', { class: 'ph-opt' }, size, 'px'), colour, toggle('bold', 'B', 'Bold'), toggle('italic', 'I', 'Italic'), align,
+          el('button', { class: 'action primary', id: 'ph-type-ok', title: 'Done (Esc or Ctrl+Enter)', onclick: () => finishTyping(true) }, '✓ Done'), el('button', { class: 'action', id: 'ph-type-cancel', onclick: () => finishTyping(false) }, '✕')];
+        break;
+      }
       case 'picker': items = [tick('pickAll', settings, 'from everything you see'), el('span', { class: 'ph-hint', text: 'Shift+click: the background colour' })]; break;
       case 'move': items = [el('span', { class: 'ph-hint', text: D && D.sel ? 'Drag: moves the selected pixels. Arrow keys nudge.' : 'Drag: moves the layer (a group with all in it). Arrow keys nudge.' }), el('button', { class: 'action', title: 'Ctrl+T', onclick: () => startTransform(true) }, 'Free transform…')]; break;
       default: items = [el('button', { class: 'action', onclick: fit }, 'Fit (Ctrl+0)'), el('button', { class: 'action', onclick: () => zoomTo(1) }, '100% (Ctrl+1)'), D && D.view.angle ? el('button', { class: 'action', onclick: () => { D.view.angle = 0; draw(); renderOptions(); } }, 'Straighten the view') : null];
@@ -2605,6 +2978,7 @@ window.NoorPhoto = (() => {
     const badges = el('span', { class: 'ph-badges' },
       l.clip ? el('span', { title: 'Clipped to the layer under it', text: '↳' }) : null,
       (l.filters || []).length ? el('span', { title: 'Live filters', text: 'ƒx' }) : null,
+      window.NoorPhotoStyle && NoorPhotoStyle.any(l.styles) ? el('span', { class: 'ph-stylebadge', title: 'Layer style (double-click the layer to change it)', text: '✦' }) : null,
       l.locked ? el('span', { title: 'Locked', text: '🔒' }) : null,
       l.lockAlpha ? el('span', { title: 'Transparency locked', text: '▦' }) : null,
       l.blend !== 'normal' ? el('span', { class: 'ph-blendtag', title: 'Blend mode', text: (BLENDS.find((b) => b && b[0] === l.blend) || [0, ''])[1] }) : null);
@@ -2612,7 +2986,7 @@ window.NoorPhoto = (() => {
     const li = el('li', { class: 'ph-layer' + (on ? ' on' : '') + (l.visible ? '' : ' hidden-layer') + (l.clip ? ' clipped' : ''), role: 'option', 'aria-selected': on ? 'true' : 'false', 'data-id': l.id, draggable: 'true', style: `padding-left:${4 + depth * 14}px` },
       eye, twisty, pic, maskPic, name, badges);
     li.addEventListener('click', () => { if (D.active !== l.id) { D.active = l.id; D.editMask = D.editMask && !!l.mask; D.showMaskOnly = false; afterChange(); } });
-    li.addEventListener('dblclick', () => { if (l.kind === 'adjust') effectDialog({ id: l.adjust.id, layer: l }); else if (l.kind === 'fill') fillDialog(l, false); else if (l.kind === 'text') textDialog(l); });
+    li.addEventListener('dblclick', () => { if (l.kind === 'adjust') effectDialog({ id: l.adjust.id, layer: l }); else if (l.kind === 'fill') fillDialog(l, false); else if (l.kind === 'text') textDialog(l); else styleDialog(l); });
     li.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/x-noorphoto-layer', l.id); e.dataTransfer.effectAllowed = 'move'; });
     li.addEventListener('dragover', (e) => {
       if (!e.dataTransfer.types.includes('text/x-noorphoto-layer')) return;
@@ -2639,9 +3013,45 @@ window.NoorPhoto = (() => {
     const b = (label, run, id) => el('button', { class: 'action', id, onclick: run }, label);
     if (l.kind === 'adjust') { const fx = effectOf(l.adjust.id); out.push(el('p', { class: 'ph-propline', text: fx ? fx.name : l.adjust.id }), b('Change the settings…', () => effectDialog({ id: l.adjust.id, layer: l }), 'ph-prop-edit')); }
     if (l.kind === 'fill') out.push(el('p', { class: 'ph-propline', text: l.fill.type === 'gradient' ? 'A gradient' : 'A colour' }), b('Change the fill…', () => fillDialog(l, false), 'ph-prop-edit'));
-    if (l.kind === 'text') out.push(el('p', { class: 'ph-propline', 'data-noi18n': '', text: `“${(l.text.text || '').slice(0, 60)}” · ${l.text.font} ${l.text.size}px` }), b('Edit the text…', () => textDialog(l), 'ph-prop-edit'));
+    if (l.kind === 'text') out.push(el('p', { class: 'ph-propline', 'data-noi18n': '', text: `“${(l.text.text || '').slice(0, 60)}” · ${l.text.font} ${l.text.size}px` }), b('Type in it', () => { setTool('text'); startTyping(l, false); }, 'ph-prop-edit'), b('Font and spacing…', () => textDialog(l), 'ph-prop-font'));
     if (l.kind === 'pixel' && l.canvas) out.push(el('p', { class: 'ph-propline', text: `Pixels: ${l.canvas.width} × ${l.canvas.height} at ${l.x}, ${l.y}` }));
     if (l.kind === 'group') out.push(el('p', { class: 'ph-propline', text: `A group of ${kids(l.id).length}` }));
+    if (l.kind === 'shape') {
+      // The shape's fill and stroke, changed in place (each change a step).
+      const sh = l.shape, upd = (label, f) => setProp(l, label, () => { l.shape = { ...l.shape, ...f(l.shape) }; });
+      const fillOn = el('input', { type: 'checkbox', id: 'ph-sh-fillon', checked: !!sh.fill || undefined, disabled: sh.type === 'line' || (sh.type === 'path' && !sh.closed) || undefined });
+      const fillC = el('input', { type: 'color', id: 'ph-sh-fill', value: sh.fill || fg, 'aria-label': 'Fill colour' });
+      const strokeOn = el('input', { type: 'checkbox', id: 'ph-sh-strokeon', checked: !!sh.stroke || undefined });
+      const strokeC = el('input', { type: 'color', id: 'ph-sh-stroke', value: (sh.stroke && sh.stroke.colour) || bg, 'aria-label': 'Stroke colour' });
+      const strokeW = el('input', { type: 'number', id: 'ph-sh-width', class: 'ph-num', min: '1', max: '500', value: String((sh.stroke && sh.stroke.width) || 2), 'aria-label': 'Stroke width' });
+      const dash = el('select', { id: 'ph-sh-dash', 'aria-label': 'Line' }, ...[['solid', 'solid'], ['dashed', 'dashed'], ['dotted', 'dotted']].map(([v, t]) => el('option', { value: v, text: t })));
+      dash.value = (sh.stroke && sh.stroke.dash) || 'solid';
+      const stroke = () => ({ stroke: strokeOn.checked ? { colour: strokeC.value, width: clamp(Number(strokeW.value) || 1, 1, 500), dash: dash.value } : null });
+      fillOn.addEventListener('change', () => upd('Shape fill', () => ({ fill: fillOn.checked ? fillC.value : null })));
+      fillC.addEventListener('change', () => upd('Shape fill', () => ({ fill: fillC.value })));
+      for (const i of [strokeOn, strokeC, strokeW, dash]) i.addEventListener('change', () => upd('Shape stroke', stroke));
+      out.push(el('p', { class: 'ph-propline', text: `${SHAPE_NAMES[sh.type] || 'Shape'}${sh.type === 'path' ? (sh.closed ? ', closed' : ', open') : ''}` }),
+        el('div', { class: 'ph-row' }, el('label', {}, fillOn, ' fill '), fillC),
+        el('div', { class: 'ph-row' }, el('label', {}, strokeOn, ' stroke '), strokeC, strokeW, 'px', dash));
+      if (sh.type === 'rounded' || sh.type === 'polygon' || sh.type === 'star') {
+        const k = sh.type === 'rounded' ? 'radius' : 'sides', n = el('input', { type: 'number', id: 'ph-sh-' + k, class: 'ph-num', min: sh.type === 'rounded' ? '0' : '3', max: sh.type === 'rounded' ? '100' : '64', value: String(sh[k] ?? (k === 'radius' ? 20 : 5)), 'aria-label': k });
+        n.addEventListener('change', () => upd('Shape', () => ({ [k]: Number(n.value) })));
+        out.push(el('label', {}, sh.type === 'rounded' ? 'Corners ' : sh.type === 'star' ? 'Points ' : 'Sides ', n, sh.type === 'rounded' ? ' %' : ''));
+      }
+      out.push(el('div', { class: 'ph-row' }, b('Select its outline', () => selFromShape(l)), b('Rasterize', rasterize)));
+    }
+    if (l.kind !== 'adjust' && window.NoorPhotoStyle) {
+      out.push(el('h4', { class: 'ph-subhead', text: 'Layer style' }));
+      const st = l.styles || {}, ons = NoorPhotoStyle.EFFECTS.filter((e) => st[e.id]);
+      if (!ons.length && (l.fillOpacity ?? 1) === 1) out.push(el('p', { class: 'pref-hint', text: 'None. ✦ under the layers adds a shadow, a glow, a stroke…' }));
+      for (const e of ons) {
+        const tick = el('input', { type: 'checkbox', checked: st[e.id].on || undefined, 'aria-label': 'On' });
+        tick.addEventListener('change', () => setProp(l, 'Layer style on or off', () => { l.styles = { ...l.styles, [e.id]: { ...l.styles[e.id], on: tick.checked } }; }));
+        out.push(el('div', { class: 'ph-fxrow' }, tick, el('span', { text: e.name }), el('button', { class: 'utility-btn', title: 'Change', 'aria-label': 'Change', onclick: () => styleDialog(l, e.id) }, '✎')));
+      }
+      if ((l.fillOpacity ?? 1) !== 1) out.push(el('p', { class: 'ph-propline', text: `Fill opacity ${Math.round(l.fillOpacity * 100)}%` }));
+      out.push(b('Layer style…', () => styleDialog(l), 'ph-prop-style'));
+    }
     if (l.kind !== 'group' && l.kind !== 'adjust') {
       const list = l.filters || [];
       out.push(el('h4', { class: 'ph-subhead', text: 'Live filters' }));
@@ -2685,10 +3095,13 @@ window.NoorPhoto = (() => {
       const layers = [];
       for (const l of d.doc.layers) {
         const w = { id: l.id, name: l.name, kind: l.kind, parent: l.parent || null, visible: l.visible, locked: l.locked, lockAlpha: !!l.lockAlpha, opacity: l.opacity, blend: l.blend, clip: l.clip, x: l.x, y: l.y, collapsed: !!l.collapsed };
+        if (l.styles) w.styles = l.styles;
+        if ((l.fillOpacity ?? 1) !== 1) w.fillOpacity = l.fillOpacity;
         let pic = null;
         if (l.kind === 'pixel') pic = l.canvas;
         else if (l.kind === 'text') pic = textCanvas(l);
         else if (l.kind === 'fill') { pic = fillCanvas(l); w.x = 0; w.y = 0; }
+        else if (l.kind === 'shape') { const M = shapeMatrix(l); pic = shapeCanvas(l); w.shape = { ...l.shape, m: [M.a, M.b, M.c, M.d, M.e, M.f] }; w.x = 0; w.y = 0; }
         if (pic) { w.width = pic.width; w.height = pic.height; w.png = await pngOf(pic); }
         if (l.fill) w.fill = l.fill;
         if (l.adjust) w.adjust = l.adjust;
@@ -2703,6 +3116,12 @@ window.NoorPhoto = (() => {
           gx.fillStyle = '#000'; gx.fillRect(0, 0, gc.width, gc.height); gx.drawImage(m.canvas, 0, 0);
           w.mask = { x: m.x, y: m.y, width: gc.width, height: gc.height, png: await pngOf(gc), enabled: m.enabled, background: m.background ? 255 : 0 };
         }
+        if (pic && window.NoorPhotoStyle && (NoorPhotoStyle.any(l.styles) || (l.fillOpacity ?? 1) < 1)) {
+          // A PSD gets the layer as it looks (styles, filters and mask applied), the document's size.
+          const r = itemCanvas(l), c = canvas(d.doc.width, d.doc.height);
+          if (r) g2(c).drawImage(r.canvas, r.x, r.y);
+          Object.assign(w, { baked: await pngOf(c), bakedX: 0, bakedY: 0, bakedWidth: c.width, bakedHeight: c.height });
+        }
         layers.push(w);
       }
       const out = { version: 1, width: d.doc.width, height: d.doc.height, guides: d.doc.guides, layers };
@@ -2714,9 +3133,9 @@ window.NoorPhoto = (() => {
   async function fromWire(w, file, name) {
     const layers = [];
     for (const x of w.layers || []) {
-      const l = makeLayer({ id: x.id || newId(), name: x.name || 'Layer', kind: x.kind || 'pixel', parent: x.parent || null, visible: x.visible !== false, locked: !!x.locked, lockAlpha: !!x.lockAlpha, opacity: x.opacity ?? 1, blend: x.blend || 'normal', clip: !!x.clip, x: x.x || 0, y: x.y || 0, collapsed: !!x.collapsed, fill: x.fill || null, adjust: x.adjust || null, text: x.text || null, filters: x.filters || [] });
+      const l = makeLayer({ id: x.id || newId(), name: x.name || 'Layer', kind: x.kind || 'pixel', parent: x.parent || null, visible: x.visible !== false, locked: !!x.locked, lockAlpha: !!x.lockAlpha, opacity: x.opacity ?? 1, blend: x.blend || 'normal', clip: !!x.clip, x: x.x || 0, y: x.y || 0, collapsed: !!x.collapsed, fill: x.fill || null, adjust: x.adjust || null, text: x.text || null, shape: x.shape || null, filters: x.filters || [], styles: x.styles || null, fillOpacity: x.fillOpacity ?? 1 });
       if (l.kind === 'pixel') l.canvas = x.png ? await canvasFromBytes(unb64(x.png)) : canvas(Math.max(1, x.width || w.width), Math.max(1, x.height || w.height));
-      if ((l.kind === 'text' && !l.text) || (l.kind === 'fill' && !l.fill) || (l.kind === 'adjust' && !l.adjust)) { l.kind = 'pixel'; l.canvas = x.png ? await canvasFromBytes(unb64(x.png)) : canvas(w.width, w.height); }
+      if ((l.kind === 'shape' && !l.shape) || (l.kind === 'text' && !l.text) || (l.kind === 'fill' && !l.fill) || (l.kind === 'adjust' && !l.adjust)) { l.kind = 'pixel'; l.canvas = x.png ? await canvasFromBytes(unb64(x.png)) : canvas(w.width, w.height); }
       if (x.mask) {
         const mw = Math.max(1, x.mask.width || w.width), mh = Math.max(1, x.mask.height || w.height), bgv = x.mask.background ? 255 : 0;
         const m = makeMask(x.mask.x || 0, x.mask.y || 0, mw, mh, bgv);
@@ -3019,7 +3438,7 @@ window.NoorPhoto = (() => {
         { label: 'New adjustment layer', sub: adjustLayerItems }, { label: 'New fill layer', sub: () => [go('Colour…', () => newFillLayer('colour')), go('Gradient…', () => newFillLayer('gradient'))] }, '-',
         { label: 'Mask', sub: () => [go('Reveal all', () => addMask(false, false)), go('Hide all', () => addMask(false, true)), go('From the selection', () => addMask(true), '', { disabled: () => !D || !D.sel }), '-', go('Turn off / on', toggleMaskOn), go('Invert', invertMask), go('Apply', () => deleteMask(true)), go('Delete', () => deleteMask(false))] },
         go('Clip to the layer under it', toggleClip, '', { checked: () => !!(L() && L().clip) }), '-',
-        { label: 'Live filters', sub: () => filterItems(true) }, '-',
+        { label: 'Layer style', sub: styleItems }, { label: 'Live filters', sub: () => filterItems(true) }, '-',
         go('Layer via copy', () => layerVia(false), 'Ctrl+J'), go('Layer via cut', () => layerVia(true), 'Ctrl+Shift+J'), '-',
         go('Group', groupLayer, 'Ctrl+G'), go('Ungroup', ungroup, 'Ctrl+Shift+G'),
         { label: 'Arrange', sub: () => [go('Bring to front', () => arrange(2), 'Ctrl+Shift+]'), go('Bring forward', () => arrange(1), 'Ctrl+]'), go('Send backward', () => arrange(-1), 'Ctrl+['), go('Send to back', () => arrange(-2), 'Ctrl+Shift+[')] }, '-',
@@ -3027,7 +3446,7 @@ window.NoorPhoto = (() => {
       ]],
       ['Select', 's', () => [
         go('All', selectAll, 'Ctrl+A'), go('Nothing', deselect, 'Ctrl+D'), go('Again (the last one)', reselect, 'Ctrl+Shift+D'), go('Invert', invertSel, 'Ctrl+Shift+I'), '-',
-        go('Colour range…', colourRangeDialog), go('The layer\'s pixels', () => selFromAlpha(L())), '-',
+        go('Colour range…', colourRangeDialog), go('The layer\'s pixels', () => selFromAlpha(L())), go('The shape\'s outline', () => selFromShape(), '', { disabled: () => !L() || L().kind !== 'shape' }), '-',
         go('Refine (grow, shrink, feather)…', refineDialog, '', { disabled: () => !D || !D.sel }), go('Quick mask (paint the selection)', toggleQuickMask, 'Q', { checked: () => !!(D && D.quickMask) }),
       ]],
       ['Filter', 't', () => [go(lastFilter ? `Again: ${effectOf(lastFilter.id).name}` : 'Again (the last filter)', repeatFilter, 'Ctrl+F', { disabled: () => !lastFilter }), '-', ...filterItems(false)]],
@@ -3040,7 +3459,7 @@ window.NoorPhoto = (() => {
     ].map((m) => [m[0], m[1], () => (has() ? m[2]() : [{ label: 'No picture open', disabled: true }])]);
   }
   function duplicateDoc() {
-    const d = D, layers = d.doc.layers.map((l) => ({ ...l, canvas: l.canvas ? copyOf(l.canvas) : null, mask: l.mask ? { ...l.mask, canvas: copyOf(l.mask.canvas) } : null, fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text), filters: clone(l.filters) }));
+    const d = D, layers = d.doc.layers.map((l) => ({ ...l, canvas: l.canvas ? copyOf(l.canvas) : null, mask: l.mask ? { ...l.mask, canvas: copyOf(l.mask.canvas) } : null, fill: clone(l.fill), adjust: clone(l.adjust), text: clone(l.text), styles: clone(l.styles), shape: clone(l.shape), filters: clone(l.filters) }));
     addDoc(wrapDoc({ width: d.doc.width, height: d.doc.height, layers, guides: clone(d.doc.guides) }, null, `${d.name.replace(/\.[^.]+$/, '')} copy`));
   }
   function toggleQuickMask() {
@@ -3067,8 +3486,8 @@ window.NoorPhoto = (() => {
     if (e.getModifierState && e.getModifierState('AltGraph')) return;
     if (k === ' ' && !ctrl) { handled(); if (!spaceHeld) { spaceHeld = true; setCursor(); } return; }
     if (k === 'Alt') { altHeld = true; setCursor(); draw(); return; }
-    if (k === 'Enter') { if (transform) { handled(); commitTransform(); return; } if (cropBox) { handled(); applyCrop(); return; } if (polygon) { handled(); closePolygon(); return; } }
-    if (k === 'Escape') { if (transform) { handled(); cancelTransform(); return; } if (cropBox) { handled(); cropBox = null; renderOptions(); draw(); return; } if (polygon) { handled(); polygon = null; draw(); return; } return; }
+    if (k === 'Enter') { if (transform) { handled(); commitTransform(); return; } if (cropBox) { handled(); applyCrop(); return; } if (polygon) { handled(); closePolygon(); return; } if (pen) { handled(); finishPen(false); return; } }
+    if (k === 'Escape') { if (transform) { handled(); cancelTransform(); return; } if (cropBox) { handled(); cropBox = null; renderOptions(); draw(); return; } if (polygon) { handled(); polygon = null; draw(); return; } if (pen) { handled(); pen = null; draw(); return; } return; }
     if (ctrl && e.altKey && e.shiftKey && k === 's') { handled(); exportDialog(); return; }
     if (ctrl && e.altKey) return;
     if (ctrl) {
@@ -3113,7 +3532,7 @@ window.NoorPhoto = (() => {
       width: D.doc.width, height: D.doc.height, name: D.name, file: D.file, dirty: dirty(), docs: docs.length, tool, fg, bg, brush: { ...brush }, opts: { ...opts },
       active: D.active, editMask: D.editMask, quickMask: D.quickMask, history: D.history.map((s) => s.label), future: D.future.length,
       layers: D.doc.layers.map((l) => ({ id: l.id, name: l.name, kind: l.kind, parent: l.parent, visible: l.visible, locked: l.locked, opacity: l.opacity, blend: l.blend, clip: l.clip, x: l.x, y: l.y,
-        width: l.canvas ? l.canvas.width : 0, height: l.canvas ? l.canvas.height : 0, mask: l.mask ? { enabled: l.mask.enabled, background: l.mask.background } : null, filters: clone(l.filters), adjust: clone(l.adjust), fill: clone(l.fill), text: clone(l.text) })),
+        width: l.canvas ? l.canvas.width : 0, height: l.canvas ? l.canvas.height : 0, mask: l.mask ? { enabled: l.mask.enabled, background: l.mask.background } : null, filters: clone(l.filters), adjust: clone(l.adjust), fill: clone(l.fill), text: clone(l.text), shape: clone(l.shape), styles: clone(l.styles), fillOpacity: l.fillOpacity })),
       selection: selBounds(), transform: !!transform, crop: cropBox ? { ...cropBox } : null, view: { ...D.view },
     }),
     /** For tests: a pixel of the picture as shown (layer null) or of a layer's own picture (in document coordinates). */

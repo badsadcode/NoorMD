@@ -111,7 +111,17 @@ public partial class MainWindow
                 var node = JsonNode.Parse(json)!.AsObject();
                 if (node["layers"] is JsonArray layers)
                     foreach (var l in layers.OfType<JsonObject>())
-                        if (l["baked"] is JsonValue b) { l["png"] = b.GetValue<string>(); l.Remove("baked"); }
+                    {
+                        if (l["baked"] is not JsonValue b) continue;
+                        l["png"] = b.GetValue<string>(); l.Remove("baked");
+                        // Styles drawn round the layer: the picture is the document's size, with its mask in it.
+                        if (l["bakedWidth"] is JsonValue bw)
+                        {
+                            l["x"] = l["bakedX"]?.DeepClone() ?? 0; l["y"] = l["bakedY"]?.DeepClone() ?? 0; l["width"] = bw.DeepClone(); l["height"] = l["bakedHeight"]?.DeepClone();
+                            l.Remove("mask"); l["kind"] = "pixel"; l["fillOpacity"] = 1;
+                            foreach (var k in new[] { "bakedX", "bakedY", "bakedWidth", "bakedHeight" }) l.Remove(k);
+                        }
+                    }
                 json = node.ToJsonString();
             }
             return PhotoDoc.FromJson(json).Checked();

@@ -1972,3 +1972,13 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar { display: no
 .ph-curve { width: 256px; height: 256px; align-self: center; border-radius: 6px; cursor: crosshair; touch-action: none; }
 .ph-anchor { display: grid; grid-template-columns: repeat(3, 34px); gap: 3px; }
 .ph-anchor .on { border-color: var(--accent); }
+.ph-stylebox { display: grid; grid-template-columns: 170px 1fr; gap: 10px; align-items: start; }
+.ph-stylelist { display: flex; flex-direction: column; gap: 2px; border-right: 1px solid var(--border); padding-right: 8px; }
+.ph-styleitem { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; cursor: pointer; font-size: 12.5px; }
+.ph-styleitem.on { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+.ph-stylepane { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ph-stylepane .ph-param { grid-template-columns: 100px 1fr 64px auto; }
+.photobench .ph-stylebadge { color: var(--accent); }
+.photobench .ph-typing { position: absolute; z-index: 3; margin: 0; border: 1px dashed #19d3ff; background: transparent; outline: none; resize: none; overflow: hidden; padding-top: 0; padding-bottom: 0; white-space: pre; caret-color: #19d3ff; }
+.photobench .ph-typing[wrap="soft"] { white-space: pre-wrap; }
+.photobench .ph-fontin { width: 140px; }

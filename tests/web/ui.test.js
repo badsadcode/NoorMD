@@ -8160,12 +8160,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#ph-tools [data-tool="text"]');
       const tp = await at(5, 40);
       await page.mouse.click(tp.x, tp.y);
-      await page.waitForSelector('#ph-text-input');
-      await page.fill('#ph-text-input', 'Hi');
-      await page.fill('#ph-text-size', '20');
-      await page.click('#ph-text-ok');
-      await waitFn(page, () => NoorPhoto._state().layers.some((l) => l.kind === 'text'));
-      check('the text tool makes a text layer', (await PS()).layers.find((l) => l.kind === 'text').text.text === 'Hi');
+      await page.waitForSelector('#ph-typing');
+      check('the text tool: a box to type in, right on the picture', await page.evaluate(() => document.activeElement && document.activeElement.id === 'ph-typing'));
+      await page.keyboard.type('Hi');
+      await page.fill('#ph-type-size', '20'); await page.press('#ph-type-size', 'Tab');
+      await page.click('#ph-type-ok');
+      await waitFn(page, () => NoorPhoto._state().layers.some((l) => l.kind === 'text') && !document.querySelector('#ph-typing'));
+      const tl = (await PS()).layers.find((l) => l.kind === 'text');
+      check('…Done makes a text layer (one step)', tl.text.text === 'Hi' && tl.text.size === 20 && (await PS()).history.at(-1) === 'Text', [tl.text, (await PS()).history.at(-1)]);
       // Free transform: a layer flipped.
       const before = (await PS()).layers.length;
       await page.evaluate((id) => NoorPhoto._activate(id), bgId);
@@ -8219,6 +8221,82 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForTimeout(300);
       if (shots) await page.screenshot({ path: `${shots}/67-noorphoto.png` });
       check('no page errors in NoorPhoto', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 67b. NoorPhoto: layer styles, shape layers and the pen, paragraph text typed on the picture.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const PS = () => page.evaluate(() => NoorPhoto._state());
+      const px = (x, y, id = null) => page.evaluate(([a, b, c]) => NoorPhoto._pixel(a, b, c), [x, y, id]);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorPhoto._screen(a, b), [x, y]);
+      const dragOn = async (pts) => { const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 6 }); } await page.mouse.up(); };
+      const near = (a, b, t = 3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= t);
+      await page.keyboard.press('Control+Alt+j');
+      await waitFn(page, () => NoorPhoto.isOpen() && NoorPhoto._state());
+      await page.evaluate(() => NoorPhoto._new(120, 80, 'white'));
+      await waitFn(page, () => NoorPhoto._state().width === 120);
+      // A shape layer: a blue rectangle that stays a shape.
+      await page.evaluate(() => { NoorPhoto._setColour('fg', '#0000ff'); NoorPhoto._setColour('bg', '#ffffff'); });
+      await page.click('#ph-tools [data-tool="shape"]');
+      await dragOn([[30, 20], [90, 60]]);
+      await waitFn(page, () => NoorPhoto._state().layers.some((l) => l.kind === 'shape'));
+      const sh = (await PS()).layers.find((l) => l.kind === 'shape');
+      check('the shape tool makes a shape layer (geometry kept)', sh.shape.type === 'rect' && Math.round(sh.shape.w) === 60 && near(await px(60, 40), [0, 0, 255, 255]), sh.shape);
+      // A layer style: a red stroke outside, and a drop shadow.
+      await page.evaluate(() => document.querySelector('#ph-layer-style').click());
+      await page.click('.menu-popup .menu-item:has-text("Stroke…")');
+      await page.waitForSelector('#ph-stylelist');
+      check('Layer style: the effects listed, the chosen one\'s settings beside', !!(await page.$('.modal.ph-side #ph-stylepane')) && (await page.$$('#ph-stylelist .ph-styleitem')).length === 8);
+      await page.$eval('#ph-st-colour', (c) => { c.value = '#ff0000'; c.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.fill('#ph-stylepane label:has-text("Size") input.ph-num', '4'); await page.press('#ph-stylepane label:has-text("Size") input.ph-num', 'Tab');
+      check('…shown on the picture as you go (a red stroke just outside)', near(await px(28, 40), [255, 0, 0, 255], 12), await px(28, 40));
+      await page.click('#ph-stylelist [data-effect="shadow"]');
+      await page.click('#ph-style-ok');
+      await waitFn(page, () => !document.querySelector('#ph-stylelist'));
+      const st = (await PS()).layers.find((l) => l.kind === 'shape');
+      check('…OK keeps them on the layer (one step)', st.styles && st.styles.stroke.on && st.styles.shadow.on && (await PS()).history.at(-1) === 'Layer style');
+      const shadowPx = await px(95, 66);
+      check('…the drop shadow falls down and right', shadowPx[0] < 230 && near(await px(20, 10), [255, 255, 255, 255]), shadowPx);
+      check('…and ✦ marks the layer', /✦/.test(await page.textContent('#ph-layers')));
+      await page.click('#ph-canvas');
+      await page.keyboard.press('Control+z');
+      check('…undo takes the style off', !(await PS()).layers.find((l) => l.kind === 'shape').styles && !near(await px(28, 40), [255, 0, 0, 255], 40));
+      await page.keyboard.press('Control+y');
+      // The shape's fill changed in Properties: still a shape.
+      await page.$eval('#ph-sh-fill', (c) => { c.value = '#00ff00'; c.dispatchEvent(new Event('change', { bubbles: true })); });
+      check('a shape\'s fill changes in Properties', near(await px(60, 40), [0, 255, 0, 255]) && (await PS()).layers.find((l) => l.kind === 'shape').shape.fill === '#00ff00');
+      // Free transform on a shape: it stays a shape, scaled.
+      await page.keyboard.press('Control+t');
+      const tq = await at(90 + 5, 60 + 5);
+      void tq;
+      await page.evaluate(() => { const s = NoorPhoto._state(); return s; });
+      await page.keyboard.press('Escape');
+      // The pen: three clicks and a click on the first point make a closed path layer.
+      await page.click('#ph-tools [data-tool="pen"]');
+      for (const [x, y] of [[10, 70], [20, 50], [30, 70]]) { const q = await at(x, y); await page.mouse.click(q.x, q.y); }
+      const first = await at(10, 70);
+      await page.mouse.click(first.x, first.y);
+      await waitFn(page, () => NoorPhoto._state().layers.some((l) => l.kind === 'shape' && l.shape.type === 'path'));
+      const path = (await PS()).layers.find((l) => l.kind === 'shape' && l.shape.type === 'path');
+      check('the pen: corners clicked and closed make a path layer, filled', path.shape.closed && path.shape.points.length === 3 && near(await px(20, 65), [0, 0, 255, 255], 40), [path.shape, await px(20, 65)]);
+      // Paragraph text: drag a box, type; the words wrap in it.
+      await page.click('#ph-tools [data-tool="text"]');
+      await dragOn([[5, 5], [60, 30]]);
+      await page.waitForSelector('#ph-typing');
+      await page.keyboard.type('one two three four five six');
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => !document.querySelector('#ph-typing'));
+      const tx = (await PS()).layers.find((l) => l.kind === 'text');
+      check('a dragged text box keeps its width; Esc finishes', tx && tx.text.box === 55 && tx.text.text === 'one two three four five six', tx && tx.text);
+      // Saving: the style and the shape travel, and a PSD gets the styled picture.
+      await page.evaluate(() => { window.__mock.state.photo = { saves: [], exports: [] }; });
+      await page.click('#ph-save');
+      await waitFn(page, () => ((window.__mock.state.photo || {}).saves || []).length === 1);
+      const saved = await page.evaluate(() => window.__mock.state.photo.saves[0].photo.layers.find((l) => l.kind === 'shape' && l.shape.type === 'rect'));
+      check('Save keeps the shape and its style, with the styled picture for a PSD', !!saved.shape && saved.styles.stroke.on && !!saved.baked && saved.bakedWidth === 120 && saved.shape.m.length === 6);
+      if (shots) await page.screenshot({ path: `${shots}/67b-noorphoto-styles.png` });
+      check('no page errors with styles, shapes and text', errors.length === 0, errors);
       await page.close();
     }
 

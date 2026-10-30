@@ -18,7 +18,7 @@ public sealed class PhotoDoc
     /// <summary>How far off the canvas a layer may sit.</summary>
     public const int MaxOffset = 32768;
 
-    public static readonly string[] Kinds = ["pixel", "group", "fill", "adjust", "text"];
+    public static readonly string[] Kinds = ["pixel", "group", "fill", "adjust", "text", "shape"];
 
     public static readonly string[] Blends =
     [
@@ -70,6 +70,7 @@ public sealed class PhotoDoc
             l.Kind = Kinds.Contains(l.Kind) ? l.Kind : "pixel";
             l.Blend = Blends.Contains(l.Blend) ? l.Blend : "normal";
             l.Opacity = double.IsNaN(l.Opacity) ? 1 : Math.Clamp(l.Opacity, 0, 1);
+            l.FillOpacity = double.IsNaN(l.FillOpacity) ? 1 : Math.Clamp(l.FillOpacity, 0, 1);
             l.X = Math.Clamp(l.X, -MaxOffset, MaxOffset); l.Y = Math.Clamp(l.Y, -MaxOffset, MaxOffset);
             if (l.Width is < 0 or > MaxLayerSide || l.Height is < 0 or > MaxLayerSide) throw new InvalidDataException($"A layer's picture is 0 to {MaxLayerSide} pixels a side.");
             if (string.IsNullOrEmpty(l.Png) || l.Width == 0 || l.Height == 0) l.Png = null;
@@ -130,7 +131,7 @@ public sealed class PhotoLayer
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "Layer";
-    /// <summary>"pixel", "group", "fill", "adjust" or "text".</summary>
+    /// <summary>"pixel", "group", "fill", "adjust", "text" or "shape".</summary>
     public string Kind { get; set; } = "pixel";
     /// <summary>The group the layer is in (a group layer's id), or none.</summary>
     public string? Parent { get; set; }
@@ -161,6 +162,12 @@ public sealed class PhotoLayer
     public JsonElement? Text { get; set; }
     /// <summary>Live filters (the page's own settings); the picture in <see cref="Png"/> already has them applied.</summary>
     public JsonElement? Filters { get; set; }
+    /// <summary>Layer styles (shadow, glow, stroke, bevel, overlays), page-defined and kept as they are.</summary>
+    public JsonElement? Styles { get; set; }
+    /// <summary>A shape layer's geometry, fill and stroke (page-defined; its png is the shape drawn).</summary>
+    public JsonElement? Shape { get; set; }
+    /// <summary>0–1: the layer's own pixels' opacity, its styles' unchanged.</summary>
+    public double FillOpacity { get; set; } = 1;
 
     internal PhotoLayer Copy()
     {

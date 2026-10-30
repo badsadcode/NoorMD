@@ -19,8 +19,8 @@ bench (NoorSprite).
 
 Stage 1 is in (preview.119), with most of stage 2: the adjustments (as adjustment layers or applied), the filters
 (applied or live; tilt-shift and iris blur, lens blur, clarity, glow, oil paint, halftone, glitch and more), text
-layers and simple shapes (on layers of their own, as pixels). Still to come: liquify, editable shape layers, layer
-styles, 16-bit documents (opened as 8 bits for now), and stage 3.
+layers and simple shapes (on layers of their own, as pixels). Layer styles, editable shape layers with a pen, and text typed on
+the picture came in preview.120. Still to come: liquify, 16-bit documents (opened as 8 bits for now), and stage 3.
 
 ## Stage 1 — layers and painting
 
