@@ -7161,7 +7161,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('View › The list on the left hides the list', (await page.getAttribute('#fg-list', 'aria-pressed')) === 'false');
       // Paint › Brush, now there is a model.
       await page.click('#menubar .menu-title[data-menu="3"]'); await item('Mirror across X');
-      await page.click('#menubar .menu-title[data-menu="3"]'); await item('Brush');
+      // (The brush can be used once the model is fully in: open Paint again until it is.)
+      for (let i = 0; i < 20; i++) {
+        await page.click('#menubar .menu-title[data-menu="3"]');
+        const brush = page.locator('.menu-popup .menu-item:has(.menu-label:text-is("Brush"))');
+        if (await brush.isEnabled()) { await brush.click(); break; }
+        await page.keyboard.press('Escape'); await page.waitForTimeout(250);
+      }
       await waitFn(page, () => NoorForge._state().tool === 'brush');
       check('Paint › Brush takes up the brush; Mirror across X ticks the brush\'s mirror', (await FS()).tool === 'brush' && (await FS()).brush.mirror === true && !(await page.isHidden('#fg-brushbar')));
       await page.click('#menubar .menu-title[data-menu="3"]'); await item('Put the brush down');
@@ -7307,6 +7313,42 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
       check('F11 again: NoorMD\'s own menu bar back, the Texture Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
       check('no page errors with the Texture Bench as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 66w. Number fields everywhere: the mouse wheel turns them, and arrows at their right end step them.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      const b = await (await page.$('#sp-nw')).boundingBox();
+      check('a number field shows its arrows (the browser\'s own hidden)', (await page.$eval('#sp-nw', (i) => getComputedStyle(i).backgroundImage)).includes('svg'));
+      await page.mouse.move(b.x + 10, b.y + b.height / 2); await page.mouse.wheel(0, -100); await page.mouse.wheel(0, -100);
+      check('the wheel up over it: two steps up (not focused, no typing)', (await page.inputValue('#sp-nw')) === '34');
+      await page.mouse.wheel(0, 100);
+      check('…the wheel down: a step down', (await page.inputValue('#sp-nw')) === '33');
+      await page.mouse.click(b.x + b.width - 8, b.y + b.height * 0.3);
+      check('its ▴ arrow: a step up', (await page.inputValue('#sp-nw')) === '34');
+      await page.mouse.click(b.x + b.width - 8, b.y + b.height * 0.75);
+      check('its ▾ arrow: a step down', (await page.inputValue('#sp-nw')) === '33');
+      await page.keyboard.down('Shift'); await page.mouse.click(b.x + b.width - 8, b.y + b.height * 0.3); await page.keyboard.up('Shift');
+      check('Shift with an arrow: ten steps', (await page.inputValue('#sp-nw')) === '43');
+      await page.keyboard.press('Escape');
+      // The bench hears it as typed: a frame's duration changed with the wheel changes the frame.
+      const d = await (await page.$('#sp-layerprops input[type=number]')).boundingBox();
+      const before = (await page.evaluate(() => NoorSprite._state().frames[0].duration));
+      await page.mouse.move(d.x + 10, d.y + d.height / 2); await page.mouse.wheel(0, -100);
+      await waitFn(page, (v) => NoorSprite._state().frames[0].duration !== v, before);
+      check('…and the bench takes the new value at once (a frame\'s duration, by the wheel)', (await page.evaluate(() => NoorSprite._state().frames[0].duration)) === before + 1);
+      // The minimum is kept.
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nh', '1');
+      const h = await (await page.$('#sp-nh')).boundingBox();
+      await page.mouse.click(h.x + h.width - 8, h.y + h.height * 0.75);
+      check('…within the field\'s own limits (1 is the least)', (await page.inputValue('#sp-nh')) === '1');
+      await page.keyboard.press('Escape');
+      check('no page errors with the number fields', errors.length === 0, errors);
       await page.close();
     }
 

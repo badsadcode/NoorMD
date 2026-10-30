@@ -1873,3 +1873,10 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .spritebench .sp-tile.on { border-color: var(--accent); }
 .spritebench .sp-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 6px; }
 .spritebench .sp-grid2 .sb-num { width: 56px; }
+
+/* Number fields: arrows at the right end of each (NoorNumSpin draws nothing, it reads where you click), the browser's own hidden. */
+input[type=number] { -moz-appearance: textfield; padding-right: 18px !important; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='14'%3E%3Cpath d='M4 1 7.5 5.5h-7z' fill='%238a909c'/%3E%3Cpath d='M4 13 .5 8.5h7z' fill='%238a909c'/%3E%3C/svg%3E") !important; background-repeat: no-repeat !important; background-position: right 5px center !important; background-size: 8px 14px !important; }
+input[type=number].numspin-up { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='14'%3E%3Cpath d='M4 1 7.5 5.5h-7z' fill='%23c8b8ff'/%3E%3Cpath d='M4 13 .5 8.5h7z' fill='%238a909c'/%3E%3C/svg%3E") !important; cursor: default; }
+input[type=number].numspin-down { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='14'%3E%3Cpath d='M4 1 7.5 5.5h-7z' fill='%238a909c'/%3E%3Cpath d='M4 13 .5 8.5h7z' fill='%23c8b8ff'/%3E%3C/svg%3E") !important; cursor: default; }
+input[type=number]:disabled { background-image: none !important; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; display: none; }

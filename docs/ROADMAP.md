@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Number fields everywhere (preview.114): the mouse wheel over one turns its value (Shift: ten steps), and arrows at
+  its right end step it (held: they keep going), within the field's own limits.
 - Benches as apps (preview.114): in focus mode (F11) a bench in the middle has the whole window and the menu bar
   becomes its own — NoorSprite, NoorForge, NoorSequencer, the Texture Bench, the Sound Bench and the Asset Bench each
   with menus for its own work (File, Edit, and Sprite / Layer / Paint / Bake / Song / Track / Pattern / Transport /
