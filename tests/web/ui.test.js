@@ -7122,6 +7122,71 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v-forge. NoorForge as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text) => page.click(`.menu-popup .menu-item:has-text("${text}")`);
+      await page.evaluate(() => { try { localStorage.removeItem('noorforge.settings'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+f');
+      await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
+      check('(NoorForge in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'forge');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: NoorForge as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Layer,Paint,Bake,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the recipe, no model yet)', /^NoorForge — Textured model · no model yet/.test(await page.textContent('#bench-title')));
+      // Paint is no use before a model is open.
+      await page.keyboard.press('Alt+p');
+      await page.waitForSelector('.menu-popup');
+      check('Alt+P opens Paint: the brush can\'t be used before a model, its key shown', (await page.getAttribute('.menu-popup .menu-item:has-text("Brush")', 'disabled')) !== null && /B$/.test(await page.textContent('.menu-popup .menu-item:has-text("Brush")')));
+      await page.keyboard.press('Escape');
+      // File › Open a model…
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      await item('Open a model');
+      await waitFn(page, () => NoorForge._state().model && window.__mock.state.forge.renders.length >= 1);
+      check('File › Open a model… opens one, the title follows it', (await FS()).recipe.model === 'C:\\Models\\Crate.glb' && /^NoorForge — Crate · Crate, 2 texture sets/.test(await page.textContent('#bench-title')));
+      // Layer › Add a colour layer, then Edit › Undo.
+      const n0 = (await FS()).recipe.layers.length;
+      await page.click('#menubar .menu-title[data-menu="2"]'); await item('Add a colour layer');
+      check('Layer › Add a colour layer puts one on top', (await FS()).recipe.layers.length === n0 + 1 && (await FS()).recipe.layers.at(-1).name === 'Colour');
+      await page.click('#menubar .menu-title[data-menu="1"]'); await item('Undo');
+      check('Edit › Undo takes it away again', (await FS()).recipe.layers.length === n0);
+      // View › one channel (ticked), and the list on the left.
+      await page.click('#menubar .menu-title[data-menu="5"]'); await item('Roughness');
+      await waitFn(page, () => NoorForge._state().view === 'roughness');
+      await page.click('#menubar .menu-title[data-menu="5"]');
+      check('View › Roughness shows that channel, ticked (the picker follows)', (await page.getAttribute('.menu-popup .menu-item:has-text("Roughness")', 'aria-checked')) === 'true' && (await page.inputValue('#fg-view')) === 'roughness');
+      await item('The list on the left');
+      check('View › The list on the left hides the list', (await page.getAttribute('#fg-list', 'aria-pressed')) === 'false');
+      // Paint › Brush, now there is a model.
+      await page.click('#menubar .menu-title[data-menu="3"]'); await item('Mirror across X');
+      await page.click('#menubar .menu-title[data-menu="3"]'); await item('Brush');
+      await waitFn(page, () => NoorForge._state().tool === 'brush');
+      check('Paint › Brush takes up the brush; Mirror across X ticks the brush\'s mirror', (await FS()).tool === 'brush' && (await FS()).brush.mirror === true && !(await page.isHidden('#fg-brushbar')));
+      await page.click('#menubar .menu-title[data-menu="3"]'); await item('Put the brush down');
+      check('Paint › Put the brush down', (await FS()).tool === null);
+      await page.evaluate(() => { const b = JSON.parse(localStorage.getItem('noormd.forge.brush') || '{}'); b.mirror = false; localStorage.setItem('noormd.forge.brush', JSON.stringify(b)); });
+      // Edit › NoorForge settings: kept.
+      await page.click('#menubar .menu-title[data-menu="1"]'); await item('NoorForge settings');
+      await page.waitForSelector('#fg-set-ok');
+      await page.selectOption('#fg-set-size', '2048'); await page.click('#fg-set-ok');
+      check('NoorForge settings are kept', (await page.evaluate(() => JSON.parse(localStorage.getItem('noorforge.settings')).size)) === 2048);
+      await page.evaluate(() => { try { localStorage.removeItem('noorforge.settings'); } catch { /* */ } });
+      // Help › shortcuts.
+      await page.click('#menubar .menu-title[data-menu="6"]'); await item('NoorForge shortcuts');
+      await page.waitForSelector('#fg-keys');
+      check('Help › NoorForge shortcuts: its keys listed', (await page.$$('#fg-keys tr')).length >= 10);
+      await page.keyboard.press('Escape');
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, NoorForge still open', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorForge.isOpen())));
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.forge.layout'); } catch { /* */ } });
+      check('no page errors with NoorForge as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

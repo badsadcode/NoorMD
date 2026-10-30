@@ -48,6 +48,12 @@ window.NoorForge = (() => {
 
   const isOpen = () => document.body.classList.contains('forge-open');
 
+  // NoorForge settings (Edit › NoorForge settings…): what a new recipe starts with.
+  const SETTINGS_KEY = 'noorforge.settings';
+  const SETTINGS_DEFAULTS = { size: 1024, export: 'godot', smart: 'mossy-stone', aoRays: 24 };
+  let settings = { ...SETTINGS_DEFAULTS };
+  try { settings = { ...SETTINGS_DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
+
   function init(h) { hooks = { ...hooks, ...h }; NoorBridge.on('forge.exportProgress', (p) => setStatus(`Exporting texture set ${p.done} of ${p.total}…`)); }
 
   async function open() {
@@ -59,7 +65,11 @@ window.NoorForge = (() => {
       try { lists = await req('forge.presets'); } catch (err) { hooks.showError(err); }
       renderNav();
     }
-    if (!recipe) setRecipe({ version: 1, name: 'Textured model', model: null, size: 1024, export: 'godot', aoRays: 24, aoDistance: 0.25, edgeWidth: 0.02, layers: smartLayers('mossy-stone') }, true);
+    if (!recipe) {
+      const size = lists.sizes.includes(settings.size) ? settings.size : 1024;
+      const exportFor = !lists.exports || lists.exports.some((x) => x.id === settings.export) ? settings.export : 'godot';
+      setRecipe({ version: 1, name: 'Textured model', model: null, size, export: exportFor, aoRays: settings.aoRays, aoDistance: 0.25, edgeWidth: 0.02, layers: smartLayers(settings.smart) }, true);
+    }
     $('#forgebench').focus({ preventScroll: true });
   }
 
@@ -157,6 +167,9 @@ window.NoorForge = (() => {
     viewer.setMode('channel');
   }
 
+  /** What the 3D view shows (one of VIEWS). */
+  function setView(v) { view = v; const s = $('#fg-view'); if (s) s.value = v; applyView(); }
+
   function setStatus(t) { const s = $('#fg-status'); if (s) s.textContent = t; }
 
   // ---------------------------------------------------------------- building
@@ -186,7 +199,7 @@ window.NoorForge = (() => {
           el('div', { class: 'tb-split', id: 'fg-split' },
             el('div', { class: 'tb-view-col', id: 'fg-view-col' },
               el('div', { class: 'tb-views', role: 'group', 'aria-label': 'Preview' },
-                (() => { const s = el('select', { id: 'fg-view', 'aria-label': 'Show', title: 'The model lit, or one channel on it as it is' }, ...VIEWS.map(([v, t]) => el('option', { value: v, text: t }))); s.addEventListener('change', () => { view = s.value; applyView(); }); return s; })(),
+                (() => { const s = el('select', { id: 'fg-view', 'aria-label': 'Show', title: 'The model lit, or one channel on it as it is' }, ...VIEWS.map(([v, t]) => el('option', { value: v, text: t }))); s.addEventListener('change', () => setView(s.value)); return s; })(),
                 el('button', { class: 'icon-btn', id: 'fg-paint', title: 'Paint on the model (B) — into the chosen layer\'s mask', 'aria-label': 'Paint', 'aria-pressed': 'false', onclick: () => setTool(tool ? null : 'brush') }, '🖌'),
                 el('span', { class: 'sb-fx-space' }),
                 el('button', { class: 'icon-btn', title: 'Zoom out', 'aria-label': 'Zoom out', onclick: () => viewer && viewer.zoom(1.2) }, '−'),
@@ -206,7 +219,7 @@ window.NoorForge = (() => {
     new ResizeObserver(() => { root.classList.toggle('wide', root.clientWidth >= 820); showStencil(); }).observe(root);
     layout = NoorBenchLayout.attach({ root, storageKey: 'noormd.forge.layout', defaults: { side: true }, split: $('#fg-split'), viewCol: $('#fg-view-col'), editCol: $('#fg-edit-col'),
       splitter: $('#fg-splitter'), sideButton: $('#fg-side'), listButton: $('#fg-list'), top: $('#fg-top'), sideSized: 'edit' });
-    $('#fg-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(); });
+    $('#fg-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(); titleChanged(); });
     $('#fg-size').addEventListener('change', (e) => { recipe.size = Number(e.target.value); changed(); });
     $('#fg-export-for').addEventListener('change', (e) => { recipe.export = e.target.value; changed(); renderAll(); });
     $('#fg-atlas').addEventListener('change', (e) => { recipe.atlas = e.target.checked; changed(); });
@@ -225,11 +238,12 @@ window.NoorForge = (() => {
         if (k === 'b') { e.preventDefault(); setTool(tool === 'brush' && !erasing ? null : 'brush', false); return; }
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
         if (k === 't' && tool) { e.preventDefault(); setTool('stamp'); return; }
-        if ((k === '[' || k === ']') && tool) { e.preventDefault(); setBrush('size', Math.max(0.2, Math.min(25, +(brush.size * (k === ']' ? 1.2 : 1 / 1.2)).toFixed(2)))); return; }
+        if ((k === '[' || k === ']') && tool) { e.preventDefault(); brushSize(k === ']' ? 1 : -1); return; }
       }
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
       else if (k === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
     });
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('forge', { name: 'NoorForge', title: appTitle, menus: appMenus });
     try { viewer = NoorAssetView.create($('#fg-canvas')); } catch (err) { console.warn('NoorForge: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2. Exports still work.'); }
   }
 
@@ -248,7 +262,10 @@ window.NoorForge = (() => {
     $('#fg-export').title = `Write the textures (${preset ? preset.description : ''}), the textured GLB and the recipe`;
     $('#fg-model').textContent = model ? `${model.name} · ${model.triangles.toLocaleString()} triangles · ${model.sets.length} texture set${model.sets.length === 1 ? '' : 's'}` : 'no model yet';
     renderNav(); renderTabs(); renderEditor(); renderMaps();
+    titleChanged();
   }
+
+  const titleChanged = () => { if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged(); };
 
   function renderNav() {
     const nav = $('#fg-nav');
@@ -265,8 +282,11 @@ window.NoorForge = (() => {
   }
 
   function smartButton(s) {
-    return el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description ? s.description + ' ' : ''}(replaces the layers; Ctrl+Z brings them back)`, onclick: () => { recipe.layers = clone(s.layers); ensureIds(); selected = recipe.layers.length - 1; changed('all'); } }, s.name);
+    return el('button', { class: 'sb-preset', 'data-smart': s.id, title: `${s.description ? s.description + ' ' : ''}(replaces the layers; Ctrl+Z brings them back)`, onclick: () => applySmart(s) }, s.name);
   }
+
+  /** A smart material's layers in place of these (Ctrl+Z brings them back). */
+  function applySmart(s) { recipe.layers = clone(s.layers); ensureIds(); selected = recipe.layers.length - 1; changed('all'); }
 
   async function saveSmart() {
     const name = await NoorUI.prompt('Save as a smart material', 'Name (the same name replaces one of yours):', recipe.name && !/^Textured model/.test(recipe.name) ? recipe.name : 'My material', { okLabel: 'Save' });
@@ -283,9 +303,11 @@ window.NoorForge = (() => {
     try { const r = await req('forge.smart.delete', { id: s.id }); lists.smart = r.smart; renderNav(); } catch (err) { hooks.showError(err); }
   }
 
+  function showTab(id) { tab = id; renderTabs(); renderEditor(); }
+
   function renderTabs() {
     $('#fg-tabs').replaceChildren(...[['layers', 'Layers'], ['bake', 'Model & bakes']].map(([id, label]) =>
-      el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', 'aria-selected': String(id === tab), onclick: () => { tab = id; renderTabs(); renderEditor(); } }, label)));
+      el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', 'aria-selected': String(id === tab), onclick: () => showTab(id) }, label)));
   }
 
   function renderEditor() {
@@ -320,12 +342,15 @@ window.NoorForge = (() => {
     return el('label', { class: 'sb-slider' }, el('span', { text: label }), range, el('span', { class: 'sb-numwrap' }, box));
   }
 
+  /** The layer to edit (and to paint into): its mask is asked for with the preview. */
+  function selectLayer(i) { selected = i; renderLayers(); renderLayerEditor(); renderBrushBar(); schedule(); }
+
   function renderLayers() {
     const list = $('#fg-layers');
     if (!list) return;
     // Top of the stack first, as in a painting program.
     list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off'), 'data-layer': String(i), role: 'button', tabindex: '0',
-      onclick: () => { selected = i; renderLayers(); renderLayerEditor(); renderBrushBar(); schedule(); } }, // its mask, shown
+      onclick: () => selectLayer(i) }, // its mask, shown
       el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden (click to show)', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); l.visible = !l.visible; changed('layers'); } }, l.visible ? '👁' : '◌'),
       el('span', { class: 'fg-swatch', style: `background:${l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}` }),
       el('span', { class: 'fg-layername', text: l.name }),
@@ -333,13 +358,19 @@ window.NoorForge = (() => {
     keepFocus();
   }
 
+  /** A new layer above the chosen one: a material, a plain colour, or paint (a colour shown only where painted). */
+  function addLayer(material, painted) {
+    if (recipe.layers.length >= 32) return;
+    const l = { id: newId(), name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
+      height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
+    recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
+  }
+  /** The chosen layer up (1) or down (−1) the stack. */
+  function moveLayer(d) { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); }
+  function removeLayer() { if (!recipe.layers.length) return; recipe.layers.splice(selected, 1); selected = Math.max(0, selected - 1); changed('all'); }
+
   function layersPane() {
-    const add = (material, painted) => {
-      const l = { id: newId(), name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
-        height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
-      recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
-    };
-    const move = (d) => { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); };
+    const add = addLayer, move = moveLayer;
     const out = [
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'fg-addmat', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(true) }, '＋ Material layer'),
@@ -347,7 +378,7 @@ window.NoorForge = (() => {
         el('button', { class: 'utility-btn', id: 'fg-addpaint', title: 'A colour layer shown only where you paint it, with the brush ready', disabled: recipe.layers.length >= 32 || undefined, onclick: () => { add(false, true); setTool('brush', false); } }, '＋ Paint layer'),
         el('button', { class: 'icon-btn', title: 'Up the stack', 'aria-label': 'Move up', onclick: () => move(1) }, '↑'),
         el('button', { class: 'icon-btn', title: 'Down the stack', 'aria-label': 'Move down', onclick: () => move(-1) }, '↓'),
-        el('button', { class: 'icon-btn', id: 'fg-dellayer', title: 'Remove this layer (Ctrl+Z brings it back)', 'aria-label': 'Remove the layer', disabled: !recipe.layers.length || undefined, onclick: () => { recipe.layers.splice(selected, 1); selected = Math.max(0, selected - 1); changed('all'); } }, '🗑')),
+        el('button', { class: 'icon-btn', id: 'fg-dellayer', title: 'Remove this layer (Ctrl+Z brings it back)', 'aria-label': 'Remove the layer', disabled: !recipe.layers.length || undefined, onclick: removeLayer }, '🗑')),
       el('div', { class: 'fg-layers', id: 'fg-layers', 'aria-label': 'Layers, top first' }),
       el('div', { id: 'fg-layeredit' })];
     requestAnimationFrame(() => { renderLayers(); renderLayerEditor(); });
@@ -562,6 +593,9 @@ window.NoorForge = (() => {
     if (stencil && stencil.id === id) stencil = null;
     renderBrushBar(); showStencil();
   }
+
+  /** The brush a step bigger (1) or smaller (−1). */
+  const brushSize = (d) => setBrush('size', Math.max(0.2, Math.min(25, +(brush.size * (d > 0 ? 1.2 : 1 / 1.2)).toFixed(2))));
 
   function setBrush(key, value) {
     brush[key] = value;
@@ -781,13 +815,16 @@ window.NoorForge = (() => {
     ctx.putImageData(img, 0, 0);
   }
 
+  /** A stencil picture of the recipe laid over the view (in the middle, upright), or none. */
+  function placeStencil(id) { stencil = id ? { id, fx: 0.5, fy: 0.5, size: 0.7, angle: 0, tile: false, invert: false, opacity: 0.45, shown: true, ...(stencil && stencil.id === id ? stencil : {}) } : null; renderBrushBar(); }
+
   function stencilRow(check) {
     const stencils = pictures().filter((p) => p.id[0] === 's');
     if (stencil && !stencils.some((p) => p.id === stencil.id)) stencil = null;
     const sel = el('select', { id: 'fg-stencil-pick', 'aria-label': 'Stencil' }, el('option', { value: '', text: 'No stencil' }),
       ...stencils.map((p) => el('option', { value: p.id, text: p.name })), el('option', { value: '+', text: 'A picture…' }));
     sel.value = stencil ? stencil.id : '';
-    const place = (id) => { stencil = id ? { id, fx: 0.5, fy: 0.5, size: 0.7, angle: 0, tile: false, invert: false, opacity: 0.45, shown: true, ...(stencil && stencil.id === id ? stencil : {}) } : null; renderBrushBar(); };
+    const place = placeStencil;
     sel.addEventListener('change', async () => {
       if (sel.value === '+') { const p = await pickPicture('stencil'); place(p ? p.id : stencil && stencil.id); return; }
       place(sel.value);
@@ -1127,6 +1164,142 @@ window.NoorForge = (() => {
       setStatus(`Exported ${r.files.length} files to ${r.folder}`);
       notice(`Exported: ${r.files.slice(0, 4).join(', ')}${r.files.length > 4 ? '…' : ''}`, 3000);
     } catch (err) { setStatus(''); hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- NoorForge as an app: its menus, settings, shortcuts
+
+  // In focus mode with NoorForge in the middle, the window's menu bar is NoorForge's own (see NoorChrome.registerBench).
+  function settingsDialog() {
+    NoorUI.modal({ label: 'NoorForge settings', width: 440 }, (s2, closeIt) => {
+      const size = el('select', { id: 'fg-set-size', 'aria-label': 'Texture size' }, ...lists.sizes.map((v) => el('option', { value: String(v), text: `${v} px` })));
+      size.value = String(settings.size);
+      const exports = lists.exports || [{ id: 'godot', name: 'Godot 4' }];
+      const exp = el('select', { id: 'fg-set-export', 'aria-label': 'Export for' }, ...exports.map((x) => el('option', { value: x.id, text: x.name })));
+      exp.value = settings.export;
+      const smart = el('select', { id: 'fg-set-smart', 'aria-label': 'Smart material to start with' }, ...lists.smart.map((x) => el('option', { value: x.id, text: x.name })));
+      smart.value = settings.smart;
+      const rays = el('input', { type: 'number', min: '0', max: '128', value: String(settings.aoRays), id: 'fg-set-aorays', class: 'sb-num', 'aria-label': 'Ambient occlusion rays' });
+      const ok = () => {
+        settings = { size: Number(size.value) || 1024, export: exp.value || 'godot', smart: smart.value || 'mossy-stone', aoRays: Math.max(0, Math.min(128, Math.round(Number(rays.value)) || 0)) };
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
+        closeIt(); keepFocus();
+        notice('NoorForge settings kept (a new recipe starts with them)', 1600);
+      };
+      s2.append(NoorUI.head('NoorForge settings', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('h4', { class: 'music-subhead', text: 'A new recipe' }),
+          el('label', {}, 'Textures ', size), el('label', {}, 'For ', exp), el('label', {}, 'Starts with ', smart), el('label', {}, 'Ambient occlusion rays ', rays),
+          el('p', { class: 'pref-hint', text: 'The brush and the stamp remember themselves as you change them.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'fg-set-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  /** Every key NoorForge knows. */
+  function shortcutsDialog() {
+    const rows = [
+      ['Open or close NoorForge', 'Ctrl+Alt+F'], ['Focus mode (NoorForge as an app) on / off', 'F11'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (Ctrl+Shift+Z)'],
+      ['Turn the model · zoom · move it', 'drag · wheel · right-drag'],
+      ['The brush on / off', 'B'], ['The eraser (while painting)', 'E'], ['Stamp a decal (while painting)', 'T'], ['Brush smaller / bigger (while painting)', '[ / ]'],
+      ['A straight line from the last stroke', 'Shift+click'], ['Turn the model while painting', 'Alt+drag'],
+      ['Move the stencil · size it · turn it', 'hold S: drag · wheel · Shift+wheel'], ['Put the brush down (out of focus mode: close NoorForge)', 'Esc'],
+    ];
+    NoorUI.modal({ label: 'NoorForge shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorForge shortcuts', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'fg-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  /** Puts the keyboard in the name box, to rename the recipe. */
+  function renameRecipe() { const n = $('#fg-name'); if (n) { n.focus(); n.select(); } }
+
+  const appTitle = () => `NoorForge — ${recipe ? recipe.name || 'Untitled' : 'Untitled'} · ${model ? `${model.name}, ${model.sets.length} texture set${model.sets.length === 1 ? '' : 's'}` : 'no model yet'}`;
+
+  /** NoorForge's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { run(); setTimeout(keepFocus, 0); }, ...more });
+    const noModel = () => !recipe || !recipe.model;
+    const cantPaint = () => noModel() || !recipe.layers.length;
+    const layer = () => recipe && recipe.layers[selected];
+    const radio = (list, now, set) => list.map(([v, l]) => ({ label: l, checked: () => now() === v, run: () => { set(v); setTimeout(keepFocus, 0); } }));
+    const setOpt = (k, v) => { recipe[k] = v; changed(); renderAll(); };
+    const decals = () => pictures().filter((p) => p.id[0] === 'd');
+    return [
+      ['File', 'f', () => [
+        go('Open a model…', pickModel), go('Open a recipe…', openRecipe), '-',
+        go('Export the maps, the textured GLB and the recipe…', exportAll, '', { disabled: noModel }), '-',
+        { label: 'Export for', sub: () => radio((lists.exports || [{ id: 'godot', name: 'Godot 4' }]).map((x) => [x.id, x.name]), () => recipe.export || 'godot', (v) => setOpt('export', v)) },
+        { label: 'Texture size', sub: () => radio(lists.sizes.map((v) => [v, `${v} px`]), () => recipe.size, (v) => setOpt('size', v)) },
+        { label: 'Smaller copies (LODs)', sub: () => radio([[0, 'None'], [1, '½ (LOD1)'], [2, '½ and ¼ (LOD1, LOD2)']], () => recipe.lodCopies || 0, (v) => setOpt('lodCopies', v)) },
+        { label: 'Every texture set in one atlas', checked: () => !!recipe.atlas, disabled: () => !model || model.sets.length < 2, run: () => setOpt('atlas', !recipe.atlas) }, '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorForge', close, 'Ctrl+Alt+F'),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length && JSON.stringify(recipe) === lastSnapshot }),
+        go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('Rename the recipe', renameRecipe), '-',
+        go('NoorForge settings…', settingsDialog),
+      ]],
+      ['Layer', 'l', () => [
+        go('Add a material layer', () => addLayer(true), '', { disabled: () => recipe.layers.length >= 32 }),
+        go('Add a colour layer', () => addLayer(false), '', { disabled: () => recipe.layers.length >= 32 }),
+        go('Add a paint layer (the brush ready)', () => { addLayer(false, true); setTool('brush', false); }, '', { disabled: () => recipe.layers.length >= 32 }), '-',
+        { label: 'Choose a layer', sub: () => (recipe.layers.length ? recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => ({ label: l.name, checked: () => i === selected, run: () => selectLayer(i) })) : [{ label: 'No layers yet', disabled: true }]) },
+        { label: 'Shown', checked: () => !!(layer() && layer().visible), disabled: () => !layer(), run: () => { layer().visible = !layer().visible; changed('layers'); } },
+        go('Move up the stack', () => moveLayer(1), '', { disabled: () => selected >= recipe.layers.length - 1 }),
+        go('Move down the stack', () => moveLayer(-1), '', { disabled: () => selected <= 0 }),
+        go('Clear its painting', () => { layer().strokes = []; paintVersion++; changed('all'); }, '', { disabled: () => !layer() || !(layer().strokes || []).length }),
+        go('Remove the layer', removeLayer, '', { disabled: () => !recipe.layers.length }), '-',
+        { label: 'Smart materials', sub: () => (lists.smart.filter((x) => !x.mine).map((x) => go(x.name, () => applySmart(x), '', { title: x.description || '' }))) },
+        { label: 'Your smart materials', sub: () => (lists.smart.some((x) => x.mine) ? lists.smart.filter((x) => x.mine).map((x) => go(x.name, () => applySmart(x))) : [{ label: 'None saved yet', disabled: true }]) },
+        go('Save these layers as a smart material…', saveSmart, '', { disabled: () => !recipe.layers.length }),
+        { label: 'Remove one of yours', disabled: () => !lists.smart.some((x) => x.mine), sub: () => lists.smart.filter((x) => x.mine).map((x) => go(`${x.name}…`, () => deleteSmart(x))) },
+      ]],
+      ['Paint', 'p', () => [
+        { label: 'Brush', keys: 'B', checked: () => tool === 'brush' && !erasing, disabled: cantPaint, run: () => setTool(tool === 'brush' && !erasing ? null : 'brush', false) },
+        { label: 'Eraser', keys: 'E', checked: () => tool === 'brush' && erasing, disabled: cantPaint, run: () => setTool('brush', true) },
+        { label: 'Fill a part', checked: () => tool === 'fill', disabled: cantPaint, run: () => setTool('fill') },
+        { label: 'Stamp a decal', keys: 'T', checked: () => tool === 'stamp', disabled: cantPaint, run: () => setTool('stamp') },
+        go('Put the brush down', () => setTool(null), 'Esc', { disabled: () => !tool }), '-',
+        go('Brush smaller', () => brushSize(-1), '['), go('Brush bigger', () => brushSize(1), ']'),
+        { label: 'Mirror across X', checked: () => !!brush.mirror, run: () => setBrush('mirror', !brush.mirror) },
+        { label: 'Pen pressure: size', checked: () => !!brush.pressureSize, run: () => setBrush('pressureSize', !brush.pressureSize) },
+        { label: 'Pen pressure: flow', checked: () => !!brush.pressureFlow, run: () => setBrush('pressureFlow', !brush.pressureFlow) },
+        { label: 'Brush tip', sub: () => [
+          ...radio([['', 'Round (hardness)'], ...(lists.tips || []).map((t) => [t.id, t.name]), ...pictures().filter((p) => p.id[0] === 't').map((p) => [p.id, p.name])], () => brush.tip, (v) => setBrush('tip', v)), '-',
+          go('A picture as a tip…', async () => { const p = await pickPicture('tip'); if (p) setBrush('tip', p.id); }, '', { disabled: () => !recipe }),
+        ] }, '-',
+        { label: 'Stencil', sub: () => [
+          ...radio([['', 'No stencil'], ...pictures().filter((p) => p.id[0] === 's').map((p) => [p.id, p.name])], () => (stencil ? stencil.id : ''), placeStencil), '-',
+          go('A picture as a stencil…', async () => { const p = await pickPicture('stencil'); if (p) placeStencil(p.id); }),
+        ] },
+        { label: 'Stencil: shown', checked: () => !!(stencil && stencil.shown), disabled: () => !stencil, run: () => { stencil.shown = !stencil.shown; renderBrushBar(); } },
+        { label: 'Stencil: repeat', checked: () => !!(stencil && stencil.tile), disabled: () => !stencil, run: () => { stencil.tile = !stencil.tile; renderBrushBar(); } },
+        { label: 'Stencil: black lets paint through', checked: () => !!(stencil && stencil.invert), disabled: () => !stencil, run: () => { stencil.invert = !stencil.invert; renderBrushBar(); } },
+        go('Stencil back to the middle', () => { Object.assign(stencil, { fx: 0.5, fy: 0.5, size: 0.7, angle: 0 }); showStencil(); }, '', { disabled: () => !stencil }), '-',
+        { label: 'Decal to stamp', sub: () => [
+          ...(decals().length ? radio(decals().map((p) => [p.id, p.name]), () => stamp.picture, (v) => setStamp('picture', v)) : [{ label: 'None yet', disabled: true }]), '-',
+          go('A picture as a decal…', async () => { const p = await pickPicture('decal'); if (p) setStamp('picture', p.id); }),
+          go('Text as a decal…', async () => { const p = await textDecal(); if (p) setStamp('picture', p.id); }),
+        ] },
+        { label: 'Decal lies', sub: () => radio([['surface', 'Flat on the surface'], ['view', 'As you look at it']], () => stamp.facing, (v) => setStamp('facing', v)) },
+      ]],
+      ['Bake', 'b', () => [
+        go('Choose a high-poly model…', pickHigh), go('Bake from this model alone', () => { recipe.highModel = null; highName = ''; changed('all'); }, '', { disabled: () => !recipe.highModel }), '-',
+        { label: 'Asset Bench level', disabled: () => !(fromAsset && fromAsset.levels > 1), sub: () => Array.from({ length: fromAsset.levels }, (_, i) => ({ label: i === 0 ? 'The closest (LOD0)' : `LOD${i}, with LOD0 baked onto it`, checked: () => fromAsset.level === i, run: () => openAsset(fromAsset.key, fromAsset.name, null, i) })) }, '-',
+        go('The model and its bakes…', () => showTab('bake')),
+      ]],
+      ['View', 'v', () => [
+        ...radio(VIEWS, () => view, setView), '-',
+        go('Zoom in', () => viewer.zoom(1 / 1.2), '', { disabled: () => !viewer }), go('Zoom out', () => viewer.zoom(1.2), '', { disabled: () => !viewer }), go('Back to the whole model', () => viewer.reset(), '', { disabled: () => !viewer }), '-',
+        { label: 'The layers', checked: () => tab === 'layers', run: () => showTab('layers') }, { label: 'The model and its bakes', checked: () => tab === 'bake', run: () => showTab('bake') }, '-',
+        { label: 'Texture set shown', disabled: () => !render || render.sets.length < 2, sub: () => render.sets.map((x, i) => ({ label: x.name, checked: () => shownSet === i, run: () => { shownSet = i; renderMaps(); } })) },
+        { label: 'Settings beside the model', checked: () => !!layout.prefs.side, run: () => layout.set({ side: !layout.prefs.side }) },
+        { label: 'The list on the left', checked: () => !!layout.prefs.list, run: () => layout.set({ list: !layout.prefs.list }) }, '-',
+        { id: 'view.focus', label: 'Focus mode (NoorForge as an app)' },
+      ]],
+      ['Help', 'h', () => [go('NoorForge shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   return {
