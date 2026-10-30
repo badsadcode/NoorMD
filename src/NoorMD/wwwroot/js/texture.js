@@ -318,30 +318,27 @@ window.NoorTexture = (() => {
             el('span', { class: 'sb-fx-space' }),
             (() => {
               const s = el('select', { id: 'tb-shape', 'aria-label': 'Preview shape' }, ...[['sphere', 'Sphere'], ['rounded', 'Rounded cube'], ['cube', 'Cube'], ['plane', 'Plane']].map(([v, t]) => el('option', { value: v, text: t })));
-              s.addEventListener('change', () => { shape = s.value; if (gl3d) gl3d.setShape(shape); });
+              s.value = shape;
+              s.addEventListener('change', () => setShape(s.value));
               return s;
             })(),
             (() => {
               const s = el('select', { id: 'tb-tiling', 'aria-label': 'Tiling' }, ...[1, 2, 3, 4].map((n) => el('option', { value: String(n), text: `${n} × ${n}` })));
               s.value = String(tiling);
-              s.addEventListener('change', () => { tiling = Number(s.value); if (gl3d) gl3d.setTiling(tiling); showMaps(); setView(view); });
+              s.addEventListener('change', () => setTiling(Number(s.value)));
               return s;
             })()),
           el('div', { class: 'tb-views tb-3dbar', id: 'tb-3dbar', role: 'group', 'aria-label': '3D preview' },
             (() => {
               const s = el('select', { id: 'tb-show', 'aria-label': 'Show on the shape', title: 'What the shape shows: the whole material, its lighting alone in grey (to judge the relief and the normals), or one map' }, ...SHOW.map(([v, t]) => el('option', { value: v, text: t })));
               s.value = show;
-              s.addEventListener('change', () => { show = s.value; if (gl3d) gl3d.setMode(show); });
+              s.addEventListener('change', () => setShow(s.value));
               return s;
             })(),
             (() => {
               const s = el('select', { id: 'tb-lights', 'aria-label': 'Lighting', title: 'How the shape is lit. Shift+drag (or right-drag) on the shape moves the light' }, ...Object.entries(LIGHTS).map(([v, l]) => el('option', { value: v, text: '💡 ' + l.label })));
               s.value = lightsId;
-              s.addEventListener('change', () => {
-                lightsId = s.value;
-                try { localStorage.setItem('noormd.texture.lights', lightsId); } catch { /* private storage off */ }
-                if (gl3d) gl3d.setLights(lightsId);
-              });
+              s.addEventListener('change', () => setLights(s.value));
               return s;
             })(),
             el('button', { class: 'utility-btn', id: 'tb-orbit', 'aria-pressed': 'false', title: 'Send the light round the shape, so every slope catches it in turn', onclick: () => setOrbit(!orbit) }, '⟳ Light round'),
@@ -349,7 +346,7 @@ window.NoorTexture = (() => {
               el('span', { text: 'Depth' }),
               (() => {
                 const r = el('input', { type: 'range', id: 'tb-depth', min: '0', max: '100', step: '1', value: '0', 'aria-label': 'Depth from the height map' });
-                r.addEventListener('input', () => { depth = Number(r.value) / 100 * 0.1; if (gl3d) gl3d.setDepth(depth); });
+                r.addEventListener('input', () => setDepth(Number(r.value) / 100));
                 return r;
               })()),
             el('span', { class: 'sb-fx-space' }),
@@ -380,14 +377,28 @@ el('span', { class: 'tb-zoom' },
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
     });
-    try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
+    try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); if (shape !== 'sphere') gl3d.setShape(shape); if (show !== 'material') gl3d.setMode(show); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
     layout = NoorBenchLayout.attach({
       root: $('#texturebench'), storageKey: 'noormd.texture.layout', split: $('#tb-split'), viewCol: $('#tb-view-col'), editCol: $('#tb-edit-col'),
       splitter: $('#tb-splitter'), sideButton: $('#tb-side'), listButton: $('#tb-list'), onChange: () => { fitFlat(); if (gl3d) gl3d.resize(); },
     });
     new ResizeObserver(() => { fitFlat(); if (gl3d) gl3d.resize(); }).observe($('#tb-stage'));
     setView(view);
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('texture', { name: 'Texture Bench', title: appTitle, menus: appMenus });
   }
+
+  // The 3D preview's choices, from its own controls and from the menus (each control follows).
+  function setShape(v) { shape = v; const s = $('#tb-shape'); if (s) s.value = v; if (gl3d) gl3d.setShape(shape); }
+  function setTiling(n) { tiling = n; const s = $('#tb-tiling'); if (s) s.value = String(n); if (gl3d) gl3d.setTiling(tiling); showMaps(); setView(view); }
+  function setShow(v) { show = v; const s = $('#tb-show'); if (s) s.value = v; if (gl3d) gl3d.setMode(show); }
+  function setLights(id) {
+    lightsId = id in LIGHTS ? id : 'studio';
+    const s = $('#tb-lights'); if (s) s.value = lightsId;
+    try { localStorage.setItem('noormd.texture.lights', lightsId); } catch { /* private storage off */ }
+    if (gl3d) gl3d.setLights(lightsId);
+  }
+  /** Depth from the height map, 0–1 of the most there is. */
+  function setDepth(f) { depth = f * 0.1; const r = $('#tb-depth'); if (r) r.value = String(Math.round(f * 100)); if (gl3d) gl3d.setDepth(depth); }
 
   function setOrbit(on) {
     orbit = !!on;
@@ -483,6 +494,7 @@ el('span', { class: 'tb-zoom' },
     ab.hidden = !pinned;
     ab.textContent = `A/B: ${listening}`;
     ab.classList.toggle('on', listening === 'A');
+    if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged();
   }
 
   function renderEditor() {
@@ -584,22 +596,26 @@ el('span', { class: 'tb-zoom' },
     return [
       el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. Erosion reshapes the height made above it: rain cuts gullies, steep parts crumble, edges wear round. The Surface tab sets the base colour, relief and shine.' }),
       ...cards,
-      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-addlayer': t, disabled: recipe.layers.length >= 12 || undefined, onclick: () => {
-        const add = (extra) => { recipe.layers.push(layerOf(t, recipe.layers.length, extra)); changed(true); };
-        // A picture is asked for first; it then replaces what is below it (its own colours and height).
-        if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
-        // Masks paint rather than build height: they start with a tint to show where they are.
-        if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
-        // Erosion reshapes what is already there: it replaces it, and marks where the water ran.
-        if (t === 'erosion') { add({ opacity: 1, blend: 'normal', tint: '#3b2c20', tintAmount: 0.5 }); return; }
-        // A painting starts empty and opens in NoorSketch, the material underneath.
-        if (t === 'painted') {
-          req('texture.paint.new', { recipe }).then((r) => { if (r && r.path) add({ path: r.path, imageName: r.name, name: 'Painting' }); }).catch(hooks.showError);
-          return;
-        }
-        add({});
-      } }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
+      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-addlayer': t, disabled: recipe.layers.length >= 12 || undefined, onclick: () => addLayer(t) }, '＋ ' + LAYER_LABEL[t].replace(/ \(.*/, '')))),
     ];
+  }
+
+  /** A new layer of type t over the others (the Add buttons and the Layer menu); extra sets some of its values. */
+  function addLayer(t, extra = {}) {
+    if (!recipe || recipe.layers.length >= 12) return;
+    const add = (more) => { recipe.layers.push(layerOf(t, recipe.layers.length, { ...more, ...extra })); changed(true); };
+    // A picture is asked for first; it then replaces what is below it (its own colours and height).
+    if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
+    // Masks paint rather than build height: they start with a tint to show where they are.
+    if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
+    // Erosion reshapes what is already there: it replaces it, and marks where the water ran.
+    if (t === 'erosion') { add({ opacity: 1, blend: 'normal', tint: '#3b2c20', tintAmount: 0.5 }); return; }
+    // A painting starts empty and opens in NoorSketch, the material underneath.
+    if (t === 'painted') {
+      req('texture.paint.new', { recipe }).then((r) => { if (r && r.path) add({ path: r.path, imageName: r.name, name: 'Painting' }); }).catch(hooks.showError);
+      return;
+    }
+    add({});
   }
 
   /** A new layer of type t, as the index-th layer: blended over the others (the first replaces), with its defaults. */
@@ -916,6 +932,8 @@ el('span', { class: 'tb-zoom' },
     tab = 'export'; renderEditor();
   }
 
+  async function pickBatchPictures() { try { const r = await req('texture.batch.pick'); if (r && r.pictures) addBatchPictures(r.pictures); } catch (err) { hooks.showError(err); } }
+
   function batchSection() {
     const b = batchPrefs();
     const save = (change) => { saveExportPrefs({ ...exportPrefs(), batch: { ...batchPrefs(), ...change } }); };
@@ -937,7 +955,7 @@ el('span', { class: 'tb-zoom' },
       el('summary', { text: `Batch: PBR maps for many pictures${n ? ` (${n})` : ''}` }),
       el('p', { class: 'pref-hint', text: 'Albedo textures or photos in, a full set of maps out for each: normal, roughness, AO, height and the rest, written with the settings above (target, maps, packing, folder layout or game project). From the Gallery: right-click pictures › Open in › Texture Bench › Make PBR maps for each.' }),
       el('div', { class: 'sb-row' },
-        el('button', { class: 'utility-btn', id: 'tb-batch-pick', onclick: async () => { try { const r = await req('texture.batch.pick'); if (r && r.pictures) addBatchPictures(r.pictures); } catch (err) { hooks.showError(err); } } }, '＋ Pictures…'),
+        el('button', { class: 'utility-btn', id: 'tb-batch-pick', onclick: pickBatchPictures }, '＋ Pictures…'),
         n ? el('button', { class: 'utility-btn', id: 'tb-batch-clear', onclick: () => { batch.pictures = []; renderEditor(); } }, 'Clear the list') : null),
       list,
       el('div', { class: 'sb-row' },
@@ -1367,6 +1385,158 @@ el('span', { class: 'tb-zoom' },
       state: () => ({ dist, yaw, pitch, mode: SHOW[mode][0], depth, orbit, lightAz, lightEl }),
       _gl: gl,
     };
+  }
+
+  // ---------------------------------------------------------------- the Texture Bench as an app: its menus and settings
+
+  // In focus mode with the Texture Bench in the middle, the window's menu bar is the Texture Bench's own (see NoorChrome.registerBench).
+  const SETTINGS_KEY = 'noortexture.settings';
+  const SHAPES = [['sphere', 'Sphere'], ['rounded', 'Rounded cube'], ['cube', 'Cube'], ['plane', 'Plane']];
+  const SETTINGS_DEFAULTS = { shape: 'sphere', tiling: 2, show: 'material' };
+  let settings = { ...SETTINGS_DEFAULTS };
+  try { settings = { ...SETTINGS_DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
+  // How the 3D preview starts (the lighting and the export size are remembered where they are chosen).
+  if (SHAPES.some(([v]) => v === settings.shape)) shape = settings.shape;
+  if ([1, 2, 3, 4].includes(Number(settings.tiling))) tiling = Number(settings.tiling);
+  if (SHOW.some(([v]) => v === settings.show)) show = settings.show;
+
+  function settingsDialog() {
+    NoorUI.modal({ label: 'Texture Bench settings', width: 460 }, (s2, closeIt) => {
+      const sel = (id, label, options, value) => { const x = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t }))); x.value = String(value); return x; };
+      const p = exportPrefs();
+      const shp = sel('tb-pref-shape', 'Preview shape', SHAPES, settings.shape);
+      const til = sel('tb-pref-tiling', 'Tiling', [1, 2, 3, 4].map((n) => [n, `${n} × ${n}`]), settings.tiling);
+      const shw = sel('tb-pref-show', 'Show on the shape', SHOW, settings.show);
+      const lit = sel('tb-pref-lights', 'Lighting', Object.entries(LIGHTS).map(([v, l]) => [v, l.label]), lightsId);
+      const size = sel('tb-pref-size', 'Export size', [512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), p.size);
+      const target = sel('tb-pref-target', 'Export for', TARGETS, p.target);
+      const ok = () => {
+        settings = { shape: shp.value, tiling: Number(til.value), show: shw.value };
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
+        saveExportPrefs({ ...exportPrefs(), size: Number(size.value), target: target.value });
+        setShape(settings.shape); setTiling(settings.tiling); setShow(settings.show); setLights(lit.value);
+        closeIt();
+        if (tab === 'export') renderEditor();
+        notice('Texture Bench settings kept', 1200);
+      };
+      s2.append(NoorUI.head('Texture Bench settings', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('h4', { class: 'music-subhead', text: 'The 3D preview starts with' }),
+          el('label', {}, 'Shape ', shp), el('label', {}, 'Tiling ', til), el('label', {}, 'Showing ', shw), el('label', {}, 'Lighting ', lit),
+          el('h4', { class: 'music-subhead', text: 'Exporting' }),
+          el('label', {}, 'Size ', size), el('label', {}, 'For ', target)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'tb-pref-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  /** Every key the Texture Bench knows. */
+  function shortcutsDialog() {
+    const rows = [
+      ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['Another variation (the next seed)', 'V'], ['Compare: A (pinned) or B (now), once pinned', 'B'],
+      ['Turn the shape (the 3D preview focused)', '← → ↑ ↓ · drag'], ['Move the light', 'Shift+arrows · Shift+drag or right-drag'], ['Zoom in / out', '+ / − · the mouse wheel'],
+      ['A typed number, applied', 'Enter'], ['Open or close the Texture Bench', 'Ctrl+Alt+T'], ['Close the Texture Bench (not in focus mode)', 'Esc'],
+      ['Focus mode (the Texture Bench as an app) on / off', 'F11'],
+    ];
+    NoorUI.modal({ label: 'Texture Bench shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('Texture Bench shortcuts', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'tb-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  function keepFocus() { const root = $('#texturebench'); if (root && isOpen() && !NoorUI.hasOpenModal() && (document.activeElement === document.body || !document.activeElement)) root.focus({ preventScroll: true }); }
+  function goTab(id) { tab = id; renderEditor(); }
+  /** The Export tab, with one of its sections open and in view. */
+  function exportSection(id) {
+    goTab('export');
+    const d = $(id);
+    if (d) { d.open = true; d.scrollIntoView({ block: 'nearest' }); }
+  }
+  function focusField(id) { const x = $(id); if (x) { x.focus(); if (x.select) x.select(); } }
+
+  const appTitle = () => `Texture Bench — ${recipe ? recipe.name || 'Untitled' : 'no material yet'}${recipe && recipe.family ? ` · ${recipe.family}` : ''}${pinned ? (listening === 'A' ? ' · showing A (pinned)' : ' · A pinned') : ''}`;
+
+  /** The Texture Bench's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { run(); setTimeout(keepFocus, 0); }, ...more });
+    const noMaterial = () => !recipe;
+    const full = () => !recipe || recipe.layers.length >= 12;
+    const add = (t, label, extra) => go(label || LAYER_LABEL[t], () => addLayer(t, extra), '', { disabled: full });
+    const choose = (list, now, set) => list.map(([v, l]) => ({ label: l, checked: () => now() === v, run: () => set(v) }));
+    const p = () => exportPrefs();
+    const families = () => {
+      const groups = new Map();
+      for (const x of presets.builtIn) { if (!groups.has(x.family)) groups.set(x.family, []); groups.get(x.family).push(x); }
+      return [...groups].map(([family, list]) => ({ label: family, sub: () => list.map((x) => ({ label: x.name, title: x.description, checked: () => !!recipe && recipe.name === x.name, run: () => loadPreset(x.id) })) }));
+    };
+    const layerItems = () => (recipe && recipe.layers.length ? recipe.layers.map((l, i) => ({
+      label: `${i + 1}. ${l.name || LAYER_LABEL[l.type]}`, title: LAYER_LABEL[l.type] || l.type, sub: () => [
+        { label: 'Hidden', checked: () => !!l.mute, run: () => { l.mute = !l.mute; changed(true); } },
+        go('Another random version of it', () => { l.seedShift = Math.floor(Math.random() * 99999); changed(false); }), '-',
+        go('Up (applied earlier)', () => { [recipe.layers[i - 1], recipe.layers[i]] = [recipe.layers[i], recipe.layers[i - 1]]; changed(true); }, '', { disabled: i === 0 }),
+        go('Down (applied later)', () => { [recipe.layers[i + 1], recipe.layers[i]] = [recipe.layers[i], recipe.layers[i + 1]]; changed(true); }, '', { disabled: i === recipe.layers.length - 1 }),
+        go('Copy', () => { recipe.layers.splice(i + 1, 0, { ...clone(l), id: '', name: l.name + ' copy' }); changed(true); }, '', { disabled: full }),
+        go('Remove', () => { recipe.layers.splice(i, 1); changed(true); }),
+        ...(l.type === 'image' ? ['-', go('Change the picture…', async () => { const f = await pickImage(); if (f) { Object.assign(l, { path: f.path, imageName: f.name, ...keepProportions(f) }); changed(true); } })] : []),
+        ...(l.type === 'painted' ? ['-', go('Paint in NoorSketch', () => paintIn(l))] : []),
+      ],
+    })) : [{ label: 'No layers yet', disabled: true }]);
+    const resets = () => MAP_CARDS.filter(([, , , , , neutral]) => Object.keys(neutral).length).map(([map, title, , , , neutral]) => go(title, () => { goTab('maps'); Object.assign(recipe.surface, clone(neutral)); changed(true); }, '',
+      { disabled: () => !recipe || !Object.entries(neutral).some(([k, v]) => recipe.surface[k] !== undefined && recipe.surface[k] !== v) }));
+    return [
+      ['File', 'f', () => [
+        go('New material', newMaterial), go('A random start', randomMaterial), '-',
+        go('Open a recipe (.noortex.json)…', openRecipe), go('Save as my preset…', savePreset, '', { disabled: noMaterial }), '-',
+        go('A photo as a layer…', () => addLayer('image'), '', { disabled: full }), '-',
+        go('Export PNG maps…', () => { goTab('export'); exportMaps(); }, '', { disabled: noMaterial }),
+        { label: 'Export size', sub: () => choose([512, 1024, 2048, 4096].map((n) => [n, `${n} × ${n}`]), () => p().size, (v) => { saveExportPrefs({ ...p(), size: v }); if (tab === 'export') renderEditor(); }) },
+        { label: 'Export for', sub: () => choose(TARGETS, () => p().target, (v) => { saveExportPrefs({ ...p(), target: v }); if (tab === 'export') renderEditor(); }) },
+        go('Export settings (the Export tab)', () => goTab('export')), '-',
+        go('Batch PBR: add pictures…', () => { exportSection('#tb-batch'); pickBatchPictures(); }),
+        go(`Batch PBR: make the maps${batch.pictures.length ? ` for ${batch.pictures.length} picture${batch.pictures.length === 1 ? '' : 's'}` : ''}…`, () => { exportSection('#tb-batch'); runBatch(); }, '', { disabled: () => !batch.pictures.length || batch.running }),
+        go('A material set (several at one texel density)…', () => exportSection('#tb-set')), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Texture Bench', close, 'Ctrl+Alt+T'),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length && lastSnapshot === JSON.stringify(recipe) }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('Another variation (the next seed)', newVariation, 'V', { disabled: noMaterial }), go('A seed of your own…', () => focusField('#tb-seed'), '', { disabled: noMaterial }), go('Rename the material…', () => focusField('#tb-name'), '', { disabled: noMaterial }), '-',
+        go('Pin as A (to compare)', pin, '', { disabled: noMaterial }),
+        { label: 'Showing A (pinned) — B is now', keys: 'B', checked: () => listening === 'A', disabled: () => !pinned, run: flipAB }, '-',
+        go('Texture Bench settings…', settingsDialog),
+      ]],
+      ['Material', 'm', () => [
+        ...families(),
+        { label: 'My presets', sub: () => (presets.mine.length ? presets.mine.map((x) => ({ label: x.name, checked: () => !!recipe && recipe.name === x.name, run: () => loadPreset(x.id) })) : [{ label: 'None saved yet', disabled: true }]) }, '-',
+        go('Surface: colours and dirt', () => goTab('surface')), go('Each map on its own (the Maps tab)', () => goTab('maps')),
+        { label: 'Reset a map\'s adjustments', sub: resets }, '-',
+        { label: 'Shapes', sub: () => ['bricks', 'tiles', 'hexagons', 'planks', 'spots', 'weave', 'checker', 'scratches'].map((t) => add(t)) },
+        { label: 'Erosion', sub: () => [add('erosion', 'Rain (gullies down the slopes)', { mode: 'rain' }), add('erosion', 'Crumbling (steep parts slide down)', { mode: 'crumble' }), add('erosion', 'Wear (edges worn round)', { mode: 'wear' })] }, '-',
+        go('Save as my preset…', savePreset, '', { disabled: noMaterial }),
+      ]],
+      ['Layer', 'l', () => [
+        { label: 'Add', sub: () => Object.keys(NEW_LAYER).filter((t) => !['image', 'painted', 'current', 'curvature'].includes(t)).map((t) => add(t)) },
+        add('image', 'A photo as a layer…'), add('painted', 'Paint a layer in NoorSketch'),
+        { label: 'Masks', sub: () => [add('current', 'Height so far (tops, dips)'), add('curvature', 'Edges and cavities')] }, '-',
+        { label: 'The layers', sub: layerItems }, go('Layers tab', () => goTab('layers')),
+      ]],
+      ['View', 'v', () => [
+        ...VIEWS.map(([v, l]) => ({ label: v === '3d' ? '3D preview' : `Flat: ${l}`, checked: () => view === v, run: () => setView(v) })), '-',
+        { label: 'Shape', sub: () => choose(SHAPES, () => shape, setShape) },
+        { label: 'Tiling', sub: () => choose([1, 2, 3, 4].map((n) => [n, `${n} × ${n}`]), () => tiling, setTiling) },
+        { label: 'Show on the shape', sub: () => choose(SHOW, () => show, setShow) },
+        { label: 'Lighting', sub: () => choose(Object.entries(LIGHTS).map(([v, l]) => [v, l.label]), () => lightsId, setLights) },
+        { label: 'Light round', checked: () => orbit, disabled: () => !gl3d, run: () => setOrbit(!orbit) },
+        { label: 'Depth from the height map', sub: () => choose([[0, 'None'], [0.25, 'A little'], [0.5, 'Some'], [1, 'Deep']], () => Math.round(depth * 1000) / 100, setDepth) },
+        go('Zoom in', () => gl3d.zoom(1 / 1.2), '+', { disabled: () => !gl3d }), go('Zoom out', () => gl3d.zoom(1.2), '−', { disabled: () => !gl3d }), go('Back to the starting view and light', () => gl3d.reset(), '', { disabled: () => !gl3d }), '-',
+        ...[['layers', 'Layers'], ['surface', 'Surface'], ['maps', 'Maps'], ['export', 'Export']].map(([id, l]) => ({ label: `${l} tab`, checked: () => tab === id, run: () => goTab(id) })), '-',
+        { label: 'Side by side', checked: () => !!layout.prefs.side, run: () => layout.set({ side: !layout.prefs.side }) },
+        { label: 'Materials list', checked: () => !!layout.prefs.list, run: () => layout.set({ list: !layout.prefs.list }) },
+        go('Preview and controls: back to normal sizes', () => layout.set({ width: 0, height: 0 })),
+        { label: 'Where this panel goes', sub: () => NoorDock.menuItems('texture') }, '-',
+        { id: 'view.focus', label: 'Focus mode (the Texture Bench as an app)' },
+      ]],
+      ['Help', 'h', () => [go('Texture Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   return {

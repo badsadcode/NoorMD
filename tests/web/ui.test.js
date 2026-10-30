@@ -7248,6 +7248,68 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v-texture. The Texture Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const TS = () => page.evaluate(() => NoorTexture._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text) => page.click(`.menu-popup .menu-item:has-text("${text}")`);
+      await page.evaluate(() => { try { ['noormd.texture.view', 'noormd.texture.export', 'noormd.texture.layout', 'noortexture.settings'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      check('(the Texture Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'texture');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: the Texture Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Material,Layer,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the material, its family)', /^Texture Bench — Red bricks · Walls/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
+      // View › a flat map, ticked when shown.
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      await item('Flat: Normal');
+      check('View › Flat: Normal shows the normal map flat', (await TS()).view === 'normal' && !(await page.isHidden('#tb-flat')));
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      check('…and shows it ticked (3D preview not)', (await page.getAttribute('.menu-popup .menu-item:has-text("Flat: Normal")', 'aria-checked')) === 'true'
+        && (await page.getAttribute('.menu-popup .menu-item:has-text("3D preview")', 'aria-checked')) === 'false');
+      // View › Shape › Cube: the preview's own control follows.
+      await page.hover('.menu-popup .menu-item:has-text("Shape")');
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has(.menu-label:text-is("Cube"))');
+      check('View › Shape › Cube: the preview shape, and its control shows it', (await TS()).shape === 'cube' && (await page.inputValue('#tb-shape')) === 'cube');
+      // Alt+L: the Layer menu; Add › Tiles adds a layer, Edit › Undo takes it away.
+      const before = (await TS()).recipe.layers.length;
+      await page.keyboard.press('Alt+l');
+      await page.waitForSelector('.menu-popup');
+      await page.hover('.menu-popup .menu-item:has(.menu-label:text-is("Add"))');
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has(.menu-label:text-is("Tiles"))');
+      check('Alt+L › Add › Tiles: a tiles layer on top', (await TS()).recipe.layers.length === before + 1 && (await TS()).recipe.layers.at(-1).type === 'tiles');
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      check('…Edit › Undo can be used, with its key shown', !(await page.getAttribute('.menu-popup .menu-item:has-text("Undo")', 'disabled')) && /Ctrl\+Z$/.test(await page.textContent('.menu-popup .menu-item:has-text("Undo")')));
+      await item('Undo');
+      check('…and takes the layer away again', (await TS()).recipe.layers.length === before);
+      // Edit › Texture Bench settings: how the preview starts.
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      await item('Texture Bench settings');
+      await page.waitForSelector('#tb-pref-ok');
+      await page.selectOption('#tb-pref-tiling', '3'); await page.selectOption('#tb-pref-size', '2048');
+      await page.click('#tb-pref-ok');
+      check('Texture Bench settings: kept, and put to work at once', (await page.evaluate(() => JSON.parse(localStorage.getItem('noortexture.settings')).tiling)) === 3 && (await TS()).tiling === 3
+        && (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')).size)) === 2048);
+      // Help › shortcuts.
+      await page.click('#menubar .menu-title[data-menu="5"]'); await item('Texture Bench shortcuts');
+      await page.waitForSelector('#tb-keys');
+      check('Help › Texture Bench shortcuts: its keys listed', (await page.$$('#tb-keys tr')).length >= 8 && /Ctrl\+Alt\+T/.test(await page.textContent('#tb-keys')));
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => !document.querySelector('#tb-keys'));
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, the Texture Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
+      check('no page errors with the Texture Bench as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

@@ -5,6 +5,11 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Benches as apps (preview.114): in focus mode (F11) a bench in the middle has the whole window and the menu bar
+  becomes its own — NoorSprite, NoorForge, NoorSequencer, the Texture Bench, the Sound Bench and the Asset Bench each
+  with menus for its own work (File, Edit, and Sprite / Layer / Paint / Bake / Song / Track / Pattern / Transport /
+  Material / Sound / Play / Generate as fits it), View with its options ticked, Help with its shortcuts, and its
+  own settings where it has defaults worth keeping; leaving focus mode brings NoorMD's menus back.
 - Picture manager tools (stars, colour labels, tags, the date view, lossless turning): 2.0.0-preview.22.
 - Batch convert / resize of pictures: preview.23.
 - Music Bench in the middle: preview.24.
