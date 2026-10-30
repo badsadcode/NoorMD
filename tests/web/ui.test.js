@@ -7680,6 +7680,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // The whole window for the bench, and an easy way back.
       check('⛶ is offered while the bench is in the middle', await page.$eval('#assetbench .bench-full', (b) => getComputedStyle(b).display !== 'none' && /⛶/.test(b.textContent)));
       await page.click('#assetbench .bench-full');
+      await waitFn(page, () => document.body.classList.contains('bench-app')); // its menus come in on the next frame
       const full = await page.evaluate(() => {
         const b = document.querySelector('#assetbench').getBoundingClientRect();
         const shown = (sel) => { const n = document.querySelector(sel); return !!n && getComputedStyle(n).display !== 'none' && n.getBoundingClientRect().height > 0; };
