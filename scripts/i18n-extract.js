@@ -37,6 +37,22 @@ const add = (s) => { s = s.replace(/\s+/g, ' ').trim(); if (isText(s)) keys.add(
 
 // The page: its string literals, found by reading the code as JavaScript does (comments and regular expressions are
 // stepped over, so an apostrophe in a comment can't run text and code together); a template's ${…} become {0}, {1} …
+/** Where a template's ${…} (its "{" at i) ends: braces counted; strings, nested templates and regular expressions in it stepped over. */
+function exprEnd(src, i) {
+  const n = src.length;
+  let depth = 0, k = i, prev = '{';
+  for (; k < n; k++) {
+    const e = src[k];
+    if (e === '{') depth++;
+    else if (e === '}') { depth--; if (!depth) break; }
+    else if (e === "'" || e === '"') { k++; while (k < n && src[k] !== e) { if (src[k] === '\\') k++; k++; } }
+    else if (e === '`') { k++; while (k < n && src[k] !== '`') { if (src[k] === '\\') { k += 2; continue; } if (src[k] === '$' && src[k + 1] === '{') { k = exprEnd(src, k + 1) + 1; continue; } k++; } }
+    else if (e === '/' && /[(,=:[!&|?{};+\-*%<>~^]/.test(prev)) { k++; let inClass = false; while (k < n && src[k] !== '\n') { const c = src[k]; if (c === '\\') { k += 2; continue; } if (c === '[') inClass = true; else if (c === ']') inClass = false; else if (c === '/' && !inClass) break; k++; } }
+    if (!/\s/.test(e)) prev = e;
+  }
+  return k;
+}
+
 function literals(src) {
   const out = [];
   let i = 0, prev = '';
@@ -62,8 +78,7 @@ function literals(src) {
       while (j < n && src[j] !== '`') {
         if (src[j] === '\\') { v += src[j + 1]; j += 2; continue; }
         if (src[j] === '$' && src[j + 1] === '{') {
-          let depth = 0, k = j + 1;
-          for (; k < n; k++) { const e = src[k]; if (e === '{') depth++; else if (e === '}') { depth--; if (!depth) break; } else if (e === "'" || e === '"' || e === '`') { const q = e; k++; while (k < n && src[k] !== q) { if (src[k] === '\\') k++; k++; } } }
+          const k = exprEnd(src, j + 1);
           v += src.slice(j, k + 1); j = k + 1; continue;
         }
         v += src[j++];
@@ -76,15 +91,17 @@ function literals(src) {
   return out;
 }
 
-function scanJs(src) {
+let photoFile = false;
+function scanJs(src, file = '') {
+  photoFile = /photo(fx|style)?\.js$/.test(file);
   for (const lit of literals(src)) {
     const before = src.slice(Math.max(0, lit.at - 30), lit.at);
     if (/(querySelector(All)?|\$\$?|getElementById|closest|matches|classList\.\w+|getAttribute|setAttribute|dataset\.?\w*|addEventListener|removeEventListener|getItem|setItem|removeItem|request|req|post|case|import|require|new RegExp|createElement|getPropertyValue|run)\(\s*$/.test(before)) continue;
-    if (/\b(class|id|type|role|key|value|name|href|src|for|rel|tabindex|'data-[\w-]+'|kind|cmd|tab|icon|mode|blend|direction|layout|format)\s*:\s*$/.test(before)) continue;
     const s = lit.text;
-    // NoorPhoto's filters and adjustments: their names, groups and notes, and each setting's label (the second
-    // argument after its key, as in pct('width', 'Focus width', …)).
-    if (/\b(name|about|group):\s*$|\(\s*'\w+',\s*$/.test(before) && /^[A-Z]/.test(s) && /[a-z]{2}/.test(s) && !lit.template) { keys.add(s.replace(/\s+/g, ' ').trim()); continue; }
+    // NoorPhoto's filters, adjustments and layer styles: their names, groups and notes, and each setting's label (the
+    // second argument after its key, as in pct('width', 'Focus width', …)).
+    if (photoFile && /\b(name|about|group):\s*$|\(\s*'\w+',\s*$/.test(before) && /^[A-Z]/.test(s) && /[a-z]{2}/.test(s) && !lit.template) { keys.add(s.replace(/\s+/g, ' ').trim()); continue; }
+    if (/\b(class|id|type|role|key|value|name|href|src|for|rel|tabindex|'data-[\w-]+'|kind|cmd|tab|icon|mode|blend|direction|layout|format)\s*:\s*$/.test(before)) continue;
     // A short lowercase word is a label when it is shown as text, or is the label of an [value, label] pair.
     if (/^[a-z]{3,14}$/.test(s) && /(\btext:\s*|\blabel:\s*|\[\s*[\w.'"-]+,\s*)$/.test(before)) { keys.add(s); continue; }
     // Anything given as a text, a title, a label or a placeholder is words to read.
@@ -121,7 +138,7 @@ function walk(dir, ext, fn) {
   for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
     const p = path.join(dir, f.name);
     if (f.isDirectory()) { if (!/^(bin|obj|vendor|node_modules|lang)$/.test(f.name)) walk(p, ext, fn); }
-    else if (f.name.endsWith(ext)) fn(fs.readFileSync(p, 'utf8'));
+    else if (f.name.endsWith(ext)) fn(fs.readFileSync(p, 'utf8'), f.name);
   }
 }
 walk(path.join(root, 'src/NoorMD/wwwroot/js'), '.js', scanJs);
