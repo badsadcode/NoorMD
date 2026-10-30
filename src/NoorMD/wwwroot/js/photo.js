@@ -36,6 +36,7 @@ window.NoorPhoto = (() => {
     ['clone', '⎘', 'Clone stamp (S): Alt+click where to copy from', 's'],
     ['history', '⏮', 'History brush (Y): paints back the picture as it was (choose when with ◎ in History)', 'y'],
     ['heal', '🩹', 'Healing brush (J): like the clone stamp, blended into what is around it', 'j'],
+    ['mixer', '🎨', 'Mixer brush (K): wet paint that mixes with the colours under it', 'k'],
     ['smudge', '👆', 'Smudge, blur and sharpen (R)', 'r'],
     ['dodge', '🔆', 'Dodge, burn and sponge (O)', 'o'],
     ['fill', '🪣', 'Paint bucket (G)', 'g'],
@@ -43,11 +44,12 @@ window.NoorPhoto = (() => {
     ['text', 'T', 'Text (T): click to write', 't'],
     ['shape', '▭', 'Shapes (U): rectangle, ellipse, polygon, star, line; they stay changeable', 'u'],
     ['pen', '✒️', 'Pen (P): click for corners, drag for curves; click the first point to close', 'p'],
+    ['assist', '📐', 'Painting guides: a ruler, a vanishing point or an ellipse for the brushes to follow', null],
     ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
     ['zoom', '🔍', 'Zoom (Z): click in, Alt+click out', 'z'],
     ['rotate', '⟲', 'Turn the view (Shift+R; double-click: straight again)', null],
   ];
-  const PAINTERS = new Set(['brush', 'eraser', 'clone', 'heal', 'smudge', 'dodge', 'history']);
+  const PAINTERS = new Set(['brush', 'eraser', 'clone', 'heal', 'smudge', 'dodge', 'history', 'mixer']);
 
   let hooks = { showError: (e) => console.error(e) };
   let built = false;
@@ -56,11 +58,11 @@ window.NoorPhoto = (() => {
   let tool = 'brush';
   let fg = '#000000', bg = '#ffffff';
   let recentColours = [];
-  let brush = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false, tip: 'round', sizeJitter: 0, scatter: 0, opacityJitter: 0, hueJitter: 0, brightJitter: 0 };
+  let brush = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false, tip: 'round', wetEdges: false, mirror: 'off', sizeJitter: 0, scatter: 0, opacityJitter: 0, hueJitter: 0, brightJitter: 0 };
   let opts = {
-    selMode: 'new', feather: 0, tolerance: 32, contiguous: true, allLayers: false, antiAlias: true,
+    assistType: 'parallel', selMode: 'new', feather: 0, tolerance: 32, contiguous: true, allLayers: false, antiAlias: true,
     gradShape: 'linear', gradTo: 'bg', gradReverse: false, shape: 'rect', shapeFill: true, shapeStroke: 0, shapeDash: 'solid', shapeRadius: 20, shapeSides: 5, starInner: 45, smudgeMode: 'smudge', strength: 0.5,
-    dodgeMode: 'dodge', exposure: 0.3, range: 'midtones', cloneAligned: true, cloneAll: false, cropRatio: '', fillAll: false,
+    dodgeMode: 'dodge', exposure: 0.3, wet: 0.5, load: 0.2, range: 'midtones', cloneAligned: true, cloneAll: false, cropRatio: '', fillAll: false,
   };
   let composite = null, needCompose = true;
   let drag = null;          // the gesture under way
@@ -675,6 +677,9 @@ window.NoorPhoto = (() => {
       const m = maskFull(l), t = canvas(W, H), tx = g2(t);
       tx.fillStyle = '#000'; tx.fillRect(0, 0, W, H); tx.drawImage(m, 0, 0);
       x.drawImage(t, 0, 0);
+    } else if (D.wrap) {
+      // Wrap around: the picture tiled round itself, so the seams of a tile can be painted across.
+      for (const dx of [-W, 0, W]) for (const dy of [-H, 0, H]) { if (dx || dy) { x.fillStyle = pat; x.fillRect(dx, dy, W, H); } x.drawImage(composite, dx, dy); }
     } else x.drawImage(composite, 0, 0);
     if (D.quickMask && D.sel) {
       // Quick mask: what isn't selected is covered in red.
@@ -705,6 +710,14 @@ window.NoorPhoto = (() => {
     }
     if (drag && drag.rect && (tool === 'marquee' || tool === 'ellipse' || tool === 'shape' || tool === 'text')) outlineRect(x, drag.rect, tool === 'ellipse' || (tool === 'shape' && opts.shape === 'ellipse'));
     if (drag && drag.line) { const a = toScreen(drag.line.x0, drag.line.y0), b = toScreen(drag.line.x1, drag.line.y1); x.strokeStyle = '#fff'; x.setLineDash([5, 3]); x.beginPath(); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); x.stroke(); x.setLineDash([]); }
+    drawAssists(x);
+    if (PAINTERS.has(tool) && brush.mirror && brush.mirror !== 'off') {
+      x.save(); x.strokeStyle = 'rgba(25,211,255,.6)'; x.setLineDash([6, 4]); x.beginPath();
+      if (brush.mirror !== 'v') { const a = toScreen(D.doc.width / 2, 0), b = toScreen(D.doc.width / 2, D.doc.height); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); }
+      if (brush.mirror !== 'h') { const a = toScreen(0, D.doc.height / 2), b = toScreen(D.doc.width, D.doc.height / 2); x.moveTo(a.x, a.y); x.lineTo(b.x, b.y); }
+      x.stroke(); x.restore();
+    }
+    if (drag && drag.kind === 'assist' && opts.assistType === 'ellipse') { const l2 = drag.line; outlineRect(x, { x: Math.min(l2.x0, l2.x1), y: Math.min(l2.y0, l2.y1), w: Math.abs(l2.x1 - l2.x0), h: Math.abs(l2.y1 - l2.y0) }, true); }
     if (typing) placeTyping();
     if (pen || tool === 'pen') drawPen(x);
     if (cropBox) drawCrop(x, s);
@@ -986,7 +999,7 @@ window.NoorPhoto = (() => {
   // kind change a working copy of the layer instead.
   const stampCache = new Map();
   // Brush tips: round (soft to hard), square, chalk (grainy, broken edges); the spray tip is drawn dot by dot.
-  const TIPS = [['round', 'round'], ['square', 'square'], ['chalk', 'chalk'], ['spray', 'spray']];
+  const TIPS = [['round', 'round'], ['square', 'square'], ['chalk', 'chalk'], ['spray', 'spray'], ['bristle', 'bristles']];
   let grain = null;
   function grainTexture() {
     if (grain) return grain;
@@ -996,12 +1009,15 @@ window.NoorPhoto = (() => {
     x.putImageData(img, 0, 0);
     return (grain = c);
   }
-  function stampOf(size, hardness, colour, tip = 'round') {
-    const d = Math.max(2, Math.ceil(size) + 2), key = `${d}|${hardness}|${colour}|${tip}`;
+  function stampOf(size, hardness, colour, tip = 'round', wet = false) {
+    const d = Math.max(2, Math.ceil(size) + 2), key = `${d}|${hardness}|${colour}|${tip}|${wet ? 1 : 0}`;
     if (stampCache.has(key)) return stampCache.get(key);
-    const c = canvas(d, d), x = g2(c), r = size / 2, gr = x.createRadialGradient(d / 2, d / 2, Math.max(0, r * Math.min(0.999, hardness)), d / 2, d / 2, Math.max(0.5, r));
+    const c = canvas(d, d), x = g2(c), r = size / 2;
     const [cr, cg, cb] = hexRgb(colour);
-    gr.addColorStop(0, `rgba(${cr},${cg},${cb},1)`); gr.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
+    // Wet edges: the paint pools at the rim, as watercolour does (lighter in the middle, darker at the edge).
+    const gr = wet ? x.createRadialGradient(d / 2, d / 2, 0, d / 2, d / 2, Math.max(0.5, r)) : x.createRadialGradient(d / 2, d / 2, Math.max(0, r * Math.min(0.999, hardness)), d / 2, d / 2, Math.max(0.5, r));
+    if (wet) { gr.addColorStop(0, `rgba(${cr},${cg},${cb},.4)`); gr.addColorStop(Math.max(0.5, Math.min(0.92, 0.6 + hardness * 0.3)), `rgba(${cr},${cg},${cb},.85)`); gr.addColorStop(1, `rgba(${cr},${cg},${cb},0)`); }
+    else { gr.addColorStop(0, `rgba(${cr},${cg},${cb},1)`); gr.addColorStop(1, `rgba(${cr},${cg},${cb},0)`); }
     if (tip === 'square') { x.fillStyle = colour; x.fillRect((d - size) / 2, (d - size) / 2, size, size); }
     else { x.fillStyle = gr; x.beginPath(); x.arc(d / 2, d / 2, Math.max(0.5, r), 0, Math.PI * 2); x.fill(); }
     if (tip === 'chalk') { x.globalCompositeOperation = 'destination-in'; x.drawImage(grainTexture(), Math.random() * -64, Math.random() * -64, Math.max(d, 128), Math.max(d, 128)); }
@@ -1062,7 +1078,7 @@ window.NoorPhoto = (() => {
     if (!t) return null;
     if (tool === 'history' && !D.histSrc) historySource(t.l);
     const { l, target } = t, before = snap(), grew = cover(l, target), o = originOf(l, target), c = o.canvas;
-    const work = tool === 'smudge' || tool === 'dodge';
+    const work = tool === 'smudge' || tool === 'dodge' || tool === 'mixer';
     const s = {
       l, target, before: grew ? before : null, kind: work ? 'work' : 'buffer', tool, bbox: null,
       buf: work ? null : canvas(c.width, c.height), work: work ? copyOf(c) : null, origin: { x: o.x, y: o.y },
@@ -1091,13 +1107,23 @@ window.NoorPhoto = (() => {
         return out;
       }
       const out = copyOf(c);
-      applyPaint(out, l, target, s.buf, { opacity: brush.opacity, erase: s.tool === 'eraser', value: grey(s.tool === 'eraser' ? bg : fg) });
+      applyPaint(out, l, target, s.wet ? wetten(s.buf) : s.buf, { opacity: brush.opacity, erase: s.tool === 'eraser', value: grey(s.tool === 'eraser' ? bg : fg) });
       return out;
     };
+    s.assist = assistAt(p); s.anchor = { x: p.x, y: p.y };
+    s.wet = brush.wetEdges && tool === 'brush' && target === 'canvas';
     live = s;
     dab(s, p, s.pressure);
     s.last = { ...p };
     return s;
+  }
+  /** Wet edges: the whole stroke paler inside and darker along its rim, as watercolour dries. */
+  function wetten(buf) {
+    const out = canvas(buf.width, buf.height), x = g2(out), ring = copyOf(buf), r = g2(ring);
+    r.globalCompositeOperation = 'destination-out'; r.filter = `blur(${Math.max(1.5, brush.size / 7)}px)`; r.drawImage(buf, 0, 0); r.filter = 'none';
+    x.globalAlpha = 0.45; x.drawImage(buf, 0, 0); x.globalAlpha = 1;
+    x.drawImage(ring, 0, 0); x.drawImage(ring, 0, 0);
+    return out;
   }
   const fullOf = (c) => { const f = canvas(c.width, c.height), x = g2(f); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); return f; };
   function pressureOf(e) { return e && e.pointerType === 'pen' && e.pressure > 0 ? e.pressure : 1; }
@@ -1113,7 +1139,9 @@ window.NoorPhoto = (() => {
       to = s.smooth;
     }
     const from = s.last, dist = Math.hypot(to.x - from.x, to.y - from.y);
-    const step = Math.max(0.5, brush.size * (s.kind === 'work' ? 0.25 : brush.spacing) * (brush.pressureSize ? Math.max(0.2, pressure) : 1));
+    if (dist > 0.5) s.dir = Math.atan2(to.y - from.y, to.x - from.x);
+    const spacing = s.kind === 'work' ? (s.tool === 'mixer' ? 0.12 : 0.25) : brush.tip === 'bristle' ? 0.04 : brush.spacing;
+    const step = Math.max(0.5, brush.size * spacing * (brush.pressureSize ? Math.max(0.2, pressure) : 1));
     let t = step - s.carry;
     while (t <= dist) {
       const k = t / dist;
@@ -1125,31 +1153,71 @@ window.NoorPhoto = (() => {
   }
 
   function dab(s, p, pressure) {
-    // Dynamics: each dab a little smaller, further off the line, lighter or of a shifted colour, by chance.
+    // Dynamics: each dab a little smaller, further off the line, lighter or of a shifted colour, by chance (the same
+    // for its mirrored and wrapped copies, so they match).
     const rnd = Math.random;
-    let size = Math.max(1, brush.size * (brush.pressureSize ? Math.max(0.05, pressure) : 1) * (1 - brush.sizeJitter * rnd()));
+    const size = Math.max(1, brush.size * (brush.pressureSize ? Math.max(0.05, pressure) : 1) * (1 - brush.sizeJitter * rnd()));
     if (brush.scatter > 0) p = { x: p.x + (rnd() - 0.5) * 2 * brush.scatter * size, y: p.y + (rnd() - 0.5) * 2 * brush.scatter * size };
-    const r = size / 2;
+    const alpha = brush.flow * (brush.pressureOpacity ? pressure : 1) * (1 - brush.opacityJitter * rnd());
+    let colour = s.colour;
+    if ((brush.hueJitter > 0 || brush.brightJitter > 0) && s.target !== 'mask' && s.tool !== 'eraser') colour = jitterColour(colour, brush.hueJitter * (rnd() - 0.5) * 360, brush.brightJitter * (rnd() - 0.5) * 2);
+    const copies = s.tool === 'smudge' && opts.smudgeMode === 'smudge' ? [p] : dabCopies(p, size / 2);
+    for (const q of copies) dabAt(s, q, size, alpha, colour, q !== p && q.mx);
+  }
+  /** Where a dab also goes: mirrored across the picture's middle, and round the edges when the view wraps around. */
+  function dabCopies(p, r) {
+    const W = D.doc.width, H = D.doc.height, out = [p];
+    if (brush.mirror === 'h' || brush.mirror === 'both') out.push({ x: W - p.x, y: p.y, mx: true });
+    if (brush.mirror === 'v' || brush.mirror === 'both') out.push({ x: p.x, y: H - p.y });
+    if (brush.mirror === 'both') out.push({ x: W - p.x, y: H - p.y, mx: true });
+    if (!D.wrap) return out;
+    const more = [];
+    for (const q of out) {
+      const bx = ((q.x % W) + W) % W, by = ((q.y % H) + H) % H;
+      for (const dx of [0, -W, W]) for (const dy of [0, -H, H]) {
+        const x = bx + dx, y = by + dy;
+        if (x + r < 0 || y + r < 0 || x - r > W || y - r > H) continue;
+        more.push({ x, y, mx: q.mx });
+      }
+    }
+    return more;
+  }
+  function dabAt(s, p, size, alpha, colour, mirrored) {
+    const rnd = Math.random, r = size / 2;
     const tx = p.x - s.origin.x, ty = p.y - s.origin.y;
     const box = { x: Math.floor(tx - r - 1), y: Math.floor(ty - r - 1), w: Math.ceil(size) + 3, h: Math.ceil(size) + 3 };
     s.bbox = s.bbox ? union(s.bbox, box) : box;
-    const alpha = brush.flow * (brush.pressureOpacity ? pressure : 1) * (1 - brush.opacityJitter * rnd());
     if (s.kind === 'work') { workDab(s, tx, ty, r, alpha); return; }
     const bx = g2(s.buf);
     if (s.tool === 'clone' || s.tool === 'heal' || s.tool === 'history') {
-      const st = stampOf(size, brush.hardness, '#ffffff', brush.tip === 'spray' ? 'round' : brush.tip), d = st.width, t = canvas(d, d), x = g2(t);
+      const st = stampOf(size, brush.hardness, '#ffffff', brush.tip === 'spray' || brush.tip === 'bristle' ? 'round' : brush.tip), d = st.width, t = canvas(d, d), x = g2(t);
       x.drawImage(s.source, -(p.x + s.cloneOffset.x - d / 2), -(p.y + s.cloneOffset.y - d / 2));
       x.globalCompositeOperation = 'destination-in'; x.drawImage(st, 0, 0);
       bx.globalAlpha = alpha; bx.drawImage(t, tx - d / 2, ty - d / 2); bx.globalAlpha = 1;
       return;
     }
-    let colour = s.colour;
-    if ((brush.hueJitter > 0 || brush.brightJitter > 0) && s.target !== 'mask' && s.tool !== 'eraser') colour = jitterColour(colour, brush.hueJitter * (rnd() - 0.5) * 360, brush.brightJitter * (rnd() - 0.5) * 2);
     if (brush.tip === 'spray') {
       // Spray: fine dots scattered over the brush's circle, thicker in the middle.
       bx.fillStyle = colour; bx.globalAlpha = alpha;
       const dots = Math.max(4, Math.round(size * 0.8)), dot = Math.max(0.6, size / 40);
       for (let i = 0; i < dots; i++) { const a = rnd() * Math.PI * 2, d2 = Math.sqrt(rnd()) * r * (rnd() < brush.hardness ? 0.7 : 1); bx.beginPath(); bx.arc(tx + Math.cos(a) * d2, ty + Math.sin(a) * d2, dot, 0, Math.PI * 2); bx.fill(); }
+      bx.globalAlpha = 1;
+      return;
+    }
+    if (brush.tip === 'bristle') {
+      // Bristles: hairs fixed in the brush for the whole stroke, turned with its direction, each its own strength
+      // and shade, so the stroke is streaky like a real brush.
+      if (!s.bristles) {
+        const n = clamp(Math.round(brush.size * 0.7), 8, 80);
+        s.bristles = Array.from({ length: n }, () => { const a = rnd() * Math.PI * 2, d2 = Math.sqrt(rnd()); return { u: Math.cos(a) * d2, v: Math.sin(a) * d2 * 0.35, k: 0.45 + rnd() * 0.55, shade: (rnd() - 0.5) * 0.25, w: 0.6 + rnd() * 0.8 }; });
+      }
+      const ang = (s.dir || 0) + Math.PI / 2, ca = Math.cos(ang) * (mirrored ? -1 : 1), sa = Math.sin(ang), hair = Math.max(0.5, size / 28);
+      for (const b of s.bristles) {
+        bx.globalAlpha = alpha * b.k;
+        bx.fillStyle = b.shade ? jitterColour(colour, 0, b.shade) : colour;
+        const x = tx + (b.u * ca - b.v * sa) * r, y = ty + (b.u * sa + b.v * ca) * r;
+        bx.beginPath(); bx.arc(x, y, hair * b.w, 0, Math.PI * 2); bx.fill();
+      }
       bx.globalAlpha = 1;
       return;
     }
@@ -1177,7 +1245,24 @@ window.NoorPhoto = (() => {
     const w = x1 - x0, h = y1 - y0, img = g2(c).getImageData(x0, y0, w, h), d = img.data, hard = brush.hardness;
     const weight = (xx, yy) => { const dist = Math.hypot(xx + x0 + 0.5 - cx, yy + y0 + 0.5 - cy) / r; return dist >= 1 ? 0 : dist <= hard ? 1 : 1 - (dist - hard) / (1 - hard); };
     const strength = opts.strength * alpha;
-    if (s.tool === 'smudge' && opts.smudgeMode === 'smudge') {
+    if (s.tool === 'mixer') {
+      // Wet paint: the brush holds a colour (the foreground to begin with); each dab mixes it with what is under it
+      // (wet: how much), lays the mix down, picks some of it up, and is topped up with fresh paint (load).
+      let ur = 0, ug = 0, ub = 0, ua = 0;
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) { const k = weight(xx, yy); if (!k) continue; const i = (yy * w + xx) * 4, a = d[i + 3] / 255 * k; ur += d[i] * a; ug += d[i + 1] * a; ub += d[i + 2] * a; ua += a; }
+      if (!s.res) { const [r0, g0, b0] = hexRgb(fg); s.res = [r0, g0, b0]; }
+      const res = s.res, wet = ua > 0.01 ? opts.wet : 0, under = ua > 0.01 ? [ur / ua, ug / ua, ub / ua] : res;
+      const paint = [0, 1, 2].map((ch) => res[ch] * (1 - wet) + under[ch] * wet);
+      for (let yy = 0; yy < h; yy++) for (let xx = 0; xx < w; xx++) {
+        const k = weight(xx, yy) * alpha;
+        if (!k) continue;
+        const i = (yy * w + xx) * 4;
+        for (let ch = 0; ch < 3; ch++) d[i + ch] = d[i + ch] + (paint[ch] - d[i + ch]) * k;
+        d[i + 3] = d[i + 3] + (255 - d[i + 3]) * k;
+      }
+      const [fr, fgr, fb] = hexRgb(fg);
+      for (let ch = 0; ch < 3; ch++) res[ch] = paint[ch] + ([fr, fgr, fb][ch] - paint[ch]) * opts.load;
+    } else if (s.tool === 'smudge' && opts.smudgeMode === 'smudge') {
       // The paint picked up at the last dab is pushed into this one, and some of this one is picked up.
       if (!s.carryPx || s.carryW !== w || s.carryH !== h) { s.carryPx = Float32Array.from(d); s.carryW = w; s.carryH = h; }
       else {
@@ -1258,17 +1343,17 @@ window.NoorPhoto = (() => {
     setTool('history'); renderHistory();
     notice('The history brush paints from that state now.', 2000);
   }
-  const STROKE_LABEL = { brush: 'Brush', eraser: 'Eraser', clone: 'Clone stamp', heal: 'Healing brush', history: 'History brush', smudge: 'Smudge', dodge: 'Dodge and burn' };
+  const STROKE_LABEL = { brush: 'Brush', mixer: 'Mixer brush', eraser: 'Eraser', clone: 'Clone stamp', heal: 'Healing brush', history: 'History brush', smudge: 'Smudge', dodge: 'Dodge and burn' };
   function endStroke(s) {
     live = null;
     if (!s) return;
     if (s.tool === 'heal') healBuffer(s);
-    const label = s.tool === 'smudge' ? ({ smudge: 'Smudge', blur: 'Blur brush', sharpen: 'Sharpen brush' }[opts.smudgeMode]) : s.tool === 'dodge' ? ({ dodge: 'Dodge', burn: 'Burn', saturate: 'Sponge', desaturate: 'Sponge' }[opts.dodgeMode]) : STROKE_LABEL[s.tool];
+    const label = s.tool === 'mixer' ? 'Mixer brush' : s.tool === 'smudge' ? ({ smudge: 'Smudge', blur: 'Blur brush', sharpen: 'Sharpen brush' }[opts.smudgeMode]) : s.tool === 'dodge' ? ({ dodge: 'Dodge', burn: 'Burn', saturate: 'Sponge', desaturate: 'Sponge' }[opts.dodgeMode]) : STROKE_LABEL[s.tool];
     const o = originOf(s.l, s.target);
     const apply = () => {
       const real = o.canvas;
       if (s.kind === 'work') { const shown = s.show(); const x = g2(real); x.clearRect(0, 0, real.width, real.height); x.drawImage(shown, 0, 0); }
-      else applyPaint(real, s.l, s.target, s.buf, { opacity: brush.opacity, erase: s.tool === 'eraser', value: grey(s.tool === 'eraser' ? bg : fg) });
+      else applyPaint(real, s.l, s.target, s.wet ? wetten(s.buf) : s.buf, { opacity: brush.opacity, erase: s.tool === 'eraser', value: grey(s.tool === 'eraser' ? bg : fg) });
     };
     commitPixels(label, s.l, s.target, s.before, s.kind === 'work' ? { x: 0, y: 0, w: o.canvas.width, h: o.canvas.height } : (s.bbox || { x: 0, y: 0, w: 1, h: 1 }), apply);
     rememberColour(fg);
@@ -1954,6 +2039,9 @@ window.NoorPhoto = (() => {
       case 'shape': drag = { kind: 'shape', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 }, line: opts.shape === 'line' ? { x0: p.x, y0: p.y, x1: p.x, y1: p.y } : null }; if (drag.line) drag.rect = null; return;
       case 'text': { const hit = textUnder(p); if (hit) { textAt(p); return; } drag = { kind: 'textbox', start: p, rect: { x: p.x, y: p.y, w: 0, h: 0 } }; return; }
       case 'pen': { const d = penDown(p, e); if (d) drag = d; draw(); return; }
+      case 'assist':
+        if (opts.assistType === 'vanish') { addAssist({ type: 'vanish', x: p.x, y: p.y }); return; }
+        drag = { kind: 'assist', start: p, line: { x0: p.x, y0: p.y, x1: p.x, y1: p.y } }; return;
       default:
         if (PAINTERS.has(tool)) {
           const s = startStroke(p, e);
@@ -1975,6 +2063,7 @@ window.NoorPhoto = (() => {
       case 'move': { let dx = Math.round(p.x - drag.start.x), dy = Math.round(p.y - drag.start.y); if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; } moveBy(drag, dx, dy); break; }
       case 'tmove': { const dx = Math.round(p.x - drag.start.x), dy = Math.round(p.y - drag.start.y); transform.corners = drag.corners.map((c) => ({ x: c.x + dx, y: c.y + dy })); needCompose = true; break; }
       case 'transform': dragTransform(drag, p, e); needCompose = true; break;
+      case 'assist': drag.line.x1 = p.x; drag.line.y1 = p.y; break;
       case 'textbox': drag.rect = { x: Math.min(drag.start.x, p.x), y: Math.min(drag.start.y, p.y), w: Math.abs(p.x - drag.start.x), h: Math.abs(p.y - drag.start.y) }; break;
       case 'rect': case 'shape': {
         if (drag.line) { drag.line.x1 = p.x; drag.line.y1 = p.y; if (e.shiftKey) { const a = Math.round(Math.atan2(p.y - drag.start.y, p.x - drag.start.x) / (Math.PI / 4)) * (Math.PI / 4), len = Math.hypot(p.x - drag.start.x, p.y - drag.start.y); drag.line.x1 = drag.start.x + Math.cos(a) * len; drag.line.y1 = drag.start.y + Math.sin(a) * len; } break; }
@@ -1994,7 +2083,7 @@ window.NoorPhoto = (() => {
       }
       case 'stroke': {
         const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-        for (const ev of (evs.length ? evs : [e])) { const q = pointAt(ev); strokeTo(drag.s, q, pressureOf(ev)); }
+        for (const ev of (evs.length ? evs : [e])) { const q = snapPoint(drag.s, pointAt(ev)); strokeTo(drag.s, q, pressureOf(ev)); }
         needCompose = true; break;
       }
       case 'cropnew': { let w = p.x - drag.start.x, h = p.y - drag.start.y; const ratio = RATIOS[opts.cropRatio] || (e.shiftKey ? 1 : null); if (ratio) h = Math.sign(h || 1) * Math.abs(w) / ratio; cropBox = { x: Math.min(drag.start.x, drag.start.x + w), y: Math.min(drag.start.y, drag.start.y + h), w: Math.abs(w), h: Math.abs(h) }; break; }
@@ -2028,6 +2117,13 @@ window.NoorPhoto = (() => {
       }
       case 'tmove': if (d.autoCommit) commitTransform('Move the selection'); break;
       case 'penedit': penUp(d); break;
+      case 'assist': {
+        const l2 = d.line, len = Math.hypot(l2.x1 - l2.x0, l2.y1 - l2.y0);
+        if (len < 3) break;
+        if (opts.assistType === 'ellipse') addAssist({ type: 'ellipse', cx: (l2.x0 + l2.x1) / 2, cy: (l2.y0 + l2.y1) / 2, rx: Math.max(2, Math.abs(l2.x1 - l2.x0) / 2), ry: Math.max(2, Math.abs(l2.y1 - l2.y0) / 2), angle: 0 });
+        else addAssist({ type: 'parallel', ...l2 });
+        break;
+      }
       case 'textbox': if (d.rect.w > 12) textAt(d.start, d.rect); else textAt(d.start); break;
       case 'rect': {
         const r = d.rect;
@@ -2038,7 +2134,7 @@ window.NoorPhoto = (() => {
       case 'lasso': if (d.path.length > 2) combineSel(shapeMask((x) => { x.beginPath(); d.path.forEach((q, i) => (i ? x.lineTo(q.x, q.y) : x.moveTo(q.x, q.y))); x.closePath(); x.fill(); }), d.mode); else if (d.mode === 'new') deselect(); break;
       case 'gradient': endGradient(d.s); break;
       case 'shape': if (d.line) { if (Math.hypot(d.line.x1 - d.line.x0, d.line.y1 - d.line.y0) >= 1) makeShape(null, d.line); } else if (d.rect.w >= 1 && d.rect.h >= 1) makeShape(d.rect); break;
-      case 'stroke': D.lastPaint = { x: d.s.last.x, y: d.s.last.y }; if (brush.smoothing > 0) { const keep = brush.smoothing; brush.smoothing = 0; strokeTo(d.s, p, d.s.pressure); brush.smoothing = keep; } endStroke(d.s); break;
+      case 'stroke': D.lastPaint = { x: d.s.last.x, y: d.s.last.y }; if (brush.smoothing > 0) { const keep = brush.smoothing; brush.smoothing = 0; strokeTo(d.s, snapPoint(d.s, p), d.s.pressure); brush.smoothing = keep; } endStroke(d.s); break;
       case 'cropnew': if (!cropBox || cropBox.w < 2 || cropBox.h < 2) cropBox = null; renderOptions(); break;
       default: break;
     }
@@ -2348,6 +2444,115 @@ window.NoorPhoto = (() => {
     D.active = n.id;
     const after = snap();
     pushStep(cut ? 'Layer via cut' : 'Layer via copy', () => restore(before), () => restore(after));
+  }
+
+  // ---------------------------------------------------------------- painting helpers: the pop-up palette, guides, references
+
+  /** Right-click on the picture: a ring of colours used lately and an inner ring of brushes, right at the cursor. */
+  function popupPalette(cx, cy) {
+    closePopup();
+    const base = ['#000000', '#ffffff', '#e03131', '#f08c00', '#fcc419', '#2f9e44', '#1971c2', '#7048e8', '#c2255c', '#868e96', '#5c3b1e', '#f3d9b1'];
+    const colours = [...new Set([...recentColours, ...base])].slice(0, 12), brushes = allBrushes().slice(0, 8);
+    const box = el('div', { class: 'ph-popup', id: 'ph-popup', tabindex: '-1', role: 'dialog', 'aria-label': 'Colours and brushes', style: `left:${cx - 110}px;top:${cy - 110}px` });
+    colours.forEach((c, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / colours.length; box.append(el('button', { class: 'ph-pop-colour', title: c, 'aria-label': c, style: `background:${c};left:${110 + Math.cos(a) * 92 - 13}px;top:${110 + Math.sin(a) * 92 - 13}px`, onclick: () => { fg = c; renderColours(); closePopup(); } })); });
+    brushes.forEach((b, i) => { const a = -Math.PI / 2 + i * Math.PI * 2 / brushes.length; box.append(el('button', { class: 'ph-pop-brush', title: b.name, 'aria-label': b.name, style: `left:${110 + Math.cos(a) * 52 - 17}px;top:${110 + Math.sin(a) * 52 - 12}px`, onclick: () => { applyPreset(b); closePopup(); } }, b.name.split(/[\s(]/)[0])); });
+    box.append(el('button', { class: 'ph-pop-centre', title: 'Swap the colours', 'aria-label': 'Swap the colours', style: `background:linear-gradient(135deg, ${fg} 50%, ${bg} 50%)`, onclick: () => { swapColours(); closePopup(); } }));
+    box.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); closePopup(); } });
+    document.body.append(box);
+    box.focus();
+    setTimeout(() => document.addEventListener('pointerdown', popupAway, true), 0);
+  }
+  function popupAway(e) { if (!e.target.closest('#ph-popup')) closePopup(); }
+  function closePopup() { const b = $('#ph-popup'); if (b) b.remove(); document.removeEventListener('pointerdown', popupAway, true); }
+
+  // Painting guides (assistants): a ruler (strokes run parallel to it), a vanishing point (strokes run towards it) or
+  // an ellipse (strokes follow it, larger or smaller). The last one placed (or the one chosen) guides the brushes
+  // while "follow the guide" is on.
+  function assistAt(p) {
+    const a = D.assists && D.assists[D.assistActive ?? D.assists.length - 1];
+    if (!a || !D.snapAssist) return null;
+    return a;
+  }
+  function snapPoint(s, q) {
+    const a = s.assist;
+    if (!a) return q;
+    const o = s.anchor;
+    if (a.type === 'ellipse') {
+      const cos = Math.cos(-a.angle), sin = Math.sin(-a.angle), loc = (pt) => { const dx = pt.x - a.cx, dy = pt.y - a.cy; return { x: (dx * cos - dy * sin) / a.rx, y: (dx * sin + dy * cos) / a.ry }; };
+      const lo = loc(o), lq = loc(q), k = Math.hypot(lo.x, lo.y) || 1, t = Math.atan2(lq.y, lq.x);
+      const ux = Math.cos(t) * k * a.rx, uy = Math.sin(t) * k * a.ry;
+      return { x: a.cx + ux * Math.cos(a.angle) - uy * Math.sin(a.angle), y: a.cy + ux * Math.sin(a.angle) + uy * Math.cos(a.angle) };
+    }
+    let dx, dy;
+    if (a.type === 'vanish') { dx = o.x - a.x; dy = o.y - a.y; } else { dx = a.x1 - a.x0; dy = a.y1 - a.y0; }
+    const len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, t = (q.x - o.x) * ux + (q.y - o.y) * uy;
+    return { x: o.x + ux * t, y: o.y + uy * t };
+  }
+  function drawAssists(x) {
+    if (!D.assists || !D.assists.length) return;
+    x.save(); x.lineWidth = 1;
+    D.assists.forEach((a, i) => {
+      const on = i === (D.assistActive ?? D.assists.length - 1);
+      x.strokeStyle = on ? 'rgba(255,79,216,.9)' : 'rgba(255,79,216,.35)';
+      if (a.type === 'vanish') {
+        const c = toScreen(a.x, a.y);
+        x.beginPath(); x.arc(c.x, c.y, 6, 0, Math.PI * 2); x.stroke();
+        x.setLineDash([3, 5]); x.beginPath();
+        for (let k = 0; k < 16; k++) { const t = k * Math.PI / 8; x.moveTo(c.x, c.y); x.lineTo(c.x + Math.cos(t) * 2000, c.y + Math.sin(t) * 2000); }
+        x.stroke(); x.setLineDash([]);
+      } else if (a.type === 'ellipse') {
+        x.save(); viewTransform(x); x.lineWidth = 1 / D.view.zoom;
+        for (const k of [1, 0.66, 1.33]) { x.globalAlpha = k === 1 ? 1 : 0.4; x.beginPath(); x.ellipse(a.cx, a.cy, a.rx * k, a.ry * k, a.angle, 0, Math.PI * 2); x.stroke(); }
+        x.restore();
+      } else {
+        const p0 = toScreen(a.x0, a.y0), p1 = toScreen(a.x1, a.y1), dx = p1.x - p0.x, dy = p1.y - p0.y, len = Math.hypot(dx, dy) || 1;
+        x.beginPath(); x.moveTo(p0.x - dx / len * 3000, p0.y - dy / len * 3000); x.lineTo(p0.x + dx / len * 3000, p0.y + dy / len * 3000); x.stroke();
+        for (const q of [p0, p1]) { x.beginPath(); x.arc(q.x, q.y, 4, 0, Math.PI * 2); x.stroke(); }
+      }
+    });
+    x.restore();
+  }
+  function addAssist(a) {
+    D.assists = [...(D.assists || []), a]; D.assistActive = D.assists.length - 1; D.snapAssist = true;
+    renderOptions(); draw();
+  }
+  function clearAssists() { D.assists = []; D.assistActive = null; renderOptions(); draw(); }
+
+  // Reference pictures: floating over the canvas (not part of the picture), moved by their bar, sized by their corner,
+  // made fainter; the eyedropper (or Alt+click) takes colours from them.
+  let refSeq = 0;
+  async function addReference() {
+    try {
+      const r = await req('photo.place');
+      if (!r || r.cancelled || !r.picture) return;
+      const c = r.picture.png ? await canvasFromBytes(unb64(r.picture.png)) : await canvasFromBytes(unb64(r.picture.data), r.picture.mime);
+      showReference(c, r.name || 'Reference');
+    } catch (err) { hooks.showError(err); }
+  }
+  function showReference(c, name) {
+    const id = `ph-ref-${++refSeq}`, k = Math.min(1, 280 / c.width, 220 / c.height);
+    const img = c; img.className = 'ph-ref-img';
+    const op = el('input', { type: 'range', min: '10', max: '100', value: '100', 'aria-label': 'Opacity', title: 'Opacity' });
+    const box = el('div', { class: 'ph-ref', id, style: `left:${20 + (refSeq % 5) * 24}px;top:${20 + (refSeq % 5) * 24}px;width:${Math.round(c.width * k)}px;height:${Math.round(c.height * k) + 26}px` },
+      el('div', { class: 'ph-ref-bar' }, el('span', { 'data-noi18n': '', text: name }), op, el('button', { class: 'ph-ref-x', 'aria-label': 'Close the reference', title: 'Close', onclick: () => box.remove() }, '×')), img);
+    op.addEventListener('input', () => { img.style.opacity = String(Number(op.value) / 100); });
+    const bar = box.querySelector('.ph-ref-bar');
+    bar.addEventListener('pointerdown', (e) => {
+      if (e.target !== bar && e.target.tagName !== 'SPAN') return;
+      const sx = e.clientX - box.offsetLeft, sy = e.clientY - box.offsetTop;
+      bar.setPointerCapture(e.pointerId);
+      const mv = (ev) => { box.style.left = `${ev.clientX - sx}px`; box.style.top = `${ev.clientY - sy}px`; };
+      const up = () => { bar.removeEventListener('pointermove', mv); bar.removeEventListener('pointerup', up); };
+      bar.addEventListener('pointermove', mv); bar.addEventListener('pointerup', up);
+    });
+    img.addEventListener('pointerdown', (e) => {
+      if (tool !== 'picker' && !e.altKey) return;
+      const r = img.getBoundingClientRect(), x = Math.floor((e.clientX - r.left) / r.width * c.width), y = Math.floor((e.clientY - r.top) / r.height * c.height);
+      const d = g2(c).getImageData(clamp(x, 0, c.width - 1), clamp(y, 0, c.height - 1), 1, 1).data;
+      if (e.shiftKey) bg = rgbHex(d[0], d[1], d[2]); else fg = rgbHex(d[0], d[1], d[2]);
+      renderColours(); e.preventDefault();
+    });
+    $('#ph-stage').append(box);
   }
 
   // ---------------------------------------------------------------- the image: size, canvas, turning
@@ -2930,7 +3135,7 @@ window.NoorPhoto = (() => {
     cv.addEventListener('pointercancel', onUp);
     cv.addEventListener('dblclick', () => { if (tool === 'pen' && pen) { pen.points.pop(); finishPen(false); } else if (tool === 'polygon' && polygon) closePolygon(); else if (tool === 'rotate' && D) { D.view.angle = 0; draw(); } else if (tool === 'hand') fit(); else if (tool === 'crop' && cropBox) applyCrop(); });
     cv.addEventListener('pointerleave', () => { hover = null; draw(); });
-    cv.addEventListener('contextmenu', (e) => e.preventDefault());
+    cv.addEventListener('contextmenu', (e) => { e.preventDefault(); if (D && !NoorUI.hasOpenModal()) popupPalette(e.clientX, e.clientY); });
     cv.addEventListener('wheel', onWheel, { passive: false });
     new ResizeObserver(() => { if (D && D.view.fitted) fit(); else draw(); }).observe($('#ph-stage'));
     renderMenubar();
@@ -3048,7 +3253,8 @@ window.NoorPhoto = (() => {
     };
     const tick = (key, obj, label) => { const c = el('input', { type: 'checkbox', id: `ph-opt-${key}`, checked: obj[key] || undefined }); c.addEventListener('change', () => { obj[key] = c.checked; }); return el('label', { class: 'ph-opt' }, c, ' ', label); };
     const selModes = () => el('span', { class: 'ph-selmodes', role: 'group', 'aria-label': 'Selection' }, ...[['new', '▢', 'New selection'], ['add', '⊞', 'Add to it (Shift)'], ['subtract', '⊟', 'Take away from it (Alt)'], ['intersect', '⧈', 'Keep the overlap (Shift+Alt)']].map(([v, g, t]) => el('button', { class: 'utility-btn' + (opts.selMode === v ? ' on' : ''), title: t, 'aria-label': t, 'aria-pressed': opts.selMode === v ? 'true' : 'false', onclick: () => { opts.selMode = v; renderOptions(); } }, g)));
-    const brushRow = (extra = []) => [num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%'), num('opacity', brush, 'Opacity', 1, 100, 1, 100, '%'), num('flow', brush, 'Flow', 1, 100, 1, 100, '%'), ...extra];
+    const snapTick = () => (D && D.assists && D.assists.length ? tick('snapAssist', D, 'follow the guide') : null);
+    const brushRow = (extra = []) => [snapTick(), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%'), num('opacity', brush, 'Opacity', 1, 100, 1, 100, '%'), num('flow', brush, 'Flow', 1, 100, 1, 100, '%'), ...extra];
     let items = [];
     if (transform) {
       items = [el('span', { class: 'ph-hint', text: 'Drag the corners to scale (Shift: freely), outside to turn, Ctrl+corner for perspective.' }),
@@ -3056,10 +3262,16 @@ window.NoorPhoto = (() => {
         el('button', { class: 'action', id: 'ph-tf-cancel', onclick: cancelTransform }, 'Cancel (Esc)'), el('button', { class: 'action primary', id: 'ph-tf-ok', onclick: () => commitTransform() }, 'Apply (Enter)')];
     } else switch (tool) {
       case 'brush': case 'eraser':
-        items = brushRow([pick('tip', brush, 'Tip', TIPS), el('button', { class: 'action', id: 'ph-dynamics', title: 'Size, place, opacity and colour varying from dab to dab', onclick: dynamicsDialog }, 'Dynamics…'), num('spacing', brush, 'Spacing', 1, 200, 1, 100, '%'), pick('smoothing', brush, 'Smoothing', [['0', 'off'], ['12', 'a little'], ['30', 'some'], ['60', 'a lot'], ['120', 'very much']]), tick('pressureSize', brush, 'pen: size'), tick('pressureOpacity', brush, 'pen: opacity')]);
+        items = brushRow([presetPicker(), pick('tip', brush, 'Tip', TIPS), tick('wetEdges', brush, 'wet edges'), pick('mirror', brush, 'Mirror', [['off', 'off'], ['h', '↔'], ['v', '↕'], ['both', '↔ ↕']]), el('button', { class: 'action', id: 'ph-dynamics', title: 'Size, place, opacity and colour varying from dab to dab', onclick: dynamicsDialog }, 'Dynamics…'), num('spacing', brush, 'Spacing', 1, 200, 1, 100, '%'), pick('smoothing', brush, 'Smoothing', [['0', 'off'], ['12', 'a little'], ['30', 'some'], ['60', 'a lot'], ['120', 'very much']]), tick('pressureSize', brush, 'pen: size'), tick('pressureOpacity', brush, 'pen: opacity')]);
         break;
+      case 'assist': items = [pick('assistType', opts, '', [['parallel', 'Ruler (strokes run parallel)'], ['vanish', 'Vanishing point'], ['ellipse', 'Ellipse']]),
+        el('span', { class: 'ph-hint', text: opts.assistType === 'vanish' ? 'Click where the lines meet.' : opts.assistType === 'ellipse' ? 'Drag the ellipse\'s box.' : 'Drag along the direction.' }),
+        D && D.assists && D.assists.length ? tick('snapAssist', D, 'brushes follow the guide') : null,
+        D && D.assists && D.assists.length > 1 ? el('label', { class: 'ph-opt' }, 'Use ', (() => { const sel = el('select', { id: 'ph-opt-assist', 'aria-label': 'Guide' }, ...D.assists.map((a, i) => el('option', { value: String(i), text: `${i + 1}: ${{ parallel: 'ruler', vanish: 'vanishing point', ellipse: 'ellipse' }[a.type]}` }))); sel.value = String(D.assistActive ?? D.assists.length - 1); sel.addEventListener('change', () => { D.assistActive = Number(sel.value); draw(); }); return sel; })()) : null,
+        D && D.assists && D.assists.length ? el('button', { class: 'action', id: 'ph-assist-clear', onclick: clearAssists }, 'Clear the guides') : null]; break;
       case 'history': items = brushRow([el('span', { class: 'ph-hint', text: D && D.histSrc ? 'Paints back the chosen state (◎ in History).' : 'Paints back the picture as it was when it opened (◎ in History: another state).' })]); break;
       case 'clone': case 'heal': items = brushRow([tick('cloneAligned', opts, 'aligned'), tick('cloneAll', opts, 'from all layers'), el('span', { class: 'ph-hint', text: D && D.cloneFrom ? 'Alt+click: copy from somewhere else' : 'Alt+click where to copy from' })]); break;
+      case 'mixer': items = [presetPicker(), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%'), num('flow', brush, 'Flow', 1, 100, 1, 100, '%'), num('wet', opts, 'Wet', 0, 100, 1, 100, '%'), num('load', opts, 'Paint load', 0, 100, 1, 100, '%'), pick('mirror', brush, 'Mirror', [['off', 'off'], ['h', '↔'], ['v', '↕'], ['both', '↔ ↕']]), tick('pressureSize', brush, 'pen: size'), el('span', { class: 'ph-hint', text: 'Wet: how much it mixes with what is under it; load 0 smears without adding paint.' })]; break;
       case 'smudge': items = [pick('smudgeMode', opts, '', [['smudge', 'Smudge'], ['blur', 'Blur'], ['sharpen', 'Sharpen']]), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%'), num('strength', opts, 'Strength', 1, 100, 1, 100, '%')]; break;
       case 'dodge': items = [pick('dodgeMode', opts, '', [['dodge', 'Dodge (lighter)'], ['burn', 'Burn (darker)'], ['desaturate', 'Sponge: less colour'], ['saturate', 'Sponge: more colour']]), pick('range', opts, 'Range', [['shadows', 'shadows'], ['midtones', 'midtones'], ['highlights', 'highlights']]), num('exposure', opts, 'Exposure', 1, 100, 1, 100, '%'), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%')]; break;
       case 'marquee': case 'ellipse': case 'lasso': case 'polygon':
@@ -3097,6 +3309,46 @@ window.NoorPhoto = (() => {
     }
     box.replaceChildren(...items.filter(Boolean));
   }
+  // Brush presets: ready-made brushes (and your own, kept here) that set the tool, the tip, size, flow and dynamics.
+  const BRUSH_BASE = { hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false, tip: 'round', wetEdges: false, sizeJitter: 0, scatter: 0, opacityJitter: 0, hueJitter: 0, brightJitter: 0 };
+  const BRUSH_PRESETS = [
+    { name: 'Pencil', tool: 'brush', b: { size: 3, hardness: 1, spacing: 0.08, pressureOpacity: true } },
+    { name: 'Ink pen', tool: 'brush', b: { size: 6, hardness: 0.95, spacing: 0.05, smoothing: 30 } },
+    { name: 'Soft airbrush', tool: 'brush', b: { size: 90, hardness: 0, flow: 0.08 } },
+    { name: 'Chalk', tool: 'brush', b: { size: 30, tip: 'chalk', hardness: 0.6, flow: 0.8 } },
+    { name: 'Watercolour', tool: 'brush', b: { size: 60, hardness: 0.5, flow: 0.35, opacity: 0.85, wetEdges: true, spacing: 0.1 } },
+    { name: 'Oil bristles', tool: 'brush', b: { size: 40, tip: 'bristle', flow: 0.9 } },
+    { name: 'Spray can', tool: 'brush', b: { size: 70, tip: 'spray', hardness: 0.5, flow: 0.6 } },
+    { name: 'Foliage', tool: 'brush', b: { size: 22, sizeJitter: 0.6, scatter: 1.2, hueJitter: 0.08, brightJitter: 0.3, spacing: 0.6 } },
+    { name: 'Stars', tool: 'brush', b: { size: 10, hardness: 0.3, sizeJitter: 0.8, scatter: 4, opacityJitter: 0.7, spacing: 2.5 } },
+    { name: 'Wet paint (mixer)', tool: 'mixer', b: { size: 40, hardness: 0.6, flow: 0.8 }, o: { wet: 0.6, load: 0.15 } },
+    { name: 'Blender (no paint)', tool: 'mixer', b: { size: 50, hardness: 0.3, flow: 0.6 }, o: { wet: 1, load: 0 } },
+  ];
+  const MY_BRUSHES = 'noorphoto.brushes';
+  const myBrushes = () => { try { return JSON.parse(localStorage.getItem(MY_BRUSHES) || '[]') || []; } catch { return []; } };
+  function applyPreset(pr) {
+    Object.assign(brush, BRUSH_BASE, pr.b);
+    if (pr.o) Object.assign(opts, pr.o);
+    settings.lastPreset = pr.name; saveSettings();
+    setTool(pr.tool || 'brush');
+    notice(pr.name, 900);
+  }
+  async function saveBrushPreset() {
+    const name = await NoorUI.prompt('Save the brush', 'Its name', `My brush ${myBrushes().length + 1}`);
+    if (name === undefined || !name.trim()) return;
+    const b = {}; for (const k of [...Object.keys(BRUSH_BASE), 'size']) b[k] = brush[k];
+    const list = [...myBrushes().filter((x) => x.name !== name.trim()), { name: name.trim(), tool: tool === 'mixer' ? 'mixer' : 'brush', b, o: tool === 'mixer' ? { wet: opts.wet, load: opts.load } : undefined }].slice(-40);
+    try { localStorage.setItem(MY_BRUSHES, JSON.stringify(list)); } catch { /* full */ }
+    notice(`Brush kept: ${name.trim()}`, 1400); renderOptions();
+  }
+  function allBrushes() { return [...BRUSH_PRESETS, ...myBrushes().map((x) => ({ ...x, mine: true }))]; }
+  function presetPicker() {
+    const sel = el('select', { id: 'ph-opt-preset', 'aria-label': 'Brush presets' }, el('option', { value: '', text: 'Brushes…' }),
+      ...allBrushes().map((pr, i) => el('option', { value: String(i), text: pr.mine ? `${pr.name} (yours)` : pr.name })), el('option', { value: 'save', text: 'Save this brush…' }));
+    sel.addEventListener('change', () => { if (sel.value === 'save') saveBrushPreset(); else if (sel.value) applyPreset(allBrushes()[Number(sel.value)]); sel.value = ''; });
+    return sel;
+  }
+
   /** Brush dynamics: how much each dab may vary. */
   function dynamicsDialog() {
     NoorUI.modal({ label: 'Brush dynamics', width: 360 }, (s, closeIt) => {
@@ -3703,7 +3955,7 @@ window.NoorPhoto = (() => {
       ['File', 'f', () => [
         go('New…', newDialog, 'Ctrl+N'), go('Open…', openFile, 'Ctrl+O'),
         { label: 'Open recent', sub: () => (recentFiles.length ? recentFiles.map((r) => go(r.name, () => openRecent(r.path), '', { title: r.path })) : [{ label: 'Nothing opened yet', disabled: true }]) },
-        go('Place a picture as a layer…', placePicture), '-',
+        go('Place a picture as a layer…', placePicture), go('Reference picture (to look at while painting)…', addReference), '-',
         go('Save', () => save(false), 'Ctrl+S'), go('Save as… (.noorphoto or PSD)', () => save(true), 'Ctrl+Shift+S'), go('Export (PNG, JPEG, WebP, TIFF)…', exportDialog, 'Ctrl+Alt+Shift+S'), go('Quick export as PNG', quickExport), '-',
         go('To NoorMaterial (a new material)', toMaterial), '-',
         go('Close this picture', () => closeDoc(docs.indexOf(D))), { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorPhoto', close),
@@ -3744,6 +3996,8 @@ window.NoorPhoto = (() => {
         go('Zoom in', () => zoomStep(1), 'Ctrl+='), go('Zoom out', () => zoomStep(-1), 'Ctrl+−'), go('Fit on screen', fit, 'Ctrl+0'), go('Actual pixels (100%)', () => zoomTo(1), 'Ctrl+1'), go('Straighten the view', () => { if (D) { D.view.angle = 0; draw(); } }), '-',
         { label: 'Grid', checked: () => !!(D && D.showGrid), run: () => { if (D) { D.showGrid = !D.showGrid; draw(); } } },
         { label: 'Guides', checked: () => !!(D && D.showGuides), run: () => { if (D) { D.showGuides = !D.showGuides; draw(); } } },
+        { label: 'Wrap around (paint seamless tiles)', checked: () => !!(D && D.wrap), run: () => { if (D) { D.wrap = !D.wrap; draw(); } } },
+        go('Painting guides (ruler, vanishing point, ellipse)', () => setTool('assist')), go('Clear the painting guides', clearAssists, '', { disabled: () => !D || !(D.assists || []).length }),
         go('New guide…', newGuide), go('Clear the guides', () => change('Clear guides', () => { D.doc.guides = []; }), '', { disabled: () => !D || !D.doc.guides.length }),
       ]],
     ].map((m) => [m[0], m[1], () => (has() ? m[2]() : [{ label: 'No picture open', disabled: true }])]);

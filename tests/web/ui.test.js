@@ -8383,6 +8383,98 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 67d. NoorPhoto painting (Krita's ideas): the mixer brush, bristles, wet edges, brush presets, the pop-up
+    // palette, painting guides, mirror painting, wrap-around and reference pictures.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const PS = () => page.evaluate(() => NoorPhoto._state());
+      const px = (x, y, id = null) => page.evaluate(([a, b, c]) => NoorPhoto._pixel(a, b, c), [x, y, id]);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorPhoto._screen(a, b), [x, y]);
+      const dragOn = async (pts) => { const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 8 }); } await page.mouse.up(); };
+      const near = (a, b, t = 3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= t);
+      await page.keyboard.press('Control+Alt+j');
+      await waitFn(page, () => NoorPhoto.isOpen() && NoorPhoto._state());
+      await page.evaluate(() => NoorPhoto._new(120, 80, 'white'));
+      await waitFn(page, () => NoorPhoto._state().width === 120);
+      // Mixer: red paint first, then blue wet paint dragged through it mixes.
+      await page.evaluate(() => NoorPhoto._setColour('fg', '#ff0000'));
+      await page.click('#ph-tools [data-tool="brush"]');
+      await page.fill('#ph-opt-size', '20'); await page.press('#ph-opt-size', 'Tab');
+      await page.fill('#ph-opt-hardness', '100'); await page.press('#ph-opt-hardness', 'Tab');
+      await dragOn([[20, 20], [100, 20]]);
+      await page.evaluate(() => NoorPhoto._setColour('fg', '#0000ff'));
+      await page.click('#ph-tools [data-tool="mixer"]');
+      await page.fill('#ph-opt-wet', '60'); await page.press('#ph-opt-wet', 'Tab');
+      await dragOn([[30, 20], [90, 20]]);
+      const mixed = await px(70, 20);
+      check('the mixer brush mixes its paint with what is under it (red + blue)', mixed[0] > 60 && mixed[2] > 60 && (await PS()).history.at(-1) === 'Mixer brush', mixed);
+      // Brush presets: Watercolour sets wet edges; Oil bristles the bristle tip.
+      await page.click('#ph-tools [data-tool="brush"]');
+      const pickPreset = async (name) => { const v = await page.$eval('#ph-opt-preset', (s, n) => [...s.options].find((o) => o.text === n).value, name); await page.selectOption('#ph-opt-preset', v); };
+      await pickPreset('Watercolour');
+      check('a brush preset sets the brush (watercolour: wet edges)', (await PS()).brush.wetEdges === true && (await PS()).brush.size === 60);
+      // Wet edges: the rim darker than the middle.
+      await page.keyboard.press('Control+Shift+n');
+      await page.evaluate(() => NoorPhoto._setColour('fg', '#000000'));
+      await page.fill('#ph-opt-size', '40'); await page.press('#ph-opt-size', 'Tab');
+      await page.fill('#ph-opt-flow', '100'); await page.press('#ph-opt-flow', 'Tab');
+      const c1 = await at(60, 55); await page.mouse.click(c1.x, c1.y);
+      const mid = await px(60, 55, (await PS()).active), rim = await px(60 + 15, 55, (await PS()).active);
+      check('wet edges: the paint pools at the rim', rim[3] > mid[3] + 10, [mid, rim]);
+      await pickPreset('Oil bristles');
+      check('…oil bristles: the bristle tip', (await PS()).brush.tip === 'bristle');
+      await pickPreset('Pencil');
+      // The pop-up palette: right-click, choose a colour.
+      const c2 = await at(60, 40);
+      await page.mouse.click(c2.x, c2.y, { button: 'right' });
+      await page.waitForSelector('#ph-popup');
+      check('right-click: the pop-up palette with colours and brushes', (await page.$$('#ph-popup .ph-pop-colour')).length >= 8 && (await page.$$('#ph-popup .ph-pop-brush')).length >= 4);
+      await page.click('#ph-popup .ph-pop-colour[title="#2f9e44"]');
+      check('…a colour chosen in it is the foreground', (await PS()).fg === '#2f9e44' && !(await page.$('#ph-popup')));
+      // Painting guides: a horizontal ruler; a slanted stroke comes out straight across.
+      await page.click('#ph-tools [data-tool="assist"]');
+      await dragOn([[10, 70], [110, 70]]);
+      check('a ruler guide is placed', (await page.evaluate(() => NoorPhoto._state())) && !!(await page.$('#ph-assist-clear')));
+      await page.keyboard.press('Control+Shift+n');
+      await page.click('#ph-tools [data-tool="brush"]');
+      await page.fill('#ph-opt-size', '4'); await page.press('#ph-opt-size', 'Tab');
+      await dragOn([[20, 40], [60, 50], [100, 60]]);
+      const gid = (await PS()).active;
+      check('…the brush follows it: the stroke runs straight, parallel to the ruler', (await px(100, 40, gid))[3] > 100 && (await px(100, 60, gid))[3] === 0, [await px(100, 40, gid), await px(100, 60, gid)]);
+      await page.click('#ph-tools [data-tool="assist"]');
+      await page.click('#ph-assist-clear');
+      // Mirror painting: a dab on the left shows on the right too.
+      await page.click('#ph-tools [data-tool="brush"]');
+      await page.selectOption('#ph-opt-mirror', 'h');
+      await page.keyboard.press('Control+Shift+n');
+      const c3 = await at(20, 30); await page.mouse.click(c3.x, c3.y);
+      const mid3 = (await PS()).active;
+      check('mirror painting: the dab is mirrored across the middle', (await px(20, 30, mid3))[3] > 100 && (await px(100, 30, mid3))[3] > 100, [await px(20, 30, mid3), await px(100, 30, mid3)]);
+      await page.selectOption('#ph-opt-mirror', 'off');
+      // Wrap-around: a dab over the right edge comes in on the left.
+      await page.click('#ph-menubar .ph-menu-title:has-text("View")');
+      await page.click('.menu-popup .menu-item:has-text("Wrap around")');
+      await page.fill('#ph-opt-size', '16'); await page.press('#ph-opt-size', 'Tab');
+      await page.keyboard.press('Control+Shift+n');
+      const c4 = await at(118, 10); await page.mouse.click(c4.x, c4.y);
+      const wid = (await PS()).active;
+      check('wrap-around: paint over an edge comes in on the other side', (await px(118, 10, wid))[3] > 100 && (await px(3, 10, wid))[3] > 100, [await px(3, 10, wid)]);
+      await page.click('#ph-menubar .ph-menu-title:has-text("View")');
+      await page.click('.menu-popup .menu-item:has-text("Wrap around")');
+      // A reference picture: floating, the eyedropper takes its colours.
+      await page.click('#ph-menubar .ph-menu-title:has-text("File")');
+      await page.click('.menu-popup .menu-item:has-text("Reference picture")');
+      await page.waitForSelector('#photobench .ph-ref');
+      await page.click('#ph-tools [data-tool="picker"]');
+      const rb = await page.$eval('#photobench .ph-ref .ph-ref-img', (n) => { const r = n.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.click(rb.x, rb.y);
+      check('a reference picture floats over the canvas; the eyedropper takes its colour', (await PS()).fg === '#00ff00', (await PS()).fg);
+      await page.click('#photobench .ph-ref .ph-ref-x');
+      check('…and closes', !(await page.$('#photobench .ph-ref')));
+      check('no page errors with the painting tools', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

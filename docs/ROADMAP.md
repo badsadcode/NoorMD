@@ -5,6 +5,11 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorPhoto painting (preview.122; ideas from Krita, no code): the mixer brush (wet paint that mixes with what is
+  under it, or blends with no paint at all), bristle brushes, wet edges (watercolour), brush presets (eleven ready,
+  and your own), a pop-up palette on right-click (colours and brushes at the cursor), painting guides (a ruler, a
+  vanishing point, an ellipse) the brushes follow, mirror painting, wrap-around for seamless tiles, and reference
+  pictures floating over the canvas (the eyedropper takes their colours).
 - NoorPhoto, round three (preview.121): a histogram panel (mean, spread, middle); Export shows the file as it will be
   and its size (and Quick export as PNG); brush tips (round, square, chalk, spray) and dynamics (size, scatter,
   opacity, hue and lightness varying dab to dab); the history brush (paints back a state chosen in History);
