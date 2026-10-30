@@ -556,28 +556,90 @@
     // Horizontal slabs so each winding query only looks at edges spanning its y.
     let y0 = Infinity, y1 = -Infinity;
     for (const k of live) { y0 = Math.min(y0, VY[U[k]], VY[V[k]]); y1 = Math.max(y1, VY[U[k]], VY[V[k]]); }
-    const NS = Math.max(1, Math.min(4096, Math.ceil(Math.sqrt(live.length) * 2))), sh = (y1 - y0) / NS || 1;
+    // Slabs about an eighth of the mean edge height, so most edges run through the slabs they touch (see below).
+    let sumDy = 0;
+    for (const k of live) sumDy += Math.abs(VY[V[k]] - VY[U[k]]);
+    const NS = Math.max(1, Math.min(65536, 2 * live.length, Math.ceil(((y1 - y0) * 8 * live.length) / Math.max(sumDy, 1)))), sh = (y1 - y0) / NS || 1;
     const slabs = Array.from({ length: NS }, () => []);
     const slabOf = (y) => Math.min(NS - 1, Math.max(0, Math.floor((y - y0) / sh)));
     for (const k of live) {
       const a = slabOf(Math.min(VY[U[k]], VY[V[k]])), b = slabOf(Math.max(VY[U[k]], VY[V[k]]));
       for (let s = a; s <= b; s++) slabs[s].push(k);
     }
+    // Within a slab, an edge that runs through its whole height (with a unit of margin) crosses every query line there,
+    // somewhere in a known x interval. Such edges clearly right of a query point add their signed count, so they are
+    // sorted by the left end of that interval with suffix sums (and a running maximum of the right ends, to find the
+    // few intervals around the point, which get the exact test). Very wide intervals are tested exactly too. Edges that end
+    // inside a crowded slab go down into eight thinner sub-slabs, built when first needed, where most of them run through.
+    // Horizontal edges never cross a query line. The answer is the same as testing every edge exactly.
+    let x0 = Infinity, x1 = -Infinity;
+    for (const k of live) { x0 = Math.min(x0, VX[U[k]], VX[V[k]]); x1 = Math.max(x1, VX[U[k]], VX[V[k]]); }
+    const wideX = Math.max(64, (x1 - x0) / 32);
+    const prepare = (top, bot, list) => {
+      const t1 = top - 1, b1 = bot + 1, full = [], exact = [];
+      for (const j of list) {
+        const px = VX[U[j]], py = VY[U[j]], qx = VX[V[j]], qy = VY[V[j]];
+        if (py === qy) continue;
+        if (Math.min(py, qy) <= t1 && Math.max(py, qy) > b1) {
+          const xa = px + ((qx - px) * (t1 - py)) / (qy - py), xb = px + ((qx - px) * (b1 - py)) / (qy - py);
+          const xl = Math.min(xa, xb) - 1, xr = Math.max(xa, xb) + 1;
+          if (xr - xl <= wideX) { full.push([xl, xr, j, qy > py ? 1 : -1]); continue; }
+        }
+        exact.push(j);
+      }
+      full.sort((p, q) => p[0] - q[0]);
+      const n = full.length, FL = new Float64Array(n), FR = new Float64Array(n), FJ = new Int32Array(n), PM = new Float64Array(n);
+      const SA = new Float64Array(n + 1), SB = new Float64Array(n + 1);
+      for (let i = n - 1; i >= 0; i--) {
+        const f = full[i];
+        FL[i] = f[0]; FR[i] = f[1]; FJ[i] = f[2];
+        SA[i] = SA[i + 1] + f[3] * CA[f[2]]; SB[i] = SB[i + 1] + f[3] * CB[f[2]];
+      }
+      for (let i = 0, mr = -Infinity; i < n; i++) PM[i] = mr = Math.max(mr, FR[i]);
+      const node = { top, bot, FL, FR, FJ, PM, SA, SB, exact, kids: null };
+      if (exact.length > 48 && bot - top > 32) {
+        const ksh = (bot - top) / 8, lists = [[], [], [], [], [], [], [], []];
+        const kid = (y) => Math.min(7, Math.max(0, Math.floor((y - top) / ksh)));
+        for (const j of exact) {
+          const ya = Math.min(VY[U[j]], VY[V[j]]) - 1, yb = Math.max(VY[U[j]], VY[V[j]]) + 1;
+          for (let c = kid(ya), ce = kid(yb); c <= ce; c++) lists[c].push(j);
+        }
+        node.kids = new Array(8);
+        node.kid = kid;
+        node.lists = lists;
+        node.ksh = ksh;
+      }
+      return node;
+    };
+    const slabData = new Array(NS);
     const inside = (wa, wb) => {
       const a = filled(wa, rule), b = filled(wb, rule);
       return op === 'union' ? a || b : op === 'intersect' ? a && b : op === 'subtract' ? a && !b : a !== b;
     };
     const DU = [], DV = [];
+    let wa = 0, wb = 0, mx = 0, my = 0;
+    const test = (j) => {
+      const px = VX[U[j]], py = VY[U[j]], qx = VX[V[j]], qy = VY[V[j]];
+      if (py <= my) {
+        if (qy > my && (qx - px) * (my - py) - (mx - px) * (qy - py) > 0) { wa += CA[j]; wb += CB[j]; }
+      } else if (qy <= my && (qx - px) * (my - py) - (mx - px) * (qy - py) < 0) { wa -= CA[j]; wb -= CB[j]; }
+    };
     for (const k of live) {
-      const ax = VX[U[k]], ay = VY[U[k]], bx = VX[V[k]], by = VY[V[k]], mx = (ax + bx) / 2, my = (ay + by) / 2;
+      const ax = VX[U[k]], ay = VY[U[k]], bx = VX[V[k]], by = VY[V[k]];
+      mx = (ax + bx) / 2; my = (ay + by) / 2;
       // Winding of every other edge at the midpoint (exact: the midpoint lies on no other edge).
-      let wa = 0, wb = 0;
-      for (const j of slabs[slabOf(my)]) {
-        if (j === k) continue;
-        const px = VX[U[j]], py = VY[U[j]], qx = VX[V[j]], qy = VY[V[j]];
-        if (py <= my) {
-          if (qy > my && (qx - px) * (my - py) - (mx - px) * (qy - py) > 0) { wa += CA[j]; wb += CB[j]; }
-        } else if (qy <= my && (qx - px) * (my - py) - (mx - px) * (qy - py) < 0) { wa -= CA[j]; wb -= CB[j]; }
+      wa = 0; wb = 0;
+      const si = slabOf(my);
+      let nd = slabData[si] || (slabData[si] = prepare(y0 + si * sh, y0 + (si + 1) * sh, slabs[si]));
+      while (true) {
+        const FL = nd.FL;
+        let lo = 0, hi = FL.length;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (FL[mid] > mx) hi = mid; else lo = mid + 1; }
+        wa += nd.SA[lo]; wb += nd.SB[lo];
+        for (let t = lo - 1; t >= 0 && nd.PM[t] >= mx; t--) if (nd.FR[t] >= mx && nd.FJ[t] !== k) test(nd.FJ[t]);
+        if (!nd.kids) { for (const j of nd.exact) if (j !== k) test(j); break; }
+        const c = nd.kid(my);
+        nd = nd.kids[c] || (nd.kids[c] = prepare(nd.top + c * nd.ksh, nd.top + (c + 1) * nd.ksh, nd.lists[c]));
       }
       // The half-open rule puts that count on one known side of this edge; its own count separates left from right.
       const dy = by - ay, dx = bx - ax;
@@ -854,14 +916,15 @@
   // cap at each open end, exactly what a browser fills. All pieces get a positive area and one nonzero boolean union
   // resolves every overlap (short segments, cusps, 180 degree turns, a path crossing itself). Curves are flattened first;
   // the vertices that flattening adds inside a curve get round joins, so the outline follows the true offset curve. Round
-  // parts come back as short straight segments whose chord error is at most `tolerance` (default min(0.05, width / 40)).
+  // parts come back as short straight segments whose chord error is at most `tolerance` (default min(0.1, width / 20)).
+  const CHUNK = 32;
   function strokeRings(path, width, opts) {
     const o = opts || {}, h = Math.abs(+width || 0) / 2;
     if (!(h > 0) || !isFinite(h)) return [];
     const cap = o.cap === 'round' || o.cap === 'square' ? o.cap : 'butt';
     const join = o.join === 'round' || o.join === 'bevel' ? o.join : 'miter';
     const limit = Math.max(1, +o.miterLimit || 4);
-    const tol = o.tolerance > 0 ? Math.min(+o.tolerance, h / 4) : Math.min(0.05, h / 20);
+    const tol = o.tolerance > 0 ? Math.min(+o.tolerance, h / 4) : Math.min(0.1, h / 10);
     const astep = 2 * Math.acos(1 - tol / h), eps = 1e-7 * Math.max(1, h);
     const pieces = [];
     const push = (r) => { const a = area(r); if (a < 0) r.reverse(); if (a) pieces.push(r); };
@@ -871,31 +934,53 @@
       for (let k = 1; k <= n; k++) { const a = a0 + (delta * k) / n; out.push([cx + h * Math.cos(a), cy + h * Math.sin(a)]); }
       return out;
     };
-    // Join at (px, py) between unit directions d1 (in) and d2 (out). The outer side is the one the path turns away from;
-    // a full reversal turns through the forward direction d1.
-    function joinPiece(px, py, d1x, d1y, d2x, d2y, kind) {
+    // The outer edge of a join at (px, py) between unit directions d1 (in) and d2 (out), from the end of the incoming
+    // segment's offset to the start of the outgoing one. The outer side is the one the path turns away from (sign sg: +1
+    // is the side of the normal (dy, -dx)); a full reversal turns through the forward direction d1.
+    function joinEdge(px, py, d1x, d1y, d2x, d2y, kind, sg, out) {
       const cr = d1x * d2y - d1y * d2x, dt = d1x * d2x + d1y * d2y;
-      if (cr === 0 && dt > 0) return;
-      const sg = cr < 0 ? -1 : 1, n1x = sg * d1y, n1y = -sg * d1x, n2x = sg * d2y, n2y = -sg * d2x;
-      const delta = cr === 0 ? Math.PI : Math.atan2(cr, dt);
-      const a = [px + h * n1x, py + h * n1y], b = [px + h * n2x, py + h * n2y];
-      if (kind === 'round') { push(arc(px, py, Math.atan2(n1y, n1x), delta, [[px, py], a])); return; }
+      const n1x = sg * d1y, n1y = -sg * d1x, n2x = sg * d2y, n2y = -sg * d2x;
+      if (kind === 'round' && cr !== 0 && dt > 0 && Math.abs(Math.atan2(cr, dt)) <= astep) {
+        // A turn so small that its arc is a single chord (the usual case inside a flattened curve): one point on the arc
+        // half way round keeps the outline within the tolerance with half the vertices.
+        const mx = n1x + n2x, my = n1y + n2y, ml = Math.hypot(mx, my);
+        out.push([px + (h * mx) / ml, py + (h * my) / ml]);
+        return out;
+      }
+      out.push([px + h * n1x, py + h * n1y]);
+      if (cr === 0 && dt > 0) return out;
+      if (kind === 'round') return arc(px, py, Math.atan2(n1y, n1x), cr === 0 ? Math.PI : Math.atan2(cr, dt), out);
       if (kind === 'miter' && 1 + dt > 1e-12 && 2 / (1 + dt) <= limit * limit) {
         const k = h / (1 + dt);
-        push([[px, py], a, [px + k * (n1x + n2x), py + k * (n1y + n2y)], b]);
-        return;
+        out.push([px + k * (n1x + n2x), py + k * (n1y + n2y)]);
       }
-      push([[px, py], a, b]);
+      out.push([px + h * n2x, py + h * n2y]);
+      return out;
     }
-    // Cap at an open end (px, py) where the path leaves in unit direction (dx, dy).
-    function capPiece(px, py, dx, dy) {
-      const nx = dy * h, ny = -dx * h;
-      if (cap === 'square') push([[px + nx, py + ny], [px + nx + dx * h, py + ny + dy * h], [px - nx + dx * h, py - ny + dy * h], [px - nx, py - ny]]);
-      else if (cap === 'round') push(arc(px, py, Math.atan2(ny, nx), Math.PI, [[px + nx, py + ny]]));
+    const sideOf = (d1x, d1y, d2x, d2y) => (d1x * d2y - d1y * d2x < 0 ? -1 : 1);
+    // Pieces that would only touch along a line (a join wedge and the segment ends next to it, two strips meeting at a
+    // break, a cap and its strip) are made to overlap by ov instead: each boolean call rounds to its own grid, and two
+    // separately rounded copies of one line can leave a hairline slit between them.
+    let ov = 0;
+    // A join on its own: the wedge between the vertex and its outer edge, reaching e1 back into the incoming segment and
+    // e2 on into the outgoing one.
+    function joinPiece(px, py, d1x, d1y, d2x, d2y, kind, e1, e2) {
+      const sg = sideOf(d1x, d1y, d2x, d2y), out = [[px - e1 * d1x, py - e1 * d1y], [px + h * sg * d1y - e1 * d1x, py - h * sg * d1x - e1 * d1y]];
+      joinEdge(px, py, d1x, d1y, d2x, d2y, kind, sg, out);
+      out.push([px + h * sg * d2y + e2 * d2x, py - h * sg * d2x + e2 * d2y], [px + e2 * d2x, py + e2 * d2y]);
+      push(out);
     }
+    // Cap at an open end (px, py) where the path leaves in unit direction (dx, dy), reaching e back over the segment.
+    function capPiece(px, py, dx, dy, e) {
+      const nx = dy * h, ny = -dx * h, bx = px - e * dx, by = py - e * dy;
+      if (cap === 'square') push([[bx + nx, by + ny], [px + nx + dx * h, py + ny + dy * h], [px - nx + dx * h, py - ny + dy * h], [bx - nx, by - ny]]);
+      else if (cap === 'round') { const r = arc(px, py, Math.atan2(ny, nx), Math.PI, [[bx + nx, by + ny], [px + nx, py + ny]]); r.push([bx - nx, by - ny]); push(r); }
+    }
+    // Flatten every subpath segment by segment, so we know which vertices are real anchors; drop repeated points.
+    const subs = [];
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
     for (const s of path || []) {
       if (!s || !s.pts || !s.pts.length) continue;
-      // Flatten segment by segment so we know which vertices are real anchors; drop repeated points.
       const P = [], A = [];
       const add = (x, y, isAnchor) => {
         const l = P[P.length - 1];
@@ -915,6 +1000,12 @@
         const l = P[P.length - 1];
         if (Math.abs(l[0] - P[0][0]) <= eps && Math.abs(l[1] - P[0][1]) <= eps) { P.pop(); A[0] = 1; A.pop(); }
       }
+      for (const q of P) { if (q[0] < bx0) bx0 = q[0]; if (q[0] > bx1) bx1 = q[0]; if (q[1] < by0) by0 = q[1]; if (q[1] > by1) by1 = q[1]; }
+      subs.push({ P, A, closed });
+    }
+    if (!subs.length) return [];
+    ov = Math.max((32 * (Math.max(bx1 - bx0, by1 - by0) + 2 * h)) / GRID, 1e-6 * h); // 16 cells of the coarsest grid
+    for (const { P, A, closed } of subs) {
       const n = P.length;
       if (n === 1) { // a zero-length subpath: a dot for round caps, an axis-aligned square for square caps
         const [px, py] = P[0];
@@ -922,25 +1013,89 @@
         else if (cap === 'square') push([[px - h, py - h], [px + h, py - h], [px + h, py + h], [px - h, py + h]]);
         continue;
       }
-      const m = closed ? n : n - 1, DX = new Float64Array(m), DY = new Float64Array(m);
+      const m = closed ? n : n - 1, DX = new Float64Array(m), DY = new Float64Array(m), L = new Float64Array(m);
       for (let i = 0; i < m; i++) {
         const a = P[i], b = P[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
-        DX[i] = (b[0] - a[0]) / l; DY[i] = (b[1] - a[1]) / l;
-        const nx = DY[i] * h, ny = -DX[i] * h;
-        push([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]]);
+        DX[i] = (b[0] - a[0]) / l; DY[i] = (b[1] - a[1]) / l; L[i] = l;
       }
+      // Runs of vertices where the inner offset lines meet in order along each segment become one strip polygon (outer
+      // joins on one side, the inner meeting points on the other). Such a strip is a locally one-to-one sweep, so it
+      // never winds negatively. Other vertices (sharp turns next to short segments, cusps, tight curves) break the run and
+      // get a separate join wedge; the union then sorts out the overlap. The inner lines of vertex i meet h tan(turn / 2)
+      // from it; on each segment the two meeting points at its ends must not pass each other when on the same side.
+      const brk = new Uint8Array(n), TI = new Float64Array(n), SI = new Int8Array(n);
+      if (!closed) brk[0] = brk[n - 1] = 1;
       for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
-        const j = (i + m - 1) % m;
-        joinPiece(P[i][0], P[i][1], DX[j], DY[j], DX[i], DY[i], A[i] ? join : 'round');
+        const j = (i + m - 1) % m, cr = DX[j] * DY[i] - DY[j] * DX[i], dt = DX[j] * DX[i] + DY[j] * DY[i];
+        if (1 + dt < 1e-9) { brk[i] = 1; continue; }
+        TI[i] = (h * Math.abs(cr)) / (1 + dt); SI[i] = cr < 0 ? -1 : 1;
+        if (TI[i] > Math.min(L[j], L[i])) brk[i] = 1;
+      }
+      for (let i = closed ? 0 : 1, prev = closed ? n - 1 : 0; i < (closed ? n : n - 1); i++) {
+        if (brk[i]) { prev = i; continue; }
+        const j = (i + m - 1) % m, before = !brk[prev] && SI[prev] === SI[i] ? TI[prev] : 0;
+        if (TI[i] + before > L[j]) brk[i] = 1;
+        prev = i;
+      }
+      // Long runs are cut into chunks too, so the union below can merge neighbours first and drop their shared insides.
+      for (let i = 0, run = 0; i < n; i++) { if (brk[i]) run = 0; else if (++run >= CHUNK) { brk[i] = 1; run = 0; } }
+      const strip = (a, steps, e0, e1) => { // from vertex a along `steps` segments, reaching e0 back and e1 on at the ends
+        const plus = [], minus = [];
+        let s = a % m;
+        const sx = P[a % n][0] - e0 * DX[s], sy = P[a % n][1] - e0 * DY[s];
+        plus.push([sx + h * DY[s], sy - h * DX[s]]);
+        minus.push([sx - h * DY[s], sy + h * DX[s]]);
+        for (let k = 1; k < steps; k++) {
+          const v = (a + k) % n, j = s, i = v % m, px = P[v][0], py = P[v][1];
+          const dt = DX[j] * DX[i] + DY[j] * DY[i], sg = sideOf(DX[j], DY[j], DX[i], DY[i]), kk = (sg * h) / (1 + dt);
+          const inner = [px - kk * (DY[j] + DY[i]), py + kk * (DX[j] + DX[i])];
+          if (sg > 0) { joinEdge(px, py, DX[j], DY[j], DX[i], DY[i], A[v] ? join : 'round', 1, plus); minus.push(inner); } else {
+            joinEdge(px, py, DX[j], DY[j], DX[i], DY[i], A[v] ? join : 'round', -1, minus); plus.push(inner);
+          }
+          s = i;
+        }
+        const b = (a + steps) % n, ex = P[b][0] + e1 * DX[s], ey = P[b][1] + e1 * DY[s];
+        plus.push([ex + h * DY[s], ey - h * DX[s]]);
+        minus.push([ex - h * DY[s], ey + h * DX[s]]);
+        return [plus, minus];
+      };
+      const breaks = [];
+      for (let i = 0; i < n; i++) if (brk[i]) breaks.push(i);
+      if (closed && !breaks.length) {
+        // A closed run without breaks: two rings, the outer side forward and the other side backward.
+        // Go once round plus one segment so vertex 0 gets its join too, then drop the two points on segment 0's offset.
+        const [plus, minus] = strip(0, n + 1, 0, 0);
+        const ring = plus.slice(1, -1), back = minus.slice(1, -1).reverse();
+        if (area(ring) + area(back) > 0) { pieces.push(ring); pieces.push(back); } else { pieces.push(ring.reverse()); pieces.push(back.reverse()); }
+      } else {
+        for (let k = 0; k < breaks.length; k++) {
+          const a = breaks[k], b = k + 1 < breaks.length ? breaks[k + 1] : closed ? breaks[0] + n : -1;
+          if (b < 0) break;
+          const inner0 = closed || a > 0, inner1 = closed || b < n - 1;
+          const [plus, minus] = strip(a, b - a, inner0 ? Math.min(ov, L[(a + m - 1) % m] / 2) : 0, inner1 ? Math.min(ov, L[b % m] / 2) : 0);
+          push(plus.concat(minus.reverse()));
+          // The join at the end of this run follows it, keeping the pieces in path order for the union.
+          if (inner1) {
+            const i = b % n, j = (i + m - 1) % m;
+            joinPiece(P[i][0], P[i][1], DX[j], DY[j], DX[i], DY[i], A[i] ? join : 'round', Math.min(ov, L[j] / 2), Math.min(ov, L[i] / 2));
+          }
+        }
       }
       if (!closed) {
-        capPiece(P[0][0], P[0][1], -DX[0], -DY[0]);
-        capPiece(P[n - 1][0], P[n - 1][1], DX[m - 1], DY[m - 1]);
+        capPiece(P[0][0], P[0][1], -DX[0], -DY[0], Math.min(ov, L[0] / 2));
+        capPiece(P[n - 1][0], P[n - 1][1], DX[m - 1], DY[m - 1], Math.min(ov, L[m - 1] / 2));
       }
     }
+    if (o._pieces) return pieces;
     if (!pieces.length) return [];
-    // Exact union, then drop the near-collinear vertices the many small pieces leave along curved runs.
-    return simplifyRings(booleanRings('union', pieces, [], 'nonzero'), tol / 2).filter((r) => Math.abs(area(r)) > 1e-12);
+    // Exact union, merging neighbouring pieces first (pieces are in path order, so neighbours overlap the most), then drop
+    // the near-collinear vertices the pieces leave along curved runs.
+    const unite = (lo, hi) => {
+      if (hi - lo <= 8) return booleanRings('union', pieces.slice(lo, hi), [], 'nonzero');
+      const mid = (lo + hi) >> 1;
+      return booleanRings('union', unite(lo, mid), unite(mid, hi), 'nonzero');
+    };
+    return simplifyRings(unite(0, pieces.length), tol / 2).filter((r) => Math.abs(area(r)) > 1e-12);
   }
   function strokeToPath(path, width, opts) {
     return ringsToPath(strokeRings(path, width, opts));
