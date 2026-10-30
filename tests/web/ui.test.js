@@ -8300,6 +8300,89 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 67c. NoorPhoto: histogram, export preview and size, brush tips and dynamics, history brush, transform
+    // again, pattern fills, select subject, box blur and selective colour.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const PS = () => page.evaluate(() => NoorPhoto._state());
+      const px = (x, y, id = null) => page.evaluate(([a, b, c]) => NoorPhoto._pixel(a, b, c), [x, y, id]);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorPhoto._screen(a, b), [x, y]);
+      const dragOn = async (pts) => { const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 6 }); } await page.mouse.up(); };
+      const near = (a, b, t = 3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= t);
+      await page.keyboard.press('Control+Alt+j');
+      await waitFn(page, () => NoorPhoto.isOpen() && NoorPhoto._state());
+      // A red disc in the middle of a white picture.
+      await page.evaluate(() => {
+        const W = 100, H = 80, c = document.createElement('canvas'); c.width = W; c.height = H; const x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, W, H); x.fillStyle = '#e02020'; x.beginPath(); x.arc(50, 40, 22, 0, Math.PI * 2); x.fill();
+        return NoorPhoto._load({ version: 1, width: W, height: H, layers: [{ id: 'bg', name: 'Background', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 0, y: 0, width: W, height: H, png: c.toDataURL('image/png').split(',')[1] }] }, 'disc.noorphoto');
+      });
+      await waitFn(page, () => NoorPhoto._state().width === 100);
+      // The histogram.
+      await page.click('#ph-histo-panel > summary');
+      await waitFn(page, () => /Mean/.test(document.querySelector('#ph-histo-stats').textContent));
+      check('the histogram shows, with mean, spread and middle', /Mean [\d.]+ · spread [\d.]+ · middle \d+/.test(await page.textContent('#ph-histo-stats')));
+      // Select subject: the disc, not the corners.
+      await page.click('#ph-menubar .ph-menu-title:has-text("Select")');
+      await page.click('.menu-popup .menu-item:has-text("Subject")');
+      await waitFn(page, () => !!NoorPhoto._state().selection);
+      const sel = (x, y) => page.evaluate(([a, b]) => NoorPhoto._sel(a, b), [x, y]);
+      check('Select › Subject finds the disc on its plain background', (await sel(50, 40)) > 200 && (await sel(5, 5)) === 0 && (await sel(50, 22)) > 128, [await sel(50, 40), await sel(5, 5), await sel(50, 22)]);
+      await page.keyboard.press('Control+d');
+      // Transform again: a flip, then the same flip again, is the picture as it was.
+      const before = await px(30, 40, 'bg');
+      await page.keyboard.press('Control+t');
+      await page.click('#ph-options button:has-text("Flip ↔")');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => !NoorPhoto._state().transform);
+      await page.keyboard.press('Control+Shift+t');
+      await waitFn(page, () => NoorPhoto._state().history.at(-1) === 'Transform again');
+      check('Ctrl+Shift+T: transform again (flipped back)', near(await px(30, 40, 'bg'), before, 4) && (await PS()).layers[0].x === 0);
+      // The history brush paints the picture back as it was.
+      await page.keyboard.press('Control+i');
+      check('…(inverted for the next check)', near(await px(50, 40), [31, 223, 223, 255], 6), await px(50, 40));
+      await page.click('#ph-tools [data-tool="history"]');
+      await page.fill('#ph-opt-size', '30'); await page.press('#ph-opt-size', 'Tab');
+      await page.fill('#ph-opt-hardness', '100'); await page.press('#ph-opt-hardness', 'Tab');
+      await dragOn([[40, 40], [60, 40]]);
+      check('the history brush paints back the picture as it opened', near(await px(50, 40), [224, 32, 32, 255], 10) && near(await px(5, 5), [0, 0, 0, 255], 3), [await px(50, 40), await px(5, 5)]);
+      await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+      // Brush tips and dynamics: a spray of dots.
+      await page.keyboard.press('Control+Shift+n');
+      await page.click('#ph-tools [data-tool="brush"]');
+      await page.selectOption('#ph-opt-tip', 'spray');
+      await page.click('#ph-dynamics');
+      await page.fill('.modal label:has-text("Scatter") input.ph-num', '50'); await page.press('.modal label:has-text("Scatter") input.ph-num', 'Tab');
+      await page.click('#ph-dyn-ok');
+      await dragOn([[10, 10], [90, 10]]);
+      const sprayed = await page.evaluate(() => { const s = NoorPhoto._state(), id = s.active; let n = 0, gaps = 0; for (let x = 10; x < 90; x++) { const p = NoorPhoto._pixel(x, 10, id); if (p && p[3] > 0) n++; else gaps++; } return { n, gaps }; });
+      check('the spray tip leaves dots (with gaps between)', sprayed.n > 3 && sprayed.gaps > 3, sprayed);
+      await page.selectOption('#ph-opt-tip', 'round');
+      // A pattern fill layer.
+      await page.evaluate(() => { NoorPhoto._setColour('fg', '#000000'); NoorPhoto._setColour('bg', '#ffffff'); });
+      await page.evaluate(() => document.querySelector('#ph-layer-fill').click());
+      await page.click('.menu-popup .menu-item:has-text("Pattern…")');
+      await page.waitForSelector('#ph-fill-pattern');
+      await page.selectOption('#ph-fill-pattern', 'stripes');
+      await page.click('#ph-fill-ok');
+      await waitFn(page, () => !document.querySelector('#ph-fill-pattern'));
+      const pf = (await PS()).layers.find((l) => l.kind === 'fill');
+      check('a pattern fill layer: stripes in the two colours', pf.fill.type === 'pattern' && pf.fill.pattern === 'stripes' && near(await px(3, 3), [0, 0, 0, 255]) && near(await px(3, 20), [255, 255, 255, 255]), [await px(3, 3), await px(3, 20)]);
+      await page.click(`#ph-layers [data-id="${pf.id}"] .ph-eye`);
+      // The new filter and adjustment are there.
+      check('Box blur and Selective colour are among the filters and adjustments', await page.evaluate(() => !!NoorPhotoFx.FILTERS.find((f) => f.id === 'box') && !!NoorPhotoFx.ADJUSTMENTS.find((f) => f.id === 'selective')));
+      // Export: a preview of the file and how big it is.
+      await page.click('#ph-export');
+      await page.selectOption('#ph-exp-format', 'jpeg');
+      await waitFn(page, () => /about \d+ KB/.test(document.querySelector('#ph-exp-info').textContent) && !!document.querySelector('#ph-exp-preview').getAttribute('src'));
+      check('Export shows the file as it will be and its size', /100 × 80 pixels · about \d+ KB/.test(await page.textContent('#ph-exp-info')));
+      await page.click('#ph-exp-ok');
+      await waitFn(page, () => ((window.__mock.state.photo || {}).exports || []).length === 1);
+      check('…and exports that same file', (await page.evaluate(() => window.__mock.state.photo.exports[0].head)).startsWith('/9j/'));
+      check('no page errors in NoorPhoto\'s extras', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

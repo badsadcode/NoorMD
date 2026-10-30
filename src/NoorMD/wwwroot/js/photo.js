@@ -34,6 +34,7 @@ window.NoorPhoto = (() => {
     ['brush', '🖌️', 'Brush (B)', 'b'],
     ['eraser', '🧽', 'Eraser (E)', 'e'],
     ['clone', '⎘', 'Clone stamp (S): Alt+click where to copy from', 's'],
+    ['history', '⏮', 'History brush (Y): paints back the picture as it was (choose when with ◎ in History)', 'y'],
     ['heal', '🩹', 'Healing brush (J): like the clone stamp, blended into what is around it', 'j'],
     ['smudge', '👆', 'Smudge, blur and sharpen (R)', 'r'],
     ['dodge', '🔆', 'Dodge, burn and sponge (O)', 'o'],
@@ -46,7 +47,7 @@ window.NoorPhoto = (() => {
     ['zoom', '🔍', 'Zoom (Z): click in, Alt+click out', 'z'],
     ['rotate', '⟲', 'Turn the view (Shift+R; double-click: straight again)', null],
   ];
-  const PAINTERS = new Set(['brush', 'eraser', 'clone', 'heal', 'smudge', 'dodge']);
+  const PAINTERS = new Set(['brush', 'eraser', 'clone', 'heal', 'smudge', 'dodge', 'history']);
 
   let hooks = { showError: (e) => console.error(e) };
   let built = false;
@@ -55,7 +56,7 @@ window.NoorPhoto = (() => {
   let tool = 'brush';
   let fg = '#000000', bg = '#ffffff';
   let recentColours = [];
-  let brush = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false };
+  let brush = { size: 24, hardness: 0.8, opacity: 1, flow: 1, spacing: 0.15, smoothing: 0, pressureSize: true, pressureOpacity: false, tip: 'round', sizeJitter: 0, scatter: 0, opacityJitter: 0, hueJitter: 0, brightJitter: 0 };
   let opts = {
     selMode: 'new', feather: 0, tolerance: 32, contiguous: true, allLayers: false, antiAlias: true,
     gradShape: 'linear', gradTo: 'bg', gradReverse: false, shape: 'rect', shapeFill: true, shapeStroke: 0, shapeDash: 'solid', shapeRadius: 20, shapeSides: 5, starInner: 45, smudgeMode: 'smudge', strength: 0.5,
@@ -408,9 +409,62 @@ window.NoorPhoto = (() => {
     if (f.type === 'gradient') {
       const a = (f.angle || 0) * Math.PI / 180, cx = W / 2, cy = H / 2, half = (Math.abs(Math.cos(a)) * W + Math.abs(Math.sin(a)) * H) / 2 * (f.scale || 100) / 100;
       paintGradient(c, f.shape || 'linear', cx - Math.cos(a) * half, cy - Math.sin(a) * half, cx + Math.cos(a) * half, cy + Math.sin(a) * half, f.stops || ['#000000', '#ffffff'], !!f.reverse, f.shape === 'radial');
+    } else if (f.type === 'pattern') {
+      const tile = patternTile(f);
+      if (!tile) return c; // a picture pattern still being read: drawn when it is ready
+      const x = g2(c), pat = x.createPattern(tile, 'repeat');
+      pat.setTransform(new DOMMatrix().scale((f.scale || 100) / 100));
+      x.fillStyle = pat; x.fillRect(0, 0, W, H);
     } else { const x = g2(c); x.fillStyle = f.colour || '#808080'; x.fillRect(0, 0, W, H); }
     fillCache.set(l, { key, canvas: c });
     return c;
+  }
+
+  // Patterns: ready-made ones drawn in two colours, or a picture of your own (Edit › Define a pattern), kept in the
+  // fill layer itself so the file carries it.
+  const PATTERNS = [['checker', 'checks'], ['stripes', 'stripes'], ['diagonal', 'diagonal stripes'], ['dots', 'dots'], ['grid', 'grid'], ['bricks', 'bricks'], ['zigzag', 'zigzag'], ['hex', 'hexagons'], ['noise', 'noise']];
+  const tileCache = new Map(), pictureTiles = new Map();
+  function patternTile(f) {
+    if (f.image) {
+      if (pictureTiles.has(f.image)) return pictureTiles.get(f.image);
+      const img = new Image();
+      img.onload = () => { const c = canvas(img.naturalWidth, img.naturalHeight); g2(c).drawImage(img, 0, 0); pictureTiles.set(f.image, c); needCompose = true; draw(); renderLayers(); };
+      img.src = 'data:image/png;base64,' + f.image;
+      pictureTiles.set(f.image, null);
+      return null;
+    }
+    const a = f.a || '#000000', b = f.b || '#ffffff', key = `${f.pattern}|${a}|${b}`;
+    if (tileCache.has(key)) return tileCache.get(key);
+    const n = 32, c = canvas(n, n), x = g2(c);
+    x.fillStyle = b; x.fillRect(0, 0, n, n); x.fillStyle = a; x.strokeStyle = a;
+    switch (f.pattern) {
+      case 'stripes': x.fillRect(0, 0, n, n / 2); break;
+      case 'diagonal': x.lineWidth = n / 4; x.beginPath(); for (const o of [-n, 0, n]) { x.moveTo(o, n); x.lineTo(o + n, 0); } x.stroke(); break;
+      case 'dots': x.beginPath(); x.arc(n / 2, n / 2, n / 5, 0, Math.PI * 2); x.fill(); break;
+      case 'grid': x.fillRect(0, 0, n, 2); x.fillRect(0, 0, 2, n); break;
+      case 'bricks': x.fillRect(0, 0, n, 2); x.fillRect(0, n / 2, n, 2); x.fillRect(n / 2, 0, 2, n / 2); x.fillRect(0, n / 2, 2, n / 2); break;
+      case 'zigzag': x.lineWidth = 3; x.beginPath(); x.moveTo(0, n * 0.7); x.lineTo(n / 2, n * 0.3); x.lineTo(n, n * 0.7); x.stroke(); break;
+      case 'hex': { x.lineWidth = 2; const r = n / 3.46; x.beginPath(); for (const [cx, cy] of [[n / 2, n / 2], [0, 0], [n, 0], [0, n], [n, n]]) { for (let i = 0; i <= 6; i++) { const t = Math.PI / 3 * i + Math.PI / 6, px2 = cx + Math.cos(t) * r, py2 = cy + Math.sin(t) * r; if (i) x.lineTo(px2, py2); else x.moveTo(px2, py2); } } x.stroke(); break; }
+      case 'noise': { const img = x.getImageData(0, 0, n, n), d = img.data, [ar, ag, ab] = hexRgb(a), [br, bg2, bb] = hexRgb(b); let seed = 99; for (let i = 0; i < n * n; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; const t = (seed >> 8 & 255) / 255; d[i * 4] = br + (ar - br) * t; d[i * 4 + 1] = bg2 + (ag - bg2) * t; d[i * 4 + 2] = bb + (ab - bb) * t; d[i * 4 + 3] = 255; } x.putImageData(img, 0, 0); break; }
+      default: x.fillRect(0, 0, n / 2, n / 2); x.fillRect(n / 2, n / 2, n / 2, n / 2);
+    }
+    tileCache.set(key, c);
+    return c;
+  }
+  const PATTERN_KEY = 'noorphoto.patterns';
+  function myPatterns() { try { return JSON.parse(localStorage.getItem(PATTERN_KEY) || '[]') || []; } catch { return []; } }
+  /** Edit › Define a pattern: the selection (or the whole picture), at most 512 pixels a side, kept with your patterns. */
+  async function definePattern() {
+    const l = L(), r = D.sel ? selBounds() : { x: 0, y: 0, w: D.doc.width, h: D.doc.height };
+    if (!r) return;
+    let c = canvas(r.w, r.h);
+    g2(c).drawImage(composite || compose(D), -r.x, -r.y);
+    if (c.width > 512 || c.height > 512) { const k = 512 / Math.max(c.width, c.height); c = scaled(c, c.width * k, c.height * k); }
+    void l;
+    const name = await NoorUI.prompt('Define a pattern', 'Its name', `Pattern ${myPatterns().length + 1}`);
+    if (name === undefined) return;
+    const list = [...myPatterns(), { name: name.trim() || 'Pattern', image: await pngOf(c) }].slice(-24);
+    try { localStorage.setItem(PATTERN_KEY, JSON.stringify(list)); notice('Pattern kept: Layer › New fill layer › Pattern', 2200); } catch { notice('There is no room to keep more patterns.', 2400); }
   }
 
   const textCache = new WeakMap();
@@ -598,7 +652,7 @@ window.NoorPhoto = (() => {
     x.setTransform(dpr, 0, 0, dpr, 0, 0);
     x.clearRect(0, 0, s.w, s.h);
     if (!D) return;
-    if (needCompose || !composite) { composite = compose(D); needCompose = false; }
+    if (needCompose || !composite) { composite = compose(D); needCompose = false; scheduleHisto(); }
     const W = D.doc.width, H = D.doc.height;
     x.save();
     viewTransform(x);
@@ -855,6 +909,69 @@ window.NoorPhoto = (() => {
     x.putImageData(img, 0, 0);
     const keep = opts.feather; opts.feather = 0; combineSel(c, mode); opts.feather = keep;
   }
+  /**
+   * Select › Subject: the main thing in the picture, found without any model: the colours along the border are taken
+   * as the background (a few clusters of them); what is clearly unlike them, in one piece with the middle, holes
+   * filled, is the subject. Best on a plain or blurred background; refine it after if need be.
+   */
+  function selectSubject(mode = 'new') {
+    const src = composite || compose(D), k = Math.min(1, 384 / Math.max(src.width, src.height));
+    const small = k < 1 ? scaled(src, src.width * k, src.height * k) : src, w = small.width, h = small.height, d = imgOf(small).data, n = w * h;
+    // The background: k-means (5 clusters) of the pixels round the border.
+    const border = [];
+    for (let x = 0; x < w; x++) for (const y of [0, 1, h - 2, h - 1]) if (y >= 0 && y < h) border.push((y * w + x) * 4);
+    for (let y = 2; y < h - 2; y++) for (const x of [0, 1, w - 2, w - 1]) if (x >= 0 && x < w) border.push((y * w + x) * 4);
+    const K = 5, cent = [];
+    for (let i = 0; i < K; i++) { const p2 = border[Math.floor((i + 0.5) / K * border.length)]; cent.push([d[p2], d[p2 + 1], d[p2 + 2]]); }
+    for (let it = 0; it < 8; it++) {
+      const sum = cent.map(() => [0, 0, 0, 0]);
+      for (const p2 of border) { let best = 0, bd = Infinity; cent.forEach((c, i) => { const dd = (d[p2] - c[0]) ** 2 + (d[p2 + 1] - c[1]) ** 2 + (d[p2 + 2] - c[2]) ** 2; if (dd < bd) { bd = dd; best = i; } }); const s2 = sum[best]; s2[0] += d[p2]; s2[1] += d[p2 + 1]; s2[2] += d[p2 + 2]; s2[3]++; }
+      sum.forEach((s2, i) => { if (s2[3]) cent[i] = [s2[0] / s2[3], s2[1] / s2[3], s2[2] / s2[3]]; });
+    }
+    // How unlike the background each pixel is; Otsu's threshold splits the two.
+    const dist = new Float32Array(n);
+    let mx = 1;
+    for (let i = 0; i < n; i++) { const p2 = i * 4; let bd = Infinity; for (const c of cent) { const dd = (d[p2] - c[0]) ** 2 + (d[p2 + 1] - c[1]) ** 2 + (d[p2 + 2] - c[2]) ** 2; if (dd < bd) bd = dd; } dist[i] = d[p2 + 3] ? Math.sqrt(bd) : 0; if (dist[i] > mx) mx = dist[i]; }
+    const hist = new Float64Array(256);
+    for (let i = 0; i < n; i++) hist[Math.min(255, Math.floor(dist[i] / mx * 255))]++;
+    let total = 0, sumAll = 0; for (let i = 0; i < 256; i++) { total += hist[i]; sumAll += i * hist[i]; }
+    let wb = 0, sb = 0, bestT = 0, bestV = -1;
+    for (let t = 0; t < 256; t++) { wb += hist[t]; if (!wb) continue; const wf = total - wb; if (!wf) break; sb += t * hist[t]; const mb = sb / wb, mf = (sumAll - sb) / wf, v = wb * wf * (mb - mf) ** 2; if (v > bestV) { bestV = v; bestT = t; } }
+    const thr = Math.max(bestT / 255 * mx, 18);
+    const fgBits = new Uint8Array(n);
+    for (let i = 0; i < n; i++) fgBits[i] = dist[i] > thr ? 1 : 0;
+    // Pieces: keep the biggest, those touching the middle, and any at least a tenth of the biggest.
+    const lab = new Int32Array(n), sizes = [0];
+    let next = 1;
+    for (let i = 0; i < n; i++) {
+      if (!fgBits[i] || lab[i]) continue;
+      const stack = [i]; lab[i] = next; let count = 0;
+      while (stack.length) { const j = stack.pop(), x = j % w, y = (j - x) / w; count++; for (const q of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (q >= 0 && fgBits[q] && !lab[q]) { lab[q] = next; stack.push(q); } }
+      sizes.push(count); next++;
+    }
+    if (next === 1) { notice('No subject stands out from the background here.', 2400); return; }
+    const biggest = sizes.reduce((a, b, i) => (b > sizes[a] ? i : a), 1), keep = new Set([biggest]);
+    for (let y = Math.floor(h * 0.4); y < h * 0.6; y++) for (let x = Math.floor(w * 0.4); x < w * 0.6; x++) if (lab[y * w + x]) keep.add(lab[y * w + x]);
+    sizes.forEach((sz, i) => { if (i && sz >= sizes[biggest] * 0.1) keep.add(i); });
+    const subj = new Uint8Array(n);
+    for (let i = 0; i < n; i++) subj[i] = keep.has(lab[i]) ? 1 : 0;
+    // Holes: whatever the outside can't reach is inside the subject.
+    const out = new Uint8Array(n), stack = [];
+    for (let x = 0; x < w; x++) for (const y of [0, h - 1]) { const j = y * w + x; if (!subj[j] && !out[j]) { out[j] = 1; stack.push(j); } }
+    for (let y = 0; y < h; y++) for (const x of [0, w - 1]) { const j = y * w + x; if (!subj[j] && !out[j]) { out[j] = 1; stack.push(j); } }
+    while (stack.length) { const j = stack.pop(), x = j % w, y = (j - x) / w; for (const q of [x > 0 ? j - 1 : -1, x < w - 1 ? j + 1 : -1, y > 0 ? j - w : -1, y < h - 1 ? j + w : -1]) if (q >= 0 && !subj[q] && !out[q]) { out[q] = 1; stack.push(q); } }
+    const m = canvas(w, h), mx2 = g2(m), img = mx2.createImageData(w, h);
+    for (let i = 0; i < n; i++) if (!out[i]) { img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = 255; }
+    mx2.putImageData(img, 0, 0);
+    // Back to full size with a soft, then firmed, edge.
+    const full = canvas(D.doc.width, D.doc.height), fx = g2(full);
+    fx.imageSmoothingQuality = 'high'; fx.filter = `blur(${Math.max(1, 1 / k)}px)`; fx.drawImage(m, 0, 0, full.width, full.height); fx.filter = 'none';
+    const fi = fx.getImageData(0, 0, full.width, full.height), fd = fi.data;
+    for (let i = 3; i < fd.length; i += 4) fd[i] = clamp((fd[i] - 128) * 3 + 128, 0, 255);
+    fx.putImageData(fi, 0, 0);
+    const keepF = opts.feather; opts.feather = 0; combineSel(full, mode); opts.feather = keepF;
+    notice('Subject selected: Select › Refine to adjust, Shift+lasso to add, Alt+lasso to take away.', 3000);
+  }
   /** Limits a picture (the document's size) to the selection. */
   function limitToSel(c, ox = 0, oy = 0) {
     if (!D.sel) return c;
@@ -868,13 +985,26 @@ window.NoorPhoto = (() => {
   // while it goes on and laid down when the button is let go, limited to the selection. Smudging, dodging and their
   // kind change a working copy of the layer instead.
   const stampCache = new Map();
-  function stampOf(size, hardness, colour) {
-    const d = Math.max(2, Math.ceil(size) + 2), key = `${d}|${hardness}|${colour}`;
+  // Brush tips: round (soft to hard), square, chalk (grainy, broken edges); the spray tip is drawn dot by dot.
+  const TIPS = [['round', 'round'], ['square', 'square'], ['chalk', 'chalk'], ['spray', 'spray']];
+  let grain = null;
+  function grainTexture() {
+    if (grain) return grain;
+    const n = 128, c = canvas(n, n), x = g2(c), img = x.createImageData(n, n);
+    let seed = 1234567;
+    for (let i = 0; i < n * n; i++) { seed = (seed * 1103515245 + 12345) & 0x7fffffff; const v = (seed >> 8) & 255; img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = 255; img.data[i * 4 + 3] = v > 90 ? 255 : v * 2; }
+    x.putImageData(img, 0, 0);
+    return (grain = c);
+  }
+  function stampOf(size, hardness, colour, tip = 'round') {
+    const d = Math.max(2, Math.ceil(size) + 2), key = `${d}|${hardness}|${colour}|${tip}`;
     if (stampCache.has(key)) return stampCache.get(key);
     const c = canvas(d, d), x = g2(c), r = size / 2, gr = x.createRadialGradient(d / 2, d / 2, Math.max(0, r * Math.min(0.999, hardness)), d / 2, d / 2, Math.max(0.5, r));
     const [cr, cg, cb] = hexRgb(colour);
     gr.addColorStop(0, `rgba(${cr},${cg},${cb},1)`); gr.addColorStop(1, `rgba(${cr},${cg},${cb},0)`);
-    x.fillStyle = gr; x.beginPath(); x.arc(d / 2, d / 2, Math.max(0.5, r), 0, Math.PI * 2); x.fill();
+    if (tip === 'square') { x.fillStyle = colour; x.fillRect((d - size) / 2, (d - size) / 2, size, size); }
+    else { x.fillStyle = gr; x.beginPath(); x.arc(d / 2, d / 2, Math.max(0.5, r), 0, Math.PI * 2); x.fill(); }
+    if (tip === 'chalk') { x.globalCompositeOperation = 'destination-in'; x.drawImage(grainTexture(), Math.random() * -64, Math.random() * -64, Math.max(d, 128), Math.max(d, 128)); }
     if (stampCache.size > 64) stampCache.delete(stampCache.keys().next().value);
     stampCache.set(key, c);
     return c;
@@ -930,6 +1060,7 @@ window.NoorPhoto = (() => {
   function startStroke(p, e) {
     const t = paintTarget();
     if (!t) return null;
+    if (tool === 'history' && !D.histSrc) historySource(t.l);
     const { l, target } = t, before = snap(), grew = cover(l, target), o = originOf(l, target), c = o.canvas;
     const work = tool === 'smudge' || tool === 'dodge';
     const s = {
@@ -938,6 +1069,11 @@ window.NoorPhoto = (() => {
       last: null, carry: 0, pressure: pressureOf(e), smooth: { x: p.x, y: p.y },
       colour: target === 'mask' ? '#ffffff' : (tool === 'eraser' ? '#000000' : fg),
     };
+    if (tool === 'history') {
+      const src = historySource(l);
+      if (!src) { notice('This layer wasn\'t there at the state chosen for the history brush.', 3000); if (s.before) restore(s.before); return null; }
+      s.source = src; s.cloneOffset = { x: 0, y: 0 };
+    }
     if (tool === 'clone' || tool === 'heal') {
       if (!D.cloneFrom) { notice('Alt+click where to copy from first.', 2600); if (s.before) restore(s.before); return null; }
       if (!opts.cloneAligned || !D.cloneOffset || D.cloneFresh) { D.cloneOffset = { x: D.cloneFrom.x - p.x, y: D.cloneFrom.y - p.y }; D.cloneFresh = false; }
@@ -989,24 +1125,49 @@ window.NoorPhoto = (() => {
   }
 
   function dab(s, p, pressure) {
-    const size = Math.max(1, brush.size * (brush.pressureSize ? Math.max(0.05, pressure) : 1)), r = size / 2;
+    // Dynamics: each dab a little smaller, further off the line, lighter or of a shifted colour, by chance.
+    const rnd = Math.random;
+    let size = Math.max(1, brush.size * (brush.pressureSize ? Math.max(0.05, pressure) : 1) * (1 - brush.sizeJitter * rnd()));
+    if (brush.scatter > 0) p = { x: p.x + (rnd() - 0.5) * 2 * brush.scatter * size, y: p.y + (rnd() - 0.5) * 2 * brush.scatter * size };
+    const r = size / 2;
     const tx = p.x - s.origin.x, ty = p.y - s.origin.y;
     const box = { x: Math.floor(tx - r - 1), y: Math.floor(ty - r - 1), w: Math.ceil(size) + 3, h: Math.ceil(size) + 3 };
     s.bbox = s.bbox ? union(s.bbox, box) : box;
-    const alpha = brush.flow * (brush.pressureOpacity ? pressure : 1);
+    const alpha = brush.flow * (brush.pressureOpacity ? pressure : 1) * (1 - brush.opacityJitter * rnd());
     if (s.kind === 'work') { workDab(s, tx, ty, r, alpha); return; }
     const bx = g2(s.buf);
-    if (s.tool === 'clone' || s.tool === 'heal') {
-      const st = stampOf(size, brush.hardness, '#ffffff'), d = st.width, t = canvas(d, d), x = g2(t);
+    if (s.tool === 'clone' || s.tool === 'heal' || s.tool === 'history') {
+      const st = stampOf(size, brush.hardness, '#ffffff', brush.tip === 'spray' ? 'round' : brush.tip), d = st.width, t = canvas(d, d), x = g2(t);
       x.drawImage(s.source, -(p.x + s.cloneOffset.x - d / 2), -(p.y + s.cloneOffset.y - d / 2));
       x.globalCompositeOperation = 'destination-in'; x.drawImage(st, 0, 0);
       bx.globalAlpha = alpha; bx.drawImage(t, tx - d / 2, ty - d / 2); bx.globalAlpha = 1;
       return;
     }
-    const st = stampOf(size, brush.hardness, s.colour);
+    let colour = s.colour;
+    if ((brush.hueJitter > 0 || brush.brightJitter > 0) && s.target !== 'mask' && s.tool !== 'eraser') colour = jitterColour(colour, brush.hueJitter * (rnd() - 0.5) * 360, brush.brightJitter * (rnd() - 0.5) * 2);
+    if (brush.tip === 'spray') {
+      // Spray: fine dots scattered over the brush's circle, thicker in the middle.
+      bx.fillStyle = colour; bx.globalAlpha = alpha;
+      const dots = Math.max(4, Math.round(size * 0.8)), dot = Math.max(0.6, size / 40);
+      for (let i = 0; i < dots; i++) { const a = rnd() * Math.PI * 2, d2 = Math.sqrt(rnd()) * r * (rnd() < brush.hardness ? 0.7 : 1); bx.beginPath(); bx.arc(tx + Math.cos(a) * d2, ty + Math.sin(a) * d2, dot, 0, Math.PI * 2); bx.fill(); }
+      bx.globalAlpha = 1;
+      return;
+    }
+    const st = stampOf(size, brush.hardness, colour, brush.tip);
     bx.globalAlpha = alpha;
     bx.drawImage(st, tx - st.width / 2, ty - st.height / 2);
     bx.globalAlpha = 1;
+  }
+  /** A colour with its hue turned (degrees) and its lightness shifted (−1…1). */
+  function jitterColour(hex, dh, dl) {
+    let [r, g, b] = hexRgb(hex).map((v) => v / 255);
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+    let h = 0, sat = 0;
+    if (d) { sat = d / (1 - Math.abs(2 * l - 1)); h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4; h *= 60; }
+    h = (h + dh + 360) % 360;
+    const L2 = clamp(l + dl * 0.5, 0, 1), C = (1 - Math.abs(2 * L2 - 1)) * sat, X = C * (1 - Math.abs(((h / 60) % 2) - 1)), m = L2 - C / 2;
+    [r, g, b] = h < 60 ? [C, X, 0] : h < 120 ? [X, C, 0] : h < 180 ? [0, C, X] : h < 240 ? [0, X, C] : h < 300 ? [X, 0, C] : [C, 0, X];
+    return rgbHex((r + m) * 255, (g + m) * 255, (b + m) * 255);
   }
 
   /** Smudge, blur, sharpen, dodge, burn, sponge: worked out on the pixels under the brush. */
@@ -1077,7 +1238,27 @@ window.NoorPhoto = (() => {
     bx.clearRect(R.x, R.y, R.w, R.h); bx.drawImage(cov, R.x, R.y);
   }
 
-  const STROKE_LABEL = { brush: 'Brush', eraser: 'Eraser', clone: 'Clone stamp', heal: 'Healing brush', smudge: 'Smudge', dodge: 'Dodge and burn' };
+  // The history brush paints from a state of the picture kept here: each pixel layer as it was then (the document's
+  // size). The first state is kept when a picture opens; ◎ in History keeps another.
+  function captureState() {
+    const layers = new Map(), W = D.doc.width, H = D.doc.height;
+    for (const l of D.doc.layers) if (l.kind === 'pixel' && l.canvas) { const c = canvas(W, H); g2(c).drawImage(l.canvas, l.x, l.y); layers.set(l.id, c); }
+    return { layers, at: D.history.length, w: W, h: H };
+  }
+  function historySource(l) {
+    if (!D.histSrc) { const here = D.history.length - 1; goToStep(-1); D.histSrc = captureState(); goToStep(here); }
+    const src = D.histSrc;
+    if (src.w !== D.doc.width || src.h !== D.doc.height) return null;
+    return src.layers.get(l.id) || null;
+  }
+  /** History › ◎: the history brush will paint the picture as it was after step i. */
+  function setHistorySource(i) {
+    const here = D.history.length - 1;
+    goToStep(i); D.histSrc = captureState(); D.histSrc.at = i; goToStep(here);
+    setTool('history'); renderHistory();
+    notice('The history brush paints from that state now.', 2000);
+  }
+  const STROKE_LABEL = { brush: 'Brush', eraser: 'Eraser', clone: 'Clone stamp', heal: 'Healing brush', history: 'History brush', smudge: 'Smudge', dodge: 'Dodge and burn' };
   function endStroke(s) {
     live = null;
     if (!s) return;
@@ -1543,6 +1724,19 @@ window.NoorPhoto = (() => {
     transform.preview = () => warp(transform.src, transform.corners, D.doc.width, D.doc.height, { x: 0, y: 0 });
     needCompose = true; draw(); renderOptions();
   }
+  // Transform again: the last transform (moved, scaled, turned, skewed) once more on the layer, so a turn of 15°
+  // twice is 30° about the same point.
+  let lastTransform = null;
+  function transformAgain() {
+    if (!lastTransform) { notice('Transform something first (Ctrl+T), then this does it again.', 2400); return; }
+    if (transform) commitTransform();
+    startTransform(true);
+    if (!transform) return;
+    transform.corners = transform.corners.map((c) => { const p2 = lastTransform.transformPoint(new DOMPoint(c.x, c.y)); return { x: p2.x, y: p2.y }; });
+    const keep = lastTransform;
+    commitTransform('Transform again');
+    lastTransform = keep;
+  }
   function cancelTransform() { if (!transform) return; transform = null; needCompose = true; draw(); renderOptions(); }
   /** Draws a picture into a canvas so its corners land on four points (affine when it can, else a fine mesh). */
   function warp(src, q, w, h, origin) {
@@ -1670,12 +1864,18 @@ window.NoorPhoto = (() => {
       const A = new DOMMatrix([a, b, c, d, q[0].x - a * R.x - c * R.y, q[0].y - b * R.x - d * R.y]), M = A.multiply(shapeMatrix(l));
       if (Math.abs((q[0].x + q[2].x) - (q[1].x + q[3].x)) > 0.5 || Math.abs((q[0].y + q[2].y) - (q[1].y + q[3].y)) > 0.5) notice('A shape keeps straight sides: perspective needs a pixel layer (Layer › Rasterize).', 3200);
       l.shape = { ...l.shape, m: [M.a, M.b, M.c, M.d, M.e, M.f] }; l.x = 0; l.y = 0;
+      lastTransform = A;
       touch(l);
       const after = snap();
       pushStep(label, () => restore(before), () => restore(after));
       renderOptions();
       return;
     }
+    const R0 = t.rect;
+    if (Math.abs((q[0].x + q[2].x) - (q[1].x + q[3].x)) < 0.5 && Math.abs((q[0].y + q[2].y) - (q[1].y + q[3].y)) < 0.5) {
+      const a = (q[1].x - q[0].x) / R0.w, b = (q[1].y - q[0].y) / R0.w, c = (q[3].x - q[0].x) / R0.h, d = (q[3].y - q[0].y) / R0.h;
+      lastTransform = new DOMMatrix([a, b, c, d, q[0].x - a * R0.x - c * R0.y, q[0].y - b * R0.x - d * R0.y]);
+    } else lastTransform = null;
     const moved = warp(t.src, q, r.w, r.h, r);
     let pic;
     if (t.selection) {
@@ -2075,8 +2275,8 @@ window.NoorPhoto = (() => {
 
   /** Fill layers: a colour or a gradient over everything (a mask from the selection, if there is one). */
   function newFillLayer(type) {
-    const fill = type === 'gradient' ? { type: 'gradient', stops: [fg, bg], angle: 90, shape: 'linear', scale: 100, reverse: false } : { type: 'colour', colour: fg };
-    const l = makeLayer({ kind: 'fill', name: uniqueName(type === 'gradient' ? 'Gradient fill' : 'Colour fill'), fill });
+    const fill = type === 'gradient' ? { type: 'gradient', stops: [fg, bg], angle: 90, shape: 'linear', scale: 100, reverse: false } : type === 'pattern' ? { type: 'pattern', pattern: 'checker', a: fg, b: bg, scale: 100 } : { type: 'colour', colour: fg };
+    const l = makeLayer({ kind: 'fill', name: uniqueName(type === 'gradient' ? 'Gradient fill' : type === 'pattern' ? 'Pattern fill' : 'Colour fill'), fill });
     if (D.sel) { l.mask = makeMask(0, 0, D.doc.width, D.doc.height, 0); g2(l.mask.canvas).drawImage(D.sel, 0, 0); }
     addLayerAbove(l, 'New fill layer');
     if (D.sel) setSel(null);
@@ -2544,7 +2744,13 @@ window.NoorPhoto = (() => {
     const old = clone(l.fill);
     let f = clone(l.fill);
     NoorUI.modal({ label: 'Fill layer', width: 360, onClose: (r) => { if (r !== 'ok') { if (fresh) { undo(); D.future.pop(); } else { l.fill = old; touch(l); } } renderAll(); } }, (s, closeIt) => {
-      const kind = el('select', { id: 'ph-fill-kind', 'aria-label': 'Fill' }, el('option', { value: 'colour', text: 'a colour' }), el('option', { value: 'gradient', text: 'a gradient' }));
+      const kind = el('select', { id: 'ph-fill-kind', 'aria-label': 'Fill' }, el('option', { value: 'colour', text: 'a colour' }), el('option', { value: 'gradient', text: 'a gradient' }), el('option', { value: 'pattern', text: 'a pattern' }));
+      const mine = myPatterns();
+      const pattern = el('select', { id: 'ph-fill-pattern', 'aria-label': 'Pattern' }, ...PATTERNS.map(([v, t]) => el('option', { value: v, text: t })), ...mine.map((m, i) => el('option', { value: `mine:${i}`, text: `${m.name} (yours)` })));
+      pattern.value = f.image ? (mine.findIndex((m) => m.image === f.image) >= 0 ? `mine:${mine.findIndex((m) => m.image === f.image)}` : PATTERNS[0][0]) : (f.pattern || 'checker');
+      const pa = el('input', { type: 'color', value: f.a || fg, 'aria-label': 'First colour' }), pb = el('input', { type: 'color', value: f.b || bg, 'aria-label': 'Second colour' });
+      const pscale = el('input', { type: 'number', min: '10', max: '1000', value: String(f.type === 'pattern' ? f.scale || 100 : 100), 'aria-label': 'Scale' });
+      const pat = el('div', {}, el('div', { class: 'ph-row' }, el('label', {}, 'Pattern ', pattern)), el('div', { class: 'ph-row' }, el('label', {}, 'Colours ', pa, pb), el('label', {}, 'Scale ', pscale, '%')));
       kind.value = f.type;
       const colour = el('input', { type: 'color', id: 'ph-fill-colour', value: f.colour || fg, 'aria-label': 'Colour' });
       const a = el('input', { type: 'color', value: (f.stops || [fg])[0], 'aria-label': 'From' }), b = el('input', { type: 'color', value: (f.stops || [fg, bg])[1] || bg, 'aria-label': 'To' });
@@ -2555,12 +2761,15 @@ window.NoorPhoto = (() => {
       const rev = el('input', { type: 'checkbox', checked: f.reverse || undefined });
       const grad = el('div', {}, el('div', { class: 'ph-row' }, el('label', {}, 'From ', a), el('label', {}, 'to ', b), el('label', {}, rev, ' reversed')), el('div', { class: 'ph-row' }, el('label', {}, 'Shape ', shape), el('label', {}, 'Angle ', angle, '°'), el('label', {}, 'Scale ', scale, '%')));
       const read = () => {
-        f = kind.value === 'gradient' ? { type: 'gradient', stops: [a.value, b.value], shape: shape.value, angle: Number(angle.value) || 0, scale: clamp(Number(scale.value) || 100, 10, 400), reverse: rev.checked } : { type: 'colour', colour: colour.value };
-        grad.hidden = kind.value !== 'gradient'; colour.parentElement.hidden = kind.value === 'gradient';
+        const m = pattern.value.startsWith('mine:') ? mine[Number(pattern.value.slice(5))] : null;
+        f = kind.value === 'gradient' ? { type: 'gradient', stops: [a.value, b.value], shape: shape.value, angle: Number(angle.value) || 0, scale: clamp(Number(scale.value) || 100, 10, 400), reverse: rev.checked }
+          : kind.value === 'pattern' ? { type: 'pattern', ...(m ? { image: m.image } : { pattern: pattern.value, a: pa.value, b: pb.value }), scale: clamp(Number(pscale.value) || 100, 10, 1000) } : { type: 'colour', colour: colour.value };
+        grad.hidden = kind.value !== 'gradient'; pat.hidden = kind.value !== 'pattern'; colour.parentElement.hidden = kind.value !== 'colour';
+        pa.parentElement.hidden = !!m;
         l.fill = f; touch(l); draw();
       };
-      for (const i of [kind, colour, a, b, shape, angle, scale, rev]) i.addEventListener('input', read);
-      s.append(NoorUI.head('Fill layer', closeIt), el('div', { class: 'modal-body ph-dlg' }, el('label', {}, 'Fill with ', kind), el('label', {}, 'Colour ', colour), grad),
+      for (const i of [kind, colour, a, b, shape, angle, scale, rev, pattern, pa, pb, pscale]) i.addEventListener('input', read);
+      s.append(NoorUI.head('Fill layer', closeIt), el('div', { class: 'modal-body ph-dlg' }, el('label', {}, 'Fill with ', kind), el('label', {}, 'Colour ', colour), grad, pat),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ph-fill-ok', onclick: () => {
           if (!fresh) { l.fill = old; setProp(l, 'Fill settings', () => { l.fill = f; }); } else { D.history[D.history.length - 1].redo = ((after) => () => restore(after))(snap()); }
           closeIt('ok');
@@ -2689,11 +2898,14 @@ window.NoorPhoto = (() => {
               btn('ph-layer-new', '＋', 'New layer (Ctrl+Shift+N)', newLayer), btn('ph-layer-group', '📁', 'Group (Ctrl+G)', groupLayer),
               btn('ph-layer-mask', '🎭', 'Add a mask (from the selection, if there is one)', () => addMask(true)),
               btn('ph-layer-adjust', '🎚️', 'New adjustment layer', (e) => NoorChrome.openMenu(e.currentTarget, adjustLayerItems())),
-              btn('ph-layer-fill', '▧', 'New fill layer', (e) => NoorChrome.openMenu(e.currentTarget, [{ label: 'Colour…', run: () => newFillLayer('colour') }, { label: 'Gradient…', run: () => newFillLayer('gradient') }])),
+              btn('ph-layer-fill', '▧', 'New fill layer', (e) => NoorChrome.openMenu(e.currentTarget, [{ label: 'Colour…', run: () => newFillLayer('colour') }, { label: 'Gradient…', run: () => newFillLayer('gradient') }, { label: 'Pattern…', run: () => newFillLayer('pattern') }])),
               btn('ph-layer-style', '✦', 'Layer style: shadow, glow, stroke, bevel…', (e) => NoorChrome.openMenu(e.currentTarget, styleItems())),
               btn('ph-layer-fx', 'ƒx', 'Add a live filter', (e) => NoorChrome.openMenu(e.currentTarget, filterItems(true))),
               btn('ph-layer-dup', '⧉', 'Duplicate (Ctrl+J)', duplicateLayer), btn('ph-layer-del', '🗑', 'Delete the layer', deleteLayer))),
           el('details', { class: 'ph-panel', open: true }, el('summary', { text: 'Properties' }), el('div', { class: 'ph-props', id: 'ph-props' })),
+          el('details', { class: 'ph-panel', id: 'ph-histo-panel', ontoggle: () => scheduleHisto() }, el('summary', { text: 'Histogram' }),
+            el('div', { class: 'ph-histo' }, el('select', { id: 'ph-histo-chan', 'aria-label': 'Channel', onchange: () => scheduleHisto() }, ...[['rgb', 'colours'], ['l', 'luminosity'], ['r', 'red'], ['g', 'green'], ['b', 'blue']].map(([v, t]) => el('option', { value: v, text: t }))),
+              el('canvas', { id: 'ph-histo', class: 'ph-histo-canvas', width: '240', height: '96', role: 'img', 'aria-label': 'Histogram' }), el('small', { id: 'ph-histo-stats', class: 'ph-propline' }))),
           el('details', { class: 'ph-panel', open: true }, el('summary', { text: 'History' }), el('ol', { class: 'ph-history', id: 'ph-history', 'aria-label': 'History (click a step to go back to it)' })))));
     ($('#app') || document.body).append(root);
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('photo', { name: 'NoorPhoto', title: appTitle, menus: appMenus });
@@ -2844,8 +3056,9 @@ window.NoorPhoto = (() => {
         el('button', { class: 'action', id: 'ph-tf-cancel', onclick: cancelTransform }, 'Cancel (Esc)'), el('button', { class: 'action primary', id: 'ph-tf-ok', onclick: () => commitTransform() }, 'Apply (Enter)')];
     } else switch (tool) {
       case 'brush': case 'eraser':
-        items = brushRow([num('spacing', brush, 'Spacing', 1, 200, 1, 100, '%'), pick('smoothing', brush, 'Smoothing', [['0', 'off'], ['12', 'a little'], ['30', 'some'], ['60', 'a lot'], ['120', 'very much']]), tick('pressureSize', brush, 'pen: size'), tick('pressureOpacity', brush, 'pen: opacity')]);
+        items = brushRow([pick('tip', brush, 'Tip', TIPS), el('button', { class: 'action', id: 'ph-dynamics', title: 'Size, place, opacity and colour varying from dab to dab', onclick: dynamicsDialog }, 'Dynamics…'), num('spacing', brush, 'Spacing', 1, 200, 1, 100, '%'), pick('smoothing', brush, 'Smoothing', [['0', 'off'], ['12', 'a little'], ['30', 'some'], ['60', 'a lot'], ['120', 'very much']]), tick('pressureSize', brush, 'pen: size'), tick('pressureOpacity', brush, 'pen: opacity')]);
         break;
+      case 'history': items = brushRow([el('span', { class: 'ph-hint', text: D && D.histSrc ? 'Paints back the chosen state (◎ in History).' : 'Paints back the picture as it was when it opened (◎ in History: another state).' })]); break;
       case 'clone': case 'heal': items = brushRow([tick('cloneAligned', opts, 'aligned'), tick('cloneAll', opts, 'from all layers'), el('span', { class: 'ph-hint', text: D && D.cloneFrom ? 'Alt+click: copy from somewhere else' : 'Alt+click where to copy from' })]); break;
       case 'smudge': items = [pick('smudgeMode', opts, '', [['smudge', 'Smudge'], ['blur', 'Blur'], ['sharpen', 'Sharpen']]), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%'), num('strength', opts, 'Strength', 1, 100, 1, 100, '%')]; break;
       case 'dodge': items = [pick('dodgeMode', opts, '', [['dodge', 'Dodge (lighter)'], ['burn', 'Burn (darker)'], ['desaturate', 'Sponge: less colour'], ['saturate', 'Sponge: more colour']]), pick('range', opts, 'Range', [['shadows', 'shadows'], ['midtones', 'midtones'], ['highlights', 'highlights']]), num('exposure', opts, 'Exposure', 1, 100, 1, 100, '%'), num('size', brush, 'Size', 1, 2000, 1, 1, 'px'), num('hardness', brush, 'Hardness', 0, 100, 1, 100, '%')]; break;
@@ -2884,6 +3097,15 @@ window.NoorPhoto = (() => {
     }
     box.replaceChildren(...items.filter(Boolean));
   }
+  /** Brush dynamics: how much each dab may vary. */
+  function dynamicsDialog() {
+    NoorUI.modal({ label: 'Brush dynamics', width: 360 }, (s, closeIt) => {
+      const rows = [['sizeJitter', 'Size varies'], ['scatter', 'Scatter'], ['opacityJitter', 'Opacity varies'], ['hueJitter', 'Hue varies'], ['brightJitter', 'Lightness varies']]
+        .map(([k, label]) => paramControl({ key: `dyn-${k}`, label, type: 'range', min: 0, max: k === 'scatter' ? 200 : 100, step: 1, unit: '%', value: Math.round(brush[k] * 100) }, () => Math.round(brush[k] * 100), (v) => { brush[k] = v / 100; }));
+      s.append(NoorUI.head('Brush dynamics', closeIt), el('div', { class: 'modal-body ph-dlg ph-fx' }, el('p', { class: 'pref-hint', text: 'Each dab of the brush can come out a little different: for foliage, grass, stars, texture.' }), ...rows),
+        el('div', { class: 'modal-foot' }, el('button', { class: 'action', onclick: () => { for (const k of ['sizeJitter', 'scatter', 'opacityJitter', 'hueJitter', 'brightJitter']) brush[k] = 0; closeIt(); } }, 'None'), el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', id: 'ph-dyn-ok', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
   function flipTransform(axis) {
     const q = transform.corners;
     transform.corners = axis === 'h' ? [q[1], q[0], q[3], q[2]] : [q[3], q[2], q[1], q[0]];
@@ -2908,6 +3130,40 @@ window.NoorPhoto = (() => {
     const l = L();
     if (l) parts.push(`${l.name}${D.editMask && l.mask ? ' (mask)' : ''}`);
     s.textContent = parts.join(' · ');
+  }
+
+  // The histogram: how many pixels of each brightness the picture has (on a smaller copy, a moment after it changes),
+  // with the mean, the spread and the middle value.
+  let histoTimer = 0;
+  function scheduleHisto() {
+    const panel = $('#ph-histo-panel');
+    if (!panel || !panel.open) return;
+    clearTimeout(histoTimer);
+    histoTimer = setTimeout(drawHisto, 200);
+  }
+  function drawHisto() {
+    const cv = $('#ph-histo');
+    if (!cv || !D || !composite || !Fx()) return;
+    const k = Math.min(1, Math.sqrt(250000 / (composite.width * composite.height)));
+    const src = k < 1 ? scaled(composite, composite.width * k, composite.height * k) : composite;
+    const h = Fx().histogram(imgOf(src)), chan = $('#ph-histo-chan').value, x = g2(cv), W = cv.width, H = cv.height;
+    x.clearRect(0, 0, W, H);
+    x.fillStyle = 'rgba(0,0,0,.25)'; x.fillRect(0, 0, W, H);
+    const draw1 = (arr, colour, mode) => {
+      const max = Math.max(1, ...arr);
+      x.fillStyle = colour; x.globalCompositeOperation = mode;
+      for (let i = 0; i < 256; i++) { const v = Math.sqrt(arr[i] / max) * (H - 2); x.fillRect(i * W / 256, H - v, W / 256 + 0.5, v); }
+      x.globalCompositeOperation = 'source-over';
+    };
+    if (chan === 'rgb') { draw1(h.r, 'rgba(255,60,60,.8)', 'lighter'); draw1(h.g, 'rgba(60,255,60,.8)', 'lighter'); draw1(h.b, 'rgba(70,110,255,.8)', 'lighter'); }
+    else draw1(h[chan], chan === 'r' ? '#ff5050' : chan === 'g' ? '#50ff70' : chan === 'b' ? '#5090ff' : '#d8d8d8', 'source-over');
+    const arr = chan === 'rgb' ? h.l : h[chan];
+    let n = 0, sum = 0, sq = 0;
+    for (let i = 0; i < 256; i++) { n += arr[i]; sum += arr[i] * i; sq += arr[i] * i * i; }
+    let acc = 0, median = 0;
+    for (let i = 0; i < 256; i++) { acc += arr[i]; if (acc >= n / 2) { median = i; break; } }
+    const mean = n ? sum / n : 0, sd = n ? Math.sqrt(Math.max(0, sq / n - mean * mean)) : 0;
+    $('#ph-histo-stats').textContent = n ? `Mean ${mean.toFixed(1)} · spread ${sd.toFixed(1)} · middle ${median}` : 'Nothing to show (all see-through)';
   }
 
   // ---------------------------------------------------------------- the layers, properties and history panels
@@ -3012,7 +3268,7 @@ window.NoorPhoto = (() => {
     const out = [];
     const b = (label, run, id) => el('button', { class: 'action', id, onclick: run }, label);
     if (l.kind === 'adjust') { const fx = effectOf(l.adjust.id); out.push(el('p', { class: 'ph-propline', text: fx ? fx.name : l.adjust.id }), b('Change the settings…', () => effectDialog({ id: l.adjust.id, layer: l }), 'ph-prop-edit')); }
-    if (l.kind === 'fill') out.push(el('p', { class: 'ph-propline', text: l.fill.type === 'gradient' ? 'A gradient' : 'A colour' }), b('Change the fill…', () => fillDialog(l, false), 'ph-prop-edit'));
+    if (l.kind === 'fill') out.push(el('p', { class: 'ph-propline', text: l.fill.type === 'gradient' ? 'A gradient' : l.fill.type === 'pattern' ? 'A pattern' : 'A colour' }), b('Change the fill…', () => fillDialog(l, false), 'ph-prop-edit'));
     if (l.kind === 'text') out.push(el('p', { class: 'ph-propline', 'data-noi18n': '', text: `“${(l.text.text || '').slice(0, 60)}” · ${l.text.font} ${l.text.size}px` }), b('Type in it', () => { setTool('text'); startTyping(l, false); }, 'ph-prop-edit'), b('Font and spacing…', () => textDialog(l), 'ph-prop-font'));
     if (l.kind === 'pixel' && l.canvas) out.push(el('p', { class: 'ph-propline', text: `Pixels: ${l.canvas.width} × ${l.canvas.height} at ${l.x}, ${l.y}` }));
     if (l.kind === 'group') out.push(el('p', { class: 'ph-propline', text: `A group of ${kids(l.id).length}` }));
@@ -3078,8 +3334,9 @@ window.NoorPhoto = (() => {
   function renderHistory() {
     const ol = $('#ph-history');
     if (!ol || !D) return;
-    const items = [el('li', { class: D.history.length ? '' : 'on', onclick: () => goToStep(-1) }, 'Start')];
-    D.history.forEach((s, i) => items.push(el('li', { class: i === D.history.length - 1 ? 'on' : '', onclick: () => goToStep(i) }, s.label)));
+    const src = (i) => el('button', { class: 'ph-histsrc' + (D.histSrc && D.histSrc.at === i ? ' on' : ''), title: 'Paint from this state with the history brush', 'aria-label': 'History brush source', onclick: (e) => { e.stopPropagation(); setHistorySource(i); } }, '◎');
+    const items = [el('li', { class: D.history.length ? '' : 'on', onclick: () => goToStep(-1) }, src(-1), 'Start')];
+    D.history.forEach((s, i) => items.push(el('li', { class: i === D.history.length - 1 ? 'on' : '', onclick: () => goToStep(i) }, src(i), s.label)));
     [...D.future].reverse().forEach((s, i) => items.push(el('li', { class: 'future', onclick: () => goToStep(D.history.length + i) }, s.label)));
     ol.replaceChildren(...items);
     const on = ol.querySelector('li.on');
@@ -3195,38 +3452,71 @@ window.NoorPhoto = (() => {
   }
   function busy(on) { const b = $('#photobench'); if (b) b.classList.toggle('ph-busy', !!on); }
 
+  /** The flattened picture as the chosen file: { blob, data (base64), width, height }. */
+  async function encodeExport(format, quality, k, background) {
+    let c = compose(D, { noCache: true });
+    if (k !== 1) c = scaled(c, D.doc.width * k, D.doc.height * k);
+    if (format === 'jpeg') { const f = canvas(c.width, c.height), x = g2(f); x.fillStyle = background; x.fillRect(0, 0, f.width, f.height); x.drawImage(c, 0, 0); c = f; }
+    const mime = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', tiff: 'image/png' }[format];
+    const blob = await new Promise((res) => c.toBlob(res, mime, quality));
+    return { blob, width: c.width, height: c.height, data: b64(new Uint8Array(await blob.arrayBuffer())) };
+  }
+  const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
+  /** Export: the format, quality and size, with a preview of the file as it will be and how big it is. */
   function exportDialog() {
     if (!D) return;
-    NoorUI.modal({ label: 'Export', width: 400 }, (s, closeIt) => {
+    NoorUI.modal({ label: 'Export', width: 460 }, (s, closeIt) => {
       const fmt = el('select', { id: 'ph-exp-format', 'aria-label': 'Format' }, ...[['png', 'PNG (exact, see-through kept)'], ['jpeg', 'JPEG (photos, smaller)'], ['webp', 'WebP (smaller, see-through kept)'], ['tiff', 'TIFF (print, exact)']].map(([v, t]) => el('option', { value: v, text: t })));
       fmt.value = settings.exportFormat || 'png';
       const q = el('input', { type: 'number', id: 'ph-exp-quality', min: '1', max: '100', value: String(settings.exportQuality || 90), 'aria-label': 'Quality' });
       const sc = el('input', { type: 'number', id: 'ph-exp-scale', min: '1', max: '400', value: '100', 'aria-label': 'Size (%)' });
       const back = el('input', { type: 'color', value: '#ffffff', 'aria-label': 'Background for JPEG' });
-      const info = el('p', { class: 'pref-hint' });
-      const upd = () => { const k = clamp(Number(sc.value) || 100, 1, 400) / 100; info.textContent = `${Math.round(D.doc.width * k)} × ${Math.round(D.doc.height * k)} pixels${fmt.value === 'jpeg' ? '; see-through parts get the background colour' : ''}`; q.parentElement.hidden = !['jpeg', 'webp'].includes(fmt.value); back.parentElement.hidden = fmt.value !== 'jpeg'; };
-      for (const i of [fmt, sc]) i.addEventListener('input', upd);
+      const info = el('p', { class: 'pref-hint', id: 'ph-exp-info' });
+      const preview = el('img', { class: 'ph-exp-preview', id: 'ph-exp-preview', alt: 'How the file will look' });
+      let made = null, wanted = '', timer = 0, gen = 0;
+      const read = () => ({ k: clamp(Number(sc.value) || 100, 1, 400) / 100, format: fmt.value, quality: clamp(Number(q.value) || 90, 1, 100) / 100, background: back.value });
+      // The file is made as the settings change (a moment after the last change), so its size is exact and Export uses it.
+      const upd = () => {
+        const o = read();
+        q.parentElement.hidden = !['jpeg', 'webp'].includes(o.format); back.parentElement.hidden = o.format !== 'jpeg';
+        wanted = JSON.stringify(o);
+        info.textContent = `${Math.round(D.doc.width * o.k)} × ${Math.round(D.doc.height * o.k)} pixels · working out the size…`;
+        clearTimeout(timer);
+        timer = setTimeout(async () => {
+          const mine = ++gen, key = wanted;
+          try {
+            const r = await encodeExport(o.format, o.quality, o.k, o.background);
+            if (mine !== gen) return;
+            made = { key, ...r };
+            if (preview.src) URL.revokeObjectURL(preview.src);
+            preview.src = URL.createObjectURL(r.blob);
+            info.textContent = `${r.width} × ${r.height} pixels · about ${sizeText(r.blob.size)}${o.format === 'jpeg' ? ' · see-through parts get the background colour' : ''}${o.format === 'tiff' ? ' (as PNG; the TIFF is a little bigger)' : ''}`;
+          } catch (err) { info.textContent = String(err.message || err); }
+        }, 250);
+      };
+      for (const i of [fmt, sc, q, back]) i.addEventListener('input', upd);
       const go = async () => {
-        const k = clamp(Number(sc.value) || 100, 1, 400) / 100, format = fmt.value, quality = clamp(Number(q.value) || 90, 1, 100) / 100;
-        settings.exportFormat = format; settings.exportQuality = Math.round(quality * 100); saveSettings();
+        const o = read();
+        settings.exportFormat = o.format; settings.exportQuality = Math.round(o.quality * 100); saveSettings();
         closeIt();
         try {
           busy(true);
-          let c = compose(D, { noCache: true });
-          if (k !== 1) c = scaled(c, D.doc.width * k, D.doc.height * k);
-          if (format === 'jpeg') { const f = canvas(c.width, c.height), x = g2(f); x.fillStyle = back.value; x.fillRect(0, 0, f.width, f.height); x.drawImage(c, 0, 0); c = f; }
-          const mime = { png: 'image/png', jpeg: 'image/jpeg', webp: 'image/webp', tiff: 'image/png' }[format];
-          const data = await pngOf(c, mime, quality);
-          const r = await req('photo.export', { data, format, name: D.name.replace(/\.[^.]+$/, '') });
-          if (r && !r.cancelled) notice(`Exported ${r.name}`, 1600);
-        } catch (err) { hooks.showError(err); } finally { busy(false); }
+          const r = made && made.key === JSON.stringify(o) ? made : await encodeExport(o.format, o.quality, o.k, o.background);
+          const res = await req('photo.export', { data: r.data, format: o.format, name: D.name.replace(/\.[^.]+$/, '') });
+          if (res && !res.cancelled) notice(`Exported ${res.name}`, 1600);
+        } catch (err) { hooks.showError(err); } finally { busy(false); if (preview.src) URL.revokeObjectURL(preview.src); }
       };
       s.append(NoorUI.head('Export', closeIt), el('div', { class: 'modal-body ph-dlg' },
-        el('label', {}, 'Format ', fmt), el('label', {}, 'Quality ', q, ' %'), el('label', {}, 'Size ', sc, ' %'), el('label', {}, 'Background ', back), info,
+        el('label', {}, 'Format ', fmt), el('label', {}, 'Quality ', q, ' %'), el('label', {}, 'Size ', sc, ' %'), el('label', {}, 'Background ', back), preview, info,
         el('p', { class: 'pref-hint', text: 'Export makes a flat picture; Save keeps the layers (.noorphoto or PSD).' })),
       el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ph-exp-ok', onclick: go }, 'Export…'))));
       upd();
     });
+  }
+  /** File › Quick export as PNG: the whole picture, at its size, no questions but where. */
+  async function quickExport() {
+    try { busy(true); const r = await encodeExport('png', 1, 1, '#ffffff'); const res = await req('photo.export', { data: r.data, format: 'png', name: D.name.replace(/\.[^.]+$/, '') }); if (res && !res.cancelled) notice(`Exported ${res.name}`, 1600); }
+    catch (err) { hooks.showError(err); } finally { busy(false); }
   }
   /** The picture to NoorMaterial (a new material from it, as a photo layer). */
   async function toMaterial() {
@@ -3414,15 +3704,15 @@ window.NoorPhoto = (() => {
         go('New…', newDialog, 'Ctrl+N'), go('Open…', openFile, 'Ctrl+O'),
         { label: 'Open recent', sub: () => (recentFiles.length ? recentFiles.map((r) => go(r.name, () => openRecent(r.path), '', { title: r.path })) : [{ label: 'Nothing opened yet', disabled: true }]) },
         go('Place a picture as a layer…', placePicture), '-',
-        go('Save', () => save(false), 'Ctrl+S'), go('Save as… (.noorphoto or PSD)', () => save(true), 'Ctrl+Shift+S'), go('Export (PNG, JPEG, WebP, TIFF)…', exportDialog, 'Ctrl+Alt+Shift+S'), '-',
+        go('Save', () => save(false), 'Ctrl+S'), go('Save as… (.noorphoto or PSD)', () => save(true), 'Ctrl+Shift+S'), go('Export (PNG, JPEG, WebP, TIFF)…', exportDialog, 'Ctrl+Alt+Shift+S'), go('Quick export as PNG', quickExport), '-',
         go('To NoorMaterial (a new material)', toMaterial), '-',
         go('Close this picture', () => closeDoc(docs.indexOf(D))), { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorPhoto', close),
       ]],
       ['Edit', 'e', () => [
         go('Undo', undo, 'Ctrl+Z', { disabled: () => !D || !D.history.length }), go('Redo', redo, 'Ctrl+Y', { disabled: () => !D || !D.future.length }), '-',
         go('Cut', () => copy(true), 'Ctrl+X'), go('Copy', () => copy(false), 'Ctrl+C'), go('Copy merged', () => copy(false, true), 'Ctrl+Shift+C'), go('Paste', paste, 'Ctrl+V'), go('Delete what is selected', clearSelected, 'Del'), '-',
-        go('Fill with the foreground colour', () => fillWith(fg), 'Alt+Backspace'), go('Fill with the background colour', () => fillWith(bg), 'Ctrl+Backspace'), '-',
-        go('Free transform', () => startTransform(true), 'Ctrl+T'),
+        go('Fill with the foreground colour', () => fillWith(fg), 'Alt+Backspace'), go('Fill with the background colour', () => fillWith(bg), 'Ctrl+Backspace'), go('Define a pattern (from the selection)…', definePattern), '-',
+        go('Free transform', () => startTransform(true), 'Ctrl+T'), go('Transform again', transformAgain, 'Ctrl+Shift+T', { disabled: () => !lastTransform }),
         { label: 'Transform the layer', sub: () => [go('Flip horizontally', () => turnLayer('h')), go('Flip vertically', () => turnLayer('v')), go('Turn 90° clockwise', () => turnLayer('cw')), go('Turn 90° anticlockwise', () => turnLayer('ccw'))] }, '-',
         go('NoorPhoto settings…', settingsDialog), go('Keyboard shortcuts…', shortcutsDialog),
       ]],
@@ -3435,7 +3725,7 @@ window.NoorPhoto = (() => {
       ]],
       ['Layer', 'l', () => [
         go('New layer', newLayer, 'Ctrl+Shift+N'), go('Duplicate', duplicateLayer), go('Delete', deleteLayer), go('Rename…', () => { const l = L(); if (l) renameLayer(l); }), '-',
-        { label: 'New adjustment layer', sub: adjustLayerItems }, { label: 'New fill layer', sub: () => [go('Colour…', () => newFillLayer('colour')), go('Gradient…', () => newFillLayer('gradient'))] }, '-',
+        { label: 'New adjustment layer', sub: adjustLayerItems }, { label: 'New fill layer', sub: () => [go('Colour…', () => newFillLayer('colour')), go('Gradient…', () => newFillLayer('gradient')), go('Pattern…', () => newFillLayer('pattern'))] }, '-',
         { label: 'Mask', sub: () => [go('Reveal all', () => addMask(false, false)), go('Hide all', () => addMask(false, true)), go('From the selection', () => addMask(true), '', { disabled: () => !D || !D.sel }), '-', go('Turn off / on', toggleMaskOn), go('Invert', invertMask), go('Apply', () => deleteMask(true)), go('Delete', () => deleteMask(false))] },
         go('Clip to the layer under it', toggleClip, '', { checked: () => !!(L() && L().clip) }), '-',
         { label: 'Layer style', sub: styleItems }, { label: 'Live filters', sub: () => filterItems(true) }, '-',
@@ -3446,7 +3736,7 @@ window.NoorPhoto = (() => {
       ]],
       ['Select', 's', () => [
         go('All', selectAll, 'Ctrl+A'), go('Nothing', deselect, 'Ctrl+D'), go('Again (the last one)', reselect, 'Ctrl+Shift+D'), go('Invert', invertSel, 'Ctrl+Shift+I'), '-',
-        go('Colour range…', colourRangeDialog), go('The layer\'s pixels', () => selFromAlpha(L())), go('The shape\'s outline', () => selFromShape(), '', { disabled: () => !L() || L().kind !== 'shape' }), '-',
+        go('Subject (the main thing in the picture)', () => selectSubject()), go('Colour range…', colourRangeDialog), go('The layer\'s pixels', () => selFromAlpha(L())), go('The shape\'s outline', () => selFromShape(), '', { disabled: () => !L() || L().kind !== 'shape' }), '-',
         go('Refine (grow, shrink, feather)…', refineDialog, '', { disabled: () => !D || !D.sel }), go('Quick mask (paint the selection)', toggleQuickMask, 'Q', { checked: () => !!(D && D.quickMask) }),
       ]],
       ['Filter', 't', () => [go(lastFilter ? `Again: ${effectOf(lastFilter.id).name}` : 'Again (the last filter)', repeatFilter, 'Ctrl+F', { disabled: () => !lastFilter }), '-', ...filterItems(false)]],
@@ -3492,7 +3782,7 @@ window.NoorPhoto = (() => {
     if (ctrl && e.altKey) return;
     if (ctrl) {
       const map = e.shiftKey ? {
-        s: () => save(true), z: redo, d: reselect, i: invertSel, n: newLayer, j: () => layerVia(true), g: ungroup, e: () => flatten(true), c: () => copy(false, true),
+        s: () => save(true), z: redo, d: reselect, t: transformAgain, i: invertSel, n: newLayer, j: () => layerVia(true), g: ungroup, e: () => flatten(true), c: () => copy(false, true),
         u: () => applyInstant('desaturate'), l: autoTone, ']': () => arrange(2), '}': () => arrange(2), '[': () => arrange(-2), '{': () => arrange(-2),
       } : {
         n: newDialog, o: openFile, s: () => save(false), z: undo, y: redo, a: selectAll, d: deselect, c: () => copy(false), x: () => copy(true), v: paste,

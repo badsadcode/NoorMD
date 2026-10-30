@@ -1010,6 +1010,36 @@
     }));
     return perPixel(img, (c) => { const l = clamp(Math.round(lum(c[0], c[1], c[2])), 0, 255); c[0] = lut[0][l]; c[1] = lut[1][l]; c[2] = lut[2][l]; });
   }
+  // Selective colour: cyan, magenta, yellow and black added to (or taken from) one family of colours, the more the
+  // more a pixel belongs to it; relative scales with what is there, absolute adds the same everywhere in it.
+  const RANGES = {
+    reds: (r, g, b) => (r >= g && r >= b ? r - Math.max(g, b) : 0), yellows: (r, g, b) => (b <= r && b <= g ? Math.min(r, g) - b : 0),
+    greens: (r, g, b) => (g >= r && g >= b ? g - Math.max(r, b) : 0), cyans: (r, g, b) => (r <= g && r <= b ? Math.min(g, b) - r : 0),
+    blues: (r, g, b) => (b >= r && b >= g ? b - Math.max(r, g) : 0), magentas: (r, g, b) => (g <= r && g <= b ? Math.min(r, b) - g : 0),
+    whites: (r, g, b) => Math.max(0, Math.min(r, g, b) - 128) * 2, blacks: (r, g, b) => Math.max(0, 128 - Math.max(r, g, b)) * 2,
+    neutrals: (r, g, b) => Math.max(0, 255 - (Math.abs(Math.max(r, g, b) - 128) + Math.abs(Math.min(r, g, b) - 128))),
+  };
+  function selective(img, p) {
+    const f = RANGES[p.range] || RANGES.reds, rel = p.method !== 'absolute', adj = [p.cyan / 100, p.magenta / 100, p.yellow / 100], k = p.black / 100;
+    if (!adj[0] && !adj[1] && !adj[2] && !k) return copy(img);
+    return perPixel(img, (c) => {
+      const w = f(c[0], c[1], c[2]) / 255;
+      if (!w) return;
+      for (let ch = 0; ch < 3; ch++) {
+        const ink = 1 - c[ch] / 255, base = rel ? ink : 1;
+        c[ch] = (1 - clamp(ink + base * (adj[ch] + k) * w, 0, 1)) * 255;
+      }
+    });
+  }
+  // A box blur: every pixel the plain average of a square round it.
+  function boxImg(img, p) {
+    const r = Math.round(p.radius);
+    if (r < 1) return copy(img);
+    const pre = toPre(img), tmp = new Float32Array(pre.length);
+    boxH(pre, tmp, img.width, img.height, 4, r);
+    boxV(tmp, pre, img.width, img.height, 4, r);
+    return fromPre(pre, img.width, img.height);
+  }
   function desaturate(img) { return perPixel(img, (c) => { c[0] = c[1] = c[2] = lum(c[0], c[1], c[2]); }); }
   const MIX = ['rr', 'rg', 'rb', 'gr', 'gg', 'gb', 'br', 'bg', 'bb'];
   function channelmix(img, p) {
@@ -1038,6 +1068,9 @@
     { id: 'gaussian', name: 'Gaussian blur', group: 'Blur', run: (i, p) => gaussImg(i, p.radius),
       about: 'Softens the picture evenly; the radius sets how far each pixel spreads.',
       params: [px('radius', 'Radius', 0, 250, 4, { step: 0.1 })] },
+    { id: 'box', name: 'Box blur', group: 'Blur', run: boxImg,
+      about: 'Averages each pixel with a square round it: a flat, even blur (good for masks and backgrounds).',
+      params: [px('radius', 'Radius', 0, 250, 5)] },
     { id: 'motion', name: 'Motion blur', group: 'Blur', run: motion,
       about: 'Smears the picture along a direction, like a camera moving during the shot.',
       params: [deg('angle', 'Angle', -180, 180, 0), px('distance', 'Distance', 0, 200, 20)] },
@@ -1225,6 +1258,11 @@
     { id: 'desaturate', name: 'Desaturate', run: desaturate,
       about: 'Removes all colour, keeping brightness.',
       params: [] },
+    { id: 'selective', name: 'Selective colour', run: selective,
+      about: 'Adds or takes away cyan, magenta, yellow and black in one family of colours (the reds, the blues, the whites…).',
+      params: [select('range', 'Colours', [['reds', 'Reds'], ['yellows', 'Yellows'], ['greens', 'Greens'], ['cyans', 'Cyans'], ['blues', 'Blues'], ['magentas', 'Magentas'], ['whites', 'Whites'], ['neutrals', 'Neutrals'], ['blacks', 'Blacks']], 'reds'),
+        range('cyan', 'Cyan', -100, 100, 0, { unit: '%' }), range('magenta', 'Magenta', -100, 100, 0, { unit: '%' }), range('yellow', 'Yellow', -100, 100, 0, { unit: '%' }), range('black', 'Black', -100, 100, 0, { unit: '%' }),
+        select('method', 'Method', [['relative', 'Relative'], ['absolute', 'Absolute']], 'relative')] },
     { id: 'channelmix', name: 'Channel mixer', run: channelmix,
       about: 'Builds each output channel from a mix of red, green and blue.',
       params: [...mixParams, check('monochrome', 'Monochrome', false)] },

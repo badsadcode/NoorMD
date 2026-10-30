@@ -5,6 +5,11 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorPhoto, round three (preview.121): a histogram panel (mean, spread, middle); Export shows the file as it will be
+  and its size (and Quick export as PNG); brush tips (round, square, chalk, spray) and dynamics (size, scatter,
+  opacity, hue and lightness varying dab to dab); the history brush (paints back a state chosen in History);
+  transform again (Ctrl+Shift+T); box blur; selective colour; pattern fill layers (ready-made or your own, Edit ›
+  Define a pattern); Select › Subject (the main thing, found from how unlike the border it is).
 - NoorPhoto, round two (preview.120; ideas from PhotoCraft, no code): layer styles (drop shadow, outer and inner
   glow, inner shadow, bevel and emboss, colour and gradient overlays, stroke; fill opacity; ready-made styles; copy
   and paste), live on any layer and drawn from its shape; shape layers that stay changeable (rectangle, rounded,
