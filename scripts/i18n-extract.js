@@ -82,6 +82,9 @@ function scanJs(src) {
     if (/(querySelector(All)?|\$\$?|getElementById|closest|matches|classList\.\w+|getAttribute|setAttribute|dataset\.?\w*|addEventListener|removeEventListener|getItem|setItem|removeItem|request|req|post|case|import|require|new RegExp|createElement|getPropertyValue|run)\(\s*$/.test(before)) continue;
     if (/\b(class|id|type|role|key|value|name|href|src|for|rel|tabindex|'data-[\w-]+'|kind|cmd|tab|icon|mode|blend|direction|layout|format)\s*:\s*$/.test(before)) continue;
     const s = lit.text;
+    // NoorPhoto's filters and adjustments: their names, groups and notes, and each setting's label (the second
+    // argument after its key, as in pct('width', 'Focus width', …)).
+    if (/\b(name|about|group):\s*$|\(\s*'\w+',\s*$/.test(before) && /^[A-Z]/.test(s) && /[a-z]{2}/.test(s) && !lit.template) { keys.add(s.replace(/\s+/g, ' ').trim()); continue; }
     // A short lowercase word is a label when it is shown as text, or is the label of an [value, label] pair.
     if (/^[a-z]{3,14}$/.test(s) && /(\btext:\s*|\blabel:\s*|\[\s*[\w.'"-]+,\s*)$/.test(before)) { keys.add(s); continue; }
     // Anything given as a text, a title, a label or a placeholder is words to read.

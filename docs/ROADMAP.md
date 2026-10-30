@@ -5,6 +5,17 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorPhoto (preview.119): a layered photo and painting editor (Ctrl+Alt+J, or Tools). Pixel, group, fill, adjustment
+  and text layers with 27 blend modes, opacity, masks and clipping; brushes with pen pressure, the clone stamp,
+  healing, smudge / blur / sharpen and dodge / burn / sponge; selections (rectangle, ellipse, lasso, straight lines,
+  magic wand, colour range, quick mask, grow / shrink / feather); free transform with perspective; crop; gradients,
+  shapes and text. Filters (blur: Gaussian, motion, zoom, spin, lens, surface, median, tilt-shift, iris; sharpen:
+  unsharp mask, sharpen, high pass, clarity; noise, grain, reduce noise, dust; stylize: emboss, edges, glow, dreamy
+  glow, oil paint, pixelate, halftone, vignette, chromatic aberration, glitch, solarize, pencil sketch; distort:
+  offset, twirl, pinch, ripple, lens distortion, polar; render: clouds, lens flare), each applied to the pixels or kept
+  as a live filter; 17 adjustments, applied or kept as adjustment layers. Several pictures at once (tabs), a history
+  panel, .noorphoto and PSD (open and save), PNG / JPEG / WebP / TIFF, from NoorGallery, to NoorMaterial. Next
+  (stage 2–3 in [NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md)): liquify, editable shapes, 16-bit documents, content-aware fill.
 - Languages (preview.118): Polish, German, French and Spanish (drafts) beside English, chosen in Preferences; the
   page changes at once, the app's dialogs at the next start; your own translations (or corrections) in
   Documents\NoorMD\Translations, from a file Preferences makes with every text. Not yet translated: NoorSketch's
@@ -93,8 +104,8 @@ first, and anything that conflicts with it waits.
   level markers: preview.110; turn-arounds and directions, isometric boxes and tiles, collision shapes, readability
   checks: preview.112; sprite stacking, effects, a scene to try animations in, seams, timelapses, contact sheets,
   snapshots, shared palettes: preview.113. See
-  [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorPhoto (a layered photo and painting editor) is planned in
-  [NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md); NoorSketch stays the small sketchpad it is.
+  [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorPhoto (a layered photo and painting editor) came in preview.119
+  ([NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md)); NoorSketch stays the small sketchpad it is.
 
 ## Indie developer benches (concept)
 

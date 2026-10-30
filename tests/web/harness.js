@@ -203,6 +203,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('forge.')) { try { return reply(m.id, true, forgeMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('photo.')) { try { return reply(m.id, true, photoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sprite.')) { try { return reply(m.id, true, spriteMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('export.') && !['export.markdown', 'export.html', 'export.pdf'].includes(m.type)) { try { return reply(m.id, true, exportMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -531,6 +532,33 @@ function mockHostScript(initial) {
       }
       case 'asset.rock.save': { const id = 'user:' + p.recipe.name + '.json'; const replaced = ROCK.mine.some((x) => x.id === id); ROCK.mine = ROCK.mine.filter((x) => x.id !== id).concat([{ id, recipe: p.recipe }]); return { id, replaced, mine: mine() }; }
       case 'asset.rock.delete': ROCK.mine = ROCK.mine.filter((x) => x.id !== p.id); return { mine: mine() };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+  // NoorPhoto: the app opens and saves files; here a two-layer photo (red|blue picture, a masked green layer), a picture,
+  // and what was saved and exported.
+  const PHOTO = { saves: [], exports: [] };
+  const PH_RB = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAYAAAD+Bd/7AAAAFklEQVR4nGP4z8DwHxmjcf9jiAxGBQDN8l+hcdg/NgAAAABJRU5ErkJggg==';
+  const PH_G = 'iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAD0lEQVR4nGNg+I8GSRcAACxQH+H81I9XAAAAAElFTkSuQmCC';
+  const PH_WB = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAYAAAD+Bd/7AAAAE0lEQVR4nGP4jwYYGBhQ8VBQAABXEneJVu7UtwAAAABJRU5ErkJggg==';
+  function photoMock(type, p) {
+    if (state.photo && state.photo !== PHOTO) Object.assign(PHOTO, state.photo);
+    state.photo = PHOTO;
+    const photo = () => ({ version: 1, width: 8, height: 6, layers: [
+      { id: 'bg', name: 'Background', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 0, y: 0, width: 8, height: 6, png: PH_RB },
+      { id: 'g', name: 'Green', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 2, y: 1, width: 4, height: 4, png: PH_G, mask: { x: 0, y: 0, width: 8, height: 6, png: PH_WB, enabled: true, background: 0 } }] });
+    switch (type) {
+      case 'photo.open': PHOTO.opens = (PHOTO.opens || 0) + 1; return PHOTO.openPicture ? { picture: { data: PH_RB, mime: 'image/png' }, path: 'C:\\Photos\\beach.png', name: 'beach.png', notes: [] } : { photo: photo(), path: 'C:\\Photos\\two.noorphoto', name: 'two.noorphoto', notes: PHOTO.notes || [] };
+      case 'photo.openGallery': PHOTO.gallery = (PHOTO.gallery || []).concat([p.id]); return { picture: { data: PH_RB, mime: 'image/png' }, path: 'C:\\Pictures\\g.png', name: `g${p.id}.png`, notes: [] };
+      case 'photo.recent': return { files: [{ path: 'C:\\Photos\\two.noorphoto', name: 'two.noorphoto' }] };
+      case 'photo.openRecent': PHOTO.openedRecent = p.path; return { photo: photo(), path: p.path, name: 'two.noorphoto', notes: [] };
+      case 'photo.place': return { picture: { data: PH_G, mime: 'image/png' }, name: 'leaf' };
+      case 'photo.save': PHOTO.saves.push(JSON.parse(JSON.stringify(p))); { const path = p.path || PHOTO.saveAs || 'C:\\Photos\\new.noorphoto'; return { path, name: path.split('\\').pop(), notes: /\.psd$/.test(path) ? ['Text layers are saved as pictures in the PSD.'] : [] }; }
+      case 'photo.export': PHOTO.exports.push({ format: p.format, name: p.name, bytes: p.data.length, head: p.data.slice(0, 12) }); return { path: `C:\\Photos\\${p.name}.${p.format}`, name: `${p.name}.${p.format}` };
+      case 'photo.toTexture': PHOTO.toTexture = (PHOTO.toTexture || 0) + 1; return { path: 'C:\\Local\\Photo\\ToTexture\\p.png', name: 'p.png', width: 8, height: 6 };
+      case 'photo.draft.save': PHOTO.drafts = (PHOTO.drafts || 0) + 1; return { ok: true };
+      case 'photo.draft.load': return PHOTO.offerDraft ? { photo: photo(), name: 'lost', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
+      case 'photo.draft.clear': PHOTO.clears = (PHOTO.clears || 0) + 1; return { ok: true };
       default: throw new Error('Unknown command ' + type);
     }
   }

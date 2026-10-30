@@ -7,12 +7,20 @@ bench (NoorSprite).
 
 ## Principles
 
-- **The page draws with the GPU** (WebGL 2: layers composed, brushes stamped, filters run as shaders), so large images
-  stay quick; the app reads and writes files (PSD in and out, PNG, JPEG, WebP, TIFF, its own .noorphoto).
+- **The page draws with the GPU** (the browser's canvas composes layers and the sixteen standard blend modes on the
+  GPU; the other blend modes, filters and adjustments are worked out on the pixels, previewed on a smaller copy first);
+  the app reads and writes files (PSD in and out, PNG, JPEG, WebP, TIFF, its own .noorphoto).
 - **Non-destructive where it matters:** adjustment layers, layer masks, smart filters on a layer kept as settings,
   transforms kept until applied.
 - **Exact files:** 8 and 16 bits per channel; colour as it was (sRGB, with the profile kept); alpha straight.
 - **Files you choose only**, and undo for everything (a history panel to step back to any point).
+
+## Status
+
+Stage 1 is in (preview.119), with most of stage 2: the adjustments (as adjustment layers or applied), the filters
+(applied or live; tilt-shift and iris blur, lens blur, clarity, glow, oil paint, halftone, glitch and more), text
+layers and simple shapes (on layers of their own, as pixels). Still to come: liquify, editable shape layers, layer
+styles, 16-bit documents (opened as 8 bits for now), and stage 3.
 
 ## Stage 1 — layers and painting
 

@@ -22,6 +22,9 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx playwright install --with-deps chromium
+      - name: NoorPhoto filters (Node)
+        working-directory: tests/web
+        run: node photofx.test.js
       - name: Run UI tests
         working-directory: tests/web
         run: node ui.test.js --screenshots ../../ui-screenshots

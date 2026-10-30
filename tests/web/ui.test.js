@@ -8029,6 +8029,199 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with rocks', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 67. NoorPhoto: layers, painting, selections, masks, filters and adjustments, transform, crop, files.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const PS = () => page.evaluate(() => NoorPhoto._state());
+      const px = (x, y, id = null) => page.evaluate(([a, b, c]) => NoorPhoto._pixel(a, b, c), [x, y, id]);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorPhoto._screen(a, b), [x, y]);
+      const dragOn = async (pts) => { const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 6 }); } await page.mouse.up(); };
+      const near = (a, b, t = 3) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= t);
+      await page.keyboard.press('Control+Alt+j');
+      await waitFn(page, () => NoorPhoto.isOpen() && NoorPhoto._state());
+      check('Ctrl+Alt+J opens NoorPhoto with a picture to paint on', (await PS()).layers.length === 1 && !!(await page.$('#photobench #ph-canvas')));
+      await page.evaluate(() => NoorPhoto._new(64, 48, 'white'));
+      await waitFn(page, () => NoorPhoto._state().width === 64 && NoorPhoto._state().docs === 2);
+      check('a new picture opens in a tab of its own', (await page.$$('#ph-tabs .ph-tab')).length === 2);
+      // Painting: a red stroke across the middle.
+      await page.evaluate(() => NoorPhoto._setColour('fg', '#ff0000'));
+      await page.click('#ph-tools [data-tool="brush"]');
+      await page.fill('#ph-opt-size', '6'); await page.press('#ph-opt-size', 'Tab');
+      await dragOn([[10, 24], [30, 24], [50, 24]]);
+      check('the brush paints', near(await px(30, 24), [255, 0, 0, 255], 8), await px(30, 24));
+      check('…away from the stroke it stays white', near(await px(30, 5), [255, 255, 255, 255]));
+      check('…and it is a step in the history', (await PS()).history.at(-1) === 'Brush' && /Brush/.test(await page.textContent('#ph-history')));
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z takes it back', near(await px(30, 24), [255, 255, 255, 255]));
+      await page.keyboard.press('Control+y');
+      check('Ctrl+Y puts it back', near(await px(30, 24), [255, 0, 0, 255], 8));
+      // A second layer, blue, multiplied over.
+      await page.keyboard.press('Control+Shift+n');
+      await waitFn(page, () => NoorPhoto._state().layers.length === 2);
+      await page.evaluate(() => NoorPhoto._setColour('fg', '#0000ff'));
+      await page.keyboard.press('Alt+Backspace');
+      check('Alt+Backspace fills the new layer with the foreground colour', near(await px(5, 5), [0, 0, 255, 255]), await px(5, 5));
+      await page.selectOption('#ph-blend', 'multiply');
+      check('a blend mode (multiply: blue over red is black, over white blue)', near(await px(30, 24), [0, 0, 0, 255], 8) && near(await px(5, 5), [0, 0, 255, 255]));
+      await page.selectOption('#ph-blend', 'linear-burn');
+      check('…the blend modes worked out here too (linear burn)', near(await px(5, 5), [0, 0, 255, 255], 2) && near(await px(30, 24), [0, 0, 0, 255], 8), [await px(5, 5), await px(30, 24)]);
+      await page.selectOption('#ph-blend', 'normal');
+      await page.fill('#ph-opacity', '50'); await page.press('#ph-opacity', 'Enter');
+      check('opacity: half blue over white', near(await px(5, 5), [127, 127, 255, 255], 3), await px(5, 5));
+      await page.fill('#ph-opacity', '100'); await page.press('#ph-opacity', 'Enter');
+      // A selection and a mask: only the left half of the blue layer shows.
+      await page.click('#ph-tools [data-tool="marquee"]');
+      await dragOn([[0, 0], [32, 48]]);
+      check('the rectangle selects', JSON.stringify((await PS()).selection) === JSON.stringify({ x: 0, y: 0, w: 32, h: 48 }), (await PS()).selection);
+      await page.click('#ph-layer-mask');
+      await waitFn(page, () => !!NoorPhoto._state().layers.at(-1).mask);
+      check('a mask from the selection: the layer shows only there', near(await px(5, 5), [0, 0, 255, 255]) && near(await px(50, 5), [255, 255, 255, 255]) && (await PS()).editMask === true, [await px(5, 5), await px(50, 5)]);
+      check('…and the mask has its thumbnail in the layers panel', !!(await page.$('#ph-layers .ph-maskthumb')));
+      await page.click('#ph-mask-toggle');
+      check('…turned off, the whole layer shows', near(await px(50, 5), [0, 0, 255, 255]));
+      await page.click('#ph-mask-toggle');
+      await page.click('#ph-mask-delete');
+      check('…deleted', !(await PS()).layers.at(-1).mask);
+      // Select all, delete: the layer goes see-through.
+      await page.click('#ph-tools [data-tool="hand"]');
+      await page.keyboard.press('Control+a');
+      await page.keyboard.press('Delete');
+      check('Ctrl+A then Delete empties the layer', (await px(5, 5, (await PS()).active))[3] === 0, await px(5, 5, (await PS()).active));
+      await page.keyboard.press('Control+d');
+      check('Ctrl+D selects nothing', (await PS()).selection === null);
+      // Filters: a Gaussian blur from the Filter menu, on the red stroke's layer.
+      await page.click('#ph-layers .ph-layer:last-child');
+      const bgId = (await PS()).layers[0].id;
+      await waitFn(page, (id) => NoorPhoto._state().active === id, bgId);
+      await page.click('#ph-menubar .ph-menu-title:has-text("Filter")');
+      await page.click('.menu-popup .menu-item:has-text("Blur")');
+      await page.click('.menu-popup .menu-item:has-text("Gaussian blur")');
+      await page.waitForSelector('#ph-fx');
+      check('a filter has its dialog to the side, with a preview', !!(await page.$('.modal.ph-side #ph-fx-thumb')));
+      await page.fill('#ph-fx input.ph-num', '4'); await page.press('#ph-fx input.ph-num', 'Tab');
+      await page.waitForTimeout(150);
+      const shownBlur = await page.evaluate(() => { NoorPhoto._flush(); return null; });
+      void shownBlur;
+      await page.click('#ph-fx-ok');
+      await waitFn(page, () => !document.querySelector('#ph-fx'));
+      const blurred = await px(30, 24, bgId), edge = await px(30, 20, bgId);
+      check('…OK applies it: the stroke is softer', blurred[1] > 10 && edge[1] < 250, [blurred, edge]);
+      check('…as a step named after it', (await PS()).history.at(-1) === 'Gaussian blur');
+      await page.keyboard.press('Control+z');
+      // A live filter: the pixels stay, the picture shows it.
+      await page.evaluate(() => document.querySelector('#ph-layer-fx').click());
+      await page.click('.menu-popup .menu-item:has-text("Sharpen")');
+      await page.click('.menu-popup .menu-item:has-text("Unsharp mask")');
+      await page.waitForSelector('#ph-fx');
+      await page.click('#ph-fx-ok');
+      await waitFn(page, () => !document.querySelector('#ph-fx'));
+      check('a live filter goes on the layer as settings', (await PS()).layers[0].filters.length === 1 && (await PS()).layers[0].filters[0].id === 'unsharp' && /Unsharp mask/.test(await page.textContent('#ph-props')), (await PS()).layers[0].filters);
+      check('…shown with ƒx in the layers panel', /ƒx/.test(await page.textContent('#ph-layers')));
+      await page.click('#ph-props .ph-fxrow button[aria-label="Remove"]');
+      check('…and removed again', (await PS()).layers[0].filters.length === 0);
+      // Adjustments: Ctrl+I inverts the pixels; an adjustment layer changes what is under it.
+      await page.keyboard.press('Control+i');
+      check('Ctrl+I inverts (red to cyan, white to black)', near(await px(30, 24), [0, 255, 255, 255], 8) && near(await px(30, 5), [0, 0, 0, 255]), [await px(30, 24), await px(30, 5)]);
+      await page.keyboard.press('Control+z');
+      await page.evaluate(() => document.querySelector('#ph-layer-adjust').click());
+      await page.click('.menu-popup .menu-item:has-text("Hue and saturation")');
+      await page.waitForSelector('#ph-fx');
+      await page.fill('#ph-fx label:has-text("Saturation") input.ph-num', '-100'); await page.press('#ph-fx label:has-text("Saturation") input.ph-num', 'Tab');
+      await page.click('#ph-fx-ok');
+      await waitFn(page, () => !document.querySelector('#ph-fx'));
+      const grey = await px(30, 24);
+      check('an adjustment layer (saturation −100) greys what is under it', (await PS()).layers.some((l) => l.kind === 'adjust') && Math.abs(grey[0] - grey[1]) < 6 && Math.abs(grey[1] - grey[2]) < 6, grey);
+      check('…while the pixels under it keep their colour', near(await px(30, 24, bgId), [255, 0, 0, 255], 8));
+      const adjId = (await PS()).active;
+      await page.click(`#ph-layers [data-id="${adjId}"] .ph-eye`);
+      check('…hidden, the colour is back', near(await px(30, 24), [255, 0, 0, 255], 8));
+      // Levels with Ctrl+L on the pixels.
+      await page.evaluate((id) => NoorPhoto._activate(id), bgId);
+      await page.keyboard.press('Control+l');
+      await page.waitForSelector('#ph-fx');
+      check('Ctrl+L: levels', /Levels/.test(await page.textContent('.modal-head')));
+      await page.click('.modal .modal-buttons .action:has-text("Cancel")');
+      await waitFn(page, () => !document.querySelector('#ph-fx'));
+      check('…cancelled, nothing changes', near(await px(30, 24, bgId), [255, 0, 0, 255], 8) && (await PS()).history.at(-1) !== 'Levels');
+      // Curves draws its curve.
+      await page.keyboard.press('Control+m');
+      await page.waitForSelector('#ph-curve');
+      check('Ctrl+M: curves with its graph', !!(await page.$('#ph-curve')));
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => !document.querySelector('#ph-fx'));
+      // Gradient tool.
+      await page.evaluate(() => { NoorPhoto._setColour('fg', '#000000'); NoorPhoto._setColour('bg', '#ffffff'); });
+      await page.keyboard.press('Control+Shift+n');
+      await page.click('#ph-tools [data-tool="gradient"]');
+      await dragOn([[0, 10], [63, 10]]);
+      const gl = await px(2, 30), gr = await px(61, 30);
+      check('the gradient tool: dark to light across', gl[0] < 40 && gr[0] > 215, [gl, gr]);
+      // Text.
+      await page.click('#ph-tools [data-tool="text"]');
+      const tp = await at(5, 40);
+      await page.mouse.click(tp.x, tp.y);
+      await page.waitForSelector('#ph-text-input');
+      await page.fill('#ph-text-input', 'Hi');
+      await page.fill('#ph-text-size', '20');
+      await page.click('#ph-text-ok');
+      await waitFn(page, () => NoorPhoto._state().layers.some((l) => l.kind === 'text'));
+      check('the text tool makes a text layer', (await PS()).layers.find((l) => l.kind === 'text').text.text === 'Hi');
+      // Free transform: a layer flipped.
+      const before = (await PS()).layers.length;
+      await page.evaluate((id) => NoorPhoto._activate(id), bgId);
+      await page.click('#ph-tools [data-tool="move"]');
+      await page.keyboard.press('Control+t');
+      check('Ctrl+T: free transform', (await PS()).transform === true && !!(await page.$('#ph-tf-ok')));
+      await page.click('#ph-options button:has-text("Flip ↔")');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => !NoorPhoto._state().transform);
+      check('…flipped and laid down with Enter', (await PS()).history.at(-1) === 'Free transform' && (await PS()).layers.length === before);
+      await page.keyboard.press('Control+z');
+      // Crop.
+      await page.click('#ph-tools [data-tool="crop"]');
+      await dragOn([[8, 8], [40, 32]]);
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorPhoto._state().width === 32);
+      check('crop: the canvas becomes the frame', (await PS()).width === 32 && (await PS()).height === 24);
+      await page.keyboard.press('Control+z');
+      check('…and undo brings the size back', (await PS()).width === 64);
+      // The history panel goes back to any step.
+      const steps = (await PS()).history.length, later = (await PS()).future;
+      await page.click('#ph-history li:nth-child(2)');
+      check('the history panel goes back to a step', (await PS()).history.length === 1 && (await PS()).future === steps - 1 + later, [(await PS()).future, steps, later]);
+      await page.click(`#ph-history li:nth-child(${steps + 1})`);
+      check('…and forward again', (await PS()).history.length === steps);
+      // Saving: everything goes to the app (layers as PNGs, the flattened picture).
+      await page.click('#ph-save');
+      await waitFn(page, () => ((window.__mock.state.photo || {}).saves || []).length === 1);
+      const saved = await page.evaluate(() => window.__mock.state.photo.saves[0]);
+      check('Save sends every layer and the flattened picture', saved.photo.layers.length === (await PS()).layers.length && !!saved.photo.composite && saved.photo.layers.some((l) => l.kind === 'adjust' && l.adjust.id === 'huesat') && saved.photo.layers.some((l) => l.kind === 'text' && !!l.png));
+      check('…and the picture is saved (no dot in its tab)', !(await PS()).dirty && /new\.noorphoto/.test(await page.textContent('#ph-tabs')));
+      // Opening a .noorphoto: a masked layer comes back masked.
+      await page.click('#ph-open');
+      await waitFn(page, () => NoorPhoto._state().name === 'two.noorphoto');
+      check('Open: a photo with layers and a mask', (await PS()).layers.length === 2 && !!(await PS()).layers[1].mask && (await PS()).docs === 3);
+      check('…the mask shows the layer where it is white only', near(await px(3, 2), [0, 255, 0, 255]) && near(await px(5, 2), [0, 0, 255, 255]), [await px(3, 2), await px(5, 2)]);
+      // Export.
+      await page.click('#ph-export');
+      await page.selectOption('#ph-exp-format', 'jpeg');
+      await page.click('#ph-exp-ok');
+      await waitFn(page, () => (window.__mock.state.photo.exports || []).length === 1);
+      check('Export makes a JPEG of the picture', (await page.evaluate(() => window.__mock.state.photo.exports[0])).format === 'jpeg' && (await page.evaluate(() => window.__mock.state.photo.exports[0].head)).startsWith('/9j/'));
+      // Focus mode: NoorPhoto's own menus on the window's menu bar.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      const titles = await page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      check('in focus mode the menu bar is NoorPhoto\'s', titles.join(',') === 'File,Edit,Image,Layer,Select,Filter,View', titles);
+      check('…and its own menu row inside is hidden', !(await page.isVisible('#ph-menubar')));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => NoorPhoto._flush());
+      await page.waitForTimeout(300);
+      if (shots) await page.screenshot({ path: `${shots}/67-noorphoto.png` });
+      check('no page errors in NoorPhoto', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

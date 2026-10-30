@@ -12,7 +12,10 @@ public static class SpritePng
 {
     private static readonly byte[] Signature = [137, 80, 78, 71, 13, 10, 26, 10];
 
-    public static byte[] Encode(int width, int height, byte[] rgba)
+    public static byte[] Encode(int width, int height, byte[] rgba) => Encode(width, height, rgba, CompressionLevel.Optimal);
+
+    /// <summary>The same PNG with a chosen compression: Fastest keeps big photos (thousands of pixels a side) quick to save.</summary>
+    public static byte[] Encode(int width, int height, byte[] rgba, CompressionLevel level)
     {
         if (rgba.Length != width * height * 4) throw new ArgumentException("The pixels don't match the size.");
         using var ms = new MemoryStream();
@@ -22,7 +25,7 @@ public static class SpritePng
         ihdr[8] = 8; ihdr[9] = 6;
         Chunk(ms, "IHDR", ihdr);
         using var raw = new MemoryStream();
-        using (var z = new ZLibStream(raw, CompressionLevel.Optimal, leaveOpen: true))
+        using (var z = new ZLibStream(raw, level, leaveOpen: true))
         {
             var row = new byte[1 + width * 4];
             var prev = new byte[width * 4];
@@ -33,7 +36,8 @@ public static class SpritePng
                 var same = 0;
                 for (var i = 0; i < line.Length; i++) if (line[i] == prev[i]) same++;
                 row[0] = (byte)(y > 0 && same > line.Length / 2 ? 2 : 0);
-                for (var i = 0; i < line.Length; i++) row[1 + i] = row[0] == 2 ? (byte)(line[i] - prev[i]) : line[i];
+                if (row[0] == 2) for (var i = 0; i < line.Length; i++) row[1 + i] = (byte)(line[i] - prev[i]);
+                else line.CopyTo(row.AsSpan(1));
                 z.Write(row);
                 line.CopyTo(prev);
             }
@@ -87,7 +91,10 @@ public static class SpritePng
     public static byte[] EncodeBest(int width, int height, byte[] rgba, IReadOnlyList<string>? palette) =>
         (palette != null ? EncodeIndexed(width, height, rgba, palette) : null) ?? Encode(width, height, rgba);
 
-    public static (int Width, int Height, byte[] Rgba) Decode(byte[] png)
+    public static (int Width, int Height, byte[] Rgba) Decode(byte[] png) => Decode(png, SpriteDoc.MaxSide * 4);
+
+    /// <summary>Reads a PNG up to <paramref name="maxSide"/> pixels a side (photo layers can be larger than sprites).</summary>
+    public static (int Width, int Height, byte[] Rgba) Decode(byte[] png, int maxSide)
     {
         if (png.Length < 8 || !png.AsSpan(0, 8).SequenceEqual(Signature)) throw new InvalidDataException("Not a PNG image.");
         int w = 0, h = 0, depth = 0, type = 0, interlace = 0;
@@ -111,7 +118,7 @@ public static class SpritePng
             }
             p += 12 + len;
         }
-        if (w < 1 || h < 1 || w > SpriteDoc.MaxSide * 4 || h > SpriteDoc.MaxSide * 4) throw new InvalidDataException("That PNG is too large or broken.");
+        if (w < 1 || h < 1 || w > maxSide || h > maxSide) throw new InvalidDataException("That PNG is too large or broken.");
         if (depth != 8 || interlace != 0) throw new InvalidDataException("Only 8-bit, not interlaced PNG pictures can be read here.");
         var channels = type switch { 0 => 1, 2 => 3, 3 => 1, 4 => 2, 6 => 4, _ => throw new InvalidDataException("An unknown kind of PNG.") };
         idat.Position = 0;
@@ -124,11 +131,8 @@ public static class SpritePng
             var f = z.ReadByte();
             if (f < 0) throw new InvalidDataException("A PNG cut short.");
             z.ReadExactly(line);
-            for (var x = 0; x < stride; x++)
-            {
-                int a = x >= channels ? line[x - channels] : 0, b = prev[x], c = x >= channels ? prev[x - channels] : 0;
-                line[x] = (byte)(line[x] + f switch { 1 => a, 2 => b, 3 => (a + b) / 2, 4 => Paeth(a, b, c), _ => 0 });
-            }
+            Unfilter(f, line, prev, channels);
+            if (type == 6) { Buffer.BlockCopy(line, 0, outPx, y * stride, stride); (prev, line) = (line, prev); continue; }
             for (var x = 0; x < w; x++)
             {
                 var o = (y * w + x) * 4;
@@ -148,6 +152,24 @@ public static class SpritePng
             (prev, line) = (line, prev);
         }
         return (w, h, outPx);
+    }
+
+    /// <summary>Undoes a row's filter (one loop per filter, so big pictures read quickly).</summary>
+    private static void Unfilter(int f, byte[] line, byte[] prev, int bpp)
+    {
+        var n = line.Length;
+        switch (f)
+        {
+            case 1: for (var x = bpp; x < n; x++) line[x] += line[x - bpp]; break;
+            case 2: for (var x = 0; x < n; x++) line[x] += prev[x]; break;
+            case 3:
+                for (var x = 0; x < n; x++) line[x] = (byte)(line[x] + ((x >= bpp ? line[x - bpp] : 0) + prev[x]) / 2);
+                break;
+            case 4:
+                for (var x = 0; x < n; x++)
+                    line[x] = (byte)(line[x] + (x >= bpp ? Paeth(line[x - bpp], prev[x], prev[x - bpp]) : Paeth(0, prev[x], 0)));
+                break;
+        }
     }
 
     private static int Paeth(int a, int b, int c) { int p = a + b - c, pa = Math.Abs(p - a), pb = Math.Abs(p - b), pc = Math.Abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; }
