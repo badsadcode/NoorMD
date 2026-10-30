@@ -1692,7 +1692,7 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .cal-col { position: relative; }
 .cal-slot { height: 44px; box-sizing: border-box; border-top: 1px solid color-mix(in srgb, var(--border) 55%, transparent); }
 .cal-block { position: absolute; white-space: normal; overflow: hidden; z-index: 1; }
-.cal-now { position: absolute; left: 0; right: 0; height: 2px; background: #e5484d; z-index: 2; }
+.cal-now { position: absolute; left: 0; right: 0; height: 2px; background: #e5484d; z-index: 2; pointer-events: none; } /* the line over an entry never takes its click */
 .cal-agenda { flex: 1; min-height: 0; overflow-y: auto; padding-right: 4px; }
 .cal-agendaday h4 { margin: 12px 0 4px; font-size: 12.5px; color: var(--muted); }
 .cal-agendaday.today h4 { color: var(--accent); }
