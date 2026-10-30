@@ -156,6 +156,8 @@ public partial class MainWindow
                 return await DispatchI18nAsync(req);
             case var photo when photo.StartsWith("photo.", StringComparison.Ordinal):
                 return await DispatchPhotoAsync(req);
+            case var ink when ink.StartsWith("ink.", StringComparison.Ordinal):
+                return await DispatchInkAsync(req);
             case var sprite when sprite.StartsWith("sprite.", StringComparison.Ordinal):
                 return await DispatchSpriteAsync(req);
             case var asset when asset.StartsWith("asset.", StringComparison.Ordinal):

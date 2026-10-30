@@ -203,6 +203,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('cal.')) { try { return reply(m.id, true, calMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('forge.')) { try { return reply(m.id, true, forgeMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('ink.')) { try { return reply(m.id, true, inkMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('photo.')) { try { return reply(m.id, true, photoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sprite.')) { try { return reply(m.id, true, spriteMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -559,6 +560,29 @@ function mockHostScript(initial) {
       case 'photo.draft.save': PHOTO.drafts = (PHOTO.drafts || 0) + 1; return { ok: true };
       case 'photo.draft.load': return PHOTO.offerDraft ? { photo: photo(), name: 'lost', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
       case 'photo.draft.clear': PHOTO.clears = (PHOTO.clears || 0) + 1; return { ok: true };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+  // NoorInk: the app keeps SVG files (cleaned on open); here a drawing with two layers to open, and what was saved.
+  const INK = { saves: [], exports: [] };
+  const INK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" width="200" height="100" viewBox="0 0 200 100">'
+    + '<defs><linearGradient id="gr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#ff0000"/><stop offset="1" stop-color="#0000ff"/></linearGradient><style>.blue{fill:#0000ff}</style></defs>'
+    + '<g inkscape:groupmode="layer" inkscape:label="Back"><rect x="10" y="10" width="50" height="40" fill="#00ff00" stroke="#000" stroke-width="2"/><circle class="blue" cx="120" cy="50" r="20"/></g>'
+    + '<g inkscape:groupmode="layer" inkscape:label="Front"><path d="M150 10 L190 10 L170 40 Z" fill="url(#gr)"/><text x="20" y="90" font-size="16" fill="#333333">Hello</text></g></svg>';
+  function inkMock(type, p) {
+    if (state.ink && state.ink !== INK) Object.assign(INK, state.ink);
+    state.ink = INK;
+    switch (type) {
+      case 'ink.open': INK.opens = (INK.opens || 0) + 1; return { svg: INK.svg || INK_SVG, path: 'C:\\Art\\logo.svg', name: 'logo.svg', notes: INK.notes || [] };
+      case 'ink.recent': return { files: [{ path: 'C:\\Art\\logo.svg', name: 'logo.svg' }] };
+      case 'ink.openRecent': INK.openedRecent = p.path; return { svg: INK_SVG, path: p.path, name: 'logo.svg', notes: [] };
+      case 'ink.save': INK.saves.push({ svg: p.svg, path: p.path, name: p.name }); { const path = p.path || 'C:\\Art\\new.svg'; return { path, name: path.split('\\').pop() }; }
+      case 'ink.export': INK.exports.push({ format: p.format, name: p.name, head: p.data.slice(0, 12), bytes: p.data.length }); return { path: `C:\\Art\\${p.name}.${p.format}`, name: `${p.name}.${p.format}` };
+      case 'ink.place': return { data: PH_G, mime: 'image/png', name: 'leaf', width: 4, height: 4 };
+      case 'ink.toPhoto': return { path: 'C:\\Local\\Ink\\ToPhoto\\d.png', name: 'd.png' };
+      case 'ink.draft.save': INK.drafts = (INK.drafts || 0) + 1; return { ok: true };
+      case 'ink.draft.load': return INK.offerDraft ? { svg: INK_SVG, name: 'lost', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
+      case 'ink.draft.clear': INK.clears = (INK.clears || 0) + 1; return { ok: true };
       default: throw new Error('Unknown command ' + type);
     }
   }

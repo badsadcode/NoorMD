@@ -23,6 +23,8 @@ window.NoorPhotoStyle = (() => {
   const defaults = (id) => JSON.parse(JSON.stringify((EFFECTS.find((e) => e.id === id) || { defaults: {} }).defaults));
   const on = (styles, id) => !!(styles && styles[id] && styles[id].on);
   const any = (styles) => !!styles && EFFECTS.some((e) => on(styles, e.id));
+  /** Whether an effect is drawn in a blend mode (then it depends on what is under the layer). */
+  const blended = (styles) => !!styles && EFFECTS.some((e) => on(styles, e.id) && ((styles[e.id].blend && styles[e.id].blend !== 'normal' && !['colourOverlay', 'gradientOverlay'].includes(e.id)) || e.id === 'bevel'));
   /** How far past the layer's pixels the effects reach (pixels). */
   function margin(s) {
     let m = 0;
@@ -79,17 +81,38 @@ window.NoorPhotoStyle = (() => {
     const x = g2(dst);
     x.save(); x.globalAlpha = opacity; x.globalCompositeOperation = gco(blend); x.drawImage(src, dx, dy); x.restore();
   }
+  /**
+   * An effect drawn in a blend mode: blending needs what is under it, so the colour it makes with the backdrop (what is
+   * under the layer, plus what is drawn of the layer so far) is worked out and kept, in the effect's own coverage; drawn
+   * normally over that backdrop afterwards, it shows as the blend. Over see-through parts it is the effect's own colour.
+   */
+  function blendIn(dst, src, opacity, blend, dx, dy, back) {
+    if (!back || !blend || blend === 'normal') { draw(dst, src, opacity, blend, dx, dy); return; }
+    const w = dst.width, h = dst.height, cover = canvas(w, h);
+    g2(cover).drawImage(src, dx, dy);
+    const solid = canvas(w, h), sx = g2(solid), img = g2(cover).getImageData(0, 0, w, h), d = img.data;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 0) d[i] = 255;
+    sx.putImageData(img, 0, 0);
+    const t = canvas(w, h), tx = g2(t);
+    tx.drawImage(back.canvas, -back.x, -back.y);
+    tx.drawImage(dst, 0, 0);
+    tx.globalCompositeOperation = gco(blend); tx.drawImage(solid, 0, 0);
+    tx.globalCompositeOperation = 'destination-in'; tx.drawImage(cover, 0, 0);
+    draw(dst, t, opacity, 'normal');
+  }
   const clipTo = (c, shape, invert) => { const x = g2(c); x.save(); x.globalCompositeOperation = invert ? 'destination-out' : 'destination-in'; x.drawImage(shape, 0, 0); x.restore(); return c; };
 
   /**
    * The layer's picture with its styles: content is { canvas, x, y } in document pixels; returns { canvas, x, y }
    * covering the picture and what its effects reach (limited to the document's rectangle).
    */
-  function render(content, styles, fillOpacity, docW, docH) {
+  function render(content, styles, fillOpacity, docW, docH, backdrop = null) {
     const m = margin(styles), cw = content.canvas.width, ch = content.canvas.height;
     const x0 = Math.max(0, Math.floor(content.x - m)), y0 = Math.max(0, Math.floor(content.y - m));
     const x1 = Math.min(docW, Math.ceil(content.x + cw + m)), y1 = Math.min(docH, Math.ceil(content.y + ch + m));
     const w = Math.max(1, x1 - x0), h = Math.max(1, y1 - y0);
+    // What is under the layer (a canvas the document's size), for effects drawn in a blend mode.
+    const back = backdrop ? { canvas: backdrop, x: x0, y: y0 } : null;
     const shape = canvas(w, h);
     g2(shape).drawImage(content.canvas, content.x - x0, content.y - y0);
     const px = g2(shape).getImageData(0, 0, w, h).data, n = w * h, alpha = new Float32Array(n);
@@ -109,7 +132,7 @@ window.NoorPhotoStyle = (() => {
       const base = g ? alphaCanvas(g, w, h, s.colour) : solid(s.colour);
       const soft = blurred(base, Math.max(0, s.size - spread) / 2);
       const o = id === 'shadow' ? offset(s.angle, s.distance) : { dx: 0, dy: 0 };
-      draw(out, soft, s.opacity, s.blend, o.dx, o.dy);
+      blendIn(out, soft, s.opacity, s.blend, o.dx, o.dy, back);
     }
 
     // The layer's own pixels, with the overlays on them, at the fill opacity.
@@ -147,8 +170,8 @@ window.NoorPhotoStyle = (() => {
           const c = canvas(soft.width, soft.height), x = g2(c); x.fillStyle = s.colour; x.fillRect(0, 0, c.width, c.height); x.globalCompositeOperation = 'destination-out'; x.drawImage(soft, 0, 0); soft = c;
         }
         const t = canvas(w, h); g2(t).drawImage(soft, o.dx - pad, o.dy - pad);
-        draw(out, clipTo(t, shape), s.opacity, s.blend);
-      } else if (id === 'bevel') bevel(out, s, alpha, w, h, inside, outside);
+        blendIn(out, clipTo(t, shape), s.opacity, s.blend, 0, 0, back);
+      } else if (id === 'bevel') bevel(out, s, alpha, w, h, inside, outside, back);
       else if (id === 'stroke') {
         const a = new Float32Array(n), r = s.size;
         const dO = s.position === 'inside' ? null : outside(), dI = s.position === 'outside' ? null : inside();
@@ -157,14 +180,14 @@ window.NoorPhotoStyle = (() => {
           else if (s.position === 'inside') a[i] = clamp01(r - dI[i] + 0.5) * alpha[i];
           else a[i] = clamp01(r / 2 - dO[i] + 0.5) * (1 - alpha[i]) + clamp01(r / 2 - dI[i] + 0.5) * alpha[i];
         }
-        draw(out, alphaCanvas(a, w, h, s.colour), s.opacity, s.blend);
+        blendIn(out, alphaCanvas(a, w, h, s.colour), s.opacity, s.blend, 0, 0, back);
       }
     }
     return { canvas: out, x: x0, y: y0 };
   }
 
   /** Bevel and emboss: a height from the distance to the edge, lit from an angle; highlights and shadows drawn over. */
-  function bevel(out, s, alpha, w, h, inside, outside) {
+  function bevel(out, s, alpha, w, h, inside, outside, back) {
     const n = w * h, size = Math.max(1, s.size), H = new Float32Array(n);
     const dI = s.style === 'outer' ? null : inside(), dO = s.style === 'inner' ? null : outside();
     for (let i = 0; i < n; i++) {
@@ -188,8 +211,8 @@ window.NoorPhotoStyle = (() => {
       const where = s.style === 'inner' ? alpha[i] : s.style === 'outer' ? 1 - alpha[i] : 1;
       if (shade > 0) hi[i] = clamp01(shade * 2.2) * where; else lo[i] = clamp01(-shade * 2.2) * where;
     }
-    draw(out, alphaCanvas(hi, w, h, s.highlight), s.highlightOpacity, 'screen');
-    draw(out, alphaCanvas(lo, w, h, s.shadow), s.shadowOpacity, 'multiply');
+    blendIn(out, alphaCanvas(hi, w, h, s.highlight), s.highlightOpacity, s.highlightBlend || 'screen', 0, 0, back);
+    blendIn(out, alphaCanvas(lo, w, h, s.shadow), s.shadowOpacity, s.shadowBlend || 'multiply', 0, 0, back);
   }
 
   // Ready-made styles to start from.
@@ -204,5 +227,5 @@ window.NoorPhotoStyle = (() => {
     { name: 'Gold', styles: { gradientOverlay: { ...defaults('gradientOverlay'), from: '#8a5a12', to: '#ffe38a', angle: 90 }, bevel: { ...defaults('bevel'), size: 5, depth: 160, highlight: '#fff6d0' }, shadow: { ...defaults('shadow'), opacity: 0.4, distance: 3, size: 6 } } },
   ];
 
-  return { EFFECTS, PRESETS, defaults, any, margin, render, _distance: distance };
+  return { EFFECTS, PRESETS, defaults, any, blended, margin, render, _distance: distance };
 })();

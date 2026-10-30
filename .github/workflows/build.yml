@@ -25,6 +25,9 @@ jobs:
       - name: NoorPhoto filters (Node)
         working-directory: tests/web
         run: node photofx.test.js
+      - name: NoorInk geometry (Node)
+        working-directory: tests/web
+        run: node inkgeom.test.js
       - name: Run UI tests
         working-directory: tests/web
         run: node ui.test.js --screenshots ../../ui-screenshots

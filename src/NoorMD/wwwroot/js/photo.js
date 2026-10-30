@@ -293,7 +293,9 @@ window.NoorPhoto = (() => {
       if (base.kind !== 'adjust') { let j = i + 1; while (j < items.length && items[j].clip) run.push(items[j++]); i = j - 1; }
       if (!base.visible) continue;
       if (base.kind === 'adjust') { applyAdjust(base, target, null); continue; }
+      backdropNow = target;
       const own = itemCanvas(base);
+      backdropNow = null;
       if (!own) continue;
       let content = own.canvas, dx = own.x, dy = own.y;
       const shown = run.filter((c) => c.visible);
@@ -339,16 +341,18 @@ window.NoorPhoto = (() => {
   }
 
   const styleCache = new WeakMap();
+  let backdropNow = null; // what is under the layer being drawn (for effects in a blend mode)
   /** The layer's styles (shadow, glow, stroke, bevel…) and fill opacity, drawn round its picture. */
   function styled(l, res) {
     const S = window.NoorPhotoStyle;
     if (!S || !(S.any(l.styles) || (l.fillOpacity ?? 1) < 1) || noStyles) return res;
-    const changing = (live && live.l === l) || (transform && transform.l === l) || (draft && draft.l === l) || l.kind === 'group';
+    const back = S.blended && S.blended(l.styles) && backdropNow && backdropNow.width === D.doc.width ? backdropNow : null;
+    const changing = (live && live.l === l) || (transform && transform.l === l) || (draft && draft.l === l) || l.kind === 'group' || !!back;
     const key = `${sig(l)}|${D.doc.width}x${D.doc.height}|${D.editMask && D.showMaskOnly ? 1 : 0}`;
     const hit = styleCache.get(l);
     if (!changing && hit && hit.key === key) return hit.res;
     let out;
-    try { out = S.render(res, l.styles || {}, l.fillOpacity ?? 1, D.doc.width, D.doc.height); } catch (err) { console.warn('NoorPhoto: layer style', err); return res; }
+    try { out = S.render(res, l.styles || {}, l.fillOpacity ?? 1, D.doc.width, D.doc.height, back); } catch (err) { console.warn('NoorPhoto: layer style', err); return res; }
     if (!changing) styleCache.set(l, { key, res: out });
     return out;
   }
@@ -4072,6 +4076,13 @@ window.NoorPhoto = (() => {
 
   return {
     init, open, close, toggle, isOpen, openFromGallery,
+    /** A PNG (base64) opened as a new picture, one layer (NoorInk's File › To NoorPhoto). */
+    openPng: async (name, png) => {
+      await open();
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('That picture can\'t be read.')); img.src = `data:image/png;base64,${png}`; });
+      addDoc(await fromWire({ version: 1, width: img.naturalWidth, height: img.naturalHeight, layers: [{ id: 'l1', name: name || 'Drawing', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 0, y: 0, width: img.naturalWidth, height: img.naturalHeight, png }] }, null, name || 'Drawing'));
+    },
     _state: () => D && ({
       width: D.doc.width, height: D.doc.height, name: D.name, file: D.file, dirty: dirty(), docs: docs.length, tool, fg, bg, brush: { ...brush }, opts: { ...opts },
       active: D.active, editMask: D.editMask, quickMask: D.quickMask, history: D.history.map((s) => s.label), future: D.future.length,

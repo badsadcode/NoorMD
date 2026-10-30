@@ -38,7 +38,7 @@ Every part of NoorMD is named Noor-something (since preview.116); the older name
 | **NoorSketch** | Quick sketches and small drawings |
 | **NoorSprite** | Pixel art, sprites and 2D animation |
 | **NoorPhoto** | Photo editing, digital painting and layered pictures (layers, masks, filters, PSD) |
-| **NoorInk** (planned) | Vector graphics: SVG, illustration and design |
+| **NoorInk** | Vector graphics: SVG drawing, illustration and design (shapes, pen, pencil, combine shapes, clip and mask) |
 | **NoorMesh** (planned) | Low-poly 3D modelling, mesh editing, UV mapping and simple animation |
 | **NoorForm** (Asset Bench) | Procedural 3D assets: trees, rocks and more, with levels of detail |
 | **NoorForge** | Texturing 3D models: painting, smart materials and baking |

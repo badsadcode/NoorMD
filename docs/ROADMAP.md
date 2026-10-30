@@ -5,6 +5,16 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorInk (preview.123): a vector editor (Ctrl+Alt+U, or Tools). Pictures are plain SVG: it opens SVG files from
+  other programs (Inkscape layers, class and style-sheet styles, gradients, text, pictures, clip paths and masks; the
+  app takes out scripts, embedded pages and links to other files first) and saves SVG they open. Tools: select
+  (move, scale, turn), edit points (anchors and handles, smooth or corner, add a point), pen, pencil (smoothed into
+  curves), rectangle (rounded corners), ellipse, polygon, star, line, text typed on the page, eyedropper. Fill (a
+  colour or a gradient) and stroke (width, dashes, ends), opacity and blend modes; align and distribute; group,
+  arrange, lock and hide; unite, subtract, intersect and exclude shapes, simplify, reverse; clip and mask; layers;
+  export PNG; to NoorPhoto as pixels. Plan: [NOORINK_PLAN.md](NOORINK_PLAN.md).
+- NoorPhoto: layer-style effects (shadows, glows, strokes, bevels) drawn in a blend mode now blend with what is under
+  the layer (before, the mode made no difference).
 - NoorPhoto painting (preview.122; ideas from Krita, no code): the mixer brush (wet paint that mixes with what is
   under it, or blends with no paint at all), bristle brushes, wet edges (watercolour), brush presets (eleven ready,
   and your own), a pop-up palette on right-click (colours and brushes at the cursor), painting guides (a ruler, a
@@ -38,8 +48,8 @@ first, and anything that conflicts with it waits.
 - One family of names (preview.116): Asset Bench is NoorForm, Texture Bench NoorMaterial, Sound Bench NoorSound,
   Music Bench NoorMusic, Video Bench NoorVideo, Gallery NoorGallery, Radio NoorRadio, Voice notes NoorVoice, Stream
   Desk NoorStream, Calendar NoorCalendar and Apps Hub NoorHub; the planned NoorCanvas is NoorPhoto
-  ([NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md)), and NoorInk (vector graphics) and NoorMesh (low-poly modelling) are
-  planned. Files, folders and recipes are as they were. See the table in the README.
+  ([NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md)), NoorInk (vector graphics) came in preview.123,
+  and NoorMesh (low-poly modelling) is planned. Files, folders and recipes are as they were. See the table in the README.
 - Number fields everywhere (preview.114): the mouse wheel over one turns its value (Shift: ten steps), and arrows at
   its right end step it (held: they keep going), within the field's own limits.
 - Benches as apps (preview.114): in focus mode (F11) a bench in the middle has the whole window and the menu bar

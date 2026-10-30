@@ -8475,6 +8475,160 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 67e. NoorPhoto: layer-style effects blend with what is under the layer (a shadow in Difference, a stroke in Multiply).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const px = (x, y) => page.evaluate(([a, b]) => NoorPhoto._pixel(a, b, null), [x, y]);
+      const near = (a, b, t = 6) => !!a && !!b && a.every((v, i) => Math.abs(v - b[i]) <= t);
+      await page.keyboard.press('Control+Alt+j');
+      await waitFn(page, () => NoorPhoto.isOpen() && NoorPhoto._state());
+      await page.evaluate(() => {
+        const W = 60, H = 40, mk = (f) => { const c = document.createElement('canvas'); c.width = W; c.height = H; f(c.getContext('2d')); return c.toDataURL('image/png').split(',')[1]; };
+        const red = mk((x) => { x.fillStyle = '#ff0000'; x.fillRect(0, 0, W, H); });
+        const box = mk((x) => { x.fillStyle = '#00ff00'; x.fillRect(20, 10, 20, 20); });
+        return NoorPhoto._load({ version: 1, width: W, height: H, layers: [
+          { id: 'bg', name: 'Background', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 0, y: 0, width: W, height: H, png: red },
+          { id: 'b', name: 'Box', kind: 'pixel', visible: true, opacity: 1, blend: 'normal', x: 0, y: 0, width: W, height: H, png: box,
+            styles: { stroke: { on: true, colour: '#ffffff', size: 4, position: 'outside', opacity: 1, blend: 'difference' }, shadow: { on: true, colour: '#ffffff', opacity: 1, angle: 90, distance: 0, size: 0, spread: 0, blend: 'multiply' } } }] }, 'blend.noorphoto');
+      });
+      await waitFn(page, () => NoorPhoto._state().width === 60);
+      const rim = await px(18, 20);
+      check('a stroke in Difference over red: cyan (blended with what is under the layer)', near(rim, [0, 255, 255, 255]), rim);
+      check('…the picture in the middle unchanged', near(await px(30, 20), [0, 255, 0, 255]), await px(30, 20));
+      await page.evaluate(() => { const s = NoorPhoto._state(); void s; });
+      check('no page errors with blended effects', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 68. NoorInk: a vector editor. Shapes, the pen, the pencil, selecting and moving, edit points, combining shapes,
+    // align, groups, text, opening an SVG (layers, styles, gradients), saving, exporting a PNG, undo.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const IS = () => page.evaluate(() => NoorInk._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorInk._screen(a, b), [x, y]);
+      const dragOn = async (pts, mods = []) => { for (const m of mods) await page.keyboard.down(m); const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 8 }); } await page.mouse.up(); for (const m of mods) await page.keyboard.up(m); };
+      const clickAt = async (x, y, opts = {}) => { const s = await at(x, y); await page.mouse.click(s.x, s.y, opts); };
+      const objs = async () => (await IS()).layers.flatMap((l) => l.children);
+      const near = (a, b, t = 1) => Math.abs(a - b) <= t;
+      await page.keyboard.press('Control+Alt+u');
+      await waitFn(page, () => window.NoorInk && NoorInk.isOpen() && NoorInk._state());
+      check('Ctrl+Alt+U opens NoorInk with a blank page', (await IS()).width === 800 && (await objs()).length === 0);
+      await page.evaluate(() => NoorInk._new(400, 300));
+      await waitFn(page, () => NoorInk._state().width === 400);
+      // A rectangle: dragged; it's a path with the current fill.
+      await page.click('#ink-tools [data-tool="rect"]');
+      await dragOn([[20, 20], [120, 80]]);
+      let o = await objs();
+      check('the rectangle tool draws a filled path', o.length === 1 && o[0].kind === 'path' && o[0].fill.type === 'solid' && (await IS()).history.at(-1) === 'Rectangle');
+      let b = await page.evaluate((id) => NoorInk._bounds(id), o[0].id);
+      check('…the size dragged (plus half the stroke)', near(b.x, 19) && near(b.w, 102), b);
+      // An ellipse with Shift: a circle.
+      await page.click('#ink-tools [data-tool="ellipse"]');
+      await dragOn([[200, 40], [260, 70]], ['Shift']);
+      o = await objs();
+      b = await page.evaluate((id) => NoorInk._bounds(id), o[1].id);
+      check('Shift makes the ellipse a circle', near(b.w, b.h, 0.5), b);
+      // Select and move: drag the rectangle by 30 across.
+      await page.click('#ink-tools [data-tool="select"]');
+      await dragOn([[70, 50], [100, 50]]);
+      b = await page.evaluate((id) => NoorInk._bounds(id), o[0].id);
+      check('select: dragging moves the object (one step)', near(b.x, 49) && (await IS()).history.at(-1) === 'Move', b);
+      await page.keyboard.press('Control+z');
+      b = await page.evaluate((id) => NoorInk._bounds(id), o[0].id);
+      check('…undo moves it back', near(b.x, 19), b);
+      // Band selection: both.
+      await dragOn([[5, 5], [390, 120]]);
+      check('dragging over empty space selects what it covers', (await IS()).selection.length === 2);
+      // Align top.
+      await page.click('#ink-xform [data-align="top"]');
+      const tops = await page.evaluate((ids) => ids.map((id) => NoorInk._bounds(id).y), o.map((x) => x.id));
+      check('Align top lines them up', near(tops[0], tops[1], 0.5), tops);
+      // Group, then ungroup.
+      await page.keyboard.press('Control+g');
+      let s = await IS();
+      check('Ctrl+G groups them', s.layers[0].children.length === 1 && s.layers[0].children[0].kind === 'group' && s.layers[0].children[0].children.length === 2);
+      await page.keyboard.press('Control+Shift+g');
+      check('Ctrl+Shift+G ungroups', (await IS()).layers[0].children.length === 2 && (await IS()).selection.length === 2);
+      // Combine: union of an overlapping pair.
+      await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+      await page.click('#ink-tools [data-tool="rect"]');
+      await dragOn([[100, 40], [180, 100]]);
+      await page.click('#ink-tools [data-tool="select"]');
+      await page.evaluate(() => { const s = NoorInk._state(); NoorInk._select(s.layers[0].children.filter((c) => c.name === 'Rectangle').map((c) => c.id)); });
+      await page.click('#ink-unite');
+      o = await objs();
+      const united = o.find((x) => x.name === 'United');
+      check('Unite makes one path of two overlapping shapes', !!united && o.filter((x) => x.name === 'Rectangle').length === 0 && united.path.length === 1, o.map((x) => x.name));
+      b = await page.evaluate((id) => NoorInk._bounds(id), united.id);
+      check('…covering both', near(b.x, 19) && near(b.x + b.w, 181), b);
+      // Fill colour from the panel: the selection changes.
+      await page.$eval('#ink-fill', (c) => { c.value = '#ff0000'; c.dispatchEvent(new Event('change', { bubbles: true })); });
+      check('the fill colour in Fill and stroke changes the selection', (await objs()).find((x) => x.id === united.id).fill.colour === '#ff0000');
+      // Edit points: drag an anchor.
+      await page.click('#ink-tools [data-tool="direct"]');
+      const pt = (await objs()).find((x) => x.id === united.id).path[0].pts[0];
+      await dragOn([[pt.x, pt.y], [pt.x - 15, pt.y - 15]]);
+      const pt2 = (await objs()).find((x) => x.id === united.id).path[0].pts[0];
+      check('edit points: an anchor dragged moves', near(pt2.x, pt.x - 15) && near(pt2.y, pt.y - 15), [pt, pt2]);
+      // The pen: three clicks and the first again: a closed path.
+      await page.click('#ink-tools [data-tool="pen"]');
+      for (const [x, y] of [[300, 200], [360, 200], [330, 260]]) await clickAt(x, y);
+      await clickAt(300, 200);
+      o = await objs();
+      const penned = o.at(-1);
+      check('the pen: clicks make a closed path', penned.name === 'Path' && penned.path[0].closed && penned.path[0].pts.length === 3);
+      // The pencil: a freehand line smoothed into a few curves.
+      await page.click('#ink-tools [data-tool="pencil"]');
+      await dragOn([[20, 200], [60, 230], [100, 200], [140, 230], [180, 200]]);
+      const drawn = (await objs()).at(-1);
+      check('the pencil draws a smoothed path (fewer points than the stroke)', drawn.kind === 'path' && drawn.path[0].pts.length >= 2 && drawn.path[0].pts.length < 20 && drawn.fill.type === 'none', drawn.path[0].pts.length);
+      // Text typed on the page.
+      await page.click('#ink-tools [data-tool="text"]');
+      await clickAt(40, 280);
+      await page.waitForSelector('#ink-typing');
+      await page.keyboard.type('Hi there');
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => !document.querySelector('#ink-typing'));
+      const tx = (await objs()).at(-1);
+      check('text: click and type, Esc finishes', tx.kind === 'text' && tx.text === 'Hi there' && (await IS()).history.at(-1) === 'Text');
+      // Save: an SVG other programs read, with the layers.
+      await page.click('#ink-save');
+      await waitFn(page, () => ((window.__mock.state.ink || {}).saves || []).length === 1);
+      const svg = await page.evaluate(() => window.__mock.state.ink.saves[0].svg);
+      check('Save writes an SVG (layers as Inkscape layers, the text as text)', /^<\?xml|^<svg/.test(svg.trim()) && /inkscape:groupmode="layer"/.test(svg) && />Hi there</.test(svg) && /viewBox="0 0 400 300"/.test(svg));
+      check('…and the picture is saved (no dot in the title)', !(await IS()).dirty);
+      // Open an SVG: layers, styles from classes, gradients, text.
+      await page.click('#ink-open');
+      await waitFn(page, () => NoorInk._state().file && NoorInk._state().file.name === 'logo.svg');
+      s = await IS();
+      const kids = s.layers.flatMap((l) => l.children);
+      check('Open: an SVG\'s layers come in with their names', s.layers.length === 2 && s.layers[0].name === 'Back' && s.layers[1].name === 'Front' && s.width === 200);
+      check('…shapes as paths with their fill and stroke (class styles too)', kids[0].kind === 'path' && kids[0].fill.colour === '#00ff00' && kids[0].stroke.colour === '#000000' && kids[1].fill.colour === '#0000ff', kids.map((k) => k.fill));
+      check('…a gradient fill and text', kids[2].fill.type === 'linear' && kids[2].fill.stops.length === 2 && kids[3].kind === 'text' && kids[3].text === 'Hello');
+      // Export a PNG.
+      await page.click('#ink-export');
+      await page.click('#ink-exp-ok');
+      await waitFn(page, () => ((window.__mock.state.ink || {}).exports || []).length === 1);
+      check('Export makes a PNG', (await page.evaluate(() => window.__mock.state.ink.exports[0].head)).startsWith('iVBORw0KGgo'));
+      const raster = await page.evaluate(async () => { const r = await NoorInk._raster(1); const img = new Image(); await new Promise((res) => { img.onload = res; img.src = 'data:image/png;base64,' + r.data; }); const c = document.createElement('canvas'); c.width = r.width; c.height = r.height; const x = c.getContext('2d'); x.drawImage(img, 0, 0); return [...x.getImageData(35, 30, 1, 1).data]; });
+      check('…drawn as it looks (the green rectangle)', raster[1] > 200 && raster[0] < 40, raster);
+      // Clip: a circle on top of the green rectangle clips it.
+      await page.evaluate(() => { const s = NoorInk._state(); NoorInk._select([s.layers[0].children[0].id, s.layers[0].children[1].id]); });
+      await page.click('#ink-menubar .ph-menu-title:has-text("Object")');
+      await page.click('.menu-popup .menu-item:has-text("Clip (the top one")');
+      s = await IS();
+      const clipped = s.layers[0].children[0];
+      check('Object › Clip: the top object clips the others (a group carrying it)', s.layers[0].children.length === 1 && clipped.kind === 'group' && clipped.clipKind === 'clip' && clipped.clip.fill.colour === '#0000ff');
+      const svg2 = await page.evaluate(() => NoorInk._svg());
+      check('…saved as an SVG clipPath', /<clipPath id="c-/.test(svg2) && /clip-path="url\(#c-/.test(svg2));
+      const reopened = await page.evaluate((t) => { NoorInk._load(t, 'again.svg'); return NoorInk._state().layers[0].children[0]; }, svg2);
+      check('…and read back as a clip', reopened.kind === 'group' && reopened.clipKind === 'clip' && !!reopened.clip);
+      await page.keyboard.press('Control+z');
+      if (shots) await page.screenshot({ path: `${shots}/68-noorink.png` });
+      check('no page errors in NoorInk', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();
