@@ -1,6 +1,10 @@
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Json;
+using System.Windows;
+using System.Windows.Markup;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
 using NoorMD.Core.Bridge;
@@ -113,6 +117,98 @@ public partial class MainWindow
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* the list is a convenience */ }
     }
 
+    /// <summary>The fonts installed here: names for the font menu, and every name a family goes by (any language) to find it.</summary>
+    private static (List<string> Names, Dictionary<string, FontFamily> ByName)? _inkFonts;
+    private static (List<string> Names, Dictionary<string, FontFamily> ByName) InkFonts()
+    {
+        if (_inkFonts is { } cached) return cached;
+        var ui = XmlLanguage.GetLanguage(CultureInfo.CurrentUICulture.IetfLanguageTag);
+        var names = new SortedSet<string>(StringComparer.InvariantCultureIgnoreCase);
+        var byName = new Dictionary<string, FontFamily>(StringComparer.OrdinalIgnoreCase);
+        foreach (var family in Fonts.SystemFontFamilies)
+        {
+            var name = family.FamilyNames.TryGetValue(ui, out var local) ? local : family.FamilyNames.Values.FirstOrDefault() ?? family.Source;
+            if (string.IsNullOrWhiteSpace(name)) continue;
+            names.Add(name);
+            foreach (var n in family.FamilyNames.Values.Append(family.Source).Append(name)) byName.TryAdd(n, family);
+        }
+        _inkFonts = ([.. names], byName);
+        return _inkFonts.Value;
+    }
+
+    /// <summary>
+    /// Text as outlines (SVG path data), placed where the page's own SVG text sits: one tspan per line, the first
+    /// line's baseline at y = 0, each next one size × lineHeight lower, each line's advance centred on x = 0 or ending
+    /// there for center and right. One path, nonzero fill (as fonts draw their glyphs, and overlapping letters stay
+    /// filled). WPF's text, so it runs on the UI thread. A font not installed here is drawn with WPF's fallback.
+    /// </summary>
+    private static object InkTextOutline(JsonElement p)
+    {
+        var text = Json.OptString(p, "text", InkText.MaxChars + 1) ?? throw new BridgeError("Missing the text.");
+        if (text.Length > InkText.MaxChars) throw new BridgeError($"That text is too long to turn into outlines (it can be up to {InkText.MaxChars:N0} characters).");
+        var size = Json.OptDouble(p, "size") ?? double.NaN;
+        if (!(size >= InkText.MinSize && size <= InkText.MaxSize)) throw new BridgeError($"The text size must be between {InkText.MinSize} and {InkText.MaxSize}.");
+        var lineHeight = Json.OptDouble(p, "lineHeight") ?? 1.2;
+        if (!(lineHeight >= 0 && lineHeight <= 100)) throw new BridgeError("The line height must be between 0 and 100.");
+        var align = Json.OptString(p, "align", 10) ?? "left";
+        if (align is not ("left" or "center" or "right")) throw new BridgeError("Text can be aligned left, center or right.");
+
+        // The first family in the CSS list that is installed, as the browser picks it.
+        var fonts = InkFonts().ByName;
+        var wanted = InkText.FontNames(Json.OptString(p, "font", 1000));
+        var found = wanted.Select(n => fonts.GetValueOrDefault(n)).FirstOrDefault(f => f != null);
+        var notes = new List<string>();
+        if (found == null) notes.Add("That font isn't installed here; a similar one was used.");
+        // A name WPF doesn't know gets its fallback font (FontNames keeps out names that would be read as font files).
+        FontFamily family;
+        try { family = found ?? new FontFamily(wanted.FirstOrDefault() ?? "Segoe UI"); }
+        catch (ArgumentException) { family = new FontFamily("Segoe UI"); }
+        var typeface = new Typeface(family, Json.IsTrue(p, "italic") ? FontStyles.Italic : FontStyles.Normal, Json.IsTrue(p, "bold") ? FontWeights.Bold : FontWeights.Normal, FontStretches.Normal);
+
+        var w = new SvgPathWriter();
+        var lines = InkText.Lines(text);
+        for (var i = 0; i < lines.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(lines[i])) continue;
+            // Ideal (not display) formatting: no snapping to pixels, the font's own advances, as the browser's SVG text has them.
+            var ft = new FormattedText(lines[i], CultureInfo.CurrentUICulture, FlowDirection.LeftToRight, typeface, size, Brushes.Black, null, TextFormattingMode.Ideal, 1.0);
+            var origin = new Point(InkText.LineX(align, ft.WidthIncludingTrailingWhitespace), i * size * lineHeight - ft.Baseline);
+            var g = PathGeometry.CreateFromGeometry(ft.BuildGeometry(origin));
+            if (!InkWriteFigures(g, w)) InkWriteFigures(g.GetFlattenedPathGeometry(), w);
+        }
+        return new { d = w.ToString(), notes };
+    }
+
+    /// <summary>A geometry's filled figures into path data, through its transform; false (nothing written) when it holds a segment of a kind not known here.</summary>
+    private static bool InkWriteFigures(PathGeometry g, SvgPathWriter w)
+    {
+        if (g.Figures.SelectMany(f => f.Segments).Any(s => s is not (LineSegment or PolyLineSegment or BezierSegment or PolyBezierSegment or QuadraticBezierSegment or PolyQuadraticBezierSegment or ArcSegment))) return false;
+        var m = g.Transform?.Value ?? Matrix.Identity;
+        w.SetMatrix(m.M11, m.M12, m.M21, m.M22, m.OffsetX, m.OffsetY);
+        foreach (var f in g.Figures)
+        {
+            if (!f.IsFilled) continue;
+            w.MoveTo(f.StartPoint.X, f.StartPoint.Y);
+            foreach (var s in f.Segments)
+                switch (s)
+                {
+                    case LineSegment l: w.LineTo(l.Point.X, l.Point.Y); break;
+                    case PolyLineSegment pl: foreach (var pt in pl.Points) w.LineTo(pt.X, pt.Y); break;
+                    case BezierSegment b: w.CubicTo(b.Point1.X, b.Point1.Y, b.Point2.X, b.Point2.Y, b.Point3.X, b.Point3.Y); break;
+                    case PolyBezierSegment pb:
+                        for (var i = 0; i + 2 < pb.Points.Count; i += 3) w.CubicTo(pb.Points[i].X, pb.Points[i].Y, pb.Points[i + 1].X, pb.Points[i + 1].Y, pb.Points[i + 2].X, pb.Points[i + 2].Y);
+                        break;
+                    case QuadraticBezierSegment q: w.QuadTo(q.Point1.X, q.Point1.Y, q.Point2.X, q.Point2.Y); break;
+                    case PolyQuadraticBezierSegment pq:
+                        for (var i = 0; i + 1 < pq.Points.Count; i += 2) w.QuadTo(pq.Points[i].X, pq.Points[i].Y, pq.Points[i + 1].X, pq.Points[i + 1].Y);
+                        break;
+                    case ArcSegment a: w.ArcTo(a.Size.Width, a.Size.Height, a.RotationAngle, a.IsLargeArc, a.SweepDirection == SweepDirection.Clockwise, a.Point.X, a.Point.Y); break;
+                }
+            if (f.IsClosed) w.Close();
+        }
+        return true;
+    }
+
     private async Task<object?> DispatchInkAsync(BridgeRequest req)
     {
         var p = req.Payload;
@@ -193,6 +289,10 @@ public partial class MainWindow
                 AddPhotoRecent(file);
                 return new { path = file, name = Path.GetFileName(file) };
             }
+            case "ink.fonts":
+                return new { fonts = InkFonts().Names };
+            case "ink.textOutline":
+                return InkTextOutline(p);
             case "ink.draft.save":
             {
                 // The drawing open now, kept in the app's own folder now and then, to bring back after a crash.

@@ -96,7 +96,8 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorSprite (pixel art) | Ctrl+Alt+P |
 | NoorPhoto (photos and painting) | Ctrl+Alt+J |
 | NoorInk (vector drawing, SVG) | Ctrl+Alt+U |
-| NoorInk tools: select · edit points · pen · pencil · rectangle · ellipse · line · text · eyedropper · hand (or hold Space) · zoom | V · A · P · N · M · L · \ · T · I · H · Z |
+| NoorInk tools: select · edit points · pen · pencil · rectangle · ellipse · line · text · gradient · eyedropper · hand (or hold Space) · zoom | V · A · P · N · M · L · \ · T · G · I · H · Z |
+| NoorInk: text to outlines · snap to objects on / off (hold Ctrl while dragging: not this time) | Ctrl+Shift+O · Ctrl+; |
 | NoorInk: group / ungroup · duplicate · bring forward / back (Shift: to the front / back) · unite · subtract · intersect · exclude · simplify · flip · nudge (Shift: 10) · to the layer above / below · snap to the grid · fit / actual size | Ctrl+G / Ctrl+Shift+G · Ctrl+D · Ctrl+] / Ctrl+[ · Ctrl++ · Ctrl+- · Ctrl+* · Ctrl+Shift+^ · Ctrl+L · Shift+H / Shift+V · arrows · Shift+PgUp / PgDn · Ctrl+' · Ctrl+0 / Ctrl+1 |
 | NoorInk: new · open · save / save as · export · undo / redo · copy / cut / paste (in place) · select all · delete | Ctrl+N · Ctrl+O · Ctrl+S / Ctrl+Shift+S · Ctrl+Shift+E · Ctrl+Z / Ctrl+Y · Ctrl+C / Ctrl+X / Ctrl+V (Ctrl+Shift+V) · Ctrl+A · Delete |
 | NoorSprite tools: pencil · eraser · fill · line · rectangle · ellipse · eyedropper (or hold Alt) · select · lasso · magic wand · move · slices · hand (or hold Space) | B · E · G · L · U · O · I · M · Q · W · V · C · H; gradient: D; bones: K; curve: J (Shift with the line: clean slopes); isometric box: Y |

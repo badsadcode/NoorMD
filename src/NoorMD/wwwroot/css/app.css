@@ -2035,3 +2035,12 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar { display: no
 .ink-dlg .ink-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .ink-dlg input[type=number] { width: 80px; }
 .ink-import-host { position: fixed; left: -10000px; top: 0; width: 800px; height: 600px; border: 0; visibility: hidden; pointer-events: none; }
+.inkbench .ink-guide { stroke: #00b4d8; stroke-width: 1; opacity: .85; }
+.inkbench .ink-snapline { stroke: #ff3ea5; stroke-width: 1; stroke-dasharray: 4 3; }
+.inkbench .ink-grad-line { stroke: #fff; stroke-width: 1.5; filter: drop-shadow(0 0 1px #000); }
+.inkbench .ink-grad-end { fill: #fff; stroke: #222; stroke-width: 1.2; }
+.inkbench .ink-grad-stop { stroke: #fff; stroke-width: 1.5; }
+.inkbench .ink-stop .ph-num { width: 52px; }
+.inkbench .ink-swatches { display: flex; flex-wrap: wrap; gap: 3px; align-items: center; }
+.inkbench .ink-swatch { width: 18px; height: 18px; }
+.inkbench .ink-fxrow { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 4px; }

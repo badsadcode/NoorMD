@@ -186,6 +186,7 @@ public partial class MainWindow
             await RunVideoSelfTestAsync();
             await RunStreamSelfTestAsync();
             await RunMicSelfTestAsync();
+            await RunInkSelfTestAsync();
 
             await Eval("document.querySelector('#print-root').innerHTML = NoorMarkdown.renderSafe(NoorMD.getState().markdown)");
             var pdf = Path.Combine(SelfTestDir, "export.pdf");
@@ -357,6 +358,35 @@ public partial class MainWindow
         w.CloseWithoutPrompt();
         await Task.Delay(400);
         Check("closing NoorSketch leaves the document untouched", (await GetEditorStateAsync(first.TabId))?.Markdown == before && !_sketches.Contains(w));
+    }
+
+    /// <summary>NoorInk: text turned into outlines sits where the browser draws the same text (WPF's glyphs vs Chromium's).</summary>
+    private async Task RunInkSelfTestAsync()
+    {
+        try
+        {
+            await Eval("NoorInk.open()");
+            var fonts = InkFonts().Names;
+            Check("NoorInk: the system fonts are listed", fonts.Contains("Arial", StringComparer.OrdinalIgnoreCase), fonts.Count + " fonts");
+            var payload = System.Text.Json.JsonSerializer.SerializeToElement(new { text = "Hello NoorInk", font = "Arial", size = 40, bold = false, italic = false, align = "left", lineHeight = 1.2 });
+            var d = System.Text.Json.JsonSerializer.SerializeToElement(InkTextOutline(payload)).GetProperty("d").GetString() ?? "";
+            var js = "(() => { const ns = 'http://www.w3.org/2000/svg', s = document.createElementNS(ns, 'svg'); s.setAttribute('width', '600'); s.setAttribute('height', '200'); s.style.cssText = 'position:fixed;left:0;top:0;fill:#000;stroke:none';"
+                + " const t = document.createElementNS(ns, 'text'); t.setAttribute('x', '0'); t.setAttribute('y', '0'); t.setAttribute('font-family', 'Arial'); t.setAttribute('font-size', '40'); t.textContent = 'Hello NoorInk'; s.append(t); document.body.append(s);"
+                + " const b = t.getBBox(); s.remove(); const o = NoorInkGeom.bounds(NoorInkGeom.parse(" + System.Text.Json.JsonSerializer.Serialize(d) + "));"
+                + " return JSON.stringify({ text: [b.x, b.y, b.width, b.height].map(Math.round), outline: o && [o.x, o.y, o.w, o.h].map(Math.round) }); })()";
+            var r = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Deserialize<string>(await Eval(js))!).RootElement;
+            var outline = r.GetProperty("outline");
+            bool ok = outline.ValueKind == System.Text.Json.JsonValueKind.Array;
+            if (ok)
+            {
+                double tw = r.GetProperty("text")[2].GetDouble(), ow = outline[2].GetDouble(), ox = outline[0].GetDouble(), oy = outline[1].GetDouble(), oh = outline[3].GetDouble();
+                // The outline is the ink of the letters (a little inside the text's box): about as wide, its top above the baseline, its bottom near it.
+                ok = Math.Abs(ow - tw) <= tw * 0.08 && ox >= -2 && ox <= 6 && oy < -20 && oy > -40 && oy + oh > -2 && oy + oh < 4;
+            }
+            Check("NoorInk: text to outlines matches the drawn text", ok, r.ToString());
+            await Eval("NoorInk.close()");
+        }
+        catch (Exception ex) { Check("NoorInk self-test ran", false, ex.ToString()); }
     }
 
     private async Task<string> Eval(string script) => await Core.ExecuteScriptAsync(script);

@@ -26,6 +26,7 @@ window.NoorInk = (() => {
     ['star', '☆', 'Star', null],
     ['line', '╱', 'Line (\\)', '\\'],
     ['text', 'T', 'Text (T): click to write', 't'],
+    ['gradient', '◐', 'Gradient (G): drag across an object to lay its gradient; drag the ends to move them', 'g'],
     ['picker', '💧', 'Eyedropper (I): takes an object\'s fill and stroke (and gives them to the selection)', 'i'],
     ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
     ['zoom', '🔍', 'Zoom (Z): click in, Alt+click out', 'z'],
@@ -41,7 +42,7 @@ window.NoorInk = (() => {
   let points = [];           // with Edit points: [{ id, sub, i }] the selected anchors
   let tool = 'select';
   let style = { fill: { type: 'solid', colour: '#4c8bf5' }, stroke: { colour: '#1d3557', width: 2, dash: 'solid', cap: 'round', join: 'round' }, opacity: 1, blend: 'normal' };
-  let opts = { sides: 6, starPoints: 5, inner: 0.5, radius: 0, fitError: 3, snapGrid: false, grid: 20 };
+  let opts = { sides: 6, starPoints: 5, inner: 0.5, radius: 0, fitError: 3, snapGrid: false, grid: 20, smart: true };
   let view = { zoom: 1, x: 0, y: 0, fitted: true };
   let history = [], future = [], savedAt = null, stamp = 0;
   let drag = null, hover = null, pen = null, typing = null, clip = null;
@@ -117,21 +118,42 @@ window.NoorInk = (() => {
   const fmt = (n) => String(Math.round(n * 1000) / 1000);
   const mattr = (m) => (m && m.some((v, i) => v !== ID[i]) ? `matrix(${m.map(fmt).join(' ')})` : null);
   const DASH = { solid: null, dashed: (w) => `${fmt(w * 3)} ${fmt(w * 2)}`, dotted: (w) => `0 ${fmt(w * 2)}` };
+  /**
+   * Where a gradient starts and ends: { x1, y1, x2, y2 } (for a radial one: the middle, and a point on its edge), in
+   * the object's box (0…1) — or, with units 'user', in the object's own coordinates. From the angle when not set.
+   */
+  function gradPoints(f) {
+    if (f.pts) return f.pts;
+    if (f.type === 'radial') return { x1: 0.5, y1: 0.5, x2: 1, y2: 0.5 };
+    const a = (f.angle || 0) * Math.PI / 180;
+    return { x1: 0.5 - Math.cos(a) / 2, y1: 0.5 - Math.sin(a) / 2, x2: 0.5 + Math.cos(a) / 2, y2: 0.5 + Math.sin(a) / 2 };
+  }
   /** A fill or stroke as an SVG paint (gradients go in defs). */
   function paint(f, defs, id, kind) {
     if (!f || f.type === 'none') return 'none';
     if (f.type === 'solid' || !f.type) return f.colour || '#000000';
-    const gid = `g-${id}-${kind}`, a = (f.angle || 0) * Math.PI / 180;
-    const g = f.type === 'radial' ? svgEl('radialGradient', { id: gid, cx: '0.5', cy: '0.5', r: '0.5' })
-      : svgEl('linearGradient', { id: gid, x1: fmt(0.5 - Math.cos(a) / 2), y1: fmt(0.5 - Math.sin(a) / 2), x2: fmt(0.5 + Math.cos(a) / 2), y2: fmt(0.5 + Math.sin(a) / 2) });
+    const gid = `g-${id}-${kind}`, q = gradPoints(f);
+    const units = f.units === 'user' ? { gradientUnits: 'userSpaceOnUse' } : {};
+    const g = f.type === 'radial' ? svgEl('radialGradient', { id: gid, cx: fmt(q.x1), cy: fmt(q.y1), r: fmt(Math.hypot(q.x2 - q.x1, q.y2 - q.y1)), ...units })
+      : svgEl('linearGradient', { id: gid, x1: fmt(q.x1), y1: fmt(q.y1), x2: fmt(q.x2), y2: fmt(q.y2), ...units });
     for (const [off, col] of f.stops || [[0, '#000000'], [1, '#ffffff']]) g.append(svgEl('stop', { offset: fmt(off), 'stop-color': col }));
     defs.append(g);
     return `url(#${gid})`;
+  }
+  /** Live effects as an SVG filter: a blur, a drop shadow (both stay editable; the browser draws them). */
+  function fxFilter(o, defs) {
+    const id = `fx-${o.id}`, f = svgEl('filter', { id, x: '-50%', y: '-50%', width: '200%', height: '200%', 'color-interpolation-filters': 'sRGB' });
+    const sh = o.fx.shadow, blur = o.fx.blur > 0 ? o.fx.blur : 0;
+    if (blur) f.append(svgEl('feGaussianBlur', { stdDeviation: fmt(blur), result: 'b' }));
+    if (sh && sh.on) f.append(svgEl('feDropShadow', { in: blur ? 'b' : 'SourceGraphic', dx: fmt(sh.dx ?? 4), dy: fmt(sh.dy ?? 4), stdDeviation: fmt(sh.blur ?? 4), 'flood-color': sh.colour || '#000000', 'flood-opacity': fmt(sh.opacity ?? 0.5) }));
+    defs.append(f);
+    return id;
   }
   /** One object as an SVG element (children for groups). `forFile`: the clean file form (no ids for picking). */
   function toSvgEl(o, defs, forFile) {
     const common = { transform: mattr(o.m), opacity: o.opacity !== undefined && o.opacity !== 1 ? fmt(o.opacity) : null, 'data-id': forFile ? null : o.id, id: forFile ? o.id : null, 'data-name': o.name || null };
     if (o.visible === false) common.display = 'none';
+    if (o.fx && (o.fx.blur > 0 || (o.fx.shadow && o.fx.shadow.on))) common.filter = `url(#${fxFilter(o, defs)})`;
     if (o.blend && o.blend !== 'normal') common.style = `mix-blend-mode:${o.blend}`;
     if (o.kind === 'group' || o.kind === 'layer') {
       const g = svgEl('g', common);
@@ -151,6 +173,16 @@ window.NoorInk = (() => {
     const strokeAttrs = (s) => (s && s.colour && s.width > 0 ? { stroke: s.colour, 'stroke-width': fmt(s.width), 'stroke-dasharray': DASH[s.dash || 'solid'] ? DASH[s.dash](s.width) : null, 'stroke-linecap': s.cap || 'round', 'stroke-linejoin': s.join || 'round' } : { stroke: 'none' });
     if (o.kind === 'text') {
       const t = svgEl('text', { ...common, x: fmt(o.x), y: fmt(o.y), 'font-family': o.font || 'sans-serif', 'font-size': fmt(o.size || 32), 'font-weight': o.bold ? 'bold' : null, 'font-style': o.italic ? 'italic' : null, 'text-anchor': o.align === 'center' ? 'middle' : o.align === 'right' ? 'end' : null, fill: paint(o.fill, defs, o.id, 'f'), ...strokeAttrs(o.stroke), 'xml:space': 'preserve' });
+      if (o.along) {
+        // Text on a path: the path (in the text's coordinates) in defs, the words along it.
+        const pid = `tp-${o.id}`;
+        defs.append(svgEl('path', { id: pid, d: o.along.d }));
+        t.removeAttribute('x'); t.removeAttribute('y');
+        const tp = svgEl('textPath', { href: `#${pid}`, startOffset: `${fmt(o.along.start || 0)}%` });
+        tp.textContent = String(o.text || '').replace(/\n/g, ' ');
+        t.append(tp);
+        return t;
+      }
       String(o.text || '').split('\n').forEach((line, i) => t.append(Object.assign(svgEl('tspan', { x: fmt(o.x), dy: i ? fmt((o.size || 32) * (o.lineHeight || 1.2)) : null }), { textContent: line || ' ' })));
       return t;
     }
@@ -161,7 +193,7 @@ window.NoorInk = (() => {
   function toFile(d = doc) {
     const prev = doc; doc = d;
     try {
-      const root = svgEl('svg', { xmlns: SVGNS, width: fmt(d.width), height: fmt(d.height), viewBox: `0 0 ${fmt(d.width)} ${fmt(d.height)}`, 'data-noorink': '1' });
+      const root = svgEl('svg', { xmlns: SVGNS, width: fmt(d.width), height: fmt(d.height), viewBox: `0 0 ${fmt(d.width)} ${fmt(d.height)}`, 'data-noorink': '1', 'data-noorink-guides': (d.guides || []).length ? d.guides.map((g) => `${g.axis}${fmt(g.at)}`).join(' ') : null });
       root.setAttribute('xmlns:inkscape', 'http://www.inkscape.org/namespaces/inkscape');
       root.setAttribute('xmlns:sodipodi', 'http://sodipodi.sourceforge.net/DTD/sodipodi-0.dtd');
       const defs = svgEl('defs');
@@ -260,6 +292,16 @@ window.NoorInk = (() => {
       }
     }
     if (drag && drag.kind === 'band') rectS(normRect(drag.start, drag.now), 'ink-band');
+    const s = stageSize(), lineAt = (axis, at, cls) => { const q = toScreen(at, at); over.append(axis === 'x' ? svgEl('line', { class: cls, x1: q.x, y1: 0, x2: q.x, y2: s.h }) : svgEl('line', { class: cls, x1: 0, y1: q.y, x2: s.w, y2: q.y })); };
+    for (const g of doc.guides || []) lineAt(g.axis, g.at, 'ink-guide');
+    const gh = gradHandles();
+    if (gh) {
+      over.append(svgEl('line', { class: 'ink-grad-line', x1: gh.a.x, y1: gh.a.y, x2: gh.b.x, y2: gh.b.y }));
+      if (gh.o.fill.type === 'radial') over.append(svgEl('circle', { class: 'ink-grad-line', cx: gh.a.x, cy: gh.a.y, r: Math.hypot(gh.b.x - gh.a.x, gh.b.y - gh.a.y), fill: 'none' }));
+      for (const [off, col] of gh.stops) over.append(svgEl('circle', { class: 'ink-grad-stop', cx: gh.a.x + (gh.b.x - gh.a.x) * off, cy: gh.a.y + (gh.b.y - gh.a.y) * off, r: 4, fill: col }));
+      over.append(svgEl('rect', { class: 'ink-grad-end', x: gh.a.x - 5, y: gh.a.y - 5, width: 10, height: 10 }), svgEl('circle', { class: 'ink-grad-end', cx: gh.b.x, cy: gh.b.y, r: 5.5 }));
+    }
+    for (const l of snapLines) lineAt(l.axis, l.at, 'ink-snapline');
     if (drag && drag.kind === 'shape') { const pv = shapePath(drag); if (pv) over.append(svgEl('path', { class: 'ink-preview', d: G().serialize(G().transform(pv, [view.zoom, 0, 0, view.zoom, view.x, view.y])) })); }
     if (drag && drag.kind === 'pencil' && drag.pts.length > 1) over.append(svgEl('polyline', { class: 'ink-preview', points: drag.pts.map(([x, y]) => { const s = toScreen(x, y); return `${fmt(s.x)},${fmt(s.y)}`; }).join(' ') }));
     if (pen && pen.pts.length) {
@@ -302,7 +344,40 @@ window.NoorInk = (() => {
     return o;
   }
   function pointAt(e) { const r = $('#ink-svg').getBoundingClientRect(), sx = e.clientX - r.left, sy = e.clientY - r.top, p = toDoc(sx, sy); return { x: p.x, y: p.y, sx, sy }; }
-  const snap = (p) => (opts.snapGrid ? { ...p, x: Math.round(p.x / opts.grid) * opts.grid, y: Math.round(p.y / opts.grid) * opts.grid } : p);
+  const snapGrid = (p) => (opts.snapGrid ? { ...p, x: Math.round(p.x / opts.grid) * opts.grid, y: Math.round(p.y / opts.grid) * opts.grid } : p);
+
+  // Smart snapping: what is moved or drawn lines up with the page (edges, middle), guides and other objects' edges and
+  // middles, within a few pixels on screen; the lines it snapped to show while dragging.
+  let snapCache = null, snapLines = [];
+  function snapTargets() {
+    if (snapCache) return snapCache;
+    const xs = [0, doc.width / 2, doc.width], ys = [0, doc.height / 2, doc.height];
+    for (const g of doc.guides || []) (g.axis === 'x' ? xs : ys).push(g.at);
+    if (opts.smart) for (const l of doc.layers) {
+      if (l.visible === false) continue;
+      for (const o of l.children) {
+        if (selection.includes(o.id) || o.visible === false) continue;
+        const b = boundsOf(o); if (!b) continue;
+        xs.push(b.x, b.x + b.w / 2, b.x + b.w); ys.push(b.y, b.y + b.h / 2, b.y + b.h);
+      }
+    }
+    return (snapCache = { xs, ys });
+  }
+  /** The smallest shift that puts one of `vals` on one of `targets` (within reach), and where. */
+  function snapAxis(vals, targets) {
+    const tol = 6 / view.zoom;
+    let best = null;
+    for (const v of vals) for (const t of targets) { const d = t - v; if (Math.abs(d) <= tol && (!best || Math.abs(d) < Math.abs(best.d))) best = { d, at: t }; }
+    return best;
+  }
+  /** A point snapped (grid first; else guides, the page and objects). */
+  function snap(p) {
+    if (opts.snapGrid) return snapGrid(p);
+    if (!opts.smart && !(doc.guides || []).length) return p;
+    const T = snapTargets(), bx = snapAxis([p.x], T.xs), by = snapAxis([p.y], T.ys);
+    snapLines = [...(bx ? [{ axis: 'x', at: bx.at }] : []), ...(by ? [{ axis: 'y', at: by.at }] : [])];
+    return { ...p, x: p.x + (bx ? bx.d : 0), y: p.y + (by ? by.d : 0) };
+  }
   function handleAt(p) {
     const b = selBounds();
     if (!b || tool !== 'select') return null;
@@ -366,7 +441,12 @@ window.NoorInk = (() => {
     $('#ink-stage').focus({ preventScroll: true });
     if (e.button === 1 || spaceHeld || tool === 'hand') { drag = { kind: 'pan', sx: p.sx, sy: p.sy, vx: view.x, vy: view.y }; cv.setPointerCapture(e.pointerId); return; }
     cv.setPointerCapture(e.pointerId);
+    snapCache = null; snapLines = [];
     const before = JSON.stringify({ doc, layerId, selection });
+    if (tool === 'select' && !handleAt(p) && !hit(e, false)) {
+      const gi = guideAt(p);
+      if (gi >= 0) { drag = { kind: 'guide', index: gi, before }; return; }
+    }
     switch (tool) {
       case 'zoom': zoomTo(view.zoom * (e.altKey ? 1 / 1.5 : 1.5), { x: p.sx, y: p.sy }); return;
       case 'select': {
@@ -409,6 +489,15 @@ window.NoorInk = (() => {
       case 'pencil': drag = { kind: 'pencil', pts: [[p.x, p.y]] }; return;
       case 'rect': case 'ellipse': case 'polygon': case 'star': case 'line': { const q = snap(p); drag = { kind: 'shape', tool, start: q, now: q }; return; }
       case 'text': { const o = hit(e, true); if (o && o.kind === 'text') { selection = [o.id]; startTyping(o, false); } else startTyping(null, false, p); return; }
+      case 'gradient': {
+        const gh = gradHandleAt(p);
+        if (gh) { drag = { kind: 'gradpt', ...gh, before }; return; }
+        const o = hit(e, true);
+        if (!o || o.kind === 'image' || o.kind === 'group') { selection = []; renderPanels(); render(); return; }
+        selection = [o.id];
+        drag = { kind: 'gradnew', o, start: p, now: p, before, old: clone(o.fill) };
+        renderPanels(); render(); return;
+      }
       case 'picker': {
         const o = hit(e, true);
         if (!o) return;
@@ -435,11 +524,21 @@ window.NoorInk = (() => {
         let dx = p.x - drag.start.x, dy = p.y - drag.start.y;
         if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }
         if (opts.snapGrid) { const b = drag.box || (drag.box = selBounds()); if (b) { dx = Math.round((b.x + dx) / opts.grid) * opts.grid - b.x; dy = Math.round((b.y + dy) / opts.grid) * opts.grid - b.y; } }
+        else if (!e.ctrlKey && (opts.smart || (doc.guides || []).length)) {
+          const b = drag.box || (drag.box = selBounds()), T = snapTargets();
+          if (b) {
+            const sx = snapAxis([b.x + dx, b.x + b.w / 2 + dx, b.x + b.w + dx], T.xs), sy = snapAxis([b.y + dy, b.y + b.h / 2 + dy, b.y + b.h + dy], T.ys);
+            if (sx && !(e.shiftKey && dx === 0)) dx += sx.d;
+            if (sy && !(e.shiftKey && dy === 0)) dy += sy.d;
+            snapLines = [...(sx ? [{ axis: 'x', at: sx.at }] : []), ...(sy ? [{ axis: 'y', at: sy.at }] : [])];
+          }
+        }
         drag.moved = drag.moved || Math.hypot(p.sx - toScreen(drag.start.x, drag.start.y).x, p.sy - toScreen(drag.start.x, drag.start.y).y) > 2;
         applyT(drag.orig, [1, 0, 0, 1, dx, dy]);
         break;
       }
       case 'scale': {
+        if (!e.ctrlKey) Object.assign(p, snap(p));
         const b = drag.box, h = drag.handle, L = [0, 6, 7].includes(h), R = [2, 3, 4].includes(h), T2 = [0, 1, 2].includes(h), B = [4, 5, 6].includes(h);
         const fx = e.altKey ? b.x + b.w / 2 : L ? b.x + b.w : b.x, fy = e.altKey ? b.y + b.h / 2 : T2 ? b.y + b.h : b.y;
         let sx = L || R ? (p.x - fx) / ((L ? b.x : b.x + b.w) - fx || 1) : 1, sy = T2 || B ? (p.y - fy) / ((T2 ? b.y : b.y + b.h) - fy || 1) : 1;
@@ -477,7 +576,34 @@ window.NoorInk = (() => {
       }
       case 'pennew': { const q = pen.pts[pen.pts.length - 1]; q.ox = p.x; q.oy = p.y; if (!e.altKey) { q.ix = 2 * q.x - p.x; q.iy = 2 * q.y - p.y; } break; }
       case 'pencil': { const last = drag.pts[drag.pts.length - 1]; if (Math.hypot(p.x - last[0], p.y - last[1]) * view.zoom > 1.5) drag.pts.push([p.x, p.y]); break; }
-      case 'shape': drag.now = snap(p); drag.shift = e.shiftKey; drag.alt = e.altKey; break;
+      case 'shape': drag.now = e.ctrlKey ? p : snap(p); drag.shift = e.shiftKey; drag.alt = e.altKey; break;
+      case 'gradpt': case 'gradnew': {
+        const o = drag.o, f = o.fill, box = localBox(o), M = worldMatrix(o.id), im = inv(M);
+        if (!box) break;
+        const toLocal = (q) => { const [lx, ly] = ap(im, q.x, q.y); return f && f.units === 'user' ? { x: lx, y: ly } : { x: (lx - box.x) / (box.w || 1), y: (ly - box.y) / (box.h || 1) }; };
+        if (drag.kind === 'gradnew') {
+          drag.now = p;
+          if (Math.hypot(p.sx - toScreen(drag.start.x, drag.start.y).x, p.sy - toScreen(drag.start.x, drag.start.y).y) < 4) break;
+          const base = drag.old && (drag.old.type === 'linear' || drag.old.type === 'radial') ? drag.old : { type: 'linear', stops: [[0, drag.old && drag.old.colour ? drag.old.colour : '#000000'], [1, '#ffffff']] };
+          // A new gradient is laid in the object's box (it follows the object when the shape changes).
+          const toBox = (q) => { const [lx, ly] = ap(im, q.x, q.y); return { x: (lx - box.x) / (box.w || 1), y: (ly - box.y) / (box.h || 1) }; };
+          const a = toBox(drag.start), b = toBox(p);
+          o.fill = { ...base, pts: { x1: a.x, y1: a.y, x2: b.x, y2: b.y } };
+          delete o.fill.units;
+          o.fill.angle = Math.round(Math.atan2(p.y - drag.start.y, p.x - drag.start.x) * 180 / Math.PI);
+        } else {
+          const q = toLocal(p), pts = { ...gradPoints(f) };
+          if (drag.end === 1) { const dx = q.x - pts.x1, dy = q.y - pts.y1; pts.x1 = q.x; pts.y1 = q.y; if (f.type === 'radial') { pts.x2 += dx; pts.y2 += dy; } } else { pts.x2 = q.x; pts.y2 = q.y; }
+          o.fill = { ...f, pts };
+        }
+        break;
+      }
+      case 'guide': {
+        const g = doc.guides[drag.index], s = stageSize();
+        g.at = Math.round((g.axis === 'x' ? p.x : p.y) * 100) / 100;
+        drag.off = p.sx < 0 || p.sy < 0 || p.sx > s.w || p.sy > s.h;
+        break;
+      }
       default: break;
     }
     render(); status();
@@ -488,7 +614,10 @@ window.NoorInk = (() => {
     drag = null;
     if (!d || !doc) return;
     try { $('#ink-svg').releasePointerCapture(e.pointerId); } catch { /* not held */ }
+    snapLines = []; snapCache = null;
     switch (d.kind) {
+      case 'gradnew': case 'gradpt': if (JSON.stringify(d.o.fill) !== JSON.stringify(d.kind === 'gradnew' ? d.old : null) || d.kind === 'gradpt') commit(d.before, 'Gradient'); else render(); renderPanels(); break;
+      case 'guide': if (d.off) doc.guides.splice(d.index, 1); commit(d.before, d.off ? 'Remove a guide' : 'Move a guide'); break;
       case 'move': if (d.moved) commit(d.before, 'Move'); else render(); break;
       case 'scale': commit(d.before, 'Scale'); break;
       case 'rotate': commit(d.before, 'Rotate'); break;
@@ -714,6 +843,118 @@ window.NoorInk = (() => {
     if (!gs.length) return;
     change('Release', () => { for (const g of gs) { g.children.push(g.clip); delete g.clip; delete g.clipKind; g.name = 'Group'; } });
   }
+  /** Object › Convert to path for text: the app gives the letters' outlines (as the font draws them). */
+  let systemFonts = [];
+  async function loadFonts() { if (systemFonts.length) return; try { const r = await req('ink.fonts'); systemFonts = (r && r.fonts) || []; } catch { systemFonts = []; } }
+  async function textToPath() {
+    const texts = sel().filter((o) => o.kind === 'text');
+    if (!texts.length) { notice('Choose a text first.', 1600); return; }
+    if (texts.some((o) => o.along)) { notice('Text on a path can\'t be turned into outlines yet: take it off the path first.', 2600); return; }
+    try {
+      const outs = [];
+      for (const t of texts) { const r = await req('ink.textOutline', { text: t.text, font: t.font, size: t.size, bold: !!t.bold, italic: !!t.italic, align: t.align || 'left', lineHeight: t.lineHeight || 1.2 }); outs.push([t, r]); if (r && r.notes && r.notes.length) notice(r.notes.join(' '), 2600); }
+      change('Text to outlines', () => {
+        const ids = [];
+        for (const [t, r] of outs) {
+          if (!r || !r.d) continue;
+          const o = { id: newId(), kind: 'path', name: t.name || 'Text', path: G().transform(G().parse(r.d), [1, 0, 0, 1, t.x, t.y]), m: matrixOf(t).slice(), fill: clone(t.fill), stroke: clone(t.stroke), opacity: t.opacity, blend: t.blend, fx: clone(t.fx) };
+          if (!o.fx) delete o.fx;
+          const list = siblings(t.id); list.splice(list.indexOf(t), 1, o); ids.push(o.id);
+        }
+        selection = ids;
+      });
+    } catch (err) { hooks.showError(err); }
+  }
+  /** Text › Put on a path: the text follows the chosen path's line (the path stays where it is). */
+  function putOnPath() {
+    const t = sel().find((o) => o.kind === 'text'), pth = sel().find((o) => o.kind === 'path');
+    if (!t || !pth) { notice('Choose a text and a path (Shift+click both).', 2000); return; }
+    change('Put on a path', () => {
+      const M = mul(inv(worldMatrix(t.id)), worldMatrix(pth.id));
+      t.along = { d: G().serialize(G().transform(pth.path, M)), start: 0 };
+      selection = [t.id];
+    });
+  }
+  function offPath() { change('Take off the path', () => { for (const o of sel()) if (o.along) delete o.along; }); }
+  /** Path › Stroke to path: the outline becomes a shape of its own (filled with the stroke's colour). */
+  function strokeToPath() {
+    const items = sel().filter((o) => o.kind === 'path' && o.stroke && o.stroke.colour && o.stroke.width > 0);
+    if (!items.length) { notice('Choose a path with a stroke.', 1600); return; }
+    let outs;
+    try { outs = items.map((o) => [o, G().strokeToPath(o.path, o.stroke.width, { cap: o.stroke.cap || 'round', join: o.stroke.join || 'round' })]); } catch (err) { hooks.showError(err); return; }
+    change('Stroke to path', () => {
+      const ids = [];
+      for (const [o, outline] of outs) {
+        const line = { id: newId(), kind: 'path', name: 'Outline', path: outline, m: matrixOf(o).slice(), fill: { type: 'solid', colour: o.stroke.colour, ...(o.stroke.opacity < 1 ? { opacity: o.stroke.opacity } : {}) }, stroke: { colour: null, width: 1 }, opacity: o.opacity, blend: o.blend };
+        const list = siblings(o.id), at = list.indexOf(o);
+        if (o.fill && o.fill.type !== 'none') {
+          // A filled shape keeps its fill under the outline (both in a group, as one object).
+          const body = { ...clone(o), id: newId(), m: ID.slice(), stroke: { colour: null, width: o.stroke.width } };
+          const g = { id: newId(), kind: 'group', name: o.name || 'Group', m: matrixOf(o).slice(), children: [body, { ...line, m: ID.slice() }] };
+          list.splice(at, 1, g); ids.push(g.id);
+        } else { list.splice(at, 1, line); ids.push(line.id); }
+      }
+      selection = ids;
+    });
+  }
+  /** Path › Grow or shrink: the shape's edge moved out (or in) by a distance, corners rounded. */
+  async function offsetDialog() {
+    const items = sel().filter((o) => o.kind === 'path');
+    if (!items.length) { notice('Choose a shape (a path).', 1600); return; }
+    const v = await NoorUI.prompt('Grow or shrink', 'By (pixels; less than 0 shrinks)', '5', { type: 'number' });
+    const d = Number(v);
+    if (v === null || v === undefined || !Number.isFinite(d) || d === 0) return;
+    let outs;
+    try { outs = items.map((o) => { const m = worldMatrix(o.id), k = Math.sqrt(Math.abs(m[0] * m[3] - m[1] * m[2])) || 1; return [o, G().offset(o.path, d / k, 'round')]; }); } catch (err) { hooks.showError(err); return; }
+    change(d > 0 ? 'Grow' : 'Shrink', () => {
+      for (const [o, p2] of outs) { if (p2 && p2.length) o.path = p2; else { const l = siblings(o.id); l.splice(l.indexOf(o), 1); } }
+      selection = selection.filter((id) => find(id));
+    });
+  }
+  /** Trace a picture: its colours become filled paths (a group), in the picture's place. */
+  async function traceDialog(fromImage) {
+    let src = fromImage;
+    if (!src) {
+      try { const r = await req('ink.place'); if (!r || r.cancelled) return; const k = Math.min(1, doc.width * 0.9 / r.width, doc.height * 0.9 / r.height); src = { href: `data:${r.mime};base64,${r.data}`, name: r.name, x: (doc.width - r.width * k) / 2, y: (doc.height - r.height * k) / 2, w: r.width * k, h: r.height * k, m: ID.slice() }; } catch (err) { hooks.showError(err); return; }
+    }
+    const img = new Image();
+    try { await new Promise((res, rej) => { img.onload = res; img.onerror = () => rej(new Error('That picture can\'t be read.')); img.src = src.href; }); } catch (err) { hooks.showError(err); return; }
+    NoorUI.modal({ label: 'Trace a picture', width: 380 }, (s, closeIt) => {
+      const mode = el('select', { id: 'ink-trace-mode', 'aria-label': 'Kind' }, el('option', { value: 'colour', text: 'colours' }), el('option', { value: 'mono', text: 'black and white' }));
+      const colours = el('input', { type: 'number', id: 'ink-trace-colours', min: '2', max: '32', value: '6', 'aria-label': 'Colours' });
+      const thr = el('input', { type: 'number', id: 'ink-trace-threshold', min: '1', max: '254', value: '128', 'aria-label': 'Threshold' });
+      const smooth = el('select', { id: 'ink-trace-smooth', 'aria-label': 'Edges' }, el('option', { value: '1', text: 'smooth curves' }), el('option', { value: '0', text: 'straight (pixel-like)' }));
+      const drop = el('input', { type: 'checkbox', id: 'ink-trace-drop' });
+      const keepPic = el('input', { type: 'checkbox', id: 'ink-trace-keep' });
+      const upd = () => { colours.parentElement.hidden = mode.value !== 'colour'; thr.parentElement.hidden = mode.value !== 'mono'; drop.parentElement.hidden = mode.value !== 'colour'; };
+      mode.addEventListener('change', upd);
+      s.append(NoorUI.head('Trace a picture', closeIt), el('div', { class: 'modal-body ink-dlg' }, el('label', {}, 'Kind ', mode), el('label', {}, 'Colours ', colours), el('label', {}, 'Dark below ', thr), el('label', {}, 'Edges ', smooth), el('label', {}, drop, ' leave out the background'), el('label', {}, keepPic, ' keep the picture under it'),
+        el('p', { class: 'pref-hint', text: 'Big pictures are made smaller first (512 pixels across) so tracing stays quick.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ink-trace-ok', onclick: async () => {
+          const o2 = { colours: clamp(Number(colours.value) || 6, 2, 32), smooth: Number(smooth.value), background: drop.checked ? 'drop' : 'keep', ...(mode.value === 'mono' ? { mono: true, colours: 2, threshold: clamp(Number(thr.value) || 128, 1, 254) } : {}) };
+          closeIt();
+          notice('Tracing…', 800);
+          await new Promise((r) => setTimeout(r, 30));
+          try {
+            const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+            const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+            const res = window.NoorInkTrace.trace(x.getImageData(0, 0, c.width, c.height), o2);
+            if (!res.length) { notice('Nothing to trace there.', 1600); return; }
+            const sx = src.w / c.width, sy = src.h / c.height, place = mul(src.m || ID, [sx, 0, 0, sy, src.x, src.y]);
+            const parts = res.map((r, i) => ({ id: newId(), kind: 'path', name: `Colour ${i + 1}`, path: r.path, m: ID.slice(), fill: { type: 'solid', colour: r.colour, ...(r.opacity !== undefined && r.opacity < 1 ? { opacity: r.opacity } : {}) }, stroke: { colour: null, width: 1 }, opacity: 1, blend: 'normal' }));
+            const g = { id: newId(), kind: 'group', name: `Traced ${src.name || 'picture'}`, m: place, children: parts };
+            if (fromImage) {
+              change('Trace a picture', () => { const list = siblings(fromImage.id), at = list.indexOf(fromImage); g.m = mul(matrixOf(fromImage), [sx, 0, 0, sy, fromImage.x, fromImage.y]); if (keepPic.checked) list.splice(at + 1, 0, g); else list.splice(at, 1, g); selection = [g.id]; });
+            } else {
+              const items = keepPic.checked ? [{ id: newId(), kind: 'image', name: src.name || 'Picture', x: src.x, y: src.y, w: src.w, h: src.h, href: src.href, m: ID.slice() }, g] : [g];
+              addObjects(items, 'Trace a picture');
+              selection = [g.id]; renderPanels(); render();
+            }
+          } catch (err) { hooks.showError(err); }
+        } }, 'Trace'))));
+      upd();
+    });
+  }
   function reversePaths() { change('Reverse the direction', () => { for (const o of sel()) if (o.kind === 'path') o.path = G().reverse(o.path); }); }
   /** Path › Simplify: fewer points, the same shape (within a pixel or so). */
   function simplify() {
@@ -817,6 +1058,8 @@ window.NoorInk = (() => {
       const W = vb.length === 4 ? vb[2] : unit(live.getAttribute('width')) || 800, H = vb.length === 4 ? vb[3] : unit(live.getAttribute('height')) || 600;
       const rootM = vb.length === 4 ? [1, 0, 0, 1, -vb[0], -vb[1]] : ID.slice();
       const d = { width: Math.max(1, Math.round(W * 1000) / 1000), height: Math.max(1, Math.round(H * 1000) / 1000), background: null, layers: [] };
+      const gl = (live.getAttribute('data-noorink-guides') || '').split(/\s+/).map((t) => /^([xy])(-?[\d.]+)$/.exec(t)).filter(Boolean);
+      if (gl.length) d.guides = gl.map((m) => ({ axis: m[1], at: Number(m[2]) }));
       const hex = (c) => { if (!c || c === 'none' || c === 'transparent') return null; const m = /rgba?\(([^)]+)\)/.exec(c); if (!m) return c; const [r, g, b, a] = m[1].split(',').map((s) => parseFloat(s)); if (a === 0) return null; return '#' + [r, g, b].map((v) => Math.round(v).toString(16).padStart(2, '0')).join(''); };
       const paintOf = (val, opacity) => {
         if (!val || val === 'none') return { type: 'none' };
@@ -827,8 +1070,14 @@ window.NoorInk = (() => {
             let src = g, guard = 0;
             while (!src.querySelector('stop') && src.getAttribute('href') && guard++ < 8) src = live.querySelector(`[id="${CSS.escape((src.getAttribute('href') || '').slice(1))}"]`) || src;
             const stops = [...src.querySelectorAll('stop')].map((s) => { const cs = getComputedStyle(s); return [num(s.getAttribute('offset'), 0) * (String(s.getAttribute('offset')).includes('%') ? 0.01 : 1), hex(cs.stopColor) || '#000000']; });
-            const x1 = num(g.getAttribute('x1'), 0), y1 = num(g.getAttribute('y1'), 0), x2 = num(g.getAttribute('x2'), 1), y2 = num(g.getAttribute('y2'), 0);
-            return { type: g.nodeName.toLowerCase().startsWith('radial') ? 'radial' : 'linear', stops: stops.length ? stops : [[0, '#000000'], [1, '#ffffff']], angle: Math.round(Math.atan2(y2 - y1, x2 - x1) * 180 / Math.PI), ...(opacity < 1 ? { opacity } : {}) };
+            const radial = g.nodeName.toLowerCase().startsWith('radial'), user = g.getAttribute('gradientUnits') === 'userSpaceOnUse';
+            const frac = (k, d) => { const v = g.getAttribute(k); return v === null ? d : String(v).includes('%') ? parseFloat(v) / 100 : num(v, d); };
+            const gt = g.gradientTransform && g.gradientTransform.baseVal && g.gradientTransform.baseVal.numberOfItems ? g.gradientTransform.baseVal.consolidate().matrix : null;
+            let pts;
+            if (radial) { const cx = frac('cx', 0.5), cy = frac('cy', 0.5), r = frac('r', 0.5); pts = { x1: cx, y1: cy, x2: cx + r, y2: cy }; }
+            else pts = { x1: frac('x1', 0), y1: frac('y1', 0), x2: frac('x2', 1), y2: frac('y2', 0) };
+            if (gt) { const M = [gt.a, gt.b, gt.c, gt.d, gt.e, gt.f], [a1, b1] = ap(M, pts.x1, pts.y1), [a2, b2] = ap(M, pts.x2, pts.y2); pts = { x1: a1, y1: b1, x2: a2, y2: b2 }; }
+            return { type: radial ? 'radial' : 'linear', stops: stops.length ? stops : [[0, '#000000'], [1, '#ffffff']], angle: Math.round(Math.atan2(pts.y2 - pts.y1, pts.x2 - pts.x1) * 180 / Math.PI), pts, ...(user ? { units: 'user' } : {}), ...(opacity < 1 ? { opacity } : {}) };
           }
           return { type: 'none' };
         }
@@ -839,6 +1088,16 @@ window.NoorInk = (() => {
         const cs = getComputedStyle(e), m = e.transform && e.transform.baseVal && e.transform.baseVal.numberOfItems ? e.transform.baseVal.consolidate().matrix : null;
         const o = { id: newId(), name: e.getAttribute('data-name') || e.getAttribute('inkscape:label') || e.getAttribute('id') || '', m: m ? [m.a, m.b, m.c, m.d, m.e, m.f] : ID.slice() };
         const op = num(e.getAttribute('opacity'), 1); if (op < 1) o.opacity = op;
+        // A filter made of a blur and/or a drop shadow comes in as live effects (others are left out).
+        const fref = /url\(["']?#([^"')]+)/.exec(e.getAttribute('filter') || '');
+        const fil = fref && live.querySelector(`[id="${CSS.escape(fref[1])}"]`);
+        if (fil) {
+          const bl = fil.querySelector('feGaussianBlur'), ds = fil.querySelector('feDropShadow');
+          const fx = {};
+          if (bl && !ds) fx.blur = num(bl.getAttribute('stdDeviation'), 0);
+          if (ds) { fx.shadow = { on: true, dx: num(ds.getAttribute('dx'), 2), dy: num(ds.getAttribute('dy'), 2), blur: num(ds.getAttribute('stdDeviation'), 2), colour: hex(ds.getAttribute('flood-color')) || '#000000', opacity: num(ds.getAttribute('flood-opacity'), 1) }; if (bl && ds.getAttribute('in') === bl.getAttribute('result')) fx.blur = num(bl.getAttribute('stdDeviation'), 0); }
+          if (fx.blur || fx.shadow) o.fx = fx;
+        }
         if (e.getAttribute('display') === 'none' || (e.getAttribute('style') || '').includes('display:none')) o.visible = false;
         return { o, cs };
       };
@@ -862,6 +1121,11 @@ window.NoorInk = (() => {
           const lines = e.querySelectorAll('tspan').length ? [...e.querySelectorAll('tspan')].map((t) => t.textContent) : [e.textContent];
           const first = e.querySelector('tspan') || e;
           Object.assign(o, { kind: 'text', x: num(first.getAttribute('x'), A('x')), y: num(first.getAttribute('y'), A('y')), text: lines.join('\n'), font: (cs.fontFamily || 'sans-serif').replace(/["']/g, ''), size: num(cs.fontSize, 16), bold: num(cs.fontWeight, 400) >= 600 || cs.fontWeight === 'bold', italic: cs.fontStyle === 'italic', align: cs.textAnchor === 'middle' ? 'center' : cs.textAnchor === 'end' ? 'right' : 'left', lineHeight: 1.2 });
+          const tpe = e.querySelector('textPath');
+          if (tpe) {
+            const ref = live.querySelector(`[id="${CSS.escape((tpe.getAttribute('href') || tpe.getAttribute('xlink:href') || '').slice(1))}"]`);
+            if (ref && ref.getAttribute('d')) { o.text = tpe.textContent; o.along = { d: G().serialize(G().parse(ref.getAttribute('d'))), start: parseFloat(tpe.getAttribute('startOffset')) || 0 }; }
+          }
           o.name = o.name || o.text.split('\n')[0].slice(0, 40);
           return shapeStyle(o, cs);
         }
@@ -1059,7 +1323,7 @@ window.NoorInk = (() => {
   // ---------------------------------------------------------------- the panels
 
   const SETTINGS_KEY = 'noorink.settings';
-  const DEFAULTS = { width: 800, height: 600, background: 'white', font: 'sans-serif' };
+  const DEFAULTS = { width: 800, height: 600, background: 'white', font: 'sans-serif', swatches: ['#000000', '#ffffff', '#808080', '#e63946', '#f4a261', '#e9c46a', '#2a9d8f', '#4c8bf5', '#1d3557', '#9b5de5', '#f15bb5', '#00bbf9'] };
   let settings = { ...DEFAULTS };
   try { settings = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
   function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ } }
@@ -1099,8 +1363,10 @@ window.NoorInk = (() => {
       const it = el('button', { class: 'utility-btn' + (t && t.italic ? ' on' : ''), title: 'Italic', 'aria-label': 'Italic', onclick: () => t && textProp(t, 'italic', !t.italic) }, 'I');
       const al = el('select', { id: 'ink-opt-align', 'aria-label': 'Alignment' }, ...[['left', 'left'], ['center', 'centre'], ['right', 'right']].map(([v, x]) => el('option', { value: v, text: x })));
       al.value = t ? t.align || 'left' : 'left'; al.addEventListener('change', () => t && textProp(t, 'align', al.value));
-      items.push(el('label', {}, 'Font ', font), el('label', {}, 'Size ', size), b, it, al, el('datalist', { id: 'ink-fonts' }, ...['sans-serif', 'serif', 'monospace', 'Segoe UI', 'Arial', 'Georgia', 'Times New Roman', 'Consolas', 'Verdana', 'Trebuchet MS', 'Impact'].map((f) => el('option', { value: f }))));
+      if (t && t.along) items.push(el('label', { title: 'Where the text starts along the path' }, 'Start ', num('ink-opt-start', t.along.start || 0, 0, 100, 1, (v) => textProp(t, 'along', { ...t.along, start: v }), 'Start along the path (%)'), '%'));
+      items.push(el('label', {}, 'Font ', font), el('label', {}, 'Size ', size), b, it, al, el('datalist', { id: 'ink-fonts' }, ...['sans-serif', 'serif', 'monospace', ...(systemFonts.length ? systemFonts : ['Segoe UI', 'Arial', 'Georgia', 'Times New Roman', 'Consolas', 'Verdana', 'Trebuchet MS', 'Impact'])].map((f) => el('option', { value: f }))));
     }
+    items.push(el('label', { class: 'ph-check', title: 'Line up with other objects, the page and guides as you drag (hold Ctrl: not now)' }, el('input', { type: 'checkbox', id: 'ink-opt-smart', checked: opts.smart, onchange: (e) => { opts.smart = e.target.checked; } }), ' snap to objects'));
     items.push(el('label', { class: 'ph-check', title: 'Points snap to a grid' }, el('input', { type: 'checkbox', id: 'ink-opt-snap', checked: opts.snapGrid, onchange: (e) => { opts.snapGrid = e.target.checked; render(); } }), ' snap to the grid'));
     box.replaceChildren(...items);
   }
@@ -1123,9 +1389,20 @@ window.NoorInk = (() => {
     if (f.type === 'solid') rows.push(el('div', { class: 'ink-row' }, colourIn('ink-fill', f.colour, 'Fill colour', (c) => applyStyle({ fill: { ...f, colour: c } }, 'Fill colour'))));
     if (f.type === 'linear' || f.type === 'radial') {
       const stops = f.stops || [[0, '#000000'], [1, '#ffffff']];
-      rows.push(el('div', { class: 'ink-row' }, colourIn('ink-grad-a', stops[0][1], 'From', (c) => applyStyle({ fill: { ...f, stops: [[0, c], ...stops.slice(1)] } }, 'Gradient')), '→',
-        colourIn('ink-grad-b', stops[stops.length - 1][1], 'To', (c) => applyStyle({ fill: { ...f, stops: [...stops.slice(0, -1), [1, c]] } }, 'Gradient')),
-        f.type === 'linear' ? el('label', {}, ' angle ', num('ink-grad-angle', f.angle || 0, -360, 360, 15, (v) => applyStyle({ fill: { ...f, angle: v } }, 'Gradient'), 'Angle'), '°') : null));
+      const setStops = (list) => applyStyle({ fill: { ...f, stops: list.slice().sort((a, b) => a[0] - b[0]) } }, 'Gradient');
+      // Each colour stop: its colour and where it sits (%); ＋ adds one in the middle of the widest gap.
+      const stopRows = stops.map(([off, col], i) => el('div', { class: 'ink-row ink-stop' },
+        colourIn(i === 0 ? 'ink-grad-a' : i === stops.length - 1 ? 'ink-grad-b' : `ink-grad-${i}`, col, `Colour stop ${i + 1}`, (c) => setStops(stops.map((s2, j) => (j === i ? [s2[0], c] : s2)))),
+        num(`ink-grad-off-${i}`, Math.round(off * 100), 0, 100, 1, (v) => setStops(stops.map((s2, j) => (j === i ? [v / 100, s2[1]] : s2))), 'Where (%)'), '%',
+        stops.length > 2 ? el('button', { class: 'utility-btn', title: 'Remove this colour', 'aria-label': 'Remove this colour', onclick: () => setStops(stops.filter((_, j) => j !== i)) }, '✕') : null));
+      const addStop = el('button', { class: 'utility-btn', id: 'ink-grad-add', title: 'Add a colour', 'aria-label': 'Add a colour', onclick: () => {
+        let at = 0, gap = -1; for (let i = 0; i + 1 < stops.length; i++) if (stops[i + 1][0] - stops[i][0] > gap) { gap = stops[i + 1][0] - stops[i][0]; at = i; }
+        setStops([...stops, [(stops[at][0] + stops[at + 1][0]) / 2, stops[at][1]]]);
+      } }, '＋');
+      rows.push(...stopRows, el('div', { class: 'ink-row' }, addStop,
+        f.type === 'linear' ? el('label', {}, ' angle ', num('ink-grad-angle', f.angle || 0, -360, 360, 15, (v) => { const n = { ...f, angle: v }; delete n.pts; delete n.units; applyStyle({ fill: n }, 'Gradient'); }, 'Angle'), '°') : null,
+        el('button', { class: 'utility-btn', title: 'Reverse the colours', 'aria-label': 'Reverse the gradient', onclick: () => setStops(stops.map(([o2, c]) => [1 - o2, c])) }, '⇄'),
+        el('span', { class: 'ph-hint', text: 'Gradient tool (G): drag on the picture' })));
     }
     const hasStroke = !!st.colour;
     rows.push(el('div', { class: 'ink-row' }, el('label', { class: 'ph-check' }, el('input', { type: 'checkbox', id: 'ink-stroke-on', checked: hasStroke, onchange: (e) => applyStyle({ stroke: { ...st, colour: e.target.checked ? st.lastColour || '#000000' : null, lastColour: st.colour || st.lastColour } }, 'Stroke') }), ' Stroke '),
@@ -1141,7 +1418,24 @@ window.NoorInk = (() => {
     const blend = el('select', { id: 'ink-blend', 'aria-label': 'Blend mode' }, ...BLENDS.map((b) => el('option', { value: b, text: b.replace('-', ' ') })));
     blend.value = s.blend || 'normal'; blend.addEventListener('change', () => applyStyle({ blend: blend.value }, 'Blend mode'));
     rows.push(el('div', { class: 'ink-row' }, el('label', {}, 'Opacity ', num('ink-opacity', Math.round((s.opacity ?? 1) * 100), 0, 100, 5, (v) => applyStyle({ opacity: v / 100 }, 'Opacity'), 'Opacity (%)'), '%'), blend));
-    box.replaceChildren(...rows);
+    // Swatches: click for the fill, Shift+click for the stroke; ＋ keeps the fill colour; right-click takes one away.
+    const chips = settings.swatches.map((c) => el('button', { class: 'ph-chip ink-swatch', style: `background:${c}`, title: `${c} (Shift+click: the stroke; right-click: remove)`, 'aria-label': c, 'data-colour': c,
+      onclick: (e) => (e.shiftKey ? applyStyle({ stroke: { ...st, colour: c } }, 'Stroke colour') : applyStyle({ fill: { type: 'solid', colour: c } }, 'Fill colour')),
+      oncontextmenu: (e) => { e.preventDefault(); settings.swatches = settings.swatches.filter((x) => x !== c); saveSettings(); renderStyle(); } }));
+    const keep = el('button', { class: 'utility-btn', id: 'ink-swatch-add', title: 'Keep the fill colour as a swatch', 'aria-label': 'Add a swatch', onclick: () => { const c = f.type === 'solid' ? f.colour : st.colour; if (c && !settings.swatches.includes(c)) { settings.swatches = [...settings.swatches, c].slice(-48); saveSettings(); renderStyle(); } } }, '＋');
+    rows.push(el('div', { class: 'ink-swatches', id: 'ink-swatches' }, ...chips, keep));
+    // Live effects (on the selected objects): a blur and a drop shadow.
+    const o0 = sel()[0];
+    if (o0) {
+      const fx = o0.fx || {}, sh = fx.shadow || { on: false, dx: 4, dy: 4, blur: 4, colour: '#000000', opacity: 0.5 };
+      const setFx = (part, label) => change(label, () => { for (const o of sel()) { o.fx = { ...(o.fx || {}), ...part }; if (!(o.fx.blur > 0) && !(o.fx.shadow && o.fx.shadow.on)) delete o.fx; } });
+      rows.push(el('div', { class: 'ink-row ink-fxrow' }, el('strong', { text: 'Effects' }), el('label', {}, 'Blur ', num('ink-fx-blur', fx.blur || 0, 0, 200, 0.5, (v) => setFx({ blur: v }, 'Blur'), 'Blur'))),
+        el('div', { class: 'ink-row' }, el('label', { class: 'ph-check' }, el('input', { type: 'checkbox', id: 'ink-fx-shadow', checked: !!sh.on, onchange: (e) => setFx({ shadow: { ...sh, on: e.target.checked } }, 'Drop shadow') }), ' Drop shadow'),
+          sh.on ? colourIn('ink-fx-sh-colour', sh.colour, 'Shadow colour', (c) => setFx({ shadow: { ...sh, colour: c } }, 'Drop shadow')) : null),
+        sh.on ? el('div', { class: 'ink-row' }, el('label', {}, 'X ', num('ink-fx-dx', sh.dx, -500, 500, 1, (v) => setFx({ shadow: { ...sh, dx: v } }, 'Drop shadow'), 'Shadow X')), el('label', {}, 'Y ', num('ink-fx-dy', sh.dy, -500, 500, 1, (v) => setFx({ shadow: { ...sh, dy: v } }, 'Drop shadow'), 'Shadow Y')),
+          el('label', {}, 'soft ', num('ink-fx-sb', sh.blur, 0, 200, 0.5, (v) => setFx({ shadow: { ...sh, blur: v } }, 'Drop shadow'), 'Shadow softness')), el('label', {}, num('ink-fx-so', Math.round(sh.opacity * 100), 0, 100, 5, (v) => setFx({ shadow: { ...sh, opacity: v / 100 } }, 'Drop shadow'), 'Shadow opacity (%)'), '%')) : null);
+    }
+    box.replaceChildren(...rows.filter(Boolean));
   }
   /** Where the selection is and how big (document pixels); typing a number moves or scales it. */
   function renderTransform() {
@@ -1250,6 +1544,46 @@ window.NoorInk = (() => {
         } }, 'OK'))));
     });
   }
+  /** An object's box in its own coordinates (what a gradient in box units spans). */
+  function localBox(o) {
+    if (o.kind === 'path') return G().bounds(o.path || []);
+    if (o.kind === 'text') { const e = document.querySelector(`#ink-svg [data-id="${o.id}"]`); try { const b = e && e.getBBox(); if (b) return { x: b.x, y: b.y, w: b.width, h: b.height }; } catch { /* not drawn */ } }
+    return null;
+  }
+  /** The gradient's two ends on screen, for the selected object (with the gradient tool). */
+  function gradHandles() {
+    const o = sel()[0];
+    if (tool !== 'gradient' || !o || !o.fill || (o.fill.type !== 'linear' && o.fill.type !== 'radial')) return null;
+    const box = localBox(o); if (!box) return null;
+    const q = gradPoints(o.fill), M = worldMatrix(o.id), user = o.fill.units === 'user';
+    const sc = (x, y) => { const [a, b] = ap(M, user ? x : box.x + x * box.w, user ? y : box.y + y * box.h); return toScreen(a, b); };
+    return { o, a: sc(q.x1, q.y1), b: sc(q.x2, q.y2), stops: o.fill.stops || [] };
+  }
+  function gradHandleAt(p) {
+    const h = gradHandles(); if (!h) return null;
+    if (Math.hypot(h.a.x - p.sx, h.a.y - p.sy) <= 7) return { o: h.o, end: 1 };
+    if (Math.hypot(h.b.x - p.sx, h.b.y - p.sy) <= 7) return { o: h.o, end: 2 };
+    return null;
+  }
+  /** The guide under the pointer (index), or −1. */
+  function guideAt(p) {
+    const gs = doc.guides || [];
+    for (let i = gs.length - 1; i >= 0; i--) { const q = toScreen(gs[i].at, gs[i].at); if (Math.abs((gs[i].axis === 'x' ? q.x - p.sx : q.y - p.sy)) <= 4) return i; }
+    return -1;
+  }
+  function addGuide(axis, at) { change('Add a guide', () => { doc.guides = [...(doc.guides || []), { axis, at }]; }); }
+  function guideDialog() {
+    NoorUI.modal({ label: 'Add a guide', width: 320 }, (s, closeIt) => {
+      const axis = el('select', { id: 'ink-guide-axis', 'aria-label': 'Direction' }, el('option', { value: 'x', text: 'up and down (at an X)' }), el('option', { value: 'y', text: 'across (at a Y)' }));
+      const at = el('input', { type: 'number', id: 'ink-guide-at', value: String(Math.round(doc.width / 2)), 'aria-label': 'Position' });
+      s.append(NoorUI.head('Add a guide', closeIt), el('div', { class: 'modal-body ink-dlg' }, el('label', {}, 'Direction ', axis), el('label', {}, 'At ', at), el('p', { class: 'pref-hint', text: 'Drag a guide to move it; drag it off the view to remove it.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'ink-guide-ok', onclick: () => { addGuide(axis.value, Number(at.value) || 0); closeIt(); } }, 'Add'))));
+    });
+  }
+  function guidesAroundSelection() {
+    const b = selBounds(); if (!b) return;
+    change('Guides around the selection', () => { doc.guides = [...(doc.guides || []), { axis: 'x', at: b.x }, { axis: 'x', at: b.x + b.w }, { axis: 'y', at: b.y }, { axis: 'y', at: b.y + b.h }]; });
+  }
   function allBounds() { let r = null; walk((o, p) => { if (p && p.kind === 'layer') { const b = boundsOf(o); if (b) r = r ? unite(r, b) : b; } }); return r; }
   function selectAll() {
     if (tool === 'direct' && selection.length) { points = []; for (const o of sel()) if (o.kind === 'path') o.path.forEach((sub, si) => sub.pts.forEach((_, i) => points.push({ id: o.id, sub: si, i }))); render(); return; }
@@ -1333,7 +1667,7 @@ window.NoorInk = (() => {
     if (!doc) { doc = blank(settings.width, settings.height); if (settings.background === 'none') doc.background = null; savedAt = 0; requestAnimationFrame(fit); }
     afterChange();
     $('#inkbench').focus({ preventScroll: true });
-    loadRecent();
+    loadRecent(); loadFonts();
     offerDraft();
   }
   async function close() {
@@ -1357,6 +1691,10 @@ window.NoorInk = (() => {
       go('Duplicate', duplicate, 'Ctrl+D', { disabled: none }), go('Delete', deleteSel, 'Del', { disabled: none }), '-',
       go('Clip (the top one clips the others)', () => makeClip('clip'), '', { disabled: () => selection.length < 2 }), go('Mask (the top one masks the others)', () => makeClip('mask'), '', { disabled: () => selection.length < 2 }),
       go('Release the clip or mask', releaseClip, '', { disabled: () => !sel().some((o) => o.kind === 'group' && o.clip) }), '-',
+      go('Text to outlines', textToPath, 'Ctrl+Shift+O', { disabled: () => !sel().some((o) => o.kind === 'text') }),
+      go('Put the text on the path', putOnPath, '', { disabled: () => !(sel().some((o) => o.kind === 'text') && sel().some((o) => o.kind === 'path')) }),
+      go('Take the text off the path', offPath, '', { disabled: () => !sel().some((o) => o.along) }),
+      go('Trace the picture…', () => traceDialog(sel().find((o) => o.kind === 'image')), '', { disabled: () => !sel().some((o) => o.kind === 'image') }), '-',
       go('Lock', () => setFlag('locked', true, 'Lock'), '', { disabled: none }), go('Unlock all', () => clearFlag('locked', false, 'Unlock all')),
       go('Hide', () => setFlag('visible', false, 'Hide'), '', { disabled: none }), go('Show all', () => clearFlag('visible', true, 'Show all')), '-',
       go('To the layer above', () => toLayer(1), 'Shift+PgUp', { disabled: none }), go('To the layer below', () => toLayer(-1), 'Shift+PgDn', { disabled: none }),
@@ -1369,7 +1707,7 @@ window.NoorInk = (() => {
       ['File', 'f', () => [
         go('New…', newDialog, 'Ctrl+N'), go('Open…', openFile, 'Ctrl+O'),
         { label: 'Open recent', sub: () => (recentFiles.length ? recentFiles.map((r) => go(r.name, () => openRecent(r.path), '', { title: r.path })) : [{ label: 'Nothing opened yet', disabled: true }]) },
-        go('Place a picture…', placePicture), '-',
+        go('Place a picture…', placePicture), go('Trace a picture…', () => traceDialog(null)), '-',
         go('Save', () => save(false), 'Ctrl+S'), go('Save as…', () => save(true), 'Ctrl+Shift+S'), go('Export (PNG or an SVG copy)…', exportDialog, 'Ctrl+Shift+E'), '-',
         go('To NoorPhoto (as pixels)', toPhoto), '-',
         { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorInk', close),
@@ -1384,7 +1722,8 @@ window.NoorInk = (() => {
       ['Path', 'p', () => [
         go('Unite', () => combine('union'), 'Ctrl++', { disabled: () => selection.length < 2 }), go('Subtract', () => combine('subtract'), 'Ctrl+-', { disabled: () => selection.length < 2 }),
         go('Intersect', () => combine('intersect'), 'Ctrl+*', { disabled: () => selection.length < 2 }), go('Exclude', () => combine('exclude'), 'Ctrl+^', { disabled: () => selection.length < 2 }), '-',
-        go('Reverse the direction', reversePaths, '', { disabled: none }), go('Simplify', simplify, 'Ctrl+L', { disabled: none }),
+        go('Reverse the direction', reversePaths, '', { disabled: none }), go('Simplify', simplify, 'Ctrl+L', { disabled: none }), '-',
+        go('Stroke to path', strokeToPath, '', { disabled: none }), go('Grow or shrink…', offsetDialog, '', { disabled: none }),
       ]],
       ['Document', 'd', () => [
         go('Page size and background…', pageDialog), go('New layer', newLayer), go('Delete the layer', deleteLayer), go('Rename the layer…', () => rename(currentLayer())),
@@ -1392,6 +1731,9 @@ window.NoorInk = (() => {
       ['View', 'v', () => [
         go('Zoom in', () => zoomStep(1), 'Ctrl+='), go('Zoom out', () => zoomStep(-1), 'Ctrl+-'), go('Fit the page', fit, 'Ctrl+0'), go('Actual size', () => zoomTo(1), 'Ctrl+1'), '-',
         go(opts.snapGrid ? 'Snap to the grid ✓' : 'Snap to the grid', () => { opts.snapGrid = !opts.snapGrid; renderOptions(); render(); }, "Ctrl+'"),
+        go(opts.smart ? 'Snap to objects and the page ✓' : 'Snap to objects and the page', () => { opts.smart = !opts.smart; renderOptions(); }, 'Ctrl+;'), '-',
+        go('Add a guide…', guideDialog), go('Guides around the selection', guidesAroundSelection, '', { disabled: () => !selection.length }),
+        go('Clear the guides', () => change('Clear the guides', () => { doc.guides = []; }), '', { disabled: () => !(doc.guides || []).length }),
       ]],
     ];
   }
@@ -1408,11 +1750,11 @@ window.NoorInk = (() => {
     if (ctrl && e.altKey) return;
     if (ctrl) {
       const map = e.shiftKey ? {
-        s: () => save(true), z: redo, g: ungroup, v: () => paste(true), e: exportDialog, ']': () => arrange(2), '}': () => arrange(2), '[': () => arrange(-2), '{': () => arrange(-2), '+': () => combine('union'), '*': () => combine('intersect'), '^': () => combine('exclude'), '&': () => combine('exclude'),
+        s: () => save(true), z: redo, g: ungroup, o: textToPath, v: () => paste(true), e: exportDialog, ']': () => arrange(2), '}': () => arrange(2), '[': () => arrange(-2), '{': () => arrange(-2), '+': () => combine('union'), '*': () => combine('intersect'), '^': () => combine('exclude'), '&': () => combine('exclude'),
       } : {
         n: newDialog, o: openFile, s: () => save(false), z: undo, y: redo, a: selectAll, c: () => copy(false), x: () => copy(true), v: () => paste(false), d: duplicate, g: group, l: simplify,
         0: fit, 1: () => zoomTo(1), '=': () => zoomStep(1), '-': () => (selection.length > 1 ? combine('subtract') : zoomStep(-1)), '+': () => (selection.length > 1 ? combine('union') : zoomStep(1)), ']': () => arrange(1), '[': () => arrange(-1),
-        '*': () => combine('intersect'), "'": () => { opts.snapGrid = !opts.snapGrid; renderOptions(); render(); },
+        '*': () => combine('intersect'), "'": () => { opts.snapGrid = !opts.snapGrid; renderOptions(); render(); }, ';': () => { opts.smart = !opts.smart; renderOptions(); notice(opts.smart ? 'Snapping to objects' : 'Not snapping to objects', 900); },
       };
       const f = map[k];
       if (f) { handled(); f(); }

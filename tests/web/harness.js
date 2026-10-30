@@ -578,8 +578,11 @@ function mockHostScript(initial) {
       case 'ink.openRecent': INK.openedRecent = p.path; return { svg: INK_SVG, path: p.path, name: 'logo.svg', notes: [] };
       case 'ink.save': INK.saves.push({ svg: p.svg, path: p.path, name: p.name }); { const path = p.path || 'C:\\Art\\new.svg'; return { path, name: path.split('\\').pop() }; }
       case 'ink.export': INK.exports.push({ format: p.format, name: p.name, head: p.data.slice(0, 12), bytes: p.data.length }); return { path: `C:\\Art\\${p.name}.${p.format}`, name: `${p.name}.${p.format}` };
-      case 'ink.place': return { data: PH_G, mime: 'image/png', name: 'leaf', width: 4, height: 4 };
+      case 'ink.place': return INK.placeData ? { data: INK.placeData, mime: 'image/png', name: 'disc', width: 40, height: 30 } : { data: PH_G, mime: 'image/png', name: 'leaf', width: 4, height: 4 };
       case 'ink.toPhoto': return { path: 'C:\\Local\\Ink\\ToPhoto\\d.png', name: 'd.png' };
+      case 'ink.fonts': return { fonts: ['Arial', 'Georgia', 'Segoe UI', 'Noor Test Sans'] };
+      // Letters as boxes: each character a 0.5em × 0.7em box standing on the baseline.
+      case 'ink.textOutline': INK.outlines = (INK.outlines || 0) + 1; return { d: [...String(p.text)].map((ch, i) => (ch === ' ' ? '' : `M${i * p.size * 0.6} 0L${i * p.size * 0.6 + p.size * 0.5} 0L${i * p.size * 0.6 + p.size * 0.5} ${-p.size * 0.7}L${i * p.size * 0.6} ${-p.size * 0.7}Z`)).join('') };
       case 'ink.draft.save': INK.drafts = (INK.drafts || 0) + 1; return { ok: true };
       case 'ink.draft.load': return INK.offerDraft ? { svg: INK_SVG, name: 'lost', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
       case 'ink.draft.clear': INK.clears = (INK.clears || 0) + 1; return { ok: true };

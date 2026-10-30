@@ -5,6 +5,9 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorInk, stage 2 (preview.124): smart snapping and guides, the gradient tool (handles on the picture, colour
+  stops), swatches, live effects (blur, drop shadow), text on a path, text to outlines and the system's fonts, stroke
+  to path, grow and shrink, and tracing a picture into paths. See [NOORINK_PLAN.md](NOORINK_PLAN.md).
 - NoorInk (preview.123): a vector editor (Ctrl+Alt+U, or Tools). Pictures are plain SVG: it opens SVG files from
   other programs (Inkscape layers, class and style-sheet styles, gradients, text, pictures, clip paths and masks; the
   app takes out scripts, embedded pages and links to other files first) and saves SVG they open. Tools: select

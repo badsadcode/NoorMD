@@ -35,11 +35,22 @@ from any of them.
 - Files: SVG open / save / recent, a draft kept while unsaved, export PNG (any size, see-through or not) or an SVG
   copy, place a picture, copy and paste (as SVG text too, to and from other programs), to NoorPhoto as pixels.
 
-## Stage 2 ideas
+## Stage 2 (preview.124)
 
-- Text on a path, text to outlines, fonts list from the system.
-- Gradient handles on the canvas; mesh-like gradients; patterns.
-- Stroke to path, offset (grow / shrink) a path, the shape builder (click regions to keep).
-- Symbols (reused objects), a swatches panel, guides and smart snapping (to other objects' edges and middles).
-- Artboards (several pages), PDF export.
-- Trace a picture (pixels to paths), live effects (blur, drop shadow as SVG filters).
+- Smart snapping: what is moved, scaled or drawn lines up with other objects' edges and middles, the page and
+  guides (pink lines show what it snapped to; hold Ctrl not to snap). Guides: View › Add a guide, guides around the
+  selection; drag one to move it, off the view to remove it; saved in the SVG.
+- The gradient tool (G): drag across an object to lay its gradient, drag the ends to move them; colour stops added,
+  moved and removed in the panel; reverse. Gradients from other programs keep their ends (box or page units).
+- Swatches: click for the fill, Shift+click for the stroke, ＋ keeps a colour.
+- Live effects: a blur and a drop shadow (SVG filters, read back from files too).
+- Text on a path (SVG textPath, with where it starts); text to outlines (the app gives the letters' shapes from the
+  font, Ctrl+Shift+O); the system's fonts in the font list.
+- Stroke to path (an outline becomes a shape); grow or shrink a shape by a distance.
+- Trace a picture (File, or Object for a placed one): its colours (or black and white) become filled paths.
+
+## Stage 3 ideas
+
+- PDF export, several pages (artboards).
+- The shape builder (click regions to keep), symbols (reused objects), patterns, mesh gradients.
+- More live effects (glow, noise), and filters from other programs kept as they are.

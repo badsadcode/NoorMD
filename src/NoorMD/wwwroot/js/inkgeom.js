@@ -849,9 +849,156 @@
     return [{ closed: false, pts }];
   }
 
+  // ---- Stroking and offsetting ----
+  // The stroke of a polyline is the union of one quad per segment, a join piece on the outer side of every vertex and a
+  // cap at each open end, exactly what a browser fills. All pieces get a positive area and one nonzero boolean union
+  // resolves every overlap (short segments, cusps, 180 degree turns, a path crossing itself). Curves are flattened first;
+  // the vertices that flattening adds inside a curve get round joins, so the outline follows the true offset curve. Round
+  // parts come back as short straight segments whose chord error is at most `tolerance` (default min(0.05, width / 40)).
+  function strokeRings(path, width, opts) {
+    const o = opts || {}, h = Math.abs(+width || 0) / 2;
+    if (!(h > 0) || !isFinite(h)) return [];
+    const cap = o.cap === 'round' || o.cap === 'square' ? o.cap : 'butt';
+    const join = o.join === 'round' || o.join === 'bevel' ? o.join : 'miter';
+    const limit = Math.max(1, +o.miterLimit || 4);
+    const tol = o.tolerance > 0 ? Math.min(+o.tolerance, h / 4) : Math.min(0.05, h / 20);
+    const astep = 2 * Math.acos(1 - tol / h), eps = 1e-7 * Math.max(1, h);
+    const pieces = [];
+    const push = (r) => { const a = area(r); if (a < 0) r.reverse(); if (a) pieces.push(r); };
+    // Points on the circle of radius h around (cx, cy) from angle a0 turning by delta, without the start point.
+    const arc = (cx, cy, a0, delta, out) => {
+      const n = Math.max(1, Math.ceil(Math.abs(delta) / astep - 1e-9));
+      for (let k = 1; k <= n; k++) { const a = a0 + (delta * k) / n; out.push([cx + h * Math.cos(a), cy + h * Math.sin(a)]); }
+      return out;
+    };
+    // Join at (px, py) between unit directions d1 (in) and d2 (out). The outer side is the one the path turns away from;
+    // a full reversal turns through the forward direction d1.
+    function joinPiece(px, py, d1x, d1y, d2x, d2y, kind) {
+      const cr = d1x * d2y - d1y * d2x, dt = d1x * d2x + d1y * d2y;
+      if (cr === 0 && dt > 0) return;
+      const sg = cr < 0 ? -1 : 1, n1x = sg * d1y, n1y = -sg * d1x, n2x = sg * d2y, n2y = -sg * d2x;
+      const delta = cr === 0 ? Math.PI : Math.atan2(cr, dt);
+      const a = [px + h * n1x, py + h * n1y], b = [px + h * n2x, py + h * n2y];
+      if (kind === 'round') { push(arc(px, py, Math.atan2(n1y, n1x), delta, [[px, py], a])); return; }
+      if (kind === 'miter' && 1 + dt > 1e-12 && 2 / (1 + dt) <= limit * limit) {
+        const k = h / (1 + dt);
+        push([[px, py], a, [px + k * (n1x + n2x), py + k * (n1y + n2y)], b]);
+        return;
+      }
+      push([[px, py], a, b]);
+    }
+    // Cap at an open end (px, py) where the path leaves in unit direction (dx, dy).
+    function capPiece(px, py, dx, dy) {
+      const nx = dy * h, ny = -dx * h;
+      if (cap === 'square') push([[px + nx, py + ny], [px + nx + dx * h, py + ny + dy * h], [px - nx + dx * h, py - ny + dy * h], [px - nx, py - ny]]);
+      else if (cap === 'round') push(arc(px, py, Math.atan2(ny, nx), Math.PI, [[px + nx, py + ny]]));
+    }
+    for (const s of path || []) {
+      if (!s || !s.pts || !s.pts.length) continue;
+      // Flatten segment by segment so we know which vertices are real anchors; drop repeated points.
+      const P = [], A = [];
+      const add = (x, y, isAnchor) => {
+        const l = P[P.length - 1];
+        if (l && Math.abs(x - l[0]) <= eps && Math.abs(y - l[1]) <= eps) { if (isAnchor) A[A.length - 1] = 1; return; }
+        P.push([x, y]); A.push(isAnchor ? 1 : 0);
+      };
+      add(s.pts[0].x, s.pts[0].y, 1);
+      for (let i = 0, n = segCount(s); i < n; i++) {
+        const c = segOf(s, i);
+        if (isLine(c)) { add(c[6], c[7], 1); continue; }
+        const tmp = [];
+        flattenCubic(c, tol, tmp, 0);
+        for (let k = 0; k < tmp.length; k++) add(tmp[k][0], tmp[k][1], k === tmp.length - 1);
+      }
+      const closed = !!s.closed;
+      if (closed && P.length > 1) {
+        const l = P[P.length - 1];
+        if (Math.abs(l[0] - P[0][0]) <= eps && Math.abs(l[1] - P[0][1]) <= eps) { P.pop(); A[0] = 1; A.pop(); }
+      }
+      const n = P.length;
+      if (n === 1) { // a zero-length subpath: a dot for round caps, an axis-aligned square for square caps
+        const [px, py] = P[0];
+        if (cap === 'round') push(arc(px, py, 0, 2 * Math.PI, []));
+        else if (cap === 'square') push([[px - h, py - h], [px + h, py - h], [px + h, py + h], [px - h, py + h]]);
+        continue;
+      }
+      const m = closed ? n : n - 1, DX = new Float64Array(m), DY = new Float64Array(m);
+      for (let i = 0; i < m; i++) {
+        const a = P[i], b = P[(i + 1) % n], l = Math.hypot(b[0] - a[0], b[1] - a[1]);
+        DX[i] = (b[0] - a[0]) / l; DY[i] = (b[1] - a[1]) / l;
+        const nx = DY[i] * h, ny = -DX[i] * h;
+        push([[a[0] + nx, a[1] + ny], [b[0] + nx, b[1] + ny], [b[0] - nx, b[1] - ny], [a[0] - nx, a[1] - ny]]);
+      }
+      for (let i = closed ? 0 : 1; i < (closed ? n : n - 1); i++) {
+        const j = (i + m - 1) % m;
+        joinPiece(P[i][0], P[i][1], DX[j], DY[j], DX[i], DY[i], A[i] ? join : 'round');
+      }
+      if (!closed) {
+        capPiece(P[0][0], P[0][1], -DX[0], -DY[0]);
+        capPiece(P[n - 1][0], P[n - 1][1], DX[m - 1], DY[m - 1]);
+      }
+    }
+    if (!pieces.length) return [];
+    // Exact union, then drop the near-collinear vertices the many small pieces leave along curved runs.
+    return simplifyRings(booleanRings('union', pieces, [], 'nonzero'), tol / 2).filter((r) => Math.abs(area(r)) > 1e-12);
+  }
+  function strokeToPath(path, width, opts) {
+    return ringsToPath(strokeRings(path, width, opts));
+  }
+
+  // Grow (d > 0) or shrink (d < 0) the filled shape by |d|; open subpaths count as closed. `opts` may carry miterLimit
+  // and tolerance as for strokeToPath.
+  function offset(path, d, join = 'round', opts) {
+    const closedPath = (path || []).filter((s) => s && s.pts && s.pts.length).map((s) => ({ closed: true, pts: s.pts }));
+    const fill = flatten(closedPath, 0.05);
+    d = +d || 0;
+    if (!d) return ringsToPath(booleanRings('union', fill, [], 'nonzero'));
+    const band = strokeRings(closedPath, 2 * Math.abs(d), Object.assign({}, opts, { join, cap: 'butt' }));
+    return ringsToPath(booleanRings(d > 0 ? 'union' : 'subtract', fill, band, 'nonzero'));
+  }
+
+  // Round the sharp corners between two straight segments with circular arcs of the given radius (shrunk where the
+  // segments are too short to fit it: each arc uses at most half of each neighbouring segment). Corners next to a curve
+  // segment and smooth anchors are left alone.
+  function roundCorners(path, radius) {
+    const r0 = Math.max(0, +radius || 0);
+    if (!r0) return clone(path);
+    return (path || []).map((s) => {
+      const n = s.pts.length, out = [];
+      for (let i = 0; i < n; i++) {
+        const p = s.pts[i], hasPrev = s.closed || i > 0, hasNext = s.closed || i < n - 1;
+        const prev = s.pts[(i + n - 1) % n], next = s.pts[(i + 1) % n];
+        const straightIn = hasPrev && isLine([prev.x, prev.y, prev.ox, prev.oy, p.ix, p.iy, p.x, p.y]);
+        const straightOut = hasNext && isLine([p.x, p.y, p.ox, p.oy, next.ix, next.iy, next.x, next.y]);
+        const l1 = straightIn ? Math.hypot(p.x - prev.x, p.y - prev.y) : 0, l2 = straightOut ? Math.hypot(next.x - p.x, next.y - p.y) : 0;
+        if (!l1 || !l2) { out.push(clonePt(p)); continue; }
+        const ux = (p.x - prev.x) / l1, uy = (p.y - prev.y) / l1, vx = (next.x - p.x) / l2, vy = (next.y - p.y) / l2;
+        const turn = Math.abs(Math.atan2(ux * vy - uy * vx, ux * vx + uy * vy));
+        if (turn < 1e-6 || turn > Math.PI - 1e-6) { out.push(clonePt(p)); continue; }
+        // Tangent length r tan(turn / 2), limited to half of each neighbour.
+        const tl = Math.min(r0 * Math.tan(turn / 2), l1 / 2, l2 / 2), r = tl / Math.tan(turn / 2), k = (4 / 3) * Math.tan(turn / 4) * r;
+        const ax = p.x - ux * tl, ay = p.y - uy * tl, bx = p.x + vx * tl, by = p.y + vy * tl;
+        out.push({ x: ax, y: ay, ix: ax, iy: ay, ox: ax + ux * k, oy: ay + uy * k });
+        out.push({ x: bx, y: by, ix: bx - vx * k, iy: by - vy * k, ox: bx, oy: by });
+      }
+      // Arcs that meet where a neighbour was used up completely leave two anchors on one spot: merge them.
+      const merged = [];
+      for (const q of out) {
+        const l = merged[merged.length - 1];
+        if (l && Math.abs(l.x - q.x) < 1e-9 && Math.abs(l.y - q.y) < 1e-9) { l.ox = q.ox; l.oy = q.oy; } else merged.push(q);
+      }
+      if (s.closed && merged.length > 1) {
+        const f = merged[0], l = merged[merged.length - 1];
+        if (Math.abs(l.x - f.x) < 1e-9 && Math.abs(l.y - f.y) < 1e-9) { f.ix = l.ix; f.iy = l.iy; merged.pop(); }
+      }
+      return { closed: !!s.closed, pts: merged };
+    });
+  }
+
   return {
     KAPPA, parse, serialize, transform, multiply, invert, apply, bounds, flatten, contains, distance, nearest, split, boolean, booleanRings,
     simplifyRings, rdp, fit, smoothCorner, cornerize, rect, ellipse, polygon, star, line, spiral, reverse, area, length, clone,
+    strokeToPath, offset, roundCorners,
   };
 })();
 
