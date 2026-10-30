@@ -1182,7 +1182,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Filter by name, accent-insensitive.
       await page.fill('#vault-filter', 'zolw');
-      for (let k = 0; k < 40 && (await rows()).join() !== 'Notes/Żółw.md'; k++) await page.waitForTimeout(50); // the list is filtered as it redraws
+      for (let k = 0; k < 100 && (await rows()).join() !== 'Notes/Żółw.md'; k++) await page.waitForTimeout(50); // the list is filtered as it redraws
       check('the name filter ignores accents (zolw → Żółw)', (await rows()).join() === 'Notes/Żółw.md', await rows());
       await page.fill('#vault-filter', '');
 
@@ -8800,6 +8800,83 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const ok = await page.evaluate(() => { const box = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const h = [...box.querySelectorAll('h2')].find((x) => x.textContent.includes('Spawn points')); const a = h.getBoundingClientRect(), b = box.getBoundingClientRect(); return a.top >= b.top && a.bottom <= b.bottom; });
       check('…and clicking one jumps to it in Visual mode', ok);
       check('no page errors with the document map after switching', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 70. Gallery viewer: tall and square pictures fit the window at first (not only wide ones), and a zoomed
+    // picture pans to its edges (no further).
+    {
+      const { page, errors } = await open(browser, url, { gallery: 3, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1400, height: 800 });
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('.gallery-tile[data-index="0"]');
+      await page.waitForSelector('#gallery-viewer:not([hidden])');
+      const rects = () => page.evaluate(() => { const a = document.querySelector('#gv-img').getBoundingClientRect(), b = document.querySelector('#gv-stage').getBoundingClientRect(); return { top: a.top - b.top, bottom: a.bottom - b.bottom, left: a.left - b.left, right: a.right - b.right, h: a.height, sh: b.height }; });
+      const show = (w, h) => page.evaluate(([w, h]) => new Promise((res) => { const c = document.createElement('canvas'); c.width = w; c.height = h; const x = c.getContext('2d'); x.fillStyle = '#c33'; x.fillRect(0, 0, w, h); const i = document.querySelector('#gv-img'); i.onload = res; i.src = c.toDataURL(); }), [w, h]);
+      await show(800, 4000);
+      let r = await rects();
+      check('a tall picture fits the window at first', r.top >= -1 && r.bottom <= 1 && r.h <= r.sh + 1, r);
+      await show(3000, 3000);
+      r = await rects();
+      check('…a big square one too', r.top >= -1 && r.bottom <= 1, r);
+      await show(800, 4000);
+      // Zoom in and drag up as far as it goes: the bottom edge stops at the window's bottom.
+      for (let i = 0; i < 6; i++) await page.keyboard.press('+');
+      const st = await page.evaluate(() => { const b = document.querySelector('#gv-stage').getBoundingClientRect(); return { x: b.left + b.width / 2, y: b.top + b.height / 2 }; });
+      await page.mouse.move(st.x, st.y); await page.mouse.down(); await page.mouse.move(st.x, st.y - 5000, { steps: 10 }); await page.mouse.up();
+      await page.waitForTimeout(150);
+      r = await rects();
+      check('a zoomed picture pans, and stops at its bottom edge', Math.abs(r.bottom) <= 2 && r.top < -100, r);
+      await page.mouse.move(st.x, st.y); await page.mouse.down(); await page.mouse.move(st.x, st.y + 9000, { steps: 10 }); await page.mouse.up();
+      await page.waitForTimeout(150);
+      r = await rects();
+      check('…and at its top edge', Math.abs(r.top) <= 2, r);
+      check('no page errors in the gallery viewer', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 70b. Gallery albums: grouped by library folder (albums on different drives never look nested in each other),
+    // each a folder tree that opens and closes, folders with one folder inside share a row, the open album's folders open.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.evaluate(() => {
+        // Library 1 (C:\Pics): Lato and ArchiveB. Library 2 (F:\Codex\GameTextures_PBR): deep texture albums.
+        const G = window.__mock.state.gallery;
+        G.folders.push({ id: 2, path: 'F:\\Codex\\GameTextures_PBR', count: 0 });
+        const deep = ['assets/textures/materials/minerals/granite/rock_granite_dark_01', 'assets/textures/materials/minerals/granite/rock_granite_light_01', 'assets/textures/materials/minerals/slate/rock_slate_01'];
+        G.images.forEach((im, i) => {
+          if (i % 3 === 1) { im.album = 'ArchiveB'; im.albumKey = 'c:\\pics\\archiveb'; im.folder = 'C:\\Pics\\ArchiveB'; }
+          if (i % 3 === 2) { const a = deep[i % 3 === 2 ? (i % 9 === 2 ? 0 : i % 9 === 5 ? 1 : 2) : 0]; im.album = a; im.albumKey = 'f:\\codex\\gametextures_pbr\\' + a.replace(/\//g, '\\'); im.folder = 'F:\\Codex\\GameTextures_PBR\\' + a.replace(/\//g, '\\'); }
+        });
+      });
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('#gallery-dock');
+      await page.click('.menu-popup .menu-item:has-text("In the middle")');
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide') && !!document.querySelector('#gallery-nav .gnav-item[data-source^="library:"]'));
+      const rows = () => page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="folder:"], #gallery-nav .gnav-item[data-source^="library:"]', (b) => b.map((x) => x.querySelector('.gnav-label').textContent));
+      let r = await rows();
+      check('albums are grouped by library folder (closed at first)', r.join('|') === 'GameTextures_PBR|Pics', r);
+      await page.click('#gallery-nav .gnav-item[data-source="library:C:\\\\Pics"]');
+      r = await rows();
+      check('…a library opens to its albums (ArchiveB holds only its own pictures)', r.join('|') === 'GameTextures_PBR|Pics|ArchiveB|Lato', r);
+      await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]');
+      r = await rows();
+      check('…the other library\'s deep folders share one row ("assets › textures › materials › minerals"), not stair-steps', r.includes('assets › textures › materials › minerals'), r);
+      await page.click('#gallery-nav .gnav-item[data-source$="|assets/textures/materials/minerals"]');
+      r = await rows();
+      check('…and open to their albums', r.includes('granite') && r.includes('slate › rock_slate_01'), r);
+      const pads = await page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="folder:"]', (b) => b.map((x) => parseFloat(x.style.paddingLeft) || 10));
+      check('…each level is indented one small step', Math.max(...pads) <= 10 + 4 * 12, pads);
+      await page.click('#gallery-nav .gnav-item[data-source$="|assets/textures/materials/minerals/granite"]');
+      await page.click('#gallery-nav .gnav-item:has-text("rock_granite_dark_01")');
+      await waitFn(page, () => NoorGallery._state().source.includes('rock_granite_dark_01'));
+      check('choosing an album shows its pictures', (await page.evaluate(() => NoorGallery._state().items.length)) > 0);
+      await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]');
+      r = await rows();
+      check('closing a library hides its albums (even the open one)', !r.some((x) => /granite/.test(x)), r);
+      if (shots) { await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]'); await page.screenshot({ path: `${shots}/70b-gallery-albums-tree.png`, clip: { x: 280, y: 250, width: 480, height: 500 } }); }
+      check('no page errors with the albums tree', errors.length === 0, errors);
       await page.close();
     }
 

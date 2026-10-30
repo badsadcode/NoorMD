@@ -762,8 +762,10 @@ window.NoorGallery = (() => {
     const nav = $('#gallery-nav');
     if (!nav || !isWide()) { if (nav) nav.replaceChildren(); return; }
     const item = (source, label, count, extra = {}) => {
-      const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + extra.depth * 14}px` : null,
-        onclick: () => { view.source = source; sel.clear(); saveSession(); load(); } },
+      const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : '') + (extra.group ? ' gnav-group' : '') + (extra.library ? ' gnav-library' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + Math.min(extra.depth, 5) * 12}px` : null,
+        onclick: () => { if (extra.group) { toggleFolder(extra.path); return; } view.source = source; sel.clear(); saveSession(); load(); } },
+      extra.path && extra.hasKids ? el('span', { class: 'gnav-twisty', role: 'button', 'aria-label': navOpen.has(extra.path) ? 'Close' : 'Open', 'aria-expanded': String(navOpen.has(extra.path)), text: navOpen.has(extra.path) ? '▾' : '▸', onclick: (e) => { e.stopPropagation(); toggleFolder(extra.path); } })
+        : extra.path ? el('span', { class: 'gnav-twisty', 'aria-hidden': 'true' }) : null,
       el('span', { class: 'gnav-label', text: label }), count != null ? el('small', { text: String(count) }) : null);
       if (extra.album) {
         b.addEventListener('contextmenu', (e) => { e.preventDefault(); albumMenu(extra.album, e.clientX, e.clientY); });
@@ -778,14 +780,61 @@ window.NoorGallery = (() => {
       return b;
     };
     const albums = [...status.albums].sort((a, b) => a.name.localeCompare(b.name));
+    // Albums as a folder tree: a folder with albums inside opens and closes (▸ / ▾); a folder with no pictures of its
+    // own and only one folder inside shares its row with it ("Textures › Rocks"), so deep folders don't stair-step.
+    // Albums belong to the library folder they are in (the longest one their folder starts with): with several
+    // library folders, each is its own group, so albums from different drives never look nested in each other.
+    const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
+    const roots = [...(status.folders || [])].map((f) => f.path).sort((a, b) => b.length - a.length);
+    const rootOf = (a) => roots.find((r) => { const f = norm(a.folder), n = norm(r); return f === n || f.startsWith(n + '\\') || f.startsWith(n + '/'); }) || '';
+    const groups = new Map();
+    for (const a of albums) {
+      const r = rootOf(a);
+      if (!groups.has(r)) groups.set(r, { kids: new Map() });
+      let n = groups.get(r), path = r ? `${r}|` : '';
+      for (const part of a.name.split('/')) { path = path.endsWith('|') || !path ? `${path}${part}` : `${path}/${part}`; if (!n.kids.has(part)) n.kids.set(part, { name: part, path, kids: new Map(), album: null }); n = n.kids.get(part); }
+      n.album = a;
+    }
+    const active = view.source.startsWith('album:') ? albums.find((a) => 'album:' + a.key === view.source) : null;
+    if (active && navShown !== view.source) {
+      const r = rootOf(active), parts = active.name.split('/'), pre = r ? `${r}|` : '';
+      if (r) navOpen.add('root:' + r);
+      for (let i = 1; i < parts.length; i++) navOpen.add(pre + parts.slice(0, i).join('/'));
+    }
+    navShown = view.source;
+    const leaf = (p) => String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+    const total = (n) => (n.album ? n.album.count : 0) + [...n.kids.values()].reduce((t, k) => t + total(k), 0);
+    const treeRows = (node, depth) => [...node.kids.values()].sort((a, b) => a.name.localeCompare(b.name)).flatMap((k) => {
+      let n = k, label = k.name;
+      while (!n.album && n.kids.size === 1) { n = [...n.kids.values()][0]; label += ' › ' + n.name; }
+      const hasKids = n.kids.size > 0, open = navOpen.has(n.path);
+      const row = n.album
+        ? item('album:' + n.album.key, label, hasKids && !open ? total(n) : n.album.count, { depth, folder: n.album.folder, title: n.album.name + ' (right-click to rename)', album: n.album, path: n.path, hasKids })
+        : item('folder:' + n.path, label, total(n), { depth, title: n.path, path: n.path, hasKids, group: true });
+      return [row, ...(hasKids && open ? treeRows(n, depth + 1) : [])];
+    });
     nav.replaceChildren(
       item('all', 'All pictures', status.count),
       item('fav', '★ Favourites', null),
       el('div', { class: 'gnav-head' }, el('span', { text: 'Albums' }), el('button', { class: 'icon-btn', id: 'gallery-new-album', title: 'New album (a folder)', 'aria-label': 'New album', onclick: () => newAlbum(null) }, '＋')),
-      ...albums.map((a) => item('album:' + a.key, a.name.split('/').pop(), a.count, { depth: a.name.split('/').length - 1, folder: a.folder, title: a.name + ' (right-click to rename)', album: a })),
+      ...(groups.size > 1
+        ? [...groups.entries()].sort((a, b) => leaf(a[0]).localeCompare(leaf(b[0]))).flatMap(([r, tree]) => {
+          const key = 'root:' + r, open = navOpen.has(key), count = [...tree.kids.values()].reduce((t, k) => t + total(k), 0);
+          return [item('library:' + r, r ? leaf(r) : 'Other', count, { title: r || 'Albums outside the library folders', path: key, hasKids: true, group: true, library: true }), ...(open ? treeRows(tree, 1) : [])];
+        })
+        : [...groups.values()].flatMap((tree) => treeRows(tree, 0))),
       ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []),
       ...((status.tags || []).length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Tags' })), ...status.tags.map((t) => item('tag:' + t.tag, '# ' + t.tag, t.count))] : []),
       ...dateNav(item));
+  }
+
+  // Which album folders are open in the list (kept between sessions on this computer).
+  let navShown = null; // the source the list last opened folders for
+  const navOpen = new Set((() => { try { return JSON.parse(localStorage.getItem('noormd.gallery.navOpen') || '[]'); } catch { return []; } })());
+  function toggleFolder(path) {
+    if (navOpen.has(path)) navOpen.delete(path); else navOpen.add(path);
+    try { localStorage.setItem('noormd.gallery.navOpen', JSON.stringify([...navOpen].slice(-500))); } catch { /* fine */ }
+    renderNav();
   }
 
   /** Years, and the months of the open year (or of the year a month is chosen in). */
@@ -1039,7 +1088,12 @@ window.NoorGallery = (() => {
   }
 
   function applyZoom() {
-    const img = $('#gv-img');
+    const img = $('#gv-img'), stage = $('#gv-stage');
+    // Panning stops at the picture's edges: it can be moved only as far as it is bigger than the window.
+    if (viewer.zoom > 1 && img.clientWidth && stage) {
+      const mx = Math.max(0, (img.clientWidth * viewer.zoom - stage.clientWidth) / 2), my = Math.max(0, (img.clientHeight * viewer.zoom - stage.clientHeight) / 2);
+      viewer.x = Math.max(-mx, Math.min(mx, viewer.x)); viewer.y = Math.max(-my, Math.min(my, viewer.y));
+    }
     img.style.transform = viewer.zoom === 1 ? '' : `translate(${viewer.x}px, ${viewer.y}px) scale(${viewer.zoom})`;
     $('#gv-stage').classList.toggle('zoomed', viewer.zoom > 1);
   }
