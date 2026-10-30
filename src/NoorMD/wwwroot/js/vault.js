@@ -819,7 +819,7 @@ window.NoorVault = (() => {
             el('p', {}, el('strong', { text: '✓ Package created' })),
             el('p', { class: 'pack-path', text: r.path }),
             el('p', { text: `${r.entries.toLocaleString()} files · ${fmtSize(r.bytes)} before compression.` }),
-            r.failures.length ? el('div', { class: 'pack-warn' }, el('p', { text: `${r.failures.length} file${r.failures.length === 1 ? ' was' : 's were'} skipped:` }),
+            r.failures.length ? el('div', { class: 'pack-warn' }, el('p', { text: `Skipped (${r.failures.length}):` }),
               el('ul', {}, ...r.failures.slice(0, 50).map((f) => el('li', { text: `${f.entry} — ${f.problem}` })))) : null));
           foot.replaceChildren(el('span', { text: 'Nothing was uploaded. Share the ZIP yourself.' }), el('div', { class: 'modal-buttons' },
             el('button', { class: 'action', onclick: () => req('vault.pack.reveal').catch(fail) }, 'Show in folder'),

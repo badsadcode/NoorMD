@@ -18,13 +18,17 @@ window.NoorI18n = (() => {
 
   /** A key with {0}, {1} … as a pattern; the translation may put them in another order. */
   function compile(key, out) {
-    const parts = key.split(/\{(\d)\}/);
+    // {0}, {1} … a value; {|s} (or {y|ies}) an English plural ending, which a translation writes its own way.
+    const parts = key.split(/\{(\d|[a-z]*\|[a-z]*)\}/);
     if (parts.length < 2) return null;
-    let src = '^', order = [];
+    let src = '^';
+    const order = [];
     for (let i = 0; i < parts.length; i++) {
-      if (i % 2) { src += '([\\s\\S]+?)'; order.push(Number(parts[i])); } else src += parts[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (i % 2 === 0) src += parts[i].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      else if (/^\d$/.test(parts[i])) { src += '([\\s\\S]+?)'; order.push(Number(parts[i])); }
+      else src += `(?:${parts[i]})`;
     }
-    return { re: new RegExp(src + '$'), order, out };
+    return { re: new RegExp(src + '$'), order, out: out.replace(/\{[a-z]*\|[a-z]*\}/g, '') };
   }
 
   /** The translation of an English text (itself when there is none): for code that builds text itself. */

@@ -72,3 +72,33 @@ public class TranslationsTests : IDisposable
         Tr.Use([]);
     }
 }
+
+/// <summary>The built-in languages (wwwroot/lang): sound files, each line with the values its English has.</summary>
+public class BuiltInLanguagesTests
+{
+    private static string LangDir()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !Directory.Exists(Path.Combine(dir, "src", "NoorMD", "wwwroot", "lang"))) dir = Path.GetDirectoryName(dir);
+        return Path.Combine(dir ?? throw new DirectoryNotFoundException("The repository wasn't found above the tests."), "src", "NoorMD", "wwwroot", "lang");
+    }
+
+    [Theory]
+    [InlineData("pl")]
+    [InlineData("de")]
+    [InlineData("fr")]
+    [InlineData("es")]
+    public void Each_line_keeps_the_values_of_its_english_and_writes_plurals_its_own_way(string code)
+    {
+        var dir = LangDir();
+        var keys = Translations.Keys(dir);
+        var lines = Translations.Read(Path.Combine(dir, code + ".json"));
+        Assert.True(lines.ContainsKey("_language"));
+        var values = new System.Text.RegularExpressions.Regex(@"\{\d\}");
+        var bad = lines.Where(l => !l.Key.StartsWith('_')).Where(l =>
+            !values.Matches(l.Key).Select(m => m.Value).ToHashSet().SetEquals(values.Matches(l.Value).Select(m => m.Value)) || l.Value.Contains("{|") || l.Value.Contains("|ies}")).Select(l => l.Key).ToList();
+        Assert.Empty(bad);
+        // Nearly every text is translated (a few may wait for the next update of the list).
+        Assert.True(keys.Count(lines.ContainsKey) >= keys.Count * 0.95, $"{code}: {keys.Count(lines.ContainsKey)} of {keys.Count}");
+    }
+}
