@@ -281,7 +281,7 @@ public partial class MainWindow
                 }
                 case "gallery.addFolder":
                 {
-                    var dlg = new OpenFolderDialog { Title = "Add a picture folder (subfolders become albums)", Multiselect = false };
+                    var dlg = new OpenFolderDialog { Title = Tr.T("Add a picture folder (subfolders become albums)"), Multiselect = false };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var id = Gallery.AddFolder(dlg.FolderName);
@@ -408,7 +408,7 @@ public partial class MainWindow
                 {
                     var imgs = Ids(p, "ids").Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
                     if (imgs.Count == 0) throw new BridgeError("Choose some pictures to pack.");
-                    var dlg = new SaveFileDialog { Title = $"Pack {imgs.Count} picture(s) into a ZIP", Filter = "ZIP archive (*.zip)|*.zip", FileName = (req.GetString("name", 120) is { Length: > 0 } n ? n : "Pictures") + ".zip", OverwritePrompt = true, AddExtension = true, DefaultExt = ".zip" };
+                    var dlg = new SaveFileDialog { Title = $"Pack {imgs.Count} picture(s) into a ZIP", Filter = Tr.T("ZIP archive (*.zip)|*.zip"), FileName = (req.GetString("name", 120) is { Length: > 0 } n ? n : "Pictures") + ".zip", OverwritePrompt = true, AddExtension = true, DefaultExt = ".zip" };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var count = await Task.Run(() => GalleryZip.Create(imgs.Select(i => i.Path).ToList(), dlg.FileName));
@@ -417,7 +417,7 @@ public partial class MainWindow
                 case "gallery.editors": return Editors().Select(e => new { name = e.Name, detected = e.Detected });
                 case "gallery.editor.add":
                 {
-                    var dlg = new OpenFileDialog { Title = "Choose your picture editor (for example Affinity Photo or Photoshop)", Filter = "Programs (*.exe)|*.exe", InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), DereferenceLinks = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose your picture editor (for example Affinity Photo or Photoshop)"), Filter = Tr.T("Programs (*.exe)|*.exe"), InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), DereferenceLinks = true };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var list = Editors();

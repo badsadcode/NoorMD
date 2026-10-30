@@ -5,6 +5,10 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Languages (preview.118): Polish, German, French and Spanish (drafts) beside English, chosen in Preferences; the
+  page changes at once, the app's dialogs at the next start; your own translations (or corrections) in
+  Documents\NoorMD\Translations, from a file Preferences makes with every text. Not yet translated: NoorSketch's
+  window and the stream and video pop-out windows.
 - One family of names (preview.116): Asset Bench is NoorForm, Texture Bench NoorMaterial, Sound Bench NoorSound,
   Music Bench NoorMusic, Video Bench NoorVideo, Gallery NoorGallery, Radio NoorRadio, Voice notes NoorVoice, Stream
   Desk NoorStream, Calendar NoorCalendar and Apps Hub NoorHub; the planned NoorCanvas is NoorPhoto

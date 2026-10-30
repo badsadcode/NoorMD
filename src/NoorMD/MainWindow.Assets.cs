@@ -413,7 +413,7 @@ public partial class MainWindow
                     return new { mine = UserTreePresets() };
                 case "asset.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a tree or rock recipe", Filter = "NoorForm recipes (*.noortree.json;*.noorrock.json;*.json)|*.noortree.json;*.noorrock.json;*.json|Tree recipes (*.noortree.json)|*.noortree.json|Rock recipes (*.noorrock.json)|*.noorrock.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Open a tree or rock recipe"), Filter = Tr.T("NoorForm recipes (*.noortree.json;*.noorrock.json;*.json)|*.noortree.json;*.noorrock.json;*.json|Tree recipes (*.noortree.json)|*.noortree.json|Rock recipes (*.noorrock.json)|*.noorrock.json"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 100_000) throw new BridgeError("That file is too big for a recipe.");
@@ -429,7 +429,7 @@ public partial class MainWindow
                     var dlg = new OpenFileDialog
                     {
                         Title = leaves ? "Choose a leaf picture (PNG with transparency: a 2 × 2 atlas, or one twig)" : "Choose a bark picture (it tiles round and up the branches)",
-                        Filter = "Pictures (*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp)|*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp|All files|*.*",
+                        Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp)|*.png;*.jpg;*.jpeg;*.tga;*.bmp;*.tif;*.tiff;*.webp|All files|*.*"),
                         CheckFileExists = true,
                     };
                     NativeCursor.Restore();

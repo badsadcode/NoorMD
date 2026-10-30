@@ -700,6 +700,51 @@
     notice('Text size ' + size + ' px', 1200);
   }
 
+  // ---------------------------------------------------------------- languages
+
+  /** The page in a language at once (its lines from the app; English needs none). */
+  async function loadLanguage(code) {
+    if (!window.NoorI18n) return;
+    if (!code || code === 'en') { NoorI18n.use('en', {}); return; }
+    try { const r = await bridge.request('i18n.load', { code }); NoorI18n.use(code, r.lines || {}); } catch (err) { showError(err); }
+  }
+
+  /** The language row in Preferences: the choice, a file to translate, the folder your own translations go in. */
+  function languageRow() {
+    const sel = el('select', { id: 'pref-language', 'aria-label': 'Language', 'data-noi18n': '' }, el('option', { value: prefs.language || 'en', text: prefs.language || 'en' }));
+    const info = el('small', { class: 'pref-hint', id: 'pref-language-info' });
+    let list = [], start = 'en';
+    const describe = () => {
+      const l = list.find((x) => x.code === sel.value);
+      const part = l && l.code !== 'en' ? `${Math.round((l.done / Math.max(1, l.total)) * 100)}% translated${l.yours ? ' (with your own lines)' : ''}. ` : '';
+      info.textContent = part + (sel.value !== start ? 'The app\'s own windows (file dialogs) change at the next start.' : '');
+    };
+    bridge.request('i18n.languages').then((r) => {
+      list = r.languages || []; start = r.start || 'en';
+      sel.replaceChildren(...list.map((l) => el('option', { value: l.code, text: l.code === 'en' ? 'English' : `${l.name} (${l.code})` })));
+      sel.value = prefs.language || 'en';
+      describe();
+    }).catch(showError);
+    sel.addEventListener('change', () => { setPrefs({ language: sel.value }); loadLanguage(sel.value); describe(); });
+    const make = async () => {
+      const cur = sel.value !== 'en' ? list.find((l) => l.code === sel.value) : null;
+      const code = await NoorUI.prompt('Make a translation', 'The language\'s code (like pl, de, it or pt-BR). A file of every English text is saved to fill in, with what is translated already:', cur ? cur.code : '', { okLabel: 'Next' });
+      if (!code) return;
+      const known = list.find((l) => l.code === code.trim());
+      const name = known ? known.name : await NoorUI.prompt('Make a translation', 'The language\'s name, in that language (like Italiano):', '', { okLabel: 'Save the file…' });
+      if (!known && !name) return;
+      try {
+        const r = await bridge.request('i18n.template', { code: code.trim(), name: (name || '').trim() });
+        if (r && !r.cancelled) notice(`Saved ${r.name}: fill in the translations, keep it in the Translations folder, then choose the language here`, 4000);
+      } catch (err) { showError(err); }
+    };
+    return [el('label', { for: 'pref-language', text: 'Language' }), el('div', {},
+      el('div', { class: 'inline' }, sel,
+        el('button', { class: 'utility-btn', id: 'pref-translate', title: 'A file with every English text to translate into a language of your own (or to correct one)', onclick: make }, 'Make a translation…'),
+        el('button', { class: 'utility-btn', id: 'pref-translations', title: 'Where your own translations go (Documents\\NoorMD\\Translations)', onclick: () => bridge.request('i18n.folder').catch(showError) }, 'Translations folder')),
+      info)];
+  }
+
   function showPreferences() {
     NoorUI.modal({ label: 'Preferences', width: 620 }, (s, close) => {
       const select = (key, options) => {
@@ -731,6 +776,7 @@
       restore.addEventListener('change', () => setPrefs({ restoreSession: restore.checked }));
       s.append(NoorUI.head('Preferences', close), el('div', { class: 'modal-body' },
         el('div', { class: 'pref-grid' },
+          ...languageRow(),
           el('label', { for: 'pref-theme', text: 'Theme' }), select('theme', themes().map((t) => [t.id, t.label + (t.dark ? ' (dark)' : ' (light)')])),
           el('label', { for: 'pref-fontFamily', text: 'Writing font' }), select('fontFamily', [['inter', 'Inter (bundled)'], ['system', 'Segoe UI'], ['serif', 'Serif'], ['mono', 'Monospace']]),
           el('label', { for: 'pref-size', text: 'Text size' }), el('div', { class: 'inline' }, size, sizeLabel),
@@ -2301,6 +2347,7 @@
     prefs = { ...DEFAULT_PREFS, ...(ready.prefs || {}) };
     recent = ready.recent || [];
     applyPrefs();
+    loadLanguage(prefs.language);
     renderRecent();
     if (ready.vaults) NoorVault.onChanged(ready.vaults);
     // Restored tabs arrive in strip order; only the selected one gets an editor now, the rest when first shown.

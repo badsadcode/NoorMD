@@ -29,7 +29,7 @@ public sealed class MicIndicatorWindow : Window
     public MicIndicatorWindow(MainWindow main)
     {
         _main = main;
-        Title = "Mic Guard — NoorMD";
+        Title = Tr.T("Mic Guard — NoorMD");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
         Background = Brushes.Transparent;

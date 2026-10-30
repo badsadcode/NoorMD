@@ -165,7 +165,7 @@ public partial class MainWindow
                     return RecipeForPage(SoundGenerator.Make(req.GetString("category", 40) ?? "", (int)Math.Clamp(NoorMD.Core.Bridge.Json.OptDouble(p, "seed") ?? 1, 0, int.MaxValue)));
                 case "sound.sample.pick":
                 {
-                    var dlg = new OpenFileDialog { Title = "Choose a sound file (WAV)", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a sound file (WAV)"), Filter = Tr.T("WAV sound (*.wav)|*.wav"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
@@ -184,7 +184,7 @@ public partial class MainWindow
                 case "sound.ir.pick":
                 {
                     // A recorded space for convolution: a clap, a balloon pop or a sweep turned into its echoes (a WAV).
-                    var dlg = new OpenFileDialog { Title = "Choose a recorded space (an impulse response, WAV)", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a recorded space (an impulse response, WAV)"), Filter = Tr.T("WAV sound (*.wav)|*.wav"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
@@ -234,7 +234,7 @@ public partial class MainWindow
                 case "sound.reference.pick":
                 {
                     // A finished sound to compare with (from a game, a library, a sound you like): played and measured here only.
-                    var dlg = new OpenFileDialog { Title = "Choose a reference sound (WAV) to compare with", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a reference sound (WAV) to compare with"), Filter = Tr.T("WAV sound (*.wav)|*.wav"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
@@ -370,7 +370,7 @@ public partial class MainWindow
                     return new { mine = UserPresets() };
                 case "sound.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a sound recipe", Filter = "Sound recipes (*.noorsound.json;*.json)|*.noorsound.json;*.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Open a sound recipe"), Filter = Tr.T("Sound recipes (*.noorsound.json;*.json)|*.noorsound.json;*.json"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 200_000) throw new BridgeError("That file is too big for a sound recipe.");

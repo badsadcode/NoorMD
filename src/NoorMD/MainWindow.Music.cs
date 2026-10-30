@@ -78,7 +78,7 @@ public partial class MainWindow
                 return new { folders = Music.Folders(), stats = Music.Stats(), playlists = Music.Playlists(), smart = SmartForPage(), scanning = _scanTask is { IsCompleted: false }, undo = DescribeUndo() };
             case "music.addFolder":
             {
-                var dlg = new OpenFolderDialog { Title = "Add a music folder (subfolders included)", Multiselect = false };
+                var dlg = new OpenFolderDialog { Title = Tr.T("Add a music folder (subfolders included)"), Multiselect = false };
                 Ui.NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var id = Music.AddFolder(dlg.FolderName, recursive: true);
@@ -192,7 +192,7 @@ public partial class MainWindow
                 var ext = art.MimeType switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
                 var dlg = new SaveFileDialog
                 {
-                    Title = "Save the artwork as a picture", Filter = $"Picture (*{ext})|*{ext}", DefaultExt = ext, AddExtension = true, OverwritePrompt = true,
+                    Title = Tr.T("Save the artwork as a picture"), Filter = $"Picture (*{ext})|*{ext}", DefaultExt = ext, AddExtension = true, OverwritePrompt = true,
                     InitialDirectory = tr.Folder, FileName = SafeRename.SuggestName(tr.Album ?? tr.DisplayTitle, tr.Artist) + " cover" + ext,
                 };
                 Ui.NativeCursor.Restore();
@@ -296,7 +296,7 @@ public partial class MainWindow
 
     private async Task<object?> ImportPlaylistAsync()
     {
-        var dlg = new OpenFileDialog { Title = "Import playlist", Filter = "Playlists (*.m3u;*.m3u8)|*.m3u;*.m3u8|All files (*.*)|*.*", CheckFileExists = true };
+        var dlg = new OpenFileDialog { Title = Tr.T("Import playlist"), Filter = Tr.T("Playlists (*.m3u;*.m3u8)|*.m3u;*.m3u8|All files (*.*)|*.*"), CheckFileExists = true };
         Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return new { cancelled = true };
         var file = dlg.FileName;
@@ -321,7 +321,7 @@ public partial class MainWindow
     private object? ExportPlaylist(long id)
     {
         var name = Music.PlaylistName(id) ?? throw new BridgeError("Unknown playlist.");
-        var dlg = new SaveFileDialog { Title = "Export playlist", Filter = "M3U8 playlist (*.m3u8)|*.m3u8", DefaultExt = ".m3u8", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".m3u8"), OverwritePrompt = true };
+        var dlg = new SaveFileDialog { Title = Tr.T("Export playlist"), Filter = Tr.T("M3U8 playlist (*.m3u8)|*.m3u8"), DefaultExt = ".m3u8", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".m3u8"), OverwritePrompt = true };
         Ui.NativeCursor.Restore();
         if (dlg.ShowDialog(this) != true) return null;
         var tracks = Music.GetMany(Music.PlaylistTrackIds(id));

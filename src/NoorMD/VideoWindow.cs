@@ -30,7 +30,7 @@ public sealed class VideoWindow : Window
     public VideoWindow(MainWindow main)
     {
         _main = main;
-        Title = "Video — NoorMD";
+        Title = Tr.T("Video — NoorMD");
         Width = 720; Height = 450; MinWidth = 320; MinHeight = 200;
         Topmost = true;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;

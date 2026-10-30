@@ -46,7 +46,7 @@ public partial class MainWindow
         {
             case "vault.open":
                 {
-                    var dlg = new OpenFolderDialog { Title = "Open a folder as a Vault", Multiselect = false };
+                    var dlg = new OpenFolderDialog { Title = Tr.T("Open a folder as a Vault"), Multiselect = false };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     return OpenVault(dlg.FolderName);

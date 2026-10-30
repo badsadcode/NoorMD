@@ -317,9 +317,11 @@ window.NoorChrome = (() => {
     bar.setAttribute('aria-label', builtFor ? `${benches[builtFor].name} menu` : 'Main menu');
     benchChanged();
     current.forEach(([name, key, items], i) => {
-      const b = el('button', { class: 'menu-title', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-menu': String(i), tabindex: i === 0 ? '0' : '-1' },
-        el('span', { class: 'mnemonic', text: name.slice(0, name.toLowerCase().indexOf(key)) }), el('u', { text: name[name.toLowerCase().indexOf(key)] }), name.slice(name.toLowerCase().indexOf(key) + 1));
-      b.title = `${name} (Alt+${key.toUpperCase()})`;
+      // In another language the title is its translation; its Alt letter is underlined when the word has it.
+      const shown = window.NoorI18n ? NoorI18n.t(name) : name, at = shown.toLowerCase().indexOf(key);
+      const b = el('button', { class: 'menu-title', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-menu': String(i), 'data-noi18n': '', tabindex: i === 0 ? '0' : '-1' },
+        ...(at >= 0 ? [el('span', { class: 'mnemonic', text: shown.slice(0, at) }), el('u', { text: shown[at] }), shown.slice(at + 1)] : [shown]));
+      b.title = `${shown} (Alt+${key.toUpperCase()})`;
       b.addEventListener('mousedown', (e) => { e.preventDefault(); toggleTop(i); });
       b.addEventListener('mouseenter', () => { if (openTop !== null && openTop !== i) showTop(i); });
       b.addEventListener('keydown', (e) => {
@@ -554,6 +556,7 @@ window.NoorChrome = (() => {
   function init(a) {
     api = a;
     $('#menubar').after(el('span', { class: 'bench-title', id: 'bench-title', 'aria-live': 'polite' }));
+    window.addEventListener('noor-language', () => { closeMenus(true); buildMenubar(); });
     buildMenubar();
     buildToolbar();
     $('#toolbar').addEventListener('contextmenu', (e) => {

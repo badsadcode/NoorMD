@@ -118,7 +118,7 @@ public partial class MainWindow
         var dlg = new SaveFileDialog
         {
             Title = o.Handoff ? "Save the AI handoff package" : "Save the ZIP package",
-            Filter = "ZIP archive (*.zip)|*.zip",
+            Filter = Tr.T("ZIP archive (*.zip)|*.zip"),
             DefaultExt = ".zip",
             AddExtension = true,
             OverwritePrompt = true,

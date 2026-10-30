@@ -120,7 +120,7 @@ public partial class MainWindow
             case "export.projects": return ExportProjectsPayload();
             case "export.project.add":
             {
-                var dlg = new OpenFolderDialog { Title = "Choose your game project's folder (exports will be arranged inside it)" };
+                var dlg = new OpenFolderDialog { Title = Tr.T("Choose your game project's folder (exports will be arranged inside it)") };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var added = ExportProjects.Add(dlg.FolderName);

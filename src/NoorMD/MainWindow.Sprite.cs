@@ -155,8 +155,8 @@ public partial class MainWindow
             {
                 var dlg = new OpenFileDialog
                 {
-                    Title = "Open a sprite or a picture",
-                    Filter = "Sprites and pictures (*.noorsprite;*.aseprite;*.ase;*.png;*.gif;*.bmp;*.jpg)|*.noorsprite;*.aseprite;*.ase;*.png;*.gif;*.bmp;*.jpg|NoorSprite (*.noorsprite)|*.noorsprite|Aseprite (*.aseprite;*.ase)|*.aseprite;*.ase|Pictures (*.png;*.gif;*.bmp;*.jpg)|*.png;*.gif;*.bmp;*.jpg",
+                    Title = Tr.T("Open a sprite or a picture"),
+                    Filter = Tr.T("Sprites and pictures (*.noorsprite;*.aseprite;*.ase;*.png;*.gif;*.bmp;*.jpg)|*.noorsprite;*.aseprite;*.ase;*.png;*.gif;*.bmp;*.jpg|NoorSprite (*.noorsprite)|*.noorsprite|Aseprite (*.aseprite;*.ase)|*.aseprite;*.ase|Pictures (*.png;*.gif;*.bmp;*.jpg)|*.png;*.gif;*.bmp;*.jpg"),
                     CheckFileExists = true,
                 };
                 NativeCursor.Restore();
@@ -189,14 +189,14 @@ public partial class MainWindow
             }
             case "sprite.sound.pick":
             {
-                var dlg = new OpenFileDialog { Title = "A sound for this frame (a footstep, a swing…)", Filter = "Sounds (*.wav;*.ogg;*.mp3)|*.wav;*.ogg;*.mp3", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("A sound for this frame (a footstep, a swing…)"), Filter = Tr.T("Sounds (*.wav;*.ogg;*.mp3)|*.wav;*.ogg;*.mp3"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 return new { path = dlg.FileName, name = Path.GetFileName(dlg.FileName) };
             }
             case "sprite.picture.pick":
             {
-                var dlg = new OpenFileDialog { Title = "A picture to bring in", Filter = "Pictures (*.png;*.gif;*.bmp;*.jpg;*.jpeg;*.webp)|*.png;*.gif;*.bmp;*.jpg;*.jpeg;*.webp", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("A picture to bring in"), Filter = Tr.T("Pictures (*.png;*.gif;*.bmp;*.jpg;*.jpeg;*.webp)|*.png;*.gif;*.bmp;*.jpg;*.jpeg;*.webp"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var (w, h, rgba) = await Task.Run(() => SpritePicture(dlg.FileName));
@@ -209,7 +209,7 @@ public partial class MainWindow
                 if (string.IsNullOrEmpty(path))
                 {
                     var stem = Path.GetFileNameWithoutExtension(req.GetString("name", 200) ?? "sprite");
-                    var dlg = new SaveFileDialog { Title = "Save the sprite", FileName = string.IsNullOrWhiteSpace(stem) ? "sprite" : stem, Filter = "NoorSprite (*.noorsprite)|*.noorsprite|Aseprite (*.aseprite)|*.aseprite", AddExtension = true };
+                    var dlg = new SaveFileDialog { Title = Tr.T("Save the sprite"), FileName = string.IsNullOrWhiteSpace(stem) ? "sprite" : stem, Filter = Tr.T("NoorSprite (*.noorsprite)|*.noorsprite|Aseprite (*.aseprite)|*.aseprite"), AddExtension = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     path = dlg.FileName;
@@ -423,7 +423,7 @@ public partial class MainWindow
                 if (p.TryGetProperty("all", out var allEl) && allEl.ValueKind == JsonValueKind.True)
                 {
                     // Every tilemap layer in one scene: each tileset once (its picture and TileSet), a TileMap per layer.
-                    var lvl = new SaveFileDialog { Title = "Export every map layer for Godot (one scene; the tilesets go beside it)", FileName = stem + ".tscn", Filter = "Godot scene (*.tscn)|*.tscn", AddExtension = true };
+                    var lvl = new SaveFileDialog { Title = Tr.T("Export every map layer for Godot (one scene; the tilesets go beside it)"), FileName = stem + ".tscn", Filter = Tr.T("Godot scene (*.tscn)|*.tscn"), AddExtension = true };
                     NativeCursor.Restore();
                     if (lvl.ShowDialog(this) != true) return new { cancelled = true };
                     var scenePath = lvl.FileName;
@@ -460,7 +460,7 @@ public partial class MainWindow
                     });
                     return new { files = outFiles.Select(Path.GetFileName) };
                 }
-                var save = new SaveFileDialog { Title = "Export the tilemap for Godot (the tiles, a TileSet and a scene go side by side)", FileName = stem + ".tres", Filter = "Godot TileSet (*.tres)|*.tres", AddExtension = true };
+                var save = new SaveFileDialog { Title = Tr.T("Export the tilemap for Godot (the tiles, a TileSet and a scene go side by side)"), FileName = stem + ".tres", Filter = Tr.T("Godot TileSet (*.tres)|*.tres"), AddExtension = true };
                 NativeCursor.Restore();
                 if (save.ShowDialog(this) != true) return new { cancelled = true };
                 var target = save.FileName;
@@ -485,7 +485,7 @@ public partial class MainWindow
                 var data = Convert.FromBase64String(p.GetProperty("data").GetString() ?? "");
                 if (data.Length == 0 || data.Length > 256 * 1024 * 1024) throw new BridgeError("That video is empty or too large.");
                 var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "sprite", "");
-                var save = new SaveFileDialog { Title = "Save the video", FileName = stem + ext, Filter = ext == ".mp4" ? "MP4 video (*.mp4)|*.mp4" : "WebM video (*.webm)|*.webm", AddExtension = true };
+                var save = new SaveFileDialog { Title = Tr.T("Save the video"), FileName = stem + ext, Filter = ext == ".mp4" ? "MP4 video (*.mp4)|*.mp4" : "WebM video (*.webm)|*.webm", AddExtension = true };
                 NativeCursor.Restore();
                 if (save.ShowDialog(this) != true) return new { cancelled = true };
                 await Task.Run(() => NoorMD.Core.Documents.AtomicFile.WriteAllBytes(save.FileName, data));
@@ -495,11 +495,11 @@ public partial class MainWindow
             {
                 // Many sprites (and pictures) packed into one atlas: a JSON naming every frame, and Godot SpriteFrames
                 // with an animation per file (per tag: "file/tag").
-                var pick = new OpenFileDialog { Title = "Sprites and pictures for one atlas", Multiselect = true, CheckFileExists = true, Filter = "Sprites and pictures (*.noorsprite;*.aseprite;*.ase;*.png)|*.noorsprite;*.aseprite;*.ase;*.png" };
+                var pick = new OpenFileDialog { Title = Tr.T("Sprites and pictures for one atlas"), Multiselect = true, CheckFileExists = true, Filter = Tr.T("Sprites and pictures (*.noorsprite;*.aseprite;*.ase;*.png)|*.noorsprite;*.aseprite;*.ase;*.png") };
                 NativeCursor.Restore();
                 if (pick.ShowDialog(this) != true) return new { cancelled = true };
                 var chosen = pick.FileNames.Take(256).ToList();
-                var save = new SaveFileDialog { Title = "Save the atlas (its JSON and Godot SpriteFrames go beside it)", FileName = "atlas.png", Filter = "PNG (*.png)|*.png", AddExtension = true };
+                var save = new SaveFileDialog { Title = Tr.T("Save the atlas (its JSON and Godot SpriteFrames go beside it)"), FileName = "atlas.png", Filter = Tr.T("PNG (*.png)|*.png"), AddExtension = true };
                 if (save.ShowDialog(this) != true) return new { cancelled = true };
                 var target = save.FileName;
                 var result = await Task.Run(() =>
@@ -554,7 +554,7 @@ public partial class MainWindow
                 var font = JsonSerializer.Deserialize<SpriteFont>(p.GetProperty("font").GetRawText(), SpriteDoc.Json) ?? throw new BridgeError("No font settings.");
                 if (string.IsNullOrEmpty(font.Characters)) throw new BridgeError("The font has no characters.");
                 var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "font", "");
-                var save = new SaveFileDialog { Title = "Export a bitmap font (the .fnt and its picture go side by side)", FileName = stem + ".fnt", Filter = "BMFont (*.fnt)|*.fnt", AddExtension = true };
+                var save = new SaveFileDialog { Title = Tr.T("Export a bitmap font (the .fnt and its picture go side by side)"), FileName = stem + ".fnt", Filter = Tr.T("BMFont (*.fnt)|*.fnt"), AddExtension = true };
                 NativeCursor.Restore();
                 if (save.ShowDialog(this) != true) return new { cancelled = true };
                 var fnt = save.FileName;
@@ -591,7 +591,7 @@ public partial class MainWindow
             }
             case "sprite.palette.open":
             {
-                var dlg = new OpenFileDialog { Title = "Open a palette", Filter = "Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("Open a palette"), Filter = Tr.T("Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 try { return new { palette = SpritePalette.Read(await File.ReadAllBytesAsync(dlg.FileName), Path.GetExtension(dlg.FileName)), name = Path.GetFileNameWithoutExtension(dlg.FileName) }; }
@@ -605,7 +605,7 @@ public partial class MainWindow
                 if (create)
                 {
                     if (!p.TryGetProperty("palette", out var pal) || pal.ValueKind != JsonValueKind.Array) throw new BridgeError("No palette.");
-                    var dlg = new SaveFileDialog { Title = "Share the palette: a file other sprites can use", FileName = "palette", Filter = "GIMP palette (*.gpl)|*.gpl|Hex list (*.hex)|*.hex|JASC palette (*.pal)|*.pal", AddExtension = true };
+                    var dlg = new SaveFileDialog { Title = Tr.T("Share the palette: a file other sprites can use"), FileName = "palette", Filter = Tr.T("GIMP palette (*.gpl)|*.gpl|Hex list (*.hex)|*.hex|JASC palette (*.pal)|*.pal"), AddExtension = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     file = dlg.FileName;
@@ -613,7 +613,7 @@ public partial class MainWindow
                 }
                 else
                 {
-                    var dlg = new OpenFileDialog { Title = "Use a shared palette file", Filter = "Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Use a shared palette file"), Filter = Tr.T("Palettes (*.gpl;*.pal;*.hex;*.txt)|*.gpl;*.pal;*.hex;*.txt"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     file = dlg.FileName;
@@ -641,7 +641,7 @@ public partial class MainWindow
             {
                 if (!p.TryGetProperty("palette", out var pal) || pal.ValueKind != JsonValueKind.Array) throw new BridgeError("No palette.");
                 var colours = pal.EnumerateArray().Select(c => c.GetString() ?? "").ToList();
-                var dlg = new SaveFileDialog { Title = "Save the palette", FileName = "palette", Filter = "GIMP palette (*.gpl)|*.gpl|JASC palette (*.pal)|*.pal|Hex list (*.hex)|*.hex", AddExtension = true };
+                var dlg = new SaveFileDialog { Title = Tr.T("Save the palette"), FileName = "palette", Filter = Tr.T("GIMP palette (*.gpl)|*.gpl|JASC palette (*.pal)|*.pal|Hex list (*.hex)|*.hex"), AddExtension = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 await File.WriteAllBytesAsync(dlg.FileName, SpritePalette.Write(colours, Path.GetExtension(dlg.FileName), Path.GetFileNameWithoutExtension(dlg.FileName)));

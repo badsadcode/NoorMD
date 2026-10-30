@@ -119,7 +119,7 @@ public partial class MainWindow
                     return null;
                 case "radio.import":
                 {
-                    var dlg = new OpenFileDialog { Title = "Import radio stations", Filter = "Station lists (*.m3u;*.m3u8;*.pls)|*.m3u;*.m3u8;*.pls|All files (*.*)|*.*", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Import radio stations"), Filter = Tr.T("Station lists (*.m3u;*.m3u8;*.pls)|*.m3u;*.m3u8;*.pls|All files (*.*)|*.*"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 2 * 1024 * 1024) throw new BridgeError("That file is too big for a list of stations.");
@@ -130,7 +130,7 @@ public partial class MainWindow
                 {
                     var all = Radio.All();
                     if (all.Count == 0) throw new BridgeError("There are no stations to export yet.");
-                    var dlg = new SaveFileDialog { Title = "Export radio stations", Filter = "M3U8 playlist (*.m3u8)|*.m3u8", DefaultExt = ".m3u8", FileName = "Radio stations.m3u8", OverwritePrompt = true };
+                    var dlg = new SaveFileDialog { Title = Tr.T("Export radio stations"), Filter = Tr.T("M3U8 playlist (*.m3u8)|*.m3u8"), DefaultExt = ".m3u8", FileName = "Radio stations.m3u8", OverwritePrompt = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     await File.WriteAllTextAsync(dlg.FileName, RadioPlaylist.ToM3u(all), new UTF8Encoding(false));

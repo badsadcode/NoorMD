@@ -44,7 +44,7 @@ public partial class MainWindow
                     string? path;
                     if (kind == "folder")
                     {
-                        var dlg = new OpenFolderDialog { Title = "Add a folder to NoorHub" };
+                        var dlg = new OpenFolderDialog { Title = Tr.T("Add a folder to NoorHub") };
                         Ui.NativeCursor.Restore();
                         path = dlg.ShowDialog(this) == true ? dlg.FolderName : null;
                     }
@@ -52,10 +52,10 @@ public partial class MainWindow
                     {
                         var dlg = new OpenFileDialog
                         {
-                            Title = "Add programs, games or files to NoorHub",
+                            Title = Tr.T("Add programs, games or files to NoorHub"),
                             Multiselect = true,
                             DereferenceLinks = false, // keep shortcuts (.lnk) as they are: their own icon and arguments
-                            Filter = "Programs and shortcuts (*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd|All files (*.*)|*.*",
+                            Filter = Tr.T("Programs and shortcuts (*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd|All files (*.*)|*.*"),
                             InitialDirectory = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu),
                         };
                         Ui.NativeCursor.Restore();
@@ -115,7 +115,7 @@ public partial class MainWindow
                 case "apps.icon.pick":
                 {
                     var id = (Hub.Get(req.GetString("id", 40) ?? "") ?? throw new BridgeError("That shortcut is no longer in the hub.")).Id; // a real id, never a path
-                    var dlg = new OpenFileDialog { Title = "Choose a picture", Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp" };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a picture"), Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.gif;*.ico;*.bmp") };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var info = new FileInfo(dlg.FileName);

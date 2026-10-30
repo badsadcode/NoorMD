@@ -73,7 +73,7 @@ public partial class MainWindow
     {
         var dlg = new OpenFileDialog
         {
-            Title = "Open Markdown files",
+            Title = Tr.T("Open Markdown files"),
             Filter = MarkdownFilter,
             CheckFileExists = true,
             Multiselect = true,

@@ -35,7 +35,7 @@ public partial class MainWindow
             case "sketch.new": OpenSketch(null); return null;
             case "sketch.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open sketch", Filter = "NoorSketch (*.noorsketch)|*.noorsketch", CheckFileExists = true, InitialDirectory = _vault?.Root ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures) };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Open sketch"), Filter = Tr.T("NoorSketch (*.noorsketch)|*.noorsketch"), CheckFileExists = true, InitialDirectory = _vault?.Root ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures) };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     try { SketchFile.Load(dlg.FileName); } // refuse a damaged file here, before a window opens
@@ -66,7 +66,7 @@ public partial class MainWindow
         var dlg = new SaveFileDialog
         {
             Title = s.Path == null ? "Save the sketch picture (the document is not saved yet, so choose where)" : $"Save the sketch picture for “{s.FileName}”",
-            Filter = "PNG image (*.png)|*.png", DefaultExt = ".png", AddExtension = true, OverwritePrompt = true,
+            Filter = Tr.T("PNG image (*.png)|*.png"), DefaultExt = ".png", AddExtension = true, OverwritePrompt = true,
             InitialDirectory = folder, FileName = VaultPaths.UniqueName(folder, baseName, ".png"),
         };
         if (dlg.ShowDialog(from) != true)

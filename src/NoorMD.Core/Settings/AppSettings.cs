@@ -37,6 +37,8 @@ public sealed class EditorPrefs
     public bool ZenToolbar { get; set; }
     /// <summary>Visible toolbar groups, in order (comma-separated ids).</summary>
     public string ToolbarGroups { get; set; } = DefaultToolbarGroups;
+    /// <summary>The language NoorMD shows (English is "en"); the page follows at once, the app's own dialogs from the next start.</summary>
+    public string Language { get; set; } = "en";
 
     public const string DefaultToolbarGroups = "document,writing,navigation,view,tools,media";
     private static readonly string[] ToolbarGroupIds = ["document", "writing", "navigation", "view", "tools", "media", "vault"];
@@ -82,6 +84,7 @@ public sealed class EditorPrefs
                     Layouts = System.Text.Json.Nodes.JsonNode.Parse(p.Value.GetRawText()) as System.Text.Json.Nodes.JsonArray; break;
                 case "layoutName" when p.Value.ValueKind is JsonValueKind.String or JsonValueKind.Null:
                     LayoutName = p.Value.ValueKind == JsonValueKind.Null ? null : p.Value.GetString() is { Length: <= 120 } n ? n : LayoutName; break;
+                case "language" when p.Value.ValueKind == JsonValueKind.String && Localization.Translations.IsCode(p.Value.GetString()): Language = p.Value.GetString()!; break;
                 case "syncScroll" when p.Value.ValueKind is JsonValueKind.True or JsonValueKind.False: SyncScroll = p.Value.GetBoolean(); break;
             }
         }
@@ -94,6 +97,7 @@ public sealed class EditorPrefs
         if (!Fonts.Contains(FontFamily)) FontFamily = "inter";
         if (!Widths.Contains(LineWidth)) LineWidth = "comfortable";
         if (!OpenModes.Contains(OpenMode)) OpenMode = "visual";
+        if (!Localization.Translations.IsCode(Language)) Language = "en";
         FontSize = Math.Clamp(FontSize, 12, 26);
         SourceFontSize = Math.Clamp(SourceFontSize, 11, 22);
         MusicWidth = Math.Clamp(MusicWidth, 300, 640);

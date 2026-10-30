@@ -56,6 +56,21 @@ Every part of NoorMD is named Noor-something (since preview.116); the older name
 
 File names, folders and recipes keep working as they were: only the names you see changed.
 
+## Languages
+
+NoorMD speaks English, Polski, Deutsch, Français and Español (Preferences › Language). The page changes at once;
+the app's own windows (file dialogs) change at the next start. Polish, German, French and Spanish are drafts —
+corrections are welcome.
+
+**Your own translation:** Preferences › Language › *Make a translation…* saves a file with every English text
+NoorMD shows and an empty slot beside each (or what a language has already, to correct it). Fill in what you like
+— an empty slot stays English, and `{0}`, `{1}` stand for numbers and names — and keep the file in
+`Documents\NoorMD\Translations` named by the language's code (`it.json`, `pt-BR.json` …). Choose it in
+Preferences. Your lines win over the built-in ones, so the same folder is where you fix a word you don't like.
+
+For developers: the list of English texts (`src/NoorMD/wwwroot/lang/en.json`) is made by
+`node scripts/i18n-extract.js`; run it after changing what the app says.
+
 ## Features
 
 - **Open, save, Save As** with native Windows dialogs. Files are written atomically (temp

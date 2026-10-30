@@ -7388,6 +7388,41 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66y. Languages: Preferences › Language translates the page at once, your writing stays as it is.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# File\n\nFile and Edit are words in my note.\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1400, height: 900 });
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      check('English to begin with', (await titles())[0] === 'File');
+      await page.keyboard.press('Control+,');
+      await page.waitForSelector('#pref-language option[value="pl"]', { state: 'attached' });
+      check('Preferences › Language lists the languages', (await page.$$eval('#pref-language option', (o) => o.map((x) => x.value))).join() === 'en,pl');
+      await page.selectOption('#pref-language', 'pl');
+      await waitFn(page, () => document.querySelector('#menubar .menu-title').textContent === 'Plik');
+      const st = await page.evaluate(() => window.__mock.state);
+      check('choosing Polski: the menus in Polish at once, the choice kept', (await titles()).slice(0, 2).join() === 'Plik,Edycja' && st.prefs.language === 'pl');
+      check('…the open dialog too (its heading, its labels)', /Preferencje/.test(await page.textContent('.modal .modal-head, .modal h2, .modal')) && /Język/.test(await page.textContent('.modal')));
+      check('…how much is translated, and that the app\'s own windows follow at the next start', /60% translated/.test(await page.textContent('#pref-language-info')) && /next start/.test(await page.textContent('#pref-language-info')));
+      check('…your writing is not translated', /File and Edit are words in my note/.test(await page.textContent('#editor')));
+      check('…text with a number in it, by its pattern', (await page.evaluate(() => NoorI18n.t('12 words'))) === '12 słów');
+      // Make a translation, and the folder.
+      await page.click('#pref-translate');
+      await page.waitForSelector('.modal input[type=text]');
+      await page.fill('.modal:last-of-type input[type=text]', 'it'); await page.keyboard.press('Enter');
+      await page.waitForFunction(() => document.querySelectorAll('.modal input[type=text]').length && /Italiano|name/.test(document.querySelector('.modal:last-of-type').textContent));
+      await page.fill('.modal:last-of-type input[type=text]', 'Italiano'); await page.keyboard.press('Enter');
+      await waitFn(page, () => window.__mock.state.i18nTemplate);
+      check('Make a translation…: a file of every text to fill in, for a new language', JSON.stringify(await page.evaluate(() => window.__mock.state.i18nTemplate)) === '{"code":"it","name":"Italiano"}');
+      await page.click('#pref-translations');
+      await waitFn(page, () => window.__mock.state.i18nFolder);
+      check('Translations folder opens', true);
+      // Back to English.
+      await page.selectOption('#pref-language', 'en');
+      await waitFn(page, () => document.querySelector('#menubar .menu-title').textContent === 'File');
+      check('back to English at once', (await titles()).slice(0, 2).join() === 'File,Edit' && /Preferences/.test(await page.textContent('.modal')));
+      check('no page errors with languages', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

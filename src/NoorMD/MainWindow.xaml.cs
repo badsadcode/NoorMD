@@ -39,11 +39,16 @@ public partial class MainWindow : Window
     /// <summary>Shared with NoorSketch windows (one browser process, one profile).</summary>
     internal CoreWebView2Environment? WebEnvironment { get; private set; }
 
+    /// <summary>The language NoorMD started in: its dialogs speak it until the next start.</summary>
+    private readonly string _startLanguage;
+
     public MainWindow(string? startupFile)
     {
         _startupFile = startupFile;
         _settingsStore = new SettingsStore(App.Paths.SettingsFile);
         _settings = _settingsStore.Load();
+        _startLanguage = _settings.Prefs.Language;
+        UseStartLanguage();
         _recovery = new RecoveryStore(App.Paths.Recovery);
         _snapshots = new SnapshotStore(App.Paths.Snapshots);
         _snapshots.PruneUntitled(TimeSpan.FromDays(30));

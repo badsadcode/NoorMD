@@ -22,7 +22,7 @@ public sealed class ReminderWindow : Window
     public ReminderWindow(MainWindow main)
     {
         _main = main;
-        Title = "Reminders — NoorMD";
+        Title = Tr.T("Reminders — NoorMD");
         WindowStyle = WindowStyle.None;
         AllowsTransparency = true;
         Background = Brushes.Transparent;

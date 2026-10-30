@@ -308,7 +308,7 @@ public partial class MainWindow
                 if (req.GetString("format", 200) is { Length: > 0 } fmt) StreamCfg["txtFormat"] = fmt;
                 if (NoorMD.Core.Bridge.Json.IsTrue(p, "choose"))
                 {
-                    var dlg = new SaveFileDialog { Title = "Where should NoorMD write the current song (for an OBS Text source)?", Filter = "Text file (*.txt)|*.txt", FileName = "now-playing.txt", OverwritePrompt = false };
+                    var dlg = new SaveFileDialog { Title = Tr.T("Where should NoorMD write the current song (for an OBS Text source)?"), Filter = Tr.T("Text file (*.txt)|*.txt"), FileName = "now-playing.txt", OverwritePrompt = false };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     StreamCfg["txtPath"] = dlg.FileName;
@@ -377,7 +377,7 @@ public partial class MainWindow
             case "stream.log.thumbnail":
             {
                 var v = V();
-                var dlg = new OpenFileDialog { Title = "Choose the stream thumbnail", Filter = "Pictures (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("Choose the stream thumbnail"), Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.webp)|*.png;*.jpg;*.jpeg;*.webp"), CheckFileExists = true };
                 Ui.NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 if (new FileInfo(dlg.FileName).Length > 20_000_000) throw new BridgeError("That picture is larger than 20 MB.");

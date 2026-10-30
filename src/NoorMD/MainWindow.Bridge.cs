@@ -152,6 +152,8 @@ public partial class MainWindow
                 return await DispatchCalendarAsync(req);
             case var forge when forge.StartsWith("forge.", StringComparison.Ordinal):
                 return await DispatchForgeAsync(req);
+            case var i18n when i18n.StartsWith("i18n.", StringComparison.Ordinal):
+                return await DispatchI18nAsync(req);
             case var sprite when sprite.StartsWith("sprite.", StringComparison.Ordinal):
                 return await DispatchSpriteAsync(req);
             case var asset when asset.StartsWith("asset.", StringComparison.Ordinal):
@@ -398,8 +400,8 @@ public partial class MainWindow
     {
         var dlg = new Microsoft.Win32.OpenFileDialog
         {
-            Title = "Choose an image",
-            Filter = "Images and sprites|" + string.Join(';', AssetResolver.ImageExtensions.Concat(AssetResolver.SpriteExtensions).Select(e => "*" + e)) + "|All files (*.*)|*.*",
+            Title = Tr.T("Choose an image"),
+            Filter = Tr.T("Images and sprites|") + string.Join(';', AssetResolver.ImageExtensions.Concat(AssetResolver.SpriteExtensions).Select(e => "*" + e)) + "|All files (*.*)|*.*",
             CheckFileExists = true,
             InitialDirectory = s.Folder ?? Environment.GetFolderPath(Environment.SpecialFolder.MyPictures),
         };

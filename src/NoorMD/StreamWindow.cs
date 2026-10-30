@@ -31,7 +31,7 @@ public sealed class StreamWindow : Window
     public StreamWindow(MainWindow main, Rect? placement)
     {
         _main = main;
-        Title = "NoorStream — NoorMD";
+        Title = Tr.T("NoorStream — NoorMD");
         Width = 1180; Height = 820; MinWidth = 560; MinHeight = 420;
         if (placement is { } r && r.Width >= MinWidth && r.Height >= MinHeight && OnScreen(r)) { Left = r.Left; Top = r.Top; Width = r.Width; Height = r.Height; WindowStartupLocation = WindowStartupLocation.Manual; }
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;

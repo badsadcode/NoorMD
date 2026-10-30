@@ -206,7 +206,7 @@ public partial class MainWindow
                 catch (FormatException) { throw new BridgeError("The picture can't be read."); }
                 if (png.Length < 8 || png[0] != 0x89 || png[1] != (byte)'P') throw new BridgeError("That is not a PNG picture.");
                 var name = req.GetString("name", 80) is { Length: > 0 } n ? n : "Stream schedule";
-                var dlg = new SaveFileDialog { Title = "Save the schedule as a picture", Filter = "PNG picture (*.png)|*.png", DefaultExt = ".png", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".png"), OverwritePrompt = true };
+                var dlg = new SaveFileDialog { Title = Tr.T("Save the schedule as a picture"), Filter = Tr.T("PNG picture (*.png)|*.png"), DefaultExt = ".png", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".png"), OverwritePrompt = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 await File.WriteAllBytesAsync(dlg.FileName, png);
@@ -242,7 +242,7 @@ public partial class MainWindow
                 return null;
             case "cal.import":
             {
-                var dlg = new OpenFileDialog { Title = "Import a calendar (.ics)", Filter = "Calendar files (*.ics)|*.ics|All files (*.*)|*.*", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("Import a calendar (.ics)"), Filter = Tr.T("Calendar files (*.ics)|*.ics|All files (*.*)|*.*"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 if (new FileInfo(dlg.FileName).Length > 20 * 1024 * 1024) throw new BridgeError("That file is too big for a calendar (over 20 MB).");
@@ -267,7 +267,7 @@ public partial class MainWindow
                 var list = Calendar.Entries.Where(e => ids == null || ids.Contains(e.Id)).ToList();
                 if (list.Count == 0) throw new BridgeError("There is nothing to export.");
                 var name = req.GetString("name", 80) is { Length: > 0 } n ? n : "NoorMD calendar";
-                var dlg = new SaveFileDialog { Title = "Export the calendar (.ics)", Filter = "Calendar file (*.ics)|*.ics", DefaultExt = ".ics", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".ics"), OverwritePrompt = true };
+                var dlg = new SaveFileDialog { Title = Tr.T("Export the calendar (.ics)"), Filter = Tr.T("Calendar file (*.ics)|*.ics"), DefaultExt = ".ics", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".ics"), OverwritePrompt = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 await File.WriteAllTextAsync(dlg.FileName, Ics.Export(list, name), new UTF8Encoding(false));

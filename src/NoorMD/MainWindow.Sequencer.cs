@@ -217,7 +217,7 @@ public partial class MainWindow
                 }
                 case "seq.sample.pick":
                 {
-                    var dlg = new OpenFileDialog { Title = "Choose a sound to play as an instrument (WAV)", Filter = "WAV sound (*.wav)|*.wav", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a sound to play as an instrument (WAV)"), Filter = Tr.T("WAV sound (*.wav)|*.wav"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
@@ -229,7 +229,7 @@ public partial class MainWindow
                 case "seq.font.pick":
                 {
                     // A SoundFont (.sf2) as an instrument: its presets to choose from.
-                    var dlg = new OpenFileDialog { Title = "Choose a SoundFont (.sf2)", Filter = "SoundFont 2 (*.sf2)|*.sf2", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a SoundFont (.sf2)"), Filter = Tr.T("SoundFont 2 (*.sf2)|*.sf2"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
@@ -418,7 +418,7 @@ public partial class MainWindow
                     return new { mine = UserSongs() };
                 case "seq.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a song", Filter = "Songs (*.noorsong.json;*.json)|*.noorsong.json;*.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Open a song"), Filter = Tr.T("Songs (*.noorsong.json;*.json)|*.noorsong.json;*.json"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 2_000_000) throw new BridgeError("That file is too big for a song.");

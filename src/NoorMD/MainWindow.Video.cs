@@ -102,7 +102,7 @@ public partial class MainWindow
                     return Videos.Playlists();
                 case "video.addFolder":
                 {
-                    var dlg = new OpenFolderDialog { Title = "Add a video folder (subfolders included)", Multiselect = false };
+                    var dlg = new OpenFolderDialog { Title = Tr.T("Add a video folder (subfolders included)"), Multiselect = false };
                     Ui.NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var id = Videos.AddFolder(dlg.FolderName);

@@ -385,7 +385,7 @@ public partial class MainWindow
 
         // Rename + retag the file while it is loaded in the player, *without* releasing it first: this proves
         // NoorMD keeps no handle open between range requests (the edit dialog additionally releases it).
-        var edit = await Task.Run(() => Editor.Apply(mp3.Id, new NoorMD.Media.TagEdit { Title = "Żółta łódź" }, "Żółta łódź"));
+        var edit = await Task.Run(() => Editor.Apply(mp3.Id, new NoorMD.Media.TagEdit { Title = Tr.T("Żółta łódź") }, "Żółta łódź"));
         Check("rename + retag succeeds while the track was loaded in the player", edit.Ok && edit.Renamed && edit.TagsSaved, string.Join(" ", edit.Problems));
         Check("renamed file has the Polish name and title on disk", File.Exists(Path.Combine(musicDir, "Żółta łódź.mp3")) && NoorMD.Media.TagIO.Read(Path.Combine(musicDir, "Żółta łódź.mp3")).Title == "Żółta łódź");
         var undo = await Task.Run(() => Editor.Undo(edit.JournalId!.Value));
@@ -574,7 +574,7 @@ public partial class MainWindow
         // NoorCalendar: the engine and .ics on this computer's time zone (your own calendar is not touched), and the
         // reminder pop-up near the clock, which must not take focus.
         {
-            var bday = NoorMD.Core.Calendar.CalendarCheck.Clamped(new NoorMD.Core.Calendar.CalendarEntry { Id = "selftest", Title = "Self-test birthday", Category = "birthday", AllDay = true,
+            var bday = NoorMD.Core.Calendar.CalendarCheck.Clamped(new NoorMD.Core.Calendar.CalendarEntry { Id = "selftest", Title = Tr.T("Self-test birthday"), Category = "birthday", AllDay = true,
                 Start = "2000-02-29", End = "2000-02-29", SinceYear = 2000, Repeat = new NoorMD.Core.Calendar.CalendarRepeat { Freq = "yearly" }, Reminders = [-540] });
             var occ = NoorMD.Core.Calendar.CalendarEngine.Occurrences([bday], new DateTime(2027, 1, 1), new DateTime(2028, 12, 31));
             var round = NoorMD.Core.Calendar.Ics.Import(NoorMD.Core.Calendar.Ics.Export([bday]));

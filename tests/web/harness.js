@@ -182,6 +182,11 @@ function mockHostScript(initial) {
         case 'export.pdf': return reply(m.id, true, { path: 'C:\\out.pdf' });
         case 'link.open': state.lastLink = p.href; return reply(m.id, true, {});
         case 'clipboard.copyText': state.clipboard = p.text; return reply(m.id, true, {});
+        // Languages: a small Polish list (the real ones are in wwwroot/lang), and what the page asked for.
+        case 'i18n.languages': return reply(m.id, true, { languages: [{ code: 'en', name: 'English', builtIn: true, yours: false, done: 10, total: 10 }, { code: 'pl', name: 'Polski', builtIn: true, yours: false, done: 6, total: 10 }], folder: 'C:\\Users\\me\\Documents\\NoorMD\\Translations', start: 'en' });
+        case 'i18n.load': state.i18nLoads = (state.i18nLoads || []).concat([p.code]); return reply(m.id, true, { code: p.code, lines: p.code === 'pl' ? { _language: 'Polski', File: 'Plik', Edit: 'Edycja', Preferences: 'Preferencje', Theme: 'Motyw', Language: 'Język', 'Open…': 'Otwórz…', '{0} words': '{0} słów', 'Close (Esc)': 'Zamknij (Esc)' } : {} });
+        case 'i18n.template': state.i18nTemplate = { code: p.code, name: p.name }; return reply(m.id, true, { path: `C:\\Translations\\${p.code}.json`, name: `${p.code}.json` });
+        case 'i18n.folder': state.i18nFolder = true; return reply(m.id, true, { folder: 'C:\\Translations' });
         case 'prefs.set': Object.assign(state.prefs, JSON.parse(JSON.stringify(p))); return reply(m.id, true, null);
         case 'streamwin.ready': return reply(m.id, true, { tab: initial.streamTab || null });
         case 'streamwin.close': state.streamClosed = (state.streamClosed || 0) + 1; return reply(m.id, true, null);

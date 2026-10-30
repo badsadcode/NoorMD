@@ -191,7 +191,7 @@ public partial class MainWindow
                 var dlg = new OpenFileDialog
                 {
                     Title = purpose == "decal" ? "A picture to place on the model (a decal)" : stencil ? "A picture to paint through (a stencil)" : "A picture as a brush tip",
-                    Filter = "Pictures (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch|All files (*.*)|*.*",
+                    Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch)|*.png;*.jpg;*.jpeg;*.bmp;*.gif;*.tif;*.tiff;*.webp;*.noorsketch|All files (*.*)|*.*"),
                     CheckFileExists = true,
                 };
                 NativeCursor.Restore();
@@ -207,7 +207,7 @@ public partial class MainWindow
             case "forge.highmodel.pick":
             {
                 // A high-poly model of the same thing, its detail baked onto the model being textured.
-                var dlg = new OpenFileDialog { Title = "A high-poly model of the same thing (its detail is baked onto this one)", Filter = "3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("A high-poly model of the same thing (its detail is baked onto this one)"), Filter = Tr.T("3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var full = Path.GetFullPath(dlg.FileName);
@@ -217,7 +217,7 @@ public partial class MainWindow
             }
             case "forge.model.pick":
             {
-                var dlg = new OpenFileDialog { Title = "Open a model to texture", Filter = "3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("Open a model to texture"), Filter = Tr.T("3D models (*.glb;*.obj)|*.glb;*.obj|GLB (*.glb)|*.glb|OBJ (*.obj)|*.obj"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var full = Path.GetFullPath(dlg.FileName);
@@ -328,7 +328,7 @@ public partial class MainWindow
             {
                 var recipe = ForgeRecipeFrom(p);
                 if (recipe.Model == null) throw new BridgeError("Open a model first.");
-                var dlg = new OpenFolderDialog { Title = "Export the textured model into this folder" };
+                var dlg = new OpenFolderDialog { Title = Tr.T("Export the textured model into this folder") };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var folder = dlg.FolderName;
@@ -388,7 +388,7 @@ public partial class MainWindow
             }
             case "forge.recipe.open":
             {
-                var dlg = new OpenFileDialog { Title = "Open a NoorForge recipe", Filter = "NoorForge recipe (*.noorforge.json)|*.noorforge.json", CheckFileExists = true };
+                var dlg = new OpenFileDialog { Title = Tr.T("Open a NoorForge recipe"), Filter = Tr.T("NoorForge recipe (*.noorforge.json)|*.noorforge.json"), CheckFileExists = true };
                 NativeCursor.Restore();
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 ForgeRecipe recipe;

@@ -563,7 +563,7 @@ public partial class MainWindow
                 case "texture.batch.cancel": _textureBatchCancel = true; return null;
                 case "texture.batch.pick":
                 {
-                    var dlg = new OpenFileDialog { Title = "Choose the pictures (albedo textures, photos) to make PBR maps from", Multiselect = true, Filter = "Pictures (*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp)|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp|All files|*.*", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose the pictures (albedo textures, photos) to make PBR maps from"), Multiselect = true, Filter = Tr.T("Pictures (*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp)|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp|All files|*.*"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var list = new List<object>();
@@ -600,7 +600,7 @@ public partial class MainWindow
                     return new { mine = UserTexturePresets() };
                 case "texture.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a material recipe", Filter = "Material recipes (*.noortex.json;*.json)|*.noortex.json;*.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Open a material recipe"), Filter = Tr.T("Material recipes (*.noortex.json;*.json)|*.noortex.json;*.json"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 200_000) throw new BridgeError("That file is too big for a material recipe.");
@@ -635,7 +635,7 @@ public partial class MainWindow
                 case "texture.image.pick":
                 {
                     // A picture for an image layer: a photo of a surface, a scan, a painting; read here, never changed.
-                    var dlg = new OpenFileDialog { Title = "Choose a picture for the material", Filter = "Pictures (*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp;*.gif|All files|*.*", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = Tr.T("Choose a picture for the material"), Filter = Tr.T("Pictures (*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp;*.gif)|*.jpg;*.jpeg;*.png;*.bmp;*.tif;*.tiff;*.webp;*.gif|All files|*.*"), CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     var full = Path.GetFullPath(dlg.FileName);
