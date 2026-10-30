@@ -261,7 +261,9 @@ window.NoorSprite = (() => {
       root.focus({ preventScroll: true });
       onKey(e);
     });
-    root.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceHeld = false; setCursor(); } if (e.key === 'Alt') { altHeld = false; setCursor(); } });
+    // Keys let go anywhere (focus may have moved to a menu or a redrawn button), or the window left: nothing stays held.
+    document.addEventListener('keyup', (e) => { if (e.key === ' ') { spaceHeld = false; setCursor(); } if (e.key === 'Alt') { altHeld = false; setCursor(); } }, true);
+    window.addEventListener('blur', () => { spaceHeld = false; altHeld = false; setCursor(); });
     const cv = $('#sp-canvas');
     cv.addEventListener('pointerdown', onDown);
     cv.addEventListener('pointermove', onMove);
@@ -307,7 +309,7 @@ window.NoorSprite = (() => {
     if (!built || !doc) return;
     $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}${doc.indexed ? ' · indexed' : ''}`;
     renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderBonePanel(); renderTileset();
-    fitCanvas(); draw(); drawPreview(); status();
+    fitCanvas(); setCursor(); draw(); drawPreview(); status();
     keepFocus();
   }
 
@@ -1047,9 +1049,24 @@ window.NoorSprite = (() => {
       ctx.restore();
     }
     // The brush under the cursor.
+    // The brush's own shape is the cursor (the system's is hidden over the canvas): the pencil's filled faintly with
+    // the drawing colour, both outlined black and white so it shows on any colour.
     if (hover && ['pencil', 'eraser'].includes(tool) && !spaceHeld && !altHeld && !tilesOn()) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.setLineDash([]);
-      for (const [x, y] of brushPoints(hover.x, hover.y)) ctx.strokeRect(o.x + x * z + 0.5, o.y + y * z + 0.5, z - 1, z - 1);
+      const pts = drag && drag.kind === 'stroke' && drag.lazy ? brushPoints(Math.floor(drag.lazy.x), Math.floor(drag.lazy.y)) : brushPoints(hover.x, hover.y);
+      const set = new Set(pts.map(([x, y]) => `${x},${y}`));
+      ctx.save(); ctx.setLineDash([]);
+      if (tool === 'pencil') { ctx.fillStyle = `rgba(${fg[0]},${fg[1]},${fg[2]},0.55)`; for (const [x, y] of pts) ctx.fillRect(o.x + x * z, o.y + y * z, z, z); }
+      const edges = new Path2D();
+      for (const [x, y] of pts) {
+        const X = o.x + x * z, Y = o.y + y * z;
+        if (!set.has(`${x},${y - 1}`)) { edges.moveTo(X, Y); edges.lineTo(X + z, Y); }
+        if (!set.has(`${x},${y + 1}`)) { edges.moveTo(X, Y + z); edges.lineTo(X + z, Y + z); }
+        if (!set.has(`${x - 1},${y}`)) { edges.moveTo(X, Y); edges.lineTo(X, Y + z); }
+        if (!set.has(`${x + 1},${y}`)) { edges.moveTo(X + z, Y); edges.lineTo(X + z, Y + z); }
+      }
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.stroke(edges);
+      ctx.lineWidth = 1.2; ctx.strokeStyle = '#fff'; ctx.stroke(edges);
+      ctx.restore();
     }
   }
 
@@ -1172,7 +1189,8 @@ window.NoorSprite = (() => {
   function setCursor() {
     const cv = $('#sp-canvas');
     if (!cv) return;
-    cv.dataset.cursor = spaceHeld || tool === 'hand' ? 'hand' : altHeld || tool === 'picker' ? 'picker' : tool === 'move' ? 'move' : 'cross';
+    cv.dataset.cursor = spaceHeld || tool === 'hand' ? 'hand' : altHeld || tool === 'picker' ? 'picker' : tool === 'move' ? 'move'
+      : ['pencil', 'eraser'].includes(tool) && !tilesOn() ? 'brush' : 'cross';
   }
 
   /** A redrawn part keeps the keyboard in the bench. */
@@ -1287,6 +1305,8 @@ window.NoorSprite = (() => {
 
   function onDown(e) {
     $('#spritebench').focus({ preventScroll: true });
+    // Alt is read from the press itself: a key-up the menus took can't leave every tool an eyedropper.
+    if (altHeld !== e.altKey) { altHeld = e.altKey; setCursor(); }
     const p = toPixel(e);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* a pointer the browser doesn't know (a test's) */ }
     if (e.button === 1 || spaceHeld || tool === 'hand') { drag = { kind: 'pan', cx: p.cx, cy: p.cy }; return; }
@@ -1497,6 +1517,7 @@ window.NoorSprite = (() => {
   }
 
   function onMove(e) {
+    if (altHeld !== e.altKey) { altHeld = e.altKey; setCursor(); }
     const p = toPixel(e);
     hover = { x: p.x, y: p.y };
     if (!drag && curve) { curve.ctrl = [p.fx - 0.5, p.fy - 0.5]; curvePreview(); draw(); return; }

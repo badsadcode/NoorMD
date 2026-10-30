@@ -303,6 +303,15 @@ one's own, a floating reference picture, pen pressure.
 - **Levels:** "All map layers…" also places the sprite's slices as Marker2D nodes (at a slice's pivot, or its
   middle) — where the player starts, coins, enemies (checked in headless Godot 4.4).
 
+### Fixed in preview.111
+
+- **Every tool stuck as the eyedropper:** Alt held (the eyedropper) was remembered from the key; when its key-up went
+  elsewhere — the menus take Alt on Windows — every tool kept picking colours and nothing drew. Alt is now read from
+  each press itself, and Space and Alt are let go whenever the window loses focus.
+- **The brush is the cursor:** with the pencil and eraser the system's cursor is hidden over the canvas and the
+  brush's own shape shows instead — its size and roundness, the pencil's filled faintly with the drawing colour,
+  outlined black and white so it shows on any colour (with smooth lines, where the brush is, not the pointer).
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

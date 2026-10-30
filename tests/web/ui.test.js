@@ -6717,6 +6717,28 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66s. NoorSprite: a lost Alt key-up never leaves the tools stuck as the eyedropper; the brush is the cursor.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().history === 0);
+      await page.click('#sp-palette [data-index="5"]');
+      await page.keyboard.press('b');
+      check('the pencil\'s cursor is its brush (the system\'s hidden over the canvas)', (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush' && (await page.$eval('#sp-canvas', (c) => getComputedStyle(c).cursor)) === 'none');
+      // Alt pressed, its key-up lost (as when the menus take it): the next stroke still draws.
+      await page.evaluate(() => document.getElementById('spritebench').dispatchEvent(new KeyboardEvent('keydown', { key: 'Alt', altKey: true, bubbles: true })));
+      check('(Alt held shows the eyedropper)', (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'picker');
+      const p = await at(6, 6); await page.mouse.click(p.x, p.y);
+      check('a lost Alt key-up: the next press draws (Alt read from the press), the brush cursor back', (await page.evaluate(() => NoorSprite._pixel(6, 6))).join() === (await page.evaluate(() => NoorSprite._state().fg.join())) && (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush');
+      await page.evaluate(() => { document.getElementById('spritebench').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })); window.dispatchEvent(new Event('blur')); });
+      check('a held Space is let go when the window loses focus', (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush');
+      check('no page errors', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
