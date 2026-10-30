@@ -65,7 +65,7 @@ window.NoorSprite = (() => {
   // ---------------------------------------------------------------- the sprite
 
   function blank(width, height, background) {
-    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], slices: [], tilesets: [], gridWidth: 16, gridHeight: 16, cels: new Map() };
+    const d = { width, height, palette: PALETTES[paletteName].split(' ').map((c) => `#${c}ff`), layers: [], frames: [{ duration: 100 }], tags: [], slices: [], tilesets: [], gridWidth: settings.grid, gridHeight: settings.grid, cels: new Map() };
     const id = newId();
     d.layers.push({ id, name: background ? 'Background' : 'Layer 1', visible: true, locked: false, opacity: 255, blend: 'normal' });
     if (background) {
@@ -255,6 +255,9 @@ window.NoorSprite = (() => {
           el('div', { class: 'sp-viewopts', id: 'sp-viewopts' }))),
       el('div', { class: 'sp-timeline', id: 'sp-timeline' }));
     ($('#app') || document.body).append(root);
+    // In focus mode NoorSprite is an app of its own: the window's menu bar becomes its menus.
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('sprite', { name: 'NoorSprite', title: appTitle, menus: appMenus });
+    loadRecent();
     root.addEventListener('keydown', onKey);
     // A key with nothing focused (a dialog closed, a redrawn button gone) goes to NoorSprite while it is showing.
     document.addEventListener('keydown', (e) => {
@@ -311,6 +314,7 @@ window.NoorSprite = (() => {
     $('#sp-file').textContent = `${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc.width} × ${doc.height} · ${doc.layers.length} layer${doc.layers.length === 1 ? '' : 's'} · ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}${doc.indexed ? ' · indexed' : ''}`;
     renderTools(); renderColours(); renderPalette(); renderOptions(); renderLayerProps(); renderViewOpts(); renderTimeline(); renderSlicePanel(); renderBonePanel(); renderTileset();
     fitCanvas(); setCursor(); draw(); drawPreview(); status();
+    if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged();
     keepFocus();
   }
 
@@ -1924,10 +1928,11 @@ window.NoorSprite = (() => {
 
   function newDialog() {
     NoorUI.modal({ label: 'New sprite', width: 380 }, (s, closeIt) => {
-      const w = el('input', { type: 'number', min: '1', max: '2048', value: '32', id: 'sp-nw', 'aria-label': 'Width' });
-      const h = el('input', { type: 'number', min: '1', max: '2048', value: '32', id: 'sp-nh', 'aria-label': 'Height' });
+      const w = el('input', { type: 'number', min: '1', max: '2048', value: String(settings.width), id: 'sp-nw', 'aria-label': 'Width' });
+      const h = el('input', { type: 'number', min: '1', max: '2048', value: String(settings.height), id: 'sp-nh', 'aria-label': 'Height' });
       const presets = el('div', { class: 'sb-row' }, ...[8, 16, 24, 32, 48, 64, 128, 256].map((n) => el('button', { class: 'utility-btn', onclick: () => { w.value = h.value = String(n); } }, `${n}²`)));
       const back = el('select', { id: 'sp-nbg', 'aria-label': 'Background' }, el('option', { value: 'clear', text: 'Transparent' }), el('option', { value: 'fg', text: 'The drawing colour' }), el('option', { value: 'bg', text: 'The second colour' }), el('option', { value: 'white', text: 'White' }));
+      back.value = settings.background === 'bg' ? 'bg' : settings.background === 'white' ? 'white' : 'clear';
       const ok = async () => {
         if (dirty() && !await NoorUI.confirm('Start a new sprite?', 'The sprite open now has changes not saved.', 'New sprite')) return;
         const nw = Math.max(1, Math.min(2048, Number(w.value) || 32)), nh = Math.max(1, Math.min(2048, Number(h.value) || 32));
@@ -3060,6 +3065,7 @@ window.NoorSprite = (() => {
       if (!r || r.cancelled) return;
       if (r.sprite) { setDoc(fromWire(r.sprite), { path: r.path, name: r.name }); if (r.notes && r.notes.length) notice(r.notes.join(' '), 4000); }
       else if (r.image) setDoc(pictureSprite(r.image), null);
+      loadRecent();
     } catch (err) { hooks.showError(err); }
   }
 
@@ -3080,6 +3086,7 @@ window.NoorSprite = (() => {
       req('sprite.draft.clear').catch(() => {});
       renderAll();
       notice(`Saved ${r.name}`, 1400);
+      loadRecent();
       await writeSharedPalette();
       // A live link: exported again to the game project, the same way.
       if (doc.exportLink) {
@@ -4833,6 +4840,153 @@ window.NoorSprite = (() => {
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => { closeIt(); restoreSnapshot(i); } }, 'Go back to it'), el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
       render();
     });
+  }
+
+  // ---------------------------------------------------------------- NoorSprite as an app: its menus, settings, recent files
+
+  // In focus mode with NoorSprite in the middle, the window's menu bar is NoorSprite's own (see NoorChrome.registerBench).
+  const SETTINGS_KEY = 'noorsprite.settings';
+  const DEFAULTS = { width: 32, height: 32, palette: 'DawnBringer 32', grid: 16, stabilize: 0, onion: false, onionBefore: 1, onionAfter: 1, pixelGrid: true, timelapse: true, background: 'clear' };
+  let settings = { ...DEFAULTS };
+  try { settings = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
+
+  /** The settings put to work: what a new sprite starts with, and how the view and the tools start. */
+  function applySettings(first) {
+    if (PALETTES[settings.palette]) paletteName = settings.palette;
+    if (first) {
+      opts.stabilize = settings.stabilize;
+      Object.assign(view, { onion: settings.onion, onionBefore: settings.onionBefore, onionAfter: settings.onionAfter, pixelGrid: settings.pixelGrid });
+    }
+    lapse.on = settings.timelapse;
+  }
+  applySettings(true);
+
+  function settingsDialog() {
+    NoorUI.modal({ label: 'NoorSprite settings', width: 440 }, (s2, closeIt) => {
+      const num = (k, min, max, label) => el('input', { type: 'number', min: String(min), max: String(max), value: String(settings[k]), id: `sp-set-${k}`, class: 'sb-num', 'aria-label': label });
+      const w = num('width', 1, 2048, 'Width'), h = num('height', 1, 2048, 'Height'), grid = num('grid', 1, 512, 'Grid'), before = num('onionBefore', 0, 5, 'Frames before'), after = num('onionAfter', 0, 5, 'Frames after');
+      const pal = el('select', { id: 'sp-set-palette', 'aria-label': 'Palette' }, ...Object.keys(PALETTES).map((p) => el('option', { value: p, text: p })));
+      pal.value = settings.palette;
+      const back = el('select', { id: 'sp-set-background', 'aria-label': 'Background' }, el('option', { value: 'clear', text: 'transparent' }), el('option', { value: 'white', text: 'white' }), el('option', { value: 'bg', text: 'the second colour' }));
+      back.value = settings.background;
+      const stab = el('select', { id: 'sp-set-stabilize', 'aria-label': 'Smooth lines' }, ...STABILIZERS.map(([v, l]) => el('option', { value: String(v), text: l })));
+      stab.value = String(settings.stabilize);
+      const box = (k) => el('input', { type: 'checkbox', id: `sp-set-${k}`, checked: settings[k] || undefined });
+      const onion = box('onion'), pgrid = box('pixelGrid'), tl = box('timelapse');
+      const ok = () => {
+        const n = (i, min, max, d) => Math.max(min, Math.min(max, Math.round(Number(i.value)) || d));
+        settings = { width: n(w, 1, 2048, 32), height: n(h, 1, 2048, 32), grid: n(grid, 1, 512, 16), palette: pal.value, background: back.value, stabilize: Number(stab.value), onion: onion.checked, onionBefore: n(before, 0, 5, 1), onionAfter: n(after, 0, 5, 1), pixelGrid: pgrid.checked, timelapse: tl.checked };
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
+        applySettings(true);
+        closeIt(); renderAll();
+        notice('NoorSprite settings kept', 1200);
+      };
+      s2.append(NoorUI.head('NoorSprite settings', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('h4', { class: 'music-subhead', text: 'A new sprite' }),
+          el('label', {}, 'Size ', w, ' × ', h), el('label', {}, 'Palette ', pal), el('label', {}, 'Background ', back), el('label', {}, 'Grid (tiles) ', grid),
+          el('h4', { class: 'music-subhead', text: 'Drawing and the view' }),
+          el('label', {}, 'Smooth lines ', stab), el('label', {}, pgrid, ' the pixel grid when zoomed in'), el('label', {}, onion, ' onion skin, ', before, ' before / ', after, ' after'),
+          el('label', {}, tl, ' keep the steps for a timelapse')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-set-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  let recentFiles = [];
+  async function loadRecent() { try { const r = await req('sprite.recent'); recentFiles = (r && r.files) || []; } catch { recentFiles = []; } }
+  async function openRecent(path) {
+    try {
+      if (dirty() && !await NoorUI.confirm('Open another sprite?', 'The sprite open now has changes not saved.', 'Open')) return;
+      const r = await req('sprite.openRecent', { path });
+      if (r && r.sprite) { setDoc(fromWire(r.sprite), { path: r.path, name: r.name }); if (r.notes && r.notes.length) notice(r.notes.join(' '), 4000); }
+      else if (r && r.image) setDoc(pictureSprite(r.image), null);
+      loadRecent();
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** Every key NoorSprite knows (and the ones you gave commands yourself). */
+  function shortcutsDialog() {
+    const rows = [
+      ...TOOLS.filter((t) => t[3]).map((t) => [t[2].replace(/\s*\(.*$/, '').replace(/:.*$/, ''), t[3].toUpperCase()]),
+      ['Eyedropper while held', 'Alt'], ['Pan while held', 'Space'], ['Swap the colours', 'X'], ['Brush smaller / bigger', '[ / ]'], ['Smooth lines (stronger)', 'S'], ['Tiles / pixels (tilemap layer)', 'T'],
+      ['Zoom in / out · fit', '+ / − · 0'], ['Play / stop', 'Enter'], ['Frame before / after', ', / .'], ['Layer up / down', '↑ / ↓'], ['New frame · linked', 'Alt+N · Alt+Shift+N'], ['New layer', 'Shift+N'],
+      ['New sprite · open · save · save as', 'Ctrl+N · Ctrl+O · Ctrl+S · Ctrl+Shift+S'], ['Export', 'Ctrl+E'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y'], ['Cut · copy · paste', 'Ctrl+X · Ctrl+C · Ctrl+V'],
+      ['Select all · nothing · turn round', 'Ctrl+A · Ctrl+D · Ctrl+Shift+I'], ['A brush from the selection', 'Ctrl+B'], ['Group · ungroup', 'Ctrl+G · Ctrl+Shift+G'], ['Find a command', 'Ctrl+K'], ['Focus mode (NoorSprite as an app) on / off', 'F11'],
+      ...Object.entries(myKeys).map(([k, id]) => [`${(commands().find((c) => c.id === id) || { name: id }).name} (yours)`, k]),
+    ];
+    NoorUI.modal({ label: 'NoorSprite shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorSprite shortcuts', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'sp-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b }))))),
+          el('p', { class: 'pref-hint', text: 'Any command can have a key of your own: Ctrl+K, then ⌨ beside it.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  const appTitle = () => `NoorSprite — ${file ? file.name : 'Untitled'}${dirty() ? ' •' : ''} · ${doc ? `${doc.width} × ${doc.height}, ${doc.frames.length} frame${doc.frames.length === 1 ? '' : 's'}` : ''}`;
+
+  /** NoorSprite's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { run(); setTimeout(keepFocus, 0); }, ...more });
+    const tick = (k, label, keys) => ({ label, keys, checked: () => !!view[k], run: () => { view[k] = !view[k]; renderAll(); } });
+    const fromList = (list) => list.map((x) => (x ? go(x[0], x[1]) : '-'));
+    const pick = (list, names) => names.map((n) => (n === '-' ? '-' : (() => { const x = list.find((y) => y && y[0].startsWith(n)); return x ? go(x[0], x[1]) : null; })())).filter(Boolean);
+    const more = () => moreItems();
+    return [
+      ['File', 'f', () => [
+        go('New sprite…', newDialog, 'Ctrl+N'), go('Open…', openFile, 'Ctrl+O'),
+        { label: 'Open recent', sub: () => (recentFiles.length ? recentFiles.map((r) => go(r.name, () => openRecent(r.path), '', { title: r.path })) : [{ label: 'Nothing opened yet', disabled: true }]) }, '-',
+        go('Save', () => save(false), 'Ctrl+S'), go('Save as…', () => save(true), 'Ctrl+Shift+S'), '-',
+        go('Export…', exportDialog, 'Ctrl+E'), go('Share: a GIF, a video, a contact sheet…', shareDialog), go('Timelapse…', timelapseDialog), go('An atlas of many sprites…', packAtlas), '-',
+        ...pick(more(), ['Import a sprite sheet', 'Import a picture as a new layer', 'A picture made pixel art']), '-',
+        go('Snapshots…', snapshotsDialog), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorSprite', close),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('Cut', () => copy(true), 'Ctrl+X'), go('Copy', () => copy(false), 'Ctrl+C'), go('Paste', paste, 'Ctrl+V'), go('Delete what is selected', () => clearSelection(), 'Del'), '-',
+        go('Select all', selectAll, 'Ctrl+A'), go('Select nothing', deselect, 'Ctrl+D'), go('Turn the selection round', invertSelection, 'Ctrl+Shift+I'), go('Crop to the selection', cropToSelection), '-',
+        go('A brush from the selection', brushFromSelection, 'Ctrl+B'), go('Replace a colour…', replaceDialog), '-',
+        go('Find a command…', commandSearch, 'Ctrl+K'), go('NoorSprite settings…', settingsDialog),
+      ]],
+      ['Sprite', 's', () => [
+        go('Canvas size…', canvasDialog), go('Scale the sprite…', scaleDialog),
+        { label: 'Flip and turn', sub: () => fromList(more().filter((x) => x && /^(Flip the sprite|Turn the sprite)/.test(x[0]))) },
+        ...pick(more(), ['Rotate by any angle', 'Scale 2×', 'Scale 3×']), '-',
+        ...pick(more(), ['Outline…', 'Clean doubled corners', 'Take out lone pixels', 'Fewer colours', 'Auto shade', 'Motion (']), '-',
+        go('Effects…', effectsDialog), go('Sprite stacking…', stackDialog), go('Move round by half (seams to the middle)', wrapHalf), '-',
+        ...pick(more(), ['Normal maps', 'A bitmap font', 'This frame to NoorForge', 'This frame to the Texture Bench']),
+      ]],
+      ['Layer', 'l', () => [
+        go('New layer', addLayer, 'Shift+N'), go('New group', addGroup, 'Ctrl+G'), go('Ungroup', ungroup, 'Ctrl+Shift+G'), go('Duplicate', duplicateLayer), go('Merge down', mergeDown), go('Remove', removeLayer), '-',
+        go('Up', () => moveLayer(1)), go('Down', () => moveLayer(-1)), '-',
+        ...pick(more(), ['Flip the layer ↔', 'Flip the layer ↕']), '-',
+        go('New tilemap layer', addTilemapLayer), ...pick(more(), ['Make this layer a tilemap', 'Export the tilemap for Godot']), '-',
+        ...pick(more(), ['Import a picture as a new layer', 'A picture to trace']),
+      ]],
+      ['Frame', 'r', () => [
+        go('New frame (a copy)', () => addFrame(true), 'Alt+N'), go('New empty frame', () => addFrame(false)), go('New linked frame', () => addFrame(true, true), 'Alt+Shift+N'), go('Remove the frame', removeFrame, '', { disabled: () => doc.frames.length < 2 }), '-',
+        go('Earlier', () => moveFrame(-1)), go('Later', () => moveFrame(1)), go('Frame before', () => goFrame((frame - 1 + doc.frames.length) % doc.frames.length), ','), go('Frame after', () => goFrame((frame + 1) % doc.frames.length), '.'), '-',
+        go(playing ? 'Stop' : 'Play', () => (playing ? stop() : play()), 'Enter'), go('New tag…', () => tagDialog(null)), '-',
+        go('Facing the other way…', mirrorTagDialog), go('Directions (4 or 8)…', directionsDialog), go('Update the mirrored tags', updateMirrors), '-',
+        go('In-betweens…', tweenDialog), go('Frame timing…', timingDialog), ...pick(more(), ['A sound for this frame']), go('In a scene…', sceneDialog),
+      ]],
+      ['Palette', 'p', () => fromList(paletteItems())],
+      ['View', 'v', () => [
+        tick('pixelGrid', 'Pixel grid'), tick('grid', 'Grid'), tick('isoGrid', 'Grid as diamonds (isometric)'), '-',
+        tick('onion', 'Onion skin'), tick('onionTag', 'Onion skin: this tag only'), tick('onionOutline', 'Onion skin: outlines'), '-',
+        tick('slices', 'Slices'), tick('bones', 'Bones'), tick('path', 'Motion path'), tick('thumbs', 'Thumbnails in the timeline'), '-',
+        tick('seams', 'Seams'), tick('collision', 'Collision shape'), tick('jaggies', 'Doubled corners'), tick('lit', 'Lit (light at the cursor)'),
+        { label: 'Tiling', sub: () => [['', 'Not tiled'], ['both', 'Both ways'], ['x', 'Across'], ['y', 'Down']].map(([v, l]) => ({ label: l, checked: () => view.tiled === v, run: () => { view.tiled = v; renderAll(); } })) },
+        { label: 'Seen as', sub: () => [['', 'As it is'], ['silhouette', 'Silhouette'], ['grey', 'In grey (values)'], ['protanopia', 'Protanopia'], ['deuteranopia', 'Deuteranopia'], ['tritanopia', 'Tritanopia']].map(([v, l]) => ({ label: l, checked: () => view.seen === v, run: () => { view.seen = v; renderAll(); } })) }, '-',
+        go('Zoom in', () => zoomBy(1), '+'), go('Zoom out', () => zoomBy(-1), '−'), go('Fit the sprite in view', () => { fitZoom(); draw(); }, '0'), '-',
+        go('A floating reference picture…', floatingReference), { id: 'view.focus', label: 'Focus mode (NoorSprite as an app)' },
+      ]],
+      ['Tools', 't', () => [
+        ...TOOLS.map(([id, icon, title, k]) => ({ label: `${icon}  ${title.replace(/\s*\(.*$/, '').replace(/:.*$/, '')}`, keys: k ? k.toUpperCase() : '', checked: () => tool === id, run: () => setTool(id) })), '-',
+        go('Smooth lines: stronger', cycleSmooth, 'S'), go('Swap the colours', swapColours, 'X'),
+      ]],
+      ['Help', 'h', () => [go('NoorSprite shortcuts…', shortcutsDialog), go('Find a command…', commandSearch, 'Ctrl+K'), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   function commands() {

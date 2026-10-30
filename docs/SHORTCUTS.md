@@ -25,7 +25,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Visual editor | Ctrl+1 |
 | Markdown source | Ctrl+2 |
 | Split view | Ctrl+3 |
-| Focus mode (with a bench in the middle: the whole window for the bench, or its ⛶ button) | F11 (Esc to leave) |
+| Focus mode (with a bench in the middle: the whole window for the bench, and the menu bar becomes the bench's own — its File, Edit, View … and settings; leaving it brings NoorMD's menus back) | F11 (Esc to leave) |
 | Show / hide sidebar | Ctrl+\ |
 | Line width: Comfortable → Wide → Full width | Ctrl+Shift+W |
 | Compact layout on / off | Ctrl+Shift+L |

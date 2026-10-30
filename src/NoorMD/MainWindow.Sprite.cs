@@ -28,11 +28,16 @@ public partial class MainWindow
         try
         {
             if (path.EndsWith(SpriteFile.Extension, StringComparison.OrdinalIgnoreCase))
-                return new { sprite = SpriteWire(SpriteFile.Load(path)), path, name, notes = Array.Empty<string>() };
+            {
+                var wire = SpriteWire(SpriteFile.Load(path));
+                AddSpriteRecent(path);
+                return new { sprite = wire, path, name, notes = Array.Empty<string>() };
+            }
             if (path.EndsWith(".aseprite", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".ase", StringComparison.OrdinalIgnoreCase))
             {
                 if (new FileInfo(path).Length > SpriteFile.MaxFileBytes) throw new BridgeError("That file is too large.");
                 var (doc, notes) = AsepriteFile.Read(File.ReadAllBytes(path));
+                AddSpriteRecent(path);
                 return new { sprite = SpriteWire(doc), path, name, notes };
             }
             var (w, h, rgba) = SpritePicture(path);
@@ -40,6 +45,25 @@ public partial class MainWindow
             return new { image = new { width = w, height = h, data = Convert.ToBase64String(rgba) }, name };
         }
         catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+    }
+
+    /// <summary>Sprites opened or saved here, newest first: File › Open recent (only these are opened by path).</summary>
+    private static string SpriteRecentFile => Path.Combine(SpriteDraftFolder, "recent.json");
+    private static List<string> SpriteRecent()
+    {
+        try { return JsonSerializer.Deserialize<List<string>>(File.ReadAllText(SpriteRecentFile)) ?? []; }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return []; }
+    }
+    private static void AddSpriteRecent(string path)
+    {
+        try
+        {
+            var full = Path.GetFullPath(path);
+            var list = SpriteRecent().Where(x => !string.Equals(x, full, StringComparison.OrdinalIgnoreCase)).Prepend(full).Take(15).ToList();
+            Directory.CreateDirectory(SpriteDraftFolder);
+            NoorMD.Core.Documents.AtomicFile.WriteAllText(SpriteRecentFile, JsonSerializer.Serialize(list));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* the list is a convenience */ }
     }
 
     /// <summary>Export places chosen in the dialog with "export here again on every save": the only ones a save may write to.</summary>
@@ -140,6 +164,15 @@ public partial class MainWindow
                 var path = dlg.FileName;
                 return await Task.Run(() => SpriteOpenPath(path));
             }
+            case "sprite.recent":
+                return new { files = SpriteRecent().Where(File.Exists).Select(f => new { path = f, name = Path.GetFileName(f) }).ToList() };
+            case "sprite.openRecent":
+            {
+                var path = req.GetString("path", 2000);
+                if (string.IsNullOrEmpty(path) || !SpriteRecent().Contains(Path.GetFullPath(path), StringComparer.OrdinalIgnoreCase)) throw new BridgeError("That sprite isn't one opened here before.");
+                if (!File.Exists(path)) throw new BridgeError("That sprite is gone (moved or deleted).");
+                return await Task.Run(() => SpriteOpenPath(path));
+            }
             case "sprite.toTexture":
             {
                 // A frame or a tileset for the Texture Bench: written as a PNG of the app's own and allowed for it.
@@ -187,6 +220,7 @@ public partial class MainWindow
                     if (aseprite) NoorMD.Core.Documents.AtomicFile.WriteAllBytes(path, AsepriteFile.Write(doc));
                     else SpriteFile.Save(path, doc);
                 });
+                AddSpriteRecent(path);
                 return new { path, name = Path.GetFileName(path) };
             }
             case "sprite.export":

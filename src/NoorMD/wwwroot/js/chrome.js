@@ -158,6 +158,7 @@ window.NoorChrome = (() => {
 
   /** Re-reads checked/enabled/format state into every visible button and menu. */
   function refresh() {
+    if (activeBench() !== builtFor) { closeMenus(true); buildMenubar(); }
     const bar = $('#toolbar');
     if (!bar) return;
     for (const b of bar.querySelectorAll('[data-cmd-id]')) {
@@ -283,6 +284,24 @@ window.NoorChrome = (() => {
     ]],
   ];
 
+  // ---------------------------------------------------------------- benches as apps
+
+  // In focus mode a bench in the middle has the whole window, and the menu bar becomes its own (its File, Edit, …
+  // and settings); out of focus mode it is NoorMD's again. A bench registers { title(), menus() } with the menus in
+  // the form of MENUS (items: { label, run, keys, checked, disabled, sub } or { id } of an app command).
+  const benches = {};
+  let current = MENUS, builtFor = null;
+  function registerBench(id, spec) { benches[id] = spec; if (api) refresh(); }
+  function activeBench() {
+    const b = document.body.classList.contains('zen') && window.NoorDock && NoorDock.centerActive();
+    return b && benches[b] ? b : null;
+  }
+  /** The bench's title beside its menus (its file, unsaved or not): called by a bench when they change. */
+  function benchChanged() {
+    const b = activeBench(), t = $('#bench-title');
+    if (t) t.textContent = b ? benches[b].title() : '';
+  }
+
   function recentItems() {
     const list = api.recent().slice(0, 12).map((r) => ({ label: r.name, title: r.path, run: () => api.openRecent(r.path) }));
     return list.length ? list : [{ label: 'No recent files', disabled: true }];
@@ -291,14 +310,20 @@ window.NoorChrome = (() => {
   function buildMenubar() {
     const bar = $('#menubar');
     bar.replaceChildren();
-    MENUS.forEach(([name, key, items], i) => {
+    builtFor = activeBench();
+    current = builtFor ? benches[builtFor].menus() : MENUS;
+    document.body.classList.toggle('bench-app', !!builtFor);
+    if (builtFor) document.body.dataset.benchApp = builtFor; else delete document.body.dataset.benchApp;
+    bar.setAttribute('aria-label', builtFor ? `${benches[builtFor].name} menu` : 'Main menu');
+    benchChanged();
+    current.forEach(([name, key, items], i) => {
       const b = el('button', { class: 'menu-title', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-menu': String(i), tabindex: i === 0 ? '0' : '-1' },
         el('span', { class: 'mnemonic', text: name.slice(0, name.toLowerCase().indexOf(key)) }), el('u', { text: name[name.toLowerCase().indexOf(key)] }), name.slice(name.toLowerCase().indexOf(key) + 1));
       b.title = `${name} (Alt+${key.toUpperCase()})`;
       b.addEventListener('mousedown', (e) => { e.preventDefault(); toggleTop(i); });
       b.addEventListener('mouseenter', () => { if (openTop !== null && openTop !== i) showTop(i); });
       b.addEventListener('keydown', (e) => {
-        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + MENUS.length) % MENUS.length; focusTitle(n); }
+        if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const n = (i + (e.key === 'ArrowRight' ? 1 : -1) + current.length) % current.length; focusTitle(n); }
         else if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') { e.preventDefault(); showTop(i, true); }
       });
       bar.append(b);
@@ -323,8 +348,8 @@ window.NoorChrome = (() => {
     title.setAttribute('aria-expanded', 'true');
     title.classList.add('open');
     const r = title.getBoundingClientRect();
-    const menu = renderMenu(MENUS[i][2](), { left: r.left, top: r.bottom + 2 }, 0, (dir) => {
-      const n = (i + dir + MENUS.length) % MENUS.length;
+    const menu = renderMenu(current[i][2](), { left: r.left, top: r.bottom + 2 }, 0, (dir) => {
+      const n = (i + dir + current.length) % current.length;
       showTop(n, true);
       document.querySelector(`#menubar .menu-title[data-menu="${n}"]`).tabIndex = 0;
     });
@@ -358,13 +383,14 @@ window.NoorChrome = (() => {
       if (it === '-') { if (!lastWasSep) menu.append(el('div', { class: 'menu-sep', role: 'separator' })); lastWasSep = true; continue; }
       const c = it.id ? api.command(it.id) : null;
       if (it.id && !c) continue; // a module that isn't in this build: no dead items
-      const st = it.id ? api.state(it.id) : {};
+      // A bench's own item says itself whether it is ticked or can't be used now.
+      const st = it.id ? api.state(it.id) : { checked: typeof it.checked === 'function' ? it.checked() : it.checked, enabled: (typeof it.disabled === 'function' ? it.disabled() : it.disabled) ? false : undefined };
       const label = it.label || c.label;
-      const keys = c && c.keys ? c.keys : '';
+      const keys = c && c.keys ? c.keys : it.keys || '';
       const checkable = st.checked !== undefined && st.checked !== null;
       const b = el('button', {
         class: 'menu-item' + (it.sub ? ' has-sub' : ''), role: checkable ? 'menuitemcheckbox' : 'menuitem', tabindex: '-1',
-        'aria-checked': checkable ? String(!!st.checked) : null, disabled: it.disabled || st.enabled === false || undefined, title: it.title || null, 'data-cmd-id': it.id || null,
+        'aria-checked': checkable ? String(!!st.checked) : null, disabled: it.disabled === true || st.enabled === false || undefined, title: it.title || null, 'data-cmd-id': it.id || null,
       }, el('span', { class: 'menu-check', 'aria-hidden': 'true', text: checkable && st.checked ? '✓' : '' }), el('span', { class: 'menu-label', text: label }),
       el('span', { class: 'menu-keys', text: it.sub ? '▸' : keys }));
       if (it.sub) {
@@ -461,7 +487,8 @@ window.NoorChrome = (() => {
     if (e.key === 'F10' && !e.ctrlKey && !e.altKey && !e.shiftKey) { e.preventDefault(); closeMenus(true); returnFocus = document.activeElement; focusTitle(0); return true; }
     if (e.altKey && !e.ctrlKey && !e.metaKey && /^Key[A-Z]$/.test(e.code)) {
       const letter = e.code.slice(3).toLowerCase();
-      const i = MENUS.findIndex(([, key]) => key === letter);
+      if (activeBench() !== builtFor) buildMenubar();
+      const i = current.findIndex(([, key]) => key === letter);
       if (i < 0) return false;
       e.preventDefault();
       showTop(i, true);
@@ -526,6 +553,7 @@ window.NoorChrome = (() => {
 
   function init(a) {
     api = a;
+    $('#menubar').after(el('span', { class: 'bench-title', id: 'bench-title', 'aria-live': 'polite' }));
     buildMenubar();
     buildToolbar();
     $('#toolbar').addEventListener('contextmenu', (e) => {
@@ -545,5 +573,5 @@ window.NoorChrome = (() => {
     if (window.ResizeObserver) new ResizeObserver(() => requestAnimationFrame(fitToolbar)).observe($('#toolbar'));
   }
 
-  return { init, refresh, setFormatState, applyPrefs, handleKey, closeMenus, isOpen, showCustomize, fitToolbar, openMenu };
+  return { init, refresh, registerBench, benchChanged, activeBench, setFormatState, applyPrefs, handleKey, closeMenus, isOpen, showCustomize, fitToolbar, openMenu };
 })();

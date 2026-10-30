@@ -593,6 +593,12 @@ body.music-disabled .music-entry, body.music-disabled .miniplayer { display: non
 .tab-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 2px; }
 body.compact .tabstrip { margin: 0 0 8px; }
 body.zen .tabstrip { display: none !important; }
+/* A bench as an app (focus mode, the bench in the middle): the menu bar is its own, with its title beside it. */
+.bench-title { display: none; }
+body.zen.bench-app .top { display: flex !important; height: 38px; padding: 0 12px; justify-content: flex-start; }
+body.zen.bench-app .top .actions, body.zen.bench-app #sidebar-expand { display: none !important; }
+body.zen.bench-app .bench-title { display: inline-block; margin-left: 14px; color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+body.zen.bench-app.center-active .workspace { margin-top: 2px !important; }
 
 /* ---------------------------------------------------------------- menu bar */
 .menubar { display: flex; align-items: center; gap: 1px; min-width: 0; overflow: hidden; }
@@ -1857,6 +1863,9 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .sp-cmp-row.sp-cmp-over { display: grid; justify-items: center; }
 .sp-cmp-row.sp-cmp-over figure { grid-area: 1 / 1; }
 .sp-cmp-row.sp-cmp-over figcaption { display: none; }
+.sp-keys { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sp-keys td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.sp-keys td:last-child { text-align: right; white-space: nowrap; }
 .sp-cc-row { align-items: center; gap: 6px; margin: 2px 0; }
 .sp-cc-sw { display: inline-block; width: 18px; height: 18px; border-radius: 3px; border: 1px solid rgba(127,127,127,0.6); vertical-align: middle; }
 .spritebench .sp-tile { padding: 0; border: 2px solid transparent; background: none; cursor: pointer; line-height: 0; border-radius: 3px; }

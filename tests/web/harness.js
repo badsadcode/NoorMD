@@ -547,6 +547,8 @@ function mockHostScript(initial) {
       case 'sprite.palette.link': if (p.create) SPRITE.sharedFile = [...p.palette]; else SPRITE.sharedFile = SPRITE.sharedFile || ['#000000ff', '#ff0000ff', '#00ff00ff']; return { path: 'C:\\Game\\shared.gpl', name: 'shared.gpl', palette: [...SPRITE.sharedFile] };
       case 'sprite.palette.read': if (p.path !== 'C:\\Game\\shared.gpl') throw new Error('not shared here'); return SPRITE.sharedFile ? { palette: [...SPRITE.sharedFile], name: 'shared.gpl' } : { missing: true };
       case 'sprite.palette.write': SPRITE.sharedFile = [...p.palette]; SPRITE.paletteWrites = (SPRITE.paletteWrites || 0) + 1; return { ok: true, name: 'shared.gpl' };
+      case 'sprite.recent': return { files: [{ path: 'C:\\Art\\hero.noorsprite', name: 'hero.noorsprite' }] };
+      case 'sprite.openRecent': SPRITE.openedRecent = p.path; return spriteMock('sprite.open', {});
       case 'sprite.palette.save': SPRITE.palettes = (SPRITE.palettes || []).concat([p.palette]); return { name: 'palette.gpl' };
       case 'sprite.draft.save': SPRITE.drafts = (SPRITE.drafts || 0) + 1; SPRITE.draft = p; return { ok: true };
       case 'sprite.draft.load': return SPRITE.offerDraft ? { sprite: SPRITE.offerDraft, name: 'lost.noorsprite', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };

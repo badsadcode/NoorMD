@@ -87,6 +87,7 @@ window.NoorDock = (() => {
     document.body.classList.add('center-active');
     document.body.dataset.center = panel; // CSS: e.g. no mini-player while the Music Bench itself is shown
     renderModuleTabs();
+    if (window.NoorChrome && NoorChrome.refresh) NoorChrome.refresh(); // in focus mode, its own menus
     requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); hooks.panels[panel].el()?.focus({ preventScroll: true }); });
   }
 
@@ -96,6 +97,7 @@ window.NoorDock = (() => {
     center.active = null;
     document.body.classList.remove('center-active');
     renderModuleTabs();
+    if (window.NoorChrome && NoorChrome.refresh) NoorChrome.refresh();
     requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
   }
 

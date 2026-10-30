@@ -354,6 +354,15 @@ one's own, a floating reference picture, pen pressure.
   sharing one takes the file's colours when it opens (its pixels of a changed colour change with it, by its place in
   the palette) and writes its palette out when it is saved. Only files chosen in these dialogs are read or written.
 
+### Done in preview.114
+
+- **NoorSprite as an app:** in focus mode (F11) with NoorSprite in the middle, the window's menu bar is NoorSprite's
+  own — File (with Open recent), Edit, Sprite, Layer, Frame, Palette, View (every view option ticked when on), Tools
+  (each with its key) and Help (every shortcut, yours too) — with the sprite's name and size beside it. Leaving
+  focus mode brings NoorMD's menus back. **NoorSprite settings** (Edit): a new sprite's size, palette, background
+  and grid; smooth lines, the pixel grid, onion skin and the timelapse to start with. **Open recent** lists the
+  sprites opened or saved here (only those are opened by path).
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

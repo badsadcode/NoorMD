@@ -6931,6 +6931,64 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v. NoorSprite as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const ST = () => page.evaluate(() => NoorSprite._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text) => page.click(`.menu-popup .menu-item:has-text("${text}")`);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      check('(NoorSprite in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sprite');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: NoorSprite as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sprite,Layer,Frame,Palette,View,Tools,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the sprite, its size)', /^NoorSprite — Untitled · 32 × 32, 1 frame/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
+      check('…NoorMD\'s Save and Theme buttons out of the way', !(await page.isVisible('.top .actions')));
+      // View › Onion skin, ticked when on.
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      await item('Onion skin: outlines');
+      check('View › a tick item turns it on', (await ST()).view.onionOutline === true);
+      await page.click('#menubar .menu-title[data-menu="6"]');
+      check('…and shows it ticked', (await page.getAttribute('.menu-popup .menu-item:has-text("Onion skin: outlines")', 'aria-checked')) === 'true');
+      await page.keyboard.press('Escape');
+      // Alt+T: the tools, with their keys.
+      await page.keyboard.press('Alt+t');
+      await page.waitForSelector('.menu-popup');
+      check('Alt+T opens Tools, each with its key, the one in use ticked', (await page.textContent('.menu-popup .menu-item[aria-checked="true"]')).includes('Pencil') && /E$/.test(await page.textContent('.menu-popup .menu-item:has-text("Eraser")')));
+      await item('Eraser');
+      check('…choosing one there takes it', (await ST()).tool === 'eraser');
+      // File › Open recent: the sprites opened here before.
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      await page.hover('.menu-popup .menu-item:has-text("Open recent")');
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("hero.noorsprite")');
+      await waitFn(page, () => window.__mock.state.sprite.openedRecent);
+      await waitFn(page, () => NoorSprite._state().width === 8);
+      check('File › Open recent opens a sprite opened before', (await page.evaluate(() => window.__mock.state.sprite.openedRecent)) === 'C:\\Art\\hero.noorsprite' && /hero\.noorsprite/.test(await page.textContent('#bench-title')));
+      // Edit › Settings: what a new sprite starts with.
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      await item('NoorSprite settings');
+      await page.waitForSelector('#sp-set-ok');
+      await page.fill('#sp-set-width', '20'); await page.fill('#sp-set-height', '12'); await page.click('#sp-set-ok');
+      await page.click('#menubar .menu-title[data-menu="0"]'); await item('New sprite');
+      await page.waitForSelector('#sp-new-ok');
+      check('NoorSprite settings: a new sprite starts at the size set there', (await page.inputValue('#sp-nw')) === '20' && (await page.inputValue('#sp-nh')) === '12' && (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsprite.settings')).width)) === 20);
+      await page.keyboard.press('Escape');
+      // Help › shortcuts.
+      await page.click('#menubar .menu-title[data-menu="8"]'); await item('NoorSprite shortcuts');
+      await page.waitForSelector('#sp-keys');
+      check('Help › NoorSprite shortcuts: every key listed', (await page.$$('#sp-keys tr')).length > 30);
+      await page.keyboard.press('Escape');
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, NoorSprite still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSprite.isOpen())));
+      check('no page errors with NoorSprite as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
