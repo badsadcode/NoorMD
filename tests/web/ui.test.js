@@ -7419,6 +7419,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#pref-language', 'en');
       await waitFn(page, () => document.querySelector('#menubar .menu-title').textContent === 'File');
       check('back to English at once', (await titles()).slice(0, 2).join() === 'File,Edit' && /Preferences/.test(await page.textContent('.modal')));
+      // The real Polish file: NoorMD's menus, and a bench's own words.
+      const plFile = await page.evaluate(async () => (await fetch('_noormd/lang/pl.json')).json());
+      await page.keyboard.press('Escape');
+      await page.evaluate((d) => NoorI18n.use('pl', d), plFile);
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      check('the built-in Polish: the File menu in Polish', /Nowy dokument/.test(await page.textContent('.menu-popup')) && !/Reload from disk|Open files in tabs/.test(await page.textContent('.menu-popup')));
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => NoorI18n.use('en', {}));
       check('no page errors with languages', errors.length === 0, errors);
       await page.close();
     }
