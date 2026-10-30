@@ -6737,10 +6737,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a held Space is let go when the window loses focus', (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush');
       // The pointer is a small crosshair that follows the mouse smoothly, not snapped to the pixels (the brush outline is).
       const c0 = await at(10, 10), z = (await page.evaluate(() => NoorSprite._state().view.zoom));
-      const armAt = async (x, y) => page.evaluate(([X, Y]) => { const cv = document.getElementById('sp-canvas'), r = cv.getBoundingClientRect(); return [...cv.getContext('2d').getImageData(Math.round(X - r.left) + 6, Math.round(Y - r.top), 1, 1).data].join(); }, [x, y]);
+      const armAt = async (x, y) => page.evaluate(([X, Y]) => { const cv = document.getElementById('sp-canvas'), r = cv.getBoundingClientRect(); const d = cv.getContext('2d').getImageData(Math.round(X - r.left) + 4, Math.round(Y - r.top) - 2, 5, 5).data; // around the right arm (the mouse may land a pixel off)
+        for (let i = 0; i < d.length; i += 4) if (d[i] === 255 && d[i + 1] === 255 && d[i + 2] === 255) return 'white'; return 'none'; }, [x, y]);
       await page.mouse.move(c0.x - z / 4, c0.y); const a1 = await armAt(c0.x - z / 4, c0.y);
       await page.mouse.move(c0.x + z / 4, c0.y); const a2 = await armAt(c0.x + z / 4, c0.y);
-      check('the pointer\'s crosshair moves with the mouse inside one pixel', z >= 8 && a1 === '255,255,255,255' && a2 === '255,255,255,255', [z, a1, a2]);
+      check('the pointer\'s crosshair moves with the mouse inside one pixel', z >= 8 && a1 === 'white' && a2 === 'white', [z, a1, a2]);
       check('no page errors', errors.length === 0, errors);
       await page.close();
     }
