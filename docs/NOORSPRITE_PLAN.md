@@ -368,6 +368,12 @@ one's own, a floating reference picture, pen pressure.
 - **The pointer no longer jumps from pixel to pixel:** with the pencil and eraser a small crosshair follows the mouse
   smoothly (as in Aseprite), and the brush's outline, now fainter, shows the pixels it will paint.
 
+### Done in preview.117
+
+- **Onion skin, previous and next:** View › Shows chooses the previous frames, the next ones, or both (also in the
+  View menu and the command search); the previous ones are tinted red and the next ones blue, more strongly than
+  before, and either colour can be your own. The choice and the colours are remembered.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorPhoto is for that), 3D, video.

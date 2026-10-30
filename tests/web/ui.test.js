@@ -7359,6 +7359,35 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66x. NoorSprite onion skin: previous frames red, next ones blue; previous, next or both; colours of your own.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // Three frames: a pixel at 2,2 on the first, nothing on the second (shown), a pixel at 5,5 on the third.
+      await page.evaluate(() => {
+        const W = 8, enc = (x, y) => { const d = new Uint8Array(W * W * 4); d.set([0, 0, 0, 255], (y * W + x) * 4); let s = ''; d.forEach((v) => { s += String.fromCharCode(v); }); return btoa(s); };
+        NoorSprite._load({ version: 1, width: W, height: W, palette: ['#000000ff'], layers: [{ id: 'L', name: 'L', visible: true, locked: false, opacity: 255, blend: 'normal' }], frames: [{ duration: 100 }, { duration: 100 }, { duration: 100 }], tags: [],
+          cels: [{ layer: 'L', frame: 0, x: 0, y: 0, width: W, height: W, opacity: 255, data: enc(2, 2) }, { layer: 'L', frame: 2, x: 0, y: 0, width: W, height: W, opacity: 255, data: enc(5, 5) }] });
+      });
+      await page.keyboard.press('.');
+      await waitFn(page, () => NoorSprite._state().frame === 1);
+      const shown = (x, y) => page.evaluate(([a, b]) => { const p = NoorSprite._screen(a, b), cv = document.getElementById('sp-canvas'), r = cv.getBoundingClientRect(); return [...cv.getContext('2d').getImageData(Math.round(p.x - r.left), Math.round(p.y - r.top), 1, 1).data].slice(0, 3); }, [x, y]);
+      const reddish = (c) => c[0] > c[1] + 20 && c[0] > c[2] + 20, bluish = (c) => c[2] > c[0] + 20 && c[2] > c[1] + 5, plain = (c) => Math.abs(c[0] - c[1]) < 6 && Math.abs(c[1] - c[2]) < 6;
+      await page.click('#sp-viewopts [data-view="onion"]');
+      check('onion skin: the previous frame red, the next one blue', reddish(await shown(2, 2)) && bluish(await shown(5, 5)), [await shown(2, 2), await shown(5, 5)]);
+      await page.selectOption('#sp-onion-mode', 'before');
+      check('…“previous”: only the frame before', reddish(await shown(2, 2)) && plain(await shown(5, 5)));
+      await page.selectOption('#sp-onion-mode', 'after');
+      check('…“next”: only the frame after', plain(await shown(2, 2)) && bluish(await shown(5, 5)));
+      await page.selectOption('#sp-onion-mode', 'both');
+      await page.$eval('#sp-onion-before-colour', (c) => { c.value = '#00ff00'; c.dispatchEvent(new Event('input', { bubbles: true })); c.dispatchEvent(new Event('change', { bubbles: true })); });
+      const g = await shown(2, 2);
+      check('…the previous frames\' colour of your own (green here), kept for next time', g[1] > g[0] + 20 && g[1] > g[2] + 20 && (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsprite.settings')).onionColourBefore)) === '#00ff00', g);
+      check('no page errors with the onion skin', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false, isoGrid: false, collision: false, collisionTol: 1, previewScale: 0, seams: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, onionMode: 'both', onionColourBefore: '#ff3c3c', onionColourAfter: '#3c78ff', slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false, isoGrid: false, collision: false, collisionTol: 1, previewScale: 0, seams: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -542,6 +542,15 @@ window.NoorSprite = (() => {
       check('seams', 'seams', 'Marks the rows and columns where the edges don\'t join when it repeats (for seamless tiles; ☰ › Move round by half brings them to the middle)'),
       check('collision', 'collision shape', 'The polygon traced around this frame\'s solid pixels: what Export › Godot › collision shape writes'),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
+      (() => {
+        // Which frames show (the earlier, both, the later), and their colours: remembered for next time.
+        const keep = () => { Object.assign(settings, { onionMode: view.onionMode, onionColourBefore: view.onionColourBefore, onionColourAfter: view.onionColourAfter }); try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now */ } };
+        const mode = el('select', { id: 'sp-onion-mode', 'aria-label': 'Onion skin shows', title: 'Which frames the onion skin shows' }, el('option', { value: 'before', text: 'previous' }), el('option', { value: 'both', text: 'previous and next' }), el('option', { value: 'after', text: 'next' }));
+        mode.value = view.onionMode;
+        mode.addEventListener('change', () => { view.onionMode = mode.value; if (!view.onion) { view.onion = true; renderViewOpts(); } keep(); draw(); keepFocus(); });
+        const colour = (k, label) => { const c = el('input', { type: 'color', value: view[k], id: k === 'onionColourBefore' ? 'sp-onion-before-colour' : 'sp-onion-after-colour', class: 'sp-onion-colour', 'aria-label': label, title: label }); c.addEventListener('input', () => { view[k] = c.value; draw(); }); c.addEventListener('change', keep); return c; };
+        return el('div', { class: 'sb-row' }, el('label', { class: 'sb-inline' }, el('span', { text: 'Shows' }), mode), colour('onionColourBefore', 'The colour of the previous frames'), colour('onionColourAfter', 'The colour of the next frames'));
+      })(),
       el('div', { class: 'sb-row' }, check('onionTag', 'this tag only', 'Onion skin from the frames of the tag you are in, not past it'), check('onionOutline', 'outlines', 'Onion skin as outlines (easier to see through)')),
       el('div', { class: 'sb-row' }, check('path', 'motion path', 'The layer\'s path through the frames (its picture\'s middle on each); with the move tool, drag a point to move that frame\'s picture'),
         (() => { const c = el('input', { type: 'checkbox', checked: view.thumbs || undefined, 'data-view': 'thumbs' }); c.addEventListener('change', () => { view.thumbs = c.checked; renderTimeline(); keepFocus(); }); return el('label', { class: 'sb-inline', title: 'Small pictures in the timeline' }, c, el('span', { text: 'thumbnails' })); })()),
@@ -979,12 +988,15 @@ window.NoorSprite = (() => {
     for (let y = 0; y < H; y += cell) for (let x = 0; x < W; x += cell) { ctx.fillStyle = ((x / cell + y / cell) & 1) ? '#c9c9c9' : '#f2f2f2'; ctx.fillRect(o.x + x, o.y + y, cell, cell); }
     // Onion skin: earlier frames reddish, later ones bluish, fainter further away.
     if (view.onion && !playing) {
-      for (const [f, tint] of [...Array.from({ length: view.onionBefore }, (_, i) => [frame - i - 1, [255, 60, 60]]), ...Array.from({ length: view.onionAfter }, (_, i) => [frame + i + 1, [60, 120, 255]])]) {
+      // Earlier frames in one colour (red), later ones in another (blue); the mode shows the earlier, the later or both.
+      const tb = parseHex(view.onionColourBefore).slice(0, 3), ta = parseHex(view.onionColourAfter).slice(0, 3);
+      const nb = view.onionMode === 'after' ? 0 : view.onionBefore, na = view.onionMode === 'before' ? 0 : view.onionAfter;
+      for (const [f, tint] of [...Array.from({ length: nb }, (_, i) => [frame - i - 1, tb]), ...Array.from({ length: na }, (_, i) => [frame + i + 1, ta])]) {
         if (f < 0 || f >= doc.frames.length) continue;
         const tg = view.onionTag && doc.tags.find((t) => frame >= t.from && frame <= t.to);
         if (tg && (f < tg.from || f > tg.to)) continue; // only this tag's frames
         const px = view.onionOutline ? outlineOf(compose(f), doc.width, doc.height, tint) : compose(f);
-        if (!view.onionOutline) for (let i = 0; i < px.length; i += 4) { px[i] = (px[i] + tint[0]) / 2; px[i + 1] = (px[i + 1] + tint[1]) / 2; px[i + 2] = (px[i + 2] + tint[2]) / 2; }
+        if (!view.onionOutline) for (let i = 0; i < px.length; i += 4) { px[i] = px[i] * 0.3 + tint[0] * 0.7; px[i + 1] = px[i + 1] * 0.3 + tint[1] * 0.7; px[i + 2] = px[i + 2] * 0.3 + tint[2] * 0.7; }
         ctx.globalAlpha = view.onionAlpha / (Math.abs(f - frame));
         ctx.drawImage(pixelsToCanvas(px, doc.width, doc.height), o.x, o.y, W, H);
       }
@@ -4855,7 +4867,7 @@ window.NoorSprite = (() => {
 
   // In focus mode with NoorSprite in the middle, the window's menu bar is NoorSprite's own (see NoorChrome.registerBench).
   const SETTINGS_KEY = 'noorsprite.settings';
-  const DEFAULTS = { width: 32, height: 32, palette: 'DawnBringer 32', grid: 16, stabilize: 0, onion: false, onionBefore: 1, onionAfter: 1, pixelGrid: true, timelapse: true, background: 'clear' };
+  const DEFAULTS = { width: 32, height: 32, palette: 'DawnBringer 32', grid: 16, stabilize: 0, onion: false, onionBefore: 1, onionAfter: 1, onionMode: 'both', onionColourBefore: '#ff3c3c', onionColourAfter: '#3c78ff', pixelGrid: true, timelapse: true, background: 'clear' };
   let settings = { ...DEFAULTS };
   try { settings = { ...DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
 
@@ -4864,7 +4876,7 @@ window.NoorSprite = (() => {
     if (PALETTES[settings.palette]) paletteName = settings.palette;
     if (first) {
       opts.stabilize = settings.stabilize;
-      Object.assign(view, { onion: settings.onion, onionBefore: settings.onionBefore, onionAfter: settings.onionAfter, pixelGrid: settings.pixelGrid });
+      Object.assign(view, { onion: settings.onion, onionBefore: settings.onionBefore, onionAfter: settings.onionAfter, onionMode: settings.onionMode, onionColourBefore: settings.onionColourBefore, onionColourAfter: settings.onionColourAfter, pixelGrid: settings.pixelGrid });
     }
     lapse.on = settings.timelapse;
   }
@@ -4884,7 +4896,7 @@ window.NoorSprite = (() => {
       const onion = box('onion'), pgrid = box('pixelGrid'), tl = box('timelapse');
       const ok = () => {
         const n = (i, min, max, d) => Math.max(min, Math.min(max, Math.round(Number(i.value)) || d));
-        settings = { width: n(w, 1, 2048, 32), height: n(h, 1, 2048, 32), grid: n(grid, 1, 512, 16), palette: pal.value, background: back.value, stabilize: Number(stab.value), onion: onion.checked, onionBefore: n(before, 0, 5, 1), onionAfter: n(after, 0, 5, 1), pixelGrid: pgrid.checked, timelapse: tl.checked };
+        settings = { width: n(w, 1, 2048, 32), height: n(h, 1, 2048, 32), grid: n(grid, 1, 512, 16), palette: pal.value, background: back.value, stabilize: Number(stab.value), onion: onion.checked, onionBefore: n(before, 0, 5, 1), onionAfter: n(after, 0, 5, 1), onionMode: settings.onionMode, onionColourBefore: settings.onionColourBefore, onionColourAfter: settings.onionColourAfter, pixelGrid: pgrid.checked, timelapse: tl.checked };
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
         applySettings(true);
         closeIt(); renderAll();
@@ -4982,7 +4994,9 @@ window.NoorSprite = (() => {
       ['Palette', 'p', () => fromList(paletteItems())],
       ['View', 'v', () => [
         tick('pixelGrid', 'Pixel grid'), tick('grid', 'Grid'), tick('isoGrid', 'Grid as diamonds (isometric)'), '-',
-        tick('onion', 'Onion skin'), tick('onionTag', 'Onion skin: this tag only'), tick('onionOutline', 'Onion skin: outlines'), '-',
+        tick('onion', 'Onion skin'),
+        { label: 'Onion skin shows', sub: () => [['before', 'Previous frames (red)'], ['both', 'Previous and next'], ['after', 'Next frames (blue)']].map(([v, l]) => ({ label: l, checked: () => view.onionMode === v, run: () => { view.onionMode = v; view.onion = true; settings.onionMode = v; try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* */ } renderAll(); } })) },
+        tick('onionTag', 'Onion skin: this tag only'), tick('onionOutline', 'Onion skin: outlines'), '-',
         tick('slices', 'Slices'), tick('bones', 'Bones'), tick('path', 'Motion path'), tick('thumbs', 'Thumbnails in the timeline'), '-',
         tick('seams', 'Seams'), tick('collision', 'Collision shape'), tick('jaggies', 'Doubled corners'), tick('lit', 'Lit (light at the cursor)'),
         { label: 'Tiling', sub: () => [['', 'Not tiled'], ['both', 'Both ways'], ['x', 'Across'], ['y', 'Down']].map(([v, l]) => ({ label: l, checked: () => view.tiled === v, run: () => { view.tiled = v; renderAll(); } })) },
@@ -5011,7 +5025,7 @@ window.NoorSprite = (() => {
       ['layer.new', 'New layer', addLayer], ['layer.group', 'New group', addGroup], ['layer.ungroup', 'Ungroup', ungroup], ['layer.tilemap', 'New tilemap layer', addTilemapLayer], ['layer.duplicate', 'Duplicate the layer', duplicateLayer],
       ['layer.remove', 'Remove the layer', removeLayer], ['layer.merge', 'Merge down', mergeDown], ['layer.up', 'Layer up', () => moveLayer(1)], ['layer.down', 'Layer down', () => moveLayer(-1)],
       ['tiles.mode', 'Tiles / pixels (tilemap layer)', () => setTileMode(!tileMode)], ['brush.smooth', 'Smooth lines: stronger (round to off)', () => cycleSmooth()],
-      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'), flip('isoGrid', 'isometric diamonds (with the grid)'), flip('collision', 'the collision shape'), flip('seams', 'the seams'),
+      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), ...[['before', 'previous frames'], ['both', 'previous and next frames'], ['after', 'next frames']].map(([v, l]) => [`view.onion.${v}`, `Onion skin: ${l}`, () => { view.onion = true; view.onionMode = v; renderAll(); }]), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'), flip('isoGrid', 'isometric diamonds (with the grid)'), flip('collision', 'the collision shape'), flip('seams', 'the seams'),
       ['view.tiled', 'Tiling: both ways / off', () => { view.tiled = view.tiled ? '' : 'both'; renderAll(); }], ['view.in', 'Zoom in', () => zoomBy(1)], ['view.out', 'Zoom out', () => zoomBy(-1)], ['view.fit', 'Fit the sprite in view', () => { fitZoom(); draw(); }],
       ['view.reference', 'A floating reference picture…', floatingReference],
       ...moreItems().filter(Boolean).map(([name, fn]) => [`sprite.${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`, name, fn]),
