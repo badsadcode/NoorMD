@@ -18,7 +18,7 @@ window.NoorSprite = (() => {
   };
   const TOOLS = [
     ['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['fill', '🪣', 'Fill (G)', 'g'], ['line', '╱', 'Line (L)', 'l'],
-    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
+    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['curve', '⌒', 'Curve (J): drag the line, then move to bend it and click', 'j'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
     ['select', '⬚', 'Select a rectangle (M)', 'm'], ['eselect', '◌', 'Select an ellipse', null], ['lasso', '➰', 'Lasso (Q)', 'q'], ['wand', '🪄', 'Magic wand (W)', 'w'],
     ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['bone', '🦴', 'Bones (K): a skeleton that layers move with; pose it frame by frame', 'k'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
   ];
@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -192,7 +192,7 @@ window.NoorSprite = (() => {
       if (!c) return;
       const k = (l.opacity / 255) * (c.opacity / 255) * (only ? 1 : ancestors(d, l).reduce((m, g) => m * g.opacity / 255, 1));
       if (k <= 0) return;
-      const px = c.px;
+      const px = l.outline ? outlined(c.px, d.width, d.height, l.outline) : c.px;
       for (let i = 0; i < n; i++) {
         const o = i * 4, sa = (px[o + 3] / 255) * k;
         if (sa <= 0) continue;
@@ -314,7 +314,7 @@ window.NoorSprite = (() => {
     $('#sp-tools').replaceChildren(...TOOLS.map(([id, icon, title]) => el('button', { class: 'icon-btn sp-tool' + (tool === id ? ' on' : ''), 'data-tool': id, title, 'aria-label': title, 'aria-pressed': String(tool === id), onclick: () => setTool(id) }, icon)));
   }
 
-  function setTool(t) { if (t !== 'move') commitFloating(); if (tilesOn() && !['pencil', 'eraser', 'fill', 'picker', 'hand', 'slice'].includes(t)) tileMode = false; tool = t; renderTileset(); renderBonePanel(); renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
+  function setTool(t) { if (t !== 'move') commitFloating(); curve = null; if (tilesOn() && !['pencil', 'eraser', 'fill', 'picker', 'hand', 'slice'].includes(t)) tileMode = false; tool = t; renderTileset(); renderBonePanel(); renderTools(); renderOptions(); renderSlicePanel(); setCursor(); draw(); keepFocus(); }
 
   function renderColours() {
     $('#sp-fg').style.setProperty('--c', `rgba(${fg[0]},${fg[1]},${fg[2]},${fg[3] / 255})`);
@@ -479,6 +479,16 @@ window.NoorSprite = (() => {
       el('label', { class: 'sb-inline' }, el('span', { text: 'Blend' }), blend),
       el('label', { class: 'sb-inline' }, el('span', { text: 'Opacity' }), op),
       ingroup,
+      (() => {
+        const o = l.outline, on = el('input', { type: 'checkbox', id: 'sp-liveoutline', checked: o || undefined });
+        const set = (patch) => change('Live outline', (d) => { const x = { ...d.layers[layer] }; x.outline = { color: '#000000ff', where: 'outside', eight: false, ...(x.outline || {}), ...patch }; d.layers[layer] = x; });
+        on.addEventListener('change', () => (on.checked ? set({}) : change('No live outline', (d) => { const x = { ...d.layers[layer] }; delete x.outline; d.layers[layer] = x; })));
+        const colour = el('input', { type: 'color', value: o ? o.color.slice(0, 7) : '#000000', id: 'sp-liveoutline-colour', 'aria-label': 'Outline colour', disabled: !o || undefined });
+        colour.addEventListener('change', () => set({ color: colour.value + 'ff' }));
+        const where = el('select', { id: 'sp-liveoutline-where', 'aria-label': 'Where', disabled: !o || undefined }, el('option', { value: 'outside', text: 'around' }), el('option', { value: 'inside', text: 'on the edge' }));
+        where.value = o ? o.where : 'outside'; where.addEventListener('change', () => set({ where: where.value }));
+        return el('div', { class: 'sb-row', title: 'An outline drawn round the layer wherever it shows or is exported — its pixels stay as they are' }, el('label', { class: 'sb-inline' }, on, el('span', { text: 'live outline' })), colour, where);
+      })(),
       (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-normals', checked: l.normals || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A normals layer' : 'Not a normals layer', (d) => { const x = { ...d.layers[layer] }; if (c2.checked) x.normals = true; else delete x.normals; d.layers[layer] = x; })); return el('label', { class: 'sb-inline', title: 'Its pixels are normal-map colours that paint over the made normal map (never exported as colour)' }, c2, el('span', { text: 'normals (paints the normal map)' })); })(),
       l.normals ? el('div', { class: 'sb-row sp-normal-swatches', role: 'group', 'aria-label': 'Normal colours' }, ...NORMAL_SWATCHES.map(([name, c]) => el('button', { class: 'sp-swatch-mini', 'data-normal': name, title: `Facing ${name}`, style: `background:${hex(c).slice(0, 7)}`, onclick: () => { fg = [...c]; renderColours(); keepFocus(); } }))) : null,
       (() => { const c2 = el('input', { type: 'checkbox', id: 'sp-reference', checked: l.reference || undefined }); c2.addEventListener('change', () => change(c2.checked ? 'A reference layer' : 'Not a reference layer', (d) => { d.layers[layer].reference = c2.checked; })); return el('label', { class: 'sb-inline', title: 'A picture to draw over or trace: shown here, never exported' }, c2, el('span', { text: 'reference (not exported)' })); })(),
@@ -505,6 +515,7 @@ window.NoorSprite = (() => {
       check('pixelGrid', 'pixel grid', 'Lines between the pixels when zoomed in'),
       check('slices', 'slices', 'The slices\' outlines (always shown with the slice tool)'),
       check('bones', 'bones', 'The skeleton (always shown with the bone tool)'),
+      check('jaggies', 'doubled corners', 'Marks doubled corners in one-pixel lines on this layer (☰ › Clean doubled corners takes them out)'),
       check('lit', 'lit (light at the cursor)', 'The sprite lit by a light at the cursor, through its normal map: as a game\'s 2D lights will'),
       (() => {
         const t = el('select', { id: 'sp-tiled', 'aria-label': 'Tiled', title: 'The sprite repeated around itself, and drawing that wraps round the edges: for seamless tiles and textures' },
@@ -1011,6 +1022,10 @@ window.NoorSprite = (() => {
     drawSlices(ctx, o, z);
     if (view.path && !playing) drawPath(ctx, o, z);
     drawBones(ctx, o, z);
+    if (view.jaggies) {
+      const c = cel();
+      if (c) { ctx.save(); ctx.strokeStyle = '#ff2a55'; ctx.lineWidth = 2; for (const i of jaggies(c.px, doc.width, doc.height)) ctx.strokeRect(o.x + (i % doc.width) * z + 1, o.y + Math.floor(i / doc.width) * z + 1, z - 2, z - 2); ctx.restore(); }
+    }
     // The stabilizer's string, from the brush to the cursor.
     if (drag && drag.kind === 'stroke' && drag.lazy) {
       const L = drag.lazy, bx = o.x + L.x * z, by = o.y + L.y * z;
@@ -1074,13 +1089,14 @@ window.NoorSprite = (() => {
 
   /** The current frame as shown: the sprite, a shape being drawn and a lifted selection on top. */
   function composeShown() {
-    if (!drag || !drag.preview) {
+    const live = (drag && drag.preview) || (curve && curve.preview);
+    if (!live) {
       if (!floating) return composeCycled(frame) || compose(frame);
     }
     const d = snapshot(doc);
-    if (drag && drag.preview) {
+    if (live) {
       const k = key(d.layers[layer].id, frame);
-      d.cels.set(k, { px: drag.preview, opacity: (d.cels.get(k) || { opacity: 255 }).opacity });
+      d.cels.set(k, { px: live, opacity: (d.cels.get(k) || { opacity: 255 }).opacity });
     }
     const out = compose(frame, d);
     if (floating) {
@@ -1298,6 +1314,13 @@ window.NoorSprite = (() => {
       draw();
       return;
     }
+    if (t === 'curve') {
+      if (curve) { const c0 = curve; curve = null; change('Curve', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: c0.preview, opacity: (cel() || { opacity: 255 }).opacity }); }); return; }
+      const base = cel();
+      drag = { kind: 'curve-line', from: [p.x, p.y], to: [p.x, p.y], colour, base: base ? base.px : new Uint8ClampedArray(doc.width * doc.height * 4) };
+      drag.preview = new Uint8ClampedArray(drag.base);
+      return;
+    }
     if (t === 'gradient') {
       const base = cel();
       drag = { kind: 'gradient', from: [p.fx, p.fy], to: [p.fx, p.fy], c1: e.button === 2 ? bg : fg, c2: e.button === 2 ? fg : bg, base: base ? base.px : new Uint8ClampedArray(doc.width * doc.height * 4) };
@@ -1400,12 +1423,62 @@ window.NoorSprite = (() => {
     return px;
   }
 
+  // Pixel-art slopes: runs of the same length (1:1, 2:1, 3:1, 4:1 and the steep ones), never ragged.
+  const SLOPES = [[1, 0], [0, 1], [1, 1], [2, 1], [1, 2], [3, 1], [1, 3], [4, 1], [1, 4]];
+
+  /** A line from a point towards another along the nearest clean slope, in even runs. */
+  function slopePoints(x0, y0, x1, y1) {
+    const dx = x1 - x0, dy = y1 - y0, sx = Math.sign(dx) || 1, sy = Math.sign(dy) || 1, ang = Math.atan2(Math.abs(dy), Math.abs(dx));
+    let best = SLOPES[0], bd = Infinity;
+    for (const sl of SLOPES) { const a2 = Math.atan2(sl[1], sl[0]), dd = Math.abs(a2 - ang); if (dd < bd) { bd = dd; best = sl; } }
+    const [a, b] = best, pts = [];
+    if (!b) { for (let i = 0; i <= Math.abs(dx); i++) pts.push([x0 + sx * i, y0]); return pts; }
+    if (!a) { for (let i = 0; i <= Math.abs(dy); i++) pts.push([x0, y0 + sy * i]); return pts; }
+    // Steps of `a` across and `b` down (one of them is 1), as many as reach furthest.
+    const k = Math.max(1, Math.round(Math.max(Math.abs(dx) / a, Math.abs(dy) / b)));
+    let x = x0, y = y0;
+    for (let i = 0; i < k; i++) {
+      if (a >= b) { for (let j = 0; j < a; j++) { pts.push([x, y]); x += sx; } y += sy; x -= 0; }
+      else { for (let j = 0; j < b; j++) { pts.push([x, y]); y += sy; } x += sx; }
+    }
+    return pts;
+  }
+
+  /** Points of a quadratic curve from p0 to p1 bent towards c: one pixel wide, no doubled corners. */
+  function curvePoints(p0, p1, c) {
+    const len = Math.hypot(c[0] - p0[0], c[1] - p0[1]) + Math.hypot(p1[0] - c[0], p1[1] - c[1]), n = Math.max(2, Math.ceil(len * 3)), raw = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, u = 1 - t;
+      raw.push([Math.round(u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0]), Math.round(u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1])]);
+    }
+    const pts = [];
+    for (const q of raw) {
+      const last = pts[pts.length - 1];
+      if (last && last[0] === q[0] && last[1] === q[1]) continue;
+      if (last && (Math.abs(last[0] - q[0]) > 1 || Math.abs(last[1] - q[1]) > 1)) pts.push(...linePoints(last[0], last[1], q[0], q[1]).slice(1, -1));
+      pts.push(q);
+      // Pixel-perfect: the corner of an L between two diagonal neighbours goes.
+      const m = pts.length;
+      if (m >= 3) { const [a, b, c2] = pts.slice(-3); if (Math.abs(a[0] - c2[0]) === 1 && Math.abs(a[1] - c2[1]) === 1 && (b[0] === a[0] || b[1] === a[1])) pts.splice(m - 2, 1); }
+    }
+    return pts;
+  }
+
+  // The curve tool: drag the line, then move to bend it and click to draw it (Esc lets it go).
+  let curve = null; // { from, to, ctrl, colour, base, preview }
+  function curvePreview() {
+    const px = new Uint8ClampedArray(curve.base);
+    for (const [x, y] of curvePoints(curve.from, curve.to, curve.ctrl).flatMap(([x, y]) => (opts.size > 1 ? brushPoints(x, y) : mirrored([[x, y]])))) plot(px, x, y, curve.colour);
+    curve.preview = px;
+  }
+
   function shapePreview(e, d = drag) {
     const px = new Uint8ClampedArray(d.base);
     let [x1, y1] = d.to;
     const [x0, y0] = d.from;
     if (e && e.shiftKey && d.tool !== 'line') { const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)); x1 = x0 + Math.sign(x1 - x0 || 1) * s; y1 = y0 + Math.sign(y1 - y0 || 1) * s; }
-    const pts = d.tool === 'line' ? linePoints(x0, y0, x1, y1).flatMap(([x, y]) => (opts.size > 1 ? brushPoints(x, y) : mirrored([[x, y]])))
+    const linePts = d.tool === 'line' && e && e.shiftKey ? slopePoints(x0, y0, x1, y1) : linePoints(x0, y0, x1, y1);
+    const pts = d.tool === 'line' ? linePts.flatMap(([x, y]) => (opts.size > 1 ? brushPoints(x, y) : mirrored([[x, y]])))
       : mirrored(d.tool === 'rect' ? rectPoints(x0, y0, x1, y1, opts.filled) : ellipsePoints(x0, y0, x1, y1, opts.filled));
     for (const [x, y] of pts) plot(px, x, y, d.colour);
     return px;
@@ -1414,6 +1487,7 @@ window.NoorSprite = (() => {
   function onMove(e) {
     const p = toPixel(e);
     hover = { x: p.x, y: p.y };
+    if (!drag && curve) { curve.ctrl = [p.fx - 0.5, p.fy - 0.5]; curvePreview(); draw(); return; }
     if (!drag) { draw(); status(); return; }
     if (drag.kind === 'pan') { view.panX += p.cx - drag.cx; view.panY += p.cy - drag.cy; drag.cx = p.cx; drag.cy = p.cy; draw(); return; }
     if (drag.kind === 'picker') { pick(p, drag.right); return; }
@@ -1441,6 +1515,7 @@ window.NoorSprite = (() => {
       if (dx !== drag.dx || dy !== drag.dy) { drag.dx = dx; drag.dy = dy; drag.preview = shifted(drag.base, doc.width, doc.height, dx, dy); draw(); }
       return;
     }
+    if (drag.kind === 'curve-line') { drag.to = [p.x, p.y]; drag.preview = new Uint8ClampedArray(drag.base); for (const [x, y] of linePoints(drag.from[0], drag.from[1], p.x, p.y)) plot(drag.preview, x, y, drag.colour); draw(); return; }
     if (drag.kind === 'gradient') { drag.to = [p.fx, p.fy]; drag.preview = gradientPixels(drag); draw(); return; }
     if (drag.kind === 'select') { moveSelect(p, e); return; }
     if (drag.kind === 'slice') { drag.to = [p.x, p.y]; draw(); return; }
@@ -1454,6 +1529,7 @@ window.NoorSprite = (() => {
     if (!d) return;
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'curve-line') { curve = { from: d.from, to: d.to, ctrl: [(d.from[0] + d.to[0]) / 2, (d.from[1] + d.to[1]) / 2], colour: d.colour, base: d.base }; curvePreview(); draw(); notice('Move to bend it, click to draw it (Esc: none)', 1500); }
     else if (d.kind === 'pathnode') { if (d.dx || d.dy) change(`Move frame ${frame + 1}'s picture`, (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); }); else draw(); }
     else if (d.kind === 'gradient') change('Gradient', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'tiles') putTiles(d.terrain ? (d.on ? 'Draw a terrain' : 'Take a terrain away') : d.value ? 'Place tiles' : 'Take tiles away', d.map);
@@ -1769,7 +1845,7 @@ window.NoorSprite = (() => {
       ['Flip the layer ↔', () => transform('flipH', 'layer')], ['Flip the layer ↕', () => transform('flipV', 'layer')],
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
-      ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Clean doubled corners (jaggies) on this layer', cleanJaggies], ['Motion (bob, breathe, jump, shake, float, sway)…', motionDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
       ['Normal maps (for lit sprites)…', normalsDialog],
@@ -3055,6 +3131,93 @@ window.NoorSprite = (() => {
     });
   }
 
+  // ---------------------------------------------------------------- line clean-up, a live outline, motion
+
+  /**
+   * Doubled corners in one-pixel lines (jaggies): a pixel joining two others that touch at a corner, making an L —
+   * the pixel pixel-perfect drawing leaves out. Returns their indices.
+   */
+  function jaggies(px, W, H) {
+    // Found one at a time, each left out before looking on (two corners of one step are one jaggy, not two).
+    const mask = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) mask[i] = px[i * 4 + 3] > 0 ? 1 : 0;
+    const out = [], on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && mask[y * W + x] === 1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!on(x, y)) continue;
+      let n8 = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && on(x + dx, y + dy)) n8++;
+      if (n8 < 2 || n8 > 3) continue; // a thin line only
+      // A neighbour across and one up or down, touching each other at a corner: this pixel doubles the corner.
+      for (const [hx, vy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) if (on(x + hx, y) && on(x, y + vy) && !on(x + hx, y + vy)) { out.push(y * W + x); mask[y * W + x] = 0; break; }
+    }
+    return out;
+  }
+
+  function cleanJaggies() {
+    const c = cel();
+    if (!c) return;
+    const list = jaggies(c.px, doc.width, doc.height).filter((i) => !selection || selection.mask[i]);
+    if (!list.length) { notice('No doubled corners on this layer and frame', 1400); return; }
+    change('Clean doubled corners', (d) => { const px = editable(d); for (const i of list) px.fill(0, i * 4, i * 4 + 4); });
+    notice(`${list.length} doubled corner${list.length === 1 ? '' : 's'} taken out`, 1400);
+  }
+
+  // A live outline: a layer drawn with an outline round it (or on its edge) wherever it is shown or exported,
+  // without changing its pixels — draw on, and the outline follows.
+  const outlineCache = new WeakMap();
+  function outlined(px, W, H, o) {
+    const k = `${o.color}|${o.where}|${o.eight}`;
+    let m = outlineCache.get(px);
+    if (m && m.has(k)) return m.get(k);
+    const c = parseHex(o.color), out = new Uint8ClampedArray(px), solid = (x, y) => x >= 0 && y >= 0 && x < W && y < H && px[(y * W + x) * 4 + 3] > 0;
+    const nb = o.eight ? [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]] : [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const me = solid(x, y);
+      if (o.where === 'inside' ? me && nb.some(([dx, dy]) => !solid(x + dx, y + dy)) : !me && nb.some(([dx, dy]) => solid(x + dx, y + dy))) out.set(c, (y * W + x) * 4);
+    }
+    if (!m) { m = new Map(); outlineCache.set(px, m); }
+    m.set(k, out);
+    return out;
+  }
+
+  // Motion templates: offsets that make a layer bob, breathe, jump, shake, float or sway over frames.
+  const MOTIONS = {
+    bob: ['bob (a walk\'s up and down, twice a cycle)', (t, A) => [0, -Math.round((A * (1 - Math.cos(4 * Math.PI * t))) / 2)]],
+    breathe: ['breathe (a slow rise and fall)', (t, A) => [0, -Math.round((A * (1 - Math.cos(2 * Math.PI * t))) / 2)]],
+    jump: ['jump (an arc up and down)', (t, A, last) => [0, -Math.round(A * 4 * last * (1 - last))]],
+    float: ['float (up and down, smoothly)', (t, A) => [0, Math.round(A * Math.sin(2 * Math.PI * t))]],
+    sway: ['sway (side to side)', (t, A) => [Math.round(A * Math.sin(2 * Math.PI * t)), 0]],
+    shake: ['shake (a hit)', (t, A, last, i) => (i === 0 || last >= 1 ? [0, 0] : [((i * 7919) % (2 * A + 1)) - A, ((i * 104729) % (2 * A + 1)) - A])],
+  };
+
+  function motionDialog() {
+    NoorUI.modal({ label: 'Motion', width: 420 }, (s2, closeIt) => {
+      const kind = el('select', { id: 'sp-mo-kind', 'aria-label': 'Motion' }, ...Object.entries(MOTIONS).map(([v, [l]]) => el('option', { value: v, text: l })));
+      const amount = el('input', { type: 'number', min: '1', max: '64', value: '2', id: 'sp-mo-amount', 'aria-label': 'How far (pixels)' });
+      const which = el('select', { id: 'sp-mo-frames', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
+      s2.append(NoorUI.head('Motion', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: `The layer “${doc.layers[layer].name}” moves over the frames (its pictures shifted, one undo). With in-betweens and bones, a rough animation in a few clicks.` }),
+          el('label', {}, 'Motion ', kind), el('label', {}, 'How far (px) ', amount), el('label', {}, 'Frames ', which)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action primary', id: 'sp-mo-ok', onclick: () => { closeIt(); applyMotion(kind.value, Math.max(1, Math.min(64, Number(amount.value) || 2)), which.value === '' ? null : doc.tags[Number(which.value)]); } }, 'Move it'))));
+    });
+  }
+
+  function applyMotion(kind, A, tag) {
+    const f0 = tag ? tag.from : 0, f1 = tag ? tag.to : doc.frames.length - 1, n = f1 - f0 + 1, fn = MOTIONS[kind][1], lid = doc.layers[layer].id, W = doc.width, H = doc.height;
+    if (n < 2) { notice('A motion needs two frames or more', 1400); return; }
+    change(`Motion: ${kind}`, (d) => {
+      for (let i = 0; i < n; i++) {
+        const k = key(lid, f0 + i), c = d.cels.get(k);
+        if (!c) continue;
+        const [dx, dy] = fn(i / n, A, i / (n - 1), i);
+        if (!dx && !dy) continue;
+        const { link, ...plain } = c; void link;
+        d.cels.set(k, { ...plain, px: shifted(c.px, W, H, dx, dy) });
+      }
+    });
+  }
+
   // ---------------------------------------------------------------- normal maps
 
   // A normal map says which way each pixel faces, so a game's 2D lights shade the sprite. NoorSprite makes one from
@@ -3611,6 +3774,7 @@ window.NoorSprite = (() => {
     if (ctrl && k === 'k' && !e.shiftKey) { handled(); commandSearch(); return; }
     if (e.key === ' ' && !ctrl) { spaceHeld = true; setCursor(); handled(); return; }
     if (e.key === 'Alt') { altHeld = true; setCursor(); handled(); return; }
+    if (e.key === 'Escape' && curve) { handled(); curve = null; draw(); return; }
     if (e.key === 'Escape') { handled(); if (floating) { commitFloating(); return; } if (selection) { deselect(); return; } if (!document.body.classList.contains('zen')) close(); return; }
     if (ctrl) {
       if (k === 'z') { handled(); undo(e.shiftKey); return; }
@@ -3661,13 +3825,15 @@ window.NoorSprite = (() => {
       width: doc.width, height: doc.height, layers: doc.layers.map((l) => ({ ...l })), frames: doc.frames.map((f) => ({ ...f })), tags: doc.tags.map((t) => ({ ...t })), palette: [...doc.palette],
       layer, frame, tool, fg: [...fg], bg: [...bg], opts: { ...opts }, view: { ...view }, history: history.length, future: future.length, dirty: dirty(), file,
       selection: selection ? { x0: selection.x0, y0: selection.y0, x1: selection.x1, y1: selection.y1, count: selection.mask.reduce((a, b) => a + b, 0) } : null,
-      floating: floating ? { x: floating.x, y: floating.y, w: floating.w, h: floating.h } : null, playing: !!playing,
+      floating: floating ? { x: floating.x, y: floating.y, w: floating.w, h: floating.h } : null, playing: !!playing, curving: !!curve,
       cels: [...doc.cels.keys()],
       tilesets: (doc.tilesets || []).map((t) => ({ name: t.name, tw: t.tw, th: t.th, count: t.tiles.length - 1 })), tileMode, tileSel,
       indexed: !!doc.indexed, cycle: doc.cycle || null, cycling: !!cycling,
     }),
     /** For tests: a frame's normal map pixel. */
     _normal: (x, y, f = frame) => { const nm = normalMap(f); const i = (y * doc.width + x) * 4; return [nm[i], nm[i + 1], nm[i + 2], nm[i + 3]]; },
+    /** For tests: how many doubled corners this cel has. */
+    _jaggies: () => { const c = cel(); return c ? jaggies(c.px, doc.width, doc.height).length : 0; },
     /** For tests: the drawing colour. */
     _setColour: (c) => { fg = [...c]; renderColours(); renderPalette(); },
     /** For tests: the palette index of a cel's pixel (indexed sprites). */

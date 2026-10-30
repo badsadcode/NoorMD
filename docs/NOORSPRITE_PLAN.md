@@ -263,6 +263,19 @@ one's own, a floating reference picture, pen pressure.
   the frames from a CanvasTexture holding both (2D lights shade them — checked in headless Godot 4.4); Unity's .meta
   names it the sprites' _NormalMap secondary texture.
 
+### Done in preview.108
+
+- **Clean slopes:** Shift with the line tool snaps to the nearest pixel-art slope — straight, 1:1, 2:1, 3:1, 4:1 and
+  the steep ones — drawn in even runs, never ragged.
+- **Curves** (J): drag the line, move to bend it (shown as you go), click to draw it; one pixel wide without doubled
+  corners (or with the brush's size and mirrors); Esc lets it go.
+- **Doubled corners** (jaggies): View › doubled corners marks them in one-pixel lines on the layer; ☰ › Clean doubled
+  corners takes them out (each step's extra pixel once, the line staying joined).
+- **A live outline** (the layer's settings): drawn round the layer (or on its edge) in a colour, wherever it shows or
+  is exported, its pixels unchanged — draw on and it follows. Kept with the layer.
+- **Motion** (☰): a layer bobs (a walk), breathes, jumps in an arc, floats, sways or shakes over every frame or a
+  tag's, by so many pixels — one undo.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

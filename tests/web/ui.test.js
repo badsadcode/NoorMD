@@ -6572,6 +6572,57 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66p. NoorSprite lines and motion: clean slopes, curves, doubled corners, a live outline, motion templates.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const a = (x, y, l = null, f = 0) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
+      const settle = () => page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '24'); await page.fill('#sp-nh', '24'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 24);
+      // Shift+line: a clean 2:1 slope (runs of two).
+      await page.keyboard.press('l'); await settle();
+      let p = await at(0, 0); await page.mouse.move(p.x, p.y); await page.mouse.down();
+      p = await at(9, 4); await page.keyboard.down('Shift'); await page.mouse.move(p.x, p.y, { steps: 4 }); await page.mouse.up(); await page.keyboard.up('Shift');
+      const row = async (y) => { const xs = []; for (let x = 0; x < 24; x++) if (await a(x, y)) xs.push(x); return xs.join(); };
+      check('Shift: a line snaps to a clean slope, in even runs (2:1)', (await row(0)) === '0,1' && (await row(1)) === '2,3' && (await row(2)) === '4,5', [await row(0), await row(1), await row(2)]);
+      await page.keyboard.press('Control+z');
+      // The curve tool: drag the line, move to bend it, click.
+      await page.keyboard.press('j'); await settle();
+      p = await at(2, 20); await page.mouse.move(p.x, p.y); await page.mouse.down(); p = await at(20, 20); await page.mouse.move(p.x, p.y, { steps: 4 }); await page.mouse.up();
+      p = await at(11, 8); await page.mouse.move(p.x, p.y, { steps: 3 });
+      check('J: after the line, moving bends it (shown, not yet drawn)', (await SS()).curving && !(await a(11, 14)));
+      await page.mouse.click(p.x, p.y);
+      check('…a click draws the curve: its ends where dragged, its middle bent up', (await a(2, 20)) && (await a(20, 20)) && (await a(11, 14)) && !(await a(11, 20)));
+      const cornerFree = await page.evaluate(() => { const st = NoorSprite._jaggies(); return st; });
+      check('…one pixel wide, no doubled corners', cornerFree === 0, cornerFree);
+      // Doubled corners: marked and cleaned.
+      await page.keyboard.press('b'); await page.uncheck('[data-opt="perfect"]'); await settle();
+      for (const [x, y] of [[2, 2], [3, 2], [3, 3], [4, 3], [4, 4]]) { const q = await at(x, y); await page.mouse.click(q.x, q.y); }
+      check('doubled corners found in a stepped line', (await page.evaluate(() => NoorSprite._jaggies())) === 2);
+      await page.check('[data-view="jaggies"]');
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Clean doubled corners")');
+      check('…and taken out (the line stays joined at its corners)', (await page.evaluate(() => NoorSprite._jaggies())) === 0 && !(await a(3, 2)) && (await a(2, 2)) && (await a(3, 3)));
+      // A live outline.
+      await page.check('#sp-liveoutline');
+      check('a live outline: drawn round the layer, its pixels unchanged', (await a(2, 1)) === 255 && (await a(2, 1, 0)) === 0);
+      const q = await at(15, 5); await page.mouse.click(q.x, q.y);
+      check('…and follows what is drawn after', (await a(16, 5)) === 255 && (await a(16, 5, 0)) === 0);
+      check('…kept with the layer', (await page.evaluate(() => NoorSprite._wire())).layers[0].outline.where === 'outside');
+      // Motion: jump over four frames.
+      for (let i = 0; i < 3; i++) await page.click('#sp-addframe');
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Motion")');
+      await page.waitForSelector('#sp-mo-ok');
+      await page.selectOption('#sp-mo-kind', 'jump'); await page.fill('#sp-mo-amount', '4'); await page.click('#sp-mo-ok');
+      check('motion (a jump): the middle frames higher, the first and last where they were', (await a(15, 5, 0, 0)) && (await a(15, 1, 0, 1)) && (await a(15, 1, 0, 2)) && (await a(15, 5, 0, 3)));
+      check('no page errors with lines and motion', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

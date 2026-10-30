@@ -141,6 +141,8 @@ public sealed class SpriteLayer
 {
     public static readonly string[] Blends = ["normal", "multiply", "screen", "overlay", "darken", "lighten", "add", "difference"];
     public string Id { get; set; } = "";
+    /// <summary>A live outline round (or on the edge of) the layer, drawn wherever it shows; its pixels stay.</summary>
+    public SpriteOutline? Outline { get; set; }
     /// <summary>Its pixels are normal-map colours painting over the made normal map; never exported as colour.</summary>
     public bool Normals { get; set; }
     /// <summary>The bone the layer moves with (its picture on frame 1 posed on every frame), or none.</summary>
@@ -410,4 +412,12 @@ public sealed class SpriteNormals
     public double Strength { get; set; } = 2;
     public double Brightness { get; set; }
     public bool Export { get; set; }
+}
+
+public sealed class SpriteOutline
+{
+    public string Color { get; set; } = "#000000ff";
+    /// <summary>"outside" (round it) or "inside" (on its edge).</summary>
+    public string Where { get; set; } = "outside";
+    public bool Eight { get; set; }
 }
