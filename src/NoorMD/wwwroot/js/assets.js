@@ -29,6 +29,7 @@ window.NoorAssets = (() => {
   let wind = false, wireframe = false;
   let buildGen = 0, buildTimer = 0, snapTimer = 0;
   let history = [], future = [], lastSnapshot = '';
+  let keptSnapshot = '';     // the recipe as it was loaded, opened or saved in Mine: anything else is not kept yet
   let exportWhere = null;
   // Godot first (one file: the NoorMD plugin switches its levels), then Unity (one file: a LOD Group from the names), Unreal.
   const exportDefaults = { textureSize: 1024, engine: 'godot', lodFiles: 'one', variants: 1, spread: 0.15, shaders: true, godotInProject: true, woodOnly: false };
@@ -117,7 +118,7 @@ window.NoorAssets = (() => {
                 (() => {
                   const s = el('select', { id: 'ab-view', 'aria-label': 'Show', title: 'Shaded: as in a game · Clay: the shape alone · Parts: each separate mesh in its own colour · Wind data: red sway, green bend, blue flutter' }, ...VIEWS.map(([v, t]) => el('option', { value: v, text: t })));
                   s.value = viewMode;
-                  s.addEventListener('change', () => { viewMode = s.value; try { localStorage.setItem('noormd.assets.view', viewMode); } catch { /* private storage off */ } if (viewer) viewer.setMode(viewMode); });
+                  s.addEventListener('change', () => setView(s.value));
                   return s;
                 })(),
                 el('select', { id: 'ab-lod', 'aria-label': 'Level of detail', title: 'Which level of detail to show (LOD0 is the closest, most detailed)' }),
@@ -139,9 +140,10 @@ window.NoorAssets = (() => {
               el('div', { class: 'music-tabs sb-tabs', id: 'ab-tabs', role: 'tablist' }),
               el('div', { class: 'sb-pane', id: 'ab-pane' }))))));
     ($('#app') || document.body).append(root);
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('assets', { name: 'Asset Bench', title: appTitle, menus: appMenus });
     $('#ab-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false, true); });
     $('#ab-seed').addEventListener('change', (e) => { recipe.seed = Math.max(0, Math.min(2147483647, Math.round(Number(e.target.value) || 0))); changed(false); });
-    $('#ab-lod').addEventListener('change', (e) => { lod = Number(e.target.value) || 0; showLod(); });
+    $('#ab-lod').addEventListener('change', (e) => setLod(Number(e.target.value) || 0));
     new ResizeObserver(() => root.classList.toggle('wide', root.clientWidth >= 820)).observe(root);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
@@ -185,12 +187,12 @@ window.NoorAssets = (() => {
     if (next === subject) return;
     clearTimeout(snapTimer); clearTimeout(buildTimer);
     if (recipe) pushHistory();
-    stash[subject] = { recipe, selectedPreset, history, future, lastSnapshot, tab, lod, lastExport };
+    stash[subject] = { recipe, selectedPreset, history, future, lastSnapshot, keptSnapshot, tab, lod, lastExport };
     subject = next;
     try { localStorage.setItem('noormd.assets.subject', subject); } catch { /* private storage off */ }
     const back = stash[subject];
-    recipe = null; build = null; lod = 0; history = []; future = []; lastSnapshot = ''; selectedPreset = ''; lastExport = null;
-    if (back) ({ recipe, selectedPreset, history, future, lastSnapshot, tab, lod, lastExport } = back);
+    recipe = null; build = null; lod = 0; history = []; future = []; lastSnapshot = ''; keptSnapshot = ''; selectedPreset = ''; lastExport = null;
+    if (back) ({ recipe, selectedPreset, history, future, lastSnapshot, keptSnapshot, tab, lod, lastExport } = back);
     renderTabs();
     renderPresets();
     if (keepRecipe) return;
@@ -199,6 +201,22 @@ window.NoorAssets = (() => {
       const list = isRock() ? rockPresets.builtIn : presets.builtIn;
       if (list.length) await loadPreset(list[0].id);
     }
+  }
+
+  /** Shaded, clay, parts or the wind data (remembered). */
+  function setView(mode) {
+    viewMode = mode;
+    try { localStorage.setItem('noormd.assets.view', viewMode); } catch { /* private storage off */ }
+    const s = $('#ab-view');
+    if (s && s.value !== mode) s.value = mode;
+    if (viewer) viewer.setMode(viewMode);
+  }
+
+  function setLod(i) {
+    lod = i;
+    const s = $('#ab-lod');
+    if (s && s.value !== String(i)) s.value = String(i);
+    showLod();
   }
 
   function setStatus(text) { const s = $('#ab-status'); if (s) s.textContent = text; }
@@ -271,6 +289,7 @@ window.NoorAssets = (() => {
     try {
       const r = await req(cmd('save'), { recipe });
       (isRock() ? rockPresets : presets).mine = r.mine; selectedPreset = r.id; renderPresets();
+      keptSnapshot = JSON.stringify(recipe); benchChanged();
       notice(r.replaced ? `“${recipe.name}” updated in Mine` : `“${recipe.name}” saved in Mine`, 1600);
     } catch (err) { hooks.showError(err); }
   }
@@ -297,6 +316,7 @@ window.NoorAssets = (() => {
     recipe = r;
     if (fresh) { clearTimeout(snapTimer); history = []; future = []; }
     lastSnapshot = JSON.stringify(recipe);
+    if (fresh) keptSnapshot = lastSnapshot;
     renderEditor();
     rebuild();
   }
@@ -348,6 +368,7 @@ window.NoorAssets = (() => {
       if (forSubject !== subject) return;
       if (gen !== buildGen || !out || out.cancelled) return;
       build = out;
+      benchChanged();
       if (lod >= out.lods.length) lod = 0;
       $('#ab-lod').replaceChildren(...out.lods.map((l, i) => el('option', { value: String(i), text: `LOD${i} · ${l.triangles.toLocaleString()} triangles` })));
       $('#ab-lod').value = String(lod);
@@ -396,6 +417,7 @@ window.NoorAssets = (() => {
   // ---------------------------------------------------------------- editor
 
   function renderHeader() {
+    benchChanged();
     if (!recipe) return;
     const name = $('#ab-name'), seed = $('#ab-seed');
     if (document.activeElement !== name) name.value = recipe.name;
@@ -819,6 +841,117 @@ window.NoorAssets = (() => {
       renderEditor();
     } catch (err) { hooks.showError(err); }
     finally { const b = $('#ab-export'); if (b) b.disabled = false; }
+  }
+
+  // ---------------------------------------------------------------- the Asset Bench as an app: its menus and shortcuts
+
+  // In focus mode with the Asset Bench in the middle, the window's menu bar is the bench's own (see NoorChrome.registerBench).
+  function benchChanged() { if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged(); }
+
+  /** A tab of the editor shown (the Export tab, the Leaves & bark tab…). */
+  function showTab(id) {
+    if (!recipe) return;
+    tab = id;
+    renderEditor();
+  }
+
+  /** Export from the menu: the Export tab (where it goes, which files) with the export started from it. */
+  function exportFromMenu() {
+    if (!recipe) return;
+    showTab('export');
+    exportNow();
+  }
+
+  /** The engine the files are for, as the Export tab's “For” sets it (with how its levels are filed). */
+  function setEngine(id) {
+    exportPrefs.engine = id;
+    exportPrefs.lodFiles = ENGINES[id].lodFiles;
+    saveExportPrefs();
+    if (tab === 'export') renderEditor();
+  }
+
+  /** Trees or rocks, then a preset of that kind: what clicking it in the list does. */
+  async function presetFrom(kind, id) {
+    if (kind !== subject) await setSubject(kind, true);
+    await loadPreset(id);
+  }
+
+  function presetItems(kind) {
+    const list = kind === 'rock' ? rockPresets : presets;
+    const item = (p) => ({ label: p.name, title: p.description || '', checked: () => subject === kind && selectedPreset === p.id, run: () => presetFrom(kind, p.id) });
+    const groups = kind === 'rock'
+      ? [(p) => ['stone', 'rock', 'boulder'].includes(p.kind), (p) => FORMATIONS.includes(p.kind), (p) => p.kind === 'scree'].map((t) => list.builtIn.filter(t))
+      : [...new Set(list.builtIn.map((p) => p.group || 'Forest'))].map((g) => list.builtIn.filter((p) => (p.group || 'Forest') === g));
+    const mine = (list.mine || []).map((p) => ({ label: `${p.name} (mine)`, checked: () => subject === kind && selectedPreset === p.id, run: () => presetFrom(kind, p.id) }));
+    const out = [...groups.filter((g) => g.length), mine].flatMap((g) => ['-', ...g.map((p) => (p.label ? p : item(p)))]).slice(1);
+    return out.length ? out : [{ label: 'No presets yet', disabled: true }];
+  }
+
+  /** Every key the Asset Bench knows. */
+  function shortcutsDialog() {
+    const rows = [
+      ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['A variation (another seed)', 'V'], ['Wireframe on / off', 'W'], ['Wind on / off (trees)', 'Space'],
+      ['Turn the model', 'drag'], ['Move the model', 'right-drag or Shift+drag'], ['Zoom', 'the mouse wheel'],
+      ['Back to NoorMD (out of the whole window)', 'Esc'], ['Focus mode (the Asset Bench as an app) on / off', 'F11'], ['Open or close the Asset Bench', 'Ctrl+Alt+M'],
+    ];
+    NoorUI.modal({ label: 'Asset Bench shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('Asset Bench shortcuts', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'ab-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  const appTitle = () => {
+    if (!recipe) return 'Asset Bench';
+    const what = isRock() ? (ROCK_KINDS.find((k) => k[0] === recipe.kind) || ['', 'Rock'])[1].replace(/ \(.*$/, '') : (ARCHETYPES.find((a) => a[0] === recipe.archetype) || ['', 'Tree'])[1].replace(/ \(.*$/, '');
+    return `Asset Bench — ${recipe.name || 'Untitled'}${keptSnapshot && JSON.stringify(recipe) !== keptSnapshot ? ' •' : ''} · ${what}${build ? `, ${build.lods.length} level${build.lods.length === 1 ? '' : 's'} of detail` : ''}`;
+  };
+
+  /** The Asset Bench's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const go = (label, run, keys, more = {}) => ({ label, keys, run, ...more });
+    const none = () => !recipe;
+    const tree = () => !recipe || isRock();
+    // A tick for one of the recipe's on/off settings (as its box on the tab).
+    const flag = (key, label, rerender = true) => ({ label, checked: () => !!(recipe && recipe[key]), disabled: none, run: () => { recipe[key] = !recipe[key]; changed(rerender); } });
+    return [
+      ['File', 'f', () => [
+        { label: 'New tree from a preset', sub: () => presetItems('tree') }, { label: 'New rock from a preset', sub: () => presetItems('rock') }, '-',
+        go('Open a recipe…', openRecipe, '', { title: 'A .noortree.json or .noorrock.json' }), '-',
+        go('Save as mine', savePreset, '', { disabled: none, title: 'Keep this recipe in “Mine”' }), go('Delete this one from Mine', deletePreset, '', { disabled: () => !selectedPreset.startsWith('user:') }), '-',
+        go('Export…', () => showTab('export'), '', { disabled: none, title: 'The Export tab: what engine, which files, where they go' }), go('Export now', exportFromMenu, '', { disabled: none, title: 'With the settings on the Export tab' }),
+        { label: 'Export for', sub: () => Object.entries(ENGINES).map(([id, e]) => ({ label: e.name, checked: () => exportPrefs.engine === id, run: () => setEngine(id) })) },
+        { label: 'Export the wood only (no foliage)', checked: () => !!exportPrefs.woodOnly, disabled: tree, run: () => { exportPrefs.woodOnly = !exportPrefs.woodOnly; saveExportPrefs(); if (tab === 'export') renderEditor(); } },
+        go('A variety pack…', () => { showTab('export'); $('#ab-variants')?.focus(); }, '', { disabled: none, title: 'Many of this kind, each from its own seed (on the Export tab)' }),
+        go('Show the last export in its folder', () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError), '', { disabled: () => !lastExport }), '-',
+        go('Texture it in NoorForge…', () => { if (build && recipe && window.NoorForge) NoorForge.openAsset(build.key, recipe.name, isRock()); }, '', { disabled: () => !build || !window.NoorForge }), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Asset Bench', close, 'Ctrl+Alt+M'),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !recipe || (!history.length && JSON.stringify(recipe) === lastSnapshot) }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('A variation (another seed)', newVariation, 'V', { disabled: none }), go('Set the seed…', () => { $('#ab-seed').focus(); $('#ab-seed').select(); }, '', { disabled: none }), go('Rename…', () => { $('#ab-name').focus(); $('#ab-name').select(); }, '', { disabled: none }),
+      ]],
+      ['Generate', 'g', () => [
+        { label: '🌳 Trees', checked: () => subject === 'tree', run: () => setSubject('tree') }, { label: '🪨 Rocks', checked: () => subject === 'rock', run: () => setSubject('rock') }, '-',
+        ...TABS[subject].map(([id, label]) => ({ label: id === 'mesh' || id === 'rmesh' ? 'Mesh: levels of detail, triangles' + (isRock() ? ', collision' : ', wind') : { tree: 'Tree: kind, trunk, roots, crown', branches: 'Branches: the levels', leaves: 'Leaves & bark (foliage, fantasy, swamp)', rock: 'Rock: kind, shape, blocks, ground', surface: 'Surface: material, moss, snow', export: 'Export settings' }[id] || label, checked: () => tab === id, disabled: none, run: () => showTab(id) })), '-',
+        ...(isRock()
+          ? [flag('flatBase', 'Flat underside')]
+          : [go('Add a level of branches', () => { tab = 'branches'; renderEditor(); $('#ab-add-level')?.click(); }, '', { disabled: () => !recipe || recipe.levels.length >= 3 }),
+            flag('trimCards', 'Cards cut to their leaves'), flag('flatShading', 'Flat shading (low-poly look)'), flag('billboard', 'Billboard as the last level'), flag('wind', 'Wind data in the mesh'), '-',
+            { label: 'Show in the list', sub: () => [['all', 'All'], ['realistic', 'Realistic'], ['stylized', 'Stylized'], ...(presets.profiles || []).map((g) => [`game:${g.id}`, `🎮 ${g.name}`])].map(([v, t]) => ({ label: t, checked: () => look === v, run: () => { look = v; try { localStorage.setItem('noormd.assets.look', v); } catch { /* private storage off */ } renderPresets(); } })) }]),
+      ]],
+      ['View', 'v', () => [
+        ...VIEWS.map(([v, t]) => ({ label: t, checked: () => viewMode === v, run: () => setView(v) })), '-',
+        { label: 'Wireframe', keys: 'W', checked: () => wireframe, run: () => setWire(!wireframe) },
+        { label: 'Wind', keys: 'Space', checked: () => wind, disabled: () => isRock(), run: () => setWind(!wind) },
+        { label: 'Level of detail', sub: () => (build ? build.lods.map((l, i) => ({ label: `LOD${i} · ${l.triangles.toLocaleString()} triangles`, checked: () => lod === i, run: () => setLod(i) })) : [{ label: 'Nothing built yet', disabled: true }]) }, '-',
+        go('Zoom in', () => viewer && viewer.zoom(1 / 1.2), '', { disabled: () => !viewer }), go('Zoom out', () => viewer && viewer.zoom(1.2), '', { disabled: () => !viewer }), go('Back to the whole model', () => viewer && viewer.reset(), '', { disabled: () => !viewer }), '-',
+        { label: 'Settings beside the model', checked: () => !!layout.prefs.side, run: () => layout.set({ side: !layout.prefs.side }) },
+        { label: 'The list of trees and rocks', checked: () => layout.prefs.list !== false, run: () => layout.set({ list: !layout.prefs.list }) }, '-',
+        { id: 'view.focus', label: 'Focus mode (the Asset Bench as an app)' },
+      ]],
+      ['Help', 'h', () => [go('Asset Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   return {

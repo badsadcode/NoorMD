@@ -6989,6 +6989,66 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v-assets. The Asset Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const AS = () => page.evaluate(() => NoorAssets._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text) => page.click(`.menu-popup .menu-item:has-text("${text}")`);
+      const menu = (i) => page.click(`#menubar .menu-title[data-menu="${i}"]`);
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      check('(the Asset Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'assets');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: the Asset Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Generate,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the recipe, its kind, its levels)', /^Asset Bench — Oak · Broadleaf, 2 levels of detail$/.test(await page.textContent('#bench-title')), await page.textContent('#bench-title'));
+      // View › Wireframe, ticked when on; a view mode.
+      await menu(3); await item('Wireframe');
+      check('View › Wireframe turns it on', (await AS()).wireframe === true);
+      await menu(3);
+      check('…and shows it ticked', (await page.getAttribute('.menu-popup .menu-item:has-text("Wireframe")', 'aria-checked')) === 'true');
+      await item('Clay');
+      check('View › Clay: the preview and its list follow', (await AS()).viewMode === 'clay' && (await page.inputValue('#ab-view')) === 'clay');
+      // Edit › a variation, then undo.
+      const seed = (await AS()).recipe.seed;
+      await menu(1); await item('A variation');
+      check('Edit › A variation: another seed, and the title says it is not kept', (await AS()).recipe.seed !== seed && /Oak •/.test(await page.textContent('#bench-title')));
+      await page.waitForTimeout(100);
+      await menu(1); await item('Undo');
+      check('Edit › Undo takes it back', (await AS()).recipe.seed === seed);
+      // Alt+G: Generate, trees or rocks.
+      await page.keyboard.press('Alt+g');
+      await page.waitForSelector('.menu-popup');
+      check('Alt+G opens Generate, Trees ticked', (await page.getAttribute('.menu-popup .menu-item:has-text("Trees")', 'aria-checked')) === 'true');
+      await item('Rocks');
+      await waitFn(page, () => NoorAssets._state().subject === 'rock' && NoorAssets._state().recipe && NoorAssets._state().recipe.kind);
+      check('…Rocks puts a rock on the bench', /^Asset Bench — Rock/.test(await page.textContent('#bench-title')));
+      // File › New tree from a preset.
+      await menu(0);
+      await page.hover('.menu-popup .menu-item:has-text("New tree from a preset")');
+      await page.waitForSelector('.menu-popup[data-depth="1"]');
+      await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("Weeping willow")');
+      await waitFn(page, () => NoorAssets._state().subject === 'tree' && NoorAssets._state().recipe.name === 'Weeping willow');
+      check('File › New tree from a preset: back to trees with that one', (await AS()).selectedPreset === 'willow');
+      // File › Export now: the Export tab and the export.
+      await menu(0); await item('Export now');
+      await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
+      check('File › Export now exports the tree (and shows the Export tab)', (await page.evaluate(() => window.__mock.state.assets.exports[0].recipe.name)) === 'Weeping willow' && (await AS()).tab === 'export');
+      // Help › shortcuts.
+      await menu(4); await item('Asset Bench shortcuts');
+      await page.waitForSelector('#ab-keys');
+      check('Help › Asset Bench shortcuts: its keys listed', (await page.$$('#ab-keys tr')).length >= 8 && /Wireframe/.test(await page.textContent('#ab-keys')));
+      await page.keyboard.press('Escape');
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, the Asset Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorAssets.isOpen())));
+      check('no page errors with the Asset Bench as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
@@ -7315,7 +7375,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         const shown = (sel) => { const n = document.querySelector(sel); return !!n && getComputedStyle(n).display !== 'none' && n.getBoundingClientRect().height > 0; };
         return { zen: document.body.classList.contains('zen'), width: b.width, height: b.height, menu: shown('#menubar'), tabs: shown('.tabstrip'), exitFloat: shown('#zen-exit'), back: document.querySelector('#assetbench .bench-full').innerText.trim() };
       });
-      check('…the bench gets the whole window (no menus, tabs or floating exit), with “Back to NoorMD”', full.zen && full.width > 1450 && full.height > 950 && !full.menu && !full.tabs && !full.exitFloat && /Back to NoorMD/.test(full.back), full);
+      check('…the bench gets the whole window (its own menus at the top, no tabs or floating exit), with “Back to NoorMD”', full.zen && full.width > 1450 && full.height > 900 && full.menu && !full.tabs && !full.exitFloat && /Back to NoorMD/.test(full.back), full);
       if (shots) await page.screenshot({ path: `${shots}/65-asset-bench-full-window.png` });
       await page.focus('#ab-canvas');
       await page.keyboard.press('Escape');
