@@ -74,7 +74,8 @@ first, and anything that conflicts with it waits.
   bones (cutout animation): preview.106; normal maps and a lit view: preview.107; clean slopes, curves, doubled
   corners, a live outline, motion templates: preview.108; a sound to animate to, bitmap fonts, clean-ups, a picture
   made pixel art: preview.109; sharing as GIF or video, a live link to a game project, atlases of many sprites,
-  level markers: preview.110. See
+  level markers: preview.110; turn-arounds and directions, isometric boxes and tiles, collision shapes, readability
+  checks: preview.112. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorCanvas (a layered photo and painting editor) is planned in
   [NOORCANVAS_PLAN.md](NOORCANVAS_PLAN.md); NoorSketch stays the small sketchpad it is.
 

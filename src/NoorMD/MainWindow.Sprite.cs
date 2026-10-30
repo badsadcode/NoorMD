@@ -322,8 +322,13 @@ public partial class MainWindow
                                     sounds[fi] = Path.GetFileName(from);
                                 }
                             var withHitboxes = p.TryGetProperty("hitboxes", out var hb) && hb.ValueKind == JsonValueKind.True && slices.Count > 0;
-                            if (withHitboxes || sounds.Count > 0)
-                                File.WriteAllText(scene, GodotSprite.HitboxScene(baseName, Path.GetFileName(target), frames.Select(f => f.Duration).ToList(), tags, withHitboxes ? ScaledSlices(slices, scale) : [], frames[0].Width, frames[0].Height, sounds));
+                            // A collision polygon for each frame (the page traces them), scaled as the frames are.
+                            List<IReadOnlyList<(double X, double Y)>>? collision = null;
+                            if (p.TryGetProperty("collision", out var ce) && ce.ValueKind == JsonValueKind.Array && ce.GetArrayLength() == frames.Count)
+                                collision = ce.EnumerateArray().Select(poly => (IReadOnlyList<(double X, double Y)>)(poly.ValueKind == JsonValueKind.Array
+                                    ? poly.EnumerateArray().Take(4096).Select(pt => (pt[0].GetDouble() * scale, pt[1].GetDouble() * scale)).ToList() : [])).ToList();
+                            if (withHitboxes || sounds.Count > 0 || collision != null)
+                                File.WriteAllText(scene, GodotSprite.HitboxScene(baseName, Path.GetFileName(target), frames.Select(f => f.Duration).ToList(), tags, withHitboxes ? ScaledSlices(slices, scale) : [], frames[0].Width, frames[0].Height, sounds, collision));
                             else
                                 File.WriteAllText(scene, GodotSprite.Scene(baseName, Path.GetFileName(target), GodotSprite.Animations(frames.Count, tags)[0].Name));
                             files.Add(png); files.Add(target); files.Add(scene);

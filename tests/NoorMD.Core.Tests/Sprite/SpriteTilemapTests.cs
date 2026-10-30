@@ -47,6 +47,37 @@ public class SpriteTilemapTests
     }
 
     [Fact]
+    public void Isometric_tilesets_and_mirrored_tags_are_kept_and_go_to_godot_as_diamonds()
+    {
+        var doc = Sample();
+        doc.Tilesets[0].Isometric = true;
+        doc.Tags = [new SpriteTag { Name = "walk_right", From = 0, To = 0 }, new SpriteTag { Name = "walk_left", From = 1, To = 1, Mirror = "walk_right" }];
+        var back = SpriteFile.FromBytes(SpriteFile.ToBytes(doc));
+        Assert.True(back.Tilesets[0].Isometric);
+        Assert.Equal("walk_right", back.Tags[1].Mirror);
+        Assert.Null(back.Tags[0].Mirror);
+        // 4 × 4 tiles: diamonds 4 × 2, the pictures standing one pixel up from them.
+        var tres = GodotTiles.TileSet("t.png", back.Tilesets[0]);
+        Assert.Contains("tile_shape = 1", tres);
+        Assert.Contains("tile_layout = 5", tres);
+        Assert.Contains("tile_size = Vector2i(4, 2)", tres);
+        Assert.Contains("0:0/0/texture_origin = Vector2i(0, 1)", tres);
+        Assert.DoesNotContain("tile_shape", GodotTiles.TileSet("t.png", Sample().Tilesets[0]));
+    }
+
+    [Fact]
+    public void A_collision_polygon_goes_in_the_scene_and_changes_with_the_frames()
+    {
+        List<IReadOnlyList<(double X, double Y)>> polys = [[(0, 0), (8, 0), (8, 8)], [(0, 0), (8, 0), (8, 8), (0, 8)]];
+        var scene = GodotSprite.HitboxScene("Hero", "hero.tres", [100, 100], [], [], 8, 8, null, polys);
+        Assert.Contains("[node name=\"CollisionPolygon2D\" type=\"CollisionPolygon2D\" parent=\"Collision\"]\npolygon = PackedVector2Array(-4, -4, 4, -4, 4, 4)", scene);
+        Assert.Contains("NodePath(\"Collision/CollisionPolygon2D:polygon\")", scene);
+        Assert.Contains("PackedVector2Array(-4, -4, 4, -4, 4, 4, -4, 4)", scene);
+        // Polygons that don't match the frames are left out.
+        Assert.DoesNotContain("CollisionPolygon2D", GodotSprite.HitboxScene("Hero", "hero.tres", [100, 100], [], [], 8, 8, null, polys.Take(1).ToList()));
+    }
+
+    [Fact]
     public void Aseprite_gets_the_tilemap_drawn_as_an_image_layer()
     {
         var (back, _) = AsepriteFile.Read(AsepriteFile.Write(Sample()));

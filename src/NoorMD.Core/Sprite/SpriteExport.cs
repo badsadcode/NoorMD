@@ -244,8 +244,12 @@ public static class GodotSprite
     /// hitboxes that move with the frames, so pictures and hitboxes stay together. Sizes are in the export's pixels.
     /// </summary>
     public static string HitboxScene(string nodeName, string framesFile, IReadOnlyList<int> durations, IReadOnlyList<SpriteTag> tags, IReadOnlyList<SpriteSlice> slices, int width, int height,
-        IReadOnlyDictionary<int, string>? sounds = null)
+        IReadOnlyDictionary<int, string>? sounds = null, IReadOnlyList<IReadOnlyList<(double X, double Y)>>? collision = null)
     {
+        // A collision shape: a polygon for each frame (in the export's pixels, from the frame's top left), on a
+        // CollisionPolygon2D in an Area2D, changed with the frames.
+        collision = collision != null && collision.Count == durations.Count && collision.Any(c => c.Count >= 3) ? collision : null;
+        string Poly(int f) => "PackedVector2Array(" + string.Join(", ", (collision![f].Count >= 3 ? collision[f] : []).Select(pt => $"{F(pt.X - width / 2.0)}, {F(pt.Y - height / 2.0)}")) + ")";
         // Sounds: a frame's sound file (beside the scene), played by an AudioStreamPlayer2D when the frame comes.
         sounds ??= new Dictionary<int, string>();
         var soundFiles = sounds.Values.Distinct().ToList();
@@ -279,6 +283,7 @@ public static class GodotSprite
                 (".:animation", "0", "1", $"&{Q(name)}"),
                 (".:frame", T, ones, string.Join(", ", Enumerable.Range(0, order.Count))),
             };
+            if (collision != null) tracks.Add(("Collision/CollisionPolygon2D:polygon", T, ones, string.Join(", ", order.Select(Poly))));
             for (var i = 0; i < slices.Count; i++)
             {
                 if (slices[i].Keys.Count == 0) continue;
@@ -312,6 +317,11 @@ public static class GodotSprite
         {
             sb.Append($"[node name={Q(names[i])} type=\"Area2D\" parent=\".\"]\n\n");
             sb.Append($"[node name=\"CollisionShape2D\" type=\"CollisionShape2D\" parent={Q(names[i])}]\nposition = {Pos(slices[i], 0)}\nshape = SubResource(\"Shape_{i}\")\n\n");
+        }
+        if (collision != null)
+        {
+            sb.Append("[node name=\"Collision\" type=\"Area2D\" parent=\".\"]\n\n");
+            sb.Append($"[node name=\"CollisionPolygon2D\" type=\"CollisionPolygon2D\" parent=\"Collision\"]\npolygon = {Poly(0)}\n\n");
         }
         if (soundFiles.Count > 0) sb.Append("[node name=\"Sound\" type=\"AudioStreamPlayer2D\" parent=\".\"]\n\n");
         sb.Append($"[node name=\"AnimationPlayer\" type=\"AnimationPlayer\" parent=\".\"]\nlibraries = {{\n&\"\": SubResource(\"AnimationLibrary_1\")\n}}\nautoplay = {Q(anims[0].Name)}\n");
@@ -514,6 +524,9 @@ public static class GodotTiles
         return new SpriteImage(w, h, px, 0);
     }
 
+    /// <summary>An isometric tile's diamond: as wide as the tile, half as high.</summary>
+    public static int IsoHeight(SpriteTileset ts) => Math.Max(1, Math.Min(ts.TileHeight, ts.TileWidth / 2));
+
     public static string TileSet(string imageFile, SpriteTileset ts)
     {
         var cols = Columns(ts);
@@ -527,6 +540,8 @@ public static class GodotTiles
         {
             var at = $"{(n - 1) % cols}:{(n - 1) / cols}/0";
             sb.Append($"{at} = 0\n");
+            // A tile taller than its diamond stands up from it: the picture's bottom diamond sits on the cell.
+            if (ts.Isometric && ts.TileHeight > IsoHeight(ts)) sb.Append($"{at}/texture_origin = Vector2i(0, {(ts.TileHeight - IsoHeight(ts)) / 2})\n");
             // A tile in a terrain: which terrain, and the sides it joins on (Godot's match-sides peering bits).
             for (var t = 0; t < ts.Terrains.Count; t++)
             {
@@ -539,7 +554,8 @@ public static class GodotTiles
             }
         }
         sb.Append("\n[resource]\n");
-        sb.Append($"tile_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
+        if (ts.Isometric) sb.Append($"tile_shape = 1\ntile_layout = 5\ntile_size = Vector2i({ts.TileWidth}, {IsoHeight(ts)})\n");
+        else sb.Append($"tile_size = Vector2i({ts.TileWidth}, {ts.TileHeight})\n");
         if (ts.Terrains.Count > 0)
         {
             sb.Append("terrain_set_0/mode = 2\n"); // match sides

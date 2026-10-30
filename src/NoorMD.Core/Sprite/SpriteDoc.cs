@@ -131,6 +131,7 @@ public sealed class SpriteDoc
             t.From = Math.Clamp(t.From, 0, Frames.Count - 1); t.To = Math.Clamp(t.To, t.From, Frames.Count - 1);
             t.Direction = SpriteTag.Directions.Contains(t.Direction) ? t.Direction : "forward";
             t.Color = IsColour(t.Color) ? t.Color : "#3c6ad4ff";
+            t.Mirror = string.IsNullOrWhiteSpace(t.Mirror) ? null : t.Mirror.Trim()[..Math.Min(t.Mirror.Trim().Length, 64)];
             return t;
         }).ToList();
         GridWidth = Math.Clamp(GridWidth, 1, MaxSide); GridHeight = Math.Clamp(GridHeight, 1, MaxSide);
@@ -266,6 +267,8 @@ public sealed class SpriteTag
     public int To { get; set; }
     public string Direction { get; set; } = "forward";
     public string Color { get; set; } = "#3c6ad4ff";
+    /// <summary>A mirrored tag: the name of the tag whose frames these are, flipped left ↔ right (NoorSprite makes them again).</summary>
+    public string? Mirror { get; set; }
 }
 
 /// <summary>
@@ -282,6 +285,8 @@ public sealed class SpriteTileset
     public string? Data { get; set; }
     /// <summary>Autotiling: each terrain names the tile for every way its neighbours join it.</summary>
     public List<SpriteTerrain> Terrains { get; set; } = [];
+    /// <summary>For Godot: an isometric TileSet (diamonds as wide as a tile, half as high; taller tiles stand up from them).</summary>
+    public bool Isometric { get; set; }
 
     private byte[]? _pixels;
     public byte[] Pixels() => _pixels ??= Data == null ? new byte[TileWidth * TileHeight * 4 * Count] : Convert.FromBase64String(Data);

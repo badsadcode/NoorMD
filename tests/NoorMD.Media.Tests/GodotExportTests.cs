@@ -259,6 +259,17 @@ public class GodotExportTests
             File.WriteAllBytes(Path.Combine(dir, "sprite", "step.wav"), wav.ToArray());
         }
         File.WriteAllText(Path.Combine(dir, "sprite", "hero_hit.tscn"), NoorMD.Core.Sprite.GodotSprite.HitboxScene("Hero", "hero.tres", spriteFrames.Select(f => f.Duration).ToList(), spriteTags, hitSlices, 16, 16, new Dictionary<int, string> { [1] = "step.wav" }));
+        // A collision shape: a square on the first frame, a triangle on the others.
+        List<IReadOnlyList<(double X, double Y)>> polys = [[(4, 4), (12, 4), (12, 12), (4, 12)], [(0, 16), (8, 0), (16, 16)], [(0, 16), (8, 0), (16, 16)], [(0, 16), (8, 0), (16, 16)]];
+        File.WriteAllText(Path.Combine(dir, "sprite", "hero_body.tscn"), NoorMD.Core.Sprite.GodotSprite.HitboxScene("Hero", "hero.tres", spriteFrames.Select(f => f.Duration).ToList(), spriteTags, [], 16, 16, null, polys));
+        // Isometric tiles: 8 wide, 8 high, standing on diamonds 8 × 4.
+        var isoPx = new byte[8 * 8 * 4 * 2];
+        for (var i = 0; i < 128; i++) { isoPx[i * 4] = 180; isoPx[i * 4 + 3] = 255; }
+        var isoSet = new NoorMD.Core.Sprite.SpriteTileset { Name = "Blocks", TileWidth = 8, TileHeight = 8, Count = 2, Isometric = true }.WithPixels(isoPx);
+        var isoAtlas = NoorMD.Core.Sprite.GodotTiles.Atlas(isoSet);
+        File.WriteAllBytes(Path.Combine(dir, "sprite", "iso.png"), NoorMD.Core.Sprite.SpritePng.Encode(isoAtlas.Width, isoAtlas.Height, isoAtlas.Rgba));
+        File.WriteAllText(Path.Combine(dir, "sprite", "iso.tres"), NoorMD.Core.Sprite.GodotTiles.TileSet("iso.png", isoSet));
+        File.WriteAllText(Path.Combine(dir, "sprite", "iso_map.tscn"), NoorMD.Core.Sprite.GodotTiles.Scene("Blocks", "iso.tres", new NoorMD.Core.Sprite.SpriteCel { Width = 2, Height = 2, Tiles = [1, 2, 2, 1] }, isoSet));
         File.WriteAllText(Path.Combine(dir, "expected.json"), JsonSerializer.Serialize(new { oak = TreeExport.SwitchDistances(Build()), outcrop = RockExport.SwitchDistances(outcrop) }));
     }
 }

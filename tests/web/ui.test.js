@@ -6739,6 +6739,91 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66t. NoorSprite for games: facing the other way, directions, isometric boxes and tiles, collision shapes, readability.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const ST = () => page.evaluate(() => NoorSprite._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const px = (x, y, l = 0, f = 0) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d).join(), [x, y, l, f]);
+      const menu = async (text) => { await page.click('#sp-menu'); await page.click(`.sp-menu .utility-btn:has-text("${text}")`); };
+      // A sprite from pixels: { "x,y": [r,g,b,a] } on frame 0 of one layer.
+      const load = (w, h, pixels, extra = {}) => page.evaluate(([W, H, P, X]) => {
+        const data = new Uint8Array(W * H * 4);
+        for (const [k, c] of Object.entries(P)) { const [x, y] = k.split(',').map(Number); data.set(c, (y * W + x) * 4); }
+        let s = ''; data.forEach((v) => { s += String.fromCharCode(v); });
+        NoorSprite._load({ version: 1, width: W, height: H, palette: ['#000000ff', '#ffffffff'], layers: [{ id: 'L1', name: 'Hero', visible: true, locked: false, opacity: 255, blend: 'normal' }], frames: [{ duration: 100 }], tags: [], cels: [{ layer: 'L1', frame: 0, x: 0, y: 0, width: W, height: H, opacity: 255, data: btoa(s) }], ...X });
+      }, [w, h, pixels, extra]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      // Facing the other way: a tag mirrored as a new tag, kept a mirror.
+      await load(16, 16, { '2,8': [255, 0, 0, 255] }, { frames: [{ duration: 100 }, { duration: 140 }], tags: [{ name: 'walk_right', from: 0, to: 1, direction: 'forward', color: '#3c6ad4ff' }] });
+      await menu('Facing the other way'); await page.waitForSelector('#sp-mir-ok');
+      check('↔ facing the other way: the name says the other side', (await page.inputValue('#sp-mir-name')) === 'walk_left');
+      await page.click('#sp-mir-ok');
+      await waitFn(page, () => NoorSprite._state().tags.length === 2);
+      let st = await ST();
+      check('…the tag\'s frames flipped, as a new tag after the last frame (durations kept)', st.frames.length === 4 && st.tags[1].from === 2 && st.tags[1].to === 3 && st.tags[1].mirror === 'walk_right' && st.frames[3].duration === 140 && (await px(13, 8, 0, 2)) === '255,0,0,255' && (await px(2, 8, 0, 2)) === '0,0,0,0');
+      check('…shown as mirrored in the timeline', /↔ walk_left/.test(await page.textContent('#sp-timeline')));
+      // The first changes; the mirror is made again.
+      await page.evaluate(() => NoorSprite._setColour([0, 0, 255, 255]));
+      await page.keyboard.press('Home'); await page.keyboard.press('b');
+      await page.evaluate(() => { while (NoorSprite._state().frame !== 0) document.getElementById('spritebench').dispatchEvent(new KeyboardEvent('keydown', { key: ',', bubbles: true })); });
+      const q = await at(3, 3); await page.mouse.click(q.x, q.y);
+      await menu('Update the mirrored tags');
+      await waitFn(page, async () => NoorSprite._pixel(12, 3, 0, 2).join() === '0,0,255,255');
+      check('…☰ › Update the mirrored tags flips the first\'s frames again', (await px(12, 3, 0, 2)) === '0,0,255,255');
+      // Directions: 8 from one tag, the left ones mirrored from the right ones.
+      await load(16, 16, { '5,5': [0, 255, 0, 255] }, { tags: [{ name: 'run', from: 0, to: 0, direction: 'forward', color: '#3c6ad4ff' }] });
+      await menu('Directions'); await page.waitForSelector('#sp-dir-ok');
+      await page.selectOption('#sp-dir-count', '8'); await page.click('#sp-dir-ok');
+      await waitFn(page, () => NoorSprite._state().tags.length === 8);
+      st = await ST();
+      const byName = Object.fromEntries(st.tags.map((t) => [t.name, t]));
+      check('directions: a tag for each of 8 (…_down the one drawn)', ['run_down', 'run_down_left', 'run_left', 'run_up_left', 'run_up', 'run_up_right', 'run_right', 'run_down_right'].every((n) => byName[n]) && byName.run_down.from === 0 && st.frames.length === 8);
+      check('…the left-facing ones mirrors of the right-facing ones', byName.run_left.mirror === 'run_right' && byName.run_up_left.mirror === 'run_up_right' && byName.run_down_left.mirror === 'run_down_right' && !byName.run_right.mirror && (await px(10, 5, 0, byName.run_left.from)) === '0,255,0,255' && (await px(5, 5, 0, byName.run_right.from)) === '0,255,0,255');
+      // An isometric box: the top lighter, the right wall darker.
+      await load(16, 16, {});
+      await page.evaluate(() => NoorSprite._setColour([100, 100, 100, 255]));
+      await page.keyboard.press('y');
+      check('Y: the isometric box tool', (await ST()).tool === 'isobox');
+      const a = await at(0, 0), b = await at(15, 15);
+      await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(b.x, b.y, { steps: 4 }); await page.mouse.up();
+      await waitFn(page, () => NoorSprite._state().history > 0);
+      check('…a box fills the rectangle: a 2:1 top lighter, the left wall the colour, the right darker', (await px(7, 0)) === '154,154,154,255' && (await px(7, 7)) === '154,154,154,255' && (await px(2, 10)) === '100,100,100,255' && (await px(13, 10)) === '65,65,65,255' && (await px(0, 0)) === '0,0,0,0' && (await px(0, 15)) === '0,0,0,0');
+      await page.click('#sp-viewopts [data-view="grid"]'); await page.click('#sp-viewopts [data-view="isoGrid"]');
+      check('…View: the grid as diamonds', (await ST()).view.isoGrid === true && (await ST()).view.grid === true);
+      // Isometric tiles for Godot.
+      await menu('New tilemap layer'); await page.waitForSelector('#sp-tiles-iso');
+      await page.check('#sp-tiles-iso');
+      await waitFn(page, () => (NoorSprite._wire().tilesets[0] || {}).isometric === true);
+      check('a tileset made isometric (for Godot) is kept with the sprite', true);
+      // A collision shape: shown, and traced into the Godot export.
+      await load(8, 8, { '2,2': [9, 9, 9, 255], '3,2': [9, 9, 9, 255], '2,3': [9, 9, 9, 255], '3,3': [9, 9, 9, 255], '4,3': [9, 9, 9, 255], '7,7': [9, 9, 9, 255] });
+      await page.click('#sp-viewopts [data-view="collision"]');
+      check('View › collision shape', (await ST()).view.collision === true);
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'godot'); await page.check('#sp-ex-collision'); await page.fill('#sp-ex-ctol', '0'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).some((e) => e.collision));
+      const ex = (await SM()).exports.find((e) => e.collision);
+      check('…the export traces the biggest piece along the pixels\' edges (a polygon a frame)', ex.collision.length === 1 && JSON.stringify(ex.collision[0]) === JSON.stringify([[2, 2], [4, 2], [4, 3], [5, 3], [5, 4], [2, 4]]), ex.collision);
+      // Readability: a silhouette, the preview at game size, colours too close or barely used.
+      await load(8, 8, { '0,0': [200, 0, 0, 255], '1,0': [200, 0, 0, 255], '2,0': [200, 0, 0, 255], '3,0': [203, 0, 0, 255], '4,0': [0, 0, 200, 255], '5,0': [0, 0, 200, 255], '6,0': [0, 0, 200, 255] });
+      await page.selectOption('#sp-seen', 'silhouette');
+      check('Seen › silhouette: every drawn pixel black', (await page.evaluate(() => { const c = document.getElementById('sp-preview'); const d = c.getContext('2d').getImageData(0, 0, 1, 1).data; return [...d].join(); })) === '0,0,0,255');
+      await page.selectOption('#sp-seen', '');
+      await page.click('#sp-preview');
+      check('…clicking the preview shows it at 1× (the size in the game)', /^1× ·/.test(await page.textContent('#sp-preview-label')) && (await page.$eval('#sp-preview', (c) => c.width)) === 8);
+      await page.click('#sp-palmenu'); await page.click('.sp-menu .utility-btn:has-text("Check the colours")');
+      await page.waitForSelector('#sp-cc-close');
+      check('check the colours: one pair too close, one colour barely used', (await page.$$('#sp-cc-close .sp-cc-merge')).length === 1 && (await page.$$('#sp-cc-rare .sp-cc-row')).length === 1);
+      await page.click('#sp-cc-close .sp-cc-merge');
+      await waitFn(page, () => NoorSprite._pixel(3, 0, 0, 0).join() === '200,0,0,255');
+      check('…“one colour” makes the less used one the other', (await px(3, 0)) === '200,0,0,255' && (await px(4, 0)) === '0,0,200,255');
+      check('no page errors with the game helpers', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

@@ -312,6 +312,25 @@ one's own, a floating reference picture, pen pressure.
   brush's own shape shows instead — its size and roundness, the pencil's filled faintly with the drawing colour,
   outlined black and white so it shows on any colour (with smooth lines, where the brush is, not the pointer).
 
+### Done in preview.112
+
+- **Facing the other way** (☰): a tag's frames flipped left ↔ right as a new tag after the last frame (`walk_right`
+  gives `walk_left`), kept a mirror of the first; **☰ › Update the mirrored tags** flips them again after the first
+  changes. Tilemap layers stay as they are; layers on bones follow their poses.
+- **Directions** (☰): 4 or 8 directions from one tag — a tag for each (`run_down`, `run_up_left` …, each its own
+  animation in every export), copies to draw over, the left-facing ones mirrors of the right-facing ones.
+- **Isometric:** the box tool (Y) fills a dragged rectangle with a box — a 2:1 diamond on top, lighter, the left wall
+  in the colour, the right darker (Shift: a cube); View › diamonds turns the grid into isometric diamonds (the grid
+  size is a diamond's width × height); a tileset can be marked isometric, and goes to Godot as an isometric TileSet
+  (diamond-down layout, diamonds as wide as a tile and half as high, taller tiles standing up from them). The map is
+  laid out in Godot's diamond grid cell for cell; NoorSprite still shows it square.
+- **Collision shapes:** View › collision shape shows the polygon traced around the frame's solid pixels (the biggest
+  piece's outside, along the pixels' edges, simplified); Export › Godot › collision shape writes it as a
+  CollisionPolygon2D in an Area2D, changed with the frames by the AnimationPlayer. Checked in Godot 4.4.
+- **Readability:** Seen › silhouette (does the shape read?); click the preview for 1×, 2×, 3×, 4× (the size it will
+  be in the game) or fitted; **Check the colours** (☰ or the palette ⋯) lists colours too close to tell apart and
+  colours barely used, with one click to make them one.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

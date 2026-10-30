@@ -18,7 +18,7 @@ window.NoorSprite = (() => {
   };
   const TOOLS = [
     ['pencil', '✏️', 'Pencil (B)', 'b'], ['eraser', '🧽', 'Eraser (E)', 'e'], ['fill', '🪣', 'Fill (G)', 'g'], ['line', '╱', 'Line (L)', 'l'],
-    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['curve', '⌒', 'Curve (J): drag the line, then move to bend it and click', 'j'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
+    ['rect', '▭', 'Rectangle (U)', 'u'], ['ellipse', '◯', 'Ellipse (O)', 'o'], ['isobox', '⬢', 'Isometric box (Y): drag a rectangle and a box fills it (Shift: a cube)', 'y'], ['picker', '💧', 'Eyedropper (I; or hold Alt)', 'i'], ['curve', '⌒', 'Curve (J): drag the line, then move to bend it and click', 'j'], ['gradient', '◐', 'Gradient (D): drag from the drawing colour to the second', 'd'],
     ['select', '⬚', 'Select a rectangle (M)', 'm'], ['eselect', '◌', 'Select an ellipse', null], ['lasso', '➰', 'Lasso (Q)', 'q'], ['wand', '🪄', 'Magic wand (W)', 'w'],
     ['move', '✥', 'Move (V): the selection, or the layer', 'v'], ['slice', '⧉', 'Slices (C): named rectangles — a 9-slice centre, a pivot', 'c'], ['bone', '🦴', 'Bones (K): a skeleton that layers move with; pose it frame by frame', 'k'], ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
   ];
@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false, isoGrid: false, collision: false, collisionTol: 1, previewScale: 0 };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -247,7 +247,7 @@ window.NoorSprite = (() => {
             el('canvas', { id: 'sp-canvas', class: 'sp-canvas', role: 'img', 'aria-label': 'The sprite: draw on it' })),
           el('div', { class: 'sp-status', id: 'sp-status', 'aria-live': 'polite' })),
         el('div', { class: 'sp-right' },
-          el('div', { class: 'sp-preview-box' }, el('canvas', { id: 'sp-preview', class: 'sp-preview', role: 'img', 'aria-label': 'Preview at real size' }),
+          el('div', { class: 'sp-preview-box' }, el('canvas', { id: 'sp-preview', class: 'sp-preview', role: 'img', 'aria-label': 'Preview at real size', title: 'Click: 1×, 2×, 3×, 4× or fitted — the size it will be in the game', onclick: () => { view.previewScale = (view.previewScale + 1) % 5; drawPreview(); } }),
             el('small', { class: 'pref-hint', id: 'sp-preview-label' })),
           el('div', { class: 'sp-layerprops', id: 'sp-layerprops' }),
           el('div', { class: 'sp-tileset', id: 'sp-tileset', hidden: true }),
@@ -429,6 +429,7 @@ window.NoorSprite = (() => {
         el('span', { class: 'pref-hint', text: 'Inside the selection when there is one' }));
     }
     if (tool === 'fill' || tool === 'wand') parts.push(check('contiguous', 'touching only', 'Only the area touching the click (else every pixel of that colour)'), num('tolerance', 'Tolerance', 0, 255, 'How different a colour may be and still count as the same'));
+    if (tool === 'isobox') parts.push(el('span', { class: 'pref-hint', text: 'Its top lighter and its right wall darker than the colour · Shift: a cube · the line tool with Shift draws 2:1 lines · View › diamonds: an isometric grid' }));
     if (tool === 'rect' || tool === 'ellipse') parts.push(check('filled', 'filled', 'Filled (else only the outline); Shift: a square or a circle'));
     if (['select', 'eselect', 'lasso', 'wand'].includes(tool)) parts.push(el('span', { class: 'pref-hint', text: 'Shift: add · Alt: take away · Ctrl+A all · Ctrl+D none · Ctrl+Shift+I turn round' }));
     if (tool === 'move') parts.push(el('span', { class: 'pref-hint', text: 'Drag or use the arrow keys (Shift: 10 px) · Enter puts it down' }));
@@ -528,11 +529,12 @@ window.NoorSprite = (() => {
       })(),
       (() => {
         const t = el('select', { id: 'sp-seen', 'aria-label': 'Seen as', title: 'The sprite as people with colour blindness see it, or in grey: do its colours still read apart?' },
-          el('option', { value: '', text: 'as it is' }), el('option', { value: 'protanopia', text: 'protanopia (red-blind)' }), el('option', { value: 'deuteranopia', text: 'deuteranopia (green-blind)' }), el('option', { value: 'tritanopia', text: 'tritanopia (blue-blind)' }), el('option', { value: 'grey', text: 'in grey (values)' }));
-        t.value = view.seen; t.addEventListener('change', () => { view.seen = t.value; draw(); keepFocus(); });
+          el('option', { value: '', text: 'as it is' }), el('option', { value: 'protanopia', text: 'protanopia (red-blind)' }), el('option', { value: 'deuteranopia', text: 'deuteranopia (green-blind)' }), el('option', { value: 'tritanopia', text: 'tritanopia (blue-blind)' }), el('option', { value: 'grey', text: 'in grey (values)' }), el('option', { value: 'silhouette', text: 'silhouette (does the shape read?)' }));
+        t.value = view.seen; t.addEventListener('change', () => { view.seen = t.value; draw(); drawPreview(); keepFocus(); });
         return el('label', { class: 'sb-inline' }, el('span', { text: 'Seen' }), t);
       })(),
-      el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh),
+      el('div', { class: 'sb-row' }, check('grid', 'grid', 'A grid of your own (for tiles)'), gw, el('span', { text: '×' }), gh, check('isoGrid', 'diamonds', 'The grid as isometric diamonds: the grid size is a diamond\'s width × height (like 32 × 16)')),
+      check('collision', 'collision shape', 'The polygon traced around this frame\'s solid pixels: what Export › Godot › collision shape writes'),
       el('div', { class: 'sb-row' }, check('onion', 'onion skin', 'The frames before (red) and after (blue), faint'), nb, el('span', { text: '/' }), na),
       el('div', { class: 'sb-row' }, check('onionTag', 'this tag only', 'Onion skin from the frames of the tag you are in, not past it'), check('onionOutline', 'outlines', 'Onion skin as outlines (easier to see through)')),
       el('div', { class: 'sb-row' }, check('path', 'motion path', 'The layer\'s path through the frames (its picture\'s middle on each); with the move tool, drag a point to move that frame\'s picture'),
@@ -572,8 +574,8 @@ window.NoorSprite = (() => {
         thumbs ? thumbOf(compose(i), 36) : null, el('span', { text: String(i + 1) + (f.sound ? '♪' : '') }), el('small', { text: `${f.duration}` }))));
     const tags = doc.tags.length ? el('div', { class: 'sp-tl-row sp-tl-tags' }, el('div', { class: 'sp-tl-name' }, el('small', { class: 'pref-hint', text: 'Tags' })),
       el('div', { class: 'sp-tl-tagband', style: `grid-template-columns: repeat(${doc.frames.length}, var(--sp-cell))` },
-        ...doc.tags.map((t, ti) => el('button', { class: 'sp-tag', 'data-tag': String(ti), style: `grid-column: ${t.from + 1} / ${t.to + 2}; --c:${t.color.slice(0, 7)}`, title: `${t.name}: frames ${t.from + 1}–${t.to + 1}, ${t.direction} (click: play it; double-click: change)`,
-          onclick: () => play(ti), ondblclick: () => tagDialog(ti) }, t.name)))) : null;
+        ...doc.tags.map((t, ti) => el('button', { class: 'sp-tag', 'data-tag': String(ti), style: `grid-column: ${t.from + 1} / ${t.to + 2}; --c:${t.color.slice(0, 7)}`, title: `${t.name}: frames ${t.from + 1}–${t.to + 1}, ${t.direction}${t.mirror ? `, mirrored from ${t.mirror}` : ''} (click: play it; double-click: change)`,
+          onclick: () => play(ti), ondblclick: () => tagDialog(ti) }, t.mirror ? `↔ ${t.name}` : t.name)))) : null;
     // Top first, a group's row above its layers (folded groups hide them).
     const order = [];
     const walk = (pid, depth) => {
@@ -856,12 +858,13 @@ window.NoorSprite = (() => {
       const colour = el('input', { type: 'color', value: t.color.slice(0, 7), 'aria-label': 'Colour' });
       const ok = () => {
         const a = Math.max(0, Math.min(doc.frames.length - 1, Number(from.value) - 1)), b = Math.max(a, Math.min(doc.frames.length - 1, Number(to.value) - 1));
-        const tag = { name: name.value.trim() || 'Tag', from: a, to: b, direction: dir.value, color: colour.value + 'ff' };
+        const tag = { ...(t.mirror ? { mirror: t.mirror } : {}), name: name.value.trim() || 'Tag', from: a, to: b, direction: dir.value, color: colour.value + 'ff' };
         change(ti === null ? 'New tag' : 'Change a tag', (d) => { if (ti === null) d.tags.push(tag); else d.tags[ti] = tag; });
         closeIt();
       };
       s.append(NoorUI.head(ti === null ? 'New tag' : 'Tag', closeIt),
-        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Name ', name), el('label', {}, 'Frames ', from, ' to ', to), el('label', {}, 'Plays ', dir), el('label', {}, 'Colour ', colour)),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Name ', name), el('label', {}, 'Frames ', from, ' to ', to), el('label', {}, 'Plays ', dir), el('label', {}, 'Colour ', colour),
+          ...(t.mirror ? [el('p', { class: 'pref-hint', text: `A mirror of “${t.mirror}” (☰ › Update the mirrored tags makes it again).` })] : [])),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
           ...(ti === null ? [] : [el('button', { class: 'action', id: 'sp-tag-remove', onclick: () => { change('Remove a tag', (d) => { d.tags.splice(ti, 1); }); closeIt(); } }, 'Remove')]),
           el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-tag-ok', onclick: ok }, 'OK'))));
@@ -1003,7 +1006,8 @@ window.NoorSprite = (() => {
       for (let y = 1; y < doc.height; y++) { ctx.moveTo(o.x, o.y + y * z + 0.5); ctx.lineTo(o.x + W, o.y + y * z + 0.5); }
       ctx.stroke();
     }
-    if (view.grid) {
+    if (view.grid && view.isoGrid) drawIsoGrid(ctx, o, z);
+    else if (view.grid) {
       ctx.strokeStyle = 'rgba(40,120,255,0.55)'; ctx.beginPath();
       for (let x = doc.gridWidth; x < doc.width; x += doc.gridWidth) { ctx.moveTo(o.x + x * z + 0.5, o.y); ctx.lineTo(o.x + x * z + 0.5, o.y + H); }
       for (let y = doc.gridHeight; y < doc.height; y += doc.gridHeight) { ctx.moveTo(o.x, o.y + y * z + 0.5); ctx.lineTo(o.x + W, o.y + y * z + 0.5); }
@@ -1036,6 +1040,7 @@ window.NoorSprite = (() => {
     if (view.path && !playing) drawPath(ctx, o, z);
     drawBones(ctx, o, z);
     drawFontGuide(ctx, o, z);
+    if (view.collision) drawCollision(ctx, o, z);
     if (view.jaggies) {
       const c = cel();
       if (c) { ctx.save(); ctx.strokeStyle = '#ff2a55'; ctx.lineWidth = 2; for (const i of jaggies(c.px, doc.width, doc.height)) ctx.strokeRect(o.x + (i % doc.width) * z + 1, o.y + Math.floor(i / doc.width) * z + 1, z - 2, z - 2); ctx.restore(); }
@@ -1165,13 +1170,14 @@ window.NoorSprite = (() => {
   function drawPreview() {
     const cv = $('#sp-preview');
     if (!cv || !doc) return;
-    const scale = Math.max(1, Math.min(4, Math.floor(128 / Math.max(doc.width, doc.height))));
+    // Auto (fits 128 pixels), or the size chosen by clicking it: 1×, 2×, 3×, 4×.
+    const scale = view.previewScale || Math.max(1, Math.min(4, Math.floor(128 / Math.max(doc.width, doc.height))));
     cv.width = doc.width * scale; cv.height = doc.height * scale;
     const ctx = cv.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, cv.width, cv.height);
-    ctx.drawImage(pixelsToCanvas(composeCycled(frame) || compose(frame), doc.width, doc.height), 0, 0, cv.width, cv.height);
-    $('#sp-preview-label').textContent = `${scale}× · frame ${frame + 1}/${doc.frames.length}${playing ? ' · playing' : ''}`;
+    ctx.drawImage(pixelsToCanvas(seenAs(composeCycled(frame) || compose(frame)), doc.width, doc.height), 0, 0, cv.width, cv.height);
+    $('#sp-preview-label').textContent = `${scale}×${view.previewScale ? '' : ' (fits)'} · frame ${frame + 1}/${doc.frames.length}${playing ? ' · playing' : ''}`;
   }
 
   function status() {
@@ -1360,7 +1366,7 @@ window.NoorSprite = (() => {
       draw();
       return;
     }
-    if (['line', 'rect', 'ellipse'].includes(t)) {
+    if (['line', 'rect', 'ellipse', 'isobox'].includes(t)) {
       const base = cel();
       drag = { kind: 'shape', tool: t, colour, from: [p.x, p.y], to: [p.x, p.y], base: base ? base.px : new Uint8ClampedArray(doc.width * doc.height * 4) };
       drag.preview = shapePreview(e);
@@ -1509,6 +1515,7 @@ window.NoorSprite = (() => {
     let [x1, y1] = d.to;
     const [x0, y0] = d.from;
     if (e && e.shiftKey && d.tool !== 'line') { const s = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0)); x1 = x0 + Math.sign(x1 - x0 || 1) * s; y1 = y0 + Math.sign(y1 - y0 || 1) * s; }
+    if (d.tool === 'isobox') { for (const [x, y, c] of isoBoxPoints(x0, y0, x1, y1, d.colour)) plot(px, x, y, c); return px; }
     const linePts = d.tool === 'line' && e && e.shiftKey ? slopePoints(x0, y0, x1, y1) : linePoints(x0, y0, x1, y1);
     const pts = d.tool === 'line' ? linePts.flatMap(([x, y]) => (opts.size > 1 ? brushPoints(x, y) : mirrored([[x, y]])))
       : mirrored(d.tool === 'rect' ? rectPoints(x0, y0, x1, y1, opts.filled) : ellipsePoints(x0, y0, x1, y1, opts.filled));
@@ -1561,7 +1568,7 @@ window.NoorSprite = (() => {
     drag = null;
     if (!d) return;
     if (d.kind === 'stroke') change(d.colour[3] === 0 && tool === 'eraser' ? 'Erase' : d.ink === 'shade' ? 'Shade' : 'Draw', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
-    else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
+    else if (d.kind === 'shape') change(d.tool === 'line' ? 'Line' : d.tool === 'rect' ? 'Rectangle' : d.tool === 'isobox' ? 'Box' : 'Ellipse', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: shapePreview(e, d), opacity: (cel() || { opacity: 255 }).opacity }); });
     else if (d.kind === 'curve-line') { curve = { from: d.from, to: d.to, ctrl: [(d.from[0] + d.to[0]) / 2, (d.from[1] + d.to[1]) / 2], colour: d.colour, base: d.base }; curvePreview(); draw(); notice('Move to bend it, click to draw it (Esc: none)', 1500); }
     else if (d.kind === 'pathnode') { if (d.dx || d.dy) change(`Move frame ${frame + 1}'s picture`, (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); }); else draw(); }
     else if (d.kind === 'gradient') change('Gradient', (doc2) => { putCel(doc2, key(doc2.layers[layer].id, frame), { px: d.preview, opacity: (cel() || { opacity: 255 }).opacity }); });
@@ -1879,11 +1886,12 @@ window.NoorSprite = (() => {
       ['Flip the selection ↔', () => transform('flipH', 'selection')], ['Flip the selection ↕', () => transform('flipV', 'selection')], ['Turn the selection 90°', () => transform('rotR', 'selection')], null,
       ['Rotate by any angle (stays crisp)…', rotateDialog], ['Scale 2× (Scale2x: smooth diagonals)', () => scaleSmart(2)], ['Scale 3× (Scale3x)', () => scaleSmart(3)], null,
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Clean doubled corners (jaggies) on this layer', cleanJaggies], ['Motion (bob, breathe, jump, shake, float, sway)…', motionDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
+      ['Facing the other way (a tag mirrored)…', mirrorTagDialog], ['Directions (4 or 8 from one tag)…', directionsDialog], ['Update the mirrored tags', updateMirrors], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
       ['Share: a GIF or a video…', shareDialog], ['An atlas of many sprites (one sheet, JSON and Godot)…', packAtlas], null,
       ['Normal maps (for lit sprites)…', normalsDialog], ['A bitmap font (letters in the grid\'s cells)…', fontDialog], null,
-      ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
+      ['Check the colours (too close, barely used)…', colourCheck], ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
       ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to the Texture Bench (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
@@ -2535,6 +2543,11 @@ window.NoorSprite = (() => {
           el('button', { class: 'utility-btn', 'data-terrain': String(i), style: `--c:${tr.color.slice(0, 7)}`, 'aria-pressed': String(terrainSel === i), title: `Draw ${tr.name}: each cell takes the tile for how its neighbours join it`, onclick: () => { terrainSel = terrainSel === i ? -1 : i; if (terrainSel >= 0 && !tileMode) setTileMode(true); else { renderTileset(); draw(); } } }, tr.name),
           el('button', { class: 'icon-btn', 'data-terrain-edit': String(i), title: 'Its tiles', 'aria-label': `Edit ${tr.name}`, onclick: () => terrainDialog(i) }, '✎'))),
         el('button', { class: 'icon-btn', id: 'sp-addterrain', title: 'A terrain: the tile for every way neighbours join (16 shapes)', 'aria-label': 'New terrain', onclick: () => terrainDialog(null) }, '＋')),
+      (() => {
+        const c = el('input', { type: 'checkbox', id: 'sp-tiles-iso', checked: ts.iso || undefined });
+        c.addEventListener('change', () => { const ti = doc.layers[layer].tileset, on = c.checked; change(on ? 'Isometric tiles' : 'Square tiles', (d) => { d.tilesets[ti] = { ...d.tilesets[ti], iso: on }; if (!on) delete d.tilesets[ti].iso; }); });
+        return el('label', { class: 'sb-inline', title: 'For Godot: an isometric TileSet (diamonds as wide as a tile and half as high; taller tiles stand up from them). The map is laid out in Godot\'s diamond grid, cell for cell' }, c, el('span', { text: 'isometric (Godot)' }));
+      })(),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'sp-tiles-godot', title: 'The tiles as a Godot TileSet and the map as a TileMap scene', onclick: exportTiles }, 'Godot TileSet…'),
         el('button', { class: 'utility-btn', id: 'sp-tiles-godot-all', title: 'Every tilemap layer in one Godot scene (each with its TileSet)', onclick: () => exportTiles(true) }, 'All map layers…'),
@@ -2914,7 +2927,7 @@ window.NoorSprite = (() => {
   /** The palette menu's items (also found by the command search). */
   function paletteItems() {
     return [['A hue-shifted ramp from the drawing colour…', hueRampDialog], ['From Lospec (by name)…', lospecPalette], null, ['Sort by hue', () => sortPalette('hue')], ['Sort by brightness', () => sortPalette('light')], ['Reverse', () => sortPalette('reverse')], null,
-      ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
+      ['Check the colours (too close, barely used)…', colourCheck], ['A ramp from the drawing colour to the second…', rampDialog], ['The sprite\'s own colours', paletteFromSprite], ['Make every pixel a palette colour', snapToPalette], null,
       ['Load a palette (.gpl, .pal, .hex)…', loadPalette], ['Save the palette…', savePalette], null,
       [doc.indexed ? 'RGB colour (any colour; leave indexed)' : 'Indexed colour (every pixel a palette colour)', () => setIndexed(!doc.indexed)], ['Colour cycling…', cycleDialog]];
   }
@@ -2972,7 +2985,7 @@ window.NoorSprite = (() => {
     const tilesets = (d.tilesets || []).map((t) => {
       const n = t.tiles.length - 1, strip = new Uint8Array(t.tw * t.th * 4 * n);
       for (let j = 1; j <= n; j++) strip.set(t.tiles[j], (j - 1) * t.tw * t.th * 4);
-      return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
+      return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}), ...(t.iso ? { isometric: true } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
     return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.exportLink ? { exportLink: d.exportLink } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
@@ -2983,7 +2996,7 @@ window.NoorSprite = (() => {
     d.tilesets = (w.tilesets || []).map((t) => {
       const size = t.tileWidth * t.tileHeight * 4, strip = t.data ? unb64(t.data) : new Uint8Array(0), tiles = [null];
       for (let j = 0; j < (t.count || 0); j++) tiles.push(new Uint8ClampedArray(strip.subarray(j * size, (j + 1) * size)));
-      return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles, terrains: (t.terrains || []).map((x) => ({ name: x.name, color: x.color, tiles: [...x.tiles] })) };
+      return { name: t.name || 'Tiles', tw: t.tileWidth, th: t.tileHeight, tiles, terrains: (t.terrains || []).map((x) => ({ name: x.name, color: x.color, tiles: [...x.tiles] })), ...(t.isometric ? { iso: true } : {}) };
     });
     for (const l of d.layers) {
       if (l.kind === 'group') { delete l.tileset; continue; }
@@ -3146,8 +3159,10 @@ window.NoorSprite = (() => {
       const ppu = el('input', { type: 'number', min: '1', max: '4096', value: String(doc.gridWidth || 16), id: 'sp-ex-ppu', 'aria-label': 'Pixels per unit (Unity)' });
       const tag = el('select', { id: 'sp-ex-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
       const link = el('input', { type: 'checkbox', id: 'sp-ex-link', checked: doc.exportLink || undefined });
+      const collision = el('input', { type: 'checkbox', id: 'sp-ex-collision' });
+      const ctol = el('input', { type: 'number', min: '0', max: '8', step: '0.5', value: String(view.collisionTol), id: 'sp-ex-ctol', class: 'sb-num', 'aria-label': 'Collision shape: how closely it follows (pixels)' });
       const ok = async () => {
-        const o = { kind: kind.value, tag: tag.value === '' ? null : Number(tag.value), scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16 };
+        const o = { kind: kind.value, tag: tag.value === '' ? null : Number(tag.value), scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, collision: collision.checked, collisionTol: Math.max(0, Number(ctol.value) || 0) };
         closeIt();
         try {
           const r = await runExport({ ...o, link: link.checked && ['sheet', 'godot', 'unity', 'paper2d'].includes(o.kind) });
@@ -3160,11 +3175,12 @@ window.NoorSprite = (() => {
       };
       s.append(NoorUI.head('Export', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'What ', kind), el('label', {}, 'Frames ', tag), el('label', {}, 'Scale ', scale), el('label', {}, 'Sheet as ', layout), el('label', {}, 'Space between (px) ', spacing), el('label', {}, 'JSON ', form),
-          el('label', { title: 'Godot: an Area2D for each slice, moved with the frames by an AnimationPlayer' }, hitboxes, ' slices as hitboxes (Godot)'), el('label', {}, 'Pixels per unit (Unity) ', ppu),
+          el('label', { title: 'Godot: an Area2D for each slice, moved with the frames by an AnimationPlayer' }, hitboxes, ' slices as hitboxes (Godot)'), el('label', { title: 'Godot: a CollisionPolygon2D traced around the solid pixels of each frame (the biggest piece), changed with the frames by an AnimationPlayer' }, collision, ' collision shape (Godot), within ', ctol, ' px'),
+          el('label', {}, 'Pixels per unit (Unity) ', ppu),
           el('label', { title: 'Each Ctrl+S exports here again the same way: point it into your Godot (or Unity) project and the engine picks the changes up' }, link, ' export here again on every save (a live link to a game project)'),
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
-      if (doc.exportLink) { const L = doc.exportLink; kind.value = L.kind; scale.value = String(L.scale); layout.value = L.layout; spacing.value = String(L.spacing); form.value = L.form; hitboxes.checked = !!L.hitboxes; ppu.value = String(L.pixelsPerUnit || 16); tag.value = L.tag === null || L.tag === undefined ? '' : String(L.tag); }
+      if (doc.exportLink) { const L = doc.exportLink; kind.value = L.kind; scale.value = String(L.scale); layout.value = L.layout; spacing.value = String(L.spacing); form.value = L.form; hitboxes.checked = !!L.hitboxes; collision.checked = !!L.collision; ctol.value = String(L.collisionTol ?? 1); ppu.value = String(L.pixelsPerUnit || 16); tag.value = L.tag === null || L.tag === undefined ? '' : String(L.tag); }
     });
   }
 
@@ -3175,8 +3191,9 @@ window.NoorSprite = (() => {
     const frames = which.map((f) => ({ width: doc.width, height: doc.height, duration: doc.frames[f].duration, data: b64(new Uint8Array(compose(f, doc, null, true).buffer)) }));
     const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
     const sounds = which.map((f, i) => (doc.frames[f].sound ? { frame: i, path: doc.frames[f].sound.path } : null)).filter(Boolean);
+    const collision = o.collision && o.kind === 'godot' ? which.map((f) => collisionOf(compose(f, doc, null, true), doc.width, doc.height, o.collisionTol ?? 1)) : undefined;
     const normals = normalSettings().export && ['sheet', 'godot', 'unity'].includes(o.kind) ? which.map((f) => b64(new Uint8Array(normalMap(f).buffer))) : undefined;
-    return req('sprite.export', { kind: o.kind, frames, sounds, normals, scale: o.scale, layout: o.layout, spacing: o.spacing, form: o.form, hitboxes: o.hitboxes, pixelsPerUnit: o.pixelsPerUnit, path: o.path || null, link: !!o.link, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
+    return req('sprite.export', { kind: o.kind, frames, sounds, normals, collision, scale: o.scale, layout: o.layout, spacing: o.spacing, form: o.form, hitboxes: o.hitboxes, pixelsPerUnit: o.pixelsPerUnit, path: o.path || null, link: !!o.link, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
       // One tag's frames start at 0: a moving slice's keys follow them.
       slices: (doc.slices || []).map((sl) => {
         if (!t || !(sl.keys && sl.keys.length)) return sl;
@@ -3913,6 +3930,7 @@ window.NoorSprite = (() => {
     grey: [0.299, 0.587, 0.114, 0.299, 0.587, 0.114, 0.299, 0.587, 0.114],
   };
   function seenAs(px) {
+    if (view.seen === 'silhouette') { const out = new Uint8ClampedArray(px); for (let i = 0; i < out.length; i += 4) { out[i] = out[i + 1] = out[i + 2] = 0; out[i + 3] = out[i + 3] ? 255 : 0; } return out; }
     const m = SEEN[view.seen];
     if (!m) return px;
     const out = new Uint8ClampedArray(px);
@@ -3980,6 +3998,284 @@ window.NoorSprite = (() => {
   // ---------------------------------------------------------------- the command search and shortcuts of one's own
 
   /** Everything NoorSprite does, by name: what the search finds and what a shortcut of one's own can run. */
+  // ---------------------------------------------------------------- turn-arounds: facing the other way, 4 or 8 directions
+
+  // A tag named …_left, …_up_right (and so on) faces that way; a mirrored tag (tag.mirror: the tag it is the mirror
+  // of) is that tag's frames flipped left ↔ right, made again by ☰ › Update the mirrored tags.
+  const OTHER_SIDE = { left: 'right', right: 'left', up_left: 'up_right', up_right: 'up_left', down_left: 'down_right', down_right: 'down_left' };
+  const DIRS = { 4: ['down', 'left', 'right', 'up'], 8: ['down', 'down_left', 'left', 'up_left', 'up', 'up_right', 'right', 'down_right'] };
+  const LEFT_SIDE = ['left', 'up_left', 'down_left'];
+
+  /** A tag's name split into its stem and the way it faces (null when it names none). */
+  function faceOf(name) {
+    const m = /[_ -](down_left|down_right|up_left|up_right|down|up|left|right)$/i.exec(name);
+    return m ? { stem: name.slice(0, m.index), face: m[1].toLowerCase() } : null;
+  }
+
+  function flippedPx(px, W, H) {
+    const o = new Uint8ClampedArray(px.length);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const s = (y * W + x) * 4; o.set(px.subarray(s, s + 4), (y * W + W - 1 - x) * 4); }
+    return o;
+  }
+
+  /** Frames from…to copied to the end (flipped left ↔ right, or as they are): where the copies begin. */
+  function copyFrames(d, from, to, flip) {
+    const at = d.frames.length;
+    for (let f = from; f <= to; f++) {
+      const n = d.frames.length;
+      d.frames.push({ ...d.frames[f] });
+      for (const l of d.layers) {
+        const c = d.cels.get(key(l.id, f));
+        if (!c) continue;
+        const { link, ...plain } = c; void link;
+        // A tilemap's cells stay as they are (its tiles would need flipped twins).
+        d.cels.set(key(l.id, n), flip && l.kind !== 'tilemap' ? { opacity: c.opacity, px: flippedPx(c.px, d.width, d.height) } : plain);
+      }
+    }
+    return at;
+  }
+
+  /** The frames of a mirrored tag made again from the tag it mirrors (when both have as many frames). */
+  function refreshMirror(d, m) {
+    const src = d.tags.find((t) => t.name === m.mirror);
+    if (!src || src.to - src.from !== m.to - m.from) return false;
+    for (let i = 0; i <= m.to - m.from; i++) {
+      const f = src.from + i, g = m.from + i;
+      d.frames[g] = { ...d.frames[f] };
+      for (const l of d.layers) {
+        const c = d.cels.get(key(l.id, f));
+        if (l.kind === 'tilemap' || isGroup(l)) continue;
+        if (c) d.cels.set(key(l.id, g), { opacity: c.opacity, px: flippedPx(c.px, d.width, d.height) }); else d.cels.delete(key(l.id, g));
+      }
+    }
+    return true;
+  }
+
+  function updateMirrors() {
+    const mirrored = doc.tags.filter((t) => t.mirror);
+    if (!mirrored.length) { notice('No mirrored tags (☰ › Facing the other way makes one)', 1800); return; }
+    let done = 0;
+    const skipped = [];
+    change('Update the mirrored tags', (d) => { for (const t of d.tags) if (t.mirror) { if (refreshMirror(d, t)) done++; else skipped.push(t.name); } });
+    notice(`${done} mirrored tag${done === 1 ? '' : 's'} made again${skipped.length ? ` (not ${skipped.join(', ')}: its frames don't match the one it mirrors, or that one is gone)` : ''}`, 2600);
+  }
+
+  const tagSelect = (id) => el('select', { id, 'aria-label': 'Tag' }, ...doc.tags.map((t, i) => el('option', { value: String(i), text: `“${t.name}” (frames ${t.from + 1}–${t.to + 1})` })));
+
+  /** A tag's frames flipped left ↔ right as a new tag at the end: a walk to the right becomes one to the left. */
+  function mirrorTagDialog() {
+    commitFloating();
+    if (!doc.tags.length) { notice('Tag the frames first (the timeline\'s 🏷 button), then mirror the tag', 2200); return; }
+    NoorUI.modal({ label: 'Facing the other way', width: 420 }, (s2, closeIt) => {
+      const which = tagSelect('sp-mir-tag');
+      which.value = String(Math.max(0, doc.tags.findIndex((t) => frame >= t.from && frame <= t.to)));
+      const name = el('input', { type: 'text', id: 'sp-mir-name', maxlength: '64', 'aria-label': 'Name' });
+      const keep = el('input', { type: 'checkbox', id: 'sp-mir-keep', checked: true });
+      const suggest = () => { const t = doc.tags[Number(which.value)], f = faceOf(t.name); name.value = f && OTHER_SIDE[f.face] ? `${f.stem}_${OTHER_SIDE[f.face]}` : `${t.name}_mirrored`; };
+      which.addEventListener('change', suggest); suggest();
+      const ok = () => {
+        const ti = Number(which.value), t = doc.tags[ti], nm = name.value.trim() || `${t.name}_mirrored`;
+        if (doc.tags.some((x) => x.name === nm)) { notice(`There is a tag “${nm}” already`, 1600); return; }
+        closeIt();
+        change('Facing the other way', (d) => {
+          const at = copyFrames(d, t.from, t.to, true);
+          const { mirror, ...plain } = t; void mirror;
+          d.tags.push({ ...plain, name: nm, from: at, to: at + t.to - t.from, ...(keep.checked ? { mirror: t.name } : {}) });
+          frame = at;
+        });
+        notice(`“${nm}”: ${t.to - t.from + 1} frame${t.to === t.from ? '' : 's'} facing the other way${doc.layers.some((l) => l.bone) ? ' (layers on bones follow their poses, not mirrored)' : ''}`, 2400);
+      };
+      s2.append(NoorUI.head('Facing the other way', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'The tag\'s frames flipped left ↔ right, as a new tag after the last frame.' }),
+          el('label', {}, 'Tag ', which), el('label', {}, 'New tag ', name),
+          el('label', { title: 'Its frames stay a mirror: ☰ › Update the mirrored tags makes them again after you change the first' }, keep, ' keep it mirrored (update it from the first)')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-mir-ok', onclick: ok }, 'Mirror'))));
+    });
+  }
+
+  /** 4 or 8 directions from one tag: a tag for each (…_down, …_up_left …), copies to draw over, the left ones mirrored. */
+  function directionsDialog() {
+    commitFloating();
+    if (!doc.tags.length) { notice('Tag the frames first (the timeline\'s 🏷 button): one animation, then its directions', 2200); return; }
+    NoorUI.modal({ label: 'Directions', width: 440 }, (s2, closeIt) => {
+      const which = tagSelect('sp-dir-tag');
+      which.value = String(Math.max(0, doc.tags.findIndex((t) => frame >= t.from && frame <= t.to)));
+      const faces = el('select', { id: 'sp-dir-face', 'aria-label': 'It faces' }, ...DIRS[8].map((f) => el('option', { value: f, text: f.replace('_', ' ') })));
+      const count = el('select', { id: 'sp-dir-count', 'aria-label': 'How many' }, el('option', { value: '4', text: '4 (down, left, right, up)' }), el('option', { value: '8', text: '8 (and the diagonals)' }));
+      const mirror = el('input', { type: 'checkbox', id: 'sp-dir-mirror', checked: true });
+      const guess = () => { const f = faceOf(doc.tags[Number(which.value)].name); faces.value = f ? f.face : 'down'; };
+      which.addEventListener('change', guess); guess();
+      const ok = () => {
+        const t = doc.tags[Number(which.value)], face = faces.value, f = faceOf(t.name), stem = f ? f.stem : t.name;
+        const dirs = DIRS[count.value].includes(face) ? DIRS[count.value] : [...DIRS[count.value], face];
+        closeIt();
+        const made = [];
+        change(`${count.value} directions`, (d) => {
+          const base = d.tags.find((x) => x.from === t.from && x.to === t.to && x.name === t.name);
+          base.name = `${stem}_${face}`;
+          const has = (dir) => d.tags.some((x) => x.name === `${stem}_${dir}`);
+          const { mirror: m0, ...plain } = base; void m0;
+          const add = (dir, from, to, flip, of) => { const at = copyFrames(d, from, to, flip); d.tags.push({ ...plain, name: `${stem}_${dir}`, from: at, to: at + to - from, ...(of ? { mirror: of } : {}) }); made.push(`${stem}_${dir}`); };
+          // Mirrored: the side of a pair the drawn one isn't on (the left ones, unless the tag faces left).
+          const mirrored = (dir) => mirror.checked && OTHER_SIDE[dir] && (OTHER_SIDE[dir] === face || (LEFT_SIDE.includes(dir) && dirs.includes(OTHER_SIDE[dir])));
+          for (const dir of dirs) if (dir !== face && !has(dir) && !mirrored(dir)) add(dir, base.from, base.to, false, null);
+          for (const dir of dirs) {
+            if (dir === face || has(dir) || !mirrored(dir)) continue;
+            const src = d.tags.find((x) => x.name === `${stem}_${OTHER_SIDE[dir]}`);
+            if (src) add(dir, src.from, src.to, true, src.name);
+          }
+        });
+        notice(made.length ? `${made.join(', ')}: copies to draw over${mirror.checked ? ' (the mirrored ones follow with ☰ › Update the mirrored tags)' : ''}` : 'Every direction has its tag already', 3200);
+      };
+      s2.append(NoorUI.head('Directions', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'A tag for each direction (each exports as its own animation), each a copy of this one to draw over.' }),
+          el('label', {}, 'Tag ', which), el('label', {}, 'It faces ', faces), el('label', {}, 'Directions ', count),
+          el('label', { title: 'Draw the right-facing ones; the left-facing ones are them flipped' }, mirror, ' the left-facing ones mirrored from the right-facing ones')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-dir-ok', onclick: ok }, 'Make them'))));
+    });
+  }
+
+  // ---------------------------------------------------------------- isometric: diamonds, boxes
+
+  /** The isometric box filling a rectangle: a 2:1 diamond on top (lighter), the left wall, the right wall (darker). */
+  function isoBoxPoints(x0, y0, x1, y1, c) {
+    const l = Math.min(x0, x1), t = Math.min(y0, y1), W = Math.abs(x1 - x0) + 1, H = Math.abs(y1 - y0) + 1;
+    const d = Math.ceil(W / 2), h = Math.max(0, H - d), mid = (d - 1) / 2;
+    const mix = (to, k) => [0, 1, 2].map((i) => Math.round(c[i] + (to - c[i]) * k)).concat(c[3]);
+    const top = mix(255, 0.35), right = mix(0, 0.35), out = [];
+    for (let x = 0; x < W; x++) {
+      const k = Math.floor(Math.min(x, W - 1 - x) / 2), a = Math.max(0, Math.floor(mid) - k), b = Math.min(Math.max(d, 1) - 1, Math.ceil(mid) + k);
+      for (let y = a; y <= b; y++) out.push([l + x, t + y, top]);
+      for (let y = b + 1; y <= b + h && y < H; y++) out.push([l + x, t + y, x < W / 2 ? c : right]);
+    }
+    return out;
+  }
+
+  /** Isometric grid lines: diamonds the grid's size (its width × height, like 32 × 16). */
+  function drawIsoGrid(ctx, o, z) {
+    const gw = doc.gridWidth, gh = doc.gridHeight, W = doc.width, H = doc.height;
+    ctx.save(); ctx.beginPath(); ctx.rect(o.x, o.y, W * z, H * z); ctx.clip();
+    ctx.strokeStyle = 'rgba(40,120,255,0.55)'; ctx.lineWidth = 1; ctx.beginPath();
+    const n = Math.ceil(W / gw + H / gh) + 1;
+    for (let i = -n; i <= n; i++) {
+      // x/gw + y/gh = i, and x/gw − y/gh = i: from the top edge to the bottom.
+      ctx.moveTo(o.x + i * gw * z, o.y); ctx.lineTo(o.x + (i * gw - (H / gh) * gw) * z, o.y + H * z);
+      ctx.moveTo(o.x + i * gw * z, o.y); ctx.lineTo(o.x + (i * gw + (H / gh) * gw) * z, o.y + H * z);
+    }
+    ctx.stroke(); ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- collision shapes
+
+  /**
+   * The outline of a picture's solid pixels (alpha at least half) as a polygon along the pixels' edges: the biggest
+   * piece's outside, simplified to within `tol` pixels. Points are pixel corners; [] when nothing is solid.
+   */
+  function collisionOf(px, W, H, tol = 1) {
+    const solid = (x, y) => x >= 0 && y >= 0 && x < W && y < H && px[(y * W + x) * 4 + 3] >= 128;
+    // Edges with the solid on their right, going round each pixel's open sides.
+    const from = new Map(), P = (x, y) => y * (W + 1) + x;
+    const addEdge = (ax, ay, bx, by) => { const k = P(ax, ay); if (!from.has(k)) from.set(k, []); from.get(k).push({ ax, ay, bx, by, used: false }); };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!solid(x, y)) continue;
+      if (!solid(x, y - 1)) addEdge(x, y, x + 1, y);
+      if (!solid(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
+      if (!solid(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
+      if (!solid(x - 1, y)) addEdge(x, y + 1, x, y);
+    }
+    let best = null, bestArea = 0;
+    for (const list of from.values()) for (const e0 of list) {
+      if (e0.used) continue;
+      const loop = [];
+      let e = e0;
+      while (e && !e.used) {
+        e.used = true;
+        loop.push([e.ax, e.ay]);
+        const next = (from.get(P(e.bx, e.by)) || []).filter((n) => !n.used);
+        // Where two pieces touch at a corner, turn right: each piece keeps its own outline.
+        const dx = e.bx - e.ax, dy = e.by - e.ay;
+        e = next.find((n) => n.bx - n.ax === -dy && n.by - n.ay === dx) || next[0] || null;
+      }
+      let area = 0;
+      for (let i = 0; i < loop.length; i++) { const [ax, ay] = loop[i], [bx, by] = loop[(i + 1) % loop.length]; area += ax * by - bx * ay; }
+      if (area > bestArea) { bestArea = area; best = loop; }
+    }
+    if (!best) return [];
+    // Straight runs to their ends, then simplified (Douglas–Peucker, the loop split at its far point).
+    const pts = best.filter((p, i) => { const a = best[(i - 1 + best.length) % best.length], b = best[(i + 1) % best.length]; return (p[0] - a[0]) * (b[1] - p[1]) - (p[1] - a[1]) * (b[0] - p[0]) !== 0; });
+    if (tol <= 0 || pts.length <= 4) return pts;
+    const simplify = (run) => {
+      if (run.length < 3) return run;
+      const [ax, ay] = run[0], [bx, by] = run[run.length - 1], len = Math.hypot(bx - ax, by - ay) || 1;
+      let far = 0, fi = 0;
+      for (let i = 1; i < run.length - 1; i++) { const dd = Math.abs((bx - ax) * (ay - run[i][1]) - (ax - run[i][0]) * (by - ay)) / len; if (dd > far) { far = dd; fi = i; } }
+      return far <= tol ? [run[0], run[run.length - 1]] : [...simplify(run.slice(0, fi + 1)).slice(0, -1), ...simplify(run.slice(fi))];
+    };
+    let fi = 0, fd = 0;
+    pts.forEach((p, i) => { const dd = Math.hypot(p[0] - pts[0][0], p[1] - pts[0][1]); if (dd > fd) { fd = dd; fi = i; } });
+    const out = [...simplify(pts.slice(0, fi + 1)).slice(0, -1), ...simplify([...pts.slice(fi), pts[0]]).slice(0, -1)];
+    return out.length >= 3 ? out : pts;
+  }
+
+  function drawCollision(ctx, o, z) {
+    const poly = collisionOf(compose(frame, doc, null, true), doc.width, doc.height, view.collisionTol);
+    if (poly.length < 3) return;
+    ctx.save(); ctx.beginPath();
+    poly.forEach(([x, y], i) => (i ? ctx.lineTo(o.x + x * z, o.y + y * z) : ctx.moveTo(o.x + x * z, o.y + y * z)));
+    ctx.closePath(); ctx.fillStyle = 'rgba(0,220,255,0.15)'; ctx.fill(); ctx.lineWidth = 2; ctx.strokeStyle = '#00dcff'; ctx.stroke();
+    ctx.fillStyle = '#fff';
+    for (const [x, y] of poly) ctx.fillRect(o.x + x * z - 2, o.y + y * z - 2, 4, 4);
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- readability: colours too close, colours barely used
+
+  /** How far apart two colours look (0 the same; about 30 is hard to tell apart in a small sprite). */
+  const colourGap = (a, b) => Math.sqrt(palDist(a, b[0], b[1], b[2], b[3]) / 11);
+
+  /** The sprite's colours (every frame as exported) with how many pixels each covers, most first. */
+  function usedColours() {
+    const counts = new Map();
+    for (let f = 0; f < doc.frames.length; f++) {
+      const px = compose(f, doc, null, true);
+      for (let i = 0; i < px.length; i += 4) if (px[i + 3]) { const k = rgbaKey(px, i); counts.set(k, (counts.get(k) || 0) + 1); }
+    }
+    return [...counts].map(([k, n]) => ({ c: [k >>> 24, (k >>> 16) & 255, (k >>> 8) & 255, k & 255], n })).sort((a, b) => b.n - a.n);
+  }
+
+  function colourCheck() {
+    commitFloating();
+    const cols = usedColours();
+    NoorUI.modal({ label: 'Check the colours', width: 480 }, (s2, closeIt) => {
+      const gap = el('input', { type: 'range', min: '5', max: '80', value: '24', id: 'sp-cc-gap', 'aria-label': 'How close counts as too close' });
+      const rare = el('input', { type: 'number', min: '1', max: '50', value: '2', id: 'sp-cc-rare-n', class: 'sb-num', 'aria-label': 'Barely used: at most this many pixels' });
+      const body = el('div', { class: 'sp-cc' });
+      const sw = (c) => el('span', { class: 'sp-cc-sw', style: `background:${hex(c).slice(0, 7)}`, title: hex(c) });
+      const merge = (a, b) => { closeIt(); replaceColour(a.c, b.c, 0, 'sprite'); notice(`${hex(a.c)} is ${hex(b.c)} now`, 1600); };
+      const render = () => {
+        const g = Number(gap.value), r = Number(rare.value) || 1, close = [];
+        for (let i = 0; i < cols.length && close.length < 30; i++) for (let j = i + 1; j < cols.length && close.length < 30; j++) if (colourGap(cols[i].c, cols[j].c) < g) close.push([cols[i], cols[j]]);
+        const few = cols.length > 1 ? cols.filter((x) => x.n <= r).slice(0, 30) : [];
+        const nearestOther = (x) => cols.filter((y) => y !== x && y.n > r).sort((a, b) => colourGap(x.c, a.c) - colourGap(x.c, b.c))[0];
+        body.replaceChildren(
+          el('p', { class: 'pref-hint', text: `${cols.length} colour${cols.length === 1 ? '' : 's'} in the sprite (every frame).` }),
+          el('h4', { class: 'music-subhead', text: `Too close to tell apart (${close.length})` }),
+          el('div', { id: 'sp-cc-close' }, ...(close.length ? close.map(([a, b]) => el('div', { class: 'sb-row sp-cc-row' }, sw(a.c), sw(b.c), el('small', { text: `${a.n} and ${b.n} pixels` }),
+            el('button', { class: 'utility-btn sp-cc-merge', title: 'Every pixel of the less used one becomes the other', onclick: () => merge(b, a) }, 'One colour'))) : [el('small', { class: 'pref-hint', text: 'None: every colour reads apart.' })])),
+          el('h4', { class: 'music-subhead', text: `Barely used (${few.length})` }),
+          el('div', { id: 'sp-cc-rare' }, ...(few.length ? few.map((x) => { const to = nearestOther(x); return el('div', { class: 'sb-row sp-cc-row' }, sw(x.c), el('small', { text: `${x.n} pixel${x.n === 1 ? '' : 's'}` }),
+            el('button', { class: 'utility-btn', title: 'Draw with it (to find it)', onclick: () => { fg = [...x.c]; renderColours(); renderPalette(); } }, 'Pick'),
+            ...(to ? [el('button', { class: 'utility-btn sp-cc-fold', title: `Make it ${hex(to.c)}, the nearest colour used more`, onclick: () => merge(x, to) }, '→ ', sw(to.c))] : [])); }) : [el('small', { class: 'pref-hint', text: 'None.' })])));
+      };
+      gap.addEventListener('input', render); rare.addEventListener('change', render);
+      s2.append(NoorUI.head('Check the colours', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'Too close under ', gap), el('label', {}, 'Barely used: ', rare, ' pixels or fewer'), body,
+          el('p', { class: 'pref-hint', text: 'Also: View › Seen › silhouette (does the shape read?), and click the preview for 1×, 2×, 3× (the size it will be in the game).' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+      render();
+    });
+  }
+
   function commands() {
     const flip = (k, label) => [`view.${k}`, `${view[k] ? 'Hide' : 'Show'} ${label}`, () => { view[k] = !view[k]; renderAll(); }];
     const list = [
@@ -3993,7 +4289,7 @@ window.NoorSprite = (() => {
       ['layer.new', 'New layer', addLayer], ['layer.group', 'New group', addGroup], ['layer.ungroup', 'Ungroup', ungroup], ['layer.tilemap', 'New tilemap layer', addTilemapLayer], ['layer.duplicate', 'Duplicate the layer', duplicateLayer],
       ['layer.remove', 'Remove the layer', removeLayer], ['layer.merge', 'Merge down', mergeDown], ['layer.up', 'Layer up', () => moveLayer(1)], ['layer.down', 'Layer down', () => moveLayer(-1)],
       ['tiles.mode', 'Tiles / pixels (tilemap layer)', () => setTileMode(!tileMode)], ['brush.smooth', 'Smooth lines: stronger (round to off)', () => cycleSmooth()],
-      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'),
+      flip('pixelGrid', 'the pixel grid'), flip('grid', 'the grid'), flip('onion', 'onion skin'), flip('slices', 'slices'), flip('path', 'the motion path'), flip('thumbs', 'thumbnails'), flip('isoGrid', 'isometric diamonds (with the grid)'), flip('collision', 'the collision shape'),
       ['view.tiled', 'Tiling: both ways / off', () => { view.tiled = view.tiled ? '' : 'both'; renderAll(); }], ['view.in', 'Zoom in', () => zoomBy(1)], ['view.out', 'Zoom out', () => zoomBy(-1)], ['view.fit', 'Fit the sprite in view', () => { fitZoom(); draw(); }],
       ['view.reference', 'A floating reference picture…', floatingReference],
       ...moreItems().filter(Boolean).map(([name, fn]) => [`sprite.${name.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`, name, fn]),

@@ -203,6 +203,22 @@ func _init() -> void:
 	var audio_track := walk.find_track(NodePath("Sound"), Animation.TYPE_AUDIO)
 	check(hit.get_node("Sound") is AudioStreamPlayer2D and audio_track >= 0 and walk.track_get_key_count(audio_track) == 2 and walk.audio_track_get_key_stream(audio_track, 0) is AudioStream and is_equal_approx(walk.track_get_key_time(audio_track, 0), 0.1), "…a frame's sound played each time the frame comes", walk.track_get_key_count(audio_track) if audio_track >= 0 else -1)
 	hit.free()
+	# A collision shape traced from the frames.
+	var body: Node = load("res://sprite/hero_body.tscn").instantiate()
+	var poly: CollisionPolygon2D = body.get_node("Collision/CollisionPolygon2D")
+	check(body.get_node("Collision") is Area2D and poly.polygon.size() == 4 and poly.polygon[0] == Vector2(-4, -4), "a collision shape: a CollisionPolygon2D in an Area2D, where the solid pixels are", poly.polygon)
+	var bwalk: Animation = body.get_node("AnimationPlayer").get_animation("walk")
+	var ptrack := bwalk.find_track(NodePath("Collision/CollisionPolygon2D:polygon"), Animation.TYPE_VALUE)
+	check(ptrack >= 0 and bwalk.track_get_key_count(ptrack) == 6 and (bwalk.track_get_key_value(ptrack, 1) as PackedVector2Array).size() == 3 and (bwalk.track_get_key_value(ptrack, 0) as PackedVector2Array).size() == 4, "…changed with the frames (square, then triangles)", bwalk.track_get_key_count(ptrack) if ptrack >= 0 else -1)
+	body.free()
+	# Isometric tiles.
+	var iso = load("res://sprite/iso.tres")
+	check(iso is TileSet and iso.tile_shape == TileSet.TILE_SHAPE_ISOMETRIC and iso.tile_layout == TileSet.TILE_LAYOUT_DIAMOND_DOWN and iso.tile_size == Vector2i(8, 4), "an isometric tileset: diamonds 8 × 4, laid out diamond-down", [iso.tile_shape, iso.tile_size] if iso is TileSet else iso)
+	var isrc: TileSetAtlasSource = iso.get_source(0)
+	check(isrc.texture_region_size == Vector2i(8, 8) and isrc.get_tile_data(Vector2i(0, 0), 0).texture_origin == Vector2i(0, 2), "…tall tiles stand up from their diamonds", isrc.get_tile_data(Vector2i(0, 0), 0).texture_origin)
+	var imap: Node = load("res://sprite/iso_map.tscn").instantiate()
+	check(imap is TileMap and imap.get_used_cells(0).size() == 4 and imap.map_to_local(Vector2i(1, 0)) != imap.map_to_local(Vector2i(0, 1)), "…and a map of it in Godot's diamond grid", imap.get_used_cells(0).size() if imap is TileMap else imap)
+	imap.free()
 
 	# The shader itself: its code loads and declares what the plugin sets.
 	var shader: Shader = load("res://addons/noor_trees/noor_tree_wind.gdshader")

@@ -1844,6 +1844,8 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .spritebench .sp-tileset .utility-btn.on { outline: 2px solid var(--accent); }
 .spritebench .sp-tiles { display: flex; flex-wrap: wrap; gap: 3px; max-height: 180px; overflow-y: auto; padding: 2px;
   background: repeating-conic-gradient(#c9c9c9 0% 25%, #f2f2f2 0% 50%) 0 0 / 8px 8px; border-radius: 4px; }
+.sp-cc-row { align-items: center; gap: 6px; margin: 2px 0; }
+.sp-cc-sw { display: inline-block; width: 18px; height: 18px; border-radius: 3px; border: 1px solid rgba(127,127,127,0.6); vertical-align: middle; }
 .spritebench .sp-tile { padding: 0; border: 2px solid transparent; background: none; cursor: pointer; line-height: 0; border-radius: 3px; }
 .spritebench .sp-tile canvas { image-rendering: pixelated; }
 .spritebench .sp-tile.on { border-color: var(--accent); }
