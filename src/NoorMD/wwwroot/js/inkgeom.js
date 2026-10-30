@@ -913,11 +913,13 @@
 
   // ---- Stroking and offsetting ----
   // The stroke of a polyline is the union of one quad per segment, a join piece on the outer side of every vertex and a
-  // cap at each open end, exactly what a browser fills. All pieces get a positive area and one nonzero boolean union
-  // resolves every overlap (short segments, cusps, 180 degree turns, a path crossing itself). Curves are flattened first;
+  // cap at each open end, exactly what a browser fills. Runs of quads and joins that cannot fold over themselves are
+  // built as one strip polygon each; all pieces get a positive area and exact nonzero boolean unions (neighbours first)
+  // resolve every overlap (short segments, cusps, 180 degree turns, a path crossing itself). Curves are flattened first;
   // the vertices that flattening adds inside a curve get round joins, so the outline follows the true offset curve. Round
   // parts come back as short straight segments whose chord error is at most `tolerance` (default min(0.1, width / 20)).
-  const CHUNK = 32;
+  // Options: { cap: 'butt' | 'round' | 'square', join: 'miter' | 'round' | 'bevel', miterLimit: 4, tolerance }.
+  const CHUNK = 32; // longest strip, in flattened segments
   function strokeRings(path, width, opts) {
     const o = opts || {}, h = Math.abs(+width || 0) / 2;
     if (!(h > 0) || !isFinite(h)) return [];
@@ -1071,8 +1073,12 @@
         for (let k = 0; k < breaks.length; k++) {
           const a = breaks[k], b = k + 1 < breaks.length ? breaks[k + 1] : closed ? breaks[0] + n : -1;
           if (b < 0) break;
+          // Strips reach over a break only where the turn is under 90 degrees: there the neighbouring strip may continue
+          // in nearly the same direction (a chunk cut) and nothing else would overlap their shared end line; past a sharper
+          // turn the extension would show, and the join wedge overlaps both strips anyway.
           const inner0 = closed || a > 0, inner1 = closed || b < n - 1;
-          const [plus, minus] = strip(a, b - a, inner0 ? Math.min(ov, L[(a + m - 1) % m] / 2) : 0, inner1 ? Math.min(ov, L[b % m] / 2) : 0);
+          const ext = (v) => { const i = v % n, j = (i + m - 1) % m; return DX[j] * DX[i] + DY[j] * DY[i] > 0 ? Math.min(ov, L[j] / 2, L[i] / 2) : 0; };
+          const [plus, minus] = strip(a, b - a, inner0 ? ext(a) : 0, inner1 ? ext(b) : 0);
           push(plus.concat(minus.reverse()));
           // The join at the end of this run follows it, keeping the pieces in path order for the union.
           if (inner1) {
@@ -1086,7 +1092,6 @@
         capPiece(P[n - 1][0], P[n - 1][1], DX[m - 1], DY[m - 1], Math.min(ov, L[m - 1] / 2));
       }
     }
-    if (o._pieces) return pieces;
     if (!pieces.length) return [];
     // Exact union, merging neighbouring pieces first (pieces are in path order, so neighbours overlap the most), then drop
     // the near-collinear vertices the pieces leave along curved runs.

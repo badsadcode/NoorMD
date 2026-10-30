@@ -26,7 +26,7 @@ window.NoorInk = (() => {
     ['star', '☆', 'Star', null],
     ['line', '╱', 'Line (\\)', '\\'],
     ['text', 'T', 'Text (T): click to write', 't'],
-    ['gradient', '◐', 'Gradient (G): drag across an object to lay its gradient; drag the ends to move them', 'g'],
+    ['gradient', '🌈', 'Gradient (G): drag across an object to lay its gradient; drag the ends to move them', 'g'],
     ['picker', '💧', 'Eyedropper (I): takes an object\'s fill and stroke (and gives them to the selection)', 'i'],
     ['hand', '✋', 'Hand (H; or hold Space)', 'h'],
     ['zoom', '🔍', 'Zoom (Z): click in, Alt+click out', 'z'],

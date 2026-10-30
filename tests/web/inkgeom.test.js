@@ -308,5 +308,157 @@ const sq = (x, y, s) => G.rect(x, y, s, s);
   check('fit with one point', G.fit([[1, 1], [1, 1]]).pts.length === 1);
 }
 
+// ---- strokeToPath ----
+{
+  const fine = { tolerance: 0.001 };
+  const ln = G.line(0, 0, 100, 0);
+  const butt = G.strokeToPath(ln, 10);
+  check('stroke a line, butt caps: the 100x10 rectangle', butt.length === 1 && butt[0].closed && butt[0].pts.length === 4 && near(pathArea(butt), 1000, 1e-9) && boxNear(G.bounds(butt), 0, -5, 100, 10, 1e-9), JSON.stringify(anchors(butt)));
+  const round = pathArea(G.strokeToPath(ln, 10, { cap: 'round', ...fine }), 0.001);
+  check('round caps add pi 25', near(round, 1000 + Math.PI * 25, 0.05), round.toFixed(3));
+  const roundDefault = pathArea(G.strokeToPath(ln, 10, { cap: 'round' }), 0.001);
+  check('round caps at the default tolerance are within 0.5%', Math.abs(roundDefault - 1000 - Math.PI * 25) < 0.005 * (1000 + Math.PI * 25), roundDefault.toFixed(3));
+  check('square caps add half the width at each end', near(pathArea(G.strokeToPath(ln, 10, { cap: 'square' })), 1100, 1e-9));
+  check('the result is positive (outer ring area > 0)', G.area(G.flatten(butt)[0]) > 0);
+  const ring = G.strokeToPath(sq(0, 0, 100), 10), rr = G.flatten(ring).map((r) => G.area(r));
+  check('closed square: a ring, area outer minus inner', ring.length === 2 && near(pathArea(ring), 110 * 110 - 90 * 90, 1e-6) && rr.some((a) => a > 0) && rr.some((a) => a < 0), rr.join(' '));
+  check('closed square: no caps, miter corners reach the outer square', boxNear(G.bounds(ring), -5, -5, 110, 110, 1e-6));
+  const bevelSq = pathArea(G.strokeToPath(sq(0, 0, 100), 10, { join: 'bevel' }));
+  check('closed square, bevel joins cut 4 corner triangles', near(bevelSq, 4000 - 4 * 12.5, 1e-6), String(bevelSq));
+  const zig = G.parse('M0 0L20 40L40 0L60 40L80 0');
+  const zm = pathArea(G.strokeToPath(zig, 10, { join: 'miter' })), zr = pathArea(G.strokeToPath(zig, 10, { join: 'round' })), zb = pathArea(G.strokeToPath(zig, 10, { join: 'bevel' }));
+  check('zig-zag: miter > round > bevel', zm > zr && zr > zb && zb > 0, `${zm.toFixed(1)} ${zr.toFixed(1)} ${zb.toFixed(1)}`);
+  const zl = pathArea(G.strokeToPath(zig, 10, { join: 'miter', miterLimit: 1.5 }));
+  check('miter past the limit falls back to bevel', near(zl, zb, 1e-6), `${zl.toFixed(3)} vs ${zb.toFixed(3)}`);
+  const turn = pathArea(G.strokeToPath(G.parse('M0 0L100 0L50 0'), 10));
+  check('a 180 degree turn with miter join adds nothing past the turn', near(turn, 1000, 1e-6), String(turn));
+  const turnR = pathArea(G.strokeToPath(G.parse('M0 0L100 0L50 0'), 10, { join: 'round', ...fine }), 0.001);
+  check('a 180 degree turn with round join adds a half disc', near(turnR, 1000 + Math.PI * 12.5, 0.05), turnR.toFixed(3));
+  const dot = G.strokeToPath(G.parse('M5 5L5 5'), 10, { cap: 'round', ...fine });
+  check('a zero-length subpath with round caps is a dot', dot.length === 1 && near(pathArea(dot, 0.001), Math.PI * 25, 0.05));
+  check('a zero-length subpath with butt caps is nothing', G.strokeToPath(G.parse('M5 5L5 5'), 10).length === 0);
+  check('square cap dot is an axis-aligned square', near(pathArea(G.strokeToPath(G.parse('M5 5L5 5'), 10, { cap: 'square' })), 100, 1e-9));
+  check('zero width gives nothing', G.strokeToPath(ln, 0).length === 0 && G.strokeToPath([], 5).length === 0);
+  const rep = G.strokeToPath(G.parse('M0 0L50 0L50 0L50 0L100 0'), 10);
+  check('repeated points do not add anything', rep.length === 1 && rep[0].pts.length === 4 && near(pathArea(rep), 1000, 1e-6), JSON.stringify(anchors(rep)));
+  const shortSeg = G.strokeToPath(G.parse('M0 0L50 0L50.001 0.001L100 0'), 10);
+  check('a very short segment in a straight line leaves it nearly a rectangle', shortSeg.length === 1 && Math.abs(pathArea(shortSeg) - 1000) < 0.1, String(pathArea(shortSeg)));
+
+  // Point sampling against an independent distance-to-polyline test: with round joins and round caps the stroke is
+  // exactly the set of points within width / 2 of the (flattened) path.
+  const flatDist = (path, x, y) => {
+    let best = Infinity;
+    for (const [i, r] of G.flatten(path, 0.001).entries()) {
+      const n = r.length, segs = path[i].closed ? n : n - 1;
+      if (n === 1) best = Math.min(best, Math.hypot(x - r[0][0], y - r[0][1]));
+      for (let k = 0; k < segs; k++) {
+        const a = r[k], b = r[(k + 1) % n], dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy;
+        const t = l2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)) : 0;
+        best = Math.min(best, Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy));
+      }
+    }
+    return best;
+  };
+  const windingOf = (rings, x, y) => {
+    let w = 0;
+    for (const r of rings) {
+      for (let i = 0; i < r.length; i++) {
+        const a = r[i], b = r[(i + 1) % r.length], s = (b[0] - a[0]) * (y - a[1]) - (x - a[0]) * (b[1] - a[1]);
+        if (a[1] <= y) { if (b[1] > y && s > 0) w++; } else if (b[1] <= y && s < 0) w--;
+      }
+    }
+    return w;
+  };
+  let seed = 99;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+  const shapes = [
+    ['zig-zag', zig, 10],
+    ['cubic loop', G.parse('M0 0C100 100 0 100 100 0'), 30],
+    ['cusp-like cubic', G.parse('M0 0C100 0 0 0 100 100'), 20],
+    ['tight sine', G.parse('M0 100' + Array.from({ length: 30 }, (_, i) => ` S${i * 8 + 4} ${i % 2 ? 160 : 40} ${i * 8 + 8} 100`).join('')), 14],
+    ['hairpin with repeated points', G.parse('M0 0L60 0L60 0L60 0.5L0 1L30 30L30 30'), 8],
+    ['closed curve thicker than its size', G.ellipse(0, 0, 10, 6), 30],
+    ['closed self-crossing star', G.star(0, 0, 50, 50, 5, 0.3), 6],
+    ['random polyline', [{ closed: false, pts: Array.from({ length: 15 }, () => { const x = rnd() * 100, y = rnd() * 100; return { x, y, ix: x, iy: y, ox: x, oy: y }; }) }], 9],
+  ];
+  for (const [name, path, w] of shapes) {
+    const out = G.strokeToPath(path, w, { join: 'round', cap: 'round', tolerance: 0.005 }), rings = G.flatten(out), b = G.bounds(out);
+    let bad = 0, tested = 0, maxW = 0, info = '';
+    for (let k = 0; k < 1500; k++) {
+      const x = b.x - 2 + rnd() * (b.w + 4), y = b.y - 2 + rnd() * (b.h + 4), d = flatDist(path, x, y);
+      if (Math.abs(d - w / 2) < 0.03) continue;
+      tested++;
+      const wn = windingOf(rings, x, y);
+      maxW = Math.max(maxW, Math.abs(wn));
+      if ((wn !== 0) !== d < w / 2) { bad++; if (!info) info = `${x.toFixed(2)},${y.toFixed(2)} d=${d.toFixed(3)}`; }
+    }
+    check(`stroke matches distance sampling: ${name}`, bad === 0 && tested > 1000, `${bad}/${tested} wrong ${info}`);
+    check(`stroke has no self-overlap (winding 0 or 1): ${name}`, maxW <= 1, String(maxW));
+  }
+  // Miter joins: everything within w/2 is inside, nothing beyond w/2 * miterLimit is.
+  {
+    const path = G.parse('M0 0L40 60L45 0L90 50L95 45L140 60'), w = 10, out = G.flatten(G.strokeToPath(path, w, { join: 'miter', miterLimit: 4, cap: 'round' })), b = G.bounds(G.strokeToPath(path, w));
+    let bad = 0;
+    for (let k = 0; k < 2000; k++) {
+      const x = b.x - 5 + rnd() * (b.w + 10), y = b.y - 5 + rnd() * (b.h + 10), d = flatDist(path, x, y), wn = windingOf(out, x, y);
+      if ((d < w / 2 - 0.01 && wn !== 1) || (d > w * 2 + 0.01 && wn !== 0)) bad++;
+    }
+    check('miter stroke: covers the round stroke and stays within the miter limit', bad === 0, String(bad));
+  }
+
+  // Timing: a 200-anchor smooth wandering path.
+  const walkPts = [];
+  let wx = 0, wy = 0, wa = 0;
+  for (let k = 0; k < 200; k++) { wa += (rnd() - 0.5) * 1.6; wx += 25 * Math.cos(wa); wy += 25 * Math.sin(wa); walkPts.push(wx, wy); }
+  let walk = [{ closed: false, pts: Array.from({ length: 200 }, (_, k) => ({ x: walkPts[2 * k], y: walkPts[2 * k + 1], ix: walkPts[2 * k], iy: walkPts[2 * k + 1], ox: walkPts[2 * k], oy: walkPts[2 * k + 1] })) }];
+  for (let k = 0; k < 200; k++) walk = G.smoothCorner(walk, 0, k);
+  G.strokeToPath(walk, 8, { join: 'round', cap: 'round' }); // warm up
+  const times = [];
+  for (const [w, join] of [[2, 'miter'], [8, 'round'], [20, 'bevel'], [40, 'miter']]) {
+    const t0 = Date.now(), out = G.strokeToPath(walk, w, { join, cap: 'round' });
+    times.push(`w${w} ${join} ${Date.now() - t0} ms (${out.reduce((s, sub) => s + sub.pts.length, 0)} pts)`);
+  }
+  const worst = Math.max(...times.map((t) => +t.split(' ')[2]));
+  check('200-anchor curvy path strokes quickly (target 150 ms)', worst < 400, times.join(', '));
+}
+
+// ---- offset ----
+{
+  const s = 100, A = sq(0, 0, s);
+  const grow = pathArea(G.offset(A, 5, 'round', { tolerance: 0.001 }), 0.001);
+  check('offset +5 round: (s+10)^2 - (4 - pi) 25', near(grow, (s + 10) ** 2 - (4 - Math.PI) * 25, 0.1), grow.toFixed(3));
+  check('offset +5 round at the default tolerance within 0.05%', Math.abs(pathArea(G.offset(A, 5)) - ((s + 10) ** 2 - (4 - Math.PI) * 25)) < 6);
+  check('offset +5 miter: (s+10)^2', near(pathArea(G.offset(A, 5, 'miter')), (s + 10) ** 2, 1e-6));
+  check('offset +5 bevel cuts the corners', near(pathArea(G.offset(A, 5, 'bevel')), (s + 10) ** 2 - 4 * 12.5, 1e-6));
+  const shrink = G.offset(A, -5);
+  check('offset -5: (s-10)^2, one positive ring', shrink.length === 1 && near(pathArea(shrink), (s - 10) ** 2, 1e-6) && boxNear(G.bounds(shrink), 5, 5, 90, 90, 1e-6));
+  check('offset shrinking past nothing is empty', G.offset(A, -50.5).length === 0 && G.offset(A, -80).length === 0);
+  const revd = G.offset(G.reverse(A), 5, 'miter');
+  check('offset ignores the input winding direction', near(pathArea(revd), (s + 10) ** 2, 1e-6));
+  const donut = G.ellipse(0, 0, 50, 50).concat(G.reverse(G.ellipse(0, 0, 20, 20)));
+  const dg = G.flatten(G.offset(donut, 5)).map((r) => G.area(r));
+  const want = Math.PI * (55 * 55 - 15 * 15);
+  check('offset a donut: the hole shrinks while the outside grows', dg.length === 2 && Math.abs(dg[0] + dg[1] - want) / want < 0.005, `${(dg[0] + dg[1]).toFixed(0)} vs ${want.toFixed(0)}`);
+  const dn = G.offset(donut, -16);
+  check('shrink a donut until its wall is gone', dn.length === 0, String(dn.length));
+  const open = G.offset(G.parse('M0 0L100 0L100 100L0 100'), 5, 'miter');
+  check('offset treats an open subpath as closed', near(pathArea(open), 110 * 110, 1e-6));
+  const circ = pathArea(G.offset(G.ellipse(0, 0, 40, 40), 10, 'round', { tolerance: 0.001 }), 0.001);
+  check('offset a circle: a circle 10 larger', Math.abs(circ - Math.PI * 2500) / (Math.PI * 2500) < 0.001, circ.toFixed(1));
+  check('offset by 0 normalises the fill', near(pathArea(G.offset(G.reverse(A), 0)), s * s, 1e-6));
+}
+
+// ---- roundCorners ----
+{
+  const rc = G.roundCorners(sq(0, 0, 100), 10);
+  check('roundCorners on a square: 8 anchors, the rounded-rect area', rc[0].pts.length === 8 && near(pathArea(rc, 0.001), 10000 - (4 - Math.PI) * 100, 0.2), String(pathArea(rc, 0.001)));
+  const big = G.roundCorners(sq(0, 0, 100), 500);
+  check('roundCorners with a huge radius makes a circle-like shape (4 anchors)', big[0].pts.length === 4 && near(pathArea(big, 0.001), Math.PI * 2500, 10), String(pathArea(big, 0.001)));
+  const openL = G.roundCorners(G.parse('M0 0L50 0L50 50'), 10);
+  check('roundCorners keeps open ends and rounds the inner corner', openL[0].pts.length === 4 && openL[0].pts[0].x === 0 && openL[0].pts[3].y === 50);
+  const curvy = G.roundCorners(G.ellipse(0, 0, 10, 10), 5);
+  check('roundCorners leaves curves alone', JSON.stringify(curvy) === JSON.stringify(G.ellipse(0, 0, 10, 10)));
+}
+
 console.log(failed ? `\n${failed} check(s) failed` : '\nall checks passed');
 process.exit(failed ? 1 : 0);

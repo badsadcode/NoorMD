@@ -194,11 +194,14 @@
   // ---- Simplification and smoothing ----
   // Put back the corners that the midpoint ring cuts off: a short diagonal step between two long edges that meet at a
   // clear angle becomes the corner where those edges' lines cross.
-  function restoreCorners(r) {
-    const n = r.length;
-    if (n < 4) return r;
-    const out = [];
+  function restoreCorners(r0) {
+    const n = r0.length;
+    if (n < 4) return r0;
     const len = (a, b) => Math.hypot(b[0] - a[0], b[1] - a[1]);
+    // Start just after the longest edge, so no short step wraps round the end of the array.
+    let li = 0, ll = -1;
+    for (let i = 0; i < n; i++) { const l = len(r0[i], r0[(i + 1) % n]); if (l > ll) { ll = l; li = i; } }
+    const r = r0.slice(li + 1).concat(r0.slice(0, li + 1)), out = [];
     const skip = new Uint8Array(n);
     for (let i = 0; i < n; i++) {
       if (skip[i]) continue;
@@ -213,7 +216,7 @@
       }
       out.push(a);
     }
-    return out.length >= 3 ? out : r;
+    return out.length >= 3 ? out : r0;
   }
   const turnAt = (r, i) => {
     const n = r.length, p = r[(i + n - 1) % n], a = r[i], b = r[(i + 1) % n];

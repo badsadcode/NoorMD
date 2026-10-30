@@ -8596,6 +8596,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => ((window.__mock.state.ink || {}).saves || []).length === 1);
       const svg = await page.evaluate(() => window.__mock.state.ink.saves[0].svg);
       check('Save writes an SVG (layers as Inkscape layers, the text as text)', /^<\?xml|^<svg/.test(svg.trim()) && /inkscape:groupmode="layer"/.test(svg) && />Hi there</.test(svg) && /viewBox="0 0 400 300"/.test(svg));
+      await waitFn(page, () => !NoorInk._state().dirty).catch(() => {});
       check('…and the picture is saved (no dot in the title)', !(await IS()).dirty);
       // Open an SVG: layers, styles from classes, gradients, text.
       await page.click('#ink-open');
@@ -8626,6 +8627,124 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+z');
       if (shots) await page.screenshot({ path: `${shots}/68-noorink.png` });
       check('no page errors in NoorInk', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 68b. NoorInk stage 2: smart snapping and guides, the gradient tool, swatches, live effects, text on a path,
+    // text to outlines, stroke to path, grow and shrink, tracing a picture.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const IS = () => page.evaluate(() => NoorInk._state());
+      const at = (x, y) => page.evaluate(([a, b]) => NoorInk._screen(a, b), [x, y]);
+      const dragOn = async (pts) => { const s = await at(...pts[0]); await page.mouse.move(s.x, s.y); await page.mouse.down(); for (const p of pts.slice(1)) { const q = await at(...p); await page.mouse.move(q.x, q.y, { steps: 8 }); } await page.mouse.up(); };
+      const objs = async () => (await IS()).layers.flatMap((l) => l.children);
+      const B = (id) => page.evaluate((i) => NoorInk._bounds(i), id);
+      const near = (a, b, t = 1) => Math.abs(a - b) <= t;
+      const menu = async (title, item) => { await page.click(`#ink-menubar .ph-menu-title:has-text("${title}")`); await page.click(`.menu-popup .menu-item:has-text("${item}")`); };
+      await page.keyboard.press('Control+Alt+u');
+      await waitFn(page, () => window.NoorInk && NoorInk.isOpen() && NoorInk._state());
+      await page.evaluate(() => NoorInk._new(400, 300));
+      await waitFn(page, () => NoorInk._state().width === 400);
+      // Two rectangles (no stroke, so their boxes are exact).
+      await page.evaluate(() => { document.querySelector('#ink-stroke-on').click(); });
+      await page.click('#ink-tools [data-tool="rect"]');
+      await dragOn([[20, 20], [80, 80]]);
+      await dragOn([[200, 150], [260, 210]]);
+      let o = await objs();
+      // Smart snapping: the second dragged near the first's left edge lines up with it exactly.
+      await page.click('#ink-tools [data-tool="select"]');
+      await dragOn([[230, 180], [52, 180]]);
+      let b = await B(o[1].id);
+      check('smart snapping: a dragged object lines up with another\'s edge', near(b.x, 20, 0.01), b);
+      // A guide: added from View; a shape drawn near it snaps to it.
+      await menu('View', 'Add a guide');
+      await page.selectOption('#ink-guide-axis', 'y');
+      await page.fill('#ink-guide-at', '250');
+      await page.click('#ink-guide-ok');
+      check('View › Add a guide', (await IS()).layers && (await page.evaluate(() => NoorInk._svg())).includes('data-noorink-guides="y250"'));
+      await page.click('#ink-tools [data-tool="ellipse"]');
+      await dragOn([[300, 200], [340, 248]]);
+      o = await objs();
+      b = await B(o[2].id);
+      check('…a shape drawn near the guide snaps to it', near(b.y + b.h, 250, 0.01), b);
+      // Swatches: a click gives the selection its fill.
+      await page.click('#ink-swatches .ink-swatch[data-colour="#e63946"]');
+      check('a swatch click fills the selection', (await objs())[2].fill.colour === '#e63946');
+      // The gradient tool: drag across the first rectangle.
+      await page.click('#ink-tools [data-tool="gradient"]');
+      await dragOn([[20, 50], [80, 50]]);
+      let f = (await objs())[0].fill;
+      check('the gradient tool lays a gradient where it is dragged', f.type === 'linear' && near(f.pts.x1, 0, 0.02) && near(f.pts.x2, 1, 0.02) && (await IS()).history.at(-1) === 'Gradient', f);
+      // …and its end handle moves.
+      await dragOn([[80, 50], [50, 80]]);
+      f = (await objs())[0].fill;
+      check('…dragging an end moves it', near(f.pts.x2, 0.5, 0.03) && near(f.pts.y2, 1, 0.03), f.pts);
+      // A colour stop added in the panel.
+      await page.click('#ink-grad-add');
+      check('a colour stop is added to the gradient', (await objs())[0].fill.stops.length === 3);
+      // Live effects: blur and drop shadow on the selection, saved as an SVG filter and read back.
+      await page.fill('#ink-fx-blur', '3'); await page.press('#ink-fx-blur', 'Tab');
+      await page.click('#ink-fx-shadow');
+      let fx = (await objs())[0].fx;
+      check('live effects: a blur and a drop shadow', fx && fx.blur === 3 && fx.shadow.on);
+      const svg1 = await page.evaluate(() => NoorInk._svg());
+      check('…saved as an SVG filter', /<filter id="fx-/.test(svg1) && /feGaussianBlur/.test(svg1) && /feDropShadow/.test(svg1));
+      // Text on a path: a text and an ellipse.
+      await page.click('#ink-tools [data-tool="text"]');
+      const tp = await at(150, 120); await page.mouse.click(tp.x, tp.y);
+      await page.waitForSelector('#ink-typing');
+      await page.keyboard.type('Around');
+      await page.keyboard.press('Escape');
+      await waitFn(page, () => !document.querySelector('#ink-typing'));
+      o = await objs();
+      const text = o.find((x) => x.kind === 'text'), ell = o[2];
+      await page.evaluate((ids) => NoorInk._select(ids), [text.id, ell.id]);
+      await menu('Object', 'Put the text on the path');
+      const t2 = (await objs()).find((x) => x.kind === 'text');
+      check('Object › Put the text on the path', !!t2.along && /^M/.test(t2.along.d));
+      check('…drawn with an SVG textPath', await page.evaluate(() => !!document.querySelector('#ink-svg textPath')));
+      await page.keyboard.press('Control+z');
+      // Text to outlines (the app gives the outlines).
+      await page.evaluate((id) => NoorInk._select([id]), text.id);
+      await page.keyboard.press('Control+Shift+o');
+      await waitFn(page, () => !NoorInk._state().layers[0].children.some((c) => c.kind === 'text'));
+      const outl = (await objs()).find((x) => x.name === 'Around');
+      check('Text to outlines (Ctrl+Shift+O): a path in the text\'s place', outl && outl.kind === 'path' && outl.path.length === 6, outl && outl.path.length);
+      // Stroke to path: a line becomes a filled shape.
+      await page.click('#ink-tools [data-tool="line"]');
+      await page.evaluate(() => { const c = document.querySelector('#ink-stroke-on'); if (!c.checked) c.click(); });
+      await page.fill('#ink-stroke-w', '10'); await page.press('#ink-stroke-w', 'Tab');
+      await dragOn([[100, 270], [200, 270]]);
+      await menu('Path', 'Stroke to path');
+      o = await objs();
+      const outline = o.at(-1);
+      b = await B(outline.id);
+      check('Path › Stroke to path: the line\'s outline as a filled shape', outline.name === 'Outline' && outline.fill.type === 'solid' && !outline.stroke.colour && near(b.h, 10, 0.6) && near(b.w, 110, 1.5), b);
+      // Grow: the first rectangle 5 pixels bigger all round.
+      await page.evaluate((id) => NoorInk._select([id]), o[0].id);
+      const b0 = await B(o[0].id);
+      await menu('Path', 'Grow or shrink');
+      await page.fill('.modal input', '5');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => NoorInk._state().history.at(-1) === 'Grow');
+      b = await B(o[0].id);
+      check('Path › Grow: the shape 5 pixels bigger each way', near(b.w, b0.w + 10, 0.5) && near(b.x, b0.x - 5, 0.5), [b0, b]);
+      // Trace a picture: two colours.
+      await page.evaluate(() => {
+        const c = document.createElement('canvas'); c.width = 40; c.height = 30; const x = c.getContext('2d');
+        x.fillStyle = '#ffffff'; x.fillRect(0, 0, 40, 30); x.fillStyle = '#d00000'; x.beginPath(); x.arc(20, 15, 10, 0, Math.PI * 2); x.fill();
+        window.__mock.state.ink = window.__mock.state.ink || {}; window.__traceSrc = c.toDataURL('image/png').split(',')[1];
+      });
+      await page.evaluate(() => { window.__mock.state.ink.placeData = window.__traceSrc; });
+      await menu('File', 'Trace a picture');
+      await page.waitForSelector('#ink-trace-ok');
+      await page.fill('#ink-trace-colours', '2');
+      await page.click('#ink-trace-ok');
+      await waitFn(page, () => NoorInk._state().history.at(-1) === 'Trace a picture');
+      const traced = (await objs()).at(-1);
+      check('File › Trace a picture: a group of filled paths in its colours', traced.kind === 'group' && traced.children.length >= 1 && traced.children.some((c) => /^#(d|c)/.test(c.fill.colour)), traced.children.map((c) => c.fill.colour));
+      if (shots) await page.screenshot({ path: `${shots}/68b-noorink-stage2.png` });
+      check('no page errors in NoorInk stage 2', errors.length === 0, errors);
       await page.close();
     }
 
