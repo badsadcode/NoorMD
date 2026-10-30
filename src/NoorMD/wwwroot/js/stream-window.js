@@ -1,5 +1,5 @@
-// The Stream Desk window (stream.html, hosted by StreamWindow.cs): the whole page is the Stream Desk. The host tells
-// it which tab to show and relays the song the Music Bench is playing; closing the window closes the desk.
+// NoorStream window (stream.html, hosted by StreamWindow.cs): the whole page is NoorStream. The host tells
+// it which tab to show and relays the song NoorMusic is playing; closing the window closes the desk.
 (() => {
   'use strict';
   const req = (type, payload) => NoorBridge.request(type, payload);

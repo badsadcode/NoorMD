@@ -1,6 +1,6 @@
 // NoorMD player controls: a control bar over a video (previous, play/pause, next, timeline, volume, ⚙ speed / subtitles /
 // audio, full screen) that shows when the mouse moves and fades after a few seconds while the video plays. Used by the
-// pop-out player and by the Video Bench in full screen, so both look and work the same.
+// pop-out player and by NoorVideo in full screen, so both look and work the same.
 window.NoorPlayerControls = (() => {
   'use strict';
   const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2];

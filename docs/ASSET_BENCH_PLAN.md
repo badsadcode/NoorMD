@@ -1,4 +1,4 @@
-# Asset Bench: plan (trees, rocks, and later formations)
+# NoorForm: plan (trees, rocks, and later formations)
 
 Builds on the concept in [concepts/PROCEDURAL_TREES_ROCKS.md](concepts/PROCEDURAL_TREES_ROCKS.md). The goal is
 game-ready 3D nature assets in two looks: **realistic** (up to hyper-realistic) and **stylized** (painterly,
@@ -42,7 +42,7 @@ game engines.
 - **UVs:** from the skeleton for trees (around and along each branch); cube-projection charts with padding for
   rocks.
 - **Baking:** high-detail to low-poly normal, AO and curvature maps (CPU ray casting with a BVH).
-- **Materials:** from the Texture Bench (bark, rock, moss), which gains a painted style for the stylized look;
+- **Materials:** from NoorMaterial (bark, rock, moss), which gains a painted style for the stylized look;
   vertex-colour gradients and painted ambient occlusion for stylized assets.
 - **Export:** GLB (and glTF with separate files), named nodes, Y-up in metres, a pivot at the base, LODs as separate
   files or as named nodes, and a manifest. OBJ for static meshes.
@@ -145,7 +145,7 @@ Items 1–4 and 6 (batch variants) of the list above, for the swamp-and-marsh wo
 ### Done in preview.55
 
 - **Bark in the tree's colour:** "bark" (realistic furrows), "painted" (broad plates and dark grooves, the stylized
-  default), "birch" (pale with dark marks), as Texture Bench recipes, so they tile and bring normal and ORM maps.
+  default), "birch" (pale with dark marks), as NoorMaterial recipes, so they tile and bring normal and ORM maps.
 - **Painted shading** in COLOR_0 (free now that wind is in the UVs): crowns darker inside and below with soft
   patches, trunks darker at the foot; engines and viewers multiply it with the textures.
 - **Fantasy forms:** mushroom caps (a turned profile with spots on top and gills under, on the trunk and the limb
@@ -188,7 +188,7 @@ Godot is the main engine, then Unity, then Unreal.
 - **Settings beside the tree** (◫ in the view's toolbar): the tree takes the free room and the settings, with the name
   and seed, are a column on the right; the bar between them drags (double-click: back to normal). ☰ hides the list
   of trees. The usual arrangement (settings under the tree) stays the default; the choice is remembered. Shared
-  with the Texture Bench (NoorBenchLayout).
+  with NoorMaterial (NoorBenchLayout).
 - **The whole window** (⛶, or F11 with a bench in the middle): Focus mode now shows the bench instead of hiding it;
   “Back to NoorMD”, Esc or F11 return.
 
@@ -390,7 +390,7 @@ away). The preview and the Godot shader raise the alpha by the mip level, so far
 coverage. Leaves let light through from behind: KHR_materials_diffuse_transmission on the leaf and moss materials
 (optional: engines that don't know it ignore it), and the Godot plugin (v3) lights cut-out leaves from behind.
 
-Engine-agnostic notes from Thornwake: the Texture Bench's real-world scale and material sets are done (preview.75,
+Engine-agnostic notes from Thornwake: NoorMaterial's real-world scale and material sets are done (preview.75,
 docs/TEXTURE_BENCH_PLAN.md). For rocks (stage 2): the pivot at the centre of
 the ground contact, levels as files or nodes, and simple convex collision pieces in the GLB named by Godot's glTF
 convention (-convcolonly), several for arches and the like.
@@ -400,7 +400,7 @@ Still open: the biome catalogue (and rocks, stage 2).
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to
-  budgets, with normal, AO and curvature maps baked from the dense form; PBR from the Texture Bench.
+  budgets, with normal, AO and curvature maps baked from the dense form; PBR from NoorMaterial.
 - **Stylized:** chunky, faceted shapes with bevels and crisp creases (dual contouring), painted gradients (lighter
   on top, moss or snow on upward faces), optional flat shading.
 - **Families:** boulders, fractured stones, river stones, slabs, rubble and scree packs. The ground contact is
@@ -408,7 +408,7 @@ Still open: the biome catalogue (and rocks, stage 2).
 
 ### Done in preview.76 (rocks, first cut)
 
-- **Trees | Rocks** at the top of the Asset Bench list. Each keeps its own recipe, undo steps and tab while the other
+- **Trees | Rocks** at the top of NoorForm list. Each keeps its own recipe, undo steps and tab while the other
   is shown; opening a `.noorrock.json` switches to rocks. Rock tabs: Rock (kind, look, size, height, stretch,
   roughness, broken faces, layers, flat underside, sink), Surface (material, colour, texture tile in metres, moss,
   snow), Mesh (levels, triangles per level, convex collision pieces), Export.
@@ -420,7 +420,7 @@ Still open: the biome catalogue (and rocks, stage 2).
   Stylized rocks take a third of the budget, every face flat shaded: big facets.
 - **Surface:** normals smooth within a face and split at hard edges (48°); UVs projected from the side each face looks
   to, in metres (one tile = `tileMetres`), so every rock shares one texel density. Rock materials made in the rock's
-  colour (`RockTextures`: weathered, granite, sandstone, mossy, snowy, painted) or any Texture Bench preset. Moss and
+  colour (`RockTextures`: weathered, granite, sandstone, mossy, snowy, painted) or any NoorMaterial preset. Moss and
   a darker foot in the vertex colours; snow on upward faces as its own material (it stays white).
 - **Pivot:** the middle of the ground contact, the base `sink` × height below it (no gaps on uneven ground).
 - **Collision:** convex hulls of the closest level (≤ 34 points, ≤ 64 triangles each; outcrops in slices along the

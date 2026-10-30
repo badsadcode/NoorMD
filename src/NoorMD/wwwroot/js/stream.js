@@ -1,4 +1,4 @@
-// NoorMD Stream Desk: OBS overlays (Now Playing, credits roll), the supporters list and the stream log.
+// NoorMD NoorStream: OBS overlays (Now Playing, credits roll), the supporters list and the stream log.
 // Overlays are served by NoorMD on 127.0.0.1 only; the designs here preview exactly what OBS shows. Supporters and
 // streams are notes in the open Vault. Nothing is published anywhere: titles and descriptions are copied for you.
 window.NoorStream = (() => {
@@ -23,7 +23,7 @@ window.NoorStream = (() => {
   const isOpen = () => document.body.classList.contains('stream-open');
   /** Today on the user's calendar (not UTC: a late-evening stream in Poland would otherwise be dated tomorrow). */
   const localDate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  // In its own window (stream.html) the Stream Desk is the whole page: the window's title bar closes it.
+  // In its own window (stream.html) NoorStream is the whole page: the window's title bar closes it.
   const inWindow = () => document.body.classList.contains('stream-window');
   function setDirty(v) {
     supportersDirty = v;
@@ -35,18 +35,18 @@ window.NoorStream = (() => {
     NoorBridge.on('mic.state', (m) => { micState = m; renderMicState(); });
     NoorBridge.on('stream.tab', (p) => open(p && p.tab));
     NoorBridge.on('stream.window', (p) => { windowOpen = !!(p && p.open); });
-    // "Dock in the main window" from the Stream Desk window.
+    // "Dock in the main window" from NoorStream window.
     NoorBridge.on('stream.dock', (p) => { if (window.NoorDock) { NoorDock.place('stream', 'right'); open(p && p.tab); } });
     NoorBridge.on('stream.track', (p) => showTrack(p ? p.track : null));
   }
 
-  /** The Now Playing preview follows the Music Bench (in the window, the host relays the playing song). */
+  /** The Now Playing preview follows NoorMusic (in the window, the host relays the playing song). */
   function showTrack(t) {
     lastTrack = t;
     if (npPreview && isOpen() && tab === 'np') npPreview.setTrack(t || SAMPLE_TRACK);
   }
 
-  // ------------------------------------------------------------------ now playing from the Music Bench
+  // ------------------------------------------------------------------ now playing from NoorMusic
 
   function nowPlaying(t) {
     showTrack(t);
@@ -61,7 +61,7 @@ window.NoorStream = (() => {
   // ------------------------------------------------------------------ open / close
 
   const inOwnWindow = () => !inWindow() && window.NoorDock && NoorDock.placeOf('stream') === 'window';
-  let windowOpen = false; // main page: the Stream Desk window is open
+  let windowOpen = false; // main page: NoorStream window is open
 
   async function open(which) {
     if (inOwnWindow()) { await req('stream.window', { tab: which || null }).then((r) => { windowOpen = !!(r && r.open); }).catch(hooks.showError); return; }
@@ -114,16 +114,16 @@ window.NoorStream = (() => {
     built = true;
     const tabs = [['np', '🎵', 'Now Playing'], ['schedule', '📅', 'Schedule'], ['credits', '🎬', 'Credits'], ['supporters', '💜', 'Supporters'], ['log', '📼', 'Stream log'], ['mic', '🎙', 'Mic Guard']];
     // Same parts as the Music and Video Benches: a title row with its buttons, then the tabs.
-    const section = el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Stream Desk' },
+    const section = el('section', { id: 'streamdesk', class: 'streamdesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorStream' },
       el('header', { class: 'music-head sd-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📡' }), el('strong', { class: 'sd-title', text: 'Stream Desk' }), el('small', { class: 'sd-server', id: 'sd-server' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📡' }), el('strong', { class: 'sd-title', text: 'NoorStream' }), el('small', { class: 'sd-server', id: 'sd-server' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'sd-mic-pill', id: 'sd-mic-pill', hidden: true, title: 'Mic Guard: click to mute / unmute', onclick: () => toggleMic() }),
           inWindow()
             ? el('button', { class: 'icon-btn', id: 'sd-dock-back', title: 'Dock in the main window', 'aria-label': 'Dock in the main window', onclick: () => req('stream.dock', { tab }).catch(hooks.showError) }, '⇤')
-            : el('button', { class: 'icon-btn', id: 'sd-dock', title: 'Where this panel goes (left, right, bottom, own window) and layouts', 'aria-label': 'Move the Stream Desk', onclick: (e) => NoorDock.showMenu('stream', e.currentTarget) }, '⊞'),
+            : el('button', { class: 'icon-btn', id: 'sd-dock', title: 'Where this panel goes (left, right, bottom, own window) and layouts', 'aria-label': 'Move NoorStream', onclick: (e) => NoorDock.showMenu('stream', e.currentTarget) }, '⊞'),
           inWindow() ? null : el('button', { class: 'icon-btn', id: 'sd-popout', title: 'Own window (for a second monitor next to OBS)', 'aria-label': 'Open in its own window', onclick: () => NoorDock.place('stream', 'window') }, '⧉'),
-          el('button', { class: 'icon-btn sd-close', title: 'Close (Esc)', 'aria-label': 'Close Stream Desk', onclick: close }, '✕'))),
+          el('button', { class: 'icon-btn sd-close', title: 'Close (Esc)', 'aria-label': 'Close NoorStream', onclick: close }, '✕'))),
       el('div', { class: 'music-tabs sd-tabs', role: 'tablist' }, ...tabs.map(([id, icon, label]) => el('button', { role: 'tab', 'data-sdtab': id, title: label, onclick: () => setTab(id) }, el('span', { class: 'sd-tab-icon', 'aria-hidden': 'true', text: icon }), el('span', { class: 'sd-tab-label', text: label })))),
       el('div', { class: 'sd-body', id: 'sd-body' }));
     (inWindow() ? document.body : ($('#app') || document.body)).append(section);
@@ -255,7 +255,7 @@ window.NoorStream = (() => {
           row('Format', txtFmt), el('div', { class: 'sd-row' }, el('code', { id: 'sd-txt-path', text: txt.path }), el('button', { class: 'utility-btn', onclick: () => saveTxt(true) }, 'Choose…')),
           el('p', { class: 'pref-hint', text: 'For OBS: Text (GDI+) › Read from file. {title} and {artist} are replaced.' }))),
       el('div', { class: 'sd-col sd-preview-col' }, el('h3', { text: 'Preview' }), frame,
-        el('p', { class: 'pref-hint', text: lastTrack ? 'Showing the track that is playing.' : 'Showing a sample track; play something in the Music Bench to see it here.' }))));
+        el('p', { class: 'pref-hint', text: lastTrack ? 'Showing the track that is playing.' : 'Showing a sample track; play something in NoorMusic to see it here.' }))));
     npPreview = NoorNowPlaying.mount(frame);
     npPreview.setConfig(np);
     npPreview.setTrack(lastTrack || SAMPLE_TRACK);
@@ -705,7 +705,7 @@ window.NoorStream = (() => {
         } }, '■ Stop and add to this stream'))
       : el('div', { class: 'sd-row' }, el('button', { class: 'utility-btn', id: 'log-record', onclick: async () => {
         try { const r = await req('stream.session.start'); status.session = { start: r.start, marks: [] }; renderSession(); notice('Recording the tracklist — every song that plays is noted with its time', 3000); } catch (err) { hooks.showError(err); }
-      } }, '● Record the tracklist while streaming'), el('span', { class: 'pref-hint', text: 'Songs played in the Music Bench are noted with their time from the start.' })));
+      } }, '● Record the tracklist while streaming'), el('span', { class: 'pref-hint', text: 'Songs played in NoorMusic are noted with their time from the start.' })));
   }
 
   function renderTracks() {

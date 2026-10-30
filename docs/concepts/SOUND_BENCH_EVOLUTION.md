@@ -1,13 +1,13 @@
-# NoorMD — Sound Bench: Universal Sound Design Evolution
+# NoorMD — NoorSound: Universal Sound Design Evolution
 
 **Concept proposal for Sage**  
 **Status:** Future design suggestions, **not an instruction to implement everything now**.  
 **Product:** NoorMD ("Make It Done")  
-**Scope:** Evolve the **existing Sound Bench**, not add another bench or build an entire DAW.
+**Scope:** Evolve the **existing NoorSound**, not add another bench or build an entire DAW.
 
 ## 1. The idea
 
-Sound Bench should be a **general-purpose, layered sound-design workstation** suitable for indie-game audio, UI effects, ambience, foley, mechanical noises, sci-fi, fantasy, creatures, and experimental synthesis. Wind and rain are useful examples, but **presets must not define the limits of the engine**.
+NoorSound should be a **general-purpose, layered sound-design workstation** suitable for indie-game audio, UI effects, ambience, foley, mechanical noises, sci-fi, fantasy, creatures, and experimental synthesis. Wind and rain are useful examples, but **presets must not define the limits of the engine**.
 
 The experience should work for two audiences at the same time:
 
@@ -18,7 +18,7 @@ The experience should work for two audiences at the same time:
 
 ### Existing foundation to preserve
 
-Based on NoorMD **2.0.0-preview.27** source/changelog reviewed on GitHub, Sound Bench already has useful building blocks. **Verify against the latest branch before planning work.** These include:
+Based on NoorMD **2.0.0-preview.27** source/changelog reviewed on GitHub, NoorSound already has useful building blocks. **Verify against the latest branch before planning work.** These include:
 
 - Layered noise, event streams, synth voices, imported WAV sample layers, presets and a seeded generator.
 - White/pink/brown noise, filters and sweeps, basic modulation, FM, pulse-width changes, pitch jumps, distortion/bitcrushing, trimming/reversing/looping samples.
@@ -100,7 +100,7 @@ Imported WAV layers already exist. Possible next steps:
 - Sample interpolation quality settings and resampling safeguards.
 - Granular playback: grain duration, overlap, density, jitter, random pitch, position scatter, reverse probability and stereo spread.
 - Multiple sampled variants with randomized selection and velocity/intensity ranges.
-- Later: sample slices, one-shot event sequencing and a tiny sample browser shared with Music Bench.
+- Later: sample slices, one-shot event sequencing and a tiny sample browser shared with NoorMusic.
 
 Granular synthesis is useful for machinery, creature voices, organic textures, alien ambience and believable non-repeating variations. It should not be confused with simply slowing down a sample.
 
@@ -173,7 +173,7 @@ A preset should be **a starting recipe that experts can fully inspect and modify
 - Export full mix, optionally individual layers/stems, dry/wet versions, loop and one-shot variants.
 - Render multiple seeded variations with consistent names and optional loudness targets.
 - Preserve source references and enable portable asset bundling; show missing-file warnings rather than silently substituting data.
-- Link finished assets into Vault, Music Bench and project folders without duplicating everything by default.
+- Link finished assets into Vault, NoorMusic and project folders without duplicating everything by default.
 - Avoid requiring cloud services or AI for core sound generation.
 
 ---
@@ -228,7 +228,7 @@ This is an **evaluation sequence**, not a task list to execute immediately. Noor
 
 ## 8. The core recommendation
 
-**Please consider evolving Sound Bench into a three-level, universal sound-design tool: Quick, Studio and (optionally) Lab.** Preserve the beginner-friendly workflow, but let advanced users reach individual oscillators, samples, effects, modulation, automation and signal paths. Prioritize **extensibility and sonic quality over endlessly adding presets**.
+**Please consider evolving NoorSound into a three-level, universal sound-design tool: Quick, Studio and (optionally) Lab.** Preserve the beginner-friendly workflow, but let advanced users reach individual oscillators, samples, effects, modulation, automation and signal paths. Prioritize **extensibility and sonic quality over endlessly adding presets**.
 
 The desired result is not another complicated professional DAW. It is a compact indie-developer tool that lets a beginner make useful audio in minutes and lets an experienced user keep refining the *same* sound without hitting a shallow ceiling.
 

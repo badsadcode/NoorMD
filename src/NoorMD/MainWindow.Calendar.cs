@@ -69,7 +69,7 @@ public partial class MainWindow
         BroadcastSchedule();
         List<CalendarReminder> due;
         try { due = Calendar.TakeDue(DateTime.Now); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Calendar reminders", ex); return; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("NoorCalendar reminders", ex); return; }
         if (due.Count == 0) return;
         var entries = Calendar.Entries.ToDictionary(e => e.Id);
         PushEvent("cal.reminders", new { reminders = due.Select(r => ReminderForPage(r, entries.GetValueOrDefault(r.EntryId))) });
@@ -256,7 +256,7 @@ public partial class MainWindow
                 if (choice != "import") return new { cancelled = true };
                 var added = Calendar.AddMany(result.Entries);
                 BroadcastSchedule();
-                Log.Info($"Calendar: imported {added} entries from an .ics file");
+                Log.Info($"NoorCalendar: imported {added} entries from an .ics file");
                 return new { added, notes = result.Notes, file = Path.GetFileName(dlg.FileName), entries = Calendar.Entries };
             }
             case "cal.export":

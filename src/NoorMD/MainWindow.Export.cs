@@ -93,7 +93,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Exported sounds and songs added to the Music Bench's library (in a "Made in NoorMD" playlist), to audition,
+    /// Exported sounds and songs added to NoorMusic's library (in a "Made in NoorMD" playlist), to audition,
     /// rate, tag and compare them there. Returns how many were added.
     /// </summary>
     private async Task<int> AddToMusicBenchAsync(IEnumerable<string> files)

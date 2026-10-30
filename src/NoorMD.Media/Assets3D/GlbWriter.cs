@@ -14,7 +14,7 @@ public static class GlbWriter
     private const int ArrayBuffer = 34962, ElementArrayBuffer = 34963;
     private const int Float = 5126, UnsignedInt = 5125, UnsignedShort = 5123;
 
-    public static byte[] Write(Asset3D asset, string generator = "NoorMD Asset Bench")
+    public static byte[] Write(Asset3D asset, string generator = "NoorMD NoorForm")
     {
         var bin = new MemoryStream();
         var bufferViews = new List<object>();

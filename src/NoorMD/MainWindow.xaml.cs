@@ -72,7 +72,7 @@ public partial class MainWindow : Window
         try
         {
             Web.DefaultBackgroundColor = ToDrawing(ThemeManager.Background(_settings.Prefs.Theme));
-            // AudioVideoTracks: lets the Video Bench list and switch a video's audio tracks (several languages or commentary).
+            // AudioVideoTracks: lets NoorVideo list and switch a video's audio tracks (several languages or commentary).
             var options = new CoreWebView2EnvironmentOptions("--enable-blink-features=AudioVideoTracks");
             var env = await CoreWebView2Environment.CreateAsync(browserExecutableFolder: null, userDataFolder: App.Paths.WebViewData, options);
             WebEnvironment = env;
@@ -353,7 +353,7 @@ public partial class MainWindow : Window
             if (!ConfirmCloseSketches()) return;
         }
         finally { _docGate.Release(); }
-        try { _streamWindow?.Close(); } catch { /* the Stream Desk window goes with the main window */ }
+        try { _streamWindow?.Close(); } catch { /* NoorStream window goes with the main window */ }
         if (_streamWindow != null) { _streamWindow.Activate(); return; } // it asked about unsaved supporters and you kept it open
         try { _videoWindow?.Close(); } catch { /* the pop-out player goes with the main window */ }
         try { _overlay?.StopAsync().Wait(2000); } catch { /* the overlay server stops with the app */ }

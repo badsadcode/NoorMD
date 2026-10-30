@@ -3,7 +3,7 @@ using NoorMD.Core.Bridge;
 
 namespace NoorMD.Media;
 
-/// <summary>Parses Music Bench bridge payloads. Tolerates nulls/missing fields (unit-tested).</summary>
+/// <summary>Parses NoorMusic bridge payloads. Tolerates nulls/missing fields (unit-tested).</summary>
 public static class MusicRequests
 {
     public static long RequireId(JsonElement p, string name = "id") =>

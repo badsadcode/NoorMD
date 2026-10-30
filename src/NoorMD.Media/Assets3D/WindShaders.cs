@@ -3,7 +3,7 @@ namespace NoorMD.Media.Assets3D;
 /// <summary>
 /// Ready-made wind shaders for the trees' wind data (TEXCOORD_1 = branch bend, leaf flutter; TEXCOORD_2 = phase,
 /// trunk sway), written beside an export: a Godot 4 spatial shader, and an HLSL function for a Unity Shader Graph
-/// Custom Function node or an Unreal Custom node. Same motion as the Asset Bench preview.
+/// Custom Function node or an Unreal Custom node. Same motion as NoorForm preview.
 /// </summary>
 public static class WindShaders
 {
@@ -11,7 +11,7 @@ public static class WindShaders
     public const string HlslFile = "NoorTreeWind.hlsl";
 
     public const string Godot = """
-        // NoorMD Asset Bench: tree wind for Godot 4. The NoorMD trees import plugin puts it on a tree's materials with
+        // NoorMD NoorForm: tree wind for Godot 4. The NoorMD trees import plugin puts it on a tree's materials with
         // their textures; by hand: set albedo_texture (and the alpha cutoff for leaves), tree_height, and the wind.
         // Wind data: UV2 (glTF TEXCOORD_1) x = branch bend, y = leaf flutter; the trunk sway comes from the height. With
         // wind_in_color the data is in COLOR instead (r sway, g bend, b flutter, a phase). Otherwise COLOR is the painted
@@ -105,7 +105,7 @@ public static class WindShaders
         """;
 
     public const string Hlsl = """
-        // NoorMD Asset Bench: tree wind as one HLSL function.
+        // NoorMD NoorForm: tree wind as one HLSL function.
         //
         // Unity (URP/HDRP Shader Graph): a Custom Function node, Type File, this file, Name NoorTreeWind. Inputs:
         //   PositionOS (Position, Object), NormalOS (Normal, Object), Wind1 (UV1: x branch bend, y leaf flutter),

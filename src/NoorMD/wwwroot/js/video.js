@@ -1,4 +1,4 @@
-// NoorMD Video Bench: works like the Music Bench, for videos. A library (search, sort, filters, series, multi-select,
+// NoorMD NoorVideo: works like NoorMusic, for videos. A library (search, sort, filters, series, multi-select,
 // right-click menu), an Up next queue with shuffle and repeat, playlists (e.g. a whole TV show), resume where you
 // stopped, sidecar subtitles (converted by the host), a choice of audio track, speed, timestamped notes and a pop-out
 // player that stays on top. The page refers to videos only by library id; files are served from /_video/{id}.
@@ -98,14 +98,14 @@ window.NoorVideo = (() => {
     built = true;
     const tr = (cls, label, title, fn) => el('button', { class: 'tp ' + cls, title, 'aria-label': title, onclick: fn }, label);
     const tabBtn = (id, label) => el('button', { role: 'tab', 'data-vbtab': id, onclick: () => setTab(id) }, label);
-    const root = el('section', { id: 'videobench', class: 'videobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Video Bench' },
+    const root = el('section', { id: 'videobench', class: 'videobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorVideo' },
       el('div', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎬' }), el('strong', { text: 'Video Bench' }), el('small', { id: 'vb-count' }), el('small', { id: 'vb-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎬' }), el('strong', { text: 'NoorVideo' }), el('small', { id: 'vb-count' }), el('small', { id: 'vb-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
         el('span', { class: 'vb-head-buttons' },
-          el('button', { class: 'icon-btn', id: 'vb-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Video Bench', onclick: (e) => NoorDock.showMenu('video', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', id: 'vb-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move NoorVideo', onclick: (e) => NoorDock.showMenu('video', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn vb-list-toggle', id: 'vb-list-toggle', title: 'Hide or show the list (Library, Up next, Playlists, Notes)', 'aria-label': 'Hide or show the list', 'aria-pressed': 'true', onclick: () => setListsHidden(!root.classList.contains('lists-hidden')) }, '☰'),
           el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!(window.NoorDock ? NoorDock.isWide('video') : document.body.classList.contains('video-wide'))) }, '⤢'),
-          el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close Video Bench', onclick: close }, '✕'))),
+          el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close NoorVideo', onclick: close }, '✕'))),
       el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
         el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); } },
           video, el('div', { class: 'vb-note-pop', id: 'vb-note-pop', hidden: true, 'aria-live': 'polite' }), el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
@@ -394,7 +394,7 @@ window.NoorVideo = (() => {
     NoorChrome.openMenu(null, items, { x, y });
   }
 
-  // ------------------------------------------------------------------ queue (like the Music Bench)
+  // ------------------------------------------------------------------ queue (like NoorMusic)
 
   function shuffledOrder(n, keepFirst) {
     const order = [...Array(n).keys()].filter((i) => i !== keepFirst);
@@ -527,7 +527,7 @@ window.NoorVideo = (() => {
 
   // ------------------------------------------------------------------ playing
 
-  /** Plays one video by id (the Video Bench API used by the self-test and the pop-out hand-back). */
+  /** Plays one video by id (NoorVideo API used by the self-test and the pop-out hand-back). */
   async function select(id, { autoplay = false, at = null } = {}) {
     const i = rows.findIndex((r) => r.id === id);
     if (i >= 0) await setQueue(rows.map((r) => r.id), i, autoplay, at);
@@ -978,7 +978,7 @@ window.NoorVideo = (() => {
       const draw = () => s.querySelector('.modal-body').replaceChildren(
         ...(status.folders.length ? status.folders.map((f) => el('div', { class: 'qitem' }, el('span', { class: 'qtitle', text: f.path }), el('small', { text: `${f.count} videos` }),
           el('button', { class: 'icon-btn', title: 'Remove from the library (files stay on disk)', 'aria-label': 'Remove folder', onclick: async () => {
-            if (!await NoorUI.confirm('Remove this folder?', `“${f.path}” is removed from the Video Bench, with its positions and notes. The videos stay on disk.`, 'Remove')) return;
+            if (!await NoorUI.confirm('Remove this folder?', `“${f.path}” is removed from NoorVideo, with its positions and notes. The videos stay on disk.`, 'Remove')) return;
             await req('video.removeFolder', { id: f.id }).catch(hooks.showError);
             if (current && current.video.folder.startsWith(f.path)) { current = null; q = { ...q, ids: [], order: [], pos: -1 }; video.removeAttribute('src'); video.load(); renderAll(); }
             await refresh(true); draw();

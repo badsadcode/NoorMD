@@ -15,7 +15,7 @@ using NoorMD.Media;
 namespace NoorMD;
 
 /// <summary>
-/// Stream Desk: OBS overlays (Now Playing, credits roll) served on 127.0.0.1 only, an optional now-playing.txt for an
+/// NoorStream: OBS overlays (Now Playing, credits roll) served on 127.0.0.1 only, an optional now-playing.txt for an
 /// OBS Text source, the supporters list and the stream log. Supporters and streams are ordinary notes in the open
 /// Vault. Nothing is ever published: titles and descriptions are copied for the user to paste. No accounts, no tokens.
 /// </summary>
@@ -238,7 +238,7 @@ public partial class MainWindow
                 return OpenStreamWindow(req.GetString("tab", 20), NoorMD.Core.Bridge.Json.IsTrue(p, "toggle"), NoorMD.Core.Bridge.Json.IsTrue(p, "close"));
             case "stream.dock":
             {
-                // "Dock in the main window" from the Stream Desk window: close it (after this reply) and show the panel.
+                // "Dock in the main window" from NoorStream window: close it (after this reply) and show the panel.
                 var tab = req.GetString("tab", 20);
                 _ = Dispatcher.BeginInvoke(() => { _streamWindow?.Close(); Activate(); PushEvent("stream.dock", new { tab }); });
                 return null;

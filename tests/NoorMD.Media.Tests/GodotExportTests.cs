@@ -131,7 +131,7 @@ public class GodotExportTests
             var readme = Path.Combine(addons, GodotAddon.Folder, "README.txt");
             var cfg = Path.Combine(addons, GodotAddon.Folder, "plugin.cfg");
             File.WriteAllText(readme, "my notes");
-            File.WriteAllText(cfg, "; NoorMD Asset Bench, Godot tree import v0\n");
+            File.WriteAllText(cfg, "; NoorMD NoorForm, Godot tree import v0\n");
             var again = GodotAddon.WriteTo(addons);
             Assert.Equal([cfg], again);
             Assert.Equal("my notes", File.ReadAllText(readme));

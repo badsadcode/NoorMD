@@ -532,7 +532,7 @@ public partial class MainWindow
         Check("…and is hidden from screen capture (Windows 10 2004+)", ind.ExcludedFromCapture);
         ind.Close();
 
-        // Asset Bench: a tree is grown and meshed in the app, its GLB is served to the page and read back there; separate
+        // NoorForm: a tree is grown and meshed in the app, its GLB is served to the page and read back there; separate
         // branches come out as meshes of their own with clean geometry.
         {
             await Eval(@"window.__tree = null; (async () => {
@@ -546,13 +546,13 @@ public partial class MainWindow
             var tree = "null";
             for (var i = 0; i < 300 && tree == "null"; i++) { await Task.Delay(100); tree = await Eval("window.__tree"); }
             // Two levels and the billboard (two crossed cards, front and back: 8 triangles).
-            Check("Asset Bench: a tree builds in the app (two levels and a billboard) and its GLB loads in the page", tree.Contains("\\\"lods\\\":3") && tree.Contains(",8]") && tree.Contains("Trunk") && tree.Contains("Leaves") && !tree.Contains("error"), tree);
+            Check("NoorForm: a tree builds in the app (two levels and a billboard) and its GLB loads in the page", tree.Contains("\\\"lods\\\":3") && tree.Contains(",8]") && tree.Contains("Trunk") && tree.Contains("Leaves") && !tree.Contains("error"), tree);
             var sep = NoorMD.Media.Assets3D.TreePresets.Make("oak");
             sep.Branches = "separate"; sep.Quality = "low"; sep.Lods = 1; sep.Budget = 2000;
             var built = NoorMD.Media.Assets3D.TreeBuilder.Build(sep, new NoorMD.Media.Assets3D.TreeBuilder.Options { TextureSize = 64 });
             var meshes = built.Lods[0].Root.All().Where(n => n.Mesh != null).ToList();
             var glbBytes = NoorMD.Media.Assets3D.GlbWriter.Write(built.Lods[0]);
-            Check("Asset Bench: separate branches are meshes of their own, all clean, written as GLB",
+            Check("NoorForm: separate branches are meshes of their own, all clean, written as GLB",
                 meshes.Count(n => n.Name.StartsWith("Branch_") && !n.Name.EndsWith("_Leaves")) == built.Skeleton.Branches.Count(b => b.Level == 1)
                 && meshes.All(n => n.Mesh!.Problems().Count == 0) && glbBytes.Length > 10000 && BitConverter.ToUInt32(glbBytes, 0) == 0x46546C67,
                 $"{meshes.Count} meshes, {glbBytes.Length} bytes, {built.Seconds:0.0} s");
@@ -567,7 +567,7 @@ public partial class MainWindow
                 } catch (e) { window.__rock = 'error ' + e.message; } })()");
             var rock = "null";
             for (var i = 0; i < 300 && rock == "null"; i++) { await Task.Delay(100); rock = await Eval("window.__rock"); }
-            Check("Asset Bench: a rock builds in the app (three levels, convex collision) and its GLB loads in the page",
+            Check("NoorForm: a rock builds in the app (three levels, convex collision) and its GLB loads in the page",
                 rock.Contains("\\\"lods\\\":3") && rock.Contains("Collision-convcolonly") && !rock.Contains("\\\"collision\\\":[]") && !rock.Contains("error"), rock);
         }
 
@@ -578,19 +578,19 @@ public partial class MainWindow
                 Start = "2000-02-29", End = "2000-02-29", SinceYear = 2000, Repeat = new NoorMD.Core.Calendar.CalendarRepeat { Freq = "yearly" }, Reminders = [-540] });
             var occ = NoorMD.Core.Calendar.CalendarEngine.Occurrences([bday], new DateTime(2027, 1, 1), new DateTime(2028, 12, 31));
             var round = NoorMD.Core.Calendar.Ics.Import(NoorMD.Core.Calendar.Ics.Export([bday]));
-            Check("Calendar: a 29 February birthday repeats with its age, and survives an .ics round trip",
+            Check("NoorCalendar: a 29 February birthday repeats with its age, and survives an .ics round trip",
                 occ.Count == 2 && occ[0].Date == "2027-02-28" && occ[0].Age == 27 && round.Entries.Count == 1 && round.Entries[0].SinceYear == 2000 && round.Entries[0].Reminders.SequenceEqual([-540]),
                 string.Join(", ", occ.Select(o => $"{o.Date} ({o.Age})")));
             var pop = new ReminderWindow(this);
             pop.Add([new ReminderWindow.Item("selftest|x|0", "Self-test reminder", "Today 12:00", "Nothing to do")]);
             await Task.Delay(300);
-            Check("Calendar: the reminder pop-up shows on top without taking focus", pop.IsVisible && pop.Topmost && !pop.IsActive && pop.ActualHeight > 60, $"{pop.ActualWidth:0}×{pop.ActualHeight:0}");
+            Check("NoorCalendar: the reminder pop-up shows on top without taking focus", pop.IsVisible && pop.Topmost && !pop.IsActive && pop.ActualHeight > 60, $"{pop.ActualWidth:0}×{pop.ActualHeight:0}");
             pop.Remove("selftest|x|0");
             Check("…and goes when its reminder is handled", !pop.IsVisible);
             pop.Close();
         }
 
-        // The Stream Desk's own window: opens with its page at full size, reaches the Stream Desk, and nothing else.
+        // NoorStream's own window: opens with its page at full size, reaches NoorStream, and nothing else.
         OpenStreamWindow("mic", false, false);
         var sw = _streamWindow!;
         var page = "";
@@ -600,25 +600,25 @@ public partial class MainWindow
             try { page = await sw.EvalAsync("JSON.stringify([window.innerWidth, !!document.querySelector('#streamdesk:not([hidden])'), !!document.querySelector('#mic-verdict'), document.querySelector('[data-sdtab=\"mic\"]')?.getAttribute('aria-selected')])"); } catch { }
             if (page.Contains("true,true")) break;
         }
-        Check("the Stream Desk opens in its own window, on the requested tab, at full size", page.Contains("true,true,\\\"true\\\"") && int.TryParse(page.Trim('"').TrimStart('[').Split(',')[0], out var sww) && sww > 500, page);
+        Check("NoorStream opens in its own window, on the requested tab, at full size", page.Contains("true,true,\\\"true\\\"") && int.TryParse(page.Trim('"').TrimStart('[').Split(',')[0], out var sww) && sww > 500, page);
         await sw.EvalAsync("window.__sw = null; NoorBridge.request('doc.save', {}).then(() => window.__sw = 'allowed', e => window.__sw = 'refused: ' + e.message)");
         var refused = "";
         for (var i = 0; i < 20 && !refused.Contains("refused") && !refused.Contains("allowed"); i++) { await Task.Delay(100); refused = await sw.EvalAsync("window.__sw"); }
-        Check("the Stream Desk window can't use the editor's commands", refused.Contains("refused"), refused);
+        Check("NoorStream window can't use the editor's commands", refused.Contains("refused"), refused);
         OpenStreamWindow(null, false, close: true);
         await Task.Delay(300);
         Check("…and closes, remembering where it was", _streamWindow == null && StreamCfg["window"] is System.Text.Json.Nodes.JsonObject);
 
-        // Docks: the "Streaming" layout puts music left, the Stream Desk right and the document between them.
+        // Docks: the "Streaming" layout puts music left, NoorStream right and the document between them.
         await Eval("NoorDock.applyPreset('streaming')");
         await Task.Delay(1200);
         var docks = JsonSerializer.Deserialize<string>(await Eval("JSON.stringify(['#dock-left', '#editor', '#dock-right'].map(q => { const r = document.querySelector(q).getBoundingClientRect(); return [Math.round(r.left), Math.round(r.right)]; }))")) ?? "[]";
         var d = JsonSerializer.Deserialize<int[][]>(docks) ?? [];
-        Check("the Streaming layout docks music left and the Stream Desk right, the document between", d.Length == 3 && d[0][1] <= d[1][0] + 1 && d[1][1] <= d[2][0] + 1 && d[0][1] - d[0][0] > 250 && d[2][1] - d[2][0] > 250, docks);
+        Check("the Streaming layout docks music left and NoorStream right, the document between", d.Length == 3 && d[0][1] <= d[1][0] + 1 && d[1][1] <= d[2][0] + 1 && d[0][1] - d[0][0] > 250 && d[2][1] - d[2][0] > 250, docks);
         await Eval("NoorDock.applyPreset('classic'); NoorMusic.togglePanel(false); NoorStream.close()");
         await Task.Delay(300);
 
-        // Apps Hub: the Windows icon of a program, with transparency, shown in the page (nothing is started).
+        // NoorHub: the Windows icon of a program, with transparency, shown in the page (nothing is started).
         var notepad = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "notepad.exe");
         if (File.Exists(notepad))
         {
@@ -633,7 +633,7 @@ public partial class MainWindow
                 frame.CopyPixels(new System.Windows.Int32Rect(0, 0, 1, 1), px, 4, 0);
                 transparentCorner = px[3] < 40;
             }
-            Check("Apps Hub: a program gets its Windows icon, with a transparent background", png.Length > 200 && transparentCorner, $"{png.Length} bytes");
+            Check("NoorHub: a program gets its Windows icon, with a transparent background", png.Length > 200 && transparentCorner, $"{png.Length} bytes");
             await Eval($"window.__hi = null; (() => {{ const i = new Image(); i.onload = () => window.__hi = i.naturalWidth; i.onerror = () => window.__hi = -1; i.src = '/_hubicon/{hubItem.Icon}'; }})()");
             var shown = "null";
             for (var i = 0; i < 20 && shown == "null"; i++) { await Task.Delay(100); shown = await Eval("window.__hi"); }
@@ -658,7 +658,7 @@ public partial class MainWindow
             var thumb = img != null ? await Task.Run(() => EnsureThumb(img)) : null;
             var tw = 0; var th = 0;
             if (thumb != null) { var f = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(thumb))); tw = f.PixelWidth; th = f.PixelHeight; }
-            Check("Gallery: a picture is found in its album and gets an upright preview", img != null && img.Album == "Lato" && th == 80 && tw == 40, $"{img?.Album} {tw}x{th}");
+            Check("NoorGallery: a picture is found in its album and gets an upright preview", img != null && img.Album == "Lato" && th == 80 && tw == 40, $"{img?.Album} {tw}x{th}");
             await Eval($"window.__gt = null; (() => {{ const a = new Image(), b = new Image(); let n = 0; const done = () => {{ if (++n === 2) window.__gt = a.naturalHeight + 'x' + b.naturalWidth; }}; a.onload = b.onload = done; a.onerror = b.onerror = () => window.__gt = 'error'; a.src = '/_thumb/{img?.Id}'; b.src = '/_img/{img?.Id}'; }})()");
             var gt = "null";
             for (var i = 0; i < 40 && gt == "null"; i++) { await Task.Delay(100); gt = await Eval("window.__gt"); }
@@ -671,7 +671,7 @@ public partial class MainWindow
                 Organizer.Move([img.Id], album);
                 var movedOk = File.Exists(Path.Combine(album, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Góry";
                 Organizer.Undo();
-                Check("Gallery: rename, new album, move and undo work on Windows", movedOk && File.Exists(Path.Combine(picDir, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Lato");
+                Check("NoorGallery: rename, new album, move and undo work on Windows", movedOk && File.Exists(Path.Combine(picDir, "Morze o zachodzie.jpg")) && Gallery.Get(img.Id)?.Album == "Lato");
             }
             // Work files: a Photoshop file shows its own embedded preview; an album can be renamed (and back); pictures pack into a ZIP.
             {
@@ -687,13 +687,13 @@ public partial class MainWindow
                 await ScanGalleryAsync([gid]);
                 var psd = Gallery.Query(new NoorMD.Media.GalleryQuery(Format: "PSD")).FirstOrDefault();
                 var psdThumb = psd != null ? await Task.Run(() => EnsureThumb(psd)) : null;
-                Check("Gallery: a PSD is listed (2000×1000) with a preview", psd is { Width: 2000, Height: 1000 } && psdThumb != null, $"{psd?.Width}x{psd?.Height} {psdThumb}");
+                Check("NoorGallery: a PSD is listed (2000×1000) with a preview", psd is { Width: 2000, Height: 1000 } && psdThumb != null, $"{psd?.Width}x{psd?.Height} {psdThumb}");
                 Organizer.RenameAlbum(picDir, "Lato 2024");
                 var renamedOk = Directory.Exists(Path.Combine(SelfTestDir!, "Pictures", "Lato 2024")) && Gallery.Get(psd!.Id)?.Album == "Lato 2024";
                 Organizer.Undo();
                 var zip = Path.Combine(SelfTestDir!, "pictures.zip");
                 var packed = NoorMD.Media.GalleryZip.Create(Gallery.Query(new NoorMD.Media.GalleryQuery()).Select(i => i.Path).ToList(), zip);
-                Check("Gallery: album rename and back, and a ZIP of the pictures", renamedOk && Directory.Exists(picDir) && packed == 2 && File.Exists(zip), $"{renamedOk} {packed}");
+                Check("NoorGallery: album rename and back, and a ZIP of the pictures", renamedOk && Directory.Exists(picDir) && packed == 2 && File.Exists(zip), $"{renamedOk} {packed}");
             }
             // Windows' thumbnails (the way Affinity and Photoshop files get previews) come out the right way up.
             {
@@ -715,7 +715,7 @@ public partial class MainWindow
                     conv.CopyPixels(new System.Windows.Int32Rect(conv.PixelWidth / 2, conv.PixelHeight - 3, 1, 1), bottom, 4, 0);
                     orientation = top[2] > 200 && top[0] < 60 && bottom[0] > 200 && bottom[2] < 60 ? "upright" : $"top {top[2]},{top[1]},{top[0]} bottom {bottom[2]},{bottom[1]},{bottom[0]}";
                 }
-                Check("Gallery: Windows thumbnails (Affinity, Photoshop) are the right way up", orientation is "upright" or "no thumbnail", orientation);
+                Check("NoorGallery: Windows thumbnails (Affinity, Photoshop) are the right way up", orientation is "upright" or "no thumbnail", orientation);
             }
             // Picture tools: stars, a colour label and tags are kept; a JPEG turns by its orientation, a PNG keeps every pixel.
             if (img != null)
@@ -733,7 +733,7 @@ public partial class MainWindow
                 await Eval($"window.__gr = null; (() => {{ const i = new Image(); i.onload = () => window.__gr = i.naturalWidth + 'x' + i.naturalHeight; i.onerror = () => window.__gr = 'error'; i.src = '/_img/{img.Id}?r=' + Date.now(); }})()");
                 var gr = "null";
                 for (var i = 0; i < 40 && gr == "null"; i++) { await Task.Delay(100); gr = await Eval("window.__gr"); }
-                Check("Gallery: a photo turned in NoorMD is shown turned by the page too", gr.Trim('"') == "40x80", gr);
+                Check("NoorGallery: a photo turned in NoorMD is shown turned by the page too", gr.Trim('"') == "40x80", gr);
                 TurnPicture(marked.Path, clockwise: false); // 8 → 3
                 TurnPicture(marked.Path, clockwise: false); // 3 → 6
                 Gallery.Refresh(img.Id);
@@ -745,7 +745,7 @@ public partial class MainWindow
                 pc.CopyPixels(new System.Windows.Int32Rect(2, pc.PixelHeight / 2, 1, 1), left, 4, 0);
                 pc.CopyPixels(new System.Windows.Int32Rect(pc.PixelWidth - 3, pc.PixelHeight / 2, 1, 1), right, 4, 0);
                 var pngOk = pc.PixelWidth == 40 && pc.PixelHeight == 60 && left[0] > 200 && right[2] > 200; // turned right: blue on the left, red on the right
-                Check("Gallery: stars, label and tags are kept; a JPEG turns by its orientation and a PNG without loss",
+                Check("NoorGallery: stars, label and tags are kept; a JPEG turns by its orientation and a PNG without loss",
                     marked is { Rating: 4, Label: "green" } && marked.Tags is ["morze", "Wakacje"] && jpgOk && pngOk && Gallery.Get(img.Id)!.Width == before.Width,
                     $"{marked.Rating} {marked.Label} [{string.Join(",", marked.Tags ?? [])}] jpg {before} → {turnedJpg.Width}x{turnedJpg.Height} png {pc.PixelWidth}x{pc.PixelHeight} L{left[2]},{left[0]} R{right[2]},{right[0]}");
             }
@@ -762,7 +762,7 @@ public partial class MainWindow
                 if (made.Count == 1) { var f = System.Windows.Media.Imaging.BitmapFrame.Create(new MemoryStream(File.ReadAllBytes(made[0]))); cw = f.PixelWidth; ch = f.PixelHeight; }
                 var dateKept = made.Count == 1 && Math.Abs((NoorMD.Media.GalleryLibrary.ReadInfo(made[0], DateTime.UtcNow.AddYears(1)).TakenUtc - src.TakenUtc).TotalSeconds) < 1.5; // EXIF keeps whole seconds
                 var names = string.Join(",", made.Concat(again.Made).Select(Path.GetFileName));
-                Check("Gallery: convert / resize makes upright, smaller copies (with the date) and leaves the original alone",
+                Check("NoorGallery: convert / resize makes upright, smaller copies (with the date) and leaves the original alone",
                     failed.Count == 0 && cw == 20 && ch == 40 && dateKept && Path.GetFileName(made[0]) == "Morze o zachodzie-web.jpg"
                         && again.Made.Count == 1 && again.Made[0].EndsWith("-web.png") && File.ReadAllBytes(src.Path).AsSpan().SequenceEqual(srcBytes),
                     $"{cw}x{ch} date {dateKept} {names} {string.Join("; ", failed.Concat(again.Failed))}");
@@ -809,12 +809,12 @@ public partial class MainWindow
                 rs = await Eval("(() => { const s = NoorRadio._state(); return JSON.stringify({ state: s.on && s.on.state, title: s.on && s.on.title, message: s.on && s.on.message }); })()");
                 if (rs.Contains("Self-test tune") && rs.Contains("playing")) break;
             }
-            Check("Radio: a station plays through the loopback relay and its song title arrives", rs.Contains("playing") && rs.Contains("Self-test tune"), rs);
+            Check("NoorRadio: a station plays through the loopback relay and its song title arrives", rs.Contains("playing") && rs.Contains("Self-test tune"), rs);
             await Eval("NoorRadio.stop()");
             upstream.Stop();
         }
 
-        // Sound Bench: a preset renders in the app and the page plays the preview (a WAV served from memory).
+        // NoorSound: a preset renders in the app and the page plays the preview (a WAV served from memory).
         {
             await Eval("NoorSound.open()");
             var sb = "";
@@ -827,7 +827,7 @@ public partial class MainWindow
             await Eval("window.__sbd = null; (() => { const a = new Audio(); a.muted = true; a.onloadedmetadata = () => window.__sbd = a.duration; a.onerror = () => window.__sbd = 'error ' + (a.error && a.error.code); a.src = NoorSound._state().render.url; })()");
             var dur = "null";
             for (var i = 0; i < 40 && dur == "null"; i++) { await Task.Delay(100); dur = await Eval("window.__sbd"); }
-            Check("Sound Bench: a preset renders and the page can play its preview", sb.Contains("_sound") && double.TryParse(dur, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sbSeconds) && Math.Abs(sbSeconds - 20) < 0.1, $"{sb} duration {dur}");
+            Check("NoorSound: a preset renders and the page can play its preview", sb.Contains("_sound") && double.TryParse(dur, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var sbSeconds) && Math.Abs(sbSeconds - 20) < 0.1, $"{sb} duration {dur}");
             await Eval("NoorSound.close()");
             // Modulation through the app: the engine preset's Motor RPM control, at idle and turned up.
             await Eval(@"window.__sbk = null; (async () => {
@@ -864,7 +864,7 @@ public partial class MainWindow
                     && ke.GetProperty("bell").GetDouble() is > -30 and < -10 && ke.GetProperty("bellWidth").GetDouble() > 0.05 && ke.GetProperty("bellWarnings").GetInt32() == 0;
             }
             catch (Exception) { knobOk = false; }
-            Check("Sound Bench: a control (Motor RPM) moves the sound, the meters and spectrogram show it, a reverb bus is heard and a string resonator rings and a bell sounds inside a church", knobOk, sbk);
+            Check("NoorSound: a control (Motor RPM) moves the sound, the meters and spectrogram show it, a reverb bus is heard and a string resonator rings and a bell sounds inside a church", knobOk, sbk);
             // A WAV of your own as a layer: read when it was picked, refused when nobody picked it.
             var wavPath = Path.Combine(SelfTestDir!, "Sound sample.wav");
             await File.WriteAllBytesAsync(wavPath, SoundEngine.Render(SoundPresets.Make("hit-metal"), 44100).ToWav());
@@ -872,7 +872,7 @@ public partial class MainWindow
             var notPicked = SoundEngine.Render(withSample, 48000, LoadSample);
             _soundSampleFiles.Add(Path.GetFullPath(wavPath));
             var used = SoundEngine.Render(withSample, 48000, LoadSample);
-            Check("Sound Bench: a WAV of your own plays as a layer only once you picked it", notPicked.Warnings.Count == 1 && used.Warnings.Count == 0 && used.RmsDb > -40,
+            Check("NoorSound: a WAV of your own plays as a layer only once you picked it", notPicked.Warnings.Count == 1 && used.Warnings.Count == 0 && used.RmsDb > -40,
                 $"not picked: {string.Join("; ", notPicked.Warnings)} used: {used.RmsDb} dB");
             // Grains and stretch through the same file; the region editor's waveform only for a picked file.
             withSample.Layers[0].PlayMode = "grains"; withSample.Layers[0].Position = 0.1;
@@ -890,7 +890,7 @@ public partial class MainWindow
                 window.__sbp = JSON.stringify(r); }})()");
             var sbp = "null";
             for (var i = 0; i < 40 && sbp == "null"; i++) { await Task.Delay(100); sbp = await Eval("window.__sbp"); }
-            Check("Sound Bench: samples play as grains or stretched, and only a picked file's waveform is shown", grains.RmsDb > -45 && grains.Warnings.Count == 0 && stretched.RmsDb > -45
+            Check("NoorSound: samples play as grains or stretched, and only a picked file's waveform is shown", grains.RmsDb > -45 && grains.Warnings.Count == 0 && stretched.RmsDb > -45
                 && sbp.Contains("\\\"peaks\\\":1200") && sbp.Contains("refused"), $"grains {grains.RmsDb} dB, stretched {stretched.RmsDb} dB, {sbp}");
         }
 
@@ -922,7 +922,7 @@ public partial class MainWindow
                 && ogg.Length > 1000 && ogg[0] == (byte)'O' && ogg[1] == (byte)'g' && ogg.Length < layerRenders[0].Render.Left.Length * 2, $"{ogg.Length} bytes");
         }
 
-        // Texture Bench: a material renders in the app, its maps are served to the page and load as pictures.
+        // NoorMaterial: a material renders in the app, its maps are served to the page and load as pictures.
         {
             await Eval(@"window.__tex = null; (async () => {
                 try {
@@ -933,13 +933,13 @@ public partial class MainWindow
                 } catch (e) { window.__tex = 'error ' + e.message; } })()");
             var tex = "null";
             for (var i = 0; i < 80 && tex == "null"; i++) { await Task.Delay(100); tex = await Eval("window.__tex"); }
-            Check("Texture Bench: a material renders and its maps load in the page", tex.Contains("\\\"sizes\\\":[256,256,256]") && tex.Contains("\\\"size\\\":256"), tex);
+            Check("NoorMaterial: a material renders and its maps load in the page", tex.Contains("\\\"sizes\\\":[256,256,256]") && tex.Contains("\\\"size\\\":256"), tex);
             // A full set for Unreal at 512 writes valid PNGs (DirectX normal, ORM).
             var maps = TextureEngine.Render(TexturePresets.Make("metal-rusty"), 512);
             var orm = maps.Packed("ao", "roughness", "metallic");
-            Check("Texture Bench: maps are written as PNG files", orm.Length > 1000 && orm[1] == (byte)'P' && maps.Png("height").Length > 1000 && maps.Png("normal", directX: true).Length > 1000);
+            Check("NoorMaterial: maps are written as PNG files", orm.Length > 1000 && orm[1] == (byte)'P' && maps.Png("height").Length > 1000 && maps.Png("normal", directX: true).Length > 1000);
             var manifest = JsonSerializer.Serialize(TextureManifest(new TextureRecipe { Name = "Rust", TileMetres = 3, HeightCm = 8 }.Clamped(), maps, ["rust_albedo.png", "rust_height.png"], [("albedo", "albedo"), ("height", "height")], "rust.noortex.json"));
-            Check("Texture Bench: the manifest gives the real-world size, the height's range and the albedo brightness",
+            Check("NoorMaterial: the manifest gives the real-world size, the height's range and the albedo brightness",
                 manifest.Contains("\"tileMetres\":3") && manifest.Contains("\"heightRangeCm\":8") && manifest.Contains("\"albedoLuminance\":") && manifest.Contains("\"pixelsPerMetre\":170.6667"), manifest);
             // A photo as a layer: decoded by Windows, read only once picked; an unpicked one (there, readable) is refused.
             var photoPath = Path.Combine(SelfTestDir!, "Texture photo.png");
@@ -950,7 +950,7 @@ public partial class MainWindow
             TextureMaps WithPhoto(string path) => TextureEngine.Render(new TextureRecipe { Layers = [new TextureLayer { Type = "image", Path = path, ImageName = Path.GetFileName(path), SeamBlend = 0.2, Delight = 0.5 }] }.Clamped(), 256, LoadTextureImage);
             var photoUsed = WithPhoto(photoPath);
             var photoRefused = WithPhoto(photoNotPicked);
-            Check("Texture Bench: a picked photo becomes a layer, one nobody picked is refused", photoUsed.Warnings.Count == 0 && photoUsed.Height.Max() - photoUsed.Height.Min() > 0.3 && photoRefused.Warnings.Count == 1,
+            Check("NoorMaterial: a picked photo becomes a layer, one nobody picked is refused", photoUsed.Warnings.Count == 0 && photoUsed.Height.Max() - photoUsed.Height.Min() > 0.3 && photoRefused.Warnings.Count == 1,
                 $"used: {string.Join("; ", photoUsed.Warnings)} range {photoUsed.Height.Max() - photoUsed.Height.Min():0.00}; refused: {photoRefused.Warnings.Count}");
             // A painting made in NoorSketch (a .noorsketch with transparency) goes on the material only where it is painted.
             var paintingPath = Path.Combine(SelfTestDir!, "Texture painting.noorsketch");
@@ -975,9 +975,9 @@ public partial class MainWindow
                 Surface = new TextureSurface { Dirt = 0, ColorVariation = 0 },
             }.Clamped(), 128, LoadTextureImage);
             var albedoOff = Enumerable.Range(0, albedoSrc.Albedo.Length).Max(i => Math.Abs(fromAlbedo.Albedo[i] - albedoSrc.Albedo[i]));
-            Check("Texture Bench: batch PBR keeps an albedo texture's colours exactly and adds relief", fromAlbedo.Warnings.Count == 0 && albedoOff <= 2 && fromAlbedo.Height.Max() - fromAlbedo.Height.Min() > 0.2,
+            Check("NoorMaterial: batch PBR keeps an albedo texture's colours exactly and adds relief", fromAlbedo.Warnings.Count == 0 && albedoOff <= 2 && fromAlbedo.Height.Max() - fromAlbedo.Height.Min() > 0.2,
                 $"largest difference {albedoOff}; {string.Join("; ", fromAlbedo.Warnings)}");
-            Check("Texture Bench: a NoorSketch painting goes on the material where it is painted (transparent elsewhere)", painted.Warnings.Count == 0 && Red(20, 20) > 200 && Red(100, 100) is > 110 and < 145,
+            Check("NoorMaterial: a NoorSketch painting goes on the material where it is painted (transparent elsewhere)", painted.Warnings.Count == 0 && Red(20, 20) > 200 && Red(100, 100) is > 110 and < 145,
                 $"{string.Join("; ", painted.Warnings)} painted {Red(20, 20)}, elsewhere {Red(100, 100)}");
         }
 

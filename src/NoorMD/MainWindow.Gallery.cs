@@ -38,7 +38,7 @@ public partial class MainWindow
         if (_oldThumbsCleared) return;
         _oldThumbsCleared = true;
         var old = Path.Combine(App.Paths.Local, "Gallery", "thumbs");
-        if (Directory.Exists(old)) _ = Task.Run(() => { try { Directory.Delete(old, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Removing old Gallery previews failed", ex); } });
+        if (Directory.Exists(old)) _ = Task.Run(() => { try { Directory.Delete(old, true); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Log.Error("Removing old NoorGallery previews failed", ex); } });
     }
 
     /// <summary>Serves /_img/{id} (the picture) and /_thumb/{id} (a small preview, made on first use).</summary>
@@ -90,7 +90,7 @@ public partial class MainWindow
         }
         catch (Exception ex)
         {
-            Log.Error("Gallery preview failed: " + img.Path, ex);
+            Log.Error("NoorGallery preview failed: " + img.Path, ex);
             try { e.Response = env.CreateWebResourceResponse(null, 404, "Not Found", "Content-Type: text/plain"); } catch (Exception) { /* the request is gone */ }
         }
         finally { deferral.Complete(); }
@@ -261,7 +261,7 @@ public partial class MainWindow
         var psi = new ProcessStartInfo(ed.Path) { UseShellExecute = false, WorkingDirectory = Path.GetDirectoryName(ed.Path)! };
         foreach (var i in imgs.Take(50)) psi.ArgumentList.Add(i.Path); // each file its own argument: names with spaces stay whole
         Process.Start(psi);
-        Log.Info($"Gallery: opened {imgs.Count} picture(s) in {ed.Name}");
+        Log.Info($"NoorGallery: opened {imgs.Count} picture(s) in {ed.Name}");
     }
 
     private async Task<object?> DispatchGalleryAsync(BridgeRequest req)
@@ -299,14 +299,14 @@ public partial class MainWindow
                     return null;
                 case "gallery.insert":
                 {
-                    var img = Gallery.Get(Long(p, "id")) ?? throw new BridgeError("That picture is no longer in the Gallery.");
+                    var img = Gallery.Get(Long(p, "id")) ?? throw new BridgeError("That picture is no longer in NoorGallery.");
                     if (!File.Exists(img.Path)) throw new BridgeError($"“{img.Path}” is not there any more.");
                     var s = TryTabFrom(req) ?? ActiveSession ?? throw new BridgeError("Open a document to put the picture into.");
                     return new { inserted = InsertPicture(s, img.Path, img.Name), document = s.FileName };
                 }
                 case "gallery.reveal":
                 {
-                    var img = Gallery.Get(Long(p, "id")) ?? throw new BridgeError("That picture is no longer in the Gallery.");
+                    var img = Gallery.Get(Long(p, "id")) ?? throw new BridgeError("That picture is no longer in NoorGallery.");
                     if (!File.Exists(img.Path)) throw new BridgeError($"“{img.Path}” is not there any more.");
                     Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{img.Path}\"") { UseShellExecute = false });
                     return null;
@@ -379,7 +379,7 @@ public partial class MainWindow
                 case "gallery.revealFolder":
                 {
                     var folder = req.GetString("folder", 4000) ?? "";
-                    if (!Directory.Exists(folder) || !Gallery.IsInside(folder)) throw new BridgeError("That album is not in the Gallery.");
+                    if (!Directory.Exists(folder) || !Gallery.IsInside(folder)) throw new BridgeError("That album is not in NoorGallery.");
                     Process.Start(new ProcessStartInfo("explorer.exe") { UseShellExecute = false, ArgumentList = { folder } });
                     return null;
                 }
@@ -445,7 +445,7 @@ public partial class MainWindow
                 }
                 case "gallery.toTexture":
                 {
-                    // Pictures chosen in the Gallery, for photo layers in the Texture Bench: allowed for it and measured.
+                    // Pictures chosen in the Gallery, for photo layers in NoorMaterial: allowed for it and measured.
                     // For a batch (many PBR sets) up to 500, only allowed and listed; for layers up to 12, measured too.
                     var many = NoorMD.Core.Bridge.Json.IsTrue(p, "many");
                     var imgs = Ids(p, "ids").Take(many ? 500 : 12).Select(id => Gallery.Get(id)).Where(i => i != null && File.Exists(i.Path)).Cast<GalleryImage>().ToList();
@@ -531,7 +531,7 @@ public partial class MainWindow
                         catch (Exception ex) when (ex is not OutOfMemoryException)
                         {
                             // One damaged picture doesn't stop the others (and those already turned are still reported).
-                            if (ex is not ArgumentException) Log.Error("Gallery: turning failed: " + img.Path, ex);
+                            if (ex is not ArgumentException) Log.Error("NoorGallery: turning failed: " + img.Path, ex);
                             refused.Add($"{Path.GetFileName(img.Path)}: {ex.Message}");
                             continue;
                         }
@@ -575,7 +575,7 @@ public partial class MainWindow
                 case "gallery.session.save":
                 {
                     var json = p.TryGetProperty("state", out var st) && st.ValueKind == JsonValueKind.Object ? st.GetRawText() : "{}";
-                    if (json.Length > 4000) throw new BridgeError("Gallery state is too large.");
+                    if (json.Length > 4000) throw new BridgeError("NoorGallery state is too large.");
                     Gallery.SetState("session", json);
                     return null;
                 }
@@ -602,7 +602,7 @@ public partial class MainWindow
                 foreach (var id in folderIds)
                 {
                     try { var r = Gallery.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { Log.Error("Gallery scan failed", ex); }
+                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { Log.Error("NoorGallery scan failed", ex); }
                 }
                 Dispatcher.BeginInvoke(() => PushEvent("gallery.scanned", new { found, added, missing }));
             });
@@ -750,7 +750,7 @@ public partial class MainWindow
                 Dispatcher.BeginInvoke(() => PushEvent("gallery.convertProgress", new { done = d, total = t }));
             }
         }
-        Log.Info($"Gallery: converted {made.Count} picture(s), {failed.Count} not");
+        Log.Info($"NoorGallery: converted {made.Count} picture(s), {failed.Count} not");
         return (made, failed);
     }
 

@@ -34,7 +34,7 @@ public sealed class SketchWindow : Window
     private bool _dirty;
     private string _name = "Untitled sketch";
     private bool _closeConfirmed;
-    private readonly TexturePaint? _texture; // painting for a material: saves go to its file and back to the Texture Bench
+    private readonly TexturePaint? _texture; // painting for a material: saves go to its file and back to NoorMaterial
 
     internal bool IsDirty => _dirty;
     internal string? TexturePath => _texture?.Path;

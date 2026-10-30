@@ -1,7 +1,7 @@
-# Texture Bench: plan
+# NoorMaterial: plan
 
-Step 3 of [concepts/INDIE_DEV_BENCHES.md](concepts/INDIE_DEV_BENCHES.md): one Material/Texture Bench for tileable
-procedural materials and their PBR maps. Built in stages, like the Sound Bench; each stage is released and
+Step 3 of [concepts/INDIE_DEV_BENCHES.md](concepts/INDIE_DEV_BENCHES.md): one Material/NoorMaterial for tileable
+procedural materials and their PBR maps. Built in stages, like NoorSound; each stage is released and
 tried before the next.
 
 ## Principles (from the concept)
@@ -47,11 +47,11 @@ tried before the next.
 - Done in preview.41: hand-painting in NoorSketch without losing the recipe. A "Hand-painted" layer is a
   .noorsketch painting (kept with the app's data, copied beside exported recipes); NoorSketch opens it with the
   material (without the painting) underneath, strokes wrap across the edges so it tiles, Alt+click picks colours
-  from the material, and Ctrl+S applies it: the Texture Bench renders again. Its colours go on where it is painted;
+  from the material, and Ctrl+S applies it: NoorMaterial renders again. Its colours go on where it is painted;
   its brightness can raise or lower the relief; it can tint, roughen or make metal where painted.
-- Done in preview.41: exports optionally shown in the Gallery (folder added, maps tagged "material" and with the
+- Done in preview.41: exports optionally shown in NoorGallery (folder added, maps tagged "material" and with the
   material's name) and the recipe kept in the open Vault's Materials folder with its paintings and a picture;
-  a recipe opened from the Vault opens in the Texture Bench.
+  a recipe opened from the Vault opens in NoorMaterial.
 
 ## For games: real-world size and material sets (preview.75)
 

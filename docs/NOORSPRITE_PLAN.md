@@ -5,8 +5,8 @@ of cels, drawn pixel by pixel with tools made for it, played back with each fram
 sprite sheets, GIFs and engine files games use. LibreSprite is GPL: NoorSprite borrows ideas only, no code. Aseprite's
 file format is publicly documented; NoorSprite reads and writes it from that specification.
 
-NoorSketch stays as it is (a small sketchpad). NoorCanvas, a layered photo and painting editor, has its own plan
-(NOORCANVAS_PLAN.md).
+NoorSketch stays as it is (a small sketchpad). NoorPhoto, a layered photo and painting editor, has its own plan
+(NOORPHOTO_PLAN.md).
 
 ## Principles
 
@@ -150,7 +150,7 @@ Indexed colour and colour cycling; tiled drawing; symmetry about any axis and ra
 turned tiles; layer groups; gradients with dithering and pattern fills; squash, stretch and smears for in-betweens;
 cel offsets with a motion path; onion skin by tag and as outlines; a timeline of thumbnails; Unity and Unreal
 (Paper2D) exports; autotiling (Godot terrains); every tilemap layer in one Godot scene; hitboxes that move with the
-frames; links to NoorForge, the Texture Bench, NoorSequencer, the Vault and the Gallery; command search, shortcuts of
+frames; links to NoorForge, NoorMaterial, NoorSequencer, the Vault and NoorGallery; command search, shortcuts of
 one's own, a floating reference picture, pen pressure.
 
 ### Done in preview.99
@@ -210,11 +210,11 @@ one's own, a floating reference picture, pen pressure.
 ### Done in preview.103
 
 - **With the other benches** (☰): this frame to **NoorForge** as a decal for the stamp tool (its shape, grown by whole
-  steps to stay crisp); this frame — or on a tilemap layer, its tiles in a row — to the **Texture Bench** as a new
+  steps to stay crisp); this frame — or on a tilemap layer, its tiles in a row — to the **NoorMaterial** as a new
   material (a picture of the app's own, allowed for it); a **sound for a frame** (a .wav, .ogg or .mp3 you choose —
-  NoorSequencer's and the Sound Bench's exports among them), ♪ in the timeline, played by the Godot export's
+  NoorSequencer's and NoorSound's exports among them), ♪ in the timeline, played by the Godot export's
   AnimationPlayer each time the frame comes (the sound copied beside the scene; checked in headless Godot 4.4).
-- **The Gallery** shows .noorsprite and .aseprite files (their first frame as the preview, composed by the app) and
+- **NoorGallery** shows .noorsprite and .aseprite files (their first frame as the preview, composed by the app) and
   opens them — or any picture — in NoorSprite (Open in › NoorSprite).
 - **The command search** (Ctrl+K here, ⌕): every NoorSprite command by name — tools, menus, palette, view, frames,
   layers — Enter runs it. **Shortcuts of your own:** ⌨ beside a command, then press the keys; they go first, and are
@@ -370,4 +370,4 @@ one's own, a floating reference picture, pen pressure.
 
 ## Non-goals
 
-- Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.
+- Vector drawing or painting with soft brushes (NoorPhoto is for that), 3D, video.

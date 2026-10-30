@@ -1,5 +1,5 @@
 // Stream schedule overlay renderer: "Next stream" (with a countdown, LIVE while it is on) and "This week". Used by the
-// OBS overlay pages (served by NoorMD's loopback overlay server) and by the live preview in the Stream Desk, so what you
+// OBS overlay pages (served by NoorMD's loopback overlay server) and by the live preview in NoorStream, so what you
 // design is what OBS shows. Pure DOM, no network access of its own; it counts down by itself between updates.
 'use strict';
 window.NoorSchedule = (() => {

@@ -126,7 +126,7 @@ window.NoorForge = (() => {
   function schedule() { clearTimeout(renderTimer); renderTimer = setTimeout(preview, 300); }
 
   async function preview() {
-    if (!recipe || !recipe.model) { setStatus(model ? '' : 'Open a model (GLB or OBJ) to texture it: 📂 above, or a model from the Asset Bench.'); return; }
+    if (!recipe || !recipe.model) { setStatus(model ? '' : 'Open a model (GLB or OBJ) to texture it: 📂 above, or a model from NoorForm.'); return; }
     const gen = ++renderGen;
     const version = paintVersion;
     setStatus('Texturing…');
@@ -458,9 +458,9 @@ window.NoorForge = (() => {
         el('ul', {}, ...model.sets.map((s) => el('li', { text: `${s.name}: ${s.triangles.toLocaleString()} triangles${s.unwrapped ? ' · UVs laid out by NoorForge' : ''}` }))),
         el('p', { class: 'pref-hint', text: `Parts: ${model.parts.join(', ')}` })) : el('p', { class: 'pref-hint', text: 'No model yet.' }),
       el('button', { class: 'utility-btn', onclick: pickModel }, '📂 Open another model…'),
-      fromAsset && fromAsset.levels > 1 && recipe.model && recipe.model.includes(fromAsset.name) ? el('label', { class: 'sb-inline', title: 'Which of the Asset Bench\'s levels to texture: a lower one gets the closest baked onto it' }, el('span', { text: 'Asset Bench level' }),
+      fromAsset && fromAsset.levels > 1 && recipe.model && recipe.model.includes(fromAsset.name) ? el('label', { class: 'sb-inline', title: 'Which of NoorForm\'s levels to texture: a lower one gets the closest baked onto it' }, el('span', { text: 'NoorForm level' }),
         (() => {
-          const s = el('select', { id: 'fg-asset-level', 'aria-label': 'Asset Bench level' }, ...Array.from({ length: fromAsset.levels }, (_, i) => el('option', { value: String(i), text: i === 0 ? 'the closest (LOD0)' : `LOD${i}, with LOD0 baked onto it` })));
+          const s = el('select', { id: 'fg-asset-level', 'aria-label': 'NoorForm level' }, ...Array.from({ length: fromAsset.levels }, (_, i) => el('option', { value: String(i), text: i === 0 ? 'the closest (LOD0)' : `LOD${i}, with LOD0 baked onto it` })));
           s.value = String(fromAsset.level);
           s.addEventListener('change', () => openAsset(fromAsset.key, fromAsset.name, null, Number(s.value)));
           return s;
@@ -1126,10 +1126,10 @@ window.NoorForge = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
-  /** The Asset Bench's tree or rock, sent here to be textured (a stony smart material to start with for rocks). */
-  let fromAsset = null;    // { key, name, level, levels }: the Asset Bench model in here, to choose another level of it
+  /** NoorForm's tree or rock, sent here to be textured (a stony smart material to start with for rocks). */
+  let fromAsset = null;    // { key, name, level, levels }: NoorForm model in here, to choose another level of it
 
-  /** The Asset Bench's tree or rock (a level of it; a lower one with the closest baked onto it), sent here to be textured. */
+  /** NoorForm's tree or rock (a level of it; a lower one with the closest baked onto it), sent here to be textured. */
   async function openAsset(key, name, isRock, level = 0) {
     await open();
     try {
@@ -1289,7 +1289,7 @@ window.NoorForge = (() => {
       ]],
       ['Bake', 'b', () => [
         go('Choose a high-poly model…', pickHigh), go('Bake from this model alone', () => { recipe.highModel = null; highName = ''; changed('all'); }, '', { disabled: () => !recipe.highModel }), '-',
-        { label: 'Asset Bench level', disabled: () => !(fromAsset && fromAsset.levels > 1), sub: () => Array.from({ length: fromAsset.levels }, (_, i) => ({ label: i === 0 ? 'The closest (LOD0)' : `LOD${i}, with LOD0 baked onto it`, checked: () => fromAsset.level === i, run: () => openAsset(fromAsset.key, fromAsset.name, null, i) })) }, '-',
+        { label: 'NoorForm level', disabled: () => !(fromAsset && fromAsset.levels > 1), sub: () => Array.from({ length: fromAsset.levels }, (_, i) => ({ label: i === 0 ? 'The closest (LOD0)' : `LOD${i}, with LOD0 baked onto it`, checked: () => fromAsset.level === i, run: () => openAsset(fromAsset.key, fromAsset.name, null, i) })) }, '-',
         go('The model and its bakes…', () => showTab('bake')),
       ]],
       ['View', 'v', () => [

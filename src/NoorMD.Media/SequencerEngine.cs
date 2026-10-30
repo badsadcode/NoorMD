@@ -188,7 +188,7 @@ public sealed class SongRecipe
     public int LoopStart { get; set; }
     public int LoopEnd { get; set; } = 8;
     public double MasterGain { get; set; }
-    /// <summary>Effects on the whole mix (the Sound Bench's).</summary>
+    /// <summary>Effects on the whole mix (NoorSound's).</summary>
     public List<SoundEffect> MasterEffects { get; set; } = [];
     /// <summary>The mixer's send buses (up to two).</summary>
     public List<SongBus> Buses { get; set; } = [];

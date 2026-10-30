@@ -1,4 +1,4 @@
-// NoorMD Sound Bench: procedural sound effects and ambiences (wind, rain, fire, water, thunder, UI sounds). The page
+// NoorMD NoorSound: procedural sound effects and ambiences (wind, rain, fire, water, thunder, UI sounds). The page
 // edits a recipe; the app renders it (the same recipe and seed always give the same sound) and the preview plays here,
 // re-rendered a moment after each change, from the same spot. Export writes WAV files and the recipe next to them.
 window.NoorSound = (() => {
@@ -67,7 +67,7 @@ window.NoorSound = (() => {
   let matchGain = 1;
   let repeat = false;
 
-  // Sound Bench settings: how it starts (the tab, the sound it opens with). Kept in this browser.
+  // NoorSound settings: how it starts (the tab, the sound it opens with). Kept in this browser.
   const SETTINGS_KEY = 'noorsound.settings';
   const SETTINGS_DEFAULTS = { tab: 'quick', preset: '' };
   let settings = { ...SETTINGS_DEFAULTS };
@@ -379,14 +379,14 @@ window.NoorSound = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'soundbench', class: 'soundbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Sound Bench' },
+    const root = el('section', { id: 'soundbench', class: 'soundbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorSound' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🔊' }), el('strong', { text: 'Sound Bench' }), el('small', { id: 'sb-family' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🔊' }), el('strong', { text: 'NoorSound' }), el('small', { id: 'sb-family' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'sb-open', title: 'Open a recipe (.noorsound.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
-          NoorDock.fullButton('Sound Bench'),
-          el('button', { class: 'icon-btn', id: 'sb-dock', title: 'Where this panel goes', 'aria-label': 'Move the Sound Bench', onclick: (e) => NoorDock.showMenu('sound', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+K)', 'aria-label': 'Close the Sound Bench', onclick: close }, '✕'))),
+          NoorDock.fullButton('NoorSound'),
+          el('button', { class: 'icon-btn', id: 'sb-dock', title: 'Where this panel goes', 'aria-label': 'Move NoorSound', onclick: (e) => NoorDock.showMenu('sound', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+K)', 'aria-label': 'Close NoorSound', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
         el('nav', { class: 'sb-presets', id: 'sb-presets', 'aria-label': 'Presets' }),
         el('div', { class: 'sb-editor' },
@@ -413,7 +413,7 @@ window.NoorSound = (() => {
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
-    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('sound', { name: 'Sound Bench', title: appTitle, menus: appMenus });
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('sound', { name: 'NoorSound', title: appTitle, menus: appMenus });
     $('#sb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
     $('#sb-volume').addEventListener('input', (e) => setListenVolume(Number(e.target.value) / 100));
     setListenVolume(listenVolume);
@@ -1278,7 +1278,7 @@ window.NoorSound = (() => {
       })(),
       el('div', { class: 'sb-row' },
         check('sb-vault', 'vault', 'Also keep the recipe in my Vault', 'The recipe (.noorsound.json) and an OGG to listen to, in the Sounds folder of the Vault that is open'),
-        check('sb-musicbench', 'musicBench', 'Also add the files to the Music Bench', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)')),
+        check('sb-musicbench', 'musicBench', 'Also add the files to NoorMusic', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)')),
       where.node,
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'sb-export', onclick: exportSound }, '⤓ Export…'),
@@ -1409,7 +1409,7 @@ window.NoorSound = (() => {
       if (status) {
         const stems = r.stems && r.stems.length ? ` Stems: ${r.stems.join(', ')}.` : '';
         const into = r.project ? `${r.project}: ${r.relative && r.relative !== '.' ? r.relative : 'its folder'}` : r.folder;
-        const extra = `${r.vault ? ` Kept in the Vault as ${r.vault}.` : ''}${r.music ? ` Added to the Music Bench (playlist “Made in NoorMD”).` : ''}${r.notes && r.notes.length ? ' ⚠ ' + r.notes.join(' ') : ''}`;
+        const extra = `${r.vault ? ` Kept in the Vault as ${r.vault}.` : ''}${r.music ? ` Added to NoorMusic (playlist “Made in NoorMD”).` : ''}${r.notes && r.notes.length ? ' ⚠ ' + r.notes.join(' ') : ''}`;
         status.replaceChildren(el('span', { text: `Saved ${r.files.length} file${r.files.length === 1 ? '' : 's'} and the recipe in ${into}.${stems}${extra} ` }),
           el('button', { class: 'utility-btn', id: 'sb-reveal', onclick: () => req('sound.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
       }
@@ -1445,9 +1445,9 @@ window.NoorSound = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
-  // ---------------------------------------------------------------- the Sound Bench as an app: its menus, settings, shortcuts
+  // ---------------------------------------------------------------- NoorSound as an app: its menus, settings, shortcuts
 
-  // In focus mode with the Sound Bench in the middle, the window's menu bar is its own (see NoorChrome.registerBench).
+  // In focus mode with NoorSound in the middle, the window's menu bar is its own (see NoorChrome.registerBench).
   const TABS = [['quick', 'Quick controls'], ['layers', 'Layers'], ['mod', 'Modulation'], ['map', 'Map'], ['output', 'Output & export']];
 
   /** After a menu item, the keys (Space, V, M, Ctrl+Z…) go to the bench again, unless a dialog took them. */
@@ -1480,7 +1480,7 @@ window.NoorSound = (() => {
   }
 
   function settingsDialog() {
-    NoorUI.modal({ label: 'Sound Bench settings', width: 440 }, (s2, closeIt) => {
+    NoorUI.modal({ label: 'NoorSound settings', width: 440 }, (s2, closeIt) => {
       const tabSel = el('select', { id: 'sb-set-tab', 'aria-label': 'Opens on' }, ...TABS.map(([v, t]) => el('option', { value: v, text: t })));
       tabSel.value = settings.tab;
       const presetSel = el('select', { id: 'sb-set-preset', 'aria-label': 'Starts with' }, el('option', { value: '', text: 'The first preset' }),
@@ -1490,36 +1490,36 @@ window.NoorSound = (() => {
         settings = { tab: tabSel.value, preset: presetSel.value };
         try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
         closeIt();
-        notice('Sound Bench settings kept', 1200);
+        notice('NoorSound settings kept', 1200);
       };
-      s2.append(NoorUI.head('Sound Bench settings', closeIt),
+      s2.append(NoorUI.head('NoorSound settings', closeIt),
         el('div', { class: 'modal-body sp-dlg' },
-          el('h4', { class: 'music-subhead', text: 'When the Sound Bench opens' }),
+          el('h4', { class: 'music-subhead', text: 'When NoorSound opens' }),
           el('label', {}, 'Opens on the tab ', tabSel), el('label', {}, 'Starts with ', presetSel),
           el('p', { class: 'pref-hint', text: 'The export settings, the listening volume, the view and Match loudness are kept by themselves as you change them.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sb-set-ok', onclick: ok }, 'OK'))));
     });
   }
 
-  /** Every key the Sound Bench knows. */
+  /** Every key NoorSound knows. */
   function shortcutsDialog() {
     const rows = [
       ['Play / stop', 'Space'], ['Play once / over and over', 'L'], ['A new variation (another seed)', 'V'], ['Mutate (the layers not locked)', 'M'],
       ['Compare: B (now), A (pinned), R (the reference)', 'B'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['Jump to a spot', 'click the waveform'],
       ['Set a typed value', 'Enter (in a number box)'], ['Open a block on the map', 'Tab, then Enter'], ['Back to NoorMD (not in focus mode)', 'Esc'],
-      ['Open / close the Sound Bench', 'Ctrl+Alt+K'], ['Focus mode (the Sound Bench as an app) on / off', 'F11'], ['The menus', 'Alt+F, E, S, P, V, H · F10'],
+      ['Open / close NoorSound', 'Ctrl+Alt+K'], ['Focus mode (NoorSound as an app) on / off', 'F11'], ['The menus', 'Alt+F, E, S, P, V, H · F10'],
     ];
-    NoorUI.modal({ label: 'Sound Bench shortcuts', width: 520 }, (s2, closeIt) => {
-      s2.append(NoorUI.head('Sound Bench shortcuts', closeIt),
+    NoorUI.modal({ label: 'NoorSound shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorSound shortcuts', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'sb-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b }))))),
-          el('p', { class: 'pref-hint', text: 'The keys work while the Sound Bench has the keyboard (not while typing in a box).' })),
+          el('p', { class: 'pref-hint', text: 'The keys work while NoorSound has the keyboard (not while typing in a box).' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
     });
   }
 
-  const appTitle = () => (recipe ? `Sound Bench — ${recipe.name || 'Untitled'}${recipe.family ? ` (${recipe.family})` : ''} · ${Number(recipe.duration || 0)} s${recipe.loop ? ', loop' : ''}${listening !== 'B' ? ` · listening to ${listening}` : ''}` : 'Sound Bench');
+  const appTitle = () => (recipe ? `NoorSound — ${recipe.name || 'Untitled'}${recipe.family ? ` (${recipe.family})` : ''} · ${Number(recipe.duration || 0)} s${recipe.loop ? ', loop' : ''}${listening !== 'B' ? ` · listening to ${listening}` : ''}` : 'NoorSound');
 
-  /** The Sound Bench's menu bar: [name, its Alt letter, its items]. */
+  /** NoorSound's menu bar: [name, its Alt letter, its items]. */
   function appMenus() {
     const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { const r = run(); if (r && r.then) r.then(keepFocus, keepFocus); else setTimeout(keepFocus, 0); }, ...more });
     const noRecipe = () => !recipe;
@@ -1552,10 +1552,10 @@ window.NoorSound = (() => {
           { label: 'OGG quality', disabled: () => ep().format === 'wav', sub: () => choose('oggQuality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']]) }, '-',
           tickPref('stems', 'Also stems (each layer on its own)', 'For a game engine or a video editor: each layer in a folder beside the file'),
           tickPref('vault', 'Also keep the recipe in my Vault'),
-          tickPref('musicBench', 'Also add the files to the Music Bench', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)'),
+          tickPref('musicBench', 'Also add the files to NoorMusic', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)'),
         ] },
         go('Where the files go…', () => focusIn('output', '#sb-export'), '', { disabled: noRecipe }), '-',
-        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Sound Bench', close, 'Ctrl+Alt+K'),
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorSound', close, 'Ctrl+Alt+K'),
       ]],
       ['Edit', 'e', () => [
         go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !recipe || (!history.length && lastSnapshot === JSON.stringify(recipe)) }),
@@ -1568,7 +1568,7 @@ window.NoorSound = (() => {
         ] },
         go('Unlock every layer', () => { locked.clear(); renderEditor(); }, '', { disabled: () => !locked.size }), '-',
         go('Reset the character (Quick)', resetCharacter, '', { disabled: noRecipe }), '-',
-        go('Sound Bench settings…', settingsDialog),
+        go('NoorSound settings…', settingsDialog),
       ]],
       ['Sound', 's', () => [
         { label: 'Layers', disabled: noRecipe, sub: layerItems },
@@ -1600,9 +1600,9 @@ window.NoorSound = (() => {
         { label: 'Map: show controls and modulators', checked: () => mapShowsMod, run: () => { mapShowsMod = !mapShowsMod; try { localStorage.setItem('noormd.sound.mapmod', mapShowsMod ? 'on' : 'off'); } catch { /* private storage off */ } if (tab === 'map') renderEditor(); } }, '-',
         { label: 'Find a preset…', run: () => setTimeout(() => $('#sb-filter')?.focus(), 0) },
         { label: 'Where this panel goes…', run: () => setTimeout(() => NoorDock.showMenu('sound', $('#sb-dock')), 0) },
-        { id: 'view.focus', label: 'Focus mode (the Sound Bench as an app)' },
+        { id: 'view.focus', label: 'Focus mode (NoorSound as an app)' },
       ]],
-      ['Help', 'h', () => [go('Sound Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+      ['Help', 'h', () => [go('NoorSound shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
     ];
   }
 

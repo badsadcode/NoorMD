@@ -8,7 +8,7 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
 
 - **One engine for playing and exporting.** The song is a small JSON recipe (`.noorsong.json`); the app renders it
   (C#, in `NoorMD.Media`), the page plays the rendered audio. What you hear is what is exported, sample for sample.
-  The Sound Bench's effects (EQ, compressor, delay, chorus, reverb…) are reused for tracks and the master.
+  NoorSound's effects (EQ, compressor, delay, chorus, reverb…) are reused for tracks and the master.
 - **Deterministic.** Noise in drums and synths is seeded, so the same song renders the same file.
 - **BeepBox-like structure:** tracks (channels) × bars. Each track has numbered patterns (one bar of notes each),
   and the song is the grid of which pattern each track plays in each bar (0 = rest). Change a pattern once and
@@ -23,7 +23,7 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
 
 - **Song:** name, tempo (BPM), beats per bar, swing, key and scale, length in bars, a loop region.
 - **Tracks:** synth, drums (a synthesised kit) or sample (a WAV you pick, played at any pitch); gain, pan, mute,
-  solo; an effects chain (the Sound Bench's effects).
+  solo; an effects chain (NoorSound's effects).
 - **Instruments:** synth with sine, triangle, square, pulse, saw and noise; two detuned voices; ADSR; a filter with
   an envelope; vibrato; octave. Drum kit: kick, snare, clap, closed and open hi-hat, low and high tom, rim — each
   shaped by a few sliders. Sample: root note, loop, ADSR.
@@ -49,11 +49,11 @@ stages, like the Sound and Texture Benches; each stage is released and tried bef
 ## Stage 3 — game music (preview.49, done)
 
 - Adaptive layers (exploration, danger, combat) sharing tempo, with a transition preview and export per layer.
-- Loop inspector (seam check), OGG export, samples from the Music Bench and Gallery, renders in the Vault.
+- Loop inspector (seam check), OGG export, samples from NoorMusic and NoorGallery, renders in the Vault.
 - Done in preview.49: up to four layers chosen per track, one shared level and loop length, a transition preview
   (one loop, then the next layer fading in over 0–4 bars), each layer exported as its own loop; the loop check
   (seam, tail, both ends, hear the seam); OGG Vorbis (exact length, LOOPSTART/LOOPLENGTH tags); samples from the
-  Sound Bench (rendered) and WAVs in the Music Bench library (the Gallery holds pictures, so it isn't a source); songs
+  NoorSound (rendered) and WAVs in NoorMusic library (NoorGallery holds pictures, so it isn't a source); songs
   kept in the Vault's Music folder with an OGG, opening from the Vault. An ⤓ Export button at the top.
 
 ## Later (only if real use asks)

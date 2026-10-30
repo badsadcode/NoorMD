@@ -1,10 +1,10 @@
 namespace NoorMD.Media.Assets3D;
 
 /// <summary>
-/// Rock surfaces made for the rock's own colour, as Texture Bench recipes (tiling, with normal and ORM maps):
+/// Rock surfaces made for the rock's own colour, as NoorMaterial recipes (tiling, with normal and ORM maps):
 /// "rock" weathered and pitted, "granite" speckled, "sandstone" in layers (the bands follow the height, as the rock's
 /// UVs do), "mossy" with moss in the hollows, "snowy" with snow lying in patches, "painted" broad hand-painted planes
-/// for the stylized look. Any Texture Bench preset id works too; an empty one means a plain colour.
+/// for the stylized look. Any NoorMaterial preset id works too; an empty one means a plain colour.
 /// </summary>
 public static class RockTextures
 {

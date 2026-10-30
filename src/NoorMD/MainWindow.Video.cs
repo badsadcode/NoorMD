@@ -11,7 +11,7 @@ using NoorMD.Media;
 namespace NoorMD;
 
 /// <summary>
-/// Video Bench: a local video library (series by folder, episode order, resume, subtitles, timestamped notes) and a
+/// NoorVideo: a local video library (series by folder, episode order, resume, subtitles, timestamped notes) and a
 /// detachable always-on-top player window. Videos are served to the page by id from /_video/{id}; subtitles are
 /// converted to WebVTT and served from /_sub/{id}/{n}. Files are never modified.
 /// </summary>

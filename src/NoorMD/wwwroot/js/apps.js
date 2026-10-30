@@ -1,4 +1,4 @@
-// NoorMD Apps Hub: your shortcuts to programs, games, files, folders and websites, with their pictures, in a panel
+// NoorMD NoorHub: your shortcuts to programs, games, files, folders and websites, with their pictures, in a panel
 // that docks like the benches. Click starts it; right-click edits. The host keeps the list and starts things by id.
 window.NoorApps = (() => {
   'use strict';
@@ -40,13 +40,13 @@ window.NoorApps = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'appshub', class: 'appshub', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Apps Hub' },
+    const root = el('section', { id: 'appshub', class: 'appshub', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorHub' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '◫' }), el('strong', { text: 'Apps Hub' }), el('small', { id: 'apps-count' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '◫' }), el('strong', { text: 'NoorHub' }), el('small', { id: 'apps-count' })),
         el('span', { class: 'panel-head-buttons' },
-          el('button', { class: 'icon-btn', id: 'apps-add', title: 'Add a program, game, file, folder or website', 'aria-label': 'Add to the Apps Hub', onclick: (e) => addMenu(e.currentTarget) }, '＋'),
-          el('button', { class: 'icon-btn', id: 'apps-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Apps Hub', onclick: (e) => NoorDock.showMenu('apps', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+H)', 'aria-label': 'Close Apps Hub', onclick: close }, '✕'))),
+          el('button', { class: 'icon-btn', id: 'apps-add', title: 'Add a program, game, file, folder or website', 'aria-label': 'Add to NoorHub', onclick: (e) => addMenu(e.currentTarget) }, '＋'),
+          el('button', { class: 'icon-btn', id: 'apps-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move NoorHub', onclick: (e) => NoorDock.showMenu('apps', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+H)', 'aria-label': 'Close NoorHub', onclick: close }, '✕'))),
       el('div', { class: 'apps-toolbar' }, el('input', { id: 'apps-search', type: 'search', placeholder: 'Find a shortcut…', 'aria-label': 'Find a shortcut', autocomplete: 'off', spellcheck: 'false' }),
         el('div', { class: 'apps-cats', id: 'apps-cats', role: 'tablist', 'aria-label': 'Categories' })),
       el('div', { class: 'apps-body', id: 'apps-body' }));
@@ -158,7 +158,7 @@ window.NoorApps = (() => {
       { label: 'Move to the start', run: async () => { try { hub = await req('apps.reorder', { ids: [item.id] }); render(); } catch (err) { hooks.showError(err); } } },
       '-',
       { label: 'Remove from the hub', run: async () => {
-        if (!await NoorUI.confirm('Remove this shortcut?', `“${item.name}” is removed from the Apps Hub. The program or file itself is not touched.`, 'Remove')) return;
+        if (!await NoorUI.confirm('Remove this shortcut?', `“${item.name}” is removed from NoorHub. The program or file itself is not touched.`, 'Remove')) return;
         try { hub = await req('apps.remove', { id: item.id }); render(); } catch (err) { hooks.showError(err); }
       } },
     ], { x, y });

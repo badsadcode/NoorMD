@@ -1262,8 +1262,8 @@ window.NoorSequencer = (() => {
         el('div', { class: 'sb-row' },
           el('span', { class: 'sb-file', id: 'seq-samplename', title: ins.path || '', text: '🎙 ' + (ins.sampleName || 'no sound chosen yet') }),
           el('button', { class: 'utility-btn', id: 'seq-pick', onclick: pickSample }, ins.path ? 'Choose another…' : 'Choose a WAV…'),
-          el('button', { class: 'utility-btn', id: 'seq-fromsound', title: 'A sound from the Sound Bench (a preset or one of yours), rendered as this instrument', onclick: () => sampleFromBench('sound') }, '🔊 From the Sound Bench…'),
-          el('button', { class: 'utility-btn', id: 'seq-fromlibrary', title: 'A WAV file from your Music Bench library', onclick: () => sampleFromBench('library') }, '♫ From the Music Bench…'),
+          el('button', { class: 'utility-btn', id: 'seq-fromsound', title: 'A sound from NoorSound (a preset or one of yours), rendered as this instrument', onclick: () => sampleFromBench('sound') }, '🔊 From NoorSound…'),
+          el('button', { class: 'utility-btn', id: 'seq-fromlibrary', title: 'A WAV file from your NoorMusic library', onclick: () => sampleFromBench('library') }, '♫ From NoorMusic…'),
           el('label', { class: 'sb-inline', title: 'The note the sample sounds as played as is: other notes play it faster or slower' }, el('span', { text: 'Recorded as' }), root, rootName),
           el('label', { class: 'sb-inline', title: 'Loop the sample for as long as the note is held (for pads and drones)' }, loop, el('span', { text: 'Loop while held' }))),
         el('div', { class: 'sb-fields' }, ...SAMPLE.map((f) => slider(ins, f))));
@@ -1404,9 +1404,9 @@ window.NoorSequencer = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
-  /** A sample from another bench: a Sound Bench sound (rendered) or a WAV in the Music Bench's library. */
+  /** A sample from another bench: NoorSound sound (rendered) or a WAV in NoorMusic's library. */
   function sampleFromBench(source) {
-    NoorUI.modal({ label: source === 'sound' ? 'A sound from the Sound Bench' : 'A WAV from the Music Bench', width: 560 }, (s, close) => {
+    NoorUI.modal({ label: source === 'sound' ? 'A sound from NoorSound' : 'A WAV from NoorMusic', width: 560 }, (s, close) => {
       const list = el('div', { class: 'seq-picklist', id: 'seq-picklist' }, el('p', { class: 'pref-hint', text: 'Loading…' }));
       const choose = async (payload, type) => {
         try {
@@ -1428,18 +1428,18 @@ window.NoorSequencer = (() => {
           } else {
             const r = await req('seq.sample.library', { search: search.value });
             list.replaceChildren(...(r.tracks.length ? r.tracks.map((x) => el('button', { class: 'utility-btn seq-pick', 'data-id': String(x.id), onclick: () => choose({ id: x.id }, 'seq.sample.fromLibrary') }, `${x.title}${x.artist ? ' — ' + x.artist : ''} (${x.seconds} s)`))
-              : [el('p', { class: 'pref-hint', text: 'No WAV files in the Music Bench’s library' + (search.value ? ' match.' : ' (only WAV files can be played as an instrument).') })]));
+              : [el('p', { class: 'pref-hint', text: 'No WAV files in NoorMusic’s library' + (search.value ? ' match.' : ' (only WAV files can be played as an instrument).') })]));
           }
         } catch (err) { list.replaceChildren(el('p', { class: 'pref-hint', text: err && err.message ? err.message : String(err) })); }
       };
       let t = 0;
       search.addEventListener('input', () => { clearTimeout(t); t = setTimeout(fill, 200); });
-      s.append(NoorUI.head(source === 'sound' ? '🔊 A sound from the Sound Bench' : '♫ A WAV from the Music Bench', close), el('div', { class: 'modal-body' }, search, list));
+      s.append(NoorUI.head(source === 'sound' ? '🔊 A sound from NoorSound' : '♫ A WAV from NoorMusic', close), el('div', { class: 'modal-body' }, search, list));
       fill();
     });
   }
 
-  /** An effects chain with the Sound Bench's effects (built-in spaces only for convolution here). */
+  /** An effects chain with NoorSound's effects (built-in spaces only for convolution here). */
   function effectsRack(chain, where) {
     const F = NoorSound.fx;
     const cards = chain.map((fx, i) => {
@@ -1600,7 +1600,7 @@ window.NoorSequencer = (() => {
         ...(prefs.format !== 'wav' ? [sel2('seq-oggq', 'OGG quality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']], prefs.oggQuality, 'oggQuality')] : [])),
       el('div', { class: 'sb-row' },
         el('label', { class: 'sb-inline', title: 'The song (.noorsong.json) and an OGG to listen to, in the Music folder of the Vault that is open: find it, link it from notes, open it again' }, vault, el('span', { text: 'Also keep the song in my Vault' })),
-        el('label', { class: 'sb-inline', title: 'The song, loop and layer files in the Music Bench (playlist “Made in NoorMD”), to audition, rate and tag them' }, musicBench, el('span', { text: 'Also add the files to the Music Bench' }))),
+        el('label', { class: 'sb-inline', title: 'The song, loop and layer files in NoorMusic (playlist “Made in NoorMD”), to audition, rate and tag them' }, musicBench, el('span', { text: 'Also add the files to NoorMusic' }))),
       where.node,
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'seq-export', onclick: exportSong }, '⤓ Export…'),
@@ -1705,7 +1705,7 @@ window.NoorSequencer = (() => {
       if (!r || r.cancelled) { status.textContent = 'Export cancelled.'; return; }
       savedAs = JSON.stringify(song); renderHeader();
       const files = [...r.files, ...(r.stems ? [r.stems + '/'] : []), r.recipe];
-      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${r.music ? ' · added to the Music Bench' : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
+      status.replaceChildren(`Saved ${files.join(', ')} in ${r.project ? `🎮 ${r.project}/${r.relative}` : r.folder}${r.vault ? ` · kept in the Vault as ${r.vault}` : ''}${r.music ? ' · added to NoorMusic' : ''}${[...(r.warnings || []), ...(r.notes || [])].length ? ' · ⚠ ' + [...(r.warnings || []), ...(r.notes || [])].join('; ') : ''} `,
         el('button', { class: 'utility-btn', id: 'seq-reveal', onclick: () => req('seq.reveal', { folder: r.folder }).catch(hooks.showError) }, 'Show in folder'));
     } catch (err) { status.textContent = ''; hooks.showError(err); }
   }
@@ -1841,7 +1841,7 @@ window.NoorSequencer = (() => {
         go('Export options…', () => $('#seq-exportbtn').click(), '', { disabled: noSong }), go('Export now', () => { showTab('song'); exportSong(); }, '', { disabled: noSong }),
         { label: 'What to export', sub: () => [part('mix', 'The song'), part('loop', 'A seamless loop'), { ...part('layers', 'Each layer as a loop'), disabled: () => !(song && (song.layers || []).length) }, part('stems', 'Stems (each track on its own)'), part('midi', 'MIDI')] },
         { label: 'Format', sub: () => [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']].map(([v, l]) => ({ label: l, checked: () => exportPrefs().format === v, run: () => setExportPref('format', v) })) },
-        part('vault', 'Also keep the song in my Vault'), part('musicBench', 'Also send the files to the Music Bench'), '-',
+        part('vault', 'Also keep the song in my Vault'), part('musicBench', 'Also send the files to NoorMusic'), '-',
         { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorSequencer', close, 'Ctrl+Alt+Q'),
       ]],
       ['Edit', 'e', () => [

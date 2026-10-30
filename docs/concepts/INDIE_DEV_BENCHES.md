@@ -6,7 +6,7 @@
 
 ## 1. Shared design principles
 
-- **Connected, not isolated:** create an asset in one bench, use it immediately in another, and find it later through the Gallery/Library/Vault.
+- **Connected, not isolated:** create an asset in one bench, use it immediately in another, and find it later through NoorGallery/Library/Vault.
 - **Non-destructive and reproducible:** preserve an editable project/recipe alongside exported files. Parameters and random seeds should be saved.
 - **Beginner-friendly without a low ceiling:** descriptive presets, guided controls, tooltips, visual feedback, and optional advanced DSP/node/instrument editing.
 - **Fast audition and iteration:** real-time preview when feasible; A/B comparisons, undo/redo, favourites, quick variations, preset saving.
@@ -17,9 +17,9 @@
 
 ---
 
-## 2. Texture Bench + PBR Bench — One connected material workspace
+## 2. NoorMaterial + PBR Bench — One connected material workspace
 
-Instead of two entirely independent apps, consider a shared **Material/Texture Bench**, offering multiple creation modes and one common preview/export pipeline. **Material Maker** is a useful reference for the procedural workflow, without needing to duplicate all its features.
+Instead of two entirely independent apps, consider a shared **Material/NoorMaterial**, offering multiple creation modes and one common preview/export pipeline. **Material Maker** is a useful reference for the procedural workflow, without needing to duplicate all its features.
 
 ### A. Image → Material (existing PBR idea)
 
@@ -90,11 +90,11 @@ Combine an imported source texture with generated noise, dirt, wear, cracks, scr
 - Seamless loop checking and export, WAV/OGG audio plus MIDI when applicable.
 - Export individual tracks/stems as well as a final mix.
 - Later: **adaptive music mode** with tempo-synchronized exploration, danger and combat layers and a simple transition preview.
-- Drag samples from Music Bench / Gallery, and organize renders in the project Vault.
+- Drag samples from NoorMusic / NoorGallery, and organize renders in the project Vault.
 
 ---
 
-## 4. Sound Bench — Procedural SFX and ambience studio
+## 4. NoorSound — Procedural SFX and ambience studio
 
 **Core idea:** Go beyond arcade sound presets. Generate and sculpt sound effects and convincing environmental ambiences from synthesis, imported samples, layered noise, filters, envelopes and controlled randomization. The synthetic wind already made for Thornwake shows why this is worth exploring.
 
@@ -199,7 +199,7 @@ Presets should support smooth parameter transitions, sensible bounds, randomizat
 - **Mutate only selected properties:** change drop timing without changing the whole sound; lock tone but vary intensity, etc.
 - **Three quality levels:** fast preview, standard, high-quality offline render.
 - **Project export:** `/Audio/Weather/Rain_Heavy_01.wav`, plus recipe and descriptive tags.
-- **Reuse existing audio benches:** audition files through Music Bench, annotate them in notes, store them in the Vault, and assign them to game assets.
+- **Reuse existing audio benches:** audition files through NoorMusic, annotate them in notes, store them in the Vault, and assign them to game assets.
 
 ---
 
@@ -207,24 +207,24 @@ Presets should support smooth parameter transitions, sensible bounds, randomizat
 
 A plausible workflow:
 
-1. Generate a tileable mud or stone texture with **Texture Bench** and preview its PBR maps.
+1. Generate a tileable mud or stone texture with **NoorMaterial** and preview its PBR maps.
 2. Touch up details with **NoorSketch** and save editable materials to a project Vault.
-3. Create footsteps and a rain ambience in **Sound Bench**, keeping both the renders and recipes.
-4. Compose an exploration loop with **NoorSequencer**, perhaps using samples from **Music Bench**.
-5. Preview, tag, compare and organize everything through **Gallery/Library** and attach references to Markdown design notes.
+3. Create footsteps and a rain ambience in **NoorSound**, keeping both the renders and recipes.
+4. Compose an exploration loop with **NoorSequencer**, perhaps using samples from **NoorMusic**.
+5. Preview, tag, compare and organize everything through **NoorGallery/Library** and attach references to Markdown design notes.
 6. Export game-ready textures and audio using project-specific folder/naming presets.
 
 ## 6. Terminology and UI boundaries
 
-- **Bench:** a persistent workspace such as Material/Texture Bench, Music Bench, Video Bench or Gallery.
+- **Bench:** a persistent workspace such as Material/NoorMaterial, NoorMusic, NoorVideo or Gallery.
 - **Tool:** a focused workflow hosted by a bench: PBR Map Generator, Noise Generator, Sample Editor, SFX Generator, Loop Inspector, Pattern Sequencer.
 - **Recipe/project:** source files and editable settings; **render/export:** finished asset.
 - Allow panels/tabs to be rearranged, but avoid filling the main window with dozens of permanent tabs.
 
 ## 7. Suggested order — only if and when this is prioritized
 
-1. **Sound Bench MVP:** layered noise/transient synth + wind/rain presets + EQ/filter/envelope + easy audition + seamless WAV loop and one-shot export.
-2. **Sound Bench expansion:** imported samples, granular variation, surface-specific weather, A/B reference, batch variants and stems.
+1. **NoorSound MVP:** layered noise/transient synth + wind/rain presets + EQ/filter/envelope + easy audition + seamless WAV loop and one-shot export.
+2. **NoorSound expansion:** imported samples, granular variation, surface-specific weather, A/B reference, batch variants and stems.
 3. **Texture/PBR unification:** shared preview, noise layers, image-to-material and recipe presets; optional node editor later.
 4. **NoorSequencer MVP:** pattern editor, synth voices, drum grid, sample tracks, scales, playback and WAV/MIDI export.
 5. **NoorSequencer expansion:** detailed instrument editor, chord/rhythm tools, automation and adaptive-game-music stems.

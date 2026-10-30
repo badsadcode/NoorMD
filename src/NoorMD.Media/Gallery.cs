@@ -474,7 +474,7 @@ public sealed class GalleryLibrary
     {
         var full = System.IO.Path.GetFullPath(newPath);
         var folder = Folders().Where(f => full.StartsWith(System.IO.Path.TrimEndingDirectorySeparator(f.Path) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(f => f.Path.Length).FirstOrDefault() ?? throw new ArgumentException("That place is not in a Gallery folder.");
+            .OrderByDescending(f => f.Path.Length).FirstOrDefault() ?? throw new ArgumentException("That place is not in a NoorGallery folder.");
         var dir = System.IO.Path.GetDirectoryName(full)!;
         var info = new FileInfo(full);
         using var c = Open();
@@ -681,7 +681,7 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         var plan = new List<PictureMove>();
         foreach (var (id, name) in items)
         {
-            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in NoorGallery.");
             var p = SafeRename.Plan(img.Path, name);
             var target = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(img.Path)!, StripExt(name.Trim(), img.Path) + System.IO.Path.GetExtension(img.Path));
             // The only acceptable problem: the name is taken by another picture of this same rename (it moves away first).
@@ -702,11 +702,11 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
     public IReadOnlyList<PictureMove> Move(IReadOnlyList<long> ids, string folder, bool anywhere = false)
     {
         var target = System.IO.Path.GetFullPath(folder);
-        if (!Directory.Exists(target) || (!anywhere && !library.IsInside(target))) throw new ArgumentException("Choose an album (a folder) of the Gallery.");
+        if (!Directory.Exists(target) || (!anywhere && !library.IsInside(target))) throw new ArgumentException("Choose an album (a folder) of NoorGallery.");
         var plan = new List<PictureMove>();
         foreach (var id in ids.Distinct())
         {
-            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in NoorGallery.");
             if (!File.Exists(img.Path)) throw new ArgumentException($"“{System.IO.Path.GetFileName(img.Path)}” is not there any more.");
             var dest = System.IO.Path.Combine(target, System.IO.Path.GetFileName(img.Path));
             if (string.Equals(dest, img.Path, StringComparison.OrdinalIgnoreCase)) continue; // already there
@@ -723,7 +723,7 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         var n = (name ?? "").Trim();
         if (n.Length == 0 || n.IndexOfAny(Invalid) >= 0 || n.Any(char.IsControl) || n.EndsWith('.') || n == "..") throw new ArgumentException("That is not a valid folder name.");
         var p = System.IO.Path.GetFullPath(parent);
-        if (!Directory.Exists(p) || !library.IsInside(p)) throw new ArgumentException("New albums go inside a Gallery folder.");
+        if (!Directory.Exists(p) || !library.IsInside(p)) throw new ArgumentException("New albums go inside a NoorGallery folder.");
         var full = System.IO.Path.Combine(p, n);
         if (Directory.Exists(full) || File.Exists(full)) throw new ArgumentException($"“{n}” already exists there.");
         Directory.CreateDirectory(full);
@@ -738,7 +738,7 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         var plan = new List<(string From, string To)>();
         foreach (var id in ids.Distinct())
         {
-            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in the Gallery.");
+            var img = library.Get(id) ?? throw new ArgumentException("That picture is no longer in NoorGallery.");
             if (!File.Exists(img.Path)) throw new ArgumentException($"“{System.IO.Path.GetFileName(img.Path)}” is not there any more.");
             var dest = System.IO.Path.Combine(target, System.IO.Path.GetFileName(img.Path));
             if (File.Exists(dest) || Directory.Exists(dest)) throw new ArgumentException($"“{System.IO.Path.GetFileName(dest)}” already exists there. Nothing was copied.");
@@ -762,7 +762,7 @@ public sealed class GalleryOrganizer(GalleryLibrary library)
         var n = (newName ?? "").Trim();
         if (n.Length == 0 || n.IndexOfAny(Invalid) >= 0 || n.Any(char.IsControl) || n.EndsWith('.') || n is "." or "..") throw new ArgumentException("That is not a valid folder name.");
         var from = System.IO.Path.TrimEndingDirectorySeparator(System.IO.Path.GetFullPath(folder));
-        if (!Directory.Exists(from) || !library.IsInside(from)) throw new ArgumentException("That album is not in the Gallery.");
+        if (!Directory.Exists(from) || !library.IsInside(from)) throw new ArgumentException("That album is not in NoorGallery.");
         var parent = System.IO.Path.GetDirectoryName(from) ?? throw new ArgumentException("A drive can't be renamed.");
         var to = System.IO.Path.Combine(parent, n);
         if (string.Equals(from, to, StringComparison.Ordinal)) return to;

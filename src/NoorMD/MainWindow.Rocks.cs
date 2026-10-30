@@ -9,7 +9,7 @@ using NoorMD.Media.Assets3D;
 namespace NoorMD;
 
 /// <summary>
-/// Asset Bench rocks: stones, rocks, boulders, outcrops and scree patches from a recipe, previewed and exported like the
+/// NoorForm rocks: stones, rocks, boulders, outcrops and scree patches from a recipe, previewed and exported like the
 /// trees (levels of detail, the recipe and a manifest beside them), with convex collision pieces in the closest level.
 /// </summary>
 public partial class MainWindow
@@ -58,7 +58,7 @@ public partial class MainWindow
         var at = RockExport.SwitchDistances(build);
         return new
         {
-            generator = "NoorMD Asset Bench",
+            generator = "NoorMD NoorForm",
             kind = "rock",
             rockKind = build.Recipe.Kind,
             name = build.Recipe.Name,
@@ -107,7 +107,7 @@ public partial class MainWindow
                     builtIn = RockPresets.All.Select(x => { var r = x.Make(); return new { id = x.Id, name = x.Name, description = x.Description, style = r.Style, kind = r.Kind }; }),
                     mine = UserRockPresets(),
                     materials = new[] { new { id = "rock", name = "Weathered rock" }, new { id = "granite", name = "Granite (speckled)" }, new { id = "sandstone", name = "Sandstone (layered)" }, new { id = "mossy", name = "Mossy rock" }, new { id = "snowy", name = "Snowy rock" }, new { id = "painted", name = "Painted rock (stylized)" }, new { id = "smooth", name = "Smooth stone (faceted)" } }
-                        .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Stone" or "Ground").Select(t => new { id = t.Id, name = "Texture Bench: " + t.Name })),
+                        .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Stone" or "Ground").Select(t => new { id = t.Id, name = "NoorMaterial: " + t.Name })),
                 };
             case "asset.rock.preset":
             {
@@ -217,7 +217,7 @@ public partial class MainWindow
                     triangles.Add(RockExport.Drawn(build.Lods[0]));
                 }
                 var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
-                object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "rock variety pack", name = recipe.Name, variants = manifests };
+                object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD NoorForm", kind = "rock variety pack", name = recipe.Name, variants = manifests };
                 await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
                 // Godot: the same plugin as the trees switches the levels of a one-file rock.
                 object? godot = null;
@@ -232,7 +232,7 @@ public partial class MainWindow
                 }
                 PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                 _assetFolders.Add(folder);
-                Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” (rock, {recipe.Lods} level(s) of detail)");
+                Log.Info($"NoorForm: exported {variants.Count} × “{recipe.Name}” (rock, {recipe.Lods} level(s) of detail)");
                 return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), shaders = Array.Empty<string>(), godot, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
             }
             case "asset.rock.save":

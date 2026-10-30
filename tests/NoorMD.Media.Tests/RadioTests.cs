@@ -23,8 +23,8 @@ public class RadioTests
     [Fact]
     public void Pls_And_M3u_Lists_Are_Read_And_Hls_Is_Recognised()
     {
-        var pls = "[playlist]\r\nNumberOfEntries=2\r\nFile1=http://a.example/s1\r\nTitle1=Radio Kraków\r\nFile2=ftp://bad.example/x\r\nFile3=https://b.example/s3\r\nVersion=2\r\n";
-        Assert.Equal([("Radio Kraków", "http://a.example/s1"), (null, "https://b.example/s3")], RadioPlaylist.Parse(pls));
+        var pls = "[playlist]\r\nNumberOfEntries=2\r\nFile1=http://a.example/s1\r\nTitle1=NoorRadio Kraków\r\nFile2=ftp://bad.example/x\r\nFile3=https://b.example/s3\r\nVersion=2\r\n";
+        Assert.Equal([("NoorRadio Kraków", "http://a.example/s1"), (null, "https://b.example/s3")], RadioPlaylist.Parse(pls));
         var m3u = "#EXTM3U\n#EXTINF:-1,Jazz FM\nhttp://jazz.example/live\n# comment\nhttps://plain.example/s\n";
         Assert.Equal([("Jazz FM", "http://jazz.example/live"), (null, "https://plain.example/s")], RadioPlaylist.Parse(m3u));
         Assert.True(RadioPlaylist.IsHls("#EXTM3U\n#EXT-X-TARGETDURATION:6\nseg1.aac\n"));
@@ -84,14 +84,14 @@ public class RadioTests
     public void Directory_Results_Keep_Only_Playable_Addresses()
     {
         var json = """
-            [{"name":"Radio 357","url":"http://x.example/a.pls","url_resolved":"https://stream.radio357.example/","homepage":"https://radio357.pl","tags":"polish,rock","countrycode":"PL","codec":"MP3","bitrate":128,"hls":0},
+            [{"name":"NoorRadio 357","url":"http://x.example/a.pls","url_resolved":"https://stream.radio357.example/","homepage":"https://radio357.pl","tags":"polish,rock","countrycode":"PL","codec":"MP3","bitrate":128,"hls":0},
              {"name":"Bad","url":"ftp://nope","url_resolved":""},
              {"name":"Dup","url_resolved":"HTTPS://stream.radio357.example/"},
              {"name":"HLS one","url_resolved":"https://h.example/live.m3u8","hls":1}]
             """;
         var r = RadioDirectory.Parse(json);
         Assert.Equal(2, r.Count);
-        Assert.Equal(("Radio 357", "https://stream.radio357.example/", "PL", 128, false), (r[0].Name, r[0].Url, r[0].Country, r[0].Bitrate, r[0].Hls));
+        Assert.Equal(("NoorRadio 357", "https://stream.radio357.example/", "PL", 128, false), (r[0].Name, r[0].Url, r[0].Country, r[0].Bitrate, r[0].Hls));
         Assert.Equal(["polish", "rock"], r[0].Tags);
         Assert.True(r[1].Hls);
     }

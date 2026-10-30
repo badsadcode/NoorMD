@@ -1,7 +1,7 @@
 namespace NoorMD.Media;
 
-// Sound Bench feedback: what a render measures like (loudness as ITU-R BS.1770 defines it, true peak, stereo,
-// brightness, DC and loop seams) and a spectrogram to see it. The loudness measurement matches the Music Bench's
+// NoorSound feedback: what a render measures like (loudness as ITU-R BS.1770 defines it, true peak, stereo,
+// brightness, DC and loop seams) and a spectrogram to see it. The loudness measurement matches NoorMusic's
 // (audiofx.js): K-weighting, 400 ms blocks with 75 % overlap, an absolute gate at −70 LUFS and a relative one 10 LU down.
 
 /// <summary>The measurements of a sound. Levels are in dB (LUFS for loudness); −120 stands for silence.</summary>

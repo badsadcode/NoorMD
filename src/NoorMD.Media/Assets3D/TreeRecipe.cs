@@ -228,7 +228,7 @@ public sealed class TreeRecipe
     public string BarkColor { get; set; } = "#5a4636";
     /// <summary>
     /// The bark: "bark" (realistic furrows in the bark colour), "painted" (hand-painted grooves, the stylized look),
-    /// "birch" (pale with dark marks), any Texture Bench preset id, or empty for a plain colour.
+    /// "birch" (pale with dark marks), any NoorMaterial preset id, or empty for a plain colour.
     /// </summary>
     public string BarkMaterial { get; set; } = "bark";
     /// <summary>How much bark one texture covers (metres).</summary>

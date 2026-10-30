@@ -134,8 +134,8 @@ public partial class MainWindow
             case var vault when vault.StartsWith("vault.", StringComparison.Ordinal):
                 return await DispatchVaultAsync(req);
             case var single when !_persistSession && (single.StartsWith("stream.", StringComparison.Ordinal) || single.StartsWith("mic.", StringComparison.Ordinal)):
-                // One Stream Desk and Mic Guard (one hotkey, one settings file): they live in the first NoorMD window.
-                throw new BridgeError("The Stream Desk and Mic Guard work in the first NoorMD window, not in extra windows.");
+                // One NoorStream and Mic Guard (one hotkey, one settings file): they live in the first NoorMD window.
+                throw new BridgeError("NoorStream and Mic Guard work in the first NoorMD window, not in extra windows.");
             case var stream when stream.StartsWith("stream.", StringComparison.Ordinal):
                 return await DispatchStreamAsync(req);
             case var voice when voice.StartsWith("voice.", StringComparison.Ordinal):

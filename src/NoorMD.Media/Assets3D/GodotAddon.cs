@@ -1,7 +1,7 @@
 namespace NoorMD.Media.Assets3D;
 
 /// <summary>
-/// The Godot 4 import plugin for Asset Bench trees and rocks (addons/noor_trees): once it is on (Project Settings →
+/// The Godot 4 import plugin for NoorForm trees and rocks (addons/noor_trees): once it is on (Project Settings →
 /// Plugins), every imported GLB that NoorMD made gets its levels of detail switched by distance (visibility ranges from
 /// the file's own extras), and a tree's materials are swapped for the wind shader, keeping their textures. (A rock's
 /// collision comes from Godot itself: its "-convcolonly" nodes.) Other scenes are left alone. Each
@@ -12,7 +12,7 @@ public static class GodotAddon
     public const string Folder = "noor_trees";
     public const int Version = 4;
     /// <summary>The first line of every file, so a later export can tell our files (and how old they are) from yours.</summary>
-    public static string Header => $"NoorMD Asset Bench, Godot tree import v{Version}";
+    public static string Header => $"NoorMD NoorForm, Godot tree import v{Version}";
 
     /// <summary>The plugin's files, with LF line endings whatever the checkout used (Godot writes its files that way).</summary>
     public static IReadOnlyList<(string Name, string Text)> Files => new[]
@@ -20,7 +20,7 @@ public static class GodotAddon
         ("plugin.cfg", PluginCfg),
         ("plugin.gd", PluginGd),
         ("noor_tree_import.gd", ImportGd),
-        ("noor_tree_wind.gdshader", WindShaders.Godot.Replace("// NoorMD Asset Bench: tree wind for Godot 4.", "// " + Header + ": tree wind.")),
+        ("noor_tree_wind.gdshader", WindShaders.Godot.Replace("// NoorMD NoorForm: tree wind for Godot 4.", "// " + Header + ": tree wind.")),
         ("README.txt", Readme),
     }.Select(f => (f.Item1, f.Item2.ReplaceLineEndings("\n"))).ToList();
 
@@ -62,7 +62,7 @@ public static class GodotAddon
         [plugin]
 
         name="NoorMD trees"
-        description="Sets up trees from the NoorMD Asset Bench on import: levels of detail switched by distance, and wind."
+        description="Sets up trees from the NoorMD NoorForm on import: levels of detail switched by distance, and wind."
         author="NoorMD"
         version="{Version}"
         script="plugin.gd"
@@ -90,7 +90,7 @@ public static class GodotAddon
 
     private static string ImportGd => $$"""
         # {{Header}}
-        # Trees exported by the NoorMD Asset Bench carry glTF extras, which Godot keeps as each node's "extras" metadata:
+        # Trees exported by the NoorMD NoorForm carry glTF extras, which Godot keeps as each node's "extras" metadata:
         # the tree's root has noor_tree, noor_height and noor_wind ("uv", "color" or "none"); each level's root has
         # noor_lod, noor_visible_from and noor_visible_to (metres; 0 = no limit). A rock's root has noor_rock instead (its
         # levels are switched the same way; it has no wind). Scenes without them are left alone.
@@ -221,7 +221,7 @@ public static class GodotAddon
     private static string Readme => $"""
         {Header}
 
-        Trees from the NoorMD Asset Bench, set up on import.
+        Trees from the NoorMD NoorForm, set up on import.
 
         1. Keep this folder at res://addons/noor_trees (NoorMD puts it there when you export into a Godot project).
         2. Project → Project Settings → Plugins: turn on "NoorMD trees" (once).

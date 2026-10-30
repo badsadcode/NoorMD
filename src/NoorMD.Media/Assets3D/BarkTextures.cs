@@ -3,9 +3,9 @@ using System.Globalization;
 namespace NoorMD.Media.Assets3D;
 
 /// <summary>
-/// Bark made for the tree's own colour, as Texture Bench recipes (so they tile, and come with normal and ORM maps):
+/// Bark made for the tree's own colour, as NoorMaterial recipes (so they tile, and come with normal and ORM maps):
 /// "bark" deep furrows for realistic trees, "painted" broad hand-painted grooves for the stylized look, "birch" pale
-/// with dark marks. Any Texture Bench preset id works too; an empty one means a plain colour.
+/// with dark marks. Any NoorMaterial preset id works too; an empty one means a plain colour.
 /// </summary>
 public static class BarkTextures
 {

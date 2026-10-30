@@ -1,4 +1,4 @@
-// NoorMD Creator's Bench — Music Bench UI and player.
+// NoorMD Creator's Bench — NoorMusic UI and player.
 // Playback uses one <audio> element served from https://noormd.local/_media/{id} (the host answers HTTP ranges).
 // The page refers to tracks only by library id; files, tags and renames are handled by the host.
 window.NoorMusic = (() => {
@@ -110,7 +110,7 @@ window.NoorMusic = (() => {
   }
 
   function togglePanel(force) {
-    if (!enabled()) { notice('The Music Bench is turned off in Preferences.'); return; }
+    if (!enabled()) { notice('NoorMusic is turned off in Preferences.'); return; }
     const open = force ?? !document.body.classList.contains('music-open');
     if (open === document.body.classList.contains('music-open')) { if (open) focusList(); return; }
     if (open && window.NoorDock) NoorDock.opened('music'); // its dock area (another panel there makes room)
@@ -133,10 +133,10 @@ window.NoorMusic = (() => {
     panel.innerHTML = '';
     panel.append(
       el('div', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '♫' }), el('strong', { text: 'Music Bench' }), el('small', { id: 'music-count' }), el('small', { id: 'music-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '♫' }), el('strong', { text: 'NoorMusic' }), el('small', { id: 'music-count' }), el('small', { id: 'music-selcount', class: 'music-selcount', 'aria-live': 'polite' })),
         el('span', { class: 'panel-head-buttons' },
-          el('button', { class: 'icon-btn', id: 'music-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Music Bench', onclick: (e) => NoorDock.showMenu('music', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close Music Bench', onclick: () => togglePanel(false) }, '✕'))),
+          el('button', { class: 'icon-btn', id: 'music-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move NoorMusic', onclick: (e) => NoorDock.showMenu('music', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Shift+M)', 'aria-label': 'Close NoorMusic', onclick: () => togglePanel(false) }, '✕'))),
       buildNowPlaying(),
       el('div', { class: 'music-tabs', role: 'tablist' },
         ...[['library', 'Library'], ['queue', 'Up next'], ['playlists', 'Playlists'], ['sound', 'Sound']].map(([id, label]) =>
@@ -231,7 +231,7 @@ window.NoorMusic = (() => {
 
   function setTab(id) {
     tab = id;
-    // Only the Music Bench's own tabs and panes (the Video Bench reuses these class names).
+    // Only NoorMusic's own tabs and panes (NoorVideo reuses these class names).
     document.querySelectorAll('.music .music-tabs button[data-tab]').forEach((b) => { b.classList.toggle('active', b.dataset.tab === id); b.setAttribute('aria-selected', String(b.dataset.tab === id)); });
     document.querySelectorAll('.music .music-pane[data-pane]').forEach((p) => p.classList.toggle('hide', p.dataset.pane !== id));
     if (id === 'queue') renderQueue();
@@ -694,7 +694,7 @@ window.NoorMusic = (() => {
   function toggle() {
     if (currentId() == null) {
       if (view.total) playView(selected >= 0 ? selected : 0);
-      else { togglePanel(true); notice('Choose a track in the Music Bench to start.'); }
+      else { togglePanel(true); notice('Choose a track in NoorMusic to start.'); }
       return;
     }
     if (audio.paused) audio.play().catch(() => {}); else audio.pause();
@@ -862,7 +862,7 @@ window.NoorMusic = (() => {
       el('span', { class: 'mp-time', id: 'mp-dur', text: '0:00' }),
       el('span', { class: 'mp-triage', id: 'mp-triage' }),
       b('✎', 'Edit current track (F2)', () => editCurrent()),
-      b('♫', 'Open Music Bench (Ctrl+Shift+M)', () => togglePanel()),
+      b('♫', 'Open NoorMusic (Ctrl+Shift+M)', () => togglePanel()),
       b('✕', 'Hide mini-player (keeps playing)', () => { hooks.setPrefs({ miniPlayer: false }); applyVisibility(); notice('Mini-player hidden — show it again from Preferences or the command palette', 3000); }));
     for (const id of ['#np-range', '#mp-range']) {
       const r = $(id);
@@ -877,7 +877,7 @@ window.NoorMusic = (() => {
   function renderAll() { renderTransport(); renderTime(); renderList(); renderQueue(); applyVisibility(); }
 
   let lastEmit = { key: '', at: 0 };
-  /** Tells the Stream Desk what is playing (for the OBS overlay, now-playing.txt and the stream tracklist). */
+  /** Tells NoorStream what is playing (for the OBS overlay, now-playing.txt and the stream tracklist). */
   function emitNowPlaying(force) {
     if (!hooks.onNowPlaying) return;
     const id = currentId();
@@ -1181,7 +1181,7 @@ window.NoorMusic = (() => {
           el('button', { class: 'utility-btn', onclick: measureAll }, 'Measure whole library')),
         el('div', { id: 'sound-status', class: 'sound-status', 'aria-live': 'polite' })),
       el('section', { class: 'sound-section' },
-        el('div', { class: 'sound-head' }, el('label', { class: 'inline' }, radio, el('strong', { text: 'Use it for the Radio too' }))),
+        el('div', { class: 'sound-head' }, el('label', { class: 'inline' }, radio, el('strong', { text: 'Use it for NoorRadio too' }))),
         el('p', { class: 'pref-hint', text: 'Stations play through the same equalizer and limiter. A station can’t be measured ahead, so “Even out loudness” follows it as it plays, slowly, towards the same target.' })));
     renderSoundStatus();
   }
@@ -1346,7 +1346,7 @@ window.NoorMusic = (() => {
 
   async function batchSelected() {
     await start();
-    if (!sel.size && selected < 0) { notice('Select tracks in the Music Bench first (click, Shift+click, Ctrl+click or Ctrl+A).', 3500); togglePanel(true); return; }
+    if (!sel.size && selected < 0) { notice('Select tracks in NoorMusic first (click, Shift+click, Ctrl+click or Ctrl+A).', 3500); togglePanel(true); return; }
     await withSelection(batchOrganizer);
   }
 

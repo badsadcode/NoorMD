@@ -37,7 +37,7 @@ window.NoorGallery = (() => {
     NoorBridge.on('gallery.convertProgress', (p) => { if (onConvertProgress) onConvertProgress(p); });
     NoorBridge.on('gallery.scanned', (p) => {
       if (!built) return;
-      if (p.added || manualScan) notice(p.added ? `Gallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'Gallery is up to date', 1800);
+      if (p.added || manualScan) notice(p.added ? `NoorGallery: ${p.added} new picture${p.added === 1 ? '' : 's'}` : 'NoorGallery is up to date', 1800);
       manualScan = false;
       refresh();
     });
@@ -76,14 +76,14 @@ window.NoorGallery = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'gallery', class: 'gallery', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Gallery' },
+    const root = el('section', { id: 'gallery', class: 'gallery', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorGallery' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '▦' }), el('strong', { text: 'Gallery' }), el('small', { id: 'gallery-count' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '▦' }), el('strong', { text: 'NoorGallery' }), el('small', { id: 'gallery-count' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'gallery-play', title: 'Slideshow of what is shown (or the selected pictures)', 'aria-label': 'Play a slideshow', onclick: () => slideshowSetup() }, '▶'),
-          el('button', { class: 'icon-btn', id: 'gallery-more', title: 'Folders, rescan and slideshows', 'aria-label': 'Gallery menu', onclick: (e) => mainMenu(e.currentTarget) }, '⋯'),
-          el('button', { class: 'icon-btn', id: 'gallery-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the Gallery', onclick: (e) => NoorDock.showMenu('gallery', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+G)', 'aria-label': 'Close Gallery', onclick: close }, '✕'))),
+          el('button', { class: 'icon-btn', id: 'gallery-more', title: 'Folders, rescan and slideshows', 'aria-label': 'NoorGallery menu', onclick: (e) => mainMenu(e.currentTarget) }, '⋯'),
+          el('button', { class: 'icon-btn', id: 'gallery-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move NoorGallery', onclick: (e) => NoorDock.showMenu('gallery', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+G)', 'aria-label': 'Close NoorGallery', onclick: close }, '✕'))),
       el('div', { class: 'gallery-toolbar' },
         el('input', { id: 'gallery-search', type: 'search', placeholder: 'Find by name or album…', 'aria-label': 'Find pictures', autocomplete: 'off', spellcheck: 'false' }),
         el('div', { class: 'gallery-row' },
@@ -127,7 +127,7 @@ window.NoorGallery = (() => {
       { label: 'Undo the last rename or move', disabled: !canUndo, run: undo },
       { label: 'Find duplicates…', disabled: !status.count, run: findDuplicates },
       { label: 'Picture editors (Open in)', sub: () => openInMenu([]).filter((x) => x === '-' || (x.label && (x.label.startsWith('Add') || x.label.startsWith('Remove')))) },
-      { label: 'Folders', disabled: !status.folders.length, sub: () => status.folders.map((f) => ({ label: `${f.path} (${f.count})`, sub: [{ label: 'Remove from the Gallery…', run: () => removeFolder(f) }] })) },
+      { label: 'Folders', disabled: !status.folders.length, sub: () => status.folders.map((f) => ({ label: `${f.path} (${f.count})`, sub: [{ label: 'Remove from NoorGallery…', run: () => removeFolder(f) }] })) },
       '-',
       { label: 'Save these pictures as a slideshow…', disabled: !items.length, run: () => saveSlideshow(sel.size ? [...sel] : items.map((i) => i.id)) },
       ...(showing ? [
@@ -146,12 +146,12 @@ window.NoorGallery = (() => {
       if (!view.source || view.source === 'all') renderSources();
       renderSources();
       await load();
-      notice(`Gallery: ${status.count} picture${status.count === 1 ? '' : 's'}`, 1800);
+      notice(`NoorGallery: ${status.count} picture${status.count === 1 ? '' : 's'}`, 1800);
     } catch (err) { hooks.showError(err); }
   }
 
   async function removeFolder(f) {
-    if (!await NoorUI.confirm('Remove this folder from the Gallery?', [`“${f.path}” is no longer shown in the Gallery. The pictures stay where they are.`, 'Favourites and slideshow places of its pictures are forgotten.'], 'Remove')) return;
+    if (!await NoorUI.confirm('Remove this folder from NoorGallery?', [`“${f.path}” is no longer shown in NoorGallery. The pictures stay where they are.`, 'Favourites and slideshow places of its pictures are forgotten.'], 'Remove')) return;
     try { status = await req('gallery.removeFolder', { id: f.id }); renderSources(); load(); } catch (err) { hooks.showError(err); }
   }
 
@@ -442,7 +442,7 @@ window.NoorGallery = (() => {
 
   // ---------------------------------------------------------------- open in an editor, copy/move anywhere, ZIP
 
-  /** Pictures into the Texture Bench: a new material from them, or added over the one being made. */
+  /** Pictures into NoorMaterial: a new material from them, or added over the one being made. */
   async function toTexture(ids, mode) {
     try {
       const r = await req('gallery.toTexture', { ids, many: mode === 'batch' });
@@ -465,7 +465,7 @@ window.NoorGallery = (() => {
   function openInMenu(ids) {
     const eds = status.editors || [];
     return [
-      { label: '🧱 Texture Bench', sub: () => textureMenu(ids) },
+      { label: '🧱 NoorMaterial', sub: () => textureMenu(ids) },
       { label: '👾 NoorSprite', disabled: ids.length !== 1 || !window.NoorSprite, run: () => req('gallery.toSprite', { ids }).then((r) => NoorSprite.openFrom(r)).catch(hooks.showError) },
       '-',
       ...eds.map((e, i) => ({ label: e.name, run: () => req('gallery.openWith', { ids, how: 'editor', editor: i }).catch(hooks.showError) })),
@@ -491,7 +491,7 @@ window.NoorGallery = (() => {
       const r = await req(copy ? 'gallery.copyTo' : 'gallery.moveTo', { ids });
       if (!r || r.cancelled) return;
       if (!copy) sel.clear();
-      await afterChange(r, `${copy ? 'Copied' : 'Moved'} ${r.count} picture${r.count === 1 ? '' : 's'} to ${r.folder}${!copy && !r.inside ? ' (outside the Gallery folders, so they left the Gallery)' : ''}`);
+      await afterChange(r, `${copy ? 'Copied' : 'Moved'} ${r.count} picture${r.count === 1 ? '' : 's'} to ${r.folder}${!copy && !r.inside ? ' (outside NoorGallery folders, so they left NoorGallery)' : ''}`);
     } catch (err) { hooks.showError(err); }
   }
 
@@ -651,7 +651,7 @@ window.NoorGallery = (() => {
       };
       onDupProgress = (p) => { if (busy) statusLine.textContent = `Checked ${p.done} of ${p.total}…`; };
       const off = () => { onDupProgress = null; };
-      s.append(NoorUI.head(`⧉ Find duplicates ${album ? 'in ' + album.name : 'in the Gallery'}`, () => { if (typeof off === 'function') off(); closeModal(); }),
+      s.append(NoorUI.head(`⧉ Find duplicates ${album ? 'in ' + album.name : 'in NoorGallery'}`, () => { if (typeof off === 'function') off(); closeModal(); }),
         el('div', { class: 'dup-toolbar' },
           el('button', { class: 'action primary', id: 'dup-run', onclick: run }, 'Look for duplicates'),
           el('label', { class: 'check' }, similar, ' Also look-alikes (resized or re-saved; slower)'),
@@ -852,7 +852,7 @@ window.NoorGallery = (() => {
           el('button', { class: 'utility-btn', onclick: () => insert(it) }, '⤓ Into note'),
           el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu([it.id])); } }, '→ Move…'),
           el('button', { class: 'utility-btn', id: 'ginfo-openin', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu([it.id])) }, '✎ Open in…'),
-          el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from it in the Texture Bench, or add it over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu([it.id])) }, '🧱 Texture…'),
+          el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from it in NoorMaterial, or add it over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu([it.id])) }, '🧱 Texture…'),
           el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures([it.id]) }, '⇲ Convert…'),
           el('button', { class: 'utility-btn', onclick: () => req('gallery.reveal', { id: it.id }).catch(hooks.showError) }, '📁 Explorer'),
           el('button', { class: 'utility-btn danger', onclick: () => deletePictures([it.id]) }, '🗑 Delete…')));
@@ -871,7 +871,7 @@ window.NoorGallery = (() => {
         el('button', { class: 'utility-btn', onclick: async (e) => { const a = e.currentTarget; if (!places) await loadPlaces(); NoorChrome.openMenu(a, moveMenu(ids)); } }, '→ Move…'),
         el('button', { class: 'utility-btn', onclick: () => saveSlideshow(ids) }, '＋ New slideshow…'),
         el('button', { class: 'utility-btn', onclick: (e) => NoorChrome.openMenu(e.currentTarget, openInMenu(ids)) }, '✎ Open in…'),
-        el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from them in the Texture Bench, or add them over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu(ids)) }, '🧱 Texture…'),
+        el('button', { class: 'utility-btn', id: 'ginfo-texture', title: 'Make a material from them in NoorMaterial, or add them over the one you are making', onclick: (e) => NoorChrome.openMenu(e.currentTarget, textureMenu(ids)) }, '🧱 Texture…'),
         el('button', { class: 'utility-btn', onclick: () => copyOrMove(ids, true) }, '⧉ Copy to…'),
         el('button', { class: 'utility-btn', id: 'ginfo-convert', onclick: () => convertPictures(ids) }, '⇲ Convert or resize…'),
         el('button', { class: 'utility-btn', id: 'ginfo-zip', onclick: () => packZip(ids) }, '🗜 ZIP…'),
@@ -1111,7 +1111,7 @@ window.NoorGallery = (() => {
       const transition = el('select', { id: 'ss-transition', 'aria-label': 'Transition' }, ...Object.entries(TRANSITIONS).map(([k, v]) => el('option', { value: k, text: v, selected: settings.transition === k || undefined })));
       const music = el('select', { id: 'ss-music', 'aria-label': 'Music' },
         el('option', { value: 'none', text: 'No music (pause what is playing)' }),
-        el('option', { value: 'keep', text: 'Keep what the Music Bench plays' }),
+        el('option', { value: 'keep', text: 'Keep what NoorMusic plays' }),
         ...(playlists.length ? [el('optgroup', { label: 'Play a music playlist' }, ...playlists.map((p) => el('option', { value: 'pl:' + p.id, text: `♫ ${p.name} (${p.count ?? '?'})` })))] : []));
       music.value = settings.music === 'playlist' && settings.playlistId ? 'pl:' + settings.playlistId : settings.music === 'none' ? 'none' : 'keep';
       if (!music.value) music.value = 'keep';

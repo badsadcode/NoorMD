@@ -179,7 +179,7 @@ public static partial class RockBuilder
     }
 
     /// <summary>
-    /// A rock's materials: the rock (a rock surface in its colour, or a Texture Bench preset, or a plain colour), and
+    /// A rock's materials: the rock (a rock surface in its colour, or NoorMaterial preset, or a plain colour), and
     /// snow and moss for the faces that look up, each its own material (so they keep their colour whatever the rock's
     /// texture).
     /// </summary>

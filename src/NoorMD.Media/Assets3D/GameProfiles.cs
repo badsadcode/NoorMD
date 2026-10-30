@@ -4,7 +4,7 @@ using System.Text;
 namespace NoorMD.Media.Assets3D;
 
 /// <summary>
-/// A game the Asset Bench makes trees for: its presets (in their own group, with the game's triangles per level and
+/// A game NoorForm makes trees for: its presets (in their own group, with the game's triangles per level and
 /// texture look), how its trees are exported (still ordinary glTF files and a manifest, for any engine), the names the
 /// game's catalogue knows them by, and a note for whoever brings them into the game. NoorMD itself stays
 /// game-agnostic: a profile only picks settings every tree has anyway.
@@ -54,7 +54,7 @@ public static class GameProfiles
         var inv = CultureInfo.InvariantCulture;
         var sb = new StringBuilder();
         sb.Append("# ").Append(recipe.Name).Append(" for ").Append(profile.Name).Append(" — hand-off\n\n");
-        sb.Append("Made with NoorMD's Asset Bench (").Append(profile.Name).Append(" profile). Everything here is plain glTF 2.0 and JSON; nothing is engine-specific.\n\n");
+        sb.Append("Made with NoorMD's NoorForm (").Append(profile.Name).Append(" profile). Everything here is plain glTF 2.0 and JSON; nothing is engine-specific.\n\n");
         sb.Append("## Files\n\n");
         sb.Append("| ").Append(profile.Name).Append(" name | Files | Triangles per level | Height × width |\n|---|---|---|---|\n");
         foreach (var t in trees)

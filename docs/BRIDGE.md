@@ -103,7 +103,7 @@ The NoorSketch window has its own bridge and accepts messages only from `/_noorm
 
 ## Additions in 2.0.0-preview.4 (still protocol v2: new message types only)
 
-Music Bench:
+NoorMusic:
 
 | type | payload | result |
 |---|---|---|
@@ -119,7 +119,7 @@ Music Bench:
 
 `music.status` also returns `smart[]`; rows carry `rgGain`, `rgPeak`, `loudness`, `peak` and `plays`.
 
-Video Bench (`/_video/{id}` serves the file with ranges; `/_sub/{id}/{n}` serves subtitles as WebVTT):
+NoorVideo (`/_video/{id}` serves the file with ranges; `/_sub/{id}/{n}` serves subtitles as WebVTT):
 
 | type | payload | result |
 |---|---|---|
@@ -147,7 +147,7 @@ Windows Credential Manager as `NoorMD/obs-websocket` and never returned to the p
 | `mic.obs.connect` | `{ password?, remember }` | the status (a stored password is used when none is given) |
 | `mic.obs.forget` / `mic.toggle` / `mic.set` | — / — / `{ muted }` | the status |
 
-The Stream Desk runs in its own window (`/_noormd/stream.html`, StreamWindow.cs). Its page may only send `stream.*`,
+NoorStream runs in its own window (`/_noormd/stream.html`, StreamWindow.cs). Its page may only send `stream.*`,
 `mic.*`, `clipboard.copyText`, `vault.open` and `vault.openFile`, plus `streamwin.ready` (→ `{ tab }`),
 `streamwin.close` and `streamwin.dirty` (`{ dirty }`). The host sends it `stream.tab`, `stream.track` (the playing
 song) and `mic.state`. The main page opens it with `stream.window` (`{ tab?, close? }` → `{ open }`) and gets
@@ -161,14 +161,14 @@ The pop-out window has its own bridge and accepts messages only from `/_noormd/v
 `video.ready`, `video.get`, `video.position`, `video.next`, `video.note.add`, `video.topmost`,
 `video.title` and `video.close`; the host sends it `video.load`.
 
-Stream Desk:
+NoorStream:
 
 | type | payload | result |
 |---|---|---|
 | `stream.status` | — | server state, overlay configs, effects, templates, text-file options, Vault, recording session |
 | `stream.server` | `{ enabled, port }` | starts/stops the loopback overlay server |
 | `stream.np.config` / `stream.credits.config` | `{ config }` / `{ config, effects[] }` | saved and pushed to connected overlays |
-| `stream.np.update` | `{ track: { id, title, artist, hasArt, playing, position, duration } \| null }` | sent by the Music Bench |
+| `stream.np.update` | `{ track: { id, title, artist, hasArt, playing, position, duration } \| null }` | sent by NoorMusic |
 | `stream.credits.start` / `.stop` | — | `{ clients }` |
 | `stream.txt` | `{ enabled, format, choose }` | `{ path }` of now-playing.txt |
 | `stream.paths` | `{ supportersNote, streamsFolder }` | Vault-relative locations |

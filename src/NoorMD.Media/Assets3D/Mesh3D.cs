@@ -2,7 +2,7 @@ using System.Numerics;
 
 namespace NoorMD.Media.Assets3D;
 
-// The Asset Bench's neutral mesh model: what every generator (trees, rocks) produces and what the preview, the
+// NoorForm's neutral mesh model: what every generator (trees, rocks) produces and what the preview, the
 // simplifier, the baker and the exporters read. Y is up, units are metres, the asset's pivot is at its base (0, 0, 0).
 
 /// <summary>A material by name, with its colour and how it is drawn (textures are attached by the exporter).</summary>

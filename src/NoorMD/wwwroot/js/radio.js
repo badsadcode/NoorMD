@@ -1,4 +1,4 @@
-// NoorMD Radio Bench: your internet radio stations, in a panel that docks like the other benches. A station plays
+// NoorMD NoorRadio: your internet radio stations, in a panel that docks like the other benches. A station plays
 // through the app's relay on 127.0.0.1, which also reads the song titles from the stream. One sound at a time: the
 // radio pauses the music and the video, and stops when they play. Nothing is recorded.
 window.NoorRadio = (() => {
@@ -25,7 +25,7 @@ window.NoorRadio = (() => {
   function init(h) {
     hooks = { ...hooks, ...h };
     audio.volume = volume();
-    // The Music Bench's sound (equalizer, even loudness, limiter) for the radio too, unless that is turned off there.
+    // NoorMusic's sound (equalizer, even loudness, limiter) for the radio too, unless that is turned off there.
     if (window.NoorFx) NoorFx.attachRadio(audio);
     NoorBridge.on('radio.title', (p) => { if (on && p.token === on.token) { on.title = p.title; renderNow(); emit(); } });
     NoorBridge.on('radio.failed', (p) => { if (on && p.token === on.token) fail(p.message); });
@@ -113,13 +113,13 @@ window.NoorRadio = (() => {
     return [...stations].filter((s) => s.lastPlayed).sort((a, b) => String(b.lastPlayed).localeCompare(String(a.lastPlayed)))[0] || stations[0] || null;
   }
 
-  /** Tells the Stream Desk what is on (its Now Playing overlay). */
+  /** Tells NoorStream what is on (its Now Playing overlay). */
   function emit() {
     // A number from the station and song (negative: never a music track's id), so each new song is a new line in the stream's tracklist.
     const key = on ? `${on.url}|${on.title || ''}` : '';
     let id = 0;
     for (let i = 0; i < key.length; i++) id = (id * 31 + key.charCodeAt(i)) | 0;
-    hooks.onNowPlaying(on && on.state === 'playing' && !audio.paused ? { id: -Math.abs(id || 1), title: on.title || on.name, artist: on.title ? on.name : 'Radio', hasArt: false, playing: true, position: 0, duration: 0 } : null);
+    hooks.onNowPlaying(on && on.state === 'playing' && !audio.paused ? { id: -Math.abs(id || 1), title: on.title || on.name, artist: on.title ? on.name : 'NoorRadio', hasArt: false, playing: true, position: 0, duration: 0 } : null);
   }
 
   function setVolume(v) {
@@ -163,14 +163,14 @@ window.NoorRadio = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'radiobench', class: 'radiobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Radio' },
+    const root = el('section', { id: 'radiobench', class: 'radiobench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorRadio' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📻' }), el('strong', { text: 'Radio' }), el('small', { id: 'radio-count' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📻' }), el('strong', { text: 'NoorRadio' }), el('small', { id: 'radio-count' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'radio-add', title: 'Add a station', 'aria-label': 'Add a station', onclick: () => editStation(null) }, '＋'),
-          el('button', { class: 'icon-btn', id: 'radio-more', title: 'Find stations online, import, export', 'aria-label': 'Radio menu', onclick: (e) => mainMenu(e.currentTarget) }, '⋯'),
-          el('button', { class: 'icon-btn', id: 'radio-dock', title: 'Where this panel goes (left, right, bottom, the middle)', 'aria-label': 'Move the Radio', onclick: (e) => NoorDock.showMenu('radio', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+I)', 'aria-label': 'Close the Radio', onclick: close }, '✕'))),
+          el('button', { class: 'icon-btn', id: 'radio-more', title: 'Find stations online, import, export', 'aria-label': 'NoorRadio menu', onclick: (e) => mainMenu(e.currentTarget) }, '⋯'),
+          el('button', { class: 'icon-btn', id: 'radio-dock', title: 'Where this panel goes (left, right, bottom, the middle)', 'aria-label': 'Move NoorRadio', onclick: (e) => NoorDock.showMenu('radio', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+I)', 'aria-label': 'Close NoorRadio', onclick: close }, '✕'))),
       el('section', { class: 'radio-now', id: 'radio-now', 'aria-live': 'polite' }),
       el('div', { class: 'apps-toolbar' },
         el('input', { id: 'radio-search', type: 'search', placeholder: 'Find a station…', 'aria-label': 'Find a station', autocomplete: 'off', spellcheck: 'false' }),
@@ -208,7 +208,7 @@ window.NoorRadio = (() => {
     box.replaceChildren(
       el('button', { class: 'radio-play', id: 'radio-play', title: playing ? 'Stop (Space)' : 'Play (Space)', 'aria-label': playing ? 'Stop' : 'Play', onclick: playPause }, playing ? '■' : '▶'),
       el('div', { class: 'radio-now-text' },
-        el('strong', { id: 'radio-now-name', text: on ? on.name : 'Radio' }),
+        el('strong', { id: 'radio-now-name', text: on ? on.name : 'NoorRadio' }),
         el('span', { id: 'radio-now-title', text: state === 'connecting' ? 'Connecting…' : state === 'error' ? on.message : on && on.title ? on.title : on ? 'On air' : stations.length ? 'Choose a station, or press Space for the last one' : 'Add a station to start' })),
       vol, sleep);
     renderSleep();
@@ -279,7 +279,7 @@ window.NoorRadio = (() => {
       '-',
       { label: 'Import stations (.m3u, .pls)…', run: importStations },
       { label: 'Export stations (.m3u8)…', disabled: !stations.length, run: exportStations },
-      { label: 'Sound: equalizer and even loudness (shared with the Music Bench)…', run: () => window.NoorMusic && NoorMusic.openSound() },
+      { label: 'Sound: equalizer and even loudness (shared with NoorMusic)…', run: () => window.NoorMusic && NoorMusic.openSound() },
     ]);
   }
 
@@ -377,7 +377,7 @@ window.NoorRadio = (() => {
   return {
     init, open, close, toggle, isOpen, isPlaying, playPause, findOnline,
     /** Another player started (music, a video): the radio stops. */
-    stopForOther: () => { if (on) { stop(); notice('Radio stopped', 1200); } },
+    stopForOther: () => { if (on) { stop(); notice('NoorRadio stopped', 1200); } },
     stop: () => stop(),
     /** Self-test: play an address muted (autoplay rules allow muted sound without a click). */
     _testPlay: (stationUrl) => { audio.muted = true; return play({ id: null, name: 'Self-test', url: stationUrl }); },

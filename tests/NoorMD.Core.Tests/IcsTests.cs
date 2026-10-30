@@ -54,7 +54,7 @@ public class IcsTests
     public void Imports_Files_From_Other_Calendars_With_Time_Zones_And_Says_What_It_Simplified()
     {
         var ics = string.Join("\r\n",
-            "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Google Inc//Google Calendar 70.9054//EN",
+            "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Google Inc//Google NoorCalendar 70.9054//EN",
             "BEGIN:VEVENT", "DTSTART:20261106T180000Z", "DTEND:20261106T190000Z", "UID:a@google.com", "SUMMARY:UTC meeting", "END:VEVENT",
             "BEGIN:VEVENT", "DTSTART;TZID=America/New_York:20261106T090000", "DTEND;TZID=America/New_York:20261106T100000", "UID:b@google.com",
             "SUMMARY:New York call", "BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT30M", "END:VALARM", "END:VEVENT",

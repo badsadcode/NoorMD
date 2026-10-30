@@ -141,9 +141,9 @@ window.NoorCalendar = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'calendar', class: 'soundbench calbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Calendar' },
+    const root = el('section', { id: 'calendar', class: 'soundbench calbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorCalendar' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📅' }), el('strong', { text: 'Calendar' }), el('small', { id: 'cal-today' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '📅' }), el('strong', { text: 'NoorCalendar' }), el('small', { id: 'cal-today' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'cal-import', title: 'Import a calendar (.ics) from Google, Outlook, Apple or another app', 'aria-label': 'Import a calendar', onclick: importIcs }, '📥'),
           el('button', { class: 'icon-btn', id: 'cal-export', title: 'Export the calendar (.ics) for another calendar app', 'aria-label': 'Export the calendar', onclick: exportIcs }, '📤'),
@@ -758,7 +758,7 @@ window.NoorCalendar = (() => {
       await refresh();
       const msg = r.added ? `Imported ${r.added} entr${r.added === 1 ? 'y' : 'ies'} from ${r.file}.` : `Nothing to import in ${r.file}.`;
       if (r.notes && r.notes.length) {
-        NoorUI.choose('Calendar imported', [msg, 'Imported as near as possible:', ...r.notes.slice(0, 12), ...(r.notes.length > 12 ? [`…and ${r.notes.length - 12} more.`] : [])], [{ label: 'OK', value: true, primary: true }]);
+        NoorUI.choose('NoorCalendar imported', [msg, 'Imported as near as possible:', ...r.notes.slice(0, 12), ...(r.notes.length > 12 ? [`…and ${r.notes.length - 12} more.`] : [])], [{ label: 'OK', value: true, primary: true }]);
       } else notice(msg, 2400);
     } catch (err) { hooks.showError(err); }
   }

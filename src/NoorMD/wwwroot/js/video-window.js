@@ -6,7 +6,7 @@
   const req = (type, payload) => NoorBridge.request(type, payload);
   const v = $('#pv');
   let id = null, next = null, lastSaved = 0, noteAt = 0, topmost = true;
-  let pauseOnNote = true, resumeAfterNote = false; // the Video Bench's setting: pause while writing, continue after
+  let pauseOnNote = true, resumeAfterNote = false; // NoorVideo's setting: pause while writing, continue after
   let notes = [];
   const notesOnVideo = (() => { try { return localStorage.getItem('noormd.video.notesOnVideo') !== 'off'; } catch { return true; } })();
   const stage = $('#pv-stage');
@@ -21,7 +21,7 @@
   v.addEventListener('dblclick', toggleFullscreen);
   let shownNote;
   const renderNotePop = () => {
-    // Notes on the video, as in the Video Bench (the same 💬 setting).
+    // Notes on the video, as in NoorVideo (the same 💬 setting).
     const t = v.currentTime;
     const n = notesOnVideo ? notes.filter((x) => t >= x.time && t < x.time + 6).sort((a, b) => b.time - a.time)[0] : null;
     const key = n ? n.id + ':' + n.text : null;

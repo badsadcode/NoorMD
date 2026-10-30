@@ -43,7 +43,7 @@ public sealed class ForgeTextures
 /// </summary>
 public static class ForgeCompositor
 {
-    /// <param name="materials">A Texture Bench preset's maps (cached by the caller), or null when it can't be made.</param>
+    /// <param name="materials">NoorMaterial preset's maps (cached by the caller), or null when it can't be made.</param>
     public static ForgeTextures Compose(ForgeModel model, int setIndex, ForgeBake bake, ForgeRecipe recipe, Func<string, TextureMaps?> materials)
     {
         var size = bake.Size;

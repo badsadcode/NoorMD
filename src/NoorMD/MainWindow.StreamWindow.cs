@@ -5,7 +5,7 @@ using NoorMD.Media;
 
 namespace NoorMD;
 
-/// <summary>The Stream Desk's own window: opening it, the requests it may make, and what the app tells it.</summary>
+/// <summary>NoorStream's own window: opening it, the requests it may make, and what the app tells it.</summary>
 public partial class MainWindow
 {
     private StreamWindow? _streamWindow;
@@ -14,7 +14,7 @@ public partial class MainWindow
         StreamCfg["window"] is JsonObject w && w["x"] is JsonValue x && w["y"] is JsonValue y && w["w"] is JsonValue ww && w["h"] is JsonValue hh
             ? new Rect(x.GetValue<double>(), y.GetValue<double>(), ww.GetValue<double>(), hh.GetValue<double>()) : null;
 
-    /// <summary>Opens the Stream Desk window on a tab (or brings it forward), or closes it.</summary>
+    /// <summary>Opens NoorStream window on a tab (or brings it forward), or closes it.</summary>
     internal object OpenStreamWindow(string? tab, bool toggle, bool close)
     {
         _ = toggle; // Ctrl+Alt+B always brings the window forward: from the editor it is usually behind, not unwanted
@@ -43,7 +43,7 @@ public partial class MainWindow
         if (_webReady) PushEvent("stream.window", new { open = false });
     }
 
-    /// <summary>A request from the Stream Desk window (already limited to stream., mic. and a few others).</summary>
+    /// <summary>A request from NoorStream window (already limited to stream., mic. and a few others).</summary>
     internal async Task<object?> RequestFromStreamWindowAsync(BridgeRequest req)
     {
         var result = await DispatchAsync(req);
@@ -51,7 +51,7 @@ public partial class MainWindow
         return result;
     }
 
-    /// <summary>Embedded artwork (or cover.jpg) for the Stream Desk's Now Playing preview.</summary>
+    /// <summary>Embedded artwork (or cover.jpg) for NoorStream's Now Playing preview.</summary>
     internal (byte[] Data, string Mime)? ArtFor(long id)
     {
         if (_music?.Get(id) is not { } t) return null;

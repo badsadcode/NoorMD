@@ -1,4 +1,4 @@
-// NoorMD sound processing for the Music Bench and the Radio Bench: 10-band equalizer with presets, loudness
+// NoorMD sound processing for NoorMusic and NoorRadio: 10-band equalizer with presets, loudness
 // normalisation and a limiter so nothing clips. Files are never modified: loudness is measured here (ITU-R BS.1770
 // integrated loudness) or taken from ReplayGain tags, and applied as playback gain. The radio can't be measured ahead,
 // so it is evened out live: a slow leveller that moves its gain towards the same target as it plays.
@@ -47,7 +47,7 @@ window.NoorFx = (() => {
 
   function attach(audio) { audioEl = audio; }
 
-  /** The radio's player: with "Use for the Radio too", it goes through the same equalizer and limiter. */
+  /** The radio's player: with "Use for NoorRadio too", it goes through the same equalizer and limiter. */
   function attachRadio(audio) {
     radioEl = audio;
     // The stream comes from NoorMD's own relay (another origin): it is read with its permission, or Web Audio is silent.

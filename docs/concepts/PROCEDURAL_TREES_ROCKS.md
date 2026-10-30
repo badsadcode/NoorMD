@@ -1,4 +1,4 @@
-# NoorMD Procedural Asset Bench
+# NoorMD Procedural NoorForm
 ## Trees, Vegetation, Rocks & Land Formations
 
 **Status:** Future development concept / design reference, **not** an implementation order  
@@ -9,7 +9,7 @@
 
 ## 1. Vision and boundaries
 
-A dedicated, optionally modular **3D Asset Bench** produces individual assets and curated packs of trees, vegetation, rocks, boulders, cliffs and modular land formations. Users adjust parameters, view a live 3D preview, regenerate deterministic variations, and export assets for further use in Blender or game engines.
+A dedicated, optionally modular **3D NoorForm** produces individual assets and curated packs of trees, vegetation, rocks, boulders, cliffs and modular land formations. Users adjust parameters, view a live 3D preview, regenerate deterministic variations, and export assets for further use in Blender or game engines.
 
 **Guiding rules**
 
@@ -140,7 +140,7 @@ Profiles can include granite-like blocky massing, basalt-like columnar fracture,
 
 ## 6. Materials and UV workflow
 
-Integrate with NoorMD's **Texture Bench** when available; do not couple the geometry algorithm to any particular texture generator.
+Integrate with NoorMD's **NoorMaterial** when available; do not couple the geometry algorithm to any particular texture generator.
 
 - Physically plausible PBR outputs where appropriate: base color, normal, roughness, metallic (usually low for natural rock/wood), AO and optionally height.
 - UV generation tailored to trunks, branches, cards and rocks; avoid stretching, flipped tangents and obvious seams.

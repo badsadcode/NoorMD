@@ -15,7 +15,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Asset Bench: game-ready trees (and rocks, MainWindow.Rocks.cs) made from a recipe. The page edits the recipe; the app grows and
+/// NoorForm: game-ready trees (and rocks, MainWindow.Rocks.cs) made from a recipe. The page edits the recipe; the app grows and
 /// meshes the tree (the same recipe and seed always give the same mesh), serves the preview's GLB files from memory at
 /// /_asset/{key}/lod{n}.glb, and exports GLB files with the recipe and a manifest beside them. Your own presets are
 /// recipes kept in the local data folder.
@@ -148,7 +148,7 @@ public partial class MainWindow
         var profile = GameProfiles.Find(build.Recipe.Profile);
         return new
         {
-            generator = "NoorMD Asset Bench",
+            generator = "NoorMD NoorForm",
             kind = "tree",
             name = build.Recipe.Name,
             // Made for a game: its profile and the name its catalogue knows this tree by.
@@ -206,7 +206,7 @@ public partial class MainWindow
                         profiles = GameProfiles.All.Select(g => new { id = g.Id, name = g.Name, description = g.Description, group = g.Group, engine = g.Engine, lodFiles = g.LodFiles, helpers = g.Helpers }),
                         mine = UserTreePresets(),
                         barks = new[] { new { id = "bark", name = "Bark in the bark colour (realistic)" }, new { id = "painted", name = "Painted bark (stylized)" }, new { id = "birch", name = "Birch bark" }, new { id = "cactus", name = "Cactus skin" } }
-                            .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = "Texture Bench: " + t.Name })),
+                            .Concat(NoorMD.Media.TexturePresets.All.Where(t => t.Family is "Wood" or "Nature" or "Ground" or "Stone").Select(t => new { id = t.Id, name = "NoorMaterial: " + t.Name })),
                     };
                 case "asset.preset":
                 {
@@ -342,7 +342,7 @@ public partial class MainWindow
                         }
                     }
                     var manifestPath = ExportTarget(folder, stem + ".manifest.json", keep, taken);
-                    object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD Asset Bench", kind = "tree variety pack", name = recipe.Name, variants = manifests };
+                    object manifest = variants.Count == 1 ? manifests[0] : new { generator = "NoorMD NoorForm", kind = "tree variety pack", name = recipe.Name, variants = manifests };
                     await File.WriteAllTextAsync(manifestPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
                     // For a game: a note for whoever brings the trees in (a person, or an agent working on the game).
                     string? handoff = null;
@@ -385,7 +385,7 @@ public partial class MainWindow
                     }
                     PushEvent("asset.exportProgress", new { stage = "", done = variants.Count, total = variants.Count });
                     _assetFolders.Add(folder);
-                    Log.Info($"Asset Bench: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
+                    Log.Info($"NoorForm: exported {variants.Count} × “{recipe.Name}” ({recipe.Lods} level(s) of detail)");
                     return new { folder, files = written.Select(Path.GetFileName), recipe = recipes[0], recipes, variants = variants.Count, manifest = Path.GetFileName(manifestPath), handoff, profile = profile?.Name, shaders, engine, godot, project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), triangles };
                 }
                 case "asset.reveal":
@@ -413,7 +413,7 @@ public partial class MainWindow
                     return new { mine = UserTreePresets() };
                 case "asset.open":
                 {
-                    var dlg = new OpenFileDialog { Title = "Open a tree or rock recipe", Filter = "Asset Bench recipes (*.noortree.json;*.noorrock.json;*.json)|*.noortree.json;*.noorrock.json;*.json|Tree recipes (*.noortree.json)|*.noortree.json|Rock recipes (*.noorrock.json)|*.noorrock.json", CheckFileExists = true };
+                    var dlg = new OpenFileDialog { Title = "Open a tree or rock recipe", Filter = "NoorForm recipes (*.noortree.json;*.noorrock.json;*.json)|*.noortree.json;*.noorrock.json;*.json|Tree recipes (*.noortree.json)|*.noortree.json|Rock recipes (*.noorrock.json)|*.noorrock.json", CheckFileExists = true };
                     NativeCursor.Restore();
                     if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                     if (new FileInfo(dlg.FileName).Length > 100_000) throw new BridgeError("That file is too big for a recipe.");

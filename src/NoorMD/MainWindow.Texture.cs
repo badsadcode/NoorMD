@@ -15,7 +15,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Texture Bench: tileable procedural materials. The page edits a recipe; the app renders its maps (the same recipe and
+/// NoorMaterial: tileable procedural materials. The page edits a recipe; the app renders its maps (the same recipe and
 /// seed always give the same pixels), serves the preview maps from memory at /_texture/{key}/{map}.png, and exports PNG
 /// sets for game engines with the recipe next to them. Your own presets are recipes kept in the local data folder.
 /// </summary>
@@ -31,7 +31,7 @@ public partial class MainWindow
     private static string TexturePaintingsFolder => Path.Combine(App.Paths.Local, "Texture", "Paintings");
     private const int TexturePaintingSize = 1024;
 
-    // Image layers read only pictures you picked, or that a recipe or preset you opened names (as with Sound Bench samples).
+    // Image layers read only pictures you picked, or that a recipe or preset you opened names (as with NoorSound samples).
     private readonly HashSet<string> _textureImageFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (DateTime Stamp, TextureImage Image)> _textureImageCache = new(StringComparer.OrdinalIgnoreCase);
     private const int TextureImageMax = 2048;
@@ -98,7 +98,7 @@ public partial class MainWindow
         w.Show();
     }
 
-    /// <summary>A painting was saved in NoorSketch: the Texture Bench renders the material with it again.</summary>
+    /// <summary>A painting was saved in NoorSketch: NoorMaterial renders the material with it again.</summary>
     internal void TexturePaintingSaved(string path) => PushEvent("texture.paintingChanged", new { path });
 
     /// <summary>
@@ -200,7 +200,7 @@ public partial class MainWindow
         float R(double v) => (float)Math.Round(v, 4);
         return new
         {
-            generator = "NoorMD Texture Bench",
+            generator = "NoorMD NoorMaterial",
             kind = "material",
             name = recipe.Name,
             family = recipe.Family,
@@ -237,7 +237,7 @@ public partial class MainWindow
         var pictures = p.TryGetProperty("pictures", out var pics) && pics.ValueKind == JsonValueKind.Array
             ? pics.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => Path.GetFullPath(e.GetString()!)).Distinct(StringComparer.OrdinalIgnoreCase).Take(500).ToList() : [];
         if (pictures.Count == 0) throw new BridgeError("Choose the pictures to make PBR maps from.");
-        if (pictures.Any(f => !_textureImageFiles.Contains(f))) throw new BridgeError("Only pictures chosen here or in the Gallery can be used.");
+        if (pictures.Any(f => !_textureImageFiles.Contains(f))) throw new BridgeError("Only pictures chosen here or in NoorGallery can be used.");
         var auto = (NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 0) <= 0; // 0: the size of each picture
         var fixedSize = (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "size") ?? 0);
         if (!auto && fixedSize is not (512 or 1024 or 2048 or 4096)) throw new BridgeError("Choose 512, 1024, 2048 or 4096 pixels, or the size of each picture.");
@@ -285,7 +285,7 @@ public partial class MainWindow
             done++;
         }
         PushEvent("texture.batchProgress", new { done, total = jobs.Count, name = "" });
-        Log.Info($"Texture Bench: batch made {done} PBR set(s) of {jobs.Count}");
+        Log.Info($"NoorMaterial: batch made {done} PBR set(s) of {jobs.Count}");
         var first = folders.FirstOrDefault();
         return new { done, total = jobs.Count, cancelled = _textureBatchCancel && done < jobs.Count, skipped, folder = folders.Count == 1 ? first : root, folders = folders.Count, project = place.Project?.Name };
     }
@@ -341,7 +341,7 @@ public partial class MainWindow
         string? Flag(float l) => median <= 0 ? null : l < median * 0.6f ? "much darker than the set" : l > median * 1.6f ? "much brighter than the set" : null;
         var set = new
         {
-            generator = "NoorMD Texture Bench",
+            generator = "NoorMD NoorMaterial",
             kind = "material set",
             name = setName,
             size,
@@ -353,7 +353,7 @@ public partial class MainWindow
         var setPath = ExportTarget(root, Path.GetFileName(setFile), how == "keep", new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         await File.WriteAllTextAsync(setPath, JsonSerializer.Serialize(set, new JsonSerializerOptions { WriteIndented = true }), new UTF8Encoding(false));
         _textureFolders.Add(root);
-        Log.Info($"Texture Bench: material set “{setName}”, {made.Count} of {jobs.Count} materials");
+        Log.Info($"NoorMaterial: material set “{setName}”, {made.Count} of {jobs.Count} materials");
         return new
         {
             done = made.Count, total = jobs.Count, cancelled = _textureBatchCancel && made.Count < jobs.Count, folder = root, set = Path.GetFileName(setPath),
@@ -544,11 +544,11 @@ public partial class MainWindow
                     var maps = await Task.Run(() => TextureEngine.Render(recipe, size, LoadTextureImage));
                     var (folder, written, recipePath, travelling) = await WriteTextureSetAsync(recipe, maps, plan, files, keep, (done, total) => PushEvent("texture.exportProgress", new { done, total }));
                     var stem = plan.Stem;
-                    Log.Info($"Texture Bench: exported {written.Count} maps of “{recipe.Name}” at {size}");
+                    Log.Info($"NoorMaterial: exported {written.Count} maps of “{recipe.Name}” at {size}");
                     int? gallery = null; string? vault = null; var notes = new List<string>();
                     if (NoorMD.Core.Bridge.Json.IsTrue(p, "gallery"))
                         try { gallery = await AddTextureExportToGalleryAsync(folder, written, recipe.Name); }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("Not added to the Gallery: " + ex.Message); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("Not added to NoorGallery: " + ex.Message); }
                     if (NoorMD.Core.Bridge.Json.IsTrue(p, "vault"))
                     {
                         if (_vault == null) notes.Add("No Vault is open, so the recipe wasn't kept there.");

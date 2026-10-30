@@ -45,7 +45,7 @@ public sealed class ForgeMask
     internal static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
 }
 
-/// <summary>One layer: a material (a Texture Bench preset, or plain values), where it shows, and how strongly.</summary>
+/// <summary>One layer: a material (NoorMaterial preset, or plain values), where it shows, and how strongly.</summary>
 public sealed class ForgeLayer
 {
     public const int MaxStrokes = 4000;
@@ -55,7 +55,7 @@ public sealed class ForgeLayer
     public string Name { get; set; } = "Layer";
     public bool Visible { get; set; } = true;
     public double Opacity { get; set; } = 1;
-    /// <summary>A Texture Bench preset id; empty for a plain layer (its colour, roughness and metal).</summary>
+    /// <summary>NoorMaterial preset id; empty for a plain layer (its colour, roughness and metal).</summary>
     public string Material { get; set; } = "";
     /// <summary>How many metres one tile of the material covers (projected from three sides, no seams).</summary>
     public double Scale { get; set; } = 1;

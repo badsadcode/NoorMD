@@ -55,9 +55,9 @@ window.NoorVoice = (() => {
     const insert = el('input', { type: 'checkbox', id: 'voice-insert' });
     insert.checked = pref(INSERT_KEY, '1') === '1';
     insert.addEventListener('change', () => setPref(INSERT_KEY, insert.checked ? '1' : '0'));
-    const root = el('section', { id: 'voicedesk', class: 'voicedesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Voice notes' },
+    const root = el('section', { id: 'voicedesk', class: 'voicedesk', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorVoice' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎙' }), el('strong', { text: 'Voice notes' }), el('small', { id: 'voice-count' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🎙' }), el('strong', { text: 'NoorVoice' }), el('small', { id: 'voice-count' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'voice-dock', title: 'Where this panel goes (left, right, bottom) and layouts', 'aria-label': 'Move the voice notes panel', onclick: (e) => NoorDock.showMenu('voice', e.currentTarget) }, '⊞'),
           el('button', { class: 'icon-btn', title: 'Close', 'aria-label': 'Close voice notes', onclick: close }, '✕'))),

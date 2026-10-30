@@ -175,7 +175,7 @@ public partial class MainWindow
             }
             case "sprite.toTexture":
             {
-                // A frame or a tileset for the Texture Bench: written as a PNG of the app's own and allowed for it.
+                // A frame or a tileset for NoorMaterial: written as a PNG of the app's own and allowed for it.
                 int w = p.GetProperty("width").GetInt32(), h = p.GetProperty("height").GetInt32();
                 var data = Convert.FromBase64String(p.GetProperty("data").GetString() ?? "");
                 if (w < 1 || h < 1 || w > 4096 || h > 4096 || data.Length != w * h * 4) throw new BridgeError("The picture doesn't match its size.");

@@ -12,7 +12,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Apps Hub: shortcuts to programs, games, files, folders and websites with their pictures. The list lives in
+/// NoorHub: shortcuts to programs, games, files, folders and websites with their pictures. The list lives in
 /// NoorMD's local data folder. The page only ever names a shortcut by id; what runs is what you added yourself.
 /// Websites open in your browser; NoorMD fetches nothing from the internet (no favicons).
 /// </summary>
@@ -44,7 +44,7 @@ public partial class MainWindow
                     string? path;
                     if (kind == "folder")
                     {
-                        var dlg = new OpenFolderDialog { Title = "Add a folder to the Apps Hub" };
+                        var dlg = new OpenFolderDialog { Title = "Add a folder to NoorHub" };
                         Ui.NativeCursor.Restore();
                         path = dlg.ShowDialog(this) == true ? dlg.FolderName : null;
                     }
@@ -52,7 +52,7 @@ public partial class MainWindow
                     {
                         var dlg = new OpenFileDialog
                         {
-                            Title = "Add programs, games or files to the Apps Hub",
+                            Title = "Add programs, games or files to NoorHub",
                             Multiselect = true,
                             DereferenceLinks = false, // keep shortcuts (.lnk) as they are: their own icon and arguments
                             Filter = "Programs and shortcuts (*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd)|*.exe;*.lnk;*.url;*.appref-ms;*.bat;*.cmd|All files (*.*)|*.*",
@@ -188,7 +188,7 @@ public partial class MainWindow
             }
         }
         catch (System.ComponentModel.Win32Exception ex) { throw new BridgeError($"Windows could not start “{i.Name}”: {ex.Message}"); }
-        Log.Info($"Apps Hub: started {i.Kind} “{i.Name}”");
+        Log.Info($"NoorHub: started {i.Kind} “{i.Name}”");
         return HubItemForPage(Hub.MarkUsed(i.Id));
     }
 

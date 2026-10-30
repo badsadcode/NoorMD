@@ -13,7 +13,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Sound Bench: procedural sound effects and ambiences. The page edits a recipe; the app renders it (the same recipe and
+/// NoorSound: procedural sound effects and ambiences. The page edits a recipe; the app renders it (the same recipe and
 /// seed always give the same sound), serves the preview from memory at /_sound/{key}.wav, and exports WAV files with the
 /// recipe next to them. Your own presets are recipes kept in the local data folder.
 /// </summary>
@@ -327,7 +327,7 @@ public partial class MainWindow
                     await File.WriteAllTextAsync(recipePath, recipe.ToJson(), new UTF8Encoding(false));
                     _soundFolders.Add(folder);
                     var notes = new List<string>();
-                    // Optionally kept in the open Vault (Sounds folder, with an OGG to listen to) and added to the Music Bench.
+                    // Optionally kept in the open Vault (Sounds folder, with an OGG to listen to) and added to NoorMusic.
                     string? vault = null;
                     if (NoorMD.Core.Bridge.Json.IsTrue(p, "vault"))
                     {
@@ -339,8 +339,8 @@ public partial class MainWindow
                     var music = 0;
                     if (NoorMD.Core.Bridge.Json.IsTrue(p, "musicBench"))
                         try { music = await AddToMusicBenchAsync(files); }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to the Music Bench: " + ex.Message); }
-                    Log.Info($"Sound Bench: exported {files.Count} file(s) of “{recipe.Name}”");
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to NoorMusic: " + ex.Message); }
+                    Log.Info($"NoorSound: exported {files.Count} file(s) of “{recipe.Name}”");
                     return new { folder, files = files.Select(Path.GetFileName), recipe = Path.GetFileName(recipePath), stems = stemFolders.Select(Path.GetFileName), project = place.Project?.Name, relative = Path.GetRelativePath(root, folder).Replace('\\', '/'), vault, music, notes };
                 }
                 case "sound.reveal":

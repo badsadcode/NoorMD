@@ -44,11 +44,11 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Indent / outdent (lists, Markdown) | Tab / Shift+Tab |
 | Close dialog, find bar or focus mode | Esc |
 
-### Music Bench (Creator's Bench)
+### NoorMusic (Creator's Bench)
 
 | Action | Shortcut |
 |---|---|
-| Show / hide Music Bench | Ctrl+Shift+M |
+| Show / hide NoorMusic | Ctrl+Shift+M |
 | Play / pause | Ctrl+Alt+Space (or the media keys) |
 | Next / previous track | Ctrl+Alt+→ / Ctrl+Alt+← |
 | Edit current track (or the selected one in the list) | F2 |
@@ -61,11 +61,11 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | In the edit dialog: Save / Save & Next / Cancel | Enter / Ctrl+Enter / Esc |
 | Next theme | Ctrl+Shift+T |
 
-### Video Bench
+### NoorVideo
 
 | Action | Shortcut |
 |---|---|
-| Show / hide Video Bench | Ctrl+Alt+V |
+| Show / hide NoorVideo | Ctrl+Alt+V |
 | Note at this moment (pauses the video while you write; Enter adds and continues) | N |
 | Play / pause | Space or K |
 | Back / forward 10 s · 5 s | J / L · ← / → |
@@ -79,17 +79,17 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | Close | Esc |
 | Pop-out player: always on top / note / close | T / N / Esc |
 
-### Stream Desk
+### NoorStream
 
 | Action | Shortcut |
 |---|---|
-| Open the Stream Desk (in its dock, or bring its own window forward) | Ctrl+Alt+B |
-| Apps Hub (your programs, games and sites) | Ctrl+Alt+H |
-| Radio (your internet stations) · play / stop in the panel | Ctrl+Alt+I · Space |
-| Sound Bench (wind, rain, effects) · in it: play / stop · play over and over · variation · mutate · A/B · undo / redo | Ctrl+Alt+K · Space · L · V · M · B · Ctrl+Z / Ctrl+Y |
-| Texture Bench (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light · room for the preview (on the bar between preview and controls) | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) · drag, arrow keys, double-click resets |
+| Open NoorStream (in its dock, or bring its own window forward) | Ctrl+Alt+B |
+| NoorHub (your programs, games and sites) | Ctrl+Alt+H |
+| NoorRadio (your internet stations) · play / stop in the panel | Ctrl+Alt+I · Space |
+| NoorSound (wind, rain, effects) · in it: play / stop · play over and over · variation · mutate · A/B · undo / redo | Ctrl+Alt+K · Space · L · V · M · B · Ctrl+Z / Ctrl+Y |
+| NoorMaterial (materials for games) · in it: variation · A/B · undo / redo · turn the 3D preview · zoom · move the light · room for the preview (on the bar between preview and controls) | Ctrl+Alt+T · V · B · Ctrl+Z / Ctrl+Y · drag (or arrow keys on it) · wheel or + / − · Shift+drag or right-drag (Shift+arrow keys) · drag, arrow keys, double-click resets |
 | NoorSequencer (compose music) · in it: play / stop · play the loop · undo / redo · on a song-grid cell: pattern number · next / previous pattern · rest · new pattern · move · on the piano roll: play notes (white / black keys) · octave down / up | Ctrl+Alt+Q · Space · L · Ctrl+Z / Ctrl+Y · 0–9 · + / − (or the wheel) · Delete · N · arrow keys · A S D F G H J K ; / W E T Y U O P · Z / X |
-| Asset Bench (trees for games) · in it: variation · wireframe · play the wind · undo / redo · turn · zoom · move | Ctrl+Alt+M · V · W · Space · Ctrl+Z / Ctrl+Y · drag · wheel or + / − · right-drag or Shift+drag |
+| NoorForm (trees for games) · in it: variation · wireframe · play the wind · undo / redo · turn · zoom · move | Ctrl+Alt+M · V · W · Space · Ctrl+Z / Ctrl+Y · drag · wheel or + / − · right-drag or Shift+drag |
 | NoorForge (texture a model) · in it: undo / redo · turn · zoom · move | Ctrl+Alt+F · Ctrl+Z / Ctrl+Y · drag · wheel · right-drag |
 | NoorForge painting: brush on/off · eraser · stamp a decal · brush size · turn while painting · straight line · put the brush down | B · E · T · [ / ] · Alt+drag · Shift+click · Escape |
 | NoorForge stencil: move · size · turn | hold S and drag · hold S and wheel · hold S and Shift+wheel |
@@ -97,18 +97,18 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorSprite tools: pencil · eraser · fill · line · rectangle · ellipse · eyedropper (or hold Alt) · select · lasso · magic wand · move · slices · hand (or hold Space) | B · E · G · L · U · O · I · M · Q · W · V · C · H; gradient: D; bones: K; curve: J (Shift with the line: clean slopes); isometric box: Y |
 | NoorSprite: swap colours · brush size · zoom · fit · play / stop · previous / next frame · layer up / down · new frame · new linked frame · new layer · tiles / pixels on a tilemap layer · smooth lines (stronger, round to off) · in tile mode: turn / flip the tile · a brush from the selection | X · [ / ] · + / − (or the wheel) · 0 · Enter · , / . (or ← / →) · ↑ / ↓ · Alt+N · Alt+Shift+N · Shift+N · T · S · R / Shift+X, Shift+Y · Ctrl+B; a group / ungroup: Ctrl+G / Ctrl+Shift+G; the command search (and shortcuts of your own): Ctrl+K |
 | NoorSprite: undo / redo · new · open · save / save as · export · select all / none / turn round · copy · cut · paste · delete · nudge a selection · put it down | Ctrl+Z / Ctrl+Y · Ctrl+N · Ctrl+O · Ctrl+S / Ctrl+Shift+S · Ctrl+E · Ctrl+A / Ctrl+D / Ctrl+Shift+I · Ctrl+C · Ctrl+X · Ctrl+V · Delete · arrow keys (Shift: 10 px) · Enter |
-| Calendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |
-| Gallery (your pictures) | Ctrl+Alt+G |
+| NoorCalendar · in it: today · new entry · day off / not off · several days · month / week / agenda · earlier / later · undo a delete | Ctrl+Alt+C · T · N · O · drag or Shift+click · M / W / A · Page Up / Page Down · Ctrl+Z |
+| NoorGallery (your pictures) | Ctrl+Alt+G |
 | Voice note: record / stop (opens the recorder) | Ctrl+Alt+D |
-| Mic Guard: mute / unmute everywhere (works in any program; you choose a key, e.g. Ctrl+/ or F13, or a side mouse button) | your hotkey (Stream Desk › Mic Guard) |
+| Mic Guard: mute / unmute everywhere (works in any program; you choose a key, e.g. Ctrl+/ or F13, or a side mouse button) | your hotkey (NoorStream › Mic Guard) |
 | Mic Guard indicator: mute / unmute · move · menu | click · drag · right-click |
 | Close | Esc |
 
-### Gallery
+### NoorGallery
 
 | Action | Shortcut |
 |---|---|
-| Open the Gallery | Ctrl+Alt+G |
+| Open NoorGallery | Ctrl+Alt+G |
 | Open the chosen picture | Enter or double-click |
 | Choose several | Ctrl+click · Shift+click · Ctrl+A |
 | Stars: none / 1–5 | 0 / 1–5 |

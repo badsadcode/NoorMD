@@ -1911,7 +1911,7 @@ window.NoorSprite = (() => {
       ['Normal maps (for lit sprites)…', normalsDialog], ['A bitmap font (letters in the grid\'s cells)…', fontDialog], null,
       ['Check the colours (too close, barely used)…', colourCheck], ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
-      ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to the Texture Bench (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
+      ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to NoorMaterial (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
       ['Save as…', () => save(true)],
     ];
@@ -4001,9 +4001,9 @@ window.NoorSprite = (() => {
     await NoorForge.addPicture({ name: `${file ? file.name.replace(/\.[^.]+$/, '') : 'Sprite'} ${frame + 1}`, width: w, height: h, data: b64(g) });
   }
 
-  /** This frame (or a tilemap layer's tileset) into the Texture Bench, as a photo layer of a new material. */
+  /** This frame (or a tilemap layer's tileset) into NoorMaterial, as a photo layer of a new material. */
   async function toTexture() {
-    if (!window.NoorTexture) { notice('The Texture Bench isn\'t here', 1500); return; }
+    if (!window.NoorTexture) { notice('NoorMaterial isn\'t here', 1500); return; }
     let w = doc.width, h = doc.height, px = compose(frame, doc, null, true), name = file ? file.name.replace(/\.[^.]+$/, '') : 'sprite';
     if (isTilemap()) {
       // The tileset in a row, to make a material of the tiles.
@@ -4026,7 +4026,7 @@ window.NoorSprite = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
-  /** A sprite or a picture handed over (the Gallery's "Open in NoorSprite"). */
+  /** A sprite or a picture handed over (NoorGallery's "Open in NoorSprite"). */
   async function openFrom(r) {
     await open();
     if (dirty() && !await NoorUI.confirm('Open another sprite?', 'The sprite open now has changes not saved.', 'Open')) return;
@@ -4963,7 +4963,7 @@ window.NoorSprite = (() => {
         ...pick(more(), ['Rotate by any angle', 'Scale 2×', 'Scale 3×']), '-',
         ...pick(more(), ['Outline…', 'Clean doubled corners', 'Take out lone pixels', 'Fewer colours', 'Auto shade', 'Motion (']), '-',
         go('Effects…', effectsDialog), go('Sprite stacking…', stackDialog), go('Move round by half (seams to the middle)', wrapHalf), '-',
-        ...pick(more(), ['Normal maps', 'A bitmap font', 'This frame to NoorForge', 'This frame to the Texture Bench']),
+        ...pick(more(), ['Normal maps', 'A bitmap font', 'This frame to NoorForge', 'This frame to NoorMaterial']),
       ]],
       ['Layer', 'l', () => [
         go('New layer', addLayer, 'Shift+N'), go('New group', addGroup, 'Ctrl+G'), go('Ungroup', ungroup, 'Ctrl+Shift+G'), go('Duplicate', duplicateLayer), go('Merge down', mergeDown), go('Remove', removeLayer), '-',

@@ -5,7 +5,7 @@ using Xunit;
 
 namespace NoorMD.Media.Tests;
 
-/// <summary>NoorForge layers: plain and Texture Bench materials, smart masks, the texture set and the textured GLB.</summary>
+/// <summary>NoorForge layers: plain and NoorMaterial materials, smart masks, the texture set and the textured GLB.</summary>
 public class ForgeCompositorTests
 {
     private static readonly ForgeModel Model = ForgeModel.ReadObj(ForgeModelTests.CubeOnFloor(), "Test");

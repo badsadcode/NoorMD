@@ -14,7 +14,7 @@ namespace NoorMD;
 
 /// <summary>
 /// NoorSequencer: the page edits a song (tracks × bars of numbered patterns); the app renders it with the same code for
-/// listening and exporting, and serves the preview from memory at /_sound/{key}.wav like the Sound Bench. Export writes
+/// listening and exporting, and serves the preview from memory at /_sound/{key}.wav like NoorSound. Export writes
 /// the mix, a seamless loop, stems and MIDI with the song's recipe beside them. Your songs are recipes in the local data folder.
 /// </summary>
 public partial class MainWindow
@@ -245,7 +245,7 @@ public partial class MainWindow
                 }
                 case "seq.sample.fromSound":
                 {
-                    // A Sound Bench sound (a preset or one of yours) as an instrument: rendered once into the app's own folder.
+                    // NoorSound sound (a preset or one of yours) as an instrument: rendered once into the app's own folder.
                     var id = req.GetString("id", 300) ?? "";
                     var recipe = id.StartsWith("user:", StringComparison.Ordinal) ? SoundRecipe.FromJson(await File.ReadAllTextAsync(UserPresetPath(id))) : SoundPresets.Make(id);
                     AllowSamples(recipe);
@@ -260,7 +260,7 @@ public partial class MainWindow
                 }
                 case "seq.sample.library":
                 {
-                    // WAV files in the Music Bench's library (other formats can't be played as instruments yet).
+                    // WAV files in NoorMusic's library (other formats can't be played as instruments yet).
                     var search = req.GetString("search", 200);
                     var rows = await Task.Run(() => Music.Query(new NoorMD.Media.LibraryQuery(Search: string.IsNullOrWhiteSpace(search) ? null : search, Limit: 2000)).Rows);
                     return new
@@ -271,7 +271,7 @@ public partial class MainWindow
                 }
                 case "seq.sample.fromLibrary":
                 {
-                    var row = Music.Get((long)(Json.OptDouble(p, "id") ?? -1)) ?? throw new BridgeError("That track is no longer in the Music Bench.");
+                    var row = Music.Get((long)(Json.OptDouble(p, "id") ?? -1)) ?? throw new BridgeError("That track is no longer in NoorMusic.");
                     if (!row.Path.EndsWith(".wav", StringComparison.OrdinalIgnoreCase) || !File.Exists(row.Path)) throw new BridgeError("Only WAV files can be played as an instrument.");
                     if (new FileInfo(row.Path).Length > 100 * 1024 * 1024) throw new BridgeError("That file is too big (over 100 MB) for a sample.");
                     var full = Path.GetFullPath(row.Path);
@@ -383,11 +383,11 @@ public partial class MainWindow
                             try { vault = await SaveSongToVaultAsync(song, stem); }
                             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { notes.Add("The song couldn't be kept in the Vault: " + ex.Message); }
                     }
-                    // Optionally in the Music Bench too, to audition and rate (the song, the loop and the layers; not stems).
+                    // Optionally in NoorMusic too, to audition and rate (the song, the loop and the layers; not stems).
                     var music = 0;
                     if (Json.IsTrue(p, "musicBench"))
                         try { music = await AddToMusicBenchAsync(files); }
-                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to the Music Bench: " + ex.Message); }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException) { notes.Add("The files couldn't be added to NoorMusic: " + ex.Message); }
                     Log.Info($"NoorSequencer: exported {files.Count} file(s) of “{song.Name}”");
                     return new
                     {

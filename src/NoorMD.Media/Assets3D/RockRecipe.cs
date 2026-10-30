@@ -5,7 +5,7 @@ namespace NoorMD.Media.Assets3D;
 
 /// <summary>
 /// A rock, stone, boulder, outcrop or scree patch as a recipe (saved as .noorrock.json): its shape (size, height,
-/// stretch, roughness, fractures, layers, a flat base), its look (a Texture Bench material, moss on top, faceted or
+/// stretch, roughness, fractures, layers, a flat base), its look (NoorMaterial material, moss on top, faceted or
 /// smooth) and what a game needs (triangles per level, how far it sits in the ground, convex collision pieces).
 /// </summary>
 public sealed class RockRecipe
@@ -49,7 +49,7 @@ public sealed class RockRecipe
     public bool FlatBase { get; set; } = true;
     /// <summary>How far below the pivot the base reaches, as a share of the height (games sink rocks a little).</summary>
     public double Sink { get; set; } = 0.15;
-    /// <summary>The material: a rock surface (<see cref="RockTextures.Ids"/>, in the rock's colour), any Texture Bench preset id, or "" for a plain colour.</summary>
+    /// <summary>The material: a rock surface (<see cref="RockTextures.Ids"/>, in the rock's colour), any NoorMaterial preset id, or "" for a plain colour.</summary>
     public string Material { get; set; } = "rock";
     /// <summary>How much rock one texture tile covers (metres).</summary>
     public double TileMetres { get; set; } = 1.5;

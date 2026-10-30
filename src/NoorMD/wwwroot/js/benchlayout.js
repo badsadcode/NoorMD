@@ -1,4 +1,4 @@
-/* NoorMD — how a bench with a preview and controls is arranged (Texture Bench, Asset Bench): one above the other or
+/* NoorMD — how a bench with a preview and controls is arranged (NoorMaterial, NoorForm): one above the other or
    side by side, the list of presets shown or hidden, and the bar between them dragged to share the room. Remembered
    per bench. Side by side, a bench can have its preview take the free room and the controls a set width (sideSized:
    'edit'), and can move its top row (name, seed…) into the controls so the preview gets the full height. */

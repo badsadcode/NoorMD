@@ -7,7 +7,7 @@ namespace NoorMD.Core.Export;
 
 /// <summary>
 /// Where a bench's export goes inside the folder you choose (or a game project's folder), and what its files are
-/// called: a folder pattern and a file-name pattern with tokens. Texture Bench, Sound Bench, NoorSequencer and the Asset Bench share the templates.
+/// called: a folder pattern and a file-name pattern with tokens. NoorMaterial, NoorSound, NoorSequencer and NoorForm share the templates.
 /// </summary>
 /// <param name="TextureFolder">Folder for a material's maps, recipe and paintings.</param>
 /// <param name="TextureFile">A map's file name (without .png).</param>

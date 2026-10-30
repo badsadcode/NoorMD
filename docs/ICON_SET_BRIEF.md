@@ -7,8 +7,8 @@ Copy everything from "PROMPT" to the end into the agent. It is self-contained.
 ## PROMPT
 
 You are designing and drawing a complete, consistent icon set for **NoorMD**, a Windows desktop writing studio
-(Markdown editor) with creative "benches": Music, Video, Gallery, Radio, Sound (procedural sound effects), Texture
-(procedural PBR materials for games), NoorSketch (drawing), a Stream Desk (for live streaming), an Apps Hub and
+(Markdown editor) with creative "benches": Music, Video, NoorGallery, NoorRadio, Sound (procedural sound effects), Texture
+(procedural PBR materials for games), NoorSketch (drawing), NoorStream (for live streaming), NoorHub and
 Vaults (folders of linked notes). The app's UI is a web page (WebView2), dark and light themes, accent colour
 violet. Icons are drawn inline as SVG paths.
 
@@ -62,10 +62,10 @@ dock-center — put a panel in the middle as a tab · window — pop out to its 
 layouts · goal — writing goal (target).
 
 **3. The benches (each needs a strong, distinct silhouette; they are shown as panel and tab icons).**
-music — Music Bench (music library) · video — Video Bench · gallery — Gallery (picture manager) · radio —
-Radio Bench (internet radio) · sound — Sound Bench (procedural sound effects: a waveform, not a speaker) ·
-texture — Texture Bench (materials: a tiled square with a bevelled tile, or a sphere with a tile pattern) ·
-sketch — NoorSketch (pen) · stream — Stream Desk (live) · apps — Apps Hub (grid of tiles) · voice — voice notes
+music — NoorMusic (music library) · video — NoorVideo · gallery — NoorGallery (picture manager) · radio —
+NoorRadio (internet radio) · sound — NoorSound (procedural sound effects: a waveform, not a speaker) ·
+texture — NoorMaterial (materials: a tiled square with a bevelled tile, or a sphere with a tile pattern) ·
+sketch — NoorSketch (pen) · stream — NoorStream (live) · apps — NoorHub (grid of tiles) · voice — voice notes
 (microphone) · sequencer — NoorSequencer, a composer (piano-roll blocks on a grid).
 
 **4. Media and transport.**
@@ -88,7 +88,7 @@ filter — filter (a curve falling off) · resonator — resonator (a string or 
 (stacked squares with a down arrow) · folder-open — reveal the folder · project — a game project (folder with a
 game-controller-like corner, no brand) · preset — a preset · preset-save — save as preset.
 
-**6. Texture Bench: views, lights, shapes, maps and layer kinds.**
+**6. NoorMaterial: views, lights, shapes, maps and layer kinds.**
 view-3d — 3D preview · view-flat — flat tiled map · sphere · cube · rounded-cube · plane · light — a light
 (bulb) · light-orbit — light going round (bulb on a circular arrow) · zoom-in · zoom-out · reset-view ·
 side-by-side — preview and controls side by side · list — show/hide a list · depth — parallax depth ·

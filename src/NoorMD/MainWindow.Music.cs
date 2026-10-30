@@ -12,7 +12,7 @@ namespace NoorMD;
 /// <summary>
 /// Creator's Bench host side: the music index, background scanning, audio/artwork serving and track editing.
 /// The page refers to tracks only by library id; paths come from native dialogs, never from the page.
-/// Nothing here starts until the Music Bench is first used.
+/// Nothing here starts until NoorMusic is first used.
 /// </summary>
 public partial class MainWindow
 {

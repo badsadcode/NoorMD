@@ -13,9 +13,9 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// The detached Video Bench player: a small window that can stay on top of other programs (a game, the editor, OBS)
+/// The detached NoorVideo player: a small window that can stay on top of other programs (a game, the editor, OBS)
 /// while a tutorial or episode plays. It has its own page (wwwroot/video.html) and reports the position back, so
-/// resume and notes keep working; closing it hands the video back to the Video Bench at the same moment.
+/// resume and notes keep working; closing it hands the video back to NoorVideo at the same moment.
 /// </summary>
 public sealed class VideoWindow : Window
 {

@@ -1,6 +1,6 @@
 namespace NoorMD.Media;
 
-// Sound Bench modulation: sources (LFOs, envelopes, smooth random, step sequences, drawn curves and named knobs) routed
+// NoorSound modulation: sources (LFOs, envelopes, smooth random, step sequences, drawn curves and named knobs) routed
 // to targets (a layer's level, pan, pitch, filter or event density; an effect's mix, EQ or drive; the master level or
 // high cut). Each route has its own amount and response curve, so one knob ("Motor RPM") can move many things at once,
 // each in its own way. Nothing here changes the recipe's values: modulation is added while the sound is rendered.

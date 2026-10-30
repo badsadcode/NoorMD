@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace NoorMD.Media;
 
-// Texture Bench: tileable procedural materials. A stack of layers builds a height field (0–1); the surface settings
+// NoorMaterial: tileable procedural materials. A stack of layers builds a height field (0–1); the surface settings
 // turn it into PBR maps (albedo, normal, roughness, ambient occlusion, metallic, height). Every generator works on
 // whole-number frequencies over a wrapped lattice, so every map tiles without a seam, at any size. The same recipe
 // and seed always give the same pixels.
@@ -253,7 +253,7 @@ public sealed class TextureRecipe
             if (l.Type is "weave" or "checker") { l.ScaleX += l.ScaleX & 1; l.ScaleY += l.ScaleY & 1; }
             if (l.Type == "bricks" && l.Offset > 0 || l.Type == "hexagons") l.ScaleY += l.ScaleY & 1;
         }
-        // Stable ids, as in the Sound Bench: valid ones kept (the first of repeats), the others the lowest free number.
+        // Stable ids, as in NoorSound: valid ones kept (the first of repeats), the others the lowest free number.
         var used = new HashSet<string>(StringComparer.Ordinal);
         var keep = Layers.Select(l => l.Id is { Length: > 1 and <= 8 } id && id[0] == 'T' && id[1..].All(char.IsAsciiDigit) && used.Add(id)).ToList();
         for (var i = 0; i < Layers.Count; i++) { if (keep[i]) continue; var n = 1; while (!used.Add("T" + n)) n++; Layers[i].Id = "T" + n; }

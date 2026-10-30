@@ -116,7 +116,7 @@ This report checks the build against [ACCEPTANCE_CHECKLIST.md](ACCEPTANCE_CHECKL
 These are best checked on your machine.
 
 **Defect found by the Windows self-test and fixed before release.** The first Windows CI run
-of the Music Bench passed its visible checks, but its log showed `music.query` failing. The
+of NoorMusic passed its visible checks, but its log showed `music.query` failing. The
 page sends `null` for "no filter", and .NET's `JsonElement.TryGetInt32` throws on null instead
 of returning false, so on a real PC the library list would not have loaded. The Chromium UI
 tests could not see it, because their mock host is JavaScript.
@@ -175,7 +175,7 @@ itself (not from a page request) stayed in the page's tab strip. The host now se
 **Defect found and fixed during this work.** In the explorer, F2 was taken by the global
 “edit current track” shortcut. It now renames in the explorer and edits the track elsewhere.
 
-## 2.0.0-preview.4 (Batch Organizer, music polish, Video Bench, Stream Desk)
+## 2.0.0-preview.4 (Batch Organizer, music polish, NoorVideo, NoorStream)
 
 Evidence: 115 Core and 75 Media xUnit tests; Playwright UI tests (sections 15–23) against the mock
 host; and the Windows self-test on real WebView2 in CI.
@@ -191,13 +191,13 @@ host; and the Windows self-test on real WebView2 in CI.
 | OBS Now Playing overlay, designs and customising | ✅ | Unit tests: loopback-only server, 404 outside the overlay folder, 421 for other Host names, 405 for POST, SSE push with replay. UI tests: six designs, live preview, settings sent to the overlays, the OBS page renders from the event stream on a transparent background. Windows self-test: real HTTP and SSE from the packaged app; DNS-rebinding refusal; now-playing.txt. |
 | Supporters list and credits roll with effects and a simple effect builder | ✅ | Unit tests: the Markdown table round-trips and keeps the rest of the note; CSV, TSV and plain-line imports; merge (new, updated, back, left); only web links kept. UI tests: only active people in the roll; channel short names; new effect from an existing one; emoji particles drawn; preview scroll; Roll credits in OBS; supporters added, marked left, imported and saved. OBS credits page starts by itself. Windows self-test: supporters note written in a Vault with Polish names. |
 | Stream history with templates (title, description, keywords, thumbnail, date) | ✅ | Unit tests: templates and date formats; chapters (start at 00:00, ≥ 10 s); note round trip; file names. UI tests: template applied; tracklist recorded while music plays; copied description contains chapters; thumbnail; saved and listed. Windows self-test: note saved in a Vault and read back. |
-| Video Bench like the Music Bench: library, Up next, playlists, audio tracks (preview.7) | ✅ | Unit tests: filters, sorts and search; playlists keep their order, survive rescans, and can be renamed and deleted. UI tests: playing row highlighted and followed; filters, series and search; double-click, Next/Previous, shuffle, repeat; Shift+click and the right-click menu; a playlist from a selection and from a whole series; reorder, remove, rename, play from the first unwatched, delete; Up next; a two-language WebM offers 🔊 English / Polski and A switches; a 360 px panel keeps its controls inside. Music Bench: playing song highlighted, ◎ selects it, 300 px panel doesn't overflow. Windows self-test: the same two-language WebM switches tracks in WebView2. |
+| NoorVideo like NoorMusic: library, Up next, playlists, audio tracks (preview.7) | ✅ | Unit tests: filters, sorts and search; playlists keep their order, survive rescans, and can be renamed and deleted. UI tests: playing row highlighted and followed; filters, series and search; double-click, Next/Previous, shuffle, repeat; Shift+click and the right-click menu; a playlist from a selection and from a whole series; reorder, remove, rename, play from the first unwatched, delete; Up next; a two-language WebM offers 🔊 English / Polski and A switches; a 360 px panel keeps its controls inside. NoorMusic: playing song highlighted, ◎ selects it, 300 px panel doesn't overflow. Windows self-test: the same two-language WebM switches tracks in WebView2. |
 | Mic Guard: one switch for the Windows mic and OBS, read back, hotkey, indicator (preview.9) | ✅ / ⚠ | Unit tests: the verdict and hotkey rules (out of step → mute both; unsure → mute); the obs-websocket 5 auth string matches the protocol's published example; a fake obs-websocket server: password handshake, wrong and missing password, OBS not running, audio inputs only, explicit SetInputMute, OBS-side changes as events, a lost connection. UI tests: off by default, devices, LIVE / CHECK / MUTED, toggle and Mute everywhere, password kept out of the page and settings, hotkey capture, indicator, Ctrl+K. Windows self-test: Credential Manager round trip with Polish characters, Core Audio lists microphones and reads mute (without changing it), a global hotkey registers and releases, the indicator opens on top without focus and is excluded from capture. Not tested by a person: a real OBS, Discord with a muted mic, games in full screen. |
 | Not tested by a person | ⚠ | OBS itself (Browser Source rendering, `obsSourceVisibleChanged`), 125–200 % scaling, multi-monitor pop-out placement, MKV files with unusual codecs, very large libraries for the Batch Organizer. |
 
 **Defects found and fixed during this work.**
 - Submenus covered their own parent item next to the right edge; they now open to the left.
-- The first shortcut chosen for the Stream Desk clashed with Ctrl+Alt+S (snapshot); it is now Ctrl+Alt+B.
+- The first shortcut chosen for NoorStream clashed with Ctrl+Alt+S (snapshot); it is now Ctrl+Alt+B.
 - The pop-out page used relative media URLs; they now start with `/`.
 - Two settings forms edited stale copies of their objects after the first change.
 - The supporters import merged into the saved list instead of the one on screen.

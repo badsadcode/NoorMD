@@ -1,4 +1,4 @@
-// Asset Bench: game-ready trees and rocks, realistic or stylized. The page edits a recipe; the app grows the tree, meshes it
+// NoorForm: game-ready trees and rocks, realistic or stylized. The page edits a recipe; the app grows the tree, meshes it
 // (welded limbs, real collars and root flare, not scaled cylinders) and builds every level of detail; the preview shows
 // the very GLB an export writes. Exports go to a folder or a game project, with the recipe and a manifest beside them.
 window.NoorAssets = (() => {
@@ -96,14 +96,14 @@ window.NoorAssets = (() => {
 
   function build_() {
     built = true;
-    const root = el('section', { id: 'assetbench', class: 'soundbench texbench assetbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Asset Bench' },
+    const root = el('section', { id: 'assetbench', class: 'soundbench texbench assetbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorForm' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🌳' }), el('strong', { text: 'Asset Bench' }), el('small', { id: 'ab-kind' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🌳' }), el('strong', { text: 'NoorForm' }), el('small', { id: 'ab-kind' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'ab-open', title: 'Open a recipe (.noortree.json or .noorrock.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
-          NoorDock.fullButton('Asset Bench'),
-          el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move the Asset Bench', onclick: (e) => NoorDock.showMenu('assets', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+M)', 'aria-label': 'Close the Asset Bench', onclick: close }, '✕'))),
+          NoorDock.fullButton('NoorForm'),
+          el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move NoorForm', onclick: (e) => NoorDock.showMenu('assets', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+M)', 'aria-label': 'Close NoorForm', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
         el('nav', { class: 'sb-presets', id: 'ab-presets', 'aria-label': 'Trees and rocks' }),
         el('div', { class: 'sb-editor' },
@@ -140,7 +140,7 @@ window.NoorAssets = (() => {
               el('div', { class: 'music-tabs sb-tabs', id: 'ab-tabs', role: 'tablist' }),
               el('div', { class: 'sb-pane', id: 'ab-pane' }))))));
     ($('#app') || document.body).append(root);
-    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('assets', { name: 'Asset Bench', title: appTitle, menus: appMenus });
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('assets', { name: 'NoorForm', title: appTitle, menus: appMenus });
     $('#ab-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false, true); });
     $('#ab-seed').addEventListener('change', (e) => { recipe.seed = Math.max(0, Math.min(2147483647, Math.round(Number(e.target.value) || 0))); changed(false); });
     $('#ab-lod').addEventListener('change', (e) => setLod(Number(e.target.value) || 0));
@@ -162,7 +162,7 @@ window.NoorAssets = (() => {
       root, storageKey: 'noormd.assets.layout', split: $('#ab-split'), viewCol: $('#ab-view-col'), editCol: $('#ab-edit-col'), splitter: $('#ab-splitter'),
       sideButton: $('#ab-side'), listButton: $('#ab-list'), top: $('#ab-top'), sideSized: 'edit',
     });
-    try { viewer = NoorAssetView.create($('#ab-canvas')); viewer.setMode(viewMode); } catch (err) { console.warn('Asset Bench: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2, which is not available here. Exports still work.'); }
+    try { viewer = NoorAssetView.create($('#ab-canvas')); viewer.setMode(viewMode); } catch (err) { console.warn('NoorForm: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2, which is not available here. Exports still work.'); }
   }
 
   /** How the bench is arranged (NoorBenchLayout, remembered). */
@@ -593,7 +593,7 @@ window.NoorAssets = (() => {
         recipe.moss > 0 ? colour(recipe, 'mossColor', 'Moss colour') : null,
         slider(recipe, ['vines', 'Vines', 0, 60, 1, 'int', 'Vines hanging from the branches'])),
       section('Bark',
-        choice(recipe, 'barkMaterial', 'Material', barkOptions, 'A Texture Bench material for the bark (colour, normal and ORM maps)'),
+        choice(recipe, 'barkMaterial', 'Material', barkOptions, 'NoorMaterial material for the bark (colour, normal and ORM maps)'),
         colour(recipe, 'barkColor', 'Colour'),
         slider(recipe, ['barkTile', 'Bark tile', 0.05, 20, 0.05, 'm', 'How much bark one texture covers']),
         ownPicture('barkImage', 'bark', 'Your own bark picture…', 'A tiling bark texture (colour only)')),
@@ -634,7 +634,7 @@ window.NoorAssets = (() => {
     const materials = [['', 'Plain colour'], ...rockPresets.materials.map((m) => [m.id, m.name])];
     return [
       section('Material',
-        choice(recipe, 'material', 'Material', materials, 'The rock’s surface (colour, normal and ORM maps), made in its colour; or a Texture Bench material'),
+        choice(recipe, 'material', 'Material', materials, 'The rock’s surface (colour, normal and ORM maps), made in its colour; or NoorMaterial material'),
         colour(recipe, 'color', 'Colour'),
         slider(recipe, ['tileMetres', 'Texture tile', 0.05, 20, 0.05, 'm', 'How much rock one texture covers: the same for every rock, so they all share one texel density'])),
       section('Moss and snow',
@@ -843,9 +843,9 @@ window.NoorAssets = (() => {
     finally { const b = $('#ab-export'); if (b) b.disabled = false; }
   }
 
-  // ---------------------------------------------------------------- the Asset Bench as an app: its menus and shortcuts
+  // ---------------------------------------------------------------- NoorForm as an app: its menus and shortcuts
 
-  // In focus mode with the Asset Bench in the middle, the window's menu bar is the bench's own (see NoorChrome.registerBench).
+  // In focus mode with NoorForm in the middle, the window's menu bar is the bench's own (see NoorChrome.registerBench).
   function benchChanged() { if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged(); }
 
   /** A tab of the editor shown (the Export tab, the Leaves & bark tab…). */
@@ -887,27 +887,27 @@ window.NoorAssets = (() => {
     return out.length ? out : [{ label: 'No presets yet', disabled: true }];
   }
 
-  /** Every key the Asset Bench knows. */
+  /** Every key NoorForm knows. */
   function shortcutsDialog() {
     const rows = [
       ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['A variation (another seed)', 'V'], ['Wireframe on / off', 'W'], ['Wind on / off (trees)', 'Space'],
       ['Turn the model', 'drag'], ['Move the model', 'right-drag or Shift+drag'], ['Zoom', 'the mouse wheel'],
-      ['Back to NoorMD (out of the whole window)', 'Esc'], ['Focus mode (the Asset Bench as an app) on / off', 'F11'], ['Open or close the Asset Bench', 'Ctrl+Alt+M'],
+      ['Back to NoorMD (out of the whole window)', 'Esc'], ['Focus mode (NoorForm as an app) on / off', 'F11'], ['Open or close NoorForm', 'Ctrl+Alt+M'],
     ];
-    NoorUI.modal({ label: 'Asset Bench shortcuts', width: 520 }, (s2, closeIt) => {
-      s2.append(NoorUI.head('Asset Bench shortcuts', closeIt),
+    NoorUI.modal({ label: 'NoorForm shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorForm shortcuts', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'ab-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
     });
   }
 
   const appTitle = () => {
-    if (!recipe) return 'Asset Bench';
+    if (!recipe) return 'NoorForm';
     const what = isRock() ? (ROCK_KINDS.find((k) => k[0] === recipe.kind) || ['', 'Rock'])[1].replace(/ \(.*$/, '') : (ARCHETYPES.find((a) => a[0] === recipe.archetype) || ['', 'Tree'])[1].replace(/ \(.*$/, '');
-    return `Asset Bench — ${recipe.name || 'Untitled'}${keptSnapshot && JSON.stringify(recipe) !== keptSnapshot ? ' •' : ''} · ${what}${build ? `, ${build.lods.length} level${build.lods.length === 1 ? '' : 's'} of detail` : ''}`;
+    return `NoorForm — ${recipe.name || 'Untitled'}${keptSnapshot && JSON.stringify(recipe) !== keptSnapshot ? ' •' : ''} · ${what}${build ? `, ${build.lods.length} level${build.lods.length === 1 ? '' : 's'} of detail` : ''}`;
   };
 
-  /** The Asset Bench's menu bar: [name, its Alt letter, its items]. */
+  /** NoorForm's menu bar: [name, its Alt letter, its items]. */
   function appMenus() {
     const go = (label, run, keys, more = {}) => ({ label, keys, run, ...more });
     const none = () => !recipe;
@@ -925,7 +925,7 @@ window.NoorAssets = (() => {
         go('A variety pack…', () => { showTab('export'); $('#ab-variants')?.focus(); }, '', { disabled: none, title: 'Many of this kind, each from its own seed (on the Export tab)' }),
         go('Show the last export in its folder', () => req('asset.reveal', { folder: lastExport.folder }).catch(hooks.showError), '', { disabled: () => !lastExport }), '-',
         go('Texture it in NoorForge…', () => { if (build && recipe && window.NoorForge) NoorForge.openAsset(build.key, recipe.name, isRock()); }, '', { disabled: () => !build || !window.NoorForge }), '-',
-        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Asset Bench', close, 'Ctrl+Alt+M'),
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorForm', close, 'Ctrl+Alt+M'),
       ]],
       ['Edit', 'e', () => [
         go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !recipe || (!history.length && JSON.stringify(recipe) === lastSnapshot) }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
@@ -948,9 +948,9 @@ window.NoorAssets = (() => {
         go('Zoom in', () => viewer && viewer.zoom(1 / 1.2), '', { disabled: () => !viewer }), go('Zoom out', () => viewer && viewer.zoom(1.2), '', { disabled: () => !viewer }), go('Back to the whole model', () => viewer && viewer.reset(), '', { disabled: () => !viewer }), '-',
         { label: 'Settings beside the model', checked: () => !!layout.prefs.side, run: () => layout.set({ side: !layout.prefs.side }) },
         { label: 'The list of trees and rocks', checked: () => layout.prefs.list !== false, run: () => layout.set({ list: !layout.prefs.list }) }, '-',
-        { id: 'view.focus', label: 'Focus mode (the Asset Bench as an app)' },
+        { id: 'view.focus', label: 'Focus mode (NoorForm as an app)' },
       ]],
-      ['Help', 'h', () => [go('Asset Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+      ['Help', 'h', () => [go('NoorForm shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
     ];
   }
 

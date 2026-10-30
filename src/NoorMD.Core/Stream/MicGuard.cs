@@ -35,7 +35,7 @@ public static class MicGuard
         _ => "OFF",
     };
 
-    /// <summary>A sentence for the indicator's tooltip and the Stream Desk.</summary>
+    /// <summary>A sentence for the indicator's tooltip and NoorStream.</summary>
     public static string Explain(MicVerdict v, MicSide windows, MicSide obs) => v switch
     {
         MicVerdict.Mismatch => $"Out of step: Windows mic {Word(windows)}, OBS {Word(obs)}. Press the hotkey to mute both.",

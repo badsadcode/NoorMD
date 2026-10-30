@@ -19,7 +19,7 @@ window.NoorSketch = (() => {
   let zoom = 1, panX = 0, panY = 0;
   let undo = [], redo = [], undoBytes = 0, savedMarker = null, docPath = null, docName = 'Untitled sketch';
   let stroke = null, panning = null, spaceDown = false, dirtyRect = null, rafPending = false;
-  // Painting for a material (opened from the Texture Bench): the material shows underneath, strokes wrap around the
+  // Painting for a material (opened from NoorMaterial): the material shows underneath, strokes wrap around the
   // edges (so the painting tiles), and saving applies it to the material.
   let texture = null; // { material, under: { width, height, rgba } | null, show }
 
@@ -336,7 +336,7 @@ window.NoorSketch = (() => {
     const apply = $('#sketch-save');
     apply.textContent = 'Apply to material';
     apply.classList.add('primary');
-    apply.title = 'Apply to the material (Ctrl+S): the Texture Bench shows it at once';
+    apply.title = 'Apply to the material (Ctrl+S): NoorMaterial shows it at once';
     apply.setAttribute('aria-label', apply.title);
     const show = el('input', { type: 'checkbox', id: 'sketch-show-material', checked: true });
     show.addEventListener('change', () => showUnderlay(show.checked));

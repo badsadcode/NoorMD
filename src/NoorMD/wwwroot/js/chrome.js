@@ -70,7 +70,7 @@ window.NoorChrome = (() => {
     navigation: { label: 'Navigation', items: [['find.show', 'find', 'Find'], ['view.sidebar', 'sidebar', 'Sidebar'], ['tab.switch', 'tabs', 'Documents']] },
     view: { label: 'View', items: ['modes', ['width.cycle', 'width', 'Width'], ['view.focus', 'focus', 'Focus']] },
     tools: { label: 'Tools', items: [['snapshot.create', 'snapshot', 'Snapshot'], ['palette.show', 'palette', 'Commands']] },
-    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'Music Bench'], ['video.toggle', 'film', 'Video Bench'], ['stream.toggle', 'broadcast', 'Stream Desk']] },
+    media: { label: 'Media', items: ['nowplaying', ['music.shuffle', 'shuffle', 'Shuffle'], ['music.random', 'dice', 'Random'], ['music.toggle', 'music', 'NoorMusic'], ['video.toggle', 'film', 'NoorVideo'], ['stream.toggle', 'broadcast', 'NoorStream']] },
   };
   const DEFAULT_ORDER = ['document', 'writing', 'navigation', 'view', 'tools', 'media'];
   // When the window is narrow, the least important buttons move into "More" first (higher = kept longer).

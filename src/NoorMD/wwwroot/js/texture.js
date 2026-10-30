@@ -1,4 +1,4 @@
-// NoorMD Texture Bench: tileable procedural materials for games (stone, ground, wood, metal, walls, fabric). The page
+// NoorMD NoorMaterial: tileable procedural materials for games (stone, ground, wood, metal, walls, fabric). The page
 // edits a recipe; the app renders its maps (the same recipe and seed always give the same pixels) and the page shows
 // them lit in 3D and as flat, tiled maps. Export writes PNG maps for a game engine with the recipe beside them.
 window.NoorTexture = (() => {
@@ -292,14 +292,14 @@ window.NoorTexture = (() => {
 
   function build() {
     built = true;
-    const root = el('section', { id: 'texturebench', class: 'soundbench texbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'Texture Bench' },
+    const root = el('section', { id: 'texturebench', class: 'soundbench texbench', hidden: true, tabindex: '-1', role: 'region', 'aria-label': 'NoorMaterial' },
       el('header', { class: 'music-head' },
-        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🧱' }), el('strong', { text: 'Texture Bench' }), el('small', { id: 'tb-family' })),
+        el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🧱' }), el('strong', { text: 'NoorMaterial' }), el('small', { id: 'tb-family' })),
         el('span', { class: 'panel-head-buttons' },
           el('button', { class: 'icon-btn', id: 'tb-open', title: 'Open a recipe (.noortex.json)', 'aria-label': 'Open a recipe', onclick: openRecipe }, '📂'),
-          NoorDock.fullButton('Texture Bench'),
-          el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move the Texture Bench', onclick: (e) => NoorDock.showMenu('texture', e.currentTarget) }, '⊞'),
-          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+T)', 'aria-label': 'Close the Texture Bench', onclick: close }, '✕'))),
+          NoorDock.fullButton('NoorMaterial'),
+          el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move NoorMaterial', onclick: (e) => NoorDock.showMenu('texture', e.currentTarget) }, '⊞'),
+          el('button', { class: 'icon-btn', title: 'Close (Ctrl+Alt+T)', 'aria-label': 'Close NoorMaterial', onclick: close }, '✕'))),
       el('div', { class: 'sb-main' },
         el('nav', { class: 'sb-presets', id: 'tb-presets', 'aria-label': 'Materials' }),
         el('div', { class: 'sb-editor' },
@@ -377,14 +377,14 @@ el('span', { class: 'tb-zoom' },
       else if (e.key.toLowerCase() === 'v' && !e.ctrlKey && !e.altKey) { e.preventDefault(); newVariation(); }
       else if (e.key.toLowerCase() === 'b' && !e.ctrlKey && !e.altKey && pinned) { e.preventDefault(); flipAB(); }
     });
-    try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); if (shape !== 'sphere') gl3d.setShape(shape); if (show !== 'material') gl3d.setMode(show); } catch (err) { console.warn('Texture Bench: no 3D preview', err); gl3d = null; }
+    try { gl3d = Viewer($('#tb-canvas')); gl3d.setLights(lightsId); if (shape !== 'sphere') gl3d.setShape(shape); if (show !== 'material') gl3d.setMode(show); } catch (err) { console.warn('NoorMaterial: no 3D preview', err); gl3d = null; }
     layout = NoorBenchLayout.attach({
       root: $('#texturebench'), storageKey: 'noormd.texture.layout', split: $('#tb-split'), viewCol: $('#tb-view-col'), editCol: $('#tb-edit-col'),
       splitter: $('#tb-splitter'), sideButton: $('#tb-side'), listButton: $('#tb-list'), onChange: () => { fitFlat(); if (gl3d) gl3d.resize(); },
     });
     new ResizeObserver(() => { fitFlat(); if (gl3d) gl3d.resize(); }).observe($('#tb-stage'));
     setView(view);
-    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('texture', { name: 'Texture Bench', title: appTitle, menus: appMenus });
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('texture', { name: 'NoorMaterial', title: appTitle, menus: appMenus });
   }
 
   // The 3D preview's choices, from its own controls and from the menus (each control follows).
@@ -860,7 +860,7 @@ el('span', { class: 'tb-zoom' },
       mapsToWrite(prefs),
       where.node,
       el('div', { class: 'sb-row' },
-        check('tb-to-gallery', 'Show them in the Gallery', 'Adds the folder to the Gallery (if no Gallery folder holds it yet) and tags the maps “material” and with its name', 'gallery'),
+        check('tb-to-gallery', 'Show them in NoorGallery', 'Adds the folder to NoorGallery (if no NoorGallery folder holds it yet) and tags the maps “material” and with its name', 'gallery'),
         check('tb-to-vault', 'Keep the recipe in the Vault', 'Copies the recipe (with its paintings) and a small picture to the open Vault’s Materials folder; open it from there later', 'vault')),
       el('div', { class: 'sb-row' },
         el('button', { class: 'action primary', id: 'tb-export', onclick: exportMaps }, '⤓ Export PNG maps…'),
@@ -953,7 +953,7 @@ el('span', { class: 'tb-zoom' },
       ...(n > 60 ? [el('span', { class: 'pref-hint', text: `… and ${n - 60} more` })] : []));
     return el('details', { class: 'sb-fxgroup tb-batch', id: 'tb-batch', open: n ? true : undefined },
       el('summary', { text: `Batch: PBR maps for many pictures${n ? ` (${n})` : ''}` }),
-      el('p', { class: 'pref-hint', text: 'Albedo textures or photos in, a full set of maps out for each: normal, roughness, AO, height and the rest, written with the settings above (target, maps, packing, folder layout or game project). From the Gallery: right-click pictures › Open in › Texture Bench › Make PBR maps for each.' }),
+      el('p', { class: 'pref-hint', text: 'Albedo textures or photos in, a full set of maps out for each: normal, roughness, AO, height and the rest, written with the settings above (target, maps, packing, folder layout or game project). From NoorGallery: right-click pictures › Open in › NoorMaterial › Make PBR maps for each.' }),
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'tb-batch-pick', onclick: pickBatchPictures }, '＋ Pictures…'),
         n ? el('button', { class: 'utility-btn', id: 'tb-batch-clear', onclick: () => { batch.pictures = []; renderEditor(); } }, 'Clear the list') : null),
@@ -1058,7 +1058,7 @@ el('span', { class: 'tb-zoom' },
       if (!r || r.cancelled) return;
       if (status) {
         const more = [r.paintings ? `${r.paintings === 1 ? 'Its painting went' : `Its ${r.paintings} paintings went`} along.` : '',
-          r.gallery != null ? `In the Gallery, tagged “material”.` : '', r.vault ? `Recipe kept in the Vault: ${r.vault}.` : '', ...(r.notes || [])].filter(Boolean).join(' ');
+          r.gallery != null ? `In NoorGallery, tagged “material”.` : '', r.vault ? `Recipe kept in the Vault: ${r.vault}.` : '', ...(r.notes || [])].filter(Boolean).join(' ');
         const into = r.project ? `${r.project}: ${r.relative && r.relative !== '.' ? r.relative : 'its folder'}` : r.folder;
         status.replaceChildren(el('span', { text: `Saved ${r.files.length} maps and the recipe in ${into}. ${more} ` }),
           el('button', { class: 'utility-btn', id: 'tb-reveal', onclick: () => req('texture.reveal', { folder: r.folder }).catch(hooks.showError) }, '📁 Open the folder'));
@@ -1387,9 +1387,9 @@ el('span', { class: 'tb-zoom' },
     };
   }
 
-  // ---------------------------------------------------------------- the Texture Bench as an app: its menus and settings
+  // ---------------------------------------------------------------- NoorMaterial as an app: its menus and settings
 
-  // In focus mode with the Texture Bench in the middle, the window's menu bar is the Texture Bench's own (see NoorChrome.registerBench).
+  // In focus mode with NoorMaterial in the middle, the window's menu bar is NoorMaterial's own (see NoorChrome.registerBench).
   const SETTINGS_KEY = 'noortexture.settings';
   const SHAPES = [['sphere', 'Sphere'], ['rounded', 'Rounded cube'], ['cube', 'Cube'], ['plane', 'Plane']];
   const SETTINGS_DEFAULTS = { shape: 'sphere', tiling: 2, show: 'material' };
@@ -1401,7 +1401,7 @@ el('span', { class: 'tb-zoom' },
   if (SHOW.some(([v]) => v === settings.show)) show = settings.show;
 
   function settingsDialog() {
-    NoorUI.modal({ label: 'Texture Bench settings', width: 460 }, (s2, closeIt) => {
+    NoorUI.modal({ label: 'NoorMaterial settings', width: 460 }, (s2, closeIt) => {
       const sel = (id, label, options, value) => { const x = el('select', { id, 'aria-label': label }, ...options.map(([v, t]) => el('option', { value: String(v), text: t }))); x.value = String(value); return x; };
       const p = exportPrefs();
       const shp = sel('tb-pref-shape', 'Preview shape', SHAPES, settings.shape);
@@ -1417,9 +1417,9 @@ el('span', { class: 'tb-zoom' },
         setShape(settings.shape); setTiling(settings.tiling); setShow(settings.show); setLights(lit.value);
         closeIt();
         if (tab === 'export') renderEditor();
-        notice('Texture Bench settings kept', 1200);
+        notice('NoorMaterial settings kept', 1200);
       };
-      s2.append(NoorUI.head('Texture Bench settings', closeIt),
+      s2.append(NoorUI.head('NoorMaterial settings', closeIt),
         el('div', { class: 'modal-body sp-dlg' },
           el('h4', { class: 'music-subhead', text: 'The 3D preview starts with' }),
           el('label', {}, 'Shape ', shp), el('label', {}, 'Tiling ', til), el('label', {}, 'Showing ', shw), el('label', {}, 'Lighting ', lit),
@@ -1429,16 +1429,16 @@ el('span', { class: 'tb-zoom' },
     });
   }
 
-  /** Every key the Texture Bench knows. */
+  /** Every key NoorMaterial knows. */
   function shortcutsDialog() {
     const rows = [
       ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['Another variation (the next seed)', 'V'], ['Compare: A (pinned) or B (now), once pinned', 'B'],
       ['Turn the shape (the 3D preview focused)', '← → ↑ ↓ · drag'], ['Move the light', 'Shift+arrows · Shift+drag or right-drag'], ['Zoom in / out', '+ / − · the mouse wheel'],
-      ['A typed number, applied', 'Enter'], ['Open or close the Texture Bench', 'Ctrl+Alt+T'], ['Close the Texture Bench (not in focus mode)', 'Esc'],
-      ['Focus mode (the Texture Bench as an app) on / off', 'F11'],
+      ['A typed number, applied', 'Enter'], ['Open or close NoorMaterial', 'Ctrl+Alt+T'], ['Close NoorMaterial (not in focus mode)', 'Esc'],
+      ['Focus mode (NoorMaterial as an app) on / off', 'F11'],
     ];
-    NoorUI.modal({ label: 'Texture Bench shortcuts', width: 520 }, (s2, closeIt) => {
-      s2.append(NoorUI.head('Texture Bench shortcuts', closeIt),
+    NoorUI.modal({ label: 'NoorMaterial shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('NoorMaterial shortcuts', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'tb-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b })))))),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
     });
@@ -1454,9 +1454,9 @@ el('span', { class: 'tb-zoom' },
   }
   function focusField(id) { const x = $(id); if (x) { x.focus(); if (x.select) x.select(); } }
 
-  const appTitle = () => `Texture Bench — ${recipe ? recipe.name || 'Untitled' : 'no material yet'}${recipe && recipe.family ? ` · ${recipe.family}` : ''}${pinned ? (listening === 'A' ? ' · showing A (pinned)' : ' · A pinned') : ''}`;
+  const appTitle = () => `NoorMaterial — ${recipe ? recipe.name || 'Untitled' : 'no material yet'}${recipe && recipe.family ? ` · ${recipe.family}` : ''}${pinned ? (listening === 'A' ? ' · showing A (pinned)' : ' · A pinned') : ''}`;
 
-  /** The Texture Bench's menu bar: [name, its Alt letter, its items]. */
+  /** NoorMaterial's menu bar: [name, its Alt letter, its items]. */
   function appMenus() {
     const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { run(); setTimeout(keepFocus, 0); }, ...more });
     const noMaterial = () => !recipe;
@@ -1495,14 +1495,14 @@ el('span', { class: 'tb-zoom' },
         go('Batch PBR: add pictures…', () => { exportSection('#tb-batch'); pickBatchPictures(); }),
         go(`Batch PBR: make the maps${batch.pictures.length ? ` for ${batch.pictures.length} picture${batch.pictures.length === 1 ? '' : 's'}` : ''}…`, () => { exportSection('#tb-batch'); runBatch(); }, '', { disabled: () => !batch.pictures.length || batch.running }),
         go('A material set (several at one texel density)…', () => exportSection('#tb-set')), '-',
-        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Texture Bench', close, 'Ctrl+Alt+T'),
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorMaterial', close, 'Ctrl+Alt+T'),
       ]],
       ['Edit', 'e', () => [
         go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length && lastSnapshot === JSON.stringify(recipe) }), go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
         go('Another variation (the next seed)', newVariation, 'V', { disabled: noMaterial }), go('A seed of your own…', () => focusField('#tb-seed'), '', { disabled: noMaterial }), go('Rename the material…', () => focusField('#tb-name'), '', { disabled: noMaterial }), '-',
         go('Pin as A (to compare)', pin, '', { disabled: noMaterial }),
         { label: 'Showing A (pinned) — B is now', keys: 'B', checked: () => listening === 'A', disabled: () => !pinned, run: flipAB }, '-',
-        go('Texture Bench settings…', settingsDialog),
+        go('NoorMaterial settings…', settingsDialog),
       ]],
       ['Material', 'm', () => [
         ...families(),
@@ -1533,9 +1533,9 @@ el('span', { class: 'tb-zoom' },
         { label: 'Materials list', checked: () => !!layout.prefs.list, run: () => layout.set({ list: !layout.prefs.list }) },
         go('Preview and controls: back to normal sizes', () => layout.set({ width: 0, height: 0 })),
         { label: 'Where this panel goes', sub: () => NoorDock.menuItems('texture') }, '-',
-        { id: 'view.focus', label: 'Focus mode (the Texture Bench as an app)' },
+        { id: 'view.focus', label: 'Focus mode (NoorMaterial as an app)' },
       ]],
-      ['Help', 'h', () => [go('Texture Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+      ['Help', 'h', () => [go('NoorMaterial shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
     ];
   }
 

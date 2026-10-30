@@ -6,7 +6,7 @@ namespace NoorMD.Core.Hub;
 
 public enum HubKind { App, File, Folder, Web }
 
-/// <summary>One shortcut in the Apps Hub: a program, game, file, folder or web address (also launcher links such as steam://).</summary>
+/// <summary>One shortcut in NoorHub: a program, game, file, folder or web address (also launcher links such as steam://).</summary>
 public sealed record HubItem
 {
     public string Id { get; init; } = Guid.NewGuid().ToString("N")[..12];
@@ -24,7 +24,7 @@ public sealed record HubItem
 }
 
 /// <summary>
-/// The Apps Hub's list of shortcuts, kept as JSON in NoorMD's local data folder (never in a Vault). It only stores
+/// NoorHub's list of shortcuts, kept as JSON in NoorMD's local data folder (never in a Vault). It only stores
 /// what you add; launching happens in the host by id, so a document or web page can never start a program.
 /// </summary>
 public sealed class AppsHub

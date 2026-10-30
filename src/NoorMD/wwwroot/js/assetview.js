@@ -1,4 +1,4 @@
-// The Asset Bench's 3D preview: reads the GLB the app built (exactly what an export writes) and draws it with WebGL 2.
+// NoorForm's 3D preview: reads the GLB the app built (exactly what an export writes) and draws it with WebGL 2.
 // Bark with its colour, normal and ORM maps, leaf cards cut out by alpha, clumps with their gradient; a sun and a sky;
 // a ground grid in metres; the wind played from the wind data in the file; views that show the wireframe, the parts
 // (separate branches in their own colours) and the wind data itself.
@@ -53,7 +53,7 @@ window.NoorAssetView = (() => {
         mask: m.alphaMode === 'MASK', cutoff: m.alphaCutoff ?? 0.5, doubleSided: !!m.doubleSided, emissive: m.emissiveFactor || [0, 0, 0],
       };
     });
-    // Node world matrices (translation and rotation only: that is all the Asset Bench writes).
+    // Node world matrices (translation and rotation only: that is all NoorForm writes).
     const nodes = [];
     function walk(i, parent) {
       const n = json.nodes[i];

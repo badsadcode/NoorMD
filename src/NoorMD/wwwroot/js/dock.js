@@ -1,10 +1,10 @@
 // NoorMD docks: one rule for the panels around the editor. The window has three dock areas (left, right and bottom,
-// under the editor) and the sidebar can sit left or right. Each panel (Music Bench, Video Bench, Stream Desk) lives in
+// under the editor) and the sidebar can sit left or right. Each panel (NoorMusic, NoorVideo, NoorStream) lives in
 // an area of your choice; an area shows one panel at a time, so e.g. music on the left and a video on the right can
-// be open together. The Stream Desk can also have its own window. Layouts (where things are, which panels are open,
+// be open together. NoorStream can also have its own window. Layouts (where things are, which panels are open,
 // sizes) can be saved; a few ready-made ones are included, and the classic layout is the default.
 // The middle of the window (where documents are) is a dock area too: panels placed there open as tabs next to the
-// documents, several at a time, and fill the whole editing space (a big Gallery, the Stream Desk while you stream…).
+// documents, several at a time, and fill the whole editing space (a big Gallery, NoorStream while you stream…).
 window.NoorDock = (() => {
   'use strict';
   const { $, el, notice } = NoorUI;
@@ -22,9 +22,9 @@ window.NoorDock = (() => {
     { id: 'classic', name: 'Classic (default)', description: 'Sidebar on the left, panels on the right', layout: { sidebar: 'left', place: { music: 'right', video: 'right', stream: 'right' } }, open: [] },
     { id: 'writing', name: 'Writing', description: 'Only the document: sidebar and panels hidden', layout: { sidebar: 'hidden', place: {} }, open: [], closeAll: true },
     { id: 'media', name: 'Music + video', description: 'Music on the left, videos on the right', layout: { sidebar: 'hidden', place: { music: 'left', video: 'right' } }, open: ['music', 'video'] },
-    { id: 'streaming', name: 'Streaming', description: 'Music on the left, Stream Desk on the right, videos below', layout: { sidebar: 'hidden', place: { music: 'left', stream: 'right', video: 'bottom' } }, open: ['music', 'stream'] },
-    { id: 'stream-center', name: 'Streaming, desk in the middle', description: 'Stream Desk as a big tab next to your documents, music on the right', layout: { sidebar: 'hidden', place: { stream: 'center', music: 'right' } }, open: ['stream', 'music'] },
-    { id: 'stream-window', name: 'Stream Desk in its own window', description: 'For a second monitor next to OBS', layout: { sidebar: 'left', place: { stream: 'window', music: 'right' } }, open: ['stream'] },
+    { id: 'streaming', name: 'Streaming', description: 'Music on the left, NoorStream on the right, videos below', layout: { sidebar: 'hidden', place: { music: 'left', stream: 'right', video: 'bottom' } }, open: ['music', 'stream'] },
+    { id: 'stream-center', name: 'Streaming, desk in the middle', description: 'NoorStream as a big tab next to your documents, music on the right', layout: { sidebar: 'hidden', place: { stream: 'center', music: 'right' } }, open: ['stream', 'music'] },
+    { id: 'stream-window', name: 'NoorStream in its own window', description: 'For a second monitor next to OBS', layout: { sidebar: 'left', place: { stream: 'window', music: 'right' } }, open: ['stream'] },
     { id: 'sidebar-right', name: 'Sidebar on the right', description: 'Files and outline on the right, panels on the left', layout: { sidebar: 'right', place: { music: 'left', video: 'left', stream: 'left' } }, open: [] },
   ];
 
@@ -85,7 +85,7 @@ window.NoorDock = (() => {
     center.active = panel;
     for (const p of center.open) hooks.panels[p].el()?.classList.toggle('center-hidden', p !== panel);
     document.body.classList.add('center-active');
-    document.body.dataset.center = panel; // CSS: e.g. no mini-player while the Music Bench itself is shown
+    document.body.dataset.center = panel; // CSS: e.g. no mini-player while NoorMusic itself is shown
     renderModuleTabs();
     if (window.NoorChrome && NoorChrome.refresh) NoorChrome.refresh(); // in focus mode, its own menus
     requestAnimationFrame(() => { window.dispatchEvent(new Event('resize')); hooks.panels[panel].el()?.focus({ preventScroll: true }); });
@@ -199,7 +199,7 @@ window.NoorDock = (() => {
     });
   }
 
-  /** Moves a panel to another area (or the Stream Desk to its own window), keeping it open if it was. */
+  /** Moves a panel to another area (or NoorStream to its own window), keeping it open if it was. */
   function place(panel, to) {
     if (!(AREAS.includes(to) || to === 'center' || (to === 'window' && panel === 'stream')) || layout.place[panel] === to) return;
     const p = hooks.panels[panel];

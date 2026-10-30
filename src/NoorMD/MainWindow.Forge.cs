@@ -227,7 +227,7 @@ public partial class MainWindow
             }
             case "forge.fromAsset":
             {
-                // The Asset Bench's tree or rock (a level of it, as built moments ago) as the model to texture; a lower
+                // NoorForm's tree or rock (a level of it, as built moments ago) as the model to texture; a lower
                 // level comes with the closest as its high-poly model, so its detail is baked onto it.
                 var key = req.GetString("key", 80) ?? "";
                 var level = p.TryGetProperty("level", out var lv) && lv.TryGetInt32(out var li) ? li : 0;

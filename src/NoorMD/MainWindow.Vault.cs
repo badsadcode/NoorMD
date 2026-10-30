@@ -100,7 +100,7 @@ public partial class MainWindow
                     if (full.EndsWith(".noorsketch", StringComparison.OrdinalIgnoreCase)) { OpenSketch(full); return new { sketch = true }; }
                     if (full.EndsWith(".noortex.json", StringComparison.OrdinalIgnoreCase))
                     {
-                        // A material recipe opens in the Texture Bench, with the paintings and pictures beside it.
+                        // A material recipe opens in NoorMaterial, with the paintings and pictures beside it.
                         if (new FileInfo(full).Length > 200_000) throw new BridgeError("That file is too big for a material recipe.");
                         NoorMD.Media.TextureRecipe recipe;
                         try { recipe = NoorMD.Media.TextureRecipe.FromJson(await File.ReadAllTextAsync(full)).FindImagesBeside(Path.GetDirectoryName(full)!); }
@@ -111,7 +111,7 @@ public partial class MainWindow
                     }
                     if (full.EndsWith(".noorsound.json", StringComparison.OrdinalIgnoreCase))
                     {
-                        // A sound recipe opens in the Sound Bench, with its samples found beside it.
+                        // A sound recipe opens in NoorSound, with its samples found beside it.
                         if (new FileInfo(full).Length > 200_000) throw new BridgeError("That file is too big for a sound recipe.");
                         NoorMD.Media.SoundRecipe sound;
                         try { sound = NoorMD.Media.SoundRecipe.FromJson(await File.ReadAllTextAsync(full)).FindSamplesBeside(Path.GetDirectoryName(full)!); }

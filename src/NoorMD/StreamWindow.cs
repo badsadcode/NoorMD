@@ -13,8 +13,8 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// The Stream Desk in its own window (wwwroot/stream.html), so it can sit on a second monitor next to OBS while the
-/// editor stays free. Its page may only use the Stream Desk and Mic Guard commands (plus copying text and opening a
+/// NoorStream in its own window (wwwroot/stream.html), so it can sit on a second monitor next to OBS while the
+/// editor stays free. Its page may only use NoorStream and Mic Guard commands (plus copying text and opening a
 /// Vault note); everything else is refused. Size and position are remembered.
 /// </summary>
 public sealed class StreamWindow : Window
@@ -31,7 +31,7 @@ public sealed class StreamWindow : Window
     public StreamWindow(MainWindow main, Rect? placement)
     {
         _main = main;
-        Title = "Stream Desk — NoorMD";
+        Title = "NoorStream — NoorMD";
         Width = 1180; Height = 820; MinWidth = 560; MinHeight = 420;
         if (placement is { } r && r.Width >= MinWidth && r.Height >= MinHeight && OnScreen(r)) { Left = r.Left; Top = r.Top; Width = r.Width; Height = r.Height; WindowStartupLocation = WindowStartupLocation.Manual; }
         else WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -67,8 +67,8 @@ public sealed class StreamWindow : Window
         try { await _web.EnsureCoreWebView2Async(_main.WebEnvironment); }
         catch (Exception ex)
         {
-            Log.Error("The Stream Desk window could not start", ex);
-            ThemedDialog.ShowError(this, "The Stream Desk could not start", ex.Message);
+            Log.Error("NoorStream window could not start", ex);
+            ThemedDialog.ShowError(this, "NoorStream could not start", ex.Message);
             Close();
             return;
         }
@@ -110,7 +110,7 @@ public sealed class StreamWindow : Window
             }
             catch (Exception ex)
             {
-                Log.Error("Serving " + e.Request.Uri + " to the Stream Desk failed", ex);
+                Log.Error("Serving " + e.Request.Uri + " to NoorStream failed", ex);
                 e.Response = core.Environment.CreateWebResourceResponse(null, 500, "Error", "Content-Type: text/plain");
             }
         };
@@ -129,7 +129,7 @@ public sealed class StreamWindow : Window
     private async void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         if (!Uri.TryCreate(e.Source, UriKind.Absolute, out var source) || !AssetResolver.IsStreamPage(source)) return;
-        if (!BridgeProtocol.TryParse(e.WebMessageAsJson, out var req, out var error) || req == null) { Log.Error("Rejected Stream Desk message: " + error); return; }
+        if (!BridgeProtocol.TryParse(e.WebMessageAsJson, out var req, out var error) || req == null) { Log.Error("Rejected NoorStream message: " + error); return; }
         try
         {
             object? result = null;
@@ -149,7 +149,7 @@ public sealed class StreamWindow : Window
                     break;
                 default:
                     if (!AllowedExact.Contains(req.Type) && !Allowed.Any(p => req.Type.StartsWith(p, StringComparison.Ordinal)))
-                        throw new InvalidOperationException($"The Stream Desk can't use \"{req.Type}\".");
+                        throw new InvalidOperationException($"NoorStream can't use \"{req.Type}\".");
                     result = await _main.RequestFromStreamWindowAsync(req);
                     break;
             }
@@ -157,7 +157,7 @@ public sealed class StreamWindow : Window
         }
         catch (Exception ex)
         {
-            if (ex.GetType().Name != "BridgeError" && ex is not InvalidOperationException) Log.Error($"Stream Desk request {req.Type} failed", ex);
+            if (ex.GetType().Name != "BridgeError" && ex is not InvalidOperationException) Log.Error($"NoorStream request {req.Type} failed", ex);
             if (req.Id is long id) Post(BridgeProtocol.ReplyError(id, ex.Message));
         }
     }
@@ -166,7 +166,7 @@ public sealed class StreamWindow : Window
 
     private void Post(string json)
     {
-        try { _web.CoreWebView2?.PostWebMessageAsJson(json); } catch (Exception ex) { Log.Error("Posting to the Stream Desk failed", ex); }
+        try { _web.CoreWebView2?.PostWebMessageAsJson(json); } catch (Exception ex) { Log.Error("Posting to NoorStream failed", ex); }
     }
 
     internal async Task<string> EvalAsync(string script) => await _web.CoreWebView2.ExecuteScriptAsync(script);

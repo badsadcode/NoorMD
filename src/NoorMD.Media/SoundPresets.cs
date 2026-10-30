@@ -1,6 +1,6 @@
 namespace NoorMD.Media;
 
-/// <summary>The built-in starting points of the Sound Bench, by family. Each is an ordinary recipe you can change.</summary>
+/// <summary>The built-in starting points of NoorSound, by family. Each is an ordinary recipe you can change.</summary>
 public static class SoundPresets
 {
     public sealed record Preset(string Id, string Family, string Name, string Description, Func<SoundRecipe> Make);

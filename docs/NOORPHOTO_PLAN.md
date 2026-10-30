@@ -1,14 +1,14 @@
-# NoorCanvas — a layered photo and painting editor (plan)
+# NoorPhoto — a layered photo and painting editor (plan)
 
 An image editor in the spirit of Photoshop and Affinity Photo: layers with blend modes and masks, adjustments that
 stay editable, selections, painting with pressure, transforms, filters, text — for photos, concept art and game
-textures. NoorSketch stays as it is, a small separate sketchpad; NoorCanvas is the full editor. Pixel art has its own
+textures. NoorSketch stays as it is, a small separate sketchpad; NoorPhoto is the full editor. Pixel art has its own
 bench (NoorSprite).
 
 ## Principles
 
 - **The page draws with the GPU** (WebGL 2: layers composed, brushes stamped, filters run as shaders), so large images
-  stay quick; the app reads and writes files (PSD in and out, PNG, JPEG, WebP, TIFF, its own .noorcanvas).
+  stay quick; the app reads and writes files (PSD in and out, PNG, JPEG, WebP, TIFF, its own .noorphoto).
 - **Non-destructive where it matters:** adjustment layers, layer masks, smart filters on a layer kept as settings,
   transforms kept until applied.
 - **Exact files:** 8 and 16 bits per channel; colour as it was (sRGB, with the profile kept); alpha straight.
@@ -25,8 +25,8 @@ bench (NoorSprite).
 - Selections: rectangle, ellipse, lasso, polygonal lasso, magic wand, select by colour range, quick mask; feather,
   grow, shrink, invert; selection from a layer's alpha.
 - Transform: move, scale, rotate, skew, perspective, flip; snapping.
-- Files: .noorcanvas (layers, masks, adjustments), PSD (open and save, layers and masks), PNG / JPEG / WebP / TIFF;
-  open from the Gallery, send to the Texture Bench and NoorForge.
+- Files: .noorphoto (layers, masks, adjustments), PSD (open and save, layers and masks), PNG / JPEG / WebP / TIFF;
+  open from NoorGallery, send to NoorMaterial and NoorForge.
 
 ## Stage 2 — adjustments and filters
 

@@ -44,13 +44,13 @@ public static class VaultPresets
                 ["Sessions/Session 1.md"] = "---\ntags: [session]\n---\n# Session 1\n\n## Recap\n\n## Loot & hooks\n",
             }),
 
-        new("creator", "Streamer / creator", "📡", "Streams, supporters, video ideas, thumbnails and music notes. Matches the Stream Desk.",
+        new("creator", "Streamer / creator", "📡", "Streams, supporters, video ideas, thumbnails and music notes. Matches NoorStream.",
             ["Streams", "Stream", "Videos/Ideas", "Videos/Published", "Thumbnails", "Music", "attachments"],
             new Dictionary<string, string>
             {
                 ["Videos/Ideas/Video idea template.md"] = "---\ntags: [idea, video]\n---\n# Working title\n\n- **Hook:**\n- **Length:**\n- **Thumbnail idea:**\n\n## Outline\n",
                 ["Music/Tracks used in videos.md"] = "# Tracks used in videos\n\n| Track | Video | Date |\n|---|---|---|\n|  |  |  |\n\n#music #licensing\n",
-                ["Stream/README.md"] = "# Stream\n\nThe Stream Desk keeps the supporters list here (Supporters.md); stream notes go to the Streams folder. #stream\n",
+                ["Stream/README.md"] = "# Stream\n\nThe NoorStream keeps the supporters list here (Supporters.md); stream notes go to the Streams folder. #stream\n",
             }),
 
         new("gamedev", "Game development", "🎮", "Design docs, a devlog, tasks, playtests, assets and a changelog.",

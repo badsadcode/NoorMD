@@ -4,7 +4,7 @@ using System.Text.Json.Serialization;
 
 namespace NoorMD.Media;
 
-// Sound Bench: procedural sound effects and ambiences. A recipe is a stack of layers (noise beds, streams of small
+// NoorSound: procedural sound effects and ambiences. A recipe is a stack of layers (noise beds, streams of small
 // events such as rain drops or crackles, and simple synth voices) shaped by filters, slow "gust" movement and a master
 // section. Rendering is deterministic: the same recipe and seed always give the same sound, so a recipe kept next to a
 // WAV can make it again (or make variations of it).

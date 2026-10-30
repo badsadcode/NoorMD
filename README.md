@@ -28,6 +28,34 @@ If WebView2 is missing, NoorMD tells you and links to Microsoft's free installer
 so Windows SmartScreen may show "Windows protected your PC". Choose *More info → Run anyway*,
 or right-click the zip → *Properties* → *Unblock* before extracting.
 
+## The Noor family
+
+Every part of NoorMD is named Noor-something (since preview.116); the older names in brackets.
+
+| Name | What it is |
+| --- | --- |
+| **NoorMD** | The Markdown editor, documents and vaults: the workspace the others live in |
+| **NoorSketch** | Quick sketches and small drawings |
+| **NoorSprite** | Pixel art, sprites and 2D animation |
+| **NoorPhoto** (planned; was NoorCanvas) | Photo editing, digital painting and layered pictures |
+| **NoorInk** (planned) | Vector graphics: SVG, illustration and design |
+| **NoorMesh** (planned) | Low-poly 3D modelling, mesh editing, UV mapping and simple animation |
+| **NoorForm** (Asset Bench) | Procedural 3D assets: trees, rocks and more, with levels of detail |
+| **NoorForge** | Texturing 3D models: painting, smart materials and baking |
+| **NoorMaterial** (Texture Bench) | Procedural PBR materials and textures |
+| **NoorSound** (Sound Bench) | Sound effects, synthesis and ambiences |
+| **NoorSequencer** | Music: composing, sequencing and soundtracks |
+| **NoorMusic** (Music Bench) | The music player and library: playlists, tags, triage |
+| **NoorVideo** (Video Bench) | Video playback, library and notes over videos |
+| **NoorGallery** (Gallery) | Pictures: browsing, albums, batch work and slideshows |
+| **NoorRadio** (Radio) | Internet radio: stations and favourites |
+| **NoorVoice** (Voice notes) | Voice recordings and audio notes |
+| **NoorStream** (Stream Desk) | Streaming: overlays, OBS, now playing, credits |
+| **NoorCalendar** (Calendar) | Calendar, schedules, events and reminders |
+| **NoorHub** (Apps Hub) | Launching your apps and shortcuts |
+
+File names, folders and recipes keep working as they were: only the names you see changed.
+
 ## Features
 
 - **Open, save, Save As** with native Windows dialogs. Files are written atomically (temp
@@ -72,8 +100,8 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   HTML, footnotes and hard line breaks are examples. NoorMD detects this when a file opens. It
   then opens the file in Markdown mode so nothing is rewritten, and asks before switching. A
   file that is only opened, never edited, is never re-saved.
-- **Focus mode** (F11): the document fills the whole window. With a bench in the middle (Texture Bench, Asset Bench,
-  NoorSequencer, Sound Bench) the bench gets the whole window instead; its ⛶ button does the same, and “Back to
+- **Focus mode** (F11): the document fills the whole window. With a bench in the middle (NoorMaterial, NoorForm,
+  NoorSequencer, NoorSound) the bench gets the whole window instead; its ⛶ button does the same, and “Back to
   NoorMD” (or Esc, F11) brings the menus, tabs and panels back.
 - **Studio tools:** document outline with navigation, word/character counts, reading time,
   a writing goal, a command palette (Ctrl+K), find & replace (Ctrl+F / Ctrl+H) and revision
@@ -90,7 +118,7 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   Switching modes never rewrites source you didn't edit in Visual mode.
 - **Nine colour themes** with a live-preview picker (Theme button, Ctrl+Shift+T to cycle).
   All are contrast-checked.
-- **Creator's Bench: Music Bench** (Ctrl+Shift+M, optional):
+- **Creator's Bench: NoorMusic** (Ctrl+Shift+M, optional):
   - A local music library with fast search and triage (Favorite, Keep, Maybe, Skip).
   - Playlists, an Up next queue, and a persistent mini-player.
   - **Edit current track (F2)**: tags and/or file name, with safe renames and undo.
@@ -101,16 +129,16 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
     (BS.1770 measurement or ReplayGain). Files are never changed.
   - **Smart collections**, shuffle and 🎲 random, cover.jpg artwork.
   - Session resume.
-- **Video Bench** (Ctrl+Alt+V), a video player that works like the Music Bench:
+- **NoorVideo** (Ctrl+Alt+V), a video player that works like NoorMusic:
   - a library with search, filters (unwatched, in progress, watched) and series, multi-select and a
     right-click menu; the playing video is highlighted;
   - Up next with shuffle and repeat, and **playlists** — e.g. a whole TV show in one click;
   - resume where you stopped, subtitles (SRT/ASS/VTT), a choice of **audio track** (language),
     speed, timestamped notes you can insert into a document, and a pop-out player that stays on
     top.
-- **Gallery** (Ctrl+Alt+G): the pictures in folders you add, with subfolders as albums. View them full size
+- **NoorGallery** (Ctrl+Alt+G): the pictures in folders you add, with subfolders as albums. View them full size
   (zoom, favourites), put one into the note, and play slideshows with fade or slow zoom and music from
-  the Music Bench. Saved slideshows keep their order and settings. With room (in the middle) it becomes a
+  NoorMusic. Saved slideshows keep their order and settings. With room (in the middle) it becomes a
   picture manager: albums on the left, details on the right, rename (also as a numbered series), move to
   albums by dragging, new albums, delete to the Recycle Bin, and Ctrl+Z to undo a rename or move.
   It shows work files too (PSD, Affinity, TIFF, HEIC) with their previews, opens pictures in your editor
@@ -118,9 +146,9 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   Give pictures stars (keys 1–5), colour labels (6–9) and tags, browse them by tag or by year and month,
   and turn them (Ctrl+R; JPEG photos without any loss). Convert or resize many at once (JPEG or PNG, any
   size) into copies, for sharing or the web; the originals stay as they are.
-- **Voice notes** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
+- **NoorVoice** (Ctrl+Alt+D): record, listen, save as Opus or WAV next to your notes and link it
   into the document. The microphone is used only while you record.
-- **Sound Bench** (Ctrl+Alt+K): sound effects and ambiences for games, made on your computer. 🎲 Generate a
+- **NoorSound** (Ctrl+Alt+K): sound effects and ambiences for games, made on your computer. 🎲 Generate a
   pickup, laser, explosion, footstep, impact, whoosh, magic or sci-fi sound and more, start from one of 55
   presets (weather, footsteps, machines, UI, retro, alarms…), or layer your own WAV files (trimmed on their
   waveform, stretched without changing pitch, or scattered into grain clouds). Shape them with plain controls
@@ -131,47 +159,47 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   spectrogram and loudness meters (LUFS, true
   peak, stereo), compare A/B and a reference clip at matched loudness, make variations, and export WAV or OGG files
   (seamless loops or one-shots, optionally at a loudness target and with stems) with the recipe beside them;
-  optionally kept in your Vault and added to the Music Bench to audition and rate.
-- **Texture Bench** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
+  optionally kept in your Vault and added to NoorMusic to audition and rate.
+- **NoorMaterial** (Ctrl+Alt+T): tileable materials for games, made from a recipe: start from a preset (stone,
   ground, wood, metal, walls, fabric), from scratch, from a random stack, or from pictures chosen in the Gallery. Layers of noise, Musgrave fractals, Voronoi cells, waves, gradients, checkers, Magic, wood grain, bricks, tiles, hexagons, planks, spots (pebbles,
   rivets, craters), weave, scratches and your own photos (made seamless, light evened out, height from their
-  detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Make full PBR sets for many albedo textures or photos at once (batch, also from the Gallery). Paint on a material by hand in
+  detail) build the height, and erosion (rain, crumbling, wear) reshapes it. Make full PBR sets for many albedo textures or photos at once (batch, also from NoorGallery). Paint on a material by hand in
   NoorSketch (the material underneath, strokes carrying on across the edges so it still tiles) and apply it
   straight back as a layer of the recipe. Any layer can paint tint, roughness
   and metal, masked by the material's own height and edges; a colour ramp, dirt and roughness make the surface.
   See it on a sphere, rounded cube, cube or plane under five lights (or as grey clay, or one map at a time), or each map tiled, and export seamless PNG maps (albedo, normal,
   roughness, AO, metallic, 16-bit height) for Godot, Unity or Unreal at up to 4096 pixels, with the recipe
-  (and its paintings) beside them; optionally shown in the Gallery and the recipe kept in your Vault. Exports (and
-  the Sound Bench's) can go straight into a game project, arranged for Godot, Unity or Unreal or by your own
+  (and its paintings) beside them; optionally shown in NoorGallery and the recipe kept in your Vault. Exports (and
+  NoorSound's) can go straight into a game project, arranged for Godot, Unity or Unreal or by your own
   folder and file-name pattern, with a preview of every path.
 - **NoorSequencer** (Ctrl+Alt+Q): a friendly composer for loops, jingles and simple game soundtracks. Start from a
   mood (cozy exploration, tense dungeon, cheerful arcade, lonely ambient) or an empty song. Tracks × bars of
   numbered patterns, as in BeepBox: change a pattern once and every bar playing it changes. Write melodies in a
   piano roll that shows (or only offers) the notes of your key and scale, beats in a drum grid, and choose each
   track's sound: a synth (sine to saw, two detuned voices, envelope, filter, vibrato), a synthesised drum kit, or a
-  WAV of your own played at any pitch, with the Sound Bench's effects. Help for non-musicians: the chords of your
+  WAV of your own played at any pitch, with NoorSound's effects. Help for non-musicians: the chords of your
   key with their mood in plain words, whole chord progressions (with a bass line) written for you, drum rhythms,
   variations of a pattern, instrument presets, an arpeggiator, humanize, an LFO and FM, and level and filter
   automation over the song. For games: adaptive layers (exploration, danger, combat…) that a game can crossfade,
   with the change between them to listen to, and a loop check (click at the seam, tail, level at both ends). Use
-  a Sound Bench sound or a WAV from the Music Bench as an instrument. Play from any bar or the loop over and over,
+  NoorSound sound or a WAV from NoorMusic as an instrument. Play from any bar or the loop over and over,
   and export (⤓ Export at the top) the song, a seamless loop (its tails wrapped into the start), each layer's
   loop, stems and MIDI, as WAV or OGG, optionally kept in your Vault, arranged for Godot, Unity
   or Unreal or into a game project, with the song beside them.
-- **Calendar** (Ctrl+Alt+C): important days, birthdays (with the age they turn), appointments, reminders, streams
+- **NoorCalendar** (Ctrl+Alt+C): important days, birthdays (with the age they turn), appointments, reminders, streams
   and anything else, in a month, week or agenda view, with search. Entries can repeat (daily, on chosen weekdays,
   monthly on a day or on "the 2nd Tuesday" or "the last Friday", yearly), skip a day or move just one time, and
   have reminders: shown in the app, and near the clock with a taskbar flash when NoorMD is in the background; what
   came due while NoorMD was closed is shown when it starts. Import and export .ics files (Google, Outlook, Apple
   and other calendars). Kept on your computer, saved safely with a backup.
-- **Asset Bench** (Ctrl+Alt+M): game-ready trees, realistic or stylized (the chunky, painted fantasy look). A
+- **NoorForm** (Ctrl+Alt+M): game-ready trees, realistic or stylized (the chunky, painted fantasy look). A
   tree grows from a recipe (trunk, roots, up to three levels of branches, crown shape, lean, wobble, twist), and its
   wood is one organic surface: limbs grow out of the trunk with smooth collars, the base flares into roots, forks
   blend; it is not made of scaled cylinders. Keep the branches merged in one welded mesh, separate (each limb its
   own mesh, its pivot where it leaves the trunk, to animate or break off), or mixed (thick limbs welded, thin ones
   separate). Leaves are alpha cards from a generated leaf atlas (broad, round, maple-like or needles), either along the
   branches or gathered into chunky tufts (the stylized look, with no solid mesh in the canopy); solid painted clumps
-  are an option too; bark from a Texture Bench material or a plain colour. Every tree is
+  are an option too; bark from NoorMaterial material or a plain colour. Every tree is
   simplified to a triangle budget with levels of detail, carries wind data (trunk sway, branch bend, leaf flutter,
   phase) in its UVs or vertex colours, and is previewed in 3D exactly as exported, with the wireframe, each part
   in its own colour, the wind data, and the wind playing. Export GLB files (Y up, metres, the pivot at the base,
@@ -194,22 +222,22 @@ or right-click the zip → *Properties* → *Unblock* before extracting.
   picture (a 2 × 2 atlas or a single twig) if you like. Crowns look full for few triangles: each card can
   show a spray or a dense cluster of leaves, cards can be made bigger without adding more, a leaf budget caps the
   leaves' triangles (bigger cards instead), and outer leaves put the cover where it is seen. Rocks come next.
-- **Radio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
-  timer. The song title comes from the stream and can feed the Stream Desk's Now Playing. Add a station
+- **NoorRadio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
+  timer. The song title comes from the stream and can feed NoorStream's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
   you search). One sound at a time: radio, music and video make way for each other.
-- **Apps Hub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
+- **NoorHub** (Ctrl+Alt+H): tiles for your programs, games (Steam/Epic shortcuts too), folders,
   files and websites, with their Windows icons or your own pictures. Category chips (All, Recent,
   and your own categories) choose what is shown.
-- **The middle is a dock too:** put any panel (Gallery, Stream Desk, Music Bench…) *In the middle* from its
+- **The middle is a dock too:** put any panel (NoorGallery, NoorStream, NoorMusic…) *In the middle* from its
   ⊞ button. It opens as a tab next to your documents and fills the editing space. Click a document tab to
-  get back to writing. The *Streaming, desk in the middle* layout does this for the Stream Desk.
-  There the Music Bench becomes a full player (Now playing and Up next beside a library with sortable
-  columns), the Gallery a picture manager, and the Video Bench puts its lists beside the player.
-- **Docks and layouts:** the Music Bench, Video Bench and Stream Desk dock left, right or under the
+  get back to writing. The *Streaming, desk in the middle* layout does this for NoorStream.
+  There NoorMusic becomes a full player (Now playing and Up next beside a library with sortable
+  columns), NoorGallery a picture manager, and NoorVideo puts its lists beside the player.
+- **Docks and layouts:** NoorMusic, NoorVideo and NoorStream dock left, right or under the
   document (⊞ on each panel). The sidebar can sit on either side. Use ready-made layouts (Writing,
   Music + video, Streaming…) or save your own (View › Layout).
-- **Stream Desk** (Ctrl+Alt+B), docked like the other panels or in its own window (⧉) next to OBS.
+- **NoorStream** (Ctrl+Alt+B), docked like the other panels or in its own window (⧉) next to OBS.
   OBS overlays are served on 127.0.0.1 only:
   - a **Now Playing** overlay with six customisable designs, and a now-playing.txt;
   - a **credits roll** of your supporters, with effects you can build;

@@ -11,7 +11,7 @@ using NoorMD.Ui;
 namespace NoorMD;
 
 /// <summary>
-/// Radio Bench: your internet radio stations. The page plays a station through a small relay on the loopback address
+/// NoorRadio: your internet radio stations. The page plays a station through a small relay on the loopback address
 /// (<see cref="RadioRelay"/>), which also reads the song titles from the stream. Nothing is recorded or downloaded, and
 /// the online directory (Radio Browser) is asked only when you search it.
 /// </summary>
@@ -111,7 +111,7 @@ public partial class MainWindow
                     var (url, _) = await ResolveStationAsync(station?.Url ?? req.GetString("url", 2048) ?? "");
                     var (token, local) = Relay.Open(url);
                     if (station != null) Radio.MarkPlayed(station.Id);
-                    Log.Info($"Radio: playing {(station?.Name ?? "a station from the directory")}");
+                    Log.Info($"NoorRadio: playing {(station?.Name ?? "a station from the directory")}");
                     return new { token, url = local };
                 }
                 case "radio.stop":

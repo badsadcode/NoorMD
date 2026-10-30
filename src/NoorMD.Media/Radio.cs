@@ -532,7 +532,7 @@ public static class RadioDirectory
             }
             catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or JsonException && !ct.IsCancellationRequested) { last = ex; }
         }
-        throw new InvalidOperationException("The Radio Browser directory can't be reached right now. " + last?.Message);
+        throw new InvalidOperationException("Radio Browser directory can't be reached right now. " + last?.Message);
     }
 
     public static IReadOnlyList<DirectoryStation> Parse(string json)

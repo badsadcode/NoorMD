@@ -1,7 +1,7 @@
 # NoorForge — texturing models with layers and smart masks (plan)
 
 An idea taken from Substance Painter (and ArmorPaint): open a model, and build its textures as a stack of layers —
-each a material (from the Texture Bench) shown only where its mask says — with masks that understand the shape:
+each a material (from NoorMaterial) shown only where its mask says — with masks that understand the shape:
 worn edges, dirt in the cracks, moss and snow on top, a colour per part. Then paint on the model itself. The result is
 a texture set for game engines (base colour, normal, roughness, metallic, AO, height), and the model with them.
 
@@ -22,9 +22,9 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 
 ## The shared foundation
 
-- **Models:** GLB (from the Asset Bench, or any), and OBJ. Meshes, their UVs, their materials (each its own texture
+- **Models:** GLB (from NoorForm, or any), and OBJ. Meshes, their UVs, their materials (each its own texture
   set, as Substance's texture sets).
-- **UVs:** a model without good UVs (none, or overlapping, as the Asset Bench's rocks — tiled, projected per side)
+- **UVs:** a model without good UVs (none, or overlapping, as NoorForm's rocks — tiled, projected per side)
   gets an automatic unwrap: faces grouped into charts by direction and connection, each flattened, the charts packed
   into the square with padding, the texture edges bled outwards so no seam shows. The original UVs are kept if they
   are already unique.
@@ -37,26 +37,26 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 
 ## Stage 1 — smart materials on a model
 
-- Open a model (or "Send to NoorForge" from the Asset Bench), unwrap if it needs it, bake its maps.
-- **Layers:** fill layers with a Texture Bench material (any preset or recipe, tiled at a world size in metres, or
+- Open a model (or "Send to NoorForge" from NoorForm), unwrap if it needs it, bake its maps.
+- **Layers:** fill layers with NoorMaterial material (any preset or recipe, tiled at a world size in metres, or
   projected triplanar so no UV seam shows); a plain colour / roughness / metal layer.
 - **Smart masks** (generators, each with its sliders and a noise to break it up): edge wear (convex curvature), cavity
   dirt (concave + AO), top coverage (dust, moss, snow: the world normal facing up), bottom grime, height gradient,
   by part (ID), fill everything; combined (multiply, add, subtract) and levelled.
 - **Smart materials:** stacks saved as presets — painted metal with worn edges, mossy stone, dusty wood, rusty
   iron, snowy rock — usable on any model.
-- **Preview:** the model lit (sun and sky, as the Asset Bench), each channel on its own, the mask of the chosen
+- **Preview:** the model lit (sun and sky, as NoorForm), each channel on its own, the mask of the chosen
   layer, the bakes.
 - **Export:** the texture set at 512–4096 px per material, the GLB with them, a Godot material; the recipe.
 
 ### Done in preview.87 (stage 1, first cut)
 
-- **NoorForge** (Tools, or Ctrl+Alt+F), or **🔥 Texture in NoorForge** on the Asset Bench (its tree or rock, the
+- **NoorForge** (Tools, or Ctrl+Alt+F), or **🔥 Texture in NoorForge** on NoorForm (its tree or rock, the
   closest level). Opens GLB and OBJ; collision meshes are left out; models whose UVs are missing or overlap (as the
-  Asset Bench's rocks) are unwrapped.
+  NoorForm's rocks) are unwrapped.
 - Bakes per texture set: AO (rays through a BVH), curvature (smooth curvature and sharp edges / creases near each
   texel), world normal and position, part. Kept in memory while only the layers change.
-- Layers: a Texture Bench material (any preset, triplanar at a tile size in metres, with a tint and its relief) or a
+- Layers: NoorMaterial material (any preset, triplanar at a tile size in metres, with a tint and its relief) or a
   plain colour / roughness / metal; opacity; which channels it paints. Smart masks: everywhere, worn edges, cracks and
   corners, on top, underneath, low down, one part, one material — amount, softness, noise break-up and its size,
   invert. Smart materials: mossy stone, snowy rock, painted metal (worn), rusty iron, dusty wood, weathered
@@ -119,7 +119,7 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 ## Stage 3 — more
 
 - Decals and stamps (a picture or text, placed on the surface), anchor masks (one layer's mask feeding another).
-- High-poly bakes (the Asset Bench's dense rocks and trees as the high model).
+- High-poly bakes (NoorForm's dense rocks and trees as the high model).
 - Particles (rain streaks, drips running down), procedural edge chips.
 - Export presets per engine (Godot, Unity URP/HDRP, Unreal), texture-set atlases, LOD textures.
 
@@ -143,8 +143,8 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
   texel's normal (within a distance, a share of the model's size) its surface is found; its normal goes into the
   normal map (in the model's own frame, so it fits the model in an engine), and its curvature and occlusion into the
   bakes, so worn edges, dirt and moss follow its detail. NoorForge says how much of the surface found it.
-- **From the Asset Bench, a lower level:** a tree's or rock's LOD1 or LOD2 can be textured with its closest level
-  baked onto it (Model & bakes → Asset Bench level).
+- **From NoorForm, a lower level:** a tree's or rock's LOD1 or LOD2 can be textured with its closest level
+  baked onto it (Model & bakes → NoorForm level).
 - **Export for an engine:** Godot 4 (the maps and a material), Unity URP / Built-in (BaseMap, Normal,
   MetallicSmoothness, Occlusion), Unity HDRP (BaseMap, Normal, MaskMap), Unreal (BaseColor, Normal in DirectX's
   convention, ORM), or every map; named and packed as each expects.

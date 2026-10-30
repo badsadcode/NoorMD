@@ -189,7 +189,7 @@ public partial class MainWindow
 
     private async Task MicToggleAsync(string source)
     {
-        if (MicGuard.Verdict(_micWin, _micObs) == MicVerdict.NotSetUp) { PushNotice("Mic Guard is not set up yet: Stream Desk › Mic Guard."); return; }
+        if (MicGuard.Verdict(_micWin, _micObs) == MicVerdict.NotSetUp) { PushNotice("Mic Guard is not set up yet: NoorStream › Mic Guard."); return; }
         await MicSetAsync(MicGuard.ToggleTarget(_micWin, _micObs));
         Log.Info($"Mic Guard: {source} → {MicGuard.Label(MicGuard.Verdict(_micWin, _micObs))}");
     }

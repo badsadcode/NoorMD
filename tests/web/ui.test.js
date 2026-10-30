@@ -70,7 +70,7 @@ async function open(browser, base, initial, viewport = { width: 1440, height: 90
 
 const settleClose = (page) => page.waitForTimeout(250);
 
-/** The Stream Desk's own window (stream.html), with the same mock host as the main page. */
+/** NoorStream's own window (stream.html), with the same mock host as the main page. */
 async function openStream(browser, base, initial, viewport = { width: 1440, height: 900 }) {
   const page = await browser.newPage({ viewport });
   const errors = [];
@@ -574,15 +574,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 8. Creator's Bench: Music Bench with real audio playback.
+    // ---- 8. Creator's Bench: NoorMusic with real audio playback.
     {
       // Empty library: the bench opens with a clear first step and starts nothing until used.
       {
         const { page } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\docs\\n.md', fileName: 'n.md', title: 'n' }, musicTracks: 0 });
-        check('music index is not touched before the Music Bench is used', !(await page.evaluate(() => window.__mock.log.some((m) => m.type === 'music.status'))));
+        check('music index is not touched before NoorMusic is used', !(await page.evaluate(() => window.__mock.log.some((m) => m.type === 'music.status'))));
         await page.keyboard.press('Control+Shift+M');
         await page.waitForSelector('.music-empty-inner');
-        check('empty Music Bench offers “Add music folder”', (await page.textContent('#music')).includes('Add music folder'));
+        check('empty NoorMusic offers “Add music folder”', (await page.textContent('#music')).includes('Add music folder'));
         await page.close();
       }
 
@@ -590,7 +590,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const ms = () => page.evaluate(() => window.NoorMusic._state());
       await page.keyboard.press('Control+Shift+M');
       await page.waitForSelector('#music-list .track:not(.loading)');
-      check('Music Bench shows the 20,000-track library', (await page.textContent('#music-count')).includes('20,000'));
+      check('NoorMusic shows the 20,000-track library', (await page.textContent('#music-count')).includes('20,000'));
       const domRows = await page.$$eval('#music-list .track', (n) => n.length);
       check('library list is virtualised (only visible rows in the DOM)', domRows > 5 && domRows < 60, domRows);
       const t0 = Date.now();
@@ -722,7 +722,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Focus mode hides the bench and mini-player; music keeps playing.
       await page.keyboard.press('F11');
       await page.waitForTimeout(100);
-      check('Focus mode hides the Music Bench and mini-player but keeps playing', !(await page.isVisible('#miniplayer')) && !(await page.isVisible('#music')) && !(await ms()).paused);
+      check('Focus mode hides NoorMusic and mini-player but keeps playing', !(await page.isVisible('#miniplayer')) && !(await page.isVisible('#music')) && !(await ms()).paused);
       await page.keyboard.press('Escape');
 
       // Ctrl+Alt+Space pauses from the editor.
@@ -738,7 +738,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('session (queue, track, position) is saved', Array.isArray(sj.ids) && sj.ids.length >= 2 && Number.isFinite(sj.position), sj);
       if (shots) await page.screenshot({ path: `${shots}/music-paused.png` });
       const unexpected = errors.filter((e) => !/status of 404/.test(e)); // the missing-file test produces one expected 404
-      check('no unexpected errors in Music Bench checks', unexpected.length === 0, unexpected);
+      check('no unexpected errors in NoorMusic checks', unexpected.length === 0, unexpected);
       await page.close();
 
       const r2 = await open(browser, url, { document: { markdown: '# Next day\n', path: 'C:\\docs\\d.md', fileName: 'd.md', title: 'd' }, musicTracks: 20, musicSession: saved });
@@ -747,12 +747,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const restored = await r2.page.evaluate(() => window.NoorMusic._state());
       check('after restart the last queue and track are restored, paused, at the saved position', restored.paused && restored.q.current === sj.ids[sj.order[sj.pos]] && Math.abs(restored.time - sj.position) < 0.6, { restored: { cur: restored.q.current, time: restored.time }, saved: sj });
       check('mini-player is visible after restore', await r2.page.isVisible('#miniplayer'));
-      // Turning the Music Bench off in preferences hides it and stops playback.
+      // Turning NoorMusic off in preferences hides it and stops playback.
       await r2.page.evaluate(() => { window.NoorMD.runCommand('prefs.show'); });
       await r2.page.waitForSelector('#pref-music');
       await r2.page.uncheck('#pref-music');
       await r2.page.keyboard.press('Escape');
-      check('“Show the Music Bench” off hides it everywhere', !(await r2.page.isVisible('#miniplayer')) && !(await r2.page.isVisible('.music-entry')));
+      check('“Show NoorMusic” off hides it everywhere', !(await r2.page.isVisible('#miniplayer')) && !(await r2.page.isVisible('.music-entry')));
       await r2.page.close();
     }
 
@@ -1573,7 +1573,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         const tps = [...document.querySelectorAll('.music .np-controls .tp')].map((b) => b.getBoundingClientRect()).map((r) => Math.abs(r.width - r.height));
         return { out, round: Math.max(...tps) };
       });
-      check('a narrow Music Bench keeps its controls inside and the buttons round', narrow.out === 0 && narrow.round < 1, narrow);
+      check('a narrow NoorMusic keeps its controls inside and the buttons round', narrow.out === 0 && narrow.round < 1, narrow);
       await page.evaluate(() => document.documentElement.style.setProperty('--music-w', '400px'));
       // The list follows the playing song when it changes (unless you are browsing it).
       await page.evaluate(() => { document.querySelector('#music-list').scrollTop = 0; window.NoorMusic._forgetBrowsing(); });
@@ -1846,7 +1846,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 20. Video Bench: works like the Music Bench — library, Up next, playlists, resume, subtitles, audio tracks, notes, pop-out.
+    // ---- 20. NoorVideo: works like NoorMusic — library, Up next, playlists, resume, subtitles, audio tracks, notes, pop-out.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, videos: true, musicTracks: 4 }, { width: 1600, height: 1000 });
       const vs = () => page.evaluate(() => window.NoorVideo._state());
@@ -1858,15 +1858,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+v');
       await page.waitForSelector('#videobench:not([hidden])');
       await waitFn(page, () => window.NoorVideo._state().current != null);
-      check('Ctrl+Alt+V opens the Video Bench and picks up where you left off', (await vs()).current.id === 2);
+      check('Ctrl+Alt+V opens NoorVideo and picks up where you left off', (await vs()).current.id === 2);
       check('the library lists every video in series and episode order', JSON.stringify((await vs()).rows) === '[1,2,3,4]' && (await page.textContent('#vb-count')).includes('4 videos'));
       check('the playing video is highlighted in the list', await page.evaluate(() => document.querySelector('.vtrack[data-id="2"]').classList.contains('playing') && document.querySelectorAll('.vtrack.playing').length === 1));
       const box = await page.evaluate(() => { const r = document.querySelector('#vb-video').getBoundingClientRect(); const p = document.querySelector('#videobench').getBoundingClientRect(); return { w: r.width, h: r.height, panel: p.width, vw: window.innerWidth }; });
       check('the video picture is visible in a side panel', box.h > 150 && box.w > 300 && box.panel < box.vw * 0.6, box);
       const dock = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
       check('the video panel docks beside the editor instead of covering it', dock.editor <= dock.panel + 1, dock);
-      check('the Music Bench closes when the Video Bench opens (music keeps playing)', !(await page.evaluate(() => window.NoorMusic.isOpen())));
-      check('the player has the Music Bench controls: shuffle, previous, play, next, repeat, volume',
+      check('NoorMusic closes when NoorVideo opens (music keeps playing)', !(await page.evaluate(() => window.NoorMusic.isOpen())));
+      check('the player has NoorMusic controls: shuffle, previous, play, next, repeat, volume',
         await page.evaluate(() => ['shuffle', 'prev', 'play', 'next', 'repeat'].every((c) => document.querySelector(`#videobench .tp.${c}`)) && !!document.querySelector('#vb-volume')));
       await page.click('#vb-wide');
       const dockWide = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, panel: document.querySelector('#videobench').getBoundingClientRect().left }));
@@ -1956,7 +1956,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Shuffle keeps the playing video and mixes the rest', (await vs()).q.shuffle && (await vs()).q.current === 2 && (await vs()).q.pos === 0);
       await page.click('#videobench .tp.shuffle');
       await page.click('#videobench .tp.repeat');
-      check('Repeat cycles like the Music Bench', (await vs()).q.repeat === 'all');
+      check('Repeat cycles like NoorMusic', (await vs()).q.repeat === 'all');
       await page.click('#videobench .tp.repeat'); await page.click('#videobench .tp.repeat');
 
       // Multi-select + right-click: Add to Up next, and playlists made from the selection.
@@ -2043,7 +2043,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         const play = document.querySelector('#videobench .tp.play').getBoundingClientRect();
         return { out, w: play.width, h: play.height };
       });
-      check('a narrow Video Bench keeps its controls inside and round', narrow.out === 0 && Math.abs(narrow.w - narrow.h) < 1, narrow);
+      check('a narrow NoorVideo keeps its controls inside and round', narrow.out === 0 && Math.abs(narrow.w - narrow.h) < 1, narrow);
       await page.evaluate(() => document.documentElement.style.removeProperty('--video-w'));
 
       // Pop out: the host gets the id and time; the bench stops playing; pop-in continues at the reported time.
@@ -2061,12 +2061,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => Math.abs(document.querySelector('#vb-video').currentTime - 3) < 0.4, null, { timeout: 6000 });
       check('closing the pop-out continues here at the same moment', !(await page.isVisible('#vb-message')));
       await page.evaluate(() => window.NoorVideo.close());
-      check('closing the Video Bench saves the position', (await V()).positions.some((x) => x.id === 2));
+      check('closing NoorVideo saves the position', (await V()).positions.some((x) => x.id === 2));
       check('…and hides it', !(await page.isVisible('#videobench')));
       await waitFn(page, () => !!window.__mock.state.video.session, null, { timeout: 3000 });
       check('…and remembers Up next for next time', JSON.parse((await V()).session).ids.length > 0);
       const unexpected = errors.filter((e) => !/Empty src|status of 404|MEDIA_ELEMENT_ERROR/.test(e));
-      check('no page errors in the Video Bench', unexpected.length === 0, unexpected);
+      check('no page errors in NoorVideo', unexpected.length === 0, unexpected);
       if (shots) { await page.evaluate(() => window.NoorVideo.open()); await page.waitForTimeout(400); await page.screenshot({ path: `${shots}/video.png` }); }
       await page.close();
     }
@@ -2115,20 +2115,20 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 22. Stream Desk: overlay server, Now Playing designer, credits + effect builder, supporters, stream log.
+    // ---- 22. NoorStream: overlay server, Now Playing designer, credits + effect builder, supporters, stream log.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, musicTracks: 4, streamVault: true,
         supporters: [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold', since: '2026-01-01', until: null }, { name: 'Bartek', channel: null, tier: null, since: '2025-05-05', until: '2026-02-02' }] }, { width: 1600, height: 1000 });
-      // The main window: the Music Bench reports what plays; Ctrl+Alt+B and the menu open the Stream Desk window.
+      // The main window: NoorMusic reports what plays; Ctrl+Alt+B and the menu open NoorStream window.
       const M = () => page.evaluate(() => window.__mock.state.stream);
       await page.evaluate(() => window.NoorMusic.playRandom());
       await waitFn(page, () => window.__mock.state.stream.updates.some((t) => t && t.playing), null, { timeout: 6000 });
       check('the playing song is reported for overlays and the tracklist', (await M()).updates.find((t) => t && t.playing).title.length > 0);
-      // The Stream Desk docks beside the editor like the other panels (and can pop out into its own window).
+      // NoorStream docks beside the editor like the other panels (and can pop out into its own window).
       await page.keyboard.press('Control+Alt+b');
       await page.waitForSelector('#dock-right #streamdesk:not([hidden])');
       const dockBox = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, dock: document.querySelector('#dock-right').getBoundingClientRect().left, w: document.querySelector('#dock-right').getBoundingClientRect().width }));
-      check('Ctrl+Alt+B docks the Stream Desk beside the editor', dockBox.editor <= dockBox.dock + 1 && dockBox.w > 300, dockBox);
+      check('Ctrl+Alt+B docks NoorStream beside the editor', dockBox.editor <= dockBox.dock + 1 && dockBox.w > 300, dockBox);
       check('it looks like the other benches: title row, then tabs', await page.evaluate(() => !!document.querySelector('#streamdesk .music-head .music-title') && !!document.querySelector('#streamdesk .music-tabs [data-sdtab="mic"]')));
       check('in a narrow dock the tabs show icons only and the cards stack', await page.evaluate(() => getComputedStyle(document.querySelector('.sd-tab-label')).display === 'none' && getComputedStyle(document.querySelector('.sd-grid')).gridTemplateColumns.split(' ').length === 1));
       await page.keyboard.press('Control+k');
@@ -2136,7 +2136,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Enter');
       await waitFn(page, () => window.NoorStream._state().tab === 'credits');
       check('menu and Ctrl+K items open its tabs', true);
-      // Music on the left and the Stream Desk on the right, open together.
+      // Music on the left and NoorStream on the right, open together.
       await page.evaluate(() => window.NoorDock.place('music', 'left'));
       await page.evaluate(() => window.NoorMusic.togglePanel(true));
       await page.waitForSelector('#dock-left #music');
@@ -2144,7 +2144,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // ⧉ pops it out into its own window; from then on Ctrl+Alt+B brings that window forward.
       await page.click('#sd-popout');
       await waitFn(page, () => window.__mock.state.stream.windows.length === 1);
-      check('⧉ moves the Stream Desk into its own window', !(await page.evaluate(() => document.body.classList.contains('stream-open'))) && (await page.evaluate(() => window.NoorDock.placeOf('stream'))) === 'window');
+      check('⧉ moves NoorStream into its own window', !(await page.evaluate(() => document.body.classList.contains('stream-open'))) && (await page.evaluate(() => window.NoorDock.placeOf('stream'))) === 'window');
       await page.keyboard.press('Control+Alt+b');
       await waitFn(page, () => window.__mock.state.stream.windows.length === 2);
       check('…and Ctrl+Alt+B then brings that window forward', true);
@@ -2161,11 +2161,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await openStream(browser, url, { streamVault: true,
         supporters: [{ name: 'Ania', channel: 'https://www.youtube.com/@ania', tier: 'Gold', since: '2026-01-01', until: null }, { name: 'Bartek', channel: null, tier: null, since: '2025-05-05', until: '2026-02-02' }] }, { width: 1600, height: 1000 });
       const S = () => page.evaluate(() => window.__mock.state.stream);
-      check('the Stream Desk window opens on Now Playing', await page.isVisible('#np-frame .ovnp'));
+      check('NoorStream window opens on Now Playing', await page.isVisible('#np-frame .ovnp'));
       check('in its own window it has no ✕ of its own (the title bar closes it)', !(await page.isVisible('.sd-close')));
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'stream.track', payload: { track: { id: 7, title: 'Żółta łódź', artist: 'Noor', playing: true, position: 3, duration: 120 } } }));
       await waitFn(page, () => /Żółta łódź/.test(document.querySelector('#np-frame').textContent));
-      check('the preview shows the song the Music Bench is playing', !(await page.textContent('#np-frame')).includes('Night Drive'));
+      check('the preview shows the song NoorMusic is playing', !(await page.textContent('#np-frame')).includes('Night Drive'));
       const head = await page.evaluate(() => { const h = document.querySelector('.sd-head').getBoundingClientRect(); const t = document.querySelector('.sd-tabs').getBoundingClientRect(); return { h: h.height, gap: t.top - h.bottom, tabsH: t.height }; });
       check('the header is one tidy title row with the tabs right below it', head.h < 60 && head.gap >= 0 && head.gap < 12 && head.tabsH < 50, head);
       await page.check('#sd-server-on');
@@ -2247,7 +2247,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a template fills the title, description and keywords', (await page.inputValue('#log-desc')).includes('{tracklist}') && (await page.inputValue('#log-keywords')).includes('suno'));
       await page.click('#log-record');
       await waitFn(page, () => !!window.__mock.state.stream.session);
-      // The host relays each song the Music Bench starts (the main window sends it, see above).
+      // The host relays each song NoorMusic starts (the main window sends it, see above).
       await page.evaluate(() => NoorBridge.request('stream.np.update', { track: { id: 9, title: 'Night shift', artist: 'Suno', playing: true, position: 0, duration: 200 } }));
       await waitFn(page, () => window.__mock.state.stream.session.marks.length >= 1, null, { timeout: 4000 });
       await page.evaluate(async () => { const r = await NoorBridge.request('stream.status'); return r; });
@@ -2268,12 +2268,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => document.querySelectorAll('#log-history .vb-item').length === 1);
       check('the stream appears in the history', (await page.textContent('#log-history')).includes('Suno music stream #1'));
       await page.keyboard.press('Escape');
-      check('Esc does not close the Stream Desk window', await page.isVisible('#streamdesk'));
+      check('Esc does not close NoorStream window', await page.isVisible('#streamdesk'));
       await page.evaluate(() => window.NoorStream.close());
       await waitFn(page, () => window.__mock.state.streamClosed === 1);
       check('closing asks the host to close the window', true);
       const unexpected = errors.filter((e) => !/Empty src|status of 404/.test(e));
-      check('no page errors in the Stream Desk', unexpected.length === 0, unexpected);
+      check('no page errors in NoorStream', unexpected.length === 0, unexpected);
       if (shots) { await page.evaluate(() => window.NoorStream.open('credits')); await page.waitForTimeout(800); await page.screenshot({ path: `${shots}/stream.png` }); }
       await page.close();
     }
@@ -2303,14 +2303,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await openStream(browser, url, { streamTab: 'mic' }, { width: 1500, height: 1000 });
       const MIC = () => page.evaluate(() => window.__mock.state.mic);
       await page.waitForSelector('#mic-verdict .mic-big');
-      check('the host can open the Stream Desk window straight on Mic Guard', (await page.getAttribute('[data-sdtab="mic"]', 'aria-selected')) === 'true');
+      check('the host can open NoorStream window straight on Mic Guard', (await page.getAttribute('[data-sdtab="mic"]', 'aria-selected')) === 'true');
       check('Mic Guard starts switched off', (await page.textContent('#mic-verdict')).includes('Not set up') && !(await MIC()).cfg.windows);
       check('the microphones are listed, the default first', (await page.$$eval('#mic-device option', (o) => o.map((x) => x.textContent))).join('|') === 'Default microphone (Microphone (Blue Yeti))|Microphone (Blue Yeti)|Headset Microphone');
       await page.check('#mic-windows');
       await waitFn(page, () => window.__mock.state.mic.cfg.windows === true && window.NoorStream._state().micSettled);
       await page.waitForSelector('#mic-verdict.live');
       check('with the Windows mic on, the verdict shows LIVE', (await page.textContent('#mic-verdict .mic-big')) === 'LIVE');
-      check('…and the Stream Desk header shows it too', (await page.textContent('#sd-mic-pill')).includes('LIVE'));
+      check('…and NoorStream header shows it too', (await page.textContent('#sd-mic-pill')).includes('LIVE'));
 
       // OBS: a wrong password is explained; the right one connects and is remembered (by the host, not the page).
       await page.check('#mic-obs');
@@ -2382,7 +2382,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
     {
-      // From the main window: Ctrl+K toggles the microphone and opens Mic Guard in the Stream Desk window.
+      // From the main window: Ctrl+K toggles the microphone and opens Mic Guard in NoorStream window.
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } });
       await page.evaluate(() => { Object.assign(window.__mock.state.mic.cfg, { windows: true }); });
       await page.keyboard.press('Control+k');
@@ -2394,7 +2394,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.type('Mic Guard:');
       await page.keyboard.press('Enter');
       await page.waitForSelector('#streamdesk:not([hidden]) #mic-verdict');
-      check('Ctrl+K › Mic Guard settings opens the Stream Desk on that tab', (await page.evaluate(() => window.NoorStream._state().tab)) === 'mic');
+      check('Ctrl+K › Mic Guard settings opens NoorStream on that tab', (await page.evaluate(() => window.NoorStream._state().tab)) === 'mic');
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
       check('no page errors when using Mic Guard from the main window', unexpected.length === 0, unexpected);
       await page.close();
@@ -2453,12 +2453,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const D = () => page.evaluate(() => window.NoorDock._state());
       const rect = (sel) => page.evaluate((q) => { const r = document.querySelector(q).getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), t: Math.round(r.top), b: Math.round(r.bottom), w: Math.round(r.width), h: Math.round(r.height) }; }, sel);
       check('the classic layout is the default: sidebar left, panels dock right', (await D()).layout.sidebar === 'left' && (await D()).layout.place.music === 'right');
-      // Ready-made "Streaming": music left, Stream Desk right, sidebar hidden.
+      // Ready-made "Streaming": music left, NoorStream right, sidebar hidden.
       await page.evaluate(() => window.NoorDock.applyPreset('streaming'));
       await page.waitForSelector('#dock-left #music');
       await page.waitForSelector('#dock-right #streamdesk:not([hidden])');
       const ed = await rect('#editor'), left = await rect('#dock-left'), right = await rect('#dock-right');
-      check('“Streaming” puts music on the left and the Stream Desk on the right, the document between', left.r <= ed.l + 1 && ed.r <= right.l + 1 && left.w > 250 && right.w > 250, { left, ed, right });
+      check('“Streaming” puts music on the left and NoorStream on the right, the document between', left.r <= ed.l + 1 && ed.r <= right.l + 1 && left.w > 250 && right.w > 250, { left, ed, right });
       check('…and hides the sidebar', await page.evaluate(() => document.body.classList.contains('sidebar-collapsed')));
       // The video goes under the document (bottom dock) and keeps playing when it moves.
       await page.evaluate(() => window.NoorVideo.open());
@@ -2469,7 +2469,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !document.querySelector('#vb-video').paused && document.querySelector('#vb-video').currentTime > 0.2, null, { timeout: 6000 });
       await page.evaluate(() => window.NoorDock.place('video', 'right'));
       await page.waitForSelector('#dock-right #videobench:not([hidden])');
-      check('moving a panel to another dock replaces what was there (the Stream Desk closes)', !(await page.evaluate(() => document.body.classList.contains('stream-open'))));
+      check('moving a panel to another dock replaces what was there (NoorStream closes)', !(await page.evaluate(() => document.body.classList.contains('stream-open'))));
       await page.evaluate(() => window.NoorVideo.select(1, { autoplay: true }));
       await waitFn(page, () => !document.querySelector('#vb-video').paused, null, { timeout: 6000 });
       check('a video plays in its new dock', true);
@@ -2573,14 +2573,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 28. Apps Hub: shortcuts with pictures in a dock panel; start, edit, group, remove; safe addresses only.
+    // ---- 28. NoorHub: shortcuts with pictures in a dock panel; start, edit, group, remove; safe addresses only.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const H = () => page.evaluate(() => window.__mock.state.hub);
       await page.keyboard.press('Control+Alt+h');
       await page.waitForSelector('#dock-right #appshub:not([hidden])');
       await waitFn(page, () => (document.querySelector('#apps-body')?.textContent || '').includes('Your apps, games and sites'));
-      check('Ctrl+Alt+H opens the Apps Hub in a dock', true);
+      check('Ctrl+Alt+H opens NoorHub in a dock', true);
       await page.click('#apps-body button:has-text("Program or game")');
       await page.waitForSelector('.app-tile');
       check('programs and games are added with their pictures', (await page.$$('.app-tile')).length === 2 && await page.evaluate(() => document.querySelector('.app-tile img.app-pic').complete && document.querySelector('.app-tile img.app-pic').naturalWidth > 0));
@@ -2627,9 +2627,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.modal button:has-text("Remove")');
       await waitFn(page, () => window.__mock.state.hub.items.length === 2);
       check('Remove takes the shortcut out (after asking)', !(await H()).items.some((i) => i.id === 'h1'));
-      check('the Apps Hub can move to another dock like the benches', await page.evaluate(() => { window.NoorDock.place('apps', 'left'); return !!document.querySelector('#dock-left #appshub'); }));
+      check('NoorHub can move to another dock like the benches', await page.evaluate(() => { window.NoorDock.place('apps', 'left'); return !!document.querySelector('#dock-left #appshub'); }));
       const unexpected = errors.filter((e) => !/status of 404|addresses can't be added/.test(e));
-      check('no page errors in the Apps Hub', unexpected.length === 0, unexpected);
+      check('no page errors in NoorHub', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/apps-hub.png` });
       await page.close();
     }
@@ -2694,7 +2694,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 30. [[Wiki links]] typed in Visual mode stay links; one highlighted item in menus; Apps Hub categories.
+    // ---- 30. [[Wiki links]] typed in Visual mode stay links; one highlighted item in menus; NoorHub categories.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# W\n\nhello\n', path: 'C:\\v\\w.md', fileName: 'w.md', title: 'w' }, files: { 'C:\\v\\w.md': '# W\n\nhello\n' } }, { width: 1500, height: 950 });
       await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
@@ -2728,7 +2728,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Escape'); await page.keyboard.press('Escape');
       await page.mouse.click(700, 600);
 
-      // Apps Hub categories: chips filter what is shown; custom categories; moving shortcuts; remembered.
+      // NoorHub categories: chips filter what is shown; custom categories; moving shortcuts; remembered.
       const H = () => page.evaluate(() => window.__mock.state.hub);
       const AS = () => page.evaluate(() => NoorApps._state());
       await page.keyboard.press('Control+Alt+h');
@@ -2793,7 +2793,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const GM = () => page.evaluate(() => window.__mock.state.gallery);
       await page.keyboard.press('Control+Alt+g');
       await page.waitForSelector('#dock-right #gallery:not([hidden]) .gallery-tile');
-      check('Ctrl+Alt+G opens the Gallery in a dock with every picture', (await page.$$('.gallery-tile')).length === 12);
+      check('Ctrl+Alt+G opens NoorGallery in a dock with every picture', (await page.$$('.gallery-tile')).length === 12);
       await waitFn(page, () => [...document.querySelectorAll('.gallery-tile img')].slice(0, 4).every((i) => i.complete && i.naturalWidth > 0));
       check('previews load from /_thumb/', (await page.getAttribute('.gallery-tile img', 'src')).startsWith('/_thumb/'));
       check('newest first by default', (await G()).items[0] === 'Zdjęcie 012');
@@ -2873,7 +2873,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#gallery-slideshow', { state: 'hidden' });
       check('Esc ends the slideshow and pauses its music', (await page.evaluate(() => window.NoorMusic._state().paused)) === true);
       check('the chosen view is remembered', (await GM()).session.source === 'show:1');
-      check('no page errors in the Gallery', errors.length === 0, errors);
+      check('no page errors in NoorGallery', errors.length === 0, errors);
       if (shots) await page.screenshot({ path: `${shots}/gallery.png` });
       await page.close();
     }
@@ -2954,7 +2954,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a panel can go in the middle, as a tab next to the documents', await page.isVisible('#module-tabs .module-tab[data-module="gallery"].active') && await page.isHidden('#editor-card') && await page.isVisible('#dock-center #gallery'));
       // The wide layout comes from a resize observer, a moment after the move.
       await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide')).catch(() => {});
-      check('…where the Gallery becomes a picture manager (albums, details)', await page.evaluate(() => document.querySelector('#gallery').classList.contains('wide')) && await page.isVisible('#gallery-nav .gnav-item[data-source="all"]'));
+      check('…where NoorGallery becomes a picture manager (albums, details)', await page.evaluate(() => document.querySelector('#gallery').classList.contains('wide')) && await page.isVisible('#gallery-nav .gnav-item[data-source="all"]'));
       await page.click('#tabs .tab');
       check('clicking a document tab brings the document back', await page.isVisible('#editor-card') && (await D()).active === null && (await D()).open.includes('gallery'));
       await page.click('#module-tabs .module-tab[data-module="gallery"]');
@@ -3010,7 +3010,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 34. Video Bench in the middle (lists beside the player); notes on the video; Gallery albums, formats, Open in, copy/move, ZIP, duplicates.
+    // ---- 34. NoorVideo in the middle (lists beside the player); notes on the video; Gallery albums, formats, Open in, copy/move, ZIP, duplicates.
     {
       const { page, errors } = await open(browser, url, { videos: true, gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       await page.evaluate(() => { window.__mock.state.video.notes.push({ id: 900, videoId: 1, time: 0.2, text: 'Tu zaczyna się akcja' }); });
@@ -3031,7 +3031,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('in the middle, ☰ hides the list so the video gets the whole width', solo.hidden && solo.stage > solo.dock * 0.9, solo);
       await page.click('#vb-list-toggle');
       check('…and brings it back', await page.isVisible('#videobench .music-tabs'));
-      check('the Video Bench has a control bar for full screen', !!(await page.$('#vb-stage .pc-bar.pc-fs-only .pc-seek')));
+      check('NoorVideo has a control bar for full screen', !!(await page.$('#vb-stage .pc-bar.pc-fs-only .pc-seek')));
       await page.evaluate(() => NoorVideo.close());
 
       // Gallery
@@ -3230,7 +3230,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 36. Music Bench in the middle: Now playing and Up next on the left, the library as a table with sortable columns.
+    // ---- 36. NoorMusic in the middle: Now playing and Up next on the left, the library as a table with sortable columns.
     {
       const { page, errors } = await open(browser, url, { musicTracks: 300, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       await page.keyboard.press('Control+Shift+M');
@@ -3258,7 +3258,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.dblclick('#music-list .track[data-index="0"] .c-title');
       await waitFn(page, () => !!document.querySelector('#music-side-queue .qitem.current'));
       check('playing fills Up next on the left', (await page.$$('#music-side-queue .qitem')).length > 5);
-      check('the mini-player steps aside while the Music Bench is shown in the middle', await page.isHidden('#miniplayer'));
+      check('the mini-player steps aside while NoorMusic is shown in the middle', await page.isHidden('#miniplayer'));
       await page.evaluate(() => NoorDock.showDocuments());
       await page.waitForSelector('#miniplayer', { state: 'visible' });
       check('…and is back with the document', true);
@@ -3267,12 +3267,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !document.querySelector('#music.wide') && document.querySelector('#music-list .track[data-index]')?.offsetHeight === 50);
       check('back in a side dock it is the narrow bench again', await page.isVisible('#music .music-tabs button[data-tab="queue"]') && await page.isHidden('#music-cols'));
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
-      check('no page errors in the wide Music Bench', unexpected.length === 0, unexpected);
+      check('no page errors in the wide NoorMusic', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/music-middle.png` });
       await page.close();
     }
 
-    // ---- 37. Radio Bench: stations, playing through the relay with song titles, one sound at a time, adding and finding stations.
+    // ---- 37. NoorRadio: stations, playing through the relay with song titles, one sound at a time, adding and finding stations.
     {
       const radio = [{ name: 'Radio Nowy Świat', url: 'https://nowyswiat.example/s', tags: ['polskie'] }, { name: 'Jazz FM', url: 'http://jazz.example/fm' }];
       const { page, errors } = await open(browser, url, { radio, musicTracks: 4 }, { width: 1400, height: 900 });
@@ -3280,7 +3280,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const RS = () => page.evaluate(() => NoorRadio._state());
       await page.keyboard.press('Control+Alt+i');
       await page.waitForSelector('#radiobench:not([hidden]) .radio-item');
-      check('Ctrl+Alt+I opens the Radio with your stations', (await page.$$('.radio-item')).length === 2);
+      check('Ctrl+Alt+I opens NoorRadio with your stations', (await page.$$('.radio-item')).length === 2);
       check('…and tags become filters', !!(await page.$('#radio-views [data-view="tag:polskie"]')));
       await page.dblclick('.radio-item[data-id="1"]');
       await waitFn(page, () => NoorRadio._state().on?.state === 'playing', null, { timeout: 8000 });
@@ -3291,14 +3291,14 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => window.__mock.state.radio.push('radio.title', { token: 'old', title: 'Not this one' }));
       await page.waitForTimeout(100);
       check('…titles from an older stream are ignored', (await page.textContent('#radio-now-title')) === 'Kult – Arahja');
-      // The Music Bench's sound for the radio too: the same equalizer, and even loudness followed live.
+      // NoorMusic's sound for the radio too: the same equalizer, and even loudness followed live.
       check('the radio\'s stream is read with the relay\'s permission (so the equalizer can work on it)', (await RS()).crossOrigin === 'anonymous');
       await page.evaluate(() => NoorFx.update({ eqOn: true, preset: 'bass', normalize: true }));
       await waitFn(page, () => NoorFx.radio.routed);
-      check('with the equalizer on, the playing station goes through it (shared with the Music Bench)', await page.evaluate(() => NoorFx.radio.shared && NoorFx.radio.routed && NoorFx.radio.leveling));
+      check('with the equalizer on, the playing station goes through it (shared with NoorMusic)', await page.evaluate(() => NoorFx.radio.shared && NoorFx.radio.routed && NoorFx.radio.leveling));
       await page.evaluate(() => NoorMusic.openSound());
       await page.waitForSelector('#fx-radio');
-      check('the Music Bench\'s sound settings say they are for the Radio too', await page.isChecked('#fx-radio'));
+      check('NoorMusic\'s sound settings say they are for NoorRadio too', await page.isChecked('#fx-radio'));
       await page.uncheck('#fx-radio');
       check('…and that can be turned off', await page.evaluate(() => !NoorFx.radio.shared && !NoorFx.settings.radio));
       await page.check('#fx-radio');
@@ -3359,19 +3359,19 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#radio-sleep', '0');
       await page.evaluate(() => NoorDock.place('radio', 'center'));
       await waitFn(page, () => NoorDock._state().center.active === 'radio');
-      check('the Radio can go in the middle too', await page.isVisible('#radiobench .radio-item'));
+      check('NoorRadio can go in the middle too', await page.isVisible('#radiobench .radio-item'));
       await page.focus('.radio-item:has-text("Broken")');
       await page.keyboard.press('Delete');
       await page.click('.modal button:has-text("Delete")');
       await waitFn(page, () => !document.querySelector('.radio-item[data-id]') || ![...document.querySelectorAll('.radio-item')].some((n) => n.textContent.includes('Broken')));
       check('Delete removes a station (after asking)', !(await RM()).stations.some((x) => x.name === 'Broken'));
       const unexpected = errors.filter((e) => !/status of 404|can't be reached/.test(e));
-      check('no page errors in the Radio', unexpected.length === 0, unexpected);
+      check('no page errors in NoorRadio', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/radio.png` });
       await page.close();
     }
 
-    // ---- 38. Sound Bench: presets, Quick controls, live preview, variations, undo, A/B, layers, export and presets of your own.
+    // ---- 38. NoorSound: presets, Quick controls, live preview, variations, undo, A/B, layers, export and presets of your own.
     {
       const { page, errors } = await open(browser, url, { musicTracks: 4, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const SM = () => page.evaluate(() => window.__mock.state.sound);
@@ -3380,7 +3380,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+k');
       await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
       await waitFn(page, () => NoorSound._state().render !== null);
-      check('Ctrl+Alt+K opens the Sound Bench in the middle with a preset ready', (await page.evaluate(() => NoorDock._state().center.active)) === 'sound' && (await page.inputValue('#sb-name')) === 'Gentle forest breeze');
+      check('Ctrl+Alt+K opens NoorSound in the middle with a preset ready', (await page.evaluate(() => NoorDock._state().center.active)) === 'sound' && (await page.inputValue('#sb-name')) === 'Gentle forest breeze');
       check('…as a wide editor: presets beside it, by family', await page.evaluate(() => document.querySelector('#soundbench').classList.contains('wide')) && (await page.$$eval('#sb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Generate,Wind,Rain,UI,Machines,My presets');
       check('the preview shows its waveform and levels', /peak .* dB · RMS/.test(await page.textContent('#sb-status')));
       const before = (await SM()).renders.length;
@@ -3520,12 +3520,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the master has its own effects chain', (await SM()).renders.at(-1).master.effects[0].mix === 0.3);
       await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
-      check('no page errors in the Sound Bench', unexpected.length === 0, unexpected);
+      check('no page errors in NoorSound', unexpected.length === 0, unexpected);
       if (shots) await page.screenshot({ path: `${shots}/sound-bench.png` });
       await page.close();
     }
 
-    // ---- 39. Sound Bench modulation: controls in Quick, modulators, connections to any setting, ids and tidy-up.
+    // ---- 39. NoorSound modulation: controls in Quick, modulators, connections to any setting, ids and tidy-up.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
@@ -3618,7 +3618,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 40. Sound Bench samples: the region editor, Tape / Stretch / Grains, crossfaded loops, grain position as a target.
+    // ---- 40. NoorSound samples: the region editor, Tape / Stretch / Grains, crossfaded loops, grain position as a target.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
@@ -3682,7 +3682,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 41. Sound Bench feedback: meters, the spectrogram, a loudness target, matched A/B and a reference clip.
+    // ---- 41. NoorSound feedback: meters, the spectrogram, a loudness target, matched A/B and a reference clip.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const SS = () => page.evaluate(() => NoorSound._state());
@@ -3748,7 +3748,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 42. Sound Bench buses and stems: shared reverb, sends per layer, bus effects and level as targets, stems on export.
+    // ---- 42. NoorSound buses and stems: shared reverb, sends per layer, bus effects and level as targets, stems on export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
@@ -3805,7 +3805,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 43. Sound Bench resonators: an effect in any rack, its body and pitch, and its pitch as a modulation target.
+    // ---- 43. NoorSound resonators: an effect in any rack, its body and pitch, and its pitch as a modulation target.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
@@ -3842,7 +3842,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 44. Sound Bench convolution: built-in spaces, a recorded space picked for it, and its settings.
+    // ---- 44. NoorSound convolution: built-in spaces, a recorded space picked for it, and its settings.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
@@ -3875,7 +3875,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 45. Sound Bench map: the sound as connected blocks, what controls move, and blocks that open their editors.
+    // ---- 45. NoorSound map: the sound as connected blocks, what controls move, and blocks that open their editors.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.mapmod'); } catch { /* */ } });
@@ -3928,7 +3928,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 46. Texture Bench: materials by family, a lit 3D preview and flat maps, layers, surface, variations, undo, export.
+    // ---- 46. NoorMaterial: materials by family, a lit 3D preview and flat maps, layers, surface, variations, undo, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const TS = () => page.evaluate(() => NoorTexture._state());
@@ -3938,7 +3938,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+t');
       await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
       await waitFn(page, () => NoorTexture._state().render !== null);
-      check('Ctrl+Alt+T opens the Texture Bench in the middle with a material', (await page.evaluate(() => NoorDock._state().center.active)) === 'texture' && (await page.inputValue('#tb-name')) === 'Red bricks');
+      check('Ctrl+Alt+T opens NoorMaterial in the middle with a material', (await page.evaluate(() => NoorDock._state().center.active)) === 'texture' && (await page.inputValue('#tb-name')) === 'Red bricks');
       check('…materials listed by family', (await page.$$eval('#tb-presets .gnav-head', (n) => n.map((x) => x.textContent))).join() === 'Walls,Stone,Metal,My presets');
       check('…rendered at 512 with its maps shown as thumbnails', (await last()).size === 512 && /512 × 512 px preview/.test(await page.textContent('#tb-status'))
         && await page.evaluate(() => [...document.querySelectorAll('#tb-thumbs [data-map]')].every((b) => /url\("data:image\/png/.test(b.style.backgroundImage))));
@@ -4048,7 +4048,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !NoorTexture.isOpen());
       check('Ctrl+Alt+T closes it again', true);
       const unexpected = errors.filter((e) => !/status of 404/.test(e));
-      check('no page errors in the Texture Bench', unexpected.length === 0, unexpected);
+      check('no page errors in NoorMaterial', unexpected.length === 0, unexpected);
       if (shots) {
         await page.keyboard.press('Control+Alt+t');
         await page.click('#tb-presets [data-preset="stone-cobbles"]');
@@ -4059,7 +4059,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 47. Texture Bench: a photo as a layer (seamless, light evened out, height from detail and by colour), painting, masks.
+    // ---- 47. NoorMaterial: a photo as a layer (seamless, light evened out, height from detail and by colour), painting, masks.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1).recipe);
@@ -4110,7 +4110,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 48. Texture Bench 3D preview: zoom, lights, what it shows, depth, and the picture the right way round on every shape.
+    // ---- 48. NoorMaterial 3D preview: zoom, lights, what it shows, depth, and the picture the right way round on every shape.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const TS = () => page.evaluate(() => NoorTexture._state());
@@ -4177,7 +4177,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 49. Texture Bench shapes and erosion: tiles, hexagons, planks, spots (as domes, rivets, craters) and erosion.
+    // ---- 49. NoorMaterial shapes and erosion: tiles, hexagons, planks, spots (as domes, rivets, craters) and erosion.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
@@ -4213,7 +4213,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 50. Texture Bench painting: a hand-painted layer made and opened in NoorSketch, applied back, exported with the material.
+    // ---- 50. NoorMaterial painting: a hand-painted layer made and opened in NoorSketch, applied back, exported with the material.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const T = () => page.evaluate(() => window.__mock.state.texture);
@@ -4246,17 +4246,17 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…but not for a painting this material doesn\'t use', (await T()).renders.length === after);
       // Export with the Gallery and the Vault.
       await page.click('#texturebench .sb-tabs button[data-tab="export"]');
-      check('Export can show the maps in the Gallery and keep the recipe in the Vault (both off at first)', !(await page.isChecked('#tb-to-gallery')) && !(await page.isChecked('#tb-to-vault')));
+      check('Export can show the maps in NoorGallery and keep the recipe in the Vault (both off at first)', !(await page.isChecked('#tb-to-gallery')) && !(await page.isChecked('#tb-to-vault')));
       await page.check('#tb-to-gallery'); await page.check('#tb-to-vault');
       await page.click('#tb-export');
       await page.waitForSelector('#tb-reveal');
       const status = await page.textContent('#tb-export-status');
-      check('…the painting goes along, the maps go to the Gallery and the recipe to the Vault', /Its painting went along/.test(status) && /In the Gallery/.test(status) && /Materials\/Red_bricks\.noortex\.json/.test(status), status);
+      check('…the painting goes along, the maps go to NoorGallery and the recipe to the Vault', /Its painting went along/.test(status) && /In NoorGallery/.test(status) && /Materials\/Red_bricks\.noortex\.json/.test(status), status);
       check('…and the choices are remembered', (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')))).gallery === true);
       // A recipe opened from the Vault comes into the bench.
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'texture.openRecipe', payload: { recipe: { ...JSON.parse(JSON.stringify(window.__mock.state.texture.recipes['stone-cobbles'])), name: 'From the Vault' } } }));
       await waitFn(page, () => NoorTexture._state().recipe?.name === 'From the Vault');
-      check('a material recipe opened from the Vault opens in the Texture Bench', (await page.inputValue('#tb-name')) === 'From the Vault');
+      check('a material recipe opened from the Vault opens in NoorMaterial', (await page.inputValue('#tb-name')) === 'From the Vault');
       check('no page errors while painting materials', errors.length === 0, errors);
       await page.close();
     }
@@ -4302,12 +4302,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('the material can be hidden, to see the painting alone', (await S()).texture.show === false && await page.evaluate(() => document.body.classList.contains('sk-hide-material')));
       await page.evaluate(() => window.__sk.emit({ v: 2, event: 'sketch.underlay', payload: { underlay: '', material: 'Red bricks v2' } }));
       await waitFn(page, () => /v2/.test(document.querySelector('#sketch-material').textContent));
-      check('the material underneath follows changes made in the Texture Bench', true);
+      check('the material underneath follows changes made in NoorMaterial', true);
       check('no page errors painting for a material', errors.length === 0, errors);
       await page.close();
     }
 
-    // ---- 52. Gallery → Texture Bench: pictures chosen in the Gallery become a material, or are added over the one being made.
+    // ---- 52. Gallery → NoorMaterial: pictures chosen in the Gallery become a material, or are added over the one being made.
     {
       const { page, errors } = await open(browser, url, { gallery: 6, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const T = () => page.evaluate(() => NoorTexture._state().recipe);
@@ -4319,15 +4319,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.gallery-tile[data-index="1"]', { modifiers: ['Control'] });
       await page.click('.gallery-tile[data-index="1"]', { button: 'right' });
       await page.hover('.menu-popup .menu-item:has-text("Open in")');
-      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("Texture Bench")');
-      check('right-click › Open in › Texture Bench: new material from them, or add over the current one', await page.isVisible('.menu-popup[data-depth="2"] .menu-item:has-text("New material from these 2")'));
+      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("NoorMaterial")');
+      check('right-click › Open in › NoorMaterial: new material from them, or add over the current one', await page.isVisible('.menu-popup[data-depth="2"] .menu-item:has-text("New material from these 2")'));
       await page.click('.menu-popup[data-depth="2"] .menu-item:has-text("New material from these 2")');
       await waitFn(page, () => NoorTexture._state().recipe && NoorTexture._state().recipe.layers.every((l) => l.type === 'image'));
       const made = await T();
       check('…a new material: the first picture as its base, the next over it, each repeated in its own proportions', made.layers.length === 2 && made.name === 'Zdjęcie 006'
         && made.layers[0].blend === 'normal' && made.layers[0].opacity === 1 && made.layers[1].blend === 'overlay' && made.layers[0].scaleX === 3 && made.layers[0].scaleY === 4
         && /Zdjęcie 006\.jpg$/.test(made.layers[0].path), made.layers.map((l) => [l.name, l.blend, l.scaleX]));
-      check('…the Texture Bench opens with it', await page.isVisible('#texturebench'));
+      check('…NoorMaterial opens with it', await page.isVisible('#texturebench'));
       await page.evaluate(() => NoorGallery.open());
       await waitFn(page, () => NoorDock._state().center.active === 'gallery');
       await page.click('.gallery-tile[data-index="3"]');
@@ -4336,7 +4336,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorTexture._state().recipe.layers.length === 3);
       const added = (await T()).layers[2];
       check('🧱 Texture… in the info panel adds a picture over the current material', added.type === 'image' && added.blend === 'overlay' && added.opacity === 0.5 && (await page.evaluate(() => window.__mock.state.gallery.toTexture.length)) === 2);
-      check('no page errors from the Gallery to the Texture Bench', errors.length === 0, errors);
+      check('no page errors from NoorGallery to NoorMaterial', errors.length === 0, errors);
       await page.close();
     }
 
@@ -4370,8 +4370,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#tb-reveal');
       const ex = (await page.evaluate(() => window.__mock.state.texture.exports.at(-1)));
       check('Export sends the project and the pattern to the app (which writes only inside the project)', ex.project === 'p1' && ex.layout === 'custom' && ex.folderPattern === 'Art/{name_snake}' && ex.filePattern === 'T_{Name}_{MAP}', ex);
-      check('…and the choices are remembered for the Texture Bench', (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.export.where.texture')))).folderPattern === 'Art/{name_snake}');
-      // The Sound Bench has the same, with its own layout and the same projects.
+      check('…and the choices are remembered for NoorMaterial', (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.export.where.texture')))).folderPattern === 'Art/{name_snake}');
+      // NoorSound has the same, with its own layout and the same projects.
       await page.keyboard.press('Control+Alt+k');
       await page.waitForSelector('#soundbench:not([hidden])');
       await waitFn(page, () => NoorSound._state().recipe !== null);
@@ -4382,7 +4382,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#sb-variations', '3');
       await waitFn(page, () => /_03\.wav/.test(document.querySelector('#ex-sound-preview').textContent));
       const sp = await page.textContent('#ex-sound-preview');
-      check('Sound Bench: the same projects, and the Unity layout for sounds (Assets/Audio/SFX/…, numbered takes)', /My Game \/ Assets\/Audio\/SFX\//.test(sp) && /_01\.wav/.test(sp), sp);
+      check('NoorSound: the same projects, and the Unity layout for sounds (Assets/Audio/SFX/…, numbered takes)', /My Game \/ Assets\/Audio\/SFX\//.test(sp) && /_01\.wav/.test(sp), sp);
       await page.click('#sb-export');
       await waitFn(page, () => window.__mock.state.sound.exports.length === 1);
       check('…and its export goes there', (await page.evaluate(() => window.__mock.state.sound.exports[0])).layout === 'unity');
@@ -4393,7 +4393,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 54. Texture Bench from scratch: a new material with one layer to build on, or a random start.
+    // ---- 54. NoorMaterial from scratch: a new material with one layer to build on, or a random start.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const R = () => page.evaluate(() => NoorTexture._state().recipe);
@@ -4423,7 +4423,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 55. Texture Bench layout: drag how much room the preview gets, side by side, hide the materials list; remembered.
+    // ---- 55. NoorMaterial layout: drag how much room the preview gets, side by side, hide the materials list; remembered.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const L = () => page.evaluate(() => NoorTexture._state().layout);
@@ -4463,7 +4463,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 56. Texture Bench Maps tab: each map on its own; export: which maps, normal convention, height bits, packed maps.
+    // ---- 56. NoorMaterial Maps tab: each map on its own; export: which maps, normal convention, height bits, packed maps.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
@@ -4566,7 +4566,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await open(browser, url, { gallery: 6, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
       const TB = () => page.evaluate(() => NoorTexture._state().batch);
       await page.evaluate(() => { try { localStorage.removeItem('noormd.texture.export'); } catch { /* */ } });
-      // From the Gallery: select pictures › Open in › Texture Bench › Make PBR maps for each.
+      // From the Gallery: select pictures › Open in › NoorMaterial › Make PBR maps for each.
       await page.keyboard.press('Control+Alt+g');
       await page.waitForSelector('#gallery:not([hidden]) .gallery-tile');
       await page.evaluate(() => NoorDock.place('gallery', 'center'));
@@ -4576,10 +4576,10 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.gallery-tile[data-index="2"]', { modifiers: ['Control'] });
       await page.click('.gallery-tile[data-index="2"]', { button: 'right' });
       await page.hover('.menu-popup .menu-item:has-text("Open in")');
-      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("Texture Bench")');
+      await page.hover('.menu-popup[data-depth="1"] .menu-item:has-text("NoorMaterial")');
       await page.click('.menu-popup[data-depth="2"] .menu-item:has-text("Make PBR maps for each of the 3")');
       await waitFn(page, () => NoorTexture._state().batch.pictures.length === 3);
-      check('Gallery › Open in › Texture Bench › Make PBR maps for each: the pictures wait in the batch (no limit of 12, not measured)', (await page.evaluate(() => window.__mock.state.gallery.toTextureMany)) === true
+      check('NoorGallery › Open in › NoorMaterial › Make PBR maps for each: the pictures wait in the batch (no limit of 12, not measured)', (await page.evaluate(() => window.__mock.state.gallery.toTextureMany)) === true
         && await page.isVisible('#tb-batch') && /Make PBR maps for 3 pictures/.test(await page.textContent('#tb-batch-run')));
       await page.click('#tb-batch-pick');
       await waitFn(page, () => NoorTexture._state().batch.pictures.length === 6);
@@ -4679,7 +4679,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.fill('#seq-rootnote', '72'); await page.press('#seq-rootnote', 'Enter');
       check('…recorded as C5', (await SQ()).song.tracks[2].instrument.rootNote === 72);
       await page.selectOption('#seqbench .sb-addfx[data-addfx="track"]', 'reverb');
-      check('effects on a track (the Sound Bench\'s)', (await SQ()).song.tracks[2].effects[0].type === 'reverb' && !!(await page.$('#seqbench .sb-fx[data-fx-type="reverb"]')));
+      check('effects on a track (NoorSound\'s)', (await SQ()).song.tracks[2].effects[0].type === 'reverb' && !!(await page.$('#seqbench .sb-fx[data-fx-type="reverb"]')));
       await page.selectOption('#seqbench .sb-addfx[data-addfx="track"]', 'convolution');
       check('convolution offers the built-in spaces only here (no recording to pick)', (await page.$$eval('#seqbench .sb-fx[data-fx-type="convolution"] select[data-fx="space"] option', (o) => o.map((x) => x.value))).join() === 'room,hall,church,cave,plate,tunnel');
       // Song settings.
@@ -4767,7 +4767,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorSound._state().render);
       await page.click('#sb-play');
       await waitFn(page, () => !NoorSequencer._state().playing);
-      check('the Sound Bench playing stops the song', !(await SQ()).playing);
+      check('NoorSound playing stops the song', !(await SQ()).playing);
       check('no page errors in NoorSequencer', errors.length === 0, errors);
       await page.close();
     }
@@ -5132,13 +5132,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#seq-picklist .seq-pick');
       await page.click('#seq-picklist .seq-pick[data-id="ui-coin"]');
       await waitFn(page, () => /Coin pickup/.test(NoorSequencer._state().song.tracks.at(-1).instrument.sampleName || ''));
-      check('🔊 From the Sound Bench: a preset rendered as the instrument', (await M()).fromSound === 'ui-coin' && /Coin pickup/.test(await page.textContent('#seq-samplename')));
+      check('🔊 From NoorSound: a preset rendered as the instrument', (await M()).fromSound === 'ui-coin' && /Coin pickup/.test(await page.textContent('#seq-samplename')));
       await page.click('#seq-fromlibrary');
       await page.waitForSelector('#seq-picklist .seq-pick');
       await page.fill('#seq-picksearch', 'kalim');
       await page.click('#seq-picklist .seq-pick[data-id="7"]');
       await waitFn(page, () => NoorSequencer._state().song.tracks.at(-1).instrument.sampleName === 'Kalimba loop.wav');
-      check('♫ From the Music Bench: a WAV from the library', (await M()).fromLibrary === 7);
+      check('♫ From NoorMusic: a WAV from the library', (await M()).fromLibrary === 7);
       // A song opened from the Vault.
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'seq.openSong', payload: { song: { ...window.__mock.state.seq.songs.cozy(), name: 'From the Vault' } } }));
       await waitFn(page, () => NoorSequencer._state().song.name === 'From the Vault');
@@ -5147,7 +5147,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 62. Connected benches: OGG from the Sound Bench, exports added to the Music Bench, recipes kept in and opened from the Vault.
+    // ---- 62. Connected benches: OGG from NoorSound, exports added to NoorMusic, recipes kept in and opened from the Vault.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       await page.evaluate(() => { try { ['noormd.sound.export', 'noormd.seq.export'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
@@ -5155,7 +5155,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorSound.isOpen() && NoorSound._state().recipe);
       await page.click('#soundbench .sb-tabs [data-tab="output"]');
       await page.waitForSelector('#sb-format');
-      check('Sound Bench export: WAV by default, no OGG quality shown', (await page.inputValue('#sb-format')) === 'wav' && !(await page.$('#sb-oggq')));
+      check('NoorSound export: WAV by default, no OGG quality shown', (await page.inputValue('#sb-format')) === 'wav' && !(await page.$('#sb-oggq')));
       await page.selectOption('#sb-format', 'ogg');
       await page.waitForSelector('#sb-oggq');
       await page.selectOption('#sb-oggq', '0.7');
@@ -5166,27 +5166,27 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#sb-export');
       await waitFn(page, () => window.__mock.state.sound.exports.length === 1);
       const se = await page.evaluate(() => window.__mock.state.sound.exports[0]);
-      check('Export sends OGG, its quality, the Vault and the Music Bench choices', se.format === 'ogg' && se.oggQuality === 0.7 && se.vault && se.musicBench, se);
+      check('Export sends OGG, its quality, the Vault and NoorMusic choices', se.format === 'ogg' && se.oggQuality === 0.7 && se.vault && se.musicBench, se);
       await waitFn(page, () => /Made in NoorMD/.test(document.querySelector('#sb-export-status').textContent));
       check('…and says where it all went', /Kept in the Vault as Sounds\//.test(await page.textContent('#sb-export-status')));
       // A sound recipe opened from the Vault.
       await page.evaluate(() => window.__mock.emit({ v: 2, event: 'sound.openRecipe', payload: { recipe: { ...window.__mock.state.sound.recipes['ui-coin'], name: 'Coin from the Vault' } } }));
       await waitFn(page, () => NoorSound._state().recipe.name === 'Coin from the Vault');
-      check('a .noorsound.json opened from the Vault opens in the Sound Bench', true);
-      // NoorSequencer to the Music Bench.
+      check('a .noorsound.json opened from the Vault opens in NoorSound', true);
+      // NoorSequencer to NoorMusic.
       await page.keyboard.press('Control+Alt+q');
       await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song);
       await page.click('#seq-exportbtn');
       await page.check('#seq-musicbench');
       await page.click('#seq-export');
       await waitFn(page, () => window.__mock.state.seq.exports.length === 1);
-      check('NoorSequencer: Also add the files to the Music Bench', (await page.evaluate(() => window.__mock.state.seq.exports[0].musicBench)) === true);
-      await waitFn(page, () => /added to the Music Bench/.test(document.querySelector('#seq-export-status').textContent));
+      check('NoorSequencer: Also add the files to NoorMusic', (await page.evaluate(() => window.__mock.state.seq.exports[0].musicBench)) === true);
+      await waitFn(page, () => /added to NoorMusic/.test(document.querySelector('#seq-export-status').textContent));
       check('no page errors in the connected benches', errors.length === 0, errors);
       await page.close();
     }
 
-    // ---- 63. Sound Bench: 🧬 Mutate only the chosen kinds of settings (timing, tone, level), never in locked layers.
+    // ---- 63. NoorSound: 🧬 Mutate only the chosen kinds of settings (timing, tone, level), never in locked layers.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       await page.evaluate(() => { try { localStorage.removeItem('noormd.sound.mutate'); } catch { /* */ } });
@@ -5343,7 +5343,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in the calendar', errors.length === 0, errors);
       await page.close();
     }
-    // ---- 64b. Calendar stage 2: public holidays, a note per entry, the agenda in a note, the stream schedule on the Stream Desk.
+    // ---- 64b. Calendar stage 2: public holidays, a note per entry, the agenda in a note, the stream schedule on NoorStream.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const CM = () => page.evaluate(() => window.__mock.state.calendar);
@@ -5374,7 +5374,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.calendar.agendas && window.__mock.state.calendar.agendas.length === 1);
       await page.waitForTimeout(200);
       check('the week’s agenda goes into the document', /Agenda/.test(await page.evaluate(() => NoorMD.getState().markdown || '')) || /Agenda/.test(await page.textContent('.toastui-editor-contents, .ProseMirror, body')));
-      // A weekly stream, then the Stream Desk's schedule.
+      // A weekly stream, then NoorStream's schedule.
       await page.evaluate(async (start) => {
         await NoorBridge.request('cal.save', { entry: { title: 'Friday night', category: 'stream', allDay: false, start: start + 'T19:00', end: start + 'T22:00', repeat: { freq: 'weekly', interval: 1, days: [] }, skip: [], moved: [], reminders: [], game: 'Elden Ring', platform: 'Twitch', notes: '' } });
       }, await dk(1));
@@ -5382,7 +5382,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => NoorStream.open('schedule'));
       await waitFn(page, () => !!document.querySelector('#sc-frame-week .ovsc'));
       await waitFn(page, () => /Friday night/.test(document.querySelector('#sc-frame-week').textContent));
-      check('the Stream Desk shows the schedule overlays with the calendar’s streams', /Friday night/.test(await page.textContent('#sc-frame-next')) && /Elden Ring/.test(await page.textContent('#sc-frame-week')));
+      check('NoorStream shows the schedule overlays with the calendar’s streams', /Friday night/.test(await page.textContent('#sc-frame-next')) && /Elden Ring/.test(await page.textContent('#sc-frame-week')));
       check('…and gives OBS the two overlay addresses', /next-stream\.html/.test(await page.textContent('#streamdesk')) && /schedule\.html/.test(await page.textContent('#streamdesk')));
       await waitFn(page, () => /<t:\d+:F>/.test(document.querySelector('#sc-text').value));
       check('the schedule as text for Discord (time stamps every reader sees in their own time)', /Friday night/.test(await page.inputValue('#sc-text')));
@@ -6382,7 +6382,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 66l. NoorSprite with the other benches: a decal for NoorForge, a material in the Texture Bench, frame sounds, the Gallery.
+    // ---- 66l. NoorSprite with the other benches: a decal for NoorForge, a material in NoorMaterial, frame sounds, the Gallery.
     {
       const { page, errors } = await open(browser, url, { gallery: 3, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const SS = () => page.evaluate(() => NoorSprite._state());
@@ -6401,13 +6401,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const pic = await page.evaluate(() => NoorForge._state().recipe.pictures[0]);
       const g = await page.evaluate((d) => { const b = atob(d); return [b.length, b.charCodeAt(0), b.charCodeAt(40 * 256 + 40)]; }, pic.data);
       check('This frame to NoorForge: a decal of its shape (16× bigger, white where drawn)', pic.width === 256 && pic.height === 128 && g[0] === 256 * 128 && g[1] === 0 && g[2] === 255 && pic.id[0] === 'd');
-      // The Texture Bench.
+      // NoorMaterial.
       await page.evaluate(() => NoorSprite.open());
       await waitFn(page, () => NoorSprite.isOpen() && document.querySelector('#spritebench').offsetParent);
-      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("This frame to the Texture Bench")');
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("This frame to NoorMaterial")');
       await waitFn(page, () => (window.__mock.state.sprite.toTexture || []).length === 1);
       await waitFn(page, () => window.NoorTexture && NoorTexture.isOpen());
-      check('This frame to the Texture Bench: a picture of the app\'s own, a new material from it', (await SM()).toTexture[0].width === 16);
+      check('This frame to NoorMaterial: a picture of the app\'s own, a new material from it', (await SM()).toTexture[0].width === 16);
       // A frame's sound.
       await page.evaluate(() => NoorSprite.open());
       await waitFn(page, () => NoorSprite.isOpen() && document.querySelector('#spritebench').offsetParent);
@@ -6430,7 +6430,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.hover('.menu-popup .menu-item:has-text("Open in")');
       await page.click('.menu-popup[data-depth="1"] .menu-item:has-text("NoorSprite")');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state().width === 1);
-      check('Gallery › Open in › NoorSprite opens the picture as a sprite', (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,0,0,255');
+      check('NoorGallery › Open in › NoorSprite opens the picture as a sprite', (await page.evaluate(() => NoorSprite._pixel(0, 0))).join() === '255,0,0,255');
       check('no page errors with the other benches', errors.length === 0, errors);
       await page.close();
     }
@@ -6996,7 +6996,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 66v-assets. The Asset Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    // ---- 66v-assets. NoorForm as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const AS = () => page.evaluate(() => NoorAssets._state());
@@ -7006,11 +7006,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
-      check('(the Asset Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'assets');
+      check('(NoorForm in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'assets');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
-      check('F11: the Asset Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Generate,View,Help' && await page.isVisible('#menubar'));
-      check('…its title beside them (the recipe, its kind, its levels)', /^Asset Bench — Oak · Broadleaf, 2 levels of detail$/.test(await page.textContent('#bench-title')), await page.textContent('#bench-title'));
+      check('F11: NoorForm as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Generate,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the recipe, its kind, its levels)', /^NoorForm — Oak · Broadleaf, 2 levels of detail$/.test(await page.textContent('#bench-title')), await page.textContent('#bench-title'));
       // View › Wireframe, ticked when on; a view mode.
       await menu(3); await item('Wireframe');
       check('View › Wireframe turns it on', (await AS()).wireframe === true);
@@ -7031,7 +7031,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Alt+G opens Generate, Trees ticked', (await page.getAttribute('.menu-popup .menu-item:has-text("Trees")', 'aria-checked')) === 'true');
       await item('Rocks');
       await waitFn(page, () => NoorAssets._state().subject === 'rock' && NoorAssets._state().recipe && NoorAssets._state().recipe.kind);
-      check('…Rocks puts a rock on the bench', /^Asset Bench — Rock/.test(await page.textContent('#bench-title')));
+      check('…Rocks puts a rock on the bench', /^NoorForm — Rock/.test(await page.textContent('#bench-title')));
       // File › New tree from a preset.
       await menu(0);
       await page.hover('.menu-popup .menu-item:has-text("New tree from a preset")');
@@ -7044,19 +7044,19 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.assets.exports.length === 1);
       check('File › Export now exports the tree (and shows the Export tab)', (await page.evaluate(() => window.__mock.state.assets.exports[0].recipe.name)) === 'Weeping willow' && (await AS()).tab === 'export');
       // Help › shortcuts.
-      await menu(4); await item('Asset Bench shortcuts');
+      await menu(4); await item('NoorForm shortcuts');
       await page.waitForSelector('#ab-keys');
-      check('Help › Asset Bench shortcuts: its keys listed', (await page.$$('#ab-keys tr')).length >= 8 && /Wireframe/.test(await page.textContent('#ab-keys')));
+      check('Help › NoorForm shortcuts: its keys listed', (await page.$$('#ab-keys tr')).length >= 8 && /Wireframe/.test(await page.textContent('#ab-keys')));
       await page.keyboard.press('Escape');
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, the Asset Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorAssets.isOpen())));
-      check('no page errors with the Asset Bench as an app', errors.length === 0, errors);
+      check('F11 again: NoorMD\'s own menu bar back, NoorForm still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorAssets.isOpen())));
+      check('no page errors with NoorForm as an app', errors.length === 0, errors);
       await page.close();
     }
 
-    // ---- 66v-sound. The Sound Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    // ---- 66v-sound. NoorSound as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const SS = () => page.evaluate(() => NoorSound._state());
@@ -7066,12 +7066,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+k');
       await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
       await waitFn(page, () => NoorSound._state().render !== null);
-      check('(the Sound Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sound');
+      check('(NoorSound in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sound');
       check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
-      check('F11: the Sound Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sound,Play,View,Help' && await page.isVisible('#menubar'));
-      check('…its title beside them (the sound, its family, its length)', /^Sound Bench — Gentle forest breeze \(Wind\) · [\d.]+ s/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
+      check('F11: NoorSound as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sound,Play,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the sound, its family, its length)', /^NoorSound — Gentle forest breeze \(Wind\) · [\d.]+ s/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
       await page.fill('#sb-name', 'Night wind');
       await waitFn(page, () => /Night wind/.test(document.querySelector('#bench-title').textContent));
       check('…and the title follows the name as it is typed', true);
@@ -7109,23 +7109,23 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await item('Export…');
       await waitFn(page, () => window.__mock.state.sound.exports.length > 0);
       check('File › Export as › OGG, then File › Export… exports OGG files', (await page.evaluate(() => window.__mock.state.sound.exports.at(-1).format)) === 'ogg');
-      // Edit › Sound Bench settings: the tab it opens on.
+      // Edit › NoorSound settings: the tab it opens on.
       await page.click('#menubar .menu-title[data-menu="1"]');
-      await item('Sound Bench settings');
+      await item('NoorSound settings');
       await page.waitForSelector('#sb-set-ok');
       await page.selectOption('#sb-set-tab', 'layers');
       await page.click('#sb-set-ok');
-      check('Sound Bench settings are kept', (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsound.settings')).tab)) === 'layers');
+      check('NoorSound settings are kept', (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsound.settings')).tab)) === 'layers');
       // Help › shortcuts.
-      await page.click('#menubar .menu-title[data-menu="5"]'); await item('Sound Bench shortcuts');
+      await page.click('#menubar .menu-title[data-menu="5"]'); await item('NoorSound shortcuts');
       await page.waitForSelector('#sb-keys');
-      check('Help › Sound Bench shortcuts: its keys listed', (await page.$$('#sb-keys tr')).length >= 10 && /Space/.test(await page.textContent('#sb-keys')));
+      check('Help › NoorSound shortcuts: its keys listed', (await page.$$('#sb-keys tr')).length >= 10 && /Space/.test(await page.textContent('#sb-keys')));
       await page.keyboard.press('Escape');
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, the Sound Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSound.isOpen())));
-      check('no page errors with the Sound Bench as an app', errors.length === 0, errors);
+      check('F11 again: NoorMD\'s own menu bar back, NoorSound still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSound.isOpen())));
+      check('no page errors with NoorSound as an app', errors.length === 0, errors);
       await page.close();
     }
 
@@ -7261,7 +7261,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 66v-texture. The Texture Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    // ---- 66v-texture. NoorMaterial as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const TS = () => page.evaluate(() => NoorTexture._state());
@@ -7271,12 +7271,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+t');
       await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
       await waitFn(page, () => NoorTexture._state().render !== null);
-      check('(the Texture Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'texture');
+      check('(NoorMaterial in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'texture');
       check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
-      check('F11: the Texture Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Material,Layer,View,Help' && await page.isVisible('#menubar'));
-      check('…its title beside them (the material, its family)', /^Texture Bench — Red bricks · Walls/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
+      check('F11: NoorMaterial as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Material,Layer,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the material, its family)', /^NoorMaterial — Red bricks · Walls/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
       // View › a flat map, ticked when shown.
       await page.click('#menubar .menu-title[data-menu="4"]');
       await item('Flat: Normal');
@@ -7301,25 +7301,25 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…Edit › Undo can be used, with its key shown', !(await page.getAttribute('.menu-popup .menu-item:has-text("Undo")', 'disabled')) && /Ctrl\+Z$/.test(await page.textContent('.menu-popup .menu-item:has-text("Undo")')));
       await item('Undo');
       check('…and takes the layer away again', (await TS()).recipe.layers.length === before);
-      // Edit › Texture Bench settings: how the preview starts.
+      // Edit › NoorMaterial settings: how the preview starts.
       await page.click('#menubar .menu-title[data-menu="1"]');
-      await item('Texture Bench settings');
+      await item('NoorMaterial settings');
       await page.waitForSelector('#tb-pref-ok');
       await page.selectOption('#tb-pref-tiling', '3'); await page.selectOption('#tb-pref-size', '2048');
       await page.click('#tb-pref-ok');
-      check('Texture Bench settings: kept, and put to work at once', (await page.evaluate(() => JSON.parse(localStorage.getItem('noortexture.settings')).tiling)) === 3 && (await TS()).tiling === 3
+      check('NoorMaterial settings: kept, and put to work at once', (await page.evaluate(() => JSON.parse(localStorage.getItem('noortexture.settings')).tiling)) === 3 && (await TS()).tiling === 3
         && (await page.evaluate(() => JSON.parse(localStorage.getItem('noormd.texture.export')).size)) === 2048);
       // Help › shortcuts.
-      await page.click('#menubar .menu-title[data-menu="5"]'); await item('Texture Bench shortcuts');
+      await page.click('#menubar .menu-title[data-menu="5"]'); await item('NoorMaterial shortcuts');
       await page.waitForSelector('#tb-keys');
-      check('Help › Texture Bench shortcuts: its keys listed', (await page.$$('#tb-keys tr')).length >= 8 && /Ctrl\+Alt\+T/.test(await page.textContent('#tb-keys')));
+      check('Help › NoorMaterial shortcuts: its keys listed', (await page.$$('#tb-keys tr')).length >= 8 && /Ctrl\+Alt\+T/.test(await page.textContent('#tb-keys')));
       await page.keyboard.press('Escape');
       await waitFn(page, () => !document.querySelector('#tb-keys'));
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, the Texture Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
-      check('no page errors with the Texture Bench as an app', errors.length === 0, errors);
+      check('F11 again: NoorMD\'s own menu bar back, NoorMaterial still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
+      check('no page errors with NoorMaterial as an app', errors.length === 0, errors);
       await page.close();
     }
 
@@ -7440,7 +7440,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#fg-maskkind', 'part');
       await page.waitForSelector('#fg-maskindex');
       await page.selectOption('#fg-material', 'metal-rusty');
-      check('a layer can take a Texture Bench material (named after it)', (await FS()).recipe.layers.at(-1).material === 'metal-rusty' && (await FS()).recipe.layers.at(-1).name === 'Rusty metal');
+      check('a layer can take NoorMaterial material (named after it)', (await FS()).recipe.layers.at(-1).material === 'metal-rusty' && (await FS()).recipe.layers.at(-1).name === 'Rusty metal');
       await page.waitForTimeout(700); // the delete its own undo step
       await page.click('#fg-dellayer');
       check('a layer can be removed', (await FS()).recipe.layers.length === 2);
@@ -7480,13 +7480,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => window.__mock.state.forge.exports.length === 1);
       check('⤓ Export sends the recipe at its texture size', (await FM()).exports[0].size === 2048 && (await FM()).exports[0].export === 'unreal' && (await FM()).exports[0].atlas === true && (await FM()).exports[0].lodCopies === 2 && /Exported 4 files/.test(await page.textContent('#fg-status')));
       if (shots) await page.screenshot({ path: `${shots}/65b-noorforge.png` });
-      // From the Asset Bench: its rock straight in.
+      // From NoorForm: its rock straight in.
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
       await page.click('#ab-forge');
       await waitFn(page, () => NoorForge.isOpen() && (window.__mock.state.forge.fromAsset || '').length > 0);
       await waitFn(page, () => NoorForge._state().model && NoorForge._state().model.name === NoorAssets._state().recipe.name);
-      check('“Texture in NoorForge” on the Asset Bench brings its model here', (await FS()).recipe.model.endsWith('.glb'));
+      check('“Texture in NoorForge” on NoorForm brings its model here', (await FS()).recipe.model.endsWith('.glb'));
       await page.click('#fg-tabs [data-tab="bake"]');
       await page.waitForSelector('#fg-asset-level');
       await page.selectOption('#fg-asset-level', '2');
@@ -7641,7 +7641,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
-    // ---- 65. Asset Bench: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
+    // ---- 65. NoorForm: trees from presets, the GLB preview (levels of detail, views, wind), branches mode, undo, presets, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const AS = () => page.evaluate(() => NoorAssets._state());
@@ -7649,7 +7649,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
       await page.keyboard.press('Control+Alt+m');
       await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
-      check('Ctrl+Alt+M opens the Asset Bench with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
+      check('Ctrl+Alt+M opens NoorForm with the first tree built', (await AS()).recipe.name === 'Oak' && (await AM()).builds.length === 1);
       check('presets are grouped by where they grow', /Forest/.test(await page.textContent('#ab-presets')) && /Swamp & marsh/.test(await page.textContent('#ab-presets')));
       await page.click('#ab-presets [data-look="stylized"]');
       check('…and can show only the stylized ones', !(await page.$('#ab-presets [data-preset="oak"]')) && !!(await page.$('#ab-presets [data-preset="stylized-oak"]')) && !(await page.$('#ab-presets [data-preset="willow"]')));
@@ -7868,11 +7868,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         await page.waitForTimeout(400);
         await page.screenshot({ path: `${shots}/65-asset-bench.png` });
       }
-      check('no page errors in the Asset Bench', errors.length === 0, errors);
+      check('no page errors in NoorForm', errors.length === 0, errors);
       await page.close();
     }
 
-    // ---- 66. Asset Bench rocks: trees and rocks side by side, rock presets, shape and surface, levels and collision, export.
+    // ---- 66. NoorForm rocks: trees and rocks side by side, rock presets, shape and surface, levels and collision, export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
       const AS = () => page.evaluate(() => NoorAssets._state());
