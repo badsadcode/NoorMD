@@ -8749,6 +8749,60 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 69. Bold, italic or a link wrapped over two lines opens in Visual (not the "cannot represent" banner) and its
+    // words stay apart; the document map jumps to headings in both modes.
+    {
+      const filler = Array.from({ length: 40 }, (_, i) => `Line ${i + 1} of some text so the document is long enough to scroll.`).join('\n\n');
+      const doc = `# Guide\n\nUse the **Mesh → Create Collision\nShape...** menu, or *one\ntwo* and [a\nlink](https://example.com).\n\n${filler}\n\n## Far away\n\nThe end.\n`;
+      const { page, errors } = await open(browser, url, { document: { markdown: doc, path: 'C:\\guide.md', fileName: 'guide.md', title: 'guide' } }, { width: 1260, height: 700 });
+      await waitFn(page, () => NoorMD.getState() && NoorMD.getState().mode);
+      check('wrapped bold, italic and links open in Visual, with no banner', (await page.evaluate(() => NoorMD.getState().mode)) === 'wysiwyg' && !(await page.$('.banner:not([hidden]) >> text=cannot represent')));
+      const text = await page.evaluate(() => document.querySelector('#editor .toastui-editor-ww-container .ProseMirror').textContent);
+      check('…and the words keep their space ("Collision Shape", "one two", "a link")', text.includes('Collision Shape') && text.includes('one two') && text.includes('a link'), text.slice(0, 120));
+      // The document map in Visual mode.
+      const far = async () => page.evaluate(() => { const box = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const h = [...box.querySelectorAll('h2')].find((x) => x.textContent === 'Far away'); const a = h.getBoundingClientRect(), b = box.getBoundingClientRect(); return a.top >= b.top && a.bottom <= b.bottom; });
+      check('…the far heading starts out of view', !(await far()));
+      await page.click('#outline-box button:has-text("Far away")');
+      await waitFn(page, () => { const box = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); return box.scrollTop > 100; });
+      check('the document map jumps to a heading in Visual mode', await far());
+      // …and in Markdown mode.
+      await page.click('.pill button[data-mode="markdown"]');
+      await waitFn(page, () => NoorMD.getState().mode === 'markdown');
+      await page.click('#outline-box button:has-text("Guide")');
+      await page.click('#outline-box button:has-text("Far away")');
+      await waitFn(page, () => { const box = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); return box.scrollTop > 100; });
+      const inView = await page.evaluate(() => { const box = document.querySelector('#editor .toastui-editor-md-container .ProseMirror'); const line = [...box.querySelectorAll('div, p')].find((x) => x.textContent === '## Far away'); if (!line) return 'no line'; const a = line.getBoundingClientRect(), b = box.getBoundingClientRect(); return a.top >= b.top && a.bottom <= b.bottom; });
+      check('…and in Markdown mode', inView === true, inView);
+      // Leaving Visual without an edit gives back the text exactly as it was (the line breaks kept).
+      check('…the file\'s own line breaks are kept (nothing rewritten)', (await page.evaluate(() => NoorMD.getState().markdown)).includes('Create Collision\nShape...'));
+      check('no page errors with wrapped spans and the document map', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 69b. The document map after "Use Visual anyway": numbered headings ("7\. …" in Visual's Markdown) still jump.
+    {
+      const filler = Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1} with enough words to make the page long.`).join('\n\n');
+      const doc = `# Guide\n\n<div>raw html keeps this in Markdown at first</div>\n\n## 1. Start\n\n${filler}\n\n## 7. Spawn points\n\nThe end.\n\n## 8. Later\n\n${filler}\n`;
+      const { page, errors } = await open(browser, url, { document: { markdown: doc, path: 'C:\\g2.md', fileName: 'g2.md', title: 'g2' } }, { width: 1260, height: 700 });
+      await waitFn(page, () => NoorMD.getState() && NoorMD.getState().mode === 'markdown');
+      await page.click('button:has-text("Use Visual anyway")');
+      await page.waitForSelector('.modal button:has-text("Switch anyway")');
+      await page.click('.modal button:has-text("Switch anyway")');
+      await waitFn(page, () => NoorMD.getState().mode === 'wysiwyg');
+      await page.waitForTimeout(300);
+      const names = await page.$$eval('#outline-box button', (b) => b.map((x) => x.textContent));
+      check('the document map shows numbered headings without escape marks', names.includes('7. Spawn points'), names);
+      const seen = () => page.evaluate(() => { const box = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const h = [...box.querySelectorAll('h2')].find((x) => x.textContent.includes('Spawn points')); const a = h.getBoundingClientRect(), b = box.getBoundingClientRect(); return a.top >= b.top && a.bottom <= b.bottom; });
+      await page.evaluate(() => { document.querySelector('#editor .toastui-editor-ww-container .ProseMirror').scrollTop = 0; });
+      check('…(the heading starts out of view)', !(await seen()));
+      await page.click('#outline-box button:has-text("Spawn points")');
+      await waitFn(page, () => document.querySelector('#editor .toastui-editor-ww-container .ProseMirror').scrollTop > 100).catch(() => {});
+      const ok = await page.evaluate(() => { const box = document.querySelector('#editor .toastui-editor-ww-container .ProseMirror'); const h = [...box.querySelectorAll('h2')].find((x) => x.textContent.includes('Spawn points')); const a = h.getBoundingClientRect(), b = box.getBoundingClientRect(); return a.top >= b.top && a.bottom <= b.bottom; });
+      check('…and clicking one jumps to it in Visual mode', ok);
+      check('no page errors with the document map after switching', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

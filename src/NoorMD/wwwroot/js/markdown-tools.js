@@ -20,6 +20,8 @@ window.NoorMarkdown = (() => {
 
   const normalizeHtml = (h) => h
     .replace(/ data-nodeid="\d+"/g, '')
+    // A soft line break (a line wrapped in the source: "<br>", where a hard break is "<br />") is a space.
+    .replace(/<br>\s*/g, ' ')
     .replace(/>\s+</g, '><')
     .replace(/\s+/g, ' ')
     .trim();
@@ -34,6 +36,40 @@ window.NoorMarkdown = (() => {
   }
 
   /**
+   * Visual mode drops a line break inside bold, italic, strikethrough or a link instead of making it a space
+   * ("**Create Collision⏎Shape**" would become "CreateCollisionShape"), so before Visual sees the text those lines
+   * are joined with a space. Only those spans change; the rest of the text is as it was.
+   */
+  function joinInlineBreaks(md) {
+    const c = getChecker();
+    if (!c || !/\n/.test(md)) return md;
+    try {
+      if (!c.isMarkdownMode()) c.changeMode('markdown', true);
+      c.setMarkdown(md, false);
+      const lines = md.split('\n'), joins = new Set();
+      const SPANS = new Set(['strong', 'emph', 'strike', 'link']);
+      const walk = (node) => {
+        for (let n = node.firstChild; n; n = n.next) {
+          if (n.type === 'softbreak' && n.parent && SPANS.has(n.parent.type) && n.sourcepos) joins.add(n.sourcepos[0][0]);
+          walk(n);
+        }
+      };
+      walk(c.toastMark.getRootNode());
+      if (!joins.size) return md;
+      // A soft break's place is the line it ends (1-based): that line and the next become one, with one space.
+      const out = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (out.length && joins.has(i)) out[out.length - 1] = out[out.length - 1].replace(/\s+$/, '') + ' ' + lines[i].replace(/^\s+/, '');
+        else out.push(lines[i]);
+      }
+      return out.join('\n');
+    } catch (err) {
+      console.error('Joining inline line breaks failed', err);
+      return md;
+    }
+  }
+
+  /**
    * Checks what Visual (WYSIWYG) mode would do to this Markdown.
    *  - identical: the Markdown text survives byte-for-byte (after trailing whitespace).
    *  - lossless:  the text changes cosmetically (list markers, spacing) but renders the same.
@@ -44,6 +80,8 @@ window.NoorMarkdown = (() => {
     if (!c) return { identical: true, lossless: true, converted: md };
     try {
       const before = normalizeHtml(renderRaw(md));
+      const joined = joinInlineBreaks(md);
+      if (joined !== md) c.setMarkdown(joined, false);
       c.changeMode('wysiwyg', true);
       const converted = c.getMarkdown();
       c.changeMode('markdown', true);
@@ -113,7 +151,12 @@ window.NoorMarkdown = (() => {
     }
     return out;
   }
-  const clean = (s) => s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/[*_`~]/g, '').trim();
+  // A heading's text as shown: links as their words, no emphasis marks, no backslash escapes ("7\\. Spawn points").
+  const clean = (s) => s.replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/\\([!-/:-@[-`{-~])/g, (_, c) => String.fromCharCode(0xE000 + c.charCodeAt(0))) // escaped: kept aside
+    .replace(/[*_`~]/g, '')
+    .replace(/[\uE000-\uE07F]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xE000))
+    .trim();
 
-  return { renderSafe, renderRaw, visualRoundTrip, stats, headings, escapeHtml };
+  return { renderSafe, renderRaw, visualRoundTrip, joinInlineBreaks, stats, headings, escapeHtml };
 })();

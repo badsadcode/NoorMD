@@ -256,7 +256,7 @@
     }
     // The text is the editor's initial value, so its undo history starts with this document and nothing else.
     quietly(() => {
-      createEditor(tab, text, target);
+      createEditor(tab, target === 'wysiwyg' ? NoorMarkdown.joinInlineBreaks(text) : text, target);
       tab.mounted = true;
       if (tab === t) { editor = tab.editor; fallback = tab.fallback; }
       if (tab.editor) {
@@ -355,7 +355,11 @@
     const ed = tab.editor;
     if (!ed) return;
     const run = () => {
-      if (m === 'wysiwyg') ed.changeMode('wysiwyg', true);
+      if (m === 'wysiwyg') {
+        // Line breaks inside bold, italic or links become spaces first (Visual would drop them and join the words).
+        if (ed.isMarkdownMode()) { const now = ed.getMarkdown(), joined = NoorMarkdown.joinInlineBreaks(now); if (joined !== now) ed.setMarkdown(joined, false); }
+        ed.changeMode('wysiwyg', true);
+      }
       else { ed.changeMode('markdown', true); ed.changePreviewStyle(m === 'split' ? 'vertical' : 'tab'); }
     };
     if (quiet) run(); else quietly(run);
@@ -839,41 +843,49 @@
     box.replaceChildren();
     if (!list.length) { box.append(el('p', { class: 'empty', text: 'Headings appear as you write.' })); return; }
     const seen = new Map();
-    for (const h of list.slice(0, 200)) {
+    for (const [index, h] of list.slice(0, 200).entries()) {
       const occurrence = seen.get(h.text) || 0;
       seen.set(h.text, occurrence + 1);
       box.append(el('button', {
         class: 'depth-' + Math.min(h.level, 4), title: h.text,
         onmousedown: (e) => e.preventDefault(), // keep the caret in the editor while clicking
-        onclick: () => goToHeading(h, occurrence),
+        onclick: () => goToHeading(h, occurrence, index),
       }, h.text || '(empty heading)'));
     }
   }
 
-  function goToHeading(h, occurrence) {
+  function goToHeading(h, occurrence, index = -1) {
     if (!editor) return;
     try {
       // Focus first: ProseMirror re-reads the DOM selection on focus, which would undo a selection set before it.
       editor.focus();
       if (editor.isMarkdownMode()) {
-        editor.setSelection([h.line, 1], [h.line, 1]);
         const view = editor.mdEditor.view;
-        const pos = view.state.doc.child(h.line - 1) ? positionOfLine(view.state.doc, h.line) : 1;
+        // The heading's line, kept within the editor's lines (a mismatch must still land somewhere near).
+        const line = Math.max(1, Math.min(h.line, view.state.doc.childCount));
+        try { editor.setSelection([line, 1], [line, 1]); } catch (err) { console.warn('Document map: selection', err); }
+        const pos = positionOfLine(view.state.doc, line);
         scrollViewTo(view, pos);
+        // The editor may scroll back to the caret a moment later; put the heading in view again after that.
+        requestAnimationFrame(() => scrollViewTo(view, pos));
       } else {
         const view = editor.wwEditor.view;
         let found = null, count = 0;
+        const all = [];
         view.state.doc.descendants((node, pos) => {
-          if (found !== null) return false;
           if (node.type.name === 'heading') {
-            if (node.textContent.replace(/[*_`~]/g, '').trim() === h.text) { if (count === occurrence) found = pos; count++; }
+            all.push(pos);
+            if (found === null && node.textContent.replace(/[*_`~]/g, '').trim() === h.text) { if (count === occurrence) found = pos; count++; }
             return false;
           }
           return true;
         });
+        // Visual can show a heading's text a little differently from its Markdown: then the same heading by place.
+        if (found === null && index >= 0 && index < all.length) found = all[index];
         if (found === null) return;
         editor.setSelection(found + 1, found + 1);
         scrollViewTo(view, found + 1);
+        requestAnimationFrame(() => scrollViewTo(view, found + 1));
       }
     } catch (err) { console.error(err); }
   }
@@ -884,12 +896,24 @@
     return pos + 1;
   }
 
+  /** Scrolls the editor's own scroll area so the position sits a third of the way down it. */
   function scrollViewTo(view, pos) {
     try {
+      const at = view.coordsAtPos(Math.max(0, Math.min(pos, view.state.doc.content.size)));
+      let box = view.dom;
+      while (box && box !== document.body) {
+        const oy = getComputedStyle(box).overflowY;
+        if ((oy === 'auto' || oy === 'scroll') && box.scrollHeight > box.clientHeight + 1) break;
+        box = box.parentElement;
+      }
+      if (box && box !== document.body) {
+        const r = box.getBoundingClientRect();
+        box.scrollTop += at.top - r.top - box.clientHeight / 3;
+        return;
+      }
       const { node } = view.domAtPos(pos);
-      const target = node.nodeType === 1 ? node : node.parentElement;
-      target?.scrollIntoView({ block: 'center' });
-    } catch { /* position may be stale; ignore */ }
+      (node.nodeType === 1 ? node : node.parentElement)?.scrollIntoView({ block: 'center' });
+    } catch (err) { console.warn('Document map: scroll', err); }
   }
 
   function progress(words) {

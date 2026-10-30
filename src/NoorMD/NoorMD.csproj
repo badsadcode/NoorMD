@@ -11,7 +11,7 @@
     <AssemblyName>NoorMD</AssemblyName>
     <ApplicationIcon>Assets\NoorMD.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.0.0-preview.124</Version>
+    <Version>2.0.0-preview.125</Version>
     <Product>NoorMD</Product>
     <Description>NoorMD — a local-first Markdown writing studio.</Description>
     <Copyright>NoorMD contributors</Copyright>
