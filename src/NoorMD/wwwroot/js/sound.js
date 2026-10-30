@@ -67,6 +67,13 @@ window.NoorSound = (() => {
   let matchGain = 1;
   let repeat = false;
 
+  // Sound Bench settings: how it starts (the tab, the sound it opens with). Kept in this browser.
+  const SETTINGS_KEY = 'noorsound.settings';
+  const SETTINGS_DEFAULTS = { tab: 'quick', preset: '' };
+  let settings = { ...SETTINGS_DEFAULTS };
+  try { settings = { ...SETTINGS_DEFAULTS, ...(JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') || {}) }; } catch { /* the defaults */ }
+  if (['quick', 'layers', 'mod', 'map', 'output'].includes(settings.tab)) tab = settings.tab;
+
   const isOpen = () => document.body.classList.contains('sound-open');
   const clone = (o) => JSON.parse(JSON.stringify(o));
 
@@ -88,7 +95,7 @@ window.NoorSound = (() => {
       try { presets = await req('sound.presets'); } catch (err) { hooks.showError(err); return; }
       renderPresets();
     }
-    if (!recipe) await loadPreset(presets.builtIn[0].id);
+    if (!recipe) await loadPreset((presets.builtIn.find((p) => p.id === settings.preset) || presets.builtIn[0]).id);
     $('#soundbench').focus({ preventScroll: true });
   }
 
@@ -406,6 +413,7 @@ window.NoorSound = (() => {
             el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label))),
           el('div', { class: 'sb-pane', id: 'sb-pane' }))));
     ($('#app') || document.body).append(root);
+    if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('sound', { name: 'Sound Bench', title: appTitle, menus: appMenus });
     $('#sb-name').addEventListener('input', (e) => { recipe.name = e.target.value; changed(false); });
     $('#sb-volume').addEventListener('input', (e) => setListenVolume(Number(e.target.value) / 100));
     setListenVolume(listenVolume);
@@ -475,6 +483,7 @@ window.NoorSound = (() => {
     $('#sb-refchip').hidden = !reference;
     $('#sb-ref').hidden = !!reference;
     if (reference) $('#sb-refname').textContent = '🎧 ' + reference.name;
+    if (window.NoorChrome && NoorChrome.benchChanged) NoorChrome.benchChanged();
   }
 
   function renderEditor() {
@@ -557,6 +566,12 @@ window.NoorSound = (() => {
     convolution: { space: 'hall', irLength: 0, damping: 0.3, preDelay: 10, mix: 0.3 },
   };
 
+  function addEffect(chain, t) {
+    if (chain.length >= 8) { notice('Eight effects is the most.', 1500); return; }
+    chain.push({ type: t, bypass: false, mix: 1, out: 0, ...clone(NEW_FX[t]) });
+    changed(true);
+  }
+
   /** An effects chain: each effect with on/off, ↑ ↓, remove, its settings, wet/dry mix and output level. */
   function effectsRack(chain, where, owner) {
     const cards = chain.map((fx, i) => {
@@ -596,14 +611,12 @@ window.NoorSound = (() => {
     });
     const add = el('select', { class: 'sb-addfx', 'aria-label': 'Add an effect', 'data-addfx': where },
       el('option', { value: '', text: chain.length >= 8 ? 'Eight effects is the most' : '＋ Add an effect…' }), ...(chain.length >= 8 ? [] : Object.keys(FX_LABEL).map((t) => el('option', { value: t, text: FX_LABEL[t] }))));
-    add.addEventListener('change', () => {
-      const t = add.value;
-      if (!t) return;
-      chain.push({ type: t, bypass: false, mix: 1, out: 0, ...clone(NEW_FX[t]) });
-      changed(true);
-    });
+    add.addEventListener('change', () => { if (add.value) addEffect(chain, add.value); });
     return el('div', { class: 'sb-rack', 'data-rack': where }, ...cards, add);
   }
+
+  /** The Character sliders back to the middle (near and outdoors). */
+  function resetCharacter() { for (const [k] of MACROS) recipe.macros[k] = k === 'distance' || k === 'shelter' ? 0 : 0.5; changed(true); }
 
   function quickPane() {
     const m = recipe.macros;
@@ -628,7 +641,7 @@ window.NoorSound = (() => {
       el('div', { class: 'sb-row' },
         el('label', { class: 'sb-inline' }, el('span', { text: 'Length (s)' }), dur),
         el('label', { class: 'sb-inline' }, loop, el('span', { text: 'Seamless loop (otherwise a one-shot)' })),
-        el('button', { class: 'utility-btn', onclick: () => { for (const [k] of MACROS) m[k] = k === 'distance' || k === 'shelter' ? 0 : 0.5; changed(true); } }, 'Reset')),
+        el('button', { class: 'utility-btn', onclick: resetCharacter }, 'Reset')),
       el('p', { class: 'pref-hint', text: 'Pick a preset on the left, then shape it. 🎲 Variation makes another take of the same sound; 📌 Pin as A lets you compare (B). The Layers tab shows how it is built.' }),
     ];
   }
@@ -739,6 +752,16 @@ window.NoorSound = (() => {
     return wrap;
   }
 
+  /** A new layer of a kind (a sample layer asks for its file first). */
+  function addLayer(t) {
+    if (recipe.layers.length >= 16) { notice('Sixteen layers is the most.', 1500); return; }
+    if (t === 'sample') {
+      pickSample().then((f) => { if (!f) return; recipe.layers.push({ ...clone(NEW_LAYER.sample), path: f.path, sampleName: f.name, name: f.name.replace(/\.wav$/i, '') }); changed(true); });
+      return;
+    }
+    recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
+  }
+
   function layersPane() {
     const g = recipe.gust;
     const cards = recipe.layers.map((l, i) => {
@@ -792,14 +815,7 @@ window.NoorSound = (() => {
         el('small', { class: 'pref-hint', text: locked.size ? `${locked.size} layer${locked.size > 1 ? 's' : ''} locked` : '🔓 on a layer locks it' })),
       el('details', { class: 'sb-group', open: true }, el('summary', { text: 'Gusts (the slow movement layers can follow)' }), el('div', { class: 'sb-fields' }, ...GUST.map((f) => slider(g, f, false)))),
       ...cards,
-      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-add': t, onclick: () => {
-        if (recipe.layers.length >= 16) { notice('Sixteen layers is the most.', 1500); return; }
-        if (t === 'sample') {
-          pickSample().then((f) => { if (!f) return; recipe.layers.push({ ...clone(NEW_LAYER.sample), path: f.path, sampleName: f.name, name: f.name.replace(/\.wav$/i, '') }); changed(true); });
-          return;
-        }
-        recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
-      } }, '＋ ' + TYPE_LABEL[t]))),
+      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(NEW_LAYER).map((t) => el('button', { class: 'utility-btn', 'data-add': t, onclick: () => addLayer(t) }, '＋ ' + TYPE_LABEL[t]))),
       ...busesSection(),
     ];
   }
@@ -824,6 +840,13 @@ window.NoorSound = (() => {
       return row;
     });
     return el('div', { class: 'sb-fields sb-sends' }, ...sliders);
+  }
+
+  function addBus(k) {
+    recipe.buses ||= [];
+    if (recipe.buses.length >= 4) return;
+    recipe.buses.push(NEW_BUS[k]());
+    changed(true);
   }
 
   function busesSection() {
@@ -855,11 +878,7 @@ window.NoorSound = (() => {
       el('p', { class: 'pref-hint', text: 'Send several layers to one bus, so they share one reverb or delay and sound like one place. Each layer gets a send level for every bus.' }),
       ...cards,
       el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }),
-        ...[['reverb', '＋ Reverb bus'], ['delay', '＋ Delay bus'], ['empty', '＋ Empty bus']].map(([k, label]) => el('button', { class: 'utility-btn', 'data-addbus': k, disabled: full || undefined, onclick: () => {
-          recipe.buses ||= [];
-          recipe.buses.push(NEW_BUS[k]());
-          changed(true);
-        } }, label))),
+        ...[['reverb', '＋ Reverb bus'], ['delay', '＋ Delay bus'], ['empty', '＋ Empty bus']].map(([k, label]) => el('button', { class: 'utility-btn', 'data-addbus': k, disabled: full || undefined, onclick: () => addBus(k) }, label))),
     ];
   }
 
@@ -1025,6 +1044,9 @@ window.NoorSound = (() => {
       el('button', { class: 'icon-btn', title: 'Add a step', 'aria-label': 'More steps', disabled: m.steps.length >= 16 || undefined, onclick: () => { m.steps.push(m.steps[m.steps.length - 1] ?? 0.5); changed(true); } }, '＋'));
   }
 
+  function addKnob() { if (recipe.knobs.length >= 8) return; recipe.knobs.push({ name: `Control ${recipe.knobs.length + 1}`, value: 0.5 }); changed(true); }
+  function addModulator(t) { if (recipe.modulators.length >= 8) return; recipe.modulators.push({ name: MOD_LABEL[t].replace(/ \(.*/, ''), type: t, ...clone(NEW_MOD[t]) }); changed(true); }
+
   function modPane() {
     const name = (obj, label) => {
       const n = el('input', { type: 'text', value: obj.name, 'aria-label': label, spellcheck: 'false', maxlength: '40' });
@@ -1057,12 +1079,10 @@ window.NoorSound = (() => {
       el('p', { class: 'pref-hint', text: 'Controls are your own sliders for the Quick tab ("Motor RPM", "Rain amount"); modulators move things by themselves over time. Connect either to as many settings as you like, each with its own amount and response.' }),
       el('h4', { class: 'music-subhead', text: 'Controls' }),
       ...knobCards,
-      el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sb-addknob', disabled: recipe.knobs.length >= 8 || undefined, onclick: () => { recipe.knobs.push({ name: `Control ${recipe.knobs.length + 1}`, value: 0.5 }); changed(true); } }, '＋ Control')),
+      el('div', { class: 'sb-row' }, el('button', { class: 'utility-btn', id: 'sb-addknob', disabled: recipe.knobs.length >= 8 || undefined, onclick: addKnob }, '＋ Control')),
       el('h4', { class: 'music-subhead', text: 'Modulators' }),
       ...modCards,
-      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(MOD_LABEL).map((t) => el('button', { class: 'utility-btn', 'data-addmod': t, disabled: recipe.modulators.length >= 8 || undefined, onclick: () => {
-        recipe.modulators.push({ name: MOD_LABEL[t].replace(/ \(.*/, ''), type: t, ...clone(NEW_MOD[t]) }); changed(true);
-      } }, '＋ ' + MOD_LABEL[t].replace(/ \(.*/, '')))),
+      el('div', { class: 'sb-row' }, el('span', { text: 'Add:' }), ...Object.keys(MOD_LABEL).map((t) => el('button', { class: 'utility-btn', 'data-addmod': t, disabled: recipe.modulators.length >= 8 || undefined, onclick: () => addModulator(t) }, '＋ ' + MOD_LABEL[t].replace(/ \(.*/, '')))),
     ];
   }
 
@@ -1423,6 +1443,167 @@ window.NoorSound = (() => {
       family = r.recipe.family;
       renderPresets();
     } catch (err) { hooks.showError(err); }
+  }
+
+  // ---------------------------------------------------------------- the Sound Bench as an app: its menus, settings, shortcuts
+
+  // In focus mode with the Sound Bench in the middle, the window's menu bar is its own (see NoorChrome.registerBench).
+  const TABS = [['quick', 'Quick controls'], ['layers', 'Layers'], ['mod', 'Modulation'], ['map', 'Map'], ['output', 'Output & export']];
+
+  /** After a menu item, the keys (Space, V, M, Ctrl+Z…) go to the bench again, unless a dialog took them. */
+  function keepFocus() {
+    const a = document.activeElement;
+    if (isOpen() && (!a || a === document.body)) $('#soundbench').focus({ preventScroll: true });
+  }
+
+  function showTab(id) { tab = id; renderEditor(); }
+
+  /** A/B/R: listen to one of them (B is the sound now, A the pinned one, R the reference). */
+  function listenTo(which) {
+    for (let i = 0; i < 3 && listening !== which; i++) flipAB();
+  }
+
+  /** An export setting changed from the menu: kept, and shown in the Output tab if it is open. */
+  function setExportPref(key, value) {
+    saveExportPrefs({ ...exportPrefs(), [key]: value });
+    if (tab === 'output') renderEditor();
+  }
+
+  async function lengthDialog() {
+    if (!recipe) return;
+    const v = await NoorUI.prompt('Length', 'Length of the sound, in seconds (0.05 to 600):', String(recipe.duration), { okLabel: 'Set' });
+    if (v == null || !String(v).trim()) return;
+    const n = Number(String(v).replace(',', '.'));
+    if (!Number.isFinite(n)) { notice('That is not a number of seconds.', 1500); return; }
+    recipe.duration = Math.max(0.05, Math.min(600, n));
+    changed(true);
+  }
+
+  function settingsDialog() {
+    NoorUI.modal({ label: 'Sound Bench settings', width: 440 }, (s2, closeIt) => {
+      const tabSel = el('select', { id: 'sb-set-tab', 'aria-label': 'Opens on' }, ...TABS.map(([v, t]) => el('option', { value: v, text: t })));
+      tabSel.value = settings.tab;
+      const presetSel = el('select', { id: 'sb-set-preset', 'aria-label': 'Starts with' }, el('option', { value: '', text: 'The first preset' }),
+        ...presets.builtIn.map((p) => el('option', { value: p.id, text: `${p.family}: ${p.name}` })), ...presets.mine.map((p) => el('option', { value: p.id, text: `My presets: ${p.name}` })));
+      presetSel.value = settings.preset;
+      const ok = () => {
+        settings = { tab: tabSel.value, preset: presetSel.value };
+        try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* for now only */ }
+        closeIt();
+        notice('Sound Bench settings kept', 1200);
+      };
+      s2.append(NoorUI.head('Sound Bench settings', closeIt),
+        el('div', { class: 'modal-body sp-dlg' },
+          el('h4', { class: 'music-subhead', text: 'When the Sound Bench opens' }),
+          el('label', {}, 'Opens on the tab ', tabSel), el('label', {}, 'Starts with ', presetSel),
+          el('p', { class: 'pref-hint', text: 'The export settings, the listening volume, the view and Match loudness are kept by themselves as you change them.' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sb-set-ok', onclick: ok }, 'OK'))));
+    });
+  }
+
+  /** Every key the Sound Bench knows. */
+  function shortcutsDialog() {
+    const rows = [
+      ['Play / stop', 'Space'], ['Play once / over and over', 'L'], ['A new variation (another seed)', 'V'], ['Mutate (the layers not locked)', 'M'],
+      ['Compare: B (now), A (pinned), R (the reference)', 'B'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (or Ctrl+Shift+Z)'], ['Jump to a spot', 'click the waveform'],
+      ['Set a typed value', 'Enter (in a number box)'], ['Open a block on the map', 'Tab, then Enter'], ['Back to NoorMD (not in focus mode)', 'Esc'],
+      ['Open / close the Sound Bench', 'Ctrl+Alt+K'], ['Focus mode (the Sound Bench as an app) on / off', 'F11'], ['The menus', 'Alt+F, E, S, P, V, H · F10'],
+    ];
+    NoorUI.modal({ label: 'Sound Bench shortcuts', width: 520 }, (s2, closeIt) => {
+      s2.append(NoorUI.head('Sound Bench shortcuts', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('table', { class: 'sp-keys', id: 'sb-keys' }, ...rows.map(([a, b]) => el('tr', {}, el('td', { text: a }), el('td', {}, el('kbd', { text: b }))))),
+          el('p', { class: 'pref-hint', text: 'The keys work while the Sound Bench has the keyboard (not while typing in a box).' })),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: () => closeIt() }, 'Done'))));
+    });
+  }
+
+  const appTitle = () => (recipe ? `Sound Bench — ${recipe.name || 'Untitled'}${recipe.family ? ` (${recipe.family})` : ''} · ${Number(recipe.duration || 0)} s${recipe.loop ? ', loop' : ''}${listening !== 'B' ? ` · listening to ${listening}` : ''}` : 'Sound Bench');
+
+  /** The Sound Bench's menu bar: [name, its Alt letter, its items]. */
+  function appMenus() {
+    const go = (label, run, keys, more = {}) => ({ label, keys, run: () => { const r = run(); if (r && r.then) r.then(keepFocus, keepFocus); else setTimeout(keepFocus, 0); }, ...more });
+    const noRecipe = () => !recipe;
+    const ep = () => exportPrefs();
+    const choose = (key, options) => options.map(([v, l]) => ({ label: l, checked: () => ep()[key] === v, run: () => setExportPref(key, v) }));
+    const tickPref = (key, label, title) => ({ label, title, checked: () => !!ep()[key], run: () => setExportPref(key, !ep()[key]) });
+    const layerItems = () => (recipe && recipe.layers.length ? recipe.layers.map((l, i) => ({ label: `${l.name || l.id} (${(TYPE_LABEL[l.type] || l.type).replace(/ \(.*/, '')})`, sub: () => [
+      { label: 'Mute', checked: () => !!l.mute, run: () => { l.mute = !l.mute; changed(true); } },
+      { label: 'Solo (hear only the soloed layers)', checked: () => !!l.solo, run: () => { l.solo = !l.solo; changed(true); } },
+      { label: 'Locked (Mutate leaves it as it is)', checked: () => locked.has(l.id), run: () => { if (locked.has(l.id)) locked.delete(l.id); else locked.add(l.id); renderEditor(); } }, '-',
+      go('Open it (Layers tab)', () => focusIn('layers', `.sb-layer[data-index="${i}"]`)),
+      go('Copy this layer', () => { if (recipe.layers.length >= 16) { notice('Sixteen layers is the most.', 1500); return; } recipe.layers.splice(i + 1, 0, { ...clone(l), name: l.name + ' copy', solo: false }); changed(true); }),
+      go('Remove this layer', () => { dropRoutes((t) => t.startsWith(l.id + ':') || t.startsWith(l.id + '/')); recipe.layers.splice(i, 1); changed(true); }),
+    ] })) : [{ label: 'No layers yet', disabled: true }]);
+    const families = () => [...new Set(presets.builtIn.map((p) => p.family))];
+    return [
+      ['File', 'f', () => [
+        { label: 'New from a preset', sub: () => [...families().map((f) => ({ label: f, sub: () => presets.builtIn.filter((p) => p.family === f).map((p) => go(p.name, () => loadPreset(p.id), '', { title: p.description, checked: () => !!recipe && recipe.name === p.name })) })),
+          '-', { label: 'My presets', sub: () => (presets.mine.length ? presets.mine.map((p) => go(p.name, () => loadPreset(p.id))) : [{ label: 'None yet (Save as my preset…)', disabled: true }]) }] },
+        { label: 'Generate a new sound', sub: () => (presets.categories.length ? presets.categories.map((c) => go(c.name, () => { genCategory = c.id; renderPresets(); return generate(); }, '', { title: c.description })) : [{ label: 'Not ready yet', disabled: true }]) },
+        go('Open a recipe…', openRecipe), '-',
+        go('Save as my preset…', savePreset, '', { disabled: noRecipe }),
+        { label: 'Delete one of my presets', disabled: () => !presets.mine.length, sub: () => presets.mine.map((p) => go(`${p.name}…`, () => deletePreset(p))) }, '-',
+        go('Export…', exportSound, '', { disabled: noRecipe, title: 'WAV or OGG files and the recipe beside them, as set in Output & export' }),
+        { label: 'Export as', sub: () => [
+          { label: 'Files', sub: () => choose('variations', [1, 2, 3, 4, 5, 8, 10].map((n) => [n, n === 1 ? 'Just this one' : `${n} variations`])) },
+          { label: 'Format', sub: () => choose('format', [['wav', 'WAV'], ['ogg', 'OGG (smaller, for games)'], ['both', 'WAV and OGG']]) },
+          { label: 'Sample rate', sub: () => choose('sampleRate', [[48000, '48 kHz'], [44100, '44.1 kHz']]) },
+          { label: 'Bits (WAV)', sub: () => choose('bits', [[16, '16-bit'], [24, '24-bit']]) },
+          { label: 'OGG quality', disabled: () => ep().format === 'wav', sub: () => choose('oggQuality', [[0.3, 'Small (about 110 kbit/s)'], [0.5, 'Good (about 160 kbit/s)'], [0.7, 'High (about 220 kbit/s)'], [0.9, 'Best (about 320 kbit/s)']]) }, '-',
+          tickPref('stems', 'Also stems (each layer on its own)', 'For a game engine or a video editor: each layer in a folder beside the file'),
+          tickPref('vault', 'Also keep the recipe in my Vault'),
+          tickPref('musicBench', 'Also add the files to the Music Bench', 'To audition, rate and tag them there (in the playlist “Made in NoorMD”)'),
+        ] },
+        go('Where the files go…', () => focusIn('output', '#sb-export'), '', { disabled: noRecipe }), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close the Sound Bench', close, 'Ctrl+Alt+K'),
+      ]],
+      ['Edit', 'e', () => [
+        go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !recipe || (!history.length && lastSnapshot === JSON.stringify(recipe)) }),
+        go('Redo', () => undo(true), 'Ctrl+Y', { disabled: () => !future.length }), '-',
+        go('A new variation (another seed)', newVariation, 'V', { disabled: noRecipe }),
+        go('Mutate', mutate, 'M', { disabled: noRecipe, title: 'Changes the chosen kinds of settings a little, in the layers that are not locked' }),
+        { label: 'What Mutate changes', sub: () => [
+          ...[['timing', 'Timing'], ['tone', 'Tone'], ['level', 'Level']].map(([k, l]) => ({ label: l, checked: () => !!mutation[k], run: () => { mutation[k] = !mutation[k]; saveMutation(); if (tab === 'layers') renderEditor(); } })), '-',
+          ...[[0.1, 'A little (10%)'], [0.25, 'Some (25%)'], [0.4, 'More (40%)'], [0.6, 'A lot (60%)']].map(([v, l]) => ({ label: l, checked: () => Math.abs(mutation.amount - v) < 0.001, run: () => { mutation.amount = v; saveMutation(); if (tab === 'layers') renderEditor(); } })),
+        ] },
+        go('Unlock every layer', () => { locked.clear(); renderEditor(); }, '', { disabled: () => !locked.size }), '-',
+        go('Reset the character (Quick)', resetCharacter, '', { disabled: noRecipe }), '-',
+        go('Sound Bench settings…', settingsDialog),
+      ]],
+      ['Sound', 's', () => [
+        { label: 'Layers', disabled: noRecipe, sub: layerItems },
+        { label: 'Add a layer', disabled: noRecipe, sub: () => Object.keys(NEW_LAYER).map((t) => go(TYPE_LABEL[t] + (t === 'sample' ? '…' : ''), () => addLayer(t), '', { disabled: () => recipe.layers.length >= 16 })) },
+        { label: 'Add a bus (shared effects)', disabled: noRecipe, sub: () => [['reverb', 'Reverb bus'], ['delay', 'Delay bus'], ['empty', 'Empty bus']].map(([k, l]) => go(l, () => addBus(k), '', { disabled: () => (recipe.buses || []).length >= 4 })) },
+        { label: 'Add an effect on the whole sound', disabled: noRecipe, sub: () => Object.keys(FX_LABEL).map((t) => go(FX_LABEL[t], () => { addEffect(recipe.master.effects ||= [], t); if (tab !== 'output') showTab('output'); }, '', { disabled: () => (recipe.master.effects || []).length >= 8 })) }, '-',
+        go('Add a control (a slider of your own)', addKnob, '', { disabled: () => !recipe || recipe.knobs.length >= 8 }),
+        { label: 'Add a modulator', disabled: noRecipe, sub: () => Object.keys(MOD_LABEL).map((t) => go(MOD_LABEL[t], () => addModulator(t), '', { disabled: () => recipe.modulators.length >= 8 })) }, '-',
+        go('Length…', lengthDialog, '', { disabled: noRecipe }),
+        { label: 'Seamless loop (otherwise a one-shot)', disabled: noRecipe, checked: () => !!recipe && !!recipe.loop, run: () => { recipe.loop = !recipe.loop; setRepeat(recipe.loop); changed(true); } },
+        { label: 'Bring the loudest peak to the ceiling', disabled: noRecipe, checked: () => !!recipe && !!recipe.master.normalize, run: () => { recipe.master.normalize = !recipe.master.normalize; changed(true); } },
+        { label: 'Loudness target', disabled: noRecipe, sub: () => TARGETS.map(([v, l]) => ({ label: l, checked: () => (Number(recipe.master.targetLufs) || 0) === v, run: () => { recipe.master.targetLufs = v; changed(true); } })) },
+      ]],
+      ['Play', 'p', () => [
+        go(audio.paused ? 'Play' : 'Stop', playStop, 'Space', { disabled: () => !render }),
+        { label: 'Play over and over', keys: 'L', checked: () => repeat, run: () => setRepeat(!repeat) }, '-',
+        go('Pin this version as A', pin, '', { disabled: noRecipe }),
+        go('Compare: the next of A, B and R', flipAB, 'B', { disabled: () => !pinned && !reference }),
+        { label: 'Listen to', disabled: () => !pinned && !reference, sub: () => [['B', 'B: the sound now'], ...(pinned ? [['A', 'A: the pinned version']] : []), ...(reference ? [['R', `R: the reference (${reference.name})`]] : [])].map(([k, l]) => ({ label: l, checked: () => listening === k, run: () => listenTo(k) })) },
+        { label: 'Match loudness when comparing', checked: () => matchLoudness, run: () => { matchLoudness = !matchLoudness; try { localStorage.setItem('noormd.sound.match', matchLoudness ? 'on' : 'off'); } catch { /* private storage off */ } const c = $('#sb-match'); if (c) c.checked = matchLoudness; applyVolume(); renderMeters(); } }, '-',
+        go('A reference clip to compare with…', pickReference),
+        go('Stop comparing with the reference', clearReference, '', { disabled: () => !reference }), '-',
+        { label: 'Listening volume', sub: () => [[1, '100%'], [0.75, '75%'], [0.5, '50%'], [0.25, '25%']].map(([v, l]) => ({ label: l, checked: () => Math.abs(listenVolume - v) < 0.005, run: () => setListenVolume(v) })) },
+      ]],
+      ['View', 'v', () => [
+        { label: 'Waveform', checked: () => view !== 'spectrum', run: () => setView('wave') },
+        { label: 'Spectrogram', checked: () => view === 'spectrum', run: () => setView('spectrum') }, '-',
+        ...TABS.map(([id, l]) => ({ label: l, checked: () => tab === id, disabled: noRecipe, run: () => { showTab(id); setTimeout(keepFocus, 0); } })), '-',
+        { label: 'Map: show controls and modulators', checked: () => mapShowsMod, run: () => { mapShowsMod = !mapShowsMod; try { localStorage.setItem('noormd.sound.mapmod', mapShowsMod ? 'on' : 'off'); } catch { /* private storage off */ } if (tab === 'map') renderEditor(); } }, '-',
+        { label: 'Find a preset…', run: () => setTimeout(() => $('#sb-filter')?.focus(), 0) },
+        { label: 'Where this panel goes…', run: () => setTimeout(() => NoorDock.showMenu('sound', $('#sb-dock')), 0) },
+        { id: 'view.focus', label: 'Focus mode (the Sound Bench as an app)' },
+      ]],
+      ['Help', 'h', () => [go('Sound Bench shortcuts…', shortcutsDialog), { id: 'shortcuts.show', label: 'NoorMD shortcuts' }]],
+    ];
   }
 
   return {

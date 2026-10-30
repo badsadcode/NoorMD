@@ -7049,6 +7049,79 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66v-sound. The Sound Bench as an app: in focus mode the menu bar is its own; out of it, NoorMD's again.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSound._state());
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      const item = (text, depth = 0) => page.click(`.menu-popup[data-depth="${depth}"] .menu-item:has-text("${text}")`);
+      const sub = async (text, depth = 0) => { await page.hover(`.menu-popup[data-depth="${depth}"] .menu-item:has-text("${text}")`); await page.waitForSelector(`.menu-popup[data-depth="${depth + 1}"]`); };
+      await page.keyboard.press('Control+Alt+k');
+      await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      check('(the Sound Bench in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sound');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      check('F11: the Sound Bench as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sound,Play,View,Help' && await page.isVisible('#menubar'));
+      check('…its title beside them (the sound, its family, its length)', /^Sound Bench — Gentle forest breeze \(Wind\) · [\d.]+ s/.test(await page.textContent('#bench-title')) && await page.isVisible('#bench-title'));
+      await page.fill('#sb-name', 'Night wind');
+      await waitFn(page, () => /Night wind/.test(document.querySelector('#bench-title').textContent));
+      check('…and the title follows the name as it is typed', true);
+      // View › Spectrogram, ticked when on.
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      await item('Spectrogram');
+      check('View › Spectrogram switches the view', (await SS()).view === 'spectrum');
+      await page.click('#menubar .menu-title[data-menu="4"]');
+      check('…and shows it ticked (Waveform not)', (await page.getAttribute('.menu-popup .menu-item:has-text("Spectrogram")', 'aria-checked')) === 'true' && (await page.getAttribute('.menu-popup .menu-item:has-text("Waveform")', 'aria-checked')) === 'false');
+      await item('Waveform');
+      // Alt+S › Add a layer › Synth voice.
+      const layers = (await SS()).recipe.layers.length;
+      await page.keyboard.press('Alt+s');
+      await page.waitForSelector('.menu-popup');
+      await sub('Add a layer');
+      await item('Synth voice', 1);
+      await waitFn(page, (n) => NoorSound._state().recipe.layers.length === n + 1, layers);
+      check('Alt+S › Add a layer › Synth voice adds one', (await SS()).recipe.layers.at(-1).type === 'synth');
+      // Edit › A new variation, then Edit › Undo.
+      const seed = (await SS()).recipe.seed;
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      check('Edit shows the real keys (V, Ctrl+Z)', /V$/.test(await page.textContent('.menu-popup .menu-item:has-text("A new variation")')) && /Ctrl\+Z$/.test(await page.textContent('.menu-popup .menu-item:has-text("Undo")')));
+      await item('A new variation');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed !== s, seed);
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      await item('Undo');
+      await waitFn(page, (s) => NoorSound._state().recipe.seed === s, seed);
+      check('Edit › Variation, then Edit › Undo brings the seed back', (await SS()).future >= 1);
+      // File › Export as › Format › OGG, then File › Export…
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      await sub('Export as');
+      await sub('Format', 1);
+      await item('OGG (smaller, for games)', 2);
+      await page.click('#menubar .menu-title[data-menu="0"]');
+      await item('Export…');
+      await waitFn(page, () => window.__mock.state.sound.exports.length > 0);
+      check('File › Export as › OGG, then File › Export… exports OGG files', (await page.evaluate(() => window.__mock.state.sound.exports.at(-1).format)) === 'ogg');
+      // Edit › Sound Bench settings: the tab it opens on.
+      await page.click('#menubar .menu-title[data-menu="1"]');
+      await item('Sound Bench settings');
+      await page.waitForSelector('#sb-set-ok');
+      await page.selectOption('#sb-set-tab', 'layers');
+      await page.click('#sb-set-ok');
+      check('Sound Bench settings are kept', (await page.evaluate(() => JSON.parse(localStorage.getItem('noorsound.settings')).tab)) === 'layers');
+      // Help › shortcuts.
+      await page.click('#menubar .menu-title[data-menu="5"]'); await item('Sound Bench shortcuts');
+      await page.waitForSelector('#sb-keys');
+      check('Help › Sound Bench shortcuts: its keys listed', (await page.$$('#sb-keys tr')).length >= 10 && /Space/.test(await page.textContent('#sb-keys')));
+      await page.keyboard.press('Escape');
+      // Out of focus mode: NoorMD as it was.
+      await page.keyboard.press('F11');
+      await waitFn(page, () => !document.body.classList.contains('bench-app'));
+      check('F11 again: NoorMD\'s own menu bar back, the Sound Bench still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSound.isOpen())));
+      check('no page errors with the Sound Bench as an app', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
