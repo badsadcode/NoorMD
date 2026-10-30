@@ -29,6 +29,8 @@ public sealed class SpriteDoc
     public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>Tilesets the tilemap layers draw from.</summary>
     public List<SpriteTileset> Tilesets { get; set; } = [];
+    /// <summary>A live link: on every save the sprite is exported here again, the same way (a place chosen on this computer).</summary>
+    public SpriteExportLink? ExportLink { get; set; }
     /// <summary>A sound under the timeline (a file the user chose) to animate to; Offset in milliseconds.</summary>
     public SpriteAudio? Audio { get; set; }
     /// <summary>The sprite as a bitmap font: glyphs in a grid of cells, in this order.</summary>
@@ -442,4 +444,17 @@ public sealed class SpriteFont
     public bool Proportional { get; set; } = true;
     public int Spacing { get; set; } = 1;
     public int Baseline { get; set; }
+}
+
+public sealed class SpriteExportLink
+{
+    public string Kind { get; set; } = "godot";
+    public int? Tag { get; set; }
+    public int Scale { get; set; } = 1;
+    public string Layout { get; set; } = "row";
+    public int Spacing { get; set; }
+    public string Form { get; set; } = "hash";
+    public bool Hitboxes { get; set; }
+    public int PixelsPerUnit { get; set; } = 16;
+    public string Path { get; set; } = "";
 }

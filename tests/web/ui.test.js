@@ -5495,7 +5495,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const SM = () => page.evaluate(() => window.__mock.state.sprite);
       const px = (x, y, l, f) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d), [x, y, l === undefined ? null : l, f]);
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
-      const click = async (x, y, opts) => { const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
+      const click = async (x, y, opts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
       const strokeTo = async (pts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down(); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 4 }); } await page.mouse.up(); };
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
@@ -5678,7 +5678,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const SM = () => page.evaluate(() => window.__mock.state.sprite);
       const px = (x, y, l, f) => page.evaluate(([a, b, c, d]) => NoorSprite._pixel(a, b, c, d), [x, y, l === undefined ? null : l, f]);
       const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
-      const click = async (x, y, opts) => { const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
+      const click = async (x, y, opts) => { await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))); const p = await at(x, y); await page.mouse.click(p.x, p.y, opts); };
       const strokeTo = async (pts, button) => { let p = await at(...pts[0]); await page.mouse.move(p.x, p.y); await page.mouse.down({ button }); for (const q of pts.slice(1)) { p = await at(...q); await page.mouse.move(p.x, p.y, { steps: 6 }); } await page.mouse.up({ button }); };
       let st;
       const menu = async (label) => { await page.click('#sp-menu'); await page.click(`.sp-menu .utility-btn:has-text("${label}")`); };
@@ -6667,6 +6667,53 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const cols = await page.evaluate(() => { const s2 = new Set(); for (let y = 0; y < 12; y++) for (let x = 0; x < 16; x++) { const p = NoorSprite._pixel(x, y); if (p[3]) s2.add(p.join()); } return s2.size; });
       check('fewer colours: brought down to two', cols <= 2, cols);
       check('no page errors with sound, fonts and clean-ups', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 66r. NoorSprite sharing: a GIF or a video, a live link to a game project, an atlas of many sprites.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '16'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      await page.keyboard.press('b');
+      const q = await at(4, 4); await page.mouse.click(q.x, q.y);
+      await page.click('#sp-addframe');
+      // Share as a GIF: bigger by whole steps, see-through.
+      await page.click('#sp-share'); await page.waitForSelector('#sp-sh-ok');
+      check('📤 share: bigger by whole steps (to about 480 px)', (await page.inputValue('#sp-sh-scale')) === '30' && /480 × 480/.test(await page.textContent('#sp-sh-size')));
+      await page.fill('#sp-sh-scale', '8'); await page.click('#sp-sh-ok');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 1);
+      let ex = (await SM()).exports[0];
+      check('…as a GIF: every frame, 8×, see-through kept', ex.kind === 'gif' && ex.scale === 8 && ex.frames.length === 2 && atob(ex.frames[0].data).charCodeAt(3) === 0);
+      // Share as a video (if this browser records one).
+      const canVideo = await page.evaluate(() => !!window.MediaRecorder && ['video/webm', 'video/mp4'].some((t) => MediaRecorder.isTypeSupported(t)));
+      if (canVideo) {
+        await page.click('#sp-share'); await page.waitForSelector('#sp-sh-ok');
+        await page.selectOption('#sp-sh-format', 'video'); await page.fill('#sp-sh-plays', '1'); await page.fill('#sp-sh-scale', '4');
+        await page.click('#sp-sh-ok');
+        await waitFn(page, () => window.__mock.state.sprite.video, null, { timeout: 15000 });
+        const v = (await SM()).video;
+        check('…as a video: recorded as it plays, saved', v.bytes > 200 && (v.ext === '.webm' ? v.head.join() === '26,69,223,163' : true), v);
+      } else check('…as a video: not offered where it can\'t be recorded', !(await page.$('#sp-sh-format option[value="video"]')));
+      // A live link: export once with it on, then every save exports again.
+      await page.click('#sp-export'); await page.waitForSelector('#sp-ex-ok');
+      await page.selectOption('#sp-ex-kind', 'godot'); await page.check('#sp-ex-link'); await page.click('#sp-ex-ok');
+      await waitFn(page, () => NoorSprite._wire().exportLink);
+      check('a live link: the export asks for it, the place is kept with the sprite', (await SM()).exports[1].link === true && (await page.evaluate(() => NoorSprite._wire())).exportLink.path.endsWith('.tres'));
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.sprite.exports || []).length === 3);
+      ex = (await SM()).exports[2];
+      check('…a save exports again there, the same way, without asking', ex.kind === 'godot' && ex.path && ex.path.endsWith('.tres') && ex.frames.length === 2);
+      // An atlas of many sprites.
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("An atlas of many sprites")');
+      await waitFn(page, () => window.__mock.state.sprite.atlas === 1);
+      check('an atlas of many sprites (one sheet, JSON, Godot SpriteFrames)', true);
+      check('no page errors with sharing', errors.length === 0, errors);
       await page.close();
     }
 

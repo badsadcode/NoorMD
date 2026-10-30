@@ -241,7 +241,7 @@ public class GodotExportTests
         // Every map layer in one scene: the ground, and a hidden half see-through layer over it.
         var topCel = new NoorMD.Core.Sprite.SpriteCel { Width = 2, Height = 1, Tiles = [2, 2] };
         File.WriteAllText(Path.Combine(dir, "sprite", "world.tscn"), NoorMD.Core.Sprite.GodotTiles.Level("World",
-            [new("Ground", "ground.tres", mapCel, tileset, true, 255), new("Top", "ground.tres", topCel, tileset, false, 128)]));
+            [new("Ground", "ground.tres", mapCel, tileset, true, 255), new("Top", "ground.tres", topCel, tileset, false, 128)], [("player", 2.5, 3.5), ("coin", 10, 4)]));
         // Hitboxes: a slice that moves on the second frame (and a still one), kept with the frames by an AnimationPlayer.
         List<NoorMD.Core.Sprite.SpriteSlice> hitSlices =
         [

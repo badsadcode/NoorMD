@@ -599,7 +599,7 @@ public static class GodotTiles
     /// Every tilemap layer in one scene: a Node2D holding a TileMap per layer, bottom first (drawn in that order), each
     /// with its own TileSet, hidden or see-through as the layer is.
     /// </summary>
-    public static string Level(string rootName, IReadOnlyList<MapLayer> layers)
+    public static string Level(string rootName, IReadOnlyList<MapLayer> layers, IReadOnlyList<(string Name, double X, double Y)>? markers = null)
     {
         var files = layers.Select(l => l.TileSetFile).Distinct().ToList();
         var sb = new System.Text.StringBuilder();
@@ -618,6 +618,19 @@ public static class GodotTiles
             sb.Append($"tile_set = ExtResource(\"{files.IndexOf(l.TileSetFile) + 1}_tileset\")\n");
             sb.Append("format = 2\n");
             sb.Append($"layer_0/tile_data = PackedInt32Array({string.Join(", ", TileData(l.Cel, l.Tileset))})\n");
+        }
+        // Markers (the sprite's slices): where things start — the player, coins, enemies — as Marker2D nodes.
+        if (markers is { Count: > 0 })
+        {
+            sb.Append("\n[node name=\"Markers\" type=\"Node2D\" parent=\".\"]\n");
+            var names = new HashSet<string>();
+            foreach (var (mn, mx, my) in markers)
+            {
+                var name = NodeName(mn, "Marker"); var k = 2;
+                while (!names.Add(name)) name = $"{NodeName(mn, "Marker")} {k++}";
+                sb.Append($"\n[node name={Q(name)} type=\"Marker2D\" parent=\"Markers\"]\n");
+                sb.Append(System.FormattableString.Invariant($"position = Vector2({mx:0.###}, {my:0.###})\n"));
+            }
         }
         return sb.ToString();
     }

@@ -564,7 +564,9 @@ function mockHostScript(initial) {
       case 'sprite.font.export': SPRITE.font = { width: p.width, font: p.font }; return { files: [`${p.name}.fnt`, `${p.name}.png`], glyphs: [...p.font.characters].length };
       case 'sprite.palette.lospec': SPRITE.lospec = p.slug; return { palette: ['#1a1c2cff', '#5d275dff', '#b13e53ff', '#ef7d57ff'], name: p.slug };
       case 'sprite.tiles.export': SPRITE.tiles = (SPRITE.tiles || []).concat([JSON.parse(JSON.stringify(p))]); return { files: [`${p.name}.png`, `${p.name}.tres`, `${p.name}_map.tscn`] };
-      case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
+      case 'sprite.video.save': SPRITE.video = { ext: p.ext, bytes: atob(p.data).length, head: atob(p.data).slice(0, 4).split('').map((c) => c.charCodeAt(0)) }; return { files: [`${p.name}${p.ext}`] };
+      case 'sprite.atlas.pack': SPRITE.atlas = (SPRITE.atlas || 0) + 1; return { files: ['atlas.png', 'atlas.json', 'atlas.tres'], frames: 12, skipped: [] };
+      case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); if (p.link || p.path) return { path: p.path || `C:\\Game\\${p.name}.tres`, files: [`${p.name}.png`, `${p.name}.tres`] }; return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };
       default: throw new Error('Unknown sprite command ' + type);
     }
   }

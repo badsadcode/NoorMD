@@ -184,7 +184,8 @@ func _init() -> void:
 	check(t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE) == 0 and t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_TOP_SIDE) == -1, "…tile 3 joins on the right", t3.get_terrain_peering_bit(TileSet.CELL_NEIGHBOR_RIGHT_SIDE))
 	# Every map layer in one scene.
 	var world: Node = load("res://sprite/world.tscn").instantiate()
-	check(world is Node2D and world.get_child_count() == 2 and world.get_child(0) is TileMap and world.get_child(0).name == "Ground", "every map layer in one scene, a TileMap each", world.get_child_count())
+	check(world is Node2D and world.get_child_count() == 3 and world.get_child(0) is TileMap and world.get_child(0).name == "Ground", "every map layer in one scene, a TileMap each", world.get_child_count())
+	check(world.get_node("Markers/player") is Marker2D and world.get_node("Markers/player").position == Vector2(2.5, 3.5) and world.get_node("Markers/coin") is Marker2D, "…and the markers (slices) as Marker2D nodes where they are", world.get_node("Markers").get_child_count() if world.has_node("Markers") else -1)
 	check(world.get_child(1).visible == false and is_equal_approx(world.get_child(1).modulate.a, 0.502) and world.get_child(1).get_used_cells(0).size() == 2, "…hidden and see-through as the layers were", [world.get_child(1).visible, world.get_child(1).modulate.a])
 	world.free()
 	# Hitboxes moving with the frames.

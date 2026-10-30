@@ -42,6 +42,20 @@ public partial class MainWindow
         catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
     }
 
+    /// <summary>Export places chosen in the dialog with "export here again on every save": the only ones a save may write to.</summary>
+    private static string SpriteLinksFile => Path.Combine(SpriteDraftFolder, "links.json");
+    private static HashSet<string> SpriteLinks()
+    {
+        try { return new HashSet<string>(JsonSerializer.Deserialize<List<string>>(File.ReadAllText(SpriteLinksFile)) ?? [], StringComparer.OrdinalIgnoreCase); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return new HashSet<string>(StringComparer.OrdinalIgnoreCase); }
+    }
+    private static void AddSpriteLink(string path)
+    {
+        var all = SpriteLinks(); all.Add(Path.GetFullPath(path));
+        Directory.CreateDirectory(SpriteDraftFolder);
+        NoorMD.Core.Documents.AtomicFile.WriteAllText(SpriteLinksFile, JsonSerializer.Serialize(all.Take(200).ToList()));
+    }
+
     /// <summary>Slices measured at an export's scale (their keys too).</summary>
     private static List<SpriteSlice> ScaledSlices(List<SpriteSlice> slices, int scale) => slices.Select(x => new SpriteSlice
     {
@@ -202,10 +216,22 @@ public partial class MainWindow
                     "frame" => (".png", "PNG (*.png)|*.png", "Export the frame"),
                     _ => (".png", "PNG (*.png)|*.png", "Export a sprite sheet (its JSON goes beside it)"),
                 };
-                var save = new SaveFileDialog { Title = title, FileName = stem + ext, Filter = filter, AddExtension = true };
-                NativeCursor.Restore();
-                if (save.ShowDialog(this) != true) return new { cancelled = true };
-                var target = save.FileName;
+                // A live link: exporting again to a place chosen in this dialog before (kept on this computer).
+                string target;
+                var linked = req.GetString("path", 2000);
+                if (!string.IsNullOrEmpty(linked))
+                {
+                    if (!SpriteLinks().Contains(Path.GetFullPath(linked)) || !Directory.Exists(Path.GetDirectoryName(linked))) throw new BridgeError("That export place isn't one chosen here: export once with the dialog.");
+                    target = linked;
+                }
+                else
+                {
+                    var save = new SaveFileDialog { Title = title, FileName = stem + ext, Filter = filter, AddExtension = true };
+                    NativeCursor.Restore();
+                    if (save.ShowDialog(this) != true) return new { cancelled = true };
+                    target = save.FileName;
+                    if (NoorMD.Core.Bridge.Json.IsTrue(p, "link")) AddSpriteLink(target);
+                }
                 var dir = Path.GetDirectoryName(target)!;
                 var baseName = Path.GetFileNameWithoutExtension(target);
                 var written = await Task.Run(() =>
@@ -320,7 +346,7 @@ public partial class MainWindow
                     }
                     return files;
                 });
-                return new { files = written.Select(Path.GetFileName) };
+                return new { files = written.Select(Path.GetFileName), path = target };
             }
             case "sprite.tiles.export":
             {
@@ -366,7 +392,9 @@ public partial class MainWindow
                             var hidden = !ml.Visible || doc.Layers.Any(g => g.Kind == "group" && !g.Visible && IsInside(doc, ml, g.Id));
                             maps.Add(new GodotTiles.MapLayer(ml.Name, tres, mc, mts, !hidden, ml.Opacity));
                         }
-                        File.WriteAllText(scenePath, GodotTiles.Level(lvlBase, maps));
+                        // The slices are the level's markers: at a pivot when they have one, else their middle.
+                        var marks = doc.Slices.Select(sl => (sl.Name, sl.HasPivot ? sl.X + sl.PivotX + 0.5 : sl.X + sl.Width / 2.0, sl.HasPivot ? sl.Y + sl.PivotY + 0.5 : sl.Y + sl.Height / 2.0)).ToList();
+                        File.WriteAllText(scenePath, GodotTiles.Level(lvlBase, maps, marks));
                         written.Add(scenePath);
                         return written;
                     });
@@ -389,6 +417,64 @@ public partial class MainWindow
                     return new List<string> { png, target, scene };
                 });
                 return new { files = written.Select(Path.GetFileName) };
+            }
+            case "sprite.video.save":
+            {
+                // A video the page recorded (its canvas, played), saved where the user says.
+                var ext = req.GetString("ext", 8) is ".mp4" ? ".mp4" : ".webm";
+                var data = Convert.FromBase64String(p.GetProperty("data").GetString() ?? "");
+                if (data.Length == 0 || data.Length > 256 * 1024 * 1024) throw new BridgeError("That video is empty or too large.");
+                var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "sprite", "");
+                var save = new SaveFileDialog { Title = "Save the video", FileName = stem + ext, Filter = ext == ".mp4" ? "MP4 video (*.mp4)|*.mp4" : "WebM video (*.webm)|*.webm", AddExtension = true };
+                NativeCursor.Restore();
+                if (save.ShowDialog(this) != true) return new { cancelled = true };
+                await Task.Run(() => NoorMD.Core.Documents.AtomicFile.WriteAllBytes(save.FileName, data));
+                return new { files = new[] { Path.GetFileName(save.FileName) } };
+            }
+            case "sprite.atlas.pack":
+            {
+                // Many sprites (and pictures) packed into one atlas: a JSON naming every frame, and Godot SpriteFrames
+                // with an animation per file (per tag: "file/tag").
+                var pick = new OpenFileDialog { Title = "Sprites and pictures for one atlas", Multiselect = true, CheckFileExists = true, Filter = "Sprites and pictures (*.noorsprite;*.aseprite;*.ase;*.png)|*.noorsprite;*.aseprite;*.ase;*.png" };
+                NativeCursor.Restore();
+                if (pick.ShowDialog(this) != true) return new { cancelled = true };
+                var chosen = pick.FileNames.Take(256).ToList();
+                var save = new SaveFileDialog { Title = "Save the atlas (its JSON and Godot SpriteFrames go beside it)", FileName = "atlas.png", Filter = "PNG (*.png)|*.png", AddExtension = true };
+                if (save.ShowDialog(this) != true) return new { cancelled = true };
+                var target = save.FileName;
+                var result = await Task.Run(() =>
+                {
+                    var frames = new List<SpriteImage>(); var tags = new List<SpriteTag>(); var skipped = new List<string>();
+                    foreach (var file in chosen)
+                    {
+                        var stem = Path.GetFileNameWithoutExtension(file);
+                        var start = frames.Count;
+                        if (Path.GetExtension(file).Equals(".png", StringComparison.OrdinalIgnoreCase))
+                        {
+                            try { var (w, h, rgba) = SpritePicture(file); if (w > SpriteDoc.MaxSide || h > SpriteDoc.MaxSide) { skipped.Add(Path.GetFileName(file)); continue; } frames.Add(new SpriteImage(w, h, rgba, 100)); }
+                            catch (Exception ex) when (ex is IOException or InvalidDataException or NotSupportedException or BridgeError) { skipped.Add(Path.GetFileName(file)); continue; }
+                        }
+                        else
+                        {
+                            var sd = SpriteRender.Load(file);
+                            if (sd == null) { skipped.Add(Path.GetFileName(file)); continue; }
+                            for (var f = 0; f < sd.Frames.Count; f++) frames.Add(new SpriteImage(sd.Width, sd.Height, SpriteRender.Frame(sd, f), sd.Frames[f].Duration));
+                            foreach (var t in sd.Tags) tags.Add(new SpriteTag { Name = $"{stem}/{t.Name}", From = start + t.From, To = start + t.To, Direction = t.Direction });
+                        }
+                        tags.Add(new SpriteTag { Name = stem, From = start, To = frames.Count - 1 });
+                        if (frames.Count > 4096) break;
+                    }
+                    if (frames.Count == 0) throw new BridgeError("None of those could be read.");
+                    var (sheet, placed) = SpriteExport.Pack(frames, "packed", 1);
+                    var dir = Path.GetDirectoryName(target)!; var baseName = Path.GetFileNameWithoutExtension(target);
+                    NoorMD.Core.Documents.AtomicFile.WriteAllBytes(target, SpritePng.Encode(sheet.Width, sheet.Height, sheet.Rgba));
+                    var json = Path.Combine(dir, baseName + ".json");
+                    File.WriteAllText(json, SpriteExport.Json(baseName, sheet, placed, tags, [], [], 1));
+                    var tres = Path.Combine(dir, baseName + ".tres");
+                    File.WriteAllText(tres, GodotSprite.SpriteFrames(Path.GetFileName(target), placed, tags));
+                    return (files: new[] { Path.GetFileName(target), Path.GetFileName(json), Path.GetFileName(tres) }, frames: frames.Count, skipped);
+                });
+                return new { files = result.files, frames = result.frames, skipped = result.skipped };
             }
             case "sprite.audio.load":
             {

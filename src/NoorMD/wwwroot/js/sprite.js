@@ -221,6 +221,7 @@ window.NoorSprite = (() => {
           el('button', { class: 'icon-btn', id: 'sp-new', title: 'New sprite (Ctrl+N here)', 'aria-label': 'New sprite', onclick: newDialog }, '🆕'),
           el('button', { class: 'icon-btn', id: 'sp-open', title: 'Open a sprite (.noorsprite, .aseprite) or a PNG (Ctrl+O here)', 'aria-label': 'Open', onclick: openFile }, '📂'),
           el('button', { class: 'icon-btn', id: 'sp-save', title: 'Save (Ctrl+S here; Ctrl+Shift+S: save as)', 'aria-label': 'Save', onclick: () => save(false) }, '💾'),
+          el('button', { class: 'icon-btn', id: 'sp-share', title: 'Share: a GIF or a video, bigger with sharp pixels', 'aria-label': 'Share', onclick: shareDialog }, '📤'),
           el('button', { class: 'icon-btn', id: 'sp-export', title: 'Export: PNG, frames, a sprite sheet with JSON, an animated GIF (Ctrl+E here)', 'aria-label': 'Export', onclick: exportDialog }, '⤓'),
           el('button', { class: 'icon-btn', id: 'sp-cmd', title: 'Find a command (Ctrl+K here); give any a shortcut of your own', 'aria-label': 'Commands', onclick: commandSearch }, '⌕'),
           el('button', { class: 'icon-btn', id: 'sp-menu', title: 'Sprite and edit: canvas size, scale, flip, rotate, crop, import a sheet…', 'aria-label': 'More', onclick: (e) => moreMenu(e.currentTarget) }, '☰'),
@@ -1859,6 +1860,7 @@ window.NoorSprite = (() => {
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Clean doubled corners (jaggies) on this layer', cleanJaggies], ['Motion (bob, breathe, jump, shake, float, sway)…', motionDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
+      ['Share: a GIF or a video…', shareDialog], ['An atlas of many sprites (one sheet, JSON and Godot)…', packAtlas], null,
       ['Normal maps (for lit sprites)…', normalsDialog], ['A bitmap font (letters in the grid\'s cells)…', fontDialog], null,
       ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
@@ -2952,7 +2954,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.exportLink ? { exportLink: d.exportLink } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
   }
 
   function fromWire(w) {
@@ -2995,6 +2997,7 @@ window.NoorSprite = (() => {
     for (const l of d.layers) { if (!l.bone) delete l.bone; if (!l.normals) delete l.normals; }
     if (w.normals) d.normals = { ...w.normals };
     if (w.audio) d.audio = { ...w.audio };
+    if (w.exportLink) d.exportLink = { ...w.exportLink };
     if (w.font) d.font = { ...w.font };
     d.indexed = w.colorMode === 'indexed';
     d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
@@ -3032,6 +3035,10 @@ window.NoorSprite = (() => {
       req('sprite.draft.clear').catch(() => {});
       renderAll();
       notice(`Saved ${r.name}`, 1400);
+      // A live link: exported again to the game project, the same way.
+      if (doc.exportLink) {
+        try { const x = await runExport(doc.exportLink); if (x && !x.cancelled) notice(`Saved ${r.name}, and exported again: ${x.files.join(', ')}`, 2200); } catch (err) { hooks.showError(err); }
+      }
     } catch (err) { hooks.showError(err); }
   }
 
@@ -3117,32 +3124,122 @@ window.NoorSprite = (() => {
       const hitboxes = el('input', { type: 'checkbox', id: 'sp-ex-hitboxes', checked: (doc.slices || []).some((sl) => sl.keys && sl.keys.length) || undefined });
       const ppu = el('input', { type: 'number', min: '1', max: '4096', value: String(doc.gridWidth || 16), id: 'sp-ex-ppu', 'aria-label': 'Pixels per unit (Unity)' });
       const tag = el('select', { id: 'sp-ex-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
+      const link = el('input', { type: 'checkbox', id: 'sp-ex-link', checked: doc.exportLink || undefined });
       const ok = async () => {
-        const t = tag.value === '' ? null : doc.tags[Number(tag.value)];
-        const which = kind.value === 'frame' ? [frame] : Array.from({ length: t ? t.to - t.from + 1 : doc.frames.length }, (_, i) => (t ? t.from : 0) + i);
-        const frames = which.map((f) => ({ width: doc.width, height: doc.height, duration: doc.frames[f].duration, data: b64(new Uint8Array(compose(f, doc, null, true).buffer)) }));
-        const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
+        const o = { kind: kind.value, tag: tag.value === '' ? null : Number(tag.value), scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16 };
         closeIt();
         try {
-          const sounds = which.map((f, i) => (doc.frames[f].sound ? { frame: i, path: doc.frames[f].sound.path } : null)).filter(Boolean);
-          const normals = normalSettings().export && ['sheet', 'godot', 'unity'].includes(kind.value) ? which.map((f) => b64(new Uint8Array(normalMap(f).buffer))) : undefined;
-          const r = await req('sprite.export', { kind: kind.value, frames, sounds, normals, scale: Number(scale.value), layout: layout.value, spacing: Number(spacing.value), form: form.value, hitboxes: hitboxes.checked, pixelsPerUnit: Number(ppu.value) || 16, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
-            // One tag's frames start at 0: a moving slice's keys follow them.
-            slices: (doc.slices || []).map((sl) => {
-              if (!t || !(sl.keys && sl.keys.length)) return sl;
-              const b = sliceAt(sl, t.from);
-              return { ...sl, x: b.x, y: b.y, width: b.width, height: b.height, keys: [{ frame: 0, x: b.x, y: b.y, width: b.width, height: b.height }, ...sl.keys.filter((k) => k.frame > t.from && k.frame <= t.to).map((k) => ({ ...k, frame: k.frame - t.from }))] };
-            }),
-            layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference, ...(isGroup(l) ? { kind: 'group' } : {}), ...(l.parent ? { parent: l.parent } : {}) })), ...(doc.indexed ? { palette: doc.palette } : {}) });
-          if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')}`, 2600);
+          const r = await runExport({ ...o, link: link.checked && ['sheet', 'godot', 'unity', 'paper2d'].includes(o.kind) });
+          if (r && !r.cancelled) {
+            notice(`Exported ${r.files.join(', ')}`, 2600);
+            if (link.checked && r.path) change('A live export', (d) => { d.exportLink = { ...o, path: r.path }; });
+            else if (!link.checked && doc.exportLink) change('No live export', (d) => { delete d.exportLink; });
+          }
         } catch (err) { hooks.showError(err); }
       };
       s.append(NoorUI.head('Export', closeIt),
         el('div', { class: 'modal-body sp-dlg' }, el('label', {}, 'What ', kind), el('label', {}, 'Frames ', tag), el('label', {}, 'Scale ', scale), el('label', {}, 'Sheet as ', layout), el('label', {}, 'Space between (px) ', spacing), el('label', {}, 'JSON ', form),
           el('label', { title: 'Godot: an Area2D for each slice, moved with the frames by an AnimationPlayer' }, hitboxes, ' slices as hitboxes (Godot)'), el('label', {}, 'Pixels per unit (Unity) ', ppu),
+          el('label', { title: 'Each Ctrl+S exports here again the same way: point it into your Godot (or Unity) project and the engine picks the changes up' }, link, ' export here again on every save (a live link to a game project)'),
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
+      if (doc.exportLink) { const L = doc.exportLink; kind.value = L.kind; scale.value = String(L.scale); layout.value = L.layout; spacing.value = String(L.spacing); form.value = L.form; hitboxes.checked = !!L.hitboxes; ppu.value = String(L.pixelsPerUnit || 16); tag.value = L.tag === null || L.tag === undefined ? '' : String(L.tag); }
     });
+  }
+
+  /** An export with these settings (from the dialog, or a live link's again: o.path skips the dialog). */
+  async function runExport(o) {
+    const t = o.tag === null || o.tag === undefined ? null : doc.tags[o.tag] || null;
+    const which = o.kind === 'frame' ? [frame] : Array.from({ length: t ? t.to - t.from + 1 : doc.frames.length }, (_, i) => (t ? t.from : 0) + i);
+    const frames = which.map((f) => ({ width: doc.width, height: doc.height, duration: doc.frames[f].duration, data: b64(new Uint8Array(compose(f, doc, null, true).buffer)) }));
+    const tags = t ? [{ ...t, from: 0, to: t.to - t.from }] : doc.tags;
+    const sounds = which.map((f, i) => (doc.frames[f].sound ? { frame: i, path: doc.frames[f].sound.path } : null)).filter(Boolean);
+    const normals = normalSettings().export && ['sheet', 'godot', 'unity'].includes(o.kind) ? which.map((f) => b64(new Uint8Array(normalMap(f).buffer))) : undefined;
+    return req('sprite.export', { kind: o.kind, frames, sounds, normals, scale: o.scale, layout: o.layout, spacing: o.spacing, form: o.form, hitboxes: o.hitboxes, pixelsPerUnit: o.pixelsPerUnit, path: o.path || null, link: !!o.link, name: (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : ''), tags,
+      // One tag's frames start at 0: a moving slice's keys follow them.
+      slices: (doc.slices || []).map((sl) => {
+        if (!t || !(sl.keys && sl.keys.length)) return sl;
+        const b = sliceAt(sl, t.from);
+        return { ...sl, x: b.x, y: b.y, width: b.width, height: b.height, keys: [{ frame: 0, x: b.x, y: b.y, width: b.width, height: b.height }, ...sl.keys.filter((k) => k.frame > t.from && k.frame <= t.to).map((k) => ({ ...k, frame: k.frame - t.from }))] };
+      }),
+      layers: doc.layers.map((l) => ({ id: l.id, name: l.name, opacity: l.opacity, blend: l.blend, reference: !!l.reference, ...(isGroup(l) ? { kind: 'group' } : {}), ...(l.parent ? { parent: l.parent } : {}) })), ...(doc.indexed ? { palette: doc.palette } : {}) });
+  }
+
+  // ---------------------------------------------------------------- sharing: a GIF or a video, an atlas of many sprites
+
+  const videoType = () => (window.MediaRecorder ? ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9', 'video/webm'].find((t) => MediaRecorder.isTypeSupported(t)) : null);
+
+  /** The frames played on a canvas and recorded (MediaRecorder): a video as a Blob, `plays` times through. */
+  async function recordVideo(frames, scale, background, plays, mime) {
+    const W = doc.width * scale, H = doc.height * scale, cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false;
+    const paint = (px) => { ctx.fillStyle = background; ctx.fillRect(0, 0, W, H); ctx.drawImage(pixelsToCanvas(px, doc.width, doc.height), 0, 0, W, H); };
+    paint(frames[0].px);
+    const stream = cv.captureStream(30), rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 }), chunks = [];
+    rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+    const done = new Promise((r) => { rec.onstop = r; });
+    rec.start(250);
+    for (let p2 = 0; p2 < plays; p2++) for (const f of frames) { paint(f.px); await new Promise((r) => setTimeout(r, f.duration)); }
+    rec.stop(); stream.getTracks().forEach((t) => t.stop());
+    await done;
+    return new Blob(chunks, { type: mime.split(';')[0] });
+  }
+
+  function shareDialog() {
+    commitFloating();
+    const vt = videoType(), longest = Math.max(doc.width, doc.height);
+    NoorUI.modal({ label: 'Share', width: 420 }, (s2, closeIt) => {
+      const fmt = el('select', { id: 'sp-sh-format', 'aria-label': 'As' }, el('option', { value: 'gif', text: 'an animated GIF' }), ...(vt ? [el('option', { value: 'video', text: vt.includes('mp4') ? 'a video (MP4)' : 'a video (WebM)' })] : []));
+      const scale = el('input', { type: 'number', min: '1', max: '32', value: String(Math.max(1, Math.min(32, Math.floor(480 / longest) || 1))), id: 'sp-sh-scale', 'aria-label': 'Bigger by' });
+      const clear = el('input', { type: 'checkbox', id: 'sp-sh-clear', checked: true });
+      const bgc = el('input', { type: 'color', value: '#1d1f24', id: 'sp-sh-bg', 'aria-label': 'Background' });
+      const plays = el('input', { type: 'number', min: '1', max: '20', value: '3', id: 'sp-sh-plays', 'aria-label': 'Times through (video)' });
+      const tag = el('select', { id: 'sp-sh-tag', 'aria-label': 'Frames' }, el('option', { value: '', text: 'every frame' }), ...doc.tags.map((t, i) => el('option', { value: String(i), text: `tag “${t.name}”` })));
+      const size = el('small', { class: 'pref-hint', id: 'sp-sh-size' });
+      const showSize = () => { const k = Math.max(1, Number(scale.value) || 1); size.textContent = `${doc.width * k} × ${doc.height * k} pixels, every pixel a ${k} × ${k} square`; };
+      scale.addEventListener('input', showSize); showSize();
+      const ok = async () => {
+        const k = Math.max(1, Math.min(32, Number(scale.value) || 1)), t = tag.value === '' ? null : doc.tags[Number(tag.value)];
+        const order = t ? GODOT_ORDER(t) : doc.frames.map((_, i) => i);
+        const bg = parseHex(bgc.value + 'ff'), fill = (px) => { if (fmt.value === 'gif' && clear.checked) return px; const o = new Uint8ClampedArray(px); for (let i = 0; i < o.length; i += 4) { const a = o[i + 3] / 255; for (let c = 0; c < 3; c++) o[i + c] = Math.round(o[i + c] * a + bg[c] * (1 - a)); o[i + 3] = 255; } return o; };
+        const frames = order.map((f) => ({ px: fill(compose(f, doc, null, true)), duration: doc.frames[f].duration }));
+        const name = (file ? file.name.replace(/\.[^.]+$/, '') : 'sprite') + (t ? `-${t.name}` : '');
+        closeIt();
+        try {
+          if (fmt.value === 'gif') {
+            const r = await req('sprite.export', { kind: 'gif', frames: frames.map((f) => ({ width: doc.width, height: doc.height, duration: f.duration, data: b64(new Uint8Array(f.px.buffer)) })), scale: Math.min(10, k) === k ? k : 10, name, tags: [], slices: [], layers: [] });
+            if (r && !r.cancelled) notice(`Shared as ${r.files.join(', ')}`, 2400);
+            return;
+          }
+          notice('Recording the video (it plays through as it records)…', 2000);
+          const blob = await recordVideo(frames, k, bgc.value, Math.max(1, Math.min(20, Number(plays.value) || 1)), vt);
+          const bytes = new Uint8Array(await blob.arrayBuffer());
+          const r = await req('sprite.video.save', { data: b64(bytes), ext: vt.includes('mp4') ? '.mp4' : '.webm', name });
+          if (r && !r.cancelled) notice(`Shared as ${r.files.join(', ')}`, 2400);
+        } catch (err) { hooks.showError(err); }
+      };
+      s2.append(NoorUI.head('Share', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Bigger by whole steps (sharp pixels), for a post or a message.' }),
+          el('label', {}, 'As ', fmt), el('label', {}, 'Frames ', tag), el('label', {}, 'Bigger by ', scale), size, el('label', {}, clear, ' see-through (a GIF; else this background) '), el('label', {}, 'Background ', bgc), el('label', {}, 'Times through (a video) ', plays)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-sh-ok', onclick: ok }, 'Share…'))));
+    });
+  }
+
+  /** A tag's frames in the order it plays (reverse turned round, ping-pong there and back). */
+  function GODOT_ORDER(t) {
+    const run = Array.from({ length: t.to - t.from + 1 }, (_, i) => t.from + i);
+    if (t.direction === 'reverse') run.reverse();
+    else if (t.direction === 'pingpong' && run.length > 2) run.push(...run.slice(1, -1).reverse());
+    return run;
+  }
+
+  async function packAtlas() {
+    try {
+      const r = await req('sprite.atlas.pack');
+      if (!r || r.cancelled) return;
+      notice(`An atlas of ${r.frames} frames: ${r.files.join(', ')}${r.skipped && r.skipped.length ? ` (couldn't read: ${r.skipped.join(', ')})` : ''}`, 3200);
+    } catch (err) { hooks.showError(err); }
   }
 
   // ---------------------------------------------------------------- a sound to animate to

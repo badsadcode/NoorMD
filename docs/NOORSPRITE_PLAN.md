@@ -289,6 +289,20 @@ one's own, a floating reference picture, pen pressure.
 - **A picture made pixel art** (☰): a picture you choose shrunk into the sprite (each pixel the average of what it
   covers) in the palette's colours (or 16 of its own), on a new layer — a start to draw over, not the drawing.
 
+### Done in preview.110
+
+- **Share** (📤): an animated GIF (see-through or on a background) or a video — recorded in the page as it plays,
+  MP4 where the system records it, else WebM — bigger by whole steps (sharp pixels; about 480 px to start), every
+  frame or a tag's, played through a few times.
+- **A live link to a game project:** "export here again on every save" in the export — each Ctrl+S exports the same
+  way to the same place (Godot reimports what changed). Only places chosen in the export's own dialog on this
+  computer can be written to again; the link is kept with the sprite.
+- **An atlas of many sprites** (☰): sprites and pictures you choose packed into one sheet (trimmed, the same frames
+  once), with a JSON naming every frame and Godot SpriteFrames with an animation per file (and per tag:
+  "file/tag").
+- **Levels:** "All map layers…" also places the sprite's slices as Marker2D nodes (at a slice's pivot, or its
+  middle) — where the player starts, coins, enemies (checked in headless Godot 4.4).
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.
