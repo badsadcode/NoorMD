@@ -363,6 +363,11 @@ one's own, a floating reference picture, pen pressure.
   and grid; smooth lines, the pixel grid, onion skin and the timelapse to start with. **Open recent** lists the
   sprites opened or saved here (only those are opened by path).
 
+### Fixed in preview.115
+
+- **The pointer no longer jumps from pixel to pixel:** with the pencil and eraser a small crosshair follows the mouse
+  smoothly (as in Aseprite), and the brush's outline, now fainter, shows the pixels it will paint.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

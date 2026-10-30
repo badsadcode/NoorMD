@@ -1076,8 +1076,17 @@ window.NoorSprite = (() => {
         if (!set.has(`${x - 1},${y}`)) { edges.moveTo(X, Y); edges.lineTo(X, Y + z); }
         if (!set.has(`${x + 1},${y}`)) { edges.moveTo(X + z, Y); edges.lineTo(X + z, Y + z); }
       }
-      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.stroke(edges);
-      ctx.lineWidth = 1.2; ctx.strokeStyle = '#fff'; ctx.stroke(edges);
+      ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(0,0,0,0.5)'; ctx.stroke(edges);
+      ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.stroke(edges);
+      // The pointer itself, a small crosshair that follows the mouse smoothly (as in Aseprite): the outline above
+      // shows the pixels the brush will paint; this shows where the mouse is.
+      if (hover.cx !== undefined) {
+        const X = Math.round(hover.cx) + 0.5, Y = Math.round(hover.cy) + 0.5, gap = 3, arm = 7, cross = new Path2D();
+        cross.moveTo(X - gap - arm, Y); cross.lineTo(X - gap, Y); cross.moveTo(X + gap, Y); cross.lineTo(X + gap + arm, Y);
+        cross.moveTo(X, Y - gap - arm); cross.lineTo(X, Y - gap); cross.moveTo(X, Y + gap); cross.lineTo(X, Y + gap + arm);
+        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.75)'; ctx.stroke(cross);
+        ctx.lineWidth = 1; ctx.strokeStyle = '#fff'; ctx.stroke(cross);
+      }
       ctx.restore();
     }
   }
@@ -1533,7 +1542,7 @@ window.NoorSprite = (() => {
   function onMove(e) {
     if (altHeld !== e.altKey) { altHeld = e.altKey; setCursor(); }
     const p = toPixel(e);
-    hover = { x: p.x, y: p.y };
+    hover = { x: p.x, y: p.y, cx: p.cx, cy: p.cy };
     if (!drag && curve) { curve.ctrl = [p.fx - 0.5, p.fy - 0.5]; curvePreview(); draw(); return; }
     if (!drag) { draw(); status(); return; }
     if (drag.kind === 'pan') { view.panX += p.cx - drag.cx; view.panY += p.cy - drag.cy; drag.cx = p.cx; drag.cy = p.cy; draw(); return; }

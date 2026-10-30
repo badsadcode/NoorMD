@@ -6735,6 +6735,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a lost Alt key-up: the next press draws (Alt read from the press), the brush cursor back', (await page.evaluate(() => NoorSprite._pixel(6, 6))).join() === (await page.evaluate(() => NoorSprite._state().fg.join())) && (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush');
       await page.evaluate(() => { document.getElementById('spritebench').dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true })); window.dispatchEvent(new Event('blur')); });
       check('a held Space is let go when the window loses focus', (await page.getAttribute('#sp-canvas', 'data-cursor')) === 'brush');
+      // The pointer is a small crosshair that follows the mouse smoothly, not snapped to the pixels (the brush outline is).
+      const c0 = await at(10, 10), z = (await page.evaluate(() => NoorSprite._state().view.zoom));
+      const armAt = async (x, y) => page.evaluate(([X, Y]) => { const cv = document.getElementById('sp-canvas'), r = cv.getBoundingClientRect(); return [...cv.getContext('2d').getImageData(Math.round(X - r.left) + 6, Math.round(Y - r.top), 1, 1).data].join(); }, [x, y]);
+      await page.mouse.move(c0.x - z / 4, c0.y); const a1 = await armAt(c0.x - z / 4, c0.y);
+      await page.mouse.move(c0.x + z / 4, c0.y); const a2 = await armAt(c0.x + z / 4, c0.y);
+      check('the pointer\'s crosshair moves with the mouse inside one pixel', z >= 8 && a1 === '255,255,255,255' && a2 === '255,255,255,255', [z, a1, a2]);
       check('no page errors', errors.length === 0, errors);
       await page.close();
     }
