@@ -2130,6 +2130,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const dockBox = await page.evaluate(() => ({ editor: document.querySelector('#editor').getBoundingClientRect().right, dock: document.querySelector('#dock-right').getBoundingClientRect().left, w: document.querySelector('#dock-right').getBoundingClientRect().width }));
       check('Ctrl+Alt+B docks NoorStream beside the editor', dockBox.editor <= dockBox.dock + 1 && dockBox.w > 300, dockBox);
       check('it looks like the other benches: title row, then tabs', await page.evaluate(() => !!document.querySelector('#streamdesk .music-head .music-title') && !!document.querySelector('#streamdesk .music-tabs [data-sdtab="mic"]')));
+      await page.waitForSelector('#streamdesk .sd-tab-label', { state: 'attached' }); await page.waitForSelector('#streamdesk .sd-grid', { state: 'attached' });
       check('in a narrow dock the tabs show icons only and the cards stack', await page.evaluate(() => getComputedStyle(document.querySelector('.sd-tab-label')).display === 'none' && getComputedStyle(document.querySelector('.sd-grid')).gridTemplateColumns.split(' ').length === 1));
       await page.keyboard.press('Control+k');
       await page.keyboard.type('Credits roll');
@@ -8877,6 +8878,41 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('closing a library hides its albums (even the open one)', !r.some((x) => /granite/.test(x)), r);
       if (shots) { await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]'); await page.screenshot({ path: `${shots}/70b-gallery-albums-tree.png`, clip: { x: 280, y: 250, width: 480, height: 500 } }); }
       check('no page errors with the albums tree', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 70c. Gallery toolbar: the search, filters, order and picture size on one row (nothing cut off); Ctrl + mouse
+    // wheel over the pictures makes them bigger or smaller.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1440, height: 900 });
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('#gallery-dock');
+      await page.click('.menu-popup .menu-item:has-text("In the middle")');
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide'));
+      const bar = await page.evaluate(() => {
+        const g = document.querySelector('#gallery').getBoundingClientRect();
+        const ids = ['gallery-search', 'gallery-format', 'gallery-mark', 'gallery-sort', 'gallery-size'];
+        return ids.map((id) => { const r = document.getElementById(id).getBoundingClientRect(); return { id, mid: Math.round(r.top + r.height / 2), right: Math.round(r.right), inside: r.left >= g.left - 1 && r.right <= g.right + 1 }; });
+      });
+      check('the toolbar is one row: search, filters, order and picture size', Math.max(...bar.map((b) => b.mid)) - Math.min(...bar.map((b) => b.mid)) <= 6, bar);
+      check('…and nothing is cut off at the edge', bar.every((b) => b.inside), bar);
+      const tile = () => page.evaluate(() => Math.round(document.querySelector('.gallery-tile').getBoundingClientRect().width));
+      const w0 = await tile(), s0 = Number(await page.inputValue('#gallery-size'));
+      const t = await page.evaluate(() => { const r = document.querySelector('.gallery-tile').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.move(t.x, t.y);
+      await page.keyboard.down('Control'); await page.mouse.wheel(0, -100); await page.mouse.wheel(0, -100); await page.keyboard.up('Control');
+      await page.waitForTimeout(100);
+      const w1 = await tile(), s1 = Number(await page.inputValue('#gallery-size'));
+      check('Ctrl + wheel up over the pictures makes them bigger (and moves the slider)', w1 > w0 && s1 === s0 + 20, [w0, w1, s0, s1]);
+      await page.keyboard.down('Control'); for (let i = 0; i < 4; i++) await page.mouse.wheel(0, 100); await page.keyboard.up('Control');
+      await page.waitForTimeout(100);
+      check('…Ctrl + wheel down smaller', (await tile()) < w1 && Number(await page.inputValue('#gallery-size')) === s1 - 40);
+      const sc0 = await page.evaluate(() => document.querySelector('#gallery-body').scrollTop);
+      await page.mouse.wheel(0, 300); await page.waitForTimeout(100);
+      check('…the wheel alone still scrolls (the size stays)', Number(await page.inputValue('#gallery-size')) === s1 - 40 && (await page.evaluate(() => document.querySelector('#gallery-body').scrollTop)) >= sc0);
+      if (shots) await page.screenshot({ path: `${shots}/70c-gallery-toolbar.png`, clip: { x: 260, y: 90, width: 1180, height: 260 } });
+      check('no page errors in the gallery toolbar', errors.length === 0, errors);
       await page.close();
     }
 

@@ -104,10 +104,19 @@ window.NoorGallery = (() => {
       const w = root.clientWidth >= 880;
       if (w !== root.classList.contains('wide')) { root.classList.toggle('wide', w); renderNav(); renderInfo(); }
     }).observe(root);
-    const size = el('input', { type: 'range', id: 'gallery-size', min: '80', max: '280', step: '10', value: String(tileSize()), 'aria-label': 'Picture size', title: 'Picture size' });
+    const size = el('input', { type: 'range', id: 'gallery-size', min: '80', max: '280', step: '10', value: String(tileSize()), 'aria-label': 'Picture size', title: 'Picture size (or Ctrl + mouse wheel over the pictures)' });
     size.addEventListener('input', () => { root.style.setProperty('--gtile', size.value + 'px'); try { localStorage.setItem('noormd.gallery.size', size.value); } catch { /* fine */ } });
     root.style.setProperty('--gtile', tileSize() + 'px');
     $('#gallery-sort').after(size);
+    // Ctrl + mouse wheel over the pictures: bigger or smaller pictures (the slider moves with it); the wheel alone scrolls.
+    $('#gallery-body').addEventListener('wheel', (e) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const v = Math.max(Number(size.min), Math.min(Number(size.max), Number(size.value) + (e.deltaY < 0 ? 1 : -1) * Number(size.step)));
+      if (String(v) === size.value) return;
+      size.value = String(v);
+      size.dispatchEvent(new Event('input'));
+    }, { passive: false });
     let t = null;
     $('#gallery-search').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => { view.search = e.target.value.trim(); load(); }, 180); });
     $('#gallery-source').addEventListener('change', (e) => { view.source = e.target.value; saveSession(); load(); });
