@@ -43,7 +43,7 @@ window.NoorSprite = (() => {
   };
   const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
   const DITHERS = [[0, 'solid'], [14, '88%'], [12, '75%'], [8, '50%'], [4, '25%'], [2, '12%']];
-  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false };
+  let view = { zoom: 8, panX: 0, panY: 0, grid: false, pixelGrid: true, onion: false, onionBefore: 1, onionAfter: 1, onionAlpha: 0.35, slices: true, tiled: '', path: false, onionTag: false, onionOutline: false, thumbs: false, seen: '', bones: false, lit: false, jaggies: false, fontGuide: false };
   let selection = null;     // { mask: Uint8Array (W×H), x0, y0, x1, y1 } or null
   let floating = null;      // { px, w, h, x, y, fromKey } a lifted picture being moved
   let clip = null;          // { px, w, h } copied pixels
@@ -558,6 +558,7 @@ window.NoorSprite = (() => {
         el('button', { class: 'icon-btn', id: 'sp-delframe', title: 'Remove this frame', 'aria-label': 'Remove the frame', disabled: doc.frames.length < 2 || undefined, onclick: removeFrame }, '🗑'),
         el('button', { class: 'icon-btn', title: 'Move the frame earlier', 'aria-label': 'Frame earlier', onclick: () => moveFrame(-1) }, '◀'),
         el('button', { class: 'icon-btn', title: 'Move the frame later', 'aria-label': 'Frame later', onclick: () => moveFrame(1) }, '▶'),
+        el('button', { class: 'icon-btn', id: 'sp-audio', title: doc.audio ? `The sound to animate to: ${doc.audio.name} (click: another)` : 'A sound to animate to: its waveform under the frames, played along', 'aria-label': 'A sound to animate to', onclick: pickAudio }, '🎵'),
         el('button', { class: 'icon-btn', id: 'sp-tween', title: 'In-betweens: frames in which this layer moves to where it is on a later frame', 'aria-label': 'In-betweens', onclick: tweenDialog }, '⇢'),
         el('button', { class: 'icon-btn', id: 'sp-timing', title: 'Frame timing: scale or set the durations', 'aria-label': 'Frame timing', onclick: timingDialog }, '⏱'),
         el('button', { class: 'icon-btn', id: 'sp-addtag', title: 'A tag over frames (an animation: walk, jump…)', 'aria-label': 'New tag', onclick: () => tagDialog(null) }, '🏷')),
@@ -609,7 +610,13 @@ window.NoorSprite = (() => {
       el('button', { class: 'icon-btn', title: 'Layer up', 'aria-label': 'Layer up', onclick: () => moveLayer(1) }, '↑'),
       el('button', { class: 'icon-btn', title: 'Layer down', 'aria-label': 'Layer down', onclick: () => moveLayer(-1) }, '↓'),
       el('button', { class: 'icon-btn', id: 'sp-merge', title: 'Merge down into the layer below', 'aria-label': 'Merge down', disabled: layer === 0 || undefined, onclick: mergeDown }, '⤓')));
-    box.replaceChildren(head, ...(tags ? [tags] : []), ...rows, layerBar);
+    if (doc.audio && audio.path !== doc.audio.path && !audio.loading) loadAudio();
+    const audioRow = doc.audio ? el('div', { class: 'sp-tl-row sp-tl-audio', id: 'sp-audiorow' },
+      el('div', { class: 'sp-tl-name' }, el('small', { class: 'pref-hint', text: `🎵 ${doc.audio.name}` }),
+        (() => { const i = el('input', { type: 'number', class: 'sb-num', value: String(doc.audio.offset || 0), step: '10', 'aria-label': 'Sound starts at (ms)', title: 'Where in the sound frame 1 starts (ms)', id: 'sp-audio-offset' }); i.addEventListener('change', () => change('The sound\'s start', (d) => { d.audio = { ...d.audio, offset: Math.round(Number(i.value) || 0) }; })); return i; })(),
+        el('button', { class: 'icon-btn', title: 'No sound', 'aria-label': 'Take the sound away', onclick: () => { change('No sound to animate to', (d) => { delete d.audio; }); audio = { ...audio, path: null, buffer: null }; } }, '✕')),
+      ...doc.frames.map((_, f) => el('span', { class: 'sp-tl-cel sp-tl-wave', 'data-wave': String(f) }, audio.buffer ? waveCell(f) : null))) : null;
+    box.replaceChildren(head, ...(tags ? [tags] : []), ...(audioRow ? [audioRow] : []), ...rows, layerBar);
     const on = box.querySelector('.sp-tl-frame.on');
     if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
@@ -867,8 +874,11 @@ window.NoorSprite = (() => {
     let dir = t && t.direction === 'reverse' ? -1 : 1;
     if (t) frame = t.direction === 'reverse' ? to : from;
     playing = { tag: tagIndex };
+    const forward = !t || t.direction === 'forward';
     const step = () => {
       if (!playing) return;
+      // The sound plays along, from the frame the run starts at (going forwards).
+      if (forward && frame === from) audioStart(from);
       draw(); drawPreview(); renderTimelineFrameOnly();
       playing.timer = setTimeout(() => {
         if (!playing) return;
@@ -885,7 +895,7 @@ window.NoorSprite = (() => {
     step();
   }
 
-  function stop() { if (!playing) return; clearTimeout(playing.timer); playing = null; if (built) { renderTimeline(); renderLayerProps(); } }
+  function stop() { if (!playing) return; clearTimeout(playing.timer); playing = null; audioStop(); if (built) { renderTimeline(); renderLayerProps(); } }
 
   function renderTimelineFrameOnly() {
     document.querySelectorAll('#sp-timeline .sp-tl-frame').forEach((b) => b.classList.toggle('on', Number(b.dataset.frame) === frame));
@@ -1022,6 +1032,7 @@ window.NoorSprite = (() => {
     drawSlices(ctx, o, z);
     if (view.path && !playing) drawPath(ctx, o, z);
     drawBones(ctx, o, z);
+    drawFontGuide(ctx, o, z);
     if (view.jaggies) {
       const c = cel();
       if (c) { ctx.save(); ctx.strokeStyle = '#ff2a55'; ctx.lineWidth = 2; for (const i of jaggies(c.px, doc.width, doc.height)) ctx.strokeRect(o.x + (i % doc.width) * z + 1, o.y + Math.floor(i / doc.width) * z + 1, z - 2, z - 2); ctx.restore(); }
@@ -1848,7 +1859,8 @@ window.NoorSprite = (() => {
       ['Replace a colour…', replaceDialog], ['Outline…', outlineDialog], ['Clean doubled corners (jaggies) on this layer', cleanJaggies], ['Motion (bob, breathe, jump, shake, float, sway)…', motionDialog], ['Auto shade (light from a side, a palette ramp)…', autoShadeDialog], ['A brush from the selection (Ctrl+B)', brushFromSelection], null,
       ['In-betweens (this layer moving to a later frame)…', tweenDialog], ['Frame timing (scale or set durations)…', timingDialog], null,
       ['New tilemap layer', addTilemapLayer], ['Make this layer a tilemap (cut into tiles of the grid\'s size)', makeTilemap], ['Export the tilemap for Godot (TileSet and TileMap)…', exportTiles], null,
-      ['Normal maps (for lit sprites)…', normalsDialog],
+      ['Normal maps (for lit sprites)…', normalsDialog], ['A bitmap font (letters in the grid\'s cells)…', fontDialog], null,
+      ['Take out lone pixels', removeLonePixels], ['Fewer colours (in the selection or the layer)…', reduceColours], ['A picture made pixel art (a start to draw over)…', pictureToPixels], null,
       ['A picture to trace (a reference layer)…', () => importPicture('reference')], ['A floating reference picture (a window to look at)…', floatingReference], null,
       ['This frame to NoorForge (a decal to stamp on a model)', toForge], ['This frame to the Texture Bench (a material; on a tilemap layer, its tiles)', toTexture], ['A sound for this frame…', () => frameSound(false)],
       ['Import a sprite sheet (cut into frames)…', () => importPicture('sheet')], ['Import a picture as a new layer…', () => importPicture('layer')], null,
@@ -2940,7 +2952,7 @@ window.NoorSprite = (() => {
       return { name: t.name, tileWidth: t.tw, tileHeight: t.th, count: n, ...(n ? { data: b64(strip) } : {}), ...(t.terrains && t.terrains.length ? { terrains: t.terrains } : {}) };
     });
     const layers = d.layers.map((l) => (l.kind === 'tilemap' || l.kind === 'group' ? (l.kind === 'group' ? (({ tileset, ...rest }) => (void tileset, rest))(l) : l) : (({ kind, tileset, ...rest }) => (void kind, void tileset, rest))(l)));
-    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
+    return { version: 1, width: d.width, height: d.height, palette: d.palette, layers, frames: d.frames, tags: d.tags, slices: d.slices || [], tilesets, gridWidth: d.gridWidth, gridHeight: d.gridHeight, colorMode: d.indexed ? 'indexed' : 'rgba', ...(d.cycle ? { cycle: d.cycle } : {}), ...(d.normals ? { normals: d.normals } : {}), ...(d.audio ? { audio: d.audio } : {}), ...(d.font ? { font: d.font } : {}), ...(d.bones && d.bones.length ? { bones: d.bones } : {}), cels };
   }
 
   function fromWire(w) {
@@ -2982,6 +2994,8 @@ window.NoorSprite = (() => {
     for (const f of d.frames) if (!f.pose) delete f.pose;
     for (const l of d.layers) { if (!l.bone) delete l.bone; if (!l.normals) delete l.normals; }
     if (w.normals) d.normals = { ...w.normals };
+    if (w.audio) d.audio = { ...w.audio };
+    if (w.font) d.font = { ...w.font };
     d.indexed = w.colorMode === 'indexed';
     d.cycle = w.cycle && w.cycle.to > w.cycle.from ? { from: w.cycle.from, to: w.cycle.to, fps: w.cycle.fps || 8 } : null;
     normalizeIndexed(d, null);
@@ -3129,6 +3143,191 @@ window.NoorSprite = (() => {
           el('p', { class: 'pref-hint', text: 'The JSON beside a sheet is in Aseprite\'s form (frames, durations, tags), which engines and libraries read.' })),
         el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'), el('button', { class: 'action primary', id: 'sp-ex-ok', onclick: ok }, 'Export…'))));
     });
+  }
+
+  // ---------------------------------------------------------------- a sound to animate to
+
+  // doc.audio = { path, name, offset (ms) }: a sound under the timeline, its waveform in each frame's cell, played
+  // with the animation (from the frame it starts at).
+  let audio = { path: null, buffer: null, ctx: null, source: null, loading: false };
+
+  async function loadAudio() {
+    if (!doc.audio || audio.loading || (audio.path === doc.audio.path && audio.buffer)) return;
+    audio.loading = true;
+    try {
+      const r = await req('sprite.audio.load', { path: doc.audio.path });
+      audio.ctx = audio.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      const bytes = unb64(r.data);
+      audio.buffer = await audio.ctx.decodeAudioData(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+      audio.path = doc.audio.path;
+      renderTimeline();
+    } catch (err) { notice(`The sound couldn't be read: ${err.message || err}`, 2400); } finally { audio.loading = false; }
+  }
+
+  async function pickAudio() {
+    try {
+      const r = await req('sprite.sound.pick');
+      if (!r || r.cancelled) return;
+      change('A sound to animate to', (d) => { d.audio = { path: r.path, name: r.name, offset: 0 }; });
+      audio.buffer = null; await loadAudio();
+    } catch (err) { hooks.showError(err); }
+  }
+
+  const frameStart = (f) => doc.frames.slice(0, f).reduce((n, fr) => n + fr.duration, 0);
+
+  /** The loudness of the sound over a time (ms), 0–1 in `n` steps: a frame's piece of the waveform. */
+  function peaks(fromMs, toMs, n) {
+    const b = audio.buffer, out = new Float32Array(n);
+    if (!b) return out;
+    const ch = b.getChannelData(0), sr = b.sampleRate, off = (doc.audio.offset || 0) / 1000;
+    for (let i = 0; i < n; i++) {
+      const a = Math.floor((fromMs / 1000 + off + ((toMs - fromMs) / 1000) * (i / n)) * sr), z = Math.floor((fromMs / 1000 + off + ((toMs - fromMs) / 1000) * ((i + 1) / n)) * sr);
+      let m = 0;
+      for (let k = Math.max(0, a); k < Math.min(ch.length, z); k++) m = Math.max(m, Math.abs(ch[k]));
+      out[i] = m;
+    }
+    return out;
+  }
+
+  function waveCell(f) {
+    const cv = el('canvas', { width: '26', height: '22', class: 'sp-wave', 'aria-hidden': 'true' }), ctx = cv.getContext('2d');
+    const t0 = frameStart(f), pk = peaks(t0, t0 + doc.frames[f].duration, 26);
+    ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--accent') || '#7c6cf0';
+    for (let i = 0; i < 26; i++) { const h = Math.max(1, pk[i] * 20); ctx.fillRect(i, 11 - h / 2, 1, h); }
+    return cv;
+  }
+
+  function audioStart(f) {
+    audioStop();
+    if (!audio.buffer || !audio.ctx || !doc.audio) return;
+    const at = (frameStart(f) + (doc.audio.offset || 0)) / 1000;
+    if (at >= audio.buffer.duration) return;
+    const src = audio.ctx.createBufferSource();
+    src.buffer = audio.buffer; src.connect(audio.ctx.destination);
+    try { src.start(0, Math.max(0, at)); audio.source = src; } catch { /* not playable now */ }
+  }
+  function audioStop() { if (audio.source) { try { audio.source.stop(); } catch { /* stopped */ } audio.source = null; } }
+
+  // ---------------------------------------------------------------- a bitmap font
+
+  const ASCII = Array.from({ length: 95 }, (_, i) => String.fromCharCode(32 + i)).join('');
+  const fontSettings = () => ({ characters: ASCII, cellWidth: doc.gridWidth || 8, cellHeight: doc.gridHeight || 8, proportional: true, spacing: 1, baseline: 0, ...(doc.font || {}) });
+
+  function fontDialog() {
+    const f0 = fontSettings();
+    NoorUI.modal({ label: 'Bitmap font', width: 460 }, (s2, closeIt) => {
+      const chars = el('textarea', { id: 'sp-font-chars', rows: '3', 'aria-label': 'Characters, in the cells\' order' }); chars.value = f0.characters;
+      const cw = el('input', { type: 'number', min: '1', max: '256', value: String(f0.cellWidth), id: 'sp-font-cw', 'aria-label': 'Cell width' });
+      const ch = el('input', { type: 'number', min: '1', max: '256', value: String(f0.cellHeight), id: 'sp-font-ch', 'aria-label': 'Cell height' });
+      const prop = el('input', { type: 'checkbox', id: 'sp-font-prop', checked: f0.proportional || undefined });
+      const spacing = el('input', { type: 'number', min: '0', max: '16', value: String(f0.spacing), id: 'sp-font-spacing', 'aria-label': 'Space after each letter' });
+      const guide = el('input', { type: 'checkbox', id: 'sp-font-guide', checked: view.fontGuide || undefined });
+      const settings = () => ({ characters: chars.value || ASCII, cellWidth: Math.max(1, Number(cw.value) || 8), cellHeight: Math.max(1, Number(ch.value) || 8), proportional: prop.checked, spacing: Math.max(0, Number(spacing.value) || 0), baseline: 0 });
+      const keep = () => { const v = settings(); change('Bitmap font', (d) => { d.font = v; }); view.fontGuide = guide.checked; draw(); };
+      s2.append(NoorUI.head('Bitmap font', closeIt),
+        el('div', { class: 'modal-body sp-dlg' }, el('p', { class: 'pref-hint', text: 'Draw a letter in each cell of the grid, in this order (left to right, row by row). Exported as a BMFont (.fnt) with its picture — Godot and most engines read it.' }),
+          el('label', {}, 'Characters ', chars), el('label', {}, 'Cells ', cw, ' × ', ch), el('label', {}, prop, ' each letter as wide as drawn'), el('label', {}, 'Space after each (px) ', spacing),
+          el('label', {}, guide, ' show each cell\'s letter while drawing')),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' }, el('button', { class: 'action', onclick: () => closeIt() }, 'Cancel'),
+          el('button', { class: 'action', id: 'sp-font-keep', onclick: () => { keep(); closeIt(); } }, 'Keep'),
+          el('button', { class: 'action primary', id: 'sp-font-ok', onclick: async () => {
+            keep(); closeIt();
+            try {
+              const r = await req('sprite.font.export', { width: doc.width, height: doc.height, data: b64(new Uint8Array(compose(frame, doc, null, true).buffer)), font: settings(), name: file ? file.name.replace(/\.[^.]+$/, '') : 'font' });
+              if (r && !r.cancelled) notice(`Exported ${r.files.join(', ')} (${r.glyphs} letters)`, 2400);
+            } catch (err) { hooks.showError(err); }
+          } }, 'Export…'))));
+    });
+  }
+
+  function drawFontGuide(ctx, o, z) {
+    if (!view.fontGuide) return;
+    const f = fontSettings(), cols = Math.max(1, Math.floor(doc.width / f.cellWidth)), chars = [...f.characters];
+    ctx.save(); ctx.fillStyle = 'rgba(120,140,255,0.55)'; ctx.font = `${Math.max(9, Math.min(f.cellHeight * z * 0.6, 28))}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.strokeStyle = 'rgba(120,140,255,0.35)';
+    chars.forEach((c, i) => {
+      const x = (i % cols) * f.cellWidth, y = Math.floor(i / cols) * f.cellHeight;
+      if (y + f.cellHeight > doc.height) return;
+      ctx.strokeRect(o.x + x * z + 0.5, o.y + y * z + 0.5, f.cellWidth * z - 1, f.cellHeight * z - 1);
+      ctx.fillText(c === ' ' ? '␣' : c, o.x + (x + f.cellWidth / 2) * z, o.y + (y + f.cellHeight / 2) * z);
+    });
+    ctx.restore();
+  }
+
+  // ---------------------------------------------------------------- clean-up passes, a picture made pixel art
+
+  /** Lone pixels (drawn, but nothing drawn round them) taken out, in the selection or the layer. */
+  function removeLonePixels() {
+    const c = cel();
+    if (!c) return;
+    const W = doc.width, H = doc.height, on = (x, y) => x >= 0 && y >= 0 && x < W && y < H && c.px[(y * W + x) * 4 + 3] > 0, list = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      if (!on(x, y) || (selection && !selection.mask[y * W + x])) continue;
+      let alone = true;
+      for (let dy = -1; dy <= 1 && alone; dy++) for (let dx = -1; dx <= 1; dx++) if ((dx || dy) && on(x + dx, y + dy)) { alone = false; break; }
+      if (alone) list.push(y * W + x);
+    }
+    if (!list.length) { notice('No lone pixels on this layer and frame', 1400); return; }
+    change('Lone pixels out', (d) => { const px = editable(d); for (const i of list) px.fill(0, i * 4, i * 4 + 4); });
+    notice(`${list.length} lone pixel${list.length === 1 ? '' : 's'} taken out`, 1400);
+  }
+
+  /** Median cut: at most n colours that stand for these (RGB; alpha kept apart). */
+  function medianCut(colours, n) {
+    let boxes = [colours];
+    while (boxes.length < n) {
+      let bi = -1, bestRange = -1, bestCh = 0;
+      boxes.forEach((b, i) => { if (b.length < 2) return; for (let ch = 0; ch < 3; ch++) { let lo = 255, hi = 0; for (const c of b) { lo = Math.min(lo, c[ch]); hi = Math.max(hi, c[ch]); } if (hi - lo > bestRange) { bestRange = hi - lo; bi = i; bestCh = ch; } } });
+      if (bi < 0 || bestRange <= 0) break;
+      const b = boxes[bi].slice().sort((p2, q) => p2[bestCh] - q[bestCh]), m = b.length >> 1;
+      boxes.splice(bi, 1, b.slice(0, m), b.slice(m));
+    }
+    return boxes.map((b) => [0, 1, 2].map((ch) => Math.round(b.reduce((sum, c) => sum + c[ch], 0) / b.length)).concat([255]));
+  }
+
+  const nearestOf = (pal, r, g, b) => { let best = pal[0], bd = Infinity; for (const p2 of pal) { const dd = palDist(p2, r, g, b, 255); if (dd < bd) { bd = dd; best = p2; } } return best; };
+
+  /** The selection's (or layer's) colours brought down to n. */
+  async function reduceColours() {
+    const v = await NoorUI.prompt('Fewer colours', 'Bring the colours down to (in the selection, or the layer on this frame):', '8', { type: 'number', okLabel: 'Reduce' });
+    const n = Math.max(2, Math.min(256, Math.round(Number(v) || 0)));
+    if (!v) return;
+    const c = cel();
+    if (!c) return;
+    const W = doc.width, idx = [];
+    for (let i = 0; i < W * doc.height; i++) if (c.px[i * 4 + 3] && (!selection || selection.mask[i])) idx.push(i);
+    const pal = medianCut(idx.map((i) => [c.px[i * 4], c.px[i * 4 + 1], c.px[i * 4 + 2]]), n);
+    change('Fewer colours', (d) => { const px = editable(d); for (const i of idx) { const q = nearestOf(pal, px[i * 4], px[i * 4 + 1], px[i * 4 + 2]); px[i * 4] = q[0]; px[i * 4 + 1] = q[1]; px[i * 4 + 2] = q[2]; } });
+  }
+
+  /**
+   * A picture made a pixel-art sketch: shrunk into the sprite (each pixel the average of what it covers), its colours
+   * the palette's (or a few of its own), on a new layer — a start to draw over, not the drawing.
+   */
+  async function pictureToPixels() {
+    try {
+      const r = await req('sprite.picture.pick');
+      if (!r || r.cancelled) return;
+      const im = r.image, src = unb64(im.data), W = doc.width, H = doc.height, k = Math.min(W / im.width, H / im.height);
+      const w = Math.max(1, Math.round(im.width * k)), h = Math.max(1, Math.round(im.height * k)), ox = Math.floor((W - w) / 2), oy = Math.floor((H - h) / 2);
+      const small = [];
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const x0 = Math.floor(x / k), x1 = Math.max(x0 + 1, Math.floor((x + 1) / k)), y0 = Math.floor(y / k), y1 = Math.max(y0 + 1, Math.floor((y + 1) / k));
+        let rr = 0, gg = 0, bb = 0, aa = 0, n = 0;
+        for (let sy = y0; sy < Math.min(y1, im.height); sy++) for (let sx = x0; sx < Math.min(x1, im.width); sx++) { const o = (sy * im.width + sx) * 4, al = src[o + 3]; rr += src[o] * al; gg += src[o + 1] * al; bb += src[o + 2] * al; aa += al; n++; }
+        small.push(aa ? [rr / aa, gg / aa, bb / aa, aa / n] : [0, 0, 0, 0]);
+      }
+      const solid = small.filter((c) => c[3] >= 128);
+      const pal = doc.palette.length >= 2 ? doc.palette.map(parseHex) : medianCut(solid.map((c) => c.slice(0, 3)), 16);
+      change('A picture as pixels', (d) => {
+        const id = newId(), px = new Uint8ClampedArray(W * H * 4);
+        small.forEach((c, i) => { if (c[3] < 128) return; const q = nearestOf(pal, c[0], c[1], c[2]); const x = i % w, y = (i - x) / w; px.set([q[0], q[1], q[2], 255], ((oy + y) * W + ox + x) * 4); });
+        d.layers.splice(layer + 1, 0, { id, name: `${r.name || 'Picture'} (pixels)`, visible: true, locked: false, opacity: 255, blend: 'normal' });
+        d.cels.set(key(id, frame), { px, opacity: 255 });
+        layer++;
+      });
+      notice(doc.palette.length >= 2 ? 'In the palette\'s colours: a start to draw over' : 'In 16 colours of its own: a start to draw over', 2000);
+    } catch (err) { hooks.showError(err); }
   }
 
   // ---------------------------------------------------------------- line clean-up, a live outline, motion

@@ -390,6 +390,38 @@ public partial class MainWindow
                 });
                 return new { files = written.Select(Path.GetFileName) };
             }
+            case "sprite.audio.load":
+            {
+                // The sound under the timeline: one the user chose, or the open sprite names.
+                var path = req.GetString("path", 2000);
+                if (string.IsNullOrEmpty(path) || !File.Exists(path)) throw new BridgeError("That sound isn't there any more.");
+                if (Path.GetExtension(path).ToLowerInvariant() is not (".wav" or ".ogg" or ".mp3")) throw new BridgeError("A sound is a .wav, .ogg or .mp3 file.");
+                if (new FileInfo(path).Length > 48L * 1024 * 1024) throw new BridgeError("That sound is too long to animate to here.");
+                return new { data = Convert.ToBase64String(await File.ReadAllBytesAsync(path)), name = Path.GetFileName(path) };
+            }
+            case "sprite.font.export":
+            {
+                // The sprite as a bitmap font: its page (the frame) and a BMFont .fnt beside it.
+                int w = p.GetProperty("width").GetInt32(), h = p.GetProperty("height").GetInt32();
+                var px = Convert.FromBase64String(p.GetProperty("data").GetString() ?? "");
+                if (w < 1 || h < 1 || w > SpriteDoc.MaxSide || h > SpriteDoc.MaxSide || px.Length != w * h * 4) throw new BridgeError("The picture doesn't match its size.");
+                var font = JsonSerializer.Deserialize<SpriteFont>(p.GetProperty("font").GetRawText(), SpriteDoc.Json) ?? throw new BridgeError("No font settings.");
+                if (string.IsNullOrEmpty(font.Characters)) throw new BridgeError("The font has no characters.");
+                var stem = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 200) is { Length: > 0 } n ? n : "font", "");
+                var save = new SaveFileDialog { Title = "Export a bitmap font (the .fnt and its picture go side by side)", FileName = stem + ".fnt", Filter = "BMFont (*.fnt)|*.fnt", AddExtension = true };
+                NativeCursor.Restore();
+                if (save.ShowDialog(this) != true) return new { cancelled = true };
+                var fnt = save.FileName;
+                var png = Path.Combine(Path.GetDirectoryName(fnt)!, Path.GetFileNameWithoutExtension(fnt) + ".png");
+                var count = await Task.Run(() =>
+                {
+                    var glyphs = BitmapFont.Glyphs(w, h, px, font);
+                    NoorMD.Core.Documents.AtomicFile.WriteAllBytes(png, SpritePng.Encode(w, h, px));
+                    File.WriteAllText(fnt, BitmapFont.Fnt(Path.GetFileNameWithoutExtension(fnt), Path.GetFileName(png), w, h, glyphs, font));
+                    return glyphs.Count;
+                });
+                return new { files = new[] { Path.GetFileName(fnt), Path.GetFileName(png) }, glyphs = count };
+            }
             case "sprite.palette.lospec":
             {
                 // A palette from Lospec's public list, by its name there: fetched only now, as asked.

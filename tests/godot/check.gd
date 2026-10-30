@@ -155,6 +155,8 @@ func _init() -> void:
 		check(is_equal_approx(sf.get_frame_duration("walk", 1), 1.5) and is_equal_approx(sf.get_animation_speed("walk"), 10.0), "…each frame's own duration", sf.get_frame_duration("walk", 1))
 		var tex: Texture2D = sf.get_frame_texture("walk", 1)
 		check(tex is AtlasTexture and tex.get_width() == 16 and tex.get_height() == 16, "…frames are parts of the sheet, trimmed ones the full size again", [tex, tex.get_width() if tex else 0])
+	var fnt = load("res://sprite/font.fnt")
+	check(fnt is FontFile and fnt.has_char(65) and fnt.has_char(66) and fnt.get_char_size(66, 6).x == 4 and fnt.get_char_size(65, 6).x == 3, "a NoorSprite bitmap font imports as a FontFile (each letter as wide as drawn, plus a space)", [fnt, fnt.get_char_size(66, 6) if fnt is FontFile else null])
 	var lit: SpriteFrames = load("res://sprite/hero_lit.tres")
 	var lt: Texture2D = lit.get_frame_texture("walk", 1) if lit else null
 	check(lt is AtlasTexture and lt.atlas is CanvasTexture and lt.atlas.normal_texture != null and lt.atlas.diffuse_texture != null, "…with a normal map: frames cut from a CanvasTexture (2D lights shade them)", lt.atlas if lt is AtlasTexture else lt)

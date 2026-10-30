@@ -6623,6 +6623,53 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 66q. NoorSprite: a sound to animate to, a bitmap font, clean-ups, a picture made pixel art.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const SS = () => page.evaluate(() => NoorSprite._state());
+      const SM = () => page.evaluate(() => window.__mock.state.sprite);
+      const at = (x, y) => page.evaluate(([a, b]) => NoorSprite._screen(a, b), [x, y]);
+      const a = (x, y, l = null, f = 0) => page.evaluate(([p, q, c, d]) => NoorSprite._pixel(p, q, c, d)[3], [x, y, l, f]);
+      await page.keyboard.press('Control+Alt+p');
+      await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
+      await page.click('#sp-new'); await page.waitForSelector('#sp-new-ok');
+      await page.fill('#sp-nw', '16'); await page.fill('#sp-nh', '12'); await page.click('#sp-new-ok');
+      await waitFn(page, () => NoorSprite._state().width === 16);
+      // A sound under the timeline: its waveform where it is loud (the first half second), quiet after.
+      for (let i = 0; i < 9; i++) await page.click('#sp-addframe');
+      await page.click('#sp-audio');
+      await waitFn(page, () => document.querySelectorAll('#sp-audiorow canvas.sp-wave').length === 10);
+      const loud = await page.evaluate(() => [...document.querySelectorAll('#sp-audiorow canvas.sp-wave')].map((c) => { const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i]) n++; return n; }));
+      check('🎵 a sound to animate to: its waveform under the frames (loud for the first five, quiet after)', loud[0] > 100 && loud[4] > 100 && loud[6] < 80, loud);
+      check('…kept with the sprite (and where it starts)', (await page.evaluate(() => NoorSprite._wire())).audio.name === 'step.wav');
+      await page.keyboard.press('Enter'); await page.waitForTimeout(150); await page.keyboard.press('Enter');
+      check('…played with the animation without errors', !(await SS()).playing);
+      // A bitmap font: letters in the grid's cells.
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("A bitmap font")');
+      await page.waitForSelector('#sp-font-ok');
+      await page.fill('#sp-font-chars', 'AB'); await page.fill('#sp-font-cw', '8'); await page.fill('#sp-font-ch', '12'); await page.check('#sp-font-guide');
+      await page.click('#sp-font-ok');
+      await waitFn(page, () => window.__mock.state.sprite.font);
+      check('a bitmap font: kept, its cells shown with their letters, exported (.fnt and its picture)', (await SM()).font.font.characters === 'AB' && (await SM()).font.font.cellWidth === 8 && (await SS()).view.fontGuide && (await page.evaluate(() => NoorSprite._wire())).font.characters === 'AB');
+      // Clean-ups: lone pixels; fewer colours.
+      await page.keyboard.press('b');
+      for (const [x, y] of [[2, 2], [8, 8], [9, 8]]) { const q = await at(x, y); await page.mouse.click(q.x, q.y); }
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Take out lone pixels")');
+      check('lone pixels out; pixels with company stay', !(await a(2, 2, 0)) && (await a(8, 8, 0)) && (await a(9, 8, 0)));
+      // A picture made pixel art (the mock's picture: red left, blue right), in the palette's colours.
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("A picture made pixel art")');
+      await waitFn(page, () => NoorSprite._state().layers.length === 2);
+      const st = await SS(), left = await page.evaluate(() => NoorSprite._pixel(1, 5)), right = await page.evaluate(() => NoorSprite._pixel(14, 5));
+      check('a picture made pixel art: on a new layer, shrunk to fit, in the palette\'s colours', st.layers[1].name.includes('(pixels)') && left[3] === 255 && left[0] > left[2] && right[2] > right[0] && st.palette.includes('#' + left.map((v) => v.toString(16).padStart(2, '0')).join('')));
+      await page.click('#sp-menu'); await page.click('.sp-menu .utility-btn:has-text("Fewer colours")');
+      await page.waitForSelector('.modal input'); await page.fill('.modal input', '2'); await page.keyboard.press('Enter');
+      await page.waitForTimeout(100);
+      const cols = await page.evaluate(() => { const s2 = new Set(); for (let y = 0; y < 12; y++) for (let x = 0; x < 16; x++) { const p = NoorSprite._pixel(x, y); if (p[3]) s2.add(p.join()); } return s2.size; });
+      check('fewer colours: brought down to two', cols <= 2, cols);
+      check('no page errors with sound, fonts and clean-ups', errors.length === 0, errors);
+      await page.close();
+    }
+
     // ---- 65b. NoorForge: a model, smart materials, layers with smart masks, the preview and the export.
     {
       const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });

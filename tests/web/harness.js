@@ -551,6 +551,17 @@ function mockHostScript(initial) {
       case 'sprite.save': SPRITE.saves.push(JSON.parse(JSON.stringify(p))); return { path: p.path || 'C:\\Art\\new.noorsprite', name: p.path ? p.path.split('\\').pop() : 'new.noorsprite' };
       case 'sprite.toTexture': SPRITE.toTexture = (SPRITE.toTexture || []).concat([{ name: p.name, width: p.width, height: p.height }]); return { path: `C:\\Local\\Sprite\\ToTexture\\${p.name}.png`, name: `${p.name}.png`, width: p.width, height: p.height };
       case 'sprite.sound.pick': return { path: 'C:\\Sounds\\step.wav', name: 'step.wav' };
+      case 'sprite.audio.load': {
+        // Half a second of a 440 Hz tone, then silence (8 kHz, 16-bit WAV).
+        const n = 8000, pcm = new Int16Array(n); for (let i = 0; i < n; i++) pcm[i] = i < 4000 ? Math.round(Math.sin((2 * Math.PI * 440 * i) / 8000) * 20000) : 0;
+        const b = new Uint8Array(44 + n * 2), v = new DataView(b.buffer), w = (o, t) => { for (let i = 0; i < 4; i++) b[o + i] = t.charCodeAt(i); };
+        w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVE'); w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+        new Uint8Array(b.buffer, 44).set(new Uint8Array(pcm.buffer));
+        let s2 = ''; for (const x of b) s2 += String.fromCharCode(x);
+        SPRITE.audioLoads = (SPRITE.audioLoads || 0) + 1;
+        return { data: btoa(s2), name: 'step.wav' };
+      }
+      case 'sprite.font.export': SPRITE.font = { width: p.width, font: p.font }; return { files: [`${p.name}.fnt`, `${p.name}.png`], glyphs: [...p.font.characters].length };
       case 'sprite.palette.lospec': SPRITE.lospec = p.slug; return { palette: ['#1a1c2cff', '#5d275dff', '#b13e53ff', '#ef7d57ff'], name: p.slug };
       case 'sprite.tiles.export': SPRITE.tiles = (SPRITE.tiles || []).concat([JSON.parse(JSON.stringify(p))]); return { files: [`${p.name}.png`, `${p.name}.tres`, `${p.name}_map.tscn`] };
       case 'sprite.export': SPRITE.exports.push(JSON.parse(JSON.stringify(p))); return { files: p.kind === 'sheet' ? [`${p.name}.png`, `${p.name}.json`] : [`${p.name}.${p.kind === 'gif' ? 'gif' : 'png'}`] };

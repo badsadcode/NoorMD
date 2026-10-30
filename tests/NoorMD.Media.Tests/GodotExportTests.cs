@@ -216,6 +216,12 @@ public class GodotExportTests
         List<NoorMD.Core.Sprite.SpriteTag> spriteTags = [new() { Name = "walk", From = 0, To = 3, Direction = "pingpong" }, new() { Name = "idle", From = 0, To = 0 }];
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tres"), NoorMD.Core.Sprite.GodotSprite.SpriteFrames("hero.png", placed, spriteTags));
         File.WriteAllText(Path.Combine(dir, "sprite", "hero.tscn"), NoorMD.Core.Sprite.GodotSprite.Scene("Hero", "hero.tres", "walk"));
+        // A bitmap font: "AB" in 4 × 6 cells (A two pixels wide, B three), as a BMFont Godot imports.
+        var fontPx = new byte[8 * 6 * 4];
+        foreach (var (x, y) in new[] { (0, 1), (1, 1), (4, 2), (5, 2), (6, 2) }) fontPx[(y * 8 + x) * 4 + 3] = 255;
+        var fontSet = new NoorMD.Core.Sprite.SpriteFont { Characters = "AB", CellWidth = 4, CellHeight = 6 };
+        File.WriteAllBytes(Path.Combine(dir, "sprite", "font.png"), NoorMD.Core.Sprite.SpritePng.Encode(8, 6, fontPx));
+        File.WriteAllText(Path.Combine(dir, "sprite", "font.fnt"), NoorMD.Core.Sprite.BitmapFont.Fnt("Pix", "font.png", 8, 6, NoorMD.Core.Sprite.BitmapFont.Glyphs(8, 6, fontPx, fontSet), fontSet));
         // Lit: a flat normal map beside the sheet, the frames cut from a CanvasTexture holding both.
         var flat = Enumerable.Range(0, 16 * 16).SelectMany(_ => new byte[] { 128, 128, 255, 255 }).ToArray();
         var normalSheet = NoorMD.Core.Sprite.SpriteExport.PlaceLike(spriteSheet, placed, spriteFrames.Select(f => new NoorMD.Core.Sprite.SpriteImage(16, 16, flat, 0)).ToList());

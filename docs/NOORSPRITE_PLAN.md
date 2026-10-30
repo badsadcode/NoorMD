@@ -276,6 +276,19 @@ one's own, a floating reference picture, pen pressure.
 - **Motion** (☰): a layer bobs (a walk), breathes, jumps in an arc, floats, sways or shakes over every frame or a
   tag's, by so many pixels — one undo.
 
+### Done in preview.109
+
+- **A sound to animate to** (🎵 in the timeline): a .wav, .ogg or .mp3 you choose — a NoorSequencer song, a Sound
+  Bench sound — its waveform under the frames (each frame's slice of it), played with the animation from the frame
+  the run starts at, and where in it frame 1 starts. Kept with the sprite.
+- **A bitmap font** (☰): letters drawn in the grid's cells in an order you give (ASCII to start), each as wide as
+  drawn (or a cell wide) with a space after; their letters shown in the cells while drawing; exported as a BMFont
+  (.fnt) with its picture — which Godot imports as a FontFile (checked in headless Godot 4.4).
+- **Clean-ups** (☰): take out lone pixels; bring the colours down to a few (median cut) in the selection or the
+  layer.
+- **A picture made pixel art** (☰): a picture you choose shrunk into the sprite (each pixel the average of what it
+  covers) in the palette's colours (or 16 of its own), on a new layer — a start to draw over, not the drawing.
+
 ## Non-goals
 
 - Vector drawing or painting with soft brushes (NoorCanvas is for that), 3D, video.

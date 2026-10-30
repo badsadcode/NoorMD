@@ -29,6 +29,10 @@ public sealed class SpriteDoc
     public List<SpriteSlice> Slices { get; set; } = [];
     /// <summary>Tilesets the tilemap layers draw from.</summary>
     public List<SpriteTileset> Tilesets { get; set; } = [];
+    /// <summary>A sound under the timeline (a file the user chose) to animate to; Offset in milliseconds.</summary>
+    public SpriteAudio? Audio { get; set; }
+    /// <summary>The sprite as a bitmap font: glyphs in a grid of cells, in this order.</summary>
+    public SpriteFont? Font { get; set; }
     /// <summary>How normal maps are made from the sprite (and whether exports carry them).</summary>
     public SpriteNormals? Normals { get; set; }
     /// <summary>A skeleton: bones that layers move with (posed frame by frame; frame 1 is the rest pose).</summary>
@@ -420,4 +424,22 @@ public sealed class SpriteOutline
     /// <summary>"outside" (round it) or "inside" (on its edge).</summary>
     public string Where { get; set; } = "outside";
     public bool Eight { get; set; }
+}
+
+public sealed class SpriteAudio
+{
+    public string Path { get; set; } = "";
+    public string Name { get; set; } = "";
+    public int Offset { get; set; }
+}
+
+public sealed class SpriteFont
+{
+    public string Characters { get; set; } = "";
+    public int CellWidth { get; set; } = 8;
+    public int CellHeight { get; set; } = 8;
+    /// <summary>Each glyph as wide as it is drawn (else every one a cell wide).</summary>
+    public bool Proportional { get; set; } = true;
+    public int Spacing { get; set; } = 1;
+    public int Baseline { get; set; }
 }

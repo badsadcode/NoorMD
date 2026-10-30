@@ -171,4 +171,20 @@ public class SpriteEngineTests
         Assert.Contains($"secondaryTextures:\n    - name: _NormalMap\n      texture: {{fileID: 2800000, guid: {UnitySprite.Guid("hero_n")}, type: 3}}", meta);
         Assert.Contains("sRGBTexture: 0", UnitySprite.PlainMeta("hero_n"));
     }
+
+    [Fact]
+    public void A_bitmap_font_measures_its_letters_and_writes_bmfont()
+    {
+        // Cells 4 × 4: "A" drawn 2 wide at x 1–2, " " empty, "B" 4 wide.
+        var px = new byte[12 * 4 * 4];
+        foreach (var x in new[] { 1, 2, 8, 9, 10, 11 }) px[(1 * 12 + x) * 4 + 3] = 255;
+        var font = new SpriteFont { Characters = "A B", CellWidth = 4, CellHeight = 4, Spacing = 1 };
+        var g = BitmapFont.Glyphs(12, 4, px, font);
+        Assert.Equal([(65, 1, 2, 3), (32, 4, 2, 3), (66, 8, 4, 5)], g.Select(x => (x.Code, x.X, x.Width, x.Advance)));
+        var fnt = BitmapFont.Fnt("Pix", "pix.png", 12, 4, g, font);
+        Assert.Contains("page id=0 file=\"pix.png\"", fnt);
+        Assert.Contains("char id=66 x=8 y=0 width=4 height=4 xoffset=0 yoffset=0 xadvance=5", fnt);
+        font.Proportional = false;
+        Assert.All(BitmapFont.Glyphs(12, 4, px, font), x => Assert.Equal(4, x.Advance));
+    }
 }
