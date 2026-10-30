@@ -1114,11 +1114,14 @@ window.NoorForge = (() => {
     try {
       const r = await req('forge.model.pick');
       if (!r || r.cancelled) return;
+      // A model opened is a step of its own: an undo right after the next change mustn't take the model away too.
+      clearTimeout(snapTimer); pushHistory();
       model = r;
       recipe.model = r.path;
       fromAsset = null;
       if (/^Textured model/.test(recipe.name)) recipe.name = r.name;
       render = null;
+      pushHistory();
       changed('all'); renderAll();
     } catch (err) { hooks.showError(err); }
   }

@@ -7151,7 +7151,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#menubar .menu-title[data-menu="2"]'); await item('Add a colour layer');
       check('Layer › Add a colour layer puts one on top', (await FS()).recipe.layers.length === n0 + 1 && (await FS()).recipe.layers.at(-1).name === 'Colour');
       await page.click('#menubar .menu-title[data-menu="1"]'); await item('Undo');
-      check('Edit › Undo takes it away again', (await FS()).recipe.layers.length === n0);
+      check('Edit › Undo takes it away again (the model stays: opening it was a step of its own)', (await FS()).recipe.layers.length === n0 && (await FS()).recipe.model === 'C:\\Models\\Crate.glb');
       // View › one channel (ticked), and the list on the left.
       await page.click('#menubar .menu-title[data-menu="5"]'); await item('Roughness');
       await waitFn(page, () => NoorForge._state().view === 'roughness');
