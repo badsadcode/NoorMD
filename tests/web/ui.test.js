@@ -8702,6 +8702,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await menu('Object', 'Put the text on the path');
       const t2 = (await objs()).find((x) => x.kind === 'text');
       check('Object › Put the text on the path', !!t2.along && /^M/.test(t2.along.d));
+      await waitFn(page, () => !!document.querySelector('#ink-svg textPath')).catch(() => {});
       check('…drawn with an SVG textPath', await page.evaluate(() => !!document.querySelector('#ink-svg textPath')));
       await page.keyboard.press('Control+z');
       // Text to outlines (the app gives the outlines).
