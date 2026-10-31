@@ -3361,8 +3361,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.evaluate(() => NoorDock.place('radio', 'center'));
       await waitFn(page, () => NoorDock._state().center.active === 'radio');
       check('NoorRadio can go in the middle too', await page.isVisible('#radiobench .radio-item'));
-      await page.focus('.radio-item:has-text("Broken")');
-      await page.keyboard.press('Delete');
+      // The list may be drawn again just after the move (the focused row replaced): focus and ask again until it asks.
+      for (let k = 0; k < 5 && !(await page.$('.modal button:has-text("Delete")')); k++) {
+        await page.focus('.radio-item:has-text("Broken")');
+        await page.keyboard.press('Delete');
+        await page.waitForSelector('.modal button:has-text("Delete")', { timeout: 1500 }).catch(() => {});
+      }
       await page.click('.modal button:has-text("Delete")');
       await waitFn(page, () => !document.querySelector('.radio-item[data-id]') || ![...document.querySelectorAll('.radio-item')].some((n) => n.textContent.includes('Broken')));
       check('Delete removes a station (after asking)', !(await RM()).stations.some((x) => x.name === 'Broken'));
