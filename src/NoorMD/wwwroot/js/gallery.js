@@ -906,9 +906,20 @@ window.NoorGallery = (() => {
       ondblclick: () => goTo(n.source),
       onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); goTo(n.source); } },
       oncontextmenu: (e) => { e.preventDefault(); if (n.album) albumMenu(n.album, e.clientX, e.clientY); else if (n.folder) folderMenu(n.folder, e.clientX, e.clientY); } },
-    n.cover != null ? el('img', { src: thumbUrl(n.cover), alt: '', loading: 'lazy', decoding: 'async', draggable: 'false', onerror: (e) => e.target.remove() }) : null,
-    el('span', { class: 'gallery-folder-tab', 'aria-hidden': 'true' }),
+    el('span', { class: 'gallery-folder-art' }, folderArt(),
+      n.cover != null ? el('img', { class: 'gallery-folder-pic', src: thumbUrl(n.cover), alt: '', loading: 'lazy', decoding: 'async', draggable: 'false', onerror: (e) => e.target.remove() }) : null),
     el('span', { class: 'gallery-folder-name' }, el('b', { text: label }), el('small', { text: String(n.total) })));
+  }
+  /** A folder drawn as one: the back with its tab, two sheets of paper, the front (the preview sits on the front). */
+  function folderArt() {
+    const NS = 'http://www.w3.org/2000/svg', svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 100 80'); svg.setAttribute('aria-hidden', 'true'); svg.setAttribute('class', 'gallery-folder-svg');
+    const add = (tag, attrs) => { const e = document.createElementNS(NS, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); svg.append(e); };
+    add('path', { class: 'gf-back', d: 'M5 9a5 5 0 0 1 5-5h22a5 5 0 0 1 4 2l4 5h50a5 5 0 0 1 5 5v55a5 5 0 0 1-5 5H10a5 5 0 0 1-5-5z' });
+    add('rect', { class: 'gf-paper', x: 11, y: 14, width: 76, height: 22, rx: 2 });
+    add('rect', { class: 'gf-paper gf-paper2', x: 15, y: 18, width: 74, height: 22, rx: 2 });
+    add('path', { class: 'gf-front', d: 'M3 27a4 4 0 0 1 4-4h86a4 4 0 0 1 4 4.4l-3.4 46a4 4 0 0 1-4 3.6H10.4a4 4 0 0 1-4-3.6z' });
+    return svg;
   }
   /** Where the place is: its picture folder › … › it (each part opens). */
   function crumbs(node) {
