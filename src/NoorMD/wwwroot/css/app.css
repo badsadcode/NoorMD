@@ -1889,7 +1889,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .photobench.ph-busy { cursor: progress; }
 .photobench.ph-busy .ph-stage { opacity: .85; }
 .photobench .ph-menubar { display: flex; gap: 2px; padding: 2px 8px; border-bottom: 1px solid var(--border); }
-body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar { display: none; }
+body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.bench-app[data-bench-app="ink"] .inkbench .ph-menubar { display: none; }
 .photobench .ph-menu-title { background: none; border: 0; padding: 3px 9px; border-radius: 6px; font-size: 12.5px; color: var(--text); cursor: pointer; }
 .photobench .ph-menu-title:hover, .photobench .ph-menu-title:focus-visible { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .photobench .ph-tabs { display: flex; gap: 2px; padding: 4px 8px 0; overflow-x: auto; }

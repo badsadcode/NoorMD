@@ -8706,10 +8706,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => !!document.querySelector('#ink-svg textPath')).catch(() => {});
       check('…drawn with an SVG textPath', await page.evaluate(() => !!document.querySelector('#ink-svg textPath')));
       await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorInk._state().layers[0].children.some((c) => c.kind === 'text' && !c.along));
       // Text to outlines (the app gives the outlines).
       await page.evaluate((id) => NoorInk._select([id]), text.id);
       await page.keyboard.press('Control+Shift+o');
-      await waitFn(page, () => !NoorInk._state().layers[0].children.some((c) => c.kind === 'text'));
+      await waitFn(page, () => NoorInk._state().layers[0].children.some((c) => c.kind === 'path' && c.name === 'Around'));
       const outl = (await objs()).find((x) => x.name === 'Around');
       check('Text to outlines (Ctrl+Shift+O): a path in the text\'s place', outl && outl.kind === 'path' && outl.path.length === 6, outl && outl.path.length);
       // Stroke to path: a line becomes a filled shape.
@@ -8943,7 +8944,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and the path above them', (await page.textContent('#gallery-body .gallery-crumbs')).replace(/\s+/g, ' ').includes('Farm'));
       await page.dblclick('#gallery-body .gallery-folder:has-text("Shots")');
       await waitFn(page, () => NoorGallery._state().source === 'album:c:\\pics\\farm\\shots');
-      await waitFn(page, () => document.querySelectorAll('#gallery-body .gallery-tile').length === 3);
+      await waitFn(page, () => /Shots\s*$/.test(document.querySelector('#gallery-body .gallery-crumbs')?.textContent || '') && document.querySelectorAll('#gallery-body .gallery-tile').length === 3);
       check('double-clicking a folder goes into that album', (await page.textContent('#gallery-body .gallery-crumbs')).replace(/\s*›\s*/g, ' › ').trim().endsWith('Farm › Shots'), await page.textContent('#gallery-body .gallery-crumbs'));
       check('…and the list shows it chosen', await page.evaluate(() => document.querySelector('#gallery-nav .gnav-item.active').dataset.source === 'album:c:\\pics\\farm\\shots'));
       await page.click('#gallery-body .gallery-crumb:has-text("Farm")');
@@ -8962,6 +8963,27 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Escape');
       if (shots) await page.screenshot({ path: `${shots}/70d-gallery-subalbums.png`, clip: { x: 280, y: 180, width: 900, height: 420 } });
       check('no page errors with sub-albums', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 68c. NoorInk and NoorPhoto in focus mode (F11): one row of menus, in the window's menu bar (not twice).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const titles = () => page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      for (const [key, bench, own, first] of [['Control+Alt+u', 'NoorInk', '#ink-menubar', 'File,Edit,Object,Path,Document,View'], ['Control+Alt+j', 'NoorPhoto', '#ph-menubar', 'File,Edit,Image,Layer']]) {
+        await page.keyboard.press(key);
+        await waitFn(page, (b) => window[b] && window[b].isOpen(), bench);
+        check(`${bench}: out of focus mode it shows its own menu row`, await page.isVisible(own));
+        await page.keyboard.press('F11');
+        await waitFn(page, () => document.body.classList.contains('bench-app'));
+        check(`${bench} in focus mode: its menus in the window's menu bar`, (await titles()).join().startsWith(first), await titles());
+        check('…and its own menu row hidden (no second row)', !(await page.isVisible(own)));
+        await page.keyboard.press('F11');
+        await waitFn(page, () => !document.body.classList.contains('bench-app'));
+        await page.keyboard.press(key);
+        await waitFn(page, (b) => !window[b].isOpen(), bench);
+      }
+      check('no page errors with benches in focus mode', errors.length === 0, errors);
       await page.close();
     }
 
