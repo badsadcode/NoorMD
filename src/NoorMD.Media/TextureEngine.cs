@@ -114,6 +114,11 @@ public sealed class TextureLayer
     public string? ImageName { get; set; }
     /// <summary>How wide (0–0.5 of the picture) its edges are blended with a half-shifted copy, so it tiles.</summary>
     public double SeamBlend { get; set; } = 0.15;
+    /// <summary>
+    /// A hand-painted picture: kept exactly as painted. Its light and shadow are the style, and it was painted to
+    /// tile, so it is neither evened out (Delight) nor blended at its edges (SeamBlend), whatever those say.
+    /// </summary>
+    public bool HandPainted { get; set; }
     /// <summary>Evening out the light baked into a photo (0–1), over DelightRadius (0.02–1 of the picture).</summary>
     public double Delight { get; set; }
     public double DelightRadius { get; set; } = 0.25;
@@ -180,6 +185,47 @@ public sealed class TextureSurface
     public double HeightHigh { get; set; } = 1;
     public double HeightGamma { get; set; } = 1;
     public double HeightContrast { get; set; }
+    /// <summary>Finishing touches on each map once it is made (blur, sharpen, levels…), by map name; neutral when absent.</summary>
+    public Dictionary<string, MapFinish> Finish { get; set; } = [];
+}
+
+/// <summary>
+/// Finishing touches on one map after it is made (the Maps tab): blur, then sharpen, then levels, middle (gamma),
+/// brightness and contrast, then invert. The normal map takes blur and sharpen only (its colours are directions).
+/// Sizes are parts of the tile, so a map looks the same at every export size.
+/// </summary>
+public sealed class MapFinish
+{
+    /// <summary>Blur radius, a part of the tile (0–0.05).</summary>
+    public double Blur { get; set; }
+    /// <summary>Sharpening (unsharp mask) strength, 0–3.</summary>
+    public double Sharpen { get; set; }
+    /// <summary>Levels: what becomes black (Low) and white (High).</summary>
+    public double Low { get; set; }
+    public double High { get; set; } = 1;
+    /// <summary>The middle: above 1 lighter, below 1 darker (0.1–10).</summary>
+    public double Gamma { get; set; } = 1;
+    public double Brightness { get; set; }
+    public double Contrast { get; set; }
+    public bool Invert { get; set; }
+
+    public bool IsNeutral => Blur == 0 && Sharpen == 0 && Low == 0 && High == 1 && Gamma == 1 && Brightness == 0 && Contrast == 0 && !Invert;
+    private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
+    public MapFinish Clamped()
+    {
+        Blur = C(Blur, 0, 0.05); Sharpen = C(Sharpen, 0, 3); Low = C(Low, 0, 1); High = C(High, 0, 1); Gamma = Gamma is > 0 and var g && double.IsFinite(g) ? Math.Clamp(g, 0.1, 10) : 1;
+        Brightness = C(Brightness, -1, 1); Contrast = C(Contrast, -1, 1);
+        return this;
+    }
+    /// <summary>One value (0–1) through levels, middle, brightness, contrast and invert.</summary>
+    public double Tone(double v)
+    {
+        var span = High - Low;
+        v = Math.Abs(span) < 1e-6 ? (v >= Low ? 1 : 0) : Math.Clamp((v - Low) / span, 0, 1);
+        if (Gamma != 1) v = Math.Pow(v, 1 / Gamma);
+        v = Math.Clamp((v + Brightness - 0.5) * (1 + Contrast) + 0.5, 0, 1);
+        return Invert ? 1 - v : v;
+    }
 }
 
 public sealed class TextureRecipe
@@ -270,6 +316,7 @@ public sealed class TextureRecipe
         if (s.RoughnessMax < s.RoughnessMin) (s.RoughnessMin, s.RoughnessMax) = (s.RoughnessMax, s.RoughnessMin);
         s.AoGamma = C(s.AoGamma, 0.2, 5); s.MetallicThreshold = C(s.MetallicThreshold, 0, 1);
         s.HeightLow = C(s.HeightLow, 0, 1); s.HeightHigh = C(s.HeightHigh, 0, 1); s.HeightGamma = C(s.HeightGamma, 0.1, 10); s.HeightContrast = C(s.HeightContrast, -1, 1);
+        s.Finish = (s.Finish ?? []).Where(kv => TextureMaps.Names.Contains(kv.Key) && kv.Value != null).ToDictionary(kv => kv.Key, kv => kv.Value.Clamped());
         return this;
     }
 
@@ -310,7 +357,7 @@ public sealed class TextureMaps
     public required int Size { get; init; }
     public required float[] Height { get; init; }
     /// <summary>The height map as written out (after the Maps tab's levels); the relief itself uses Height.</summary>
-    public float[]? HeightOut { get; init; }
+    public float[]? HeightOut { get; set; }
     /// <summary>RGB, 3 bytes a pixel.</summary>
     public required byte[] Albedo { get; init; }
     /// <summary>RGB, 3 bytes a pixel, OpenGL convention (green up); flip green for DirectX.</summary>
@@ -451,7 +498,93 @@ public static class TextureEngine
             }
             else if (mask != null) paints.Add(new Paint(layer, mask, rgb));
         }
-        return Surface(r, h, size, paints, warnings, detail);
+        return Finish(Surface(r, h, size, paints, warnings, detail), r.Surface.Finish);
+    }
+
+    /// <summary>Each map's finishing touches (the Maps tab), on the maps as made; neutral ones are skipped.</summary>
+    private static TextureMaps Finish(TextureMaps m, Dictionary<string, MapFinish> finish)
+    {
+        int size = m.Size, n = size * size;
+        foreach (var (name, f) in finish)
+        {
+            if (f.IsNeutral) continue;
+            if (name == "normal")
+            {
+                // Directions: blurred or sharpened as x, y and z, then made unit length again (no tone changes).
+                var ch = new float[3][];
+                for (var c = 0; c < 3; c++) { ch[c] = new float[n]; for (var i = 0; i < n; i++) ch[c][i] = m.Normal[i * 3 + c] / 255f * 2 - 1; }
+                for (var c = 0; c < 3; c++) ch[c] = Spatial(ch[c], size, f);
+                for (var i = 0; i < n; i++)
+                {
+                    double x = ch[0][i], y = ch[1][i], z = Math.Max(0.001, ch[2][i]), len = Math.Sqrt(x * x + y * y + z * z);
+                    m.Normal[i * 3] = Byte(x / len * 0.5 + 0.5); m.Normal[i * 3 + 1] = Byte(y / len * 0.5 + 0.5); m.Normal[i * 3 + 2] = Byte(z / len * 0.5 + 0.5);
+                }
+                continue;
+            }
+            if (name == "height")
+            {
+                var src = Spatial((float[])(m.HeightOut ?? m.Height).Clone(), size, f);
+                for (var i = 0; i < n; i++) src[i] = (float)f.Tone(src[i]);
+                m.HeightOut = src;
+                continue;
+            }
+            if (name == "albedo")
+            {
+                for (var c = 0; c < 3; c++)
+                {
+                    var a = new float[n];
+                    for (var i = 0; i < n; i++) a[i] = m.Albedo[i * 3 + c] / 255f;
+                    a = Spatial(a, size, f);
+                    for (var i = 0; i < n; i++) m.Albedo[i * 3 + c] = Byte(f.Tone(a[i]));
+                }
+                continue;
+            }
+            var map = name switch { "roughness" => m.Roughness, "ao" => m.Ao, "metallic" => m.Metallic, _ => null };
+            if (map == null) continue;
+            var g = new float[n];
+            for (var i = 0; i < n; i++) g[i] = map[i] / 255f;
+            g = Spatial(g, size, f);
+            for (var i = 0; i < n; i++) map[i] = Byte(f.Tone(g[i]));
+        }
+        return m;
+    }
+
+    /// <summary>Blur (a radius in parts of the tile), then sharpen (an unsharp mask), wrapping so the map still tiles.</summary>
+    private static float[] Spatial(float[] a, int size, MapFinish f)
+    {
+        if (f.Blur > 0) { var r = (int)Math.Round(f.Blur * size); if (r >= 1) a = BlurRect(a, size, size, r); }
+        if (f.Sharpen > 0)
+        {
+            var r = Math.Max(1, (int)Math.Round(size / 512.0));
+            var soft = BlurRect(a, size, size, r);
+            var o = new float[a.Length];
+            for (var i = 0; i < a.Length; i++) o[i] = (float)(a[i] + f.Sharpen * (a[i] - soft[i]));
+            a = o;
+        }
+        return a;
+    }
+
+    /// <summary>A prepared picture made k times smaller, each pixel the average of k × k (thin lines stay whole).</summary>
+    private static Prepared Shrink(Prepared p, int k)
+    {
+        int w = Math.Max(1, p.W / k), h = Math.Max(1, p.H / k);
+        var rgb = new float[w * h * 3]; var height = new float[w * h];
+        Parallel.For(0, h, y =>
+        {
+            for (var x = 0; x < w; x++)
+            {
+                double r = 0, g = 0, b = 0, hh = 0;
+                for (var dy = 0; dy < k; dy++)
+                    for (var dx = 0; dx < k; dx++)
+                    {
+                        var j = (y * k + dy) * p.W + x * k + dx;
+                        r += p.Rgb[j * 3]; g += p.Rgb[j * 3 + 1]; b += p.Rgb[j * 3 + 2]; hh += p.Height[j];
+                    }
+                var i = y * w + x; double q = k * k;
+                rgb[i * 3] = (float)(r / q); rgb[i * 3 + 1] = (float)(g / q); rgb[i * 3 + 2] = (float)(b / q); height[i] = (float)(hh / q);
+            }
+        });
+        return new Prepared(w, h, rgb, height);
     }
 
     private static double Shape(TextureLayer l, double v)
@@ -1453,12 +1586,26 @@ public static class TextureEngine
 
     private static (double[] Values, float[] Rgb) ImageLayer(TextureLayer l, TextureImage img, int size)
     {
-        var key = string.Join('|', img.Id, l.SeamBlend, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
+        var key = string.Join('|', img.Id, l.HandPainted, l.SeamBlend, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
         if (!PreparedCache.TryGetValue(key, out var p))
         {
             p = Prepare(l, img);
             if (PreparedCache.Count > 8) PreparedCache.Clear();
             PreparedCache[key] = p;
+        }
+        // A picture much bigger than the tile (a 4K painting into a 1K map) is averaged down first, so thin painted
+        // lines stay whole instead of breaking up between the pixels that happen to be sampled.
+        var shrink = (int)Math.Floor(Math.Min(p.W * l.ScaleX, p.H * l.ScaleY) / (double)size);
+        if (shrink >= 2)
+        {
+            var key2 = key + "|/" + shrink;
+            if (!PreparedCache.TryGetValue(key2, out var small))
+            {
+                small = Shrink(p, shrink);
+                if (PreparedCache.Count > 8) PreparedCache.Clear();
+                PreparedCache[key2] = small;
+            }
+            p = small;
         }
         var values = new double[size * size];
         var rgb = new float[size * size * 3];
@@ -1493,7 +1640,7 @@ public static class TextureEngine
         var ch = new float[3][];
         for (var c = 0; c < 3; c++) { ch[c] = new float[n]; for (var i = 0; i < n; i++) ch[c][i] = img.Rgb[i * 3 + c]; }
         // Even out the light: a wide blur is the lighting; dividing by it (and keeping the average) leaves the surface.
-        if (l.Delight > 0)
+        if (l.Delight > 0 && !l.HandPainted)
         {
             var r = Math.Max(2, (int)(l.DelightRadius * Math.Min(w, h) * 0.5));
             for (var c = 0; c < 3; c++)
@@ -1510,7 +1657,7 @@ public static class TextureEngine
         // Seamless: near the edges, blend with a shifted copy of the picture (any shift meets itself across the edges).
         // The shift is the one where the picture looks most like itself, so a regular pattern (bricks, tiles, planks)
         // lines up with its copy instead of showing doubled lines where they overlap.
-        if (l.SeamBlend > 0)
+        if (l.SeamBlend > 0 && !l.HandPainted)
         {
             var (sx, sy) = BestShift(ch, w, h);
             var means = ch.Select(a => a.Average()).ToArray();

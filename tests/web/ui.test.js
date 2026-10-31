@@ -8591,6 +8591,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#ink-tools [data-tool="text"]');
       await clickAt(40, 280);
       await page.waitForSelector('#ink-typing');
+      await waitFn(page, () => document.activeElement && document.activeElement.id === 'ink-typing');
       await page.keyboard.type('Hi there');
       await page.keyboard.press('Escape');
       await waitFn(page, () => !document.querySelector('#ink-typing'));
@@ -8698,6 +8699,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('#ink-tools [data-tool="text"]');
       const tp = await at(150, 120); await page.mouse.click(tp.x, tp.y);
       await page.waitForSelector('#ink-typing');
+      await waitFn(page, () => document.activeElement && document.activeElement.id === 'ink-typing');
       await page.keyboard.type('Around');
       await page.keyboard.press('Escape');
       await waitFn(page, () => !document.querySelector('#ink-typing'));
@@ -8988,6 +8990,44 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         await waitFn(page, (b) => !window[b].isOpen(), bench);
       }
       check('no page errors with benches in focus mode', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 47b. NoorMaterial for hand-painted textures and every map's finishing touches (blur, sharpen, levels…).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1).recipe);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      const before = (await last()).layers.length;
+      // Layers › Add › A hand-painted texture: kept as painted (no light evening, no seam blending).
+      await page.evaluate(() => NoorTexture._addLayer ? NoorTexture._addLayer('image', { handPainted: true, delight: 0, seamBlend: 0 }) : null);
+      await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === n + 1, before);
+      let pic = (await last()).layers.at(-1);
+      check('a hand-painted texture comes in as painted (no light evening, no seam blending)', pic.type === 'image' && pic.handPainted === true && pic.delight === 0 && pic.seamBlend === 0, pic);
+      const card = `.sb-layer[data-index="${before}"]`;
+      check('…and its layer shows the Hand-painted switch, on', await page.isChecked(`${card} input[data-handpainted]`));
+      await page.uncheck(`${card} input[data-handpainted]`);
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).handPainted === false);
+      check('…which can be turned off (a photo again)', true);
+      // The Maps tab: every map has its finishing touches, folded away.
+      await page.click('#texturebench .sb-tabs [data-tab="maps"]');
+      await page.waitForSelector('[data-finish="roughness"]');
+      check('each map has a Finish part (blur, sharpen, levels…), folded while unused', (await page.$$('[data-finish]')).length === 6 && !(await page.getAttribute('[data-finish="roughness"]', 'open')));
+      check('…the normal map only blur and sharpen (its colours are directions)', (await page.$$('[data-finish="normal"] input[type=range]')).length === 2 && (await page.$$('[data-finish="roughness"] input[type=range]')).length === 7);
+      await page.click('[data-finish="roughness"] summary');
+      await page.fill('[data-finish="roughness"] input[data-num="blur"]', '1');
+      await page.press('[data-finish="roughness"] input[data-num="blur"]', 'Enter');
+      await page.fill('[data-finish="roughness"] input[data-num="sharpen"]', '0.5');
+      await page.press('[data-finish="roughness"] input[data-num="sharpen"]', 'Enter');
+      await page.check('[data-finish="roughness"] input[data-finish-invert]');
+      await waitFn(page, () => { const f = window.__mock.state.texture.renders.at(-1).recipe.surface.finish?.roughness; return f && f.blur === 0.01 && f.sharpen === 0.5 && f.invert === true; });
+      check('…blur, sharpen and invert go into the recipe (blur in parts of the tile: the same at every size)', true);
+      await page.click('[data-finish-reset="roughness"]');
+      await waitFn(page, () => { const f = window.__mock.state.texture.renders.at(-1).recipe.surface.finish?.roughness; return f.blur === 0 && f.sharpen === 0 && f.invert === false; });
+      check('…and "No finishing" takes them off', true);
+      check('no page errors with finishing and hand-painted pictures', errors.length === 0, errors);
       await page.close();
     }
 

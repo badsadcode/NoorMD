@@ -2068,3 +2068,8 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.ben
 .gallery-crumb { background: none; border: 0; padding: 2px 4px; border-radius: 5px; color: var(--muted); font: inherit; cursor: pointer; }
 .gallery-crumb:hover, .gallery-crumb:focus-visible { background: var(--surface2); color: var(--text); outline: 0; }
 .gallery-crumbs strong { color: var(--text); padding: 2px 4px; }
+/* NoorMaterial: a map's finishing touches (blur, sharpen, levels…), folded away until used */
+.tb-finish { margin-top: 6px; border-top: 1px dashed var(--border); padding-top: 4px; }
+.tb-finish > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 2px 0; }
+.tb-finish[open] > summary { color: var(--text); }
+.tb-finish .utility-btn { margin-top: 4px; }

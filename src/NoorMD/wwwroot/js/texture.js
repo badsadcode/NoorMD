@@ -549,6 +549,10 @@ el('span', { class: 'tb-zoom' },
       if (l.type === 'image') {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖼 ' + (l.imageName || 'no picture') }),
           el('button', { class: 'utility-btn', 'data-pickimage': '', onclick: async () => { const f = await pickImage(); if (f) { Object.assign(l, { path: f.path, imageName: f.name, ...keepProportions(f) }); changed(true); } } }, 'Change picture…'));
+        // Hand-painted: its light and shadow are the style and it already tiles, so it is used exactly as painted.
+        const hp = el('input', { type: 'checkbox', 'data-handpainted': '', checked: l.handPainted ? true : undefined });
+        hp.addEventListener('change', () => { l.handPainted = hp.checked; changed(true); });
+        choices.push(el('label', { class: 'sb-inline', title: 'Keep it exactly as painted: no evening out of the light, no seam blending (a painted texture already tiles)' }, hp, el('span', { text: 'Hand-painted' })));
       }
       if (l.type === 'painted') {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖌 ' + (l.imageName || 'no painting') }),
@@ -605,7 +609,7 @@ el('span', { class: 'tb-zoom' },
     if (!recipe || recipe.layers.length >= 12) return;
     const add = (more) => { recipe.layers.push(layerOf(t, recipe.layers.length, { ...more, ...extra })); changed(true); };
     // A picture is asked for first; it then replaces what is below it (its own colours and height).
-    if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f) }); }); return; }
+    if (t === 'image') { pickImage().then((f) => { if (f) add({ path: f.path, imageName: f.name, name: f.name.replace(/\.[^.]+$/, ''), blend: 'normal', opacity: 1, ...keepProportions(f), ...extra }); }); return; }
     // Masks paint rather than build height: they start with a tint to show where they are.
     if (t === 'current' || t === 'curvature') { add({ opacity: 0, blend: 'normal', tint: t === 'current' ? '#eef3f8' : '#c9c2b4', tintAmount: 0.8 }); return; }
     // Erosion reshapes what is already there: it replaces it, and marks where the water ran.
@@ -777,9 +781,31 @@ el('span', { class: 'tb-zoom' },
             const c = el('input', { type: 'checkbox', 'data-key': key, checked: s[key] ? true : undefined });
             c.addEventListener('change', () => { s[key] = c.checked; changed(false); });
             return el('label', { class: 'sb-inline' }, c, el('span', { text: label }));
-          }));
+          }),
+          finishPart(map));
       }),
     ];
+  }
+
+  /** Finishing touches on one map (after it is made): blur, sharpen, levels, middle, brightness, contrast, invert. */
+  const FINISH = [['blur', 'Blur', 0, 0.05, 0.0005, 'pct'], ['sharpen', 'Sharpen', 0, 3, 0.05, 'num'], ['low', 'Levels: black at', 0, 1, 0.01, 'pct'], ['high', 'Levels: white at', 0, 1, 0.01, 'pct'],
+    ['gamma', 'Middle (above 1 lighter)', 0.1, 10, 0.01, 'num'], ['brightness', 'Brightness', -1, 1, 0.01, 'spct'], ['contrast', 'Contrast', -1, 1, 0.01, 'spct']];
+  const FINISH_NEUTRAL = { blur: 0, sharpen: 0, low: 0, high: 1, gamma: 1, brightness: 0, contrast: 0, invert: false };
+  function finishPart(map) {
+    const s = recipe.surface;
+    s.finish = s.finish || {};
+    const f = s.finish[map] = { ...FINISH_NEUTRAL, ...(s.finish[map] || {}) };
+    const isNeutral = () => Object.entries(FINISH_NEUTRAL).every(([k, v]) => f[k] === v);
+    // The normal map holds directions: only blur and sharpen make sense for it.
+    const fields = map === 'normal' ? FINISH.slice(0, 2) : FINISH;
+    const inv = el('input', { type: 'checkbox', 'data-finish-invert': map, checked: f.invert ? true : undefined });
+    inv.addEventListener('change', () => { f.invert = inv.checked; changed(false); });
+    const box = el('details', { class: 'tb-finish', 'data-finish': map, open: !isNeutral() || undefined },
+      el('summary', { text: map === 'normal' ? 'Finish: blur, sharpen' : 'Finish: blur, sharpen, levels, contrast…' }),
+      el('div', { class: 'sb-fields' }, ...fields.map((x) => slider(f, x))),
+      map === 'normal' ? null : el('label', { class: 'sb-inline' }, inv, el('span', { text: 'Invert' })),
+      el('button', { class: 'utility-btn', 'data-finish-reset': map, title: 'Take this map\'s finishing off', onclick: () => { Object.assign(f, FINISH_NEUTRAL); changed(true); } }, '↺ No finishing'));
+    return box;
   }
 
   // ---------------------------------------------------------------- painting in NoorSketch
@@ -1515,7 +1541,7 @@ el('span', { class: 'tb-zoom' },
       ]],
       ['Layer', 'l', () => [
         { label: 'Add', sub: () => Object.keys(NEW_LAYER).filter((t) => !['image', 'painted', 'current', 'curvature'].includes(t)).map((t) => add(t)) },
-        add('image', 'A photo as a layer…'), add('painted', 'Paint a layer in NoorSketch'),
+        add('image', 'A photo as a layer…'), add('image', 'A hand-painted texture as a layer…', { handPainted: true, delight: 0, seamBlend: 0 }), add('painted', 'Paint a layer in NoorSketch'),
         { label: 'Masks', sub: () => [add('current', 'Height so far (tops, dips)'), add('curvature', 'Edges and cavities')] }, '-',
         { label: 'The layers', sub: layerItems }, go('Layers tab', () => goTab('layers')),
       ]],
@@ -1544,6 +1570,7 @@ el('span', { class: 'tb-zoom' },
     /** Pictures from the Gallery for the batch (Export tab). */
     batchPictures: async (pics) => { await open(); addBatchPictures(pics || []); },
     hasMaterial: () => !!recipe,
+    _addLayer: (t, extra) => addLayer(t, extra),
     _state: () => ({ recipe: recipe ? clone(recipe) : null, render: render ? { ...render } : null, history: history.length, future: future.length, pinned: !!pinned, listening, tab, view, shape, tiling, webgl: !!gl3d, layout: layout.prefs, batch: { pictures: batch.pictures.map((x) => x.path), running: batch.running, progress: batch.progress }, lights: lightsId, show, viewer: gl3d ? gl3d.state() : null }),
   };
 })();

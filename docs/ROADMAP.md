@@ -5,6 +5,10 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMaterial for hand-painted textures (preview.131): a picture layer can be marked Hand-painted (kept exactly as
+  painted: no light evening, no seam blending; Layers › Add › A hand-painted texture); big pictures are averaged
+  down so thin painted lines stay whole; and every map has finishing touches in the Maps tab (blur, sharpen,
+  levels, middle, brightness, contrast, invert; the normal map blur and sharpen).
 - NoorInk, stage 2 (preview.124): smart snapping and guides, the gradient tool (handles on the picture, colour
   stops), swatches, live effects (blur, drop shadow), text on a path, text to outlines and the system's fonts, stroke
   to path, grow and shrink, and tracing a picture into paths. See [NOORINK_PLAN.md](NOORINK_PLAN.md).
