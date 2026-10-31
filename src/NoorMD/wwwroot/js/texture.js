@@ -27,7 +27,7 @@ window.NoorTexture = (() => {
     curvature: { scaleX: 2, scaleY: 1, opacity: 0, low: 0.55, high: 0.65, warp: 0.3, warpScale: 12 },
     erosion: { scaleX: 1, scaleY: 1, mode: 'rain', amount: 0.6 },
     painted: { scaleX: 1, scaleY: 1, colorAmount: 1, opacity: 0, blend: 'normal' },
-    image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
+    image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, seamMode: 'cut', seamEven: 0, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
   };
   // Sliders: [key, label, min, max, step, kind]; 'int' are whole numbers, 'pct' shows 0–100.
   const SCALE = [['scaleX', 'Repeats across', 1, 128, 1, 'int'], ['scaleY', 'Repeats down', 1, 128, 1, 'int']];
@@ -61,7 +61,7 @@ window.NoorTexture = (() => {
     scratches: [['count', 'How many', 0, 500, 1, 'int'], ['length', 'Length', 0.005, 1, 0.005, 'pct'], ['width', 'Width', 0.0005, 0.05, 0.0005, 'pct']],
     current: [...WARP],
     curvature: [['scaleX', 'Width of the edges', 1, 64, 1, 'int'], ...WARP],
-    image: [['scaleX', 'Repeats across', 1, 16, 1, 'int'], ['scaleY', 'Repeats down', 1, 16, 1, 'int'], ['seamBlend', 'Seam blend (to tile)', 0, 0.5, 0.01, 'pct'],
+    image: [['scaleX', 'Repeats across', 1, 16, 1, 'int'], ['scaleY', 'Repeats down', 1, 16, 1, 'int'], ['seamBlend', 'Make it tile (how far in from the edges)', 0, 0.5, 0.01, 'pct'], ['seamEven', 'Match opposite edges (one side lighter)', 0, 1, 0.01, 'pct'],
       ['delight', 'Even out the light', 0, 1, 0.01, 'pct'], ['delightRadius', '…over (size of the light)', 0.02, 1, 0.01, 'pct'],
       ['detailFine', 'Height from fine detail', 0, 1, 0.01, 'pct'], ['detailMedium', 'Height from medium detail', 0, 1, 0.01, 'pct'], ['detailLarge', 'Height from large shapes', 0, 1, 0.01, 'pct'],
       ['colorAmount', 'Its colours on the surface', 0, 1, 0.01, 'pct']],
@@ -552,7 +552,14 @@ el('span', { class: 'tb-zoom' },
         // Hand-painted: its light and shadow are the style and it already tiles, so it is used exactly as painted.
         const hp = el('input', { type: 'checkbox', 'data-handpainted': '', checked: l.handPainted ? true : undefined });
         hp.addEventListener('change', () => { l.handPainted = hp.checked; changed(true); });
-        choices.push(el('label', { class: 'sb-inline', title: 'Keep it exactly as painted: no evening out of the light, no seam blending (a painted texture already tiles)' }, hp, el('span', { text: 'Hand-painted' })));
+        choices.push(el('label', { class: 'sb-inline', title: 'Keep its light and shadow as painted (they are the style): the light is not evened out' }, hp, el('span', { text: 'Hand-painted' })));
+        // How it is made to tile: stitched (each pixel from one place, joined where the picture differs least) or
+        // faded into a moved copy of itself (soft, but clear shapes show see-through doubles).
+        const seam = el('select', { 'aria-label': 'Make it tile by', 'data-seammode': '' },
+          el('option', { value: 'cut', text: 'stitching (no doubles)' }), el('option', { value: 'blend', text: 'fading (soft)' }));
+        seam.value = l.seamMode || 'blend';
+        seam.addEventListener('change', () => { l.seamMode = seam.value; changed(false); });
+        choices.push(el('label', { class: 'sb-inline', title: 'Stitching covers the edges with matching pieces from elsewhere in the picture, joined where they differ least; fading blends the edges into a moved copy' }, el('span', { text: 'Tile by' }), seam));
       }
       if (l.type === 'painted') {
         choices.unshift(el('span', { class: 'sb-file', title: l.path || '', text: '🖌 ' + (l.imageName || 'no painting') }),
@@ -945,7 +952,7 @@ el('span', { class: 'tb-zoom' },
   /** A plain conversion for albedo textures: the picture is the albedo as it is; relief, shine and shade come from its detail. */
   function albedoTemplate(opts) {
     return { version: 1, name: 'From albedo', family: 'Custom', seed: 1,
-      layers: [layerOf('image', 0, { name: 'Picture', seamBlend: opts.tiles ? 0 : 0.15, delight: opts.delight ? 0.6 : 0, delightRadius: 0.3, detailFine: 0.5, detailMedium: 0.7, detailLarge: 0.4, colorAmount: 1 })],
+      layers: [layerOf('image', 0, { name: 'Picture', seamBlend: opts.tiles ? 0 : 0.15, seamMode: 'cut', delight: opts.delight ? 0.6 : 0, delightRadius: 0.3, detailFine: 0.5, detailMedium: 0.7, detailLarge: 0.4, colorAmount: 1 })],
       surface: { ...clone(PHOTO_SURFACE), dirt: 0, colorVariation: 0, normalStrength: 5 } };
   }
 

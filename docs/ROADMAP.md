@@ -5,6 +5,11 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMaterial makes pictures that don't tile seamless (preview.132): a picture layer is made to tile by stitching
+  (its edges covered with matching pieces from elsewhere in the picture, joined along the line where they differ
+  least, so no see-through doubles; small steps of light along the joins are smoothed away over the whole tile, edges
+  of shapes are kept) or by fading as before; "Match opposite edges" takes off a slope of light across the picture
+  (one side lighter). Hand-painted pictures can be made to tile too (the switch now only keeps their light).
 - NoorMaterial for hand-painted textures (preview.131): a picture layer can be marked Hand-painted (kept exactly as
   painted: no light evening, no seam blending; Layers › Add › A hand-painted texture); big pictures are averaged
   down so thin painted lines stay whole; and every map has finishing touches in the Maps tab (blur, sharpen,

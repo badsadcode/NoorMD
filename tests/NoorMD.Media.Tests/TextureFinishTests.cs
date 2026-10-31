@@ -101,7 +101,7 @@ public class TextureFinishTests
     {
         var img = Painting();
         var photo = FromPicture(img, handPainted: false);
-        var painted = FromPicture(img, handPainted: true);
+        var painted = FromPicture(img, handPainted: true, seam: 0);
         int R(TextureMaps m, int x, int y) => m.Albedo[(y * 128 + x) * 3];
         // The painted light goes from bright (top left) to dark (bottom right): kept as painted, evened out as a photo.
         var paintedDrop = R(painted, 10, 10) - R(painted, 117, 117);
@@ -118,7 +118,7 @@ public class TextureFinishTests
         // Thin dark lines every 8 pixels on white, 2048 × 2048, into a 128 map: each pixel covers 16 × 16 of it,
         // so every pixel should be about the same grey (two lines in each), not white or black where a sample landed.
         var img = Painting(2048, (x, y) => x % 8 == 0 ? 0.1f : 0.9f);
-        var m = FromPicture(img, handPainted: true);
+        var m = FromPicture(img, handPainted: true, seam: 0);
         var reds = Enumerable.Range(0, 128 * 128).Select(i => (int)m.Albedo[i * 3]).ToArray();
         Assert.InRange(reds.Max() - reds.Min(), 0, 12);
         Assert.InRange(reds.Average(), 255 * 0.8 - 6, 255 * 0.8 + 6);

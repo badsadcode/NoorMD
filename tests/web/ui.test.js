@@ -9031,6 +9031,33 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 47c. NoorMaterial makes pictures that don't tile seamless: stitched (no see-through doubles) or faded, and a
+    // slope of light across them evened out so opposite edges match.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1).recipe);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      const before = (await last()).layers.length;
+      await page.evaluate(() => NoorTexture._addLayer('image'));
+      await waitFn(page, (n) => window.__mock.state.texture.renders.at(-1).recipe.layers.length === n + 1, before);
+      let pic = (await last()).layers.at(-1);
+      check('a new photo layer is made to tile by stitching (no see-through doubles)', pic.seamMode === 'cut' && pic.seamBlend > 0 && pic.seamEven === 0, pic);
+      const card = `.sb-layer[data-index="${before}"]`;
+      check('…its layer has "Tile by" (stitching or fading), the width and "Match opposite edges"', (await page.inputValue(`${card} select[data-seammode]`)) === 'cut'
+        && !!(await page.$(`${card} input[data-num="seamBlend"]`)) && !!(await page.$(`${card} input[data-num="seamEven"]`)));
+      await page.selectOption(`${card} select[data-seammode]`, 'blend');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).seamMode === 'blend');
+      check('…fading can be chosen instead', true);
+      await page.fill(`${card} input[data-num="seamEven"]`, '80');
+      await page.press(`${card} input[data-num="seamEven"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.at(-1).seamEven === 0.8);
+      check('…and a slope of light evened out (opposite edges matched)', true);
+      check('no page errors with seamless pictures', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

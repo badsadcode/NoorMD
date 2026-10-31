@@ -114,9 +114,18 @@ public sealed class TextureLayer
     public string? ImageName { get; set; }
     /// <summary>How wide (0–0.5 of the picture) its edges are blended with a half-shifted copy, so it tiles.</summary>
     public double SeamBlend { get; set; } = 0.15;
+    public static readonly string[] SeamModes = ["blend", "cut"];
     /// <summary>
-    /// A hand-painted picture: kept exactly as painted. Its light and shadow are the style, and it was painted to
-    /// tile, so it is neither evened out (Delight) nor blended at its edges (SeamBlend), whatever those say.
+    /// How the edges are made to meet: "blend" fades them into a shifted copy (soft, may show see-through doubles on
+    /// clear shapes); "cut" stitches a matching strip in along the line where they already look most alike (each
+    /// pixel from one place, no doubles). SeamBlend is the width of the fixed part either way.
+    /// </summary>
+    public string SeamMode { get; set; } = "blend";
+    /// <summary>Evening out a slope across the picture (lighter at one side), so opposite edges match (0–1).</summary>
+    public double SeamEven { get; set; }
+    /// <summary>
+    /// A hand-painted picture: its light and shadow are the style, so it is never evened out (Delight), whatever
+    /// that says. Its edges are fixed only if asked (SeamBlend above 0; a hand-painted texture usually tiles already).
     /// </summary>
     public bool HandPainted { get; set; }
     /// <summary>Evening out the light baked into a photo (0–1), over DelightRadius (0.02–1 of the picture).</summary>
@@ -290,7 +299,8 @@ public sealed class TextureRecipe
             l.MetallicShift = double.IsFinite(l.MetallicShift) ? Math.Clamp(l.MetallicShift, -1, 1) : 0;
             if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
             if (l.ImageName != null) l.ImageName = l.ImageName.Length > 120 ? l.ImageName[..120] : l.ImageName;
-            l.SeamBlend = C(l.SeamBlend, 0, 0.5); l.Delight = C(l.Delight, 0, 1); l.DelightRadius = C(l.DelightRadius, 0.02, 1);
+            l.SeamBlend = C(l.SeamBlend, 0, 0.5); l.SeamEven = C(l.SeamEven, 0, 1);
+            l.SeamMode = TextureLayer.SeamModes.Contains(l.SeamMode) ? l.SeamMode : "blend"; l.Delight = C(l.Delight, 0, 1); l.DelightRadius = C(l.DelightRadius, 0.02, 1);
             l.DetailFine = C(l.DetailFine, 0, 1); l.DetailMedium = C(l.DetailMedium, 0, 1); l.DetailLarge = C(l.DetailLarge, 0, 1);
             l.HeightColor = l.HeightColor == null ? null : HexOrNull(l.HeightColor);
             l.HeightColorAmount = double.IsFinite(l.HeightColorAmount) ? Math.Clamp(l.HeightColorAmount, -1, 1) : 0;
@@ -1586,7 +1596,7 @@ public static class TextureEngine
 
     private static (double[] Values, float[] Rgb) ImageLayer(TextureLayer l, TextureImage img, int size)
     {
-        var key = string.Join('|', img.Id, l.HandPainted, l.SeamBlend, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
+        var key = string.Join('|', img.Id, l.HandPainted, l.SeamBlend, l.SeamMode, l.SeamEven, l.Delight, l.DelightRadius, l.DetailFine, l.DetailMedium, l.DetailLarge, l.HeightColor, l.HeightColorAmount, l.HeightColorTolerance);
         if (!PreparedCache.TryGetValue(key, out var p))
         {
             p = Prepare(l, img);
@@ -1630,9 +1640,10 @@ public static class TextureEngine
     }
 
     /// <summary>
-    /// A picture made ready to tile: its light evened out (divided by a wide blur of itself), its edges blended with a
-    /// half-shifted copy so the left meets the right and the top the bottom (variance-preserving, so the blend keeps
-    /// its contrast), and its height from three bands of detail plus any colour you said is high or low.
+    /// A picture made ready to tile: its light evened out (divided by a wide blur of itself), a slope of light across
+    /// it taken off if asked, its edges stitched with matching pieces from elsewhere in it (or blended with a shifted
+    /// copy, variance-preserving) so the left meets the right and the top the bottom, and its height from three bands
+    /// of detail plus any colour you said is high or low.
     /// </summary>
     private static Prepared Prepare(TextureLayer l, TextureImage img)
     {
@@ -1657,24 +1668,11 @@ public static class TextureEngine
         // Seamless: near the edges, blend with a shifted copy of the picture (any shift meets itself across the edges).
         // The shift is the one where the picture looks most like itself, so a regular pattern (bricks, tiles, planks)
         // lines up with its copy instead of showing doubled lines where they overlap.
-        if (l.SeamBlend > 0 && !l.HandPainted)
-        {
-            var (sx, sy) = BestShift(ch, w, h);
-            var means = ch.Select(a => a.Average()).ToArray();
-            var outp = ch.Select(_ => new float[n]).ToArray();
-            for (var y = 0; y < h; y++)
-                for (var x = 0; x < w; x++)
-                {
-                    var edge = Math.Min(Math.Min(x + 0.5, w - x - 0.5) / w, Math.Min(y + 0.5, h - y - 0.5) / h);
-                    var w2 = 1 - SmoothStep(0, l.SeamBlend, edge); var w1 = 1 - w2;
-                    var norm = Math.Sqrt(w1 * w1 + w2 * w2);
-                    var j = ((y + sy) % h) * w + (x + sx) % w;
-                    var i = y * w + x;
-                    for (var c = 0; c < 3; c++)
-                        outp[c][i] = (float)Math.Clamp(means[c] + ((ch[c][i] - means[c]) * w1 + (ch[c][j] - means[c]) * w2) / norm, 0, 1);
-                }
-            ch = outp;
-        }
+        // A slope of light or colour across the picture (one side lighter) makes opposite edges differ: it is
+        // taken off (each channel's straight-line trend across and down), keeping the picture's average.
+        if (l.SeamEven > 0) EvenSlope(ch, w, h, l.SeamEven);
+        if (l.SeamBlend > 0 && l.SeamMode == "cut" && w >= 32 && h >= 32) ch = SeamCut(ch, w, h, l.SeamBlend);
+        else if (l.SeamBlend > 0) ch = BlendSeam(ch, w, h, l.SeamBlend).Select(c => c.Select(v => Math.Clamp(v, 0f, 1f)).ToArray()).ToArray();
         // Height: brightness in three bands of detail (fine, medium, large), weighted; the light was evened out above.
         var lum = new float[n];
         for (var i = 0; i < n; i++) lum[i] = 0.2126f * ch[0][i] + 0.7152f * ch[1][i] + 0.0722f * ch[2][i];
@@ -1703,6 +1701,250 @@ public static class TextureEngine
         var rgb = new float[n * 3];
         for (var i = 0; i < n; i++) { rgb[i * 3] = ch[0][i]; rgb[i * 3 + 1] = ch[1][i]; rgb[i * 3 + 2] = ch[2][i]; }
         return new Prepared(w, h, rgb, height);
+    }
+
+    /// <summary>Takes each channel's straight-line trend across and down off the picture (by <paramref name="amount"/>).</summary>
+    private static void EvenSlope(float[][] ch, int w, int h, double amount)
+    {
+        double cx = (w - 1) / 2.0, cy = (h - 1) / 2.0, sxx = 0, syy = 0;
+        for (var x = 0; x < w; x++) sxx += (x - cx) * (x - cx);
+        for (var y = 0; y < h; y++) syy += (y - cy) * (y - cy);
+        foreach (var a in ch)
+        {
+            double sx = 0, sy = 0;
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++) { var v = a[y * w + x]; sx += v * (x - cx); sy += v * (y - cy); }
+            double gx = sx / (sxx * h), gy = sy / (syy * w);
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++) { var i = y * w + x; a[i] = (float)Math.Clamp(a[i] - amount * (gx * (x - cx) + gy * (y - cy)), 0, 1); }
+        }
+    }
+
+    /// <summary>
+    /// Fades the picture near its edges into a copy of itself moved by the shift where it looks most like itself
+    /// (any shift meets itself across the edges). Soft; on clear shapes it can show see-through doubles.
+    /// </summary>
+    private static float[][] BlendSeam(float[][] ch, int w, int h, double width)
+    {
+        var (sx, sy) = BestShift(ch, w, h);
+        var means = ch.Select(a => a.Average()).ToArray();
+        var outp = ch.Select(_ => new float[w * h]).ToArray();
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var edge = Math.Min(Math.Min(x + 0.5, w - x - 0.5) / w, Math.Min(y + 0.5, h - y - 0.5) / h);
+                var w2 = 1 - SmoothStep(0, width, edge); var w1 = 1 - w2;
+                var norm = Math.Sqrt(w1 * w1 + w2 * w2);
+                var j = ((y + sy) % h) * w + (x + sx) % w;
+                var i = y * w + x;
+                for (var c = 0; c < ch.Length; c++)
+                    outp[c][i] = (float)(means[c] + ((ch[c][i] - means[c]) * w1 + (ch[c][j] - means[c]) * w2) / norm);
+            }
+        return outp;
+    }
+
+    /// <summary>
+    /// Makes a picture tile without fading it into a copy of itself. First the jump at its edges is taken out
+    /// smoothly (the picture's "periodic part": the smallest smooth change that makes left meet right and top meet
+    /// bottom, spread over the whole picture, so colour and light flow across the edges with no doubles). Then the
+    /// fine detail, which still breaks off at the edges, is stitched: moved by half each way, its edges meet in the
+    /// middle (a cross); each arm of the cross is covered by a strip from elsewhere that matches it best, joined
+    /// along the line where the two differ least (each pixel of detail from one place); then it is moved back.
+    /// </summary>
+    private static float[][] SeamCut(float[][] src, int w, int h, double width)
+    {
+        int sx = w / 2, sy = h / 2;
+        var j = Roll2(src, w, h, sx, sy);
+        // The picture's own edges now meet at column w − sx and row h − sy.
+        var (j1, d1) = StitchColumns(j, w, h, w - sx, Math.Clamp((int)(width * w * 0.5), 3, w / 4 - 2));
+        var (j2, d2) = StitchColumns(Transpose(j1, w, h), h, w, h - sy, Math.Clamp((int)(width * h * 0.5), 3, h / 4 - 2));
+        j = Transpose(j2, h, w); d2 = Transpose(d2, h, w);
+        // Take the small steps out: the picture whose changes are the same except those (solved over the whole tile;
+        // two colours at once, one as the real and one as the imaginary part, since the sum is real).
+        for (var c = 0; c < j.Length; c += 2)
+        {
+            var re = new double[w * h]; var im = new double[w * h];
+            for (var i = 0; i < re.Length; i++) { re[i] = d1[c][i] + d2[c][i]; if (c + 1 < j.Length) im[i] = d1[c + 1][i] + d2[c + 1][i]; }
+            if (!re.Any(v => v != 0) && !im.Any(v => v != 0)) continue; // nothing to even out
+            SolvePoisson(re, im, w, h);
+            for (var i = 0; i < re.Length; i++) { j[c][i] -= (float)re[i]; if (c + 1 < j.Length) j[c + 1][i] -= (float)im[i]; }
+        }
+        return Roll2(j, w, h, w - sx, h - sy).Select(c => c.Select(v => Math.Clamp(v, 0f, 1f)).ToArray()).ToArray();
+    }
+
+    /// <summary>The tiling surface whose discrete Laplacian is (re, im), in place (its average left at 0).</summary>
+    private static void SolvePoisson(double[] re, double[] im, int w, int h)
+    {
+        Fft2(re, im, w, h, false);
+        for (var q = 0; q < h; q++)
+            for (var k = 0; k < w; k++)
+            {
+                var i = q * w + k;
+                if (i == 0) { re[0] = im[0] = 0; continue; }
+                var den = 2 * Math.Cos(2 * Math.PI * k / w) + 2 * Math.Cos(2 * Math.PI * q / h) - 4;
+                re[i] /= den; im[i] /= den;
+            }
+        Fft2(re, im, w, h, true);
+    }
+
+    private static void Fft2(double[] re, double[] im, int w, int h, bool inverse)
+    {
+        var pw = new DftPlan(w); var ph = w == h ? pw : new DftPlan(h);
+        Parallel.For(0, h, y =>
+        {
+            var rr = new double[w]; var ri = new double[w];
+            Array.Copy(re, y * w, rr, 0, w); Array.Copy(im, y * w, ri, 0, w);
+            pw.Run(rr, ri, inverse);
+            Array.Copy(rr, 0, re, y * w, w); Array.Copy(ri, 0, im, y * w, w);
+        });
+        Parallel.For(0, w, x =>
+        {
+            var cr = new double[h]; var ci = new double[h];
+            for (var y = 0; y < h; y++) { cr[y] = re[y * w + x]; ci[y] = im[y * w + x]; }
+            ph.Run(cr, ci, inverse);
+            for (var y = 0; y < h; y++) { re[y * w + x] = cr[y]; im[y * w + x] = ci[y]; }
+        });
+    }
+
+    /// <summary>
+    /// A Fourier transform of one length: powers of two directly, others by Bluestein's chirp (worked out once per
+    /// length and shared by every row); the inverse is scaled.
+    /// </summary>
+    private sealed class DftPlan
+    {
+        private readonly int n, m;
+        private readonly double[]? wr, wi, br, bi;
+        public DftPlan(int n)
+        {
+            this.n = n;
+            if ((n & (n - 1)) == 0) return;
+            m = 1; while (m < 2 * n - 1) m <<= 1;
+            wr = new double[n]; wi = new double[n]; br = new double[m]; bi = new double[m];
+            for (var k = 0; k < n; k++) { var a = Math.PI * ((long)k * k % (2L * n)) / n; wr[k] = Math.Cos(a); wi[k] = -Math.Sin(a); }
+            for (var k = 0; k < n; k++) { br[k] = wr[k]; bi[k] = -wi[k]; if (k > 0) { br[m - k] = wr[k]; bi[m - k] = -wi[k]; } }
+            SoundAnalysis.Fft(br, bi);
+        }
+        public void Run(double[] re, double[] im, bool inverse)
+        {
+            if (inverse) for (var i = 0; i < n; i++) im[i] = -im[i];
+            if (wr is null) SoundAnalysis.Fft(re, im);
+            else
+            {
+                var ar = new double[m]; var ai = new double[m];
+                for (var k = 0; k < n; k++) { ar[k] = re[k] * wr[k] - im[k] * wi![k]; ai[k] = re[k] * wi![k] + im[k] * wr[k]; }
+                SoundAnalysis.Fft(ar, ai);
+                // Times the chirp's spectrum, then back (conjugate, forward, conjugate, scale).
+                for (var k = 0; k < m; k++) { var t = ar[k] * br![k] - ai[k] * bi![k]; ai[k] = -(ar[k] * bi![k] + ai[k] * br![k]); ar[k] = t; }
+                SoundAnalysis.Fft(ar, ai);
+                for (var k = 0; k < n; k++)
+                {
+                    double cr = ar[k] / m, ci = -ai[k] / m;
+                    re[k] = cr * wr[k] - ci * wi![k]; im[k] = cr * wi![k] + ci * wr[k];
+                }
+            }
+            if (inverse) for (var i = 0; i < n; i++) { re[i] /= n; im[i] = -im[i] / n; }
+        }
+    }
+
+    private static float[][] Roll2(float[][] a, int w, int h, int dx, int dy)
+    {
+        var o = a.Select(_ => new float[w * h]).ToArray();
+        for (var c = 0; c < a.Length; c++)
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++) o[c][y * w + x] = a[c][((y + dy) % h) * w + (x + dx) % w];
+        return o;
+    }
+    private static float[][] Transpose(float[][] a, int w, int h)
+    {
+        var o = a.Select(_ => new float[w * h]).ToArray();
+        for (var c = 0; c < a.Length; c++)
+            for (var y = 0; y < h; y++)
+                for (var x = 0; x < w; x++) o[c][x * h + y] = a[c][y * w + x];
+        return o;
+    }
+
+    /// <summary>
+    /// Covers the up-and-down seam at column x0 with the strip (2B wide, the same rows) that matches the picture
+    /// best at its two sides, joined to it along the least-different line inside an overlap at each side.
+    /// </summary>
+    private static (float[][] Out, float[][] Div) StitchColumns(float[][] a, int w, int h, int x0, int b)
+    {
+        int ov = Math.Max(2, b / 2), band = 2 * b;
+        float D(int xa, int xb, int y) { double s = 0; foreach (var c in a) { var d = c[y * w + Wrap(xa, w)] - c[y * w + Wrap(xb, w)]; s += d * d; } return (float)s; }
+        // The best source strip: its overlaps look most like the picture's sides of the seam (rows sampled for speed).
+        int best = -1; var bestCost = double.MaxValue;
+        var rowStep = Math.Max(1, h / 96);
+        for (var c0 = 0; c0 < w; c0 += Math.Max(1, w / 128))
+        {
+            var dist = Math.Abs(Wrap(c0 - x0 + w / 2, w) - w / 2);
+            if (dist < band + 2) continue; // the strip must not hold the seam itself
+            double cost = 0;
+            for (var y = 0; y < h; y += rowStep)
+                for (var k = 0; k < ov; k++) cost += D(x0 - b + k, c0 - b + k, y) + D(x0 + b - 1 - k, c0 + b - 1 - k, y);
+            if (cost < bestCost) { bestCost = cost; best = c0; }
+        }
+        if (best < 0) return (a, a.Select(_ => new float[w * h]).ToArray());
+        // The least-different line through each overlap, top to bottom (each row one step at most to the side).
+        int[] Cut(int startOffset)
+        {
+            var e = new double[h * ov]; var from = new int[h * ov];
+            for (var y = 0; y < h; y++)
+                for (var k = 0; k < ov; k++)
+                {
+                    var err = D(x0 - b + startOffset + k, best - b + startOffset + k, y);
+                    if (y == 0) { e[k] = err; continue; }
+                    var bk = k; var bv = e[(y - 1) * ov + k];
+                    if (k > 0 && e[(y - 1) * ov + k - 1] < bv) { bv = e[(y - 1) * ov + k - 1]; bk = k - 1; }
+                    if (k < ov - 1 && e[(y - 1) * ov + k + 1] < bv) { bv = e[(y - 1) * ov + k + 1]; bk = k + 1; }
+                    e[y * ov + k] = err + bv; from[y * ov + k] = bk;
+                }
+            var path = new int[h]; var kk = 0;
+            for (var k = 1; k < ov; k++) if (e[(h - 1) * ov + k] < e[(h - 1) * ov + kk]) kk = k;
+            for (var y = h - 1; y >= 0; y--) { path[y] = kk; kk = from[y * ov + kk]; }
+            return path;
+        }
+        var left = Cut(0); var right = Cut(band - ov);
+        var o = a.Select(c => (float[])c.Clone()).ToArray();
+        var div = a.Select(_ => new float[w * h]).ToArray();
+        // Inside the two cuts the strip; outside the picture; a pixel and a half of softening along each cut.
+        var ws = new double[h * band];
+        for (var y = 0; y < h; y++)
+            for (var k = 0; k < band; k++)
+                ws[y * band + k] = SmoothStep(left[y] - 1.5, left[y] + 1.5, k) * (1 - SmoothStep(band - ov + right[y] - 1.5, band - ov + right[y] + 1.5, k));
+        double Ws(int y, int k) => k < 0 || k >= band || y < 0 || y >= h ? 0 : ws[y * band + k];
+        for (var y = 0; y < h; y++)
+            for (var k = 0; k < band; k++)
+            {
+                var f = ws[y * band + k];
+                if (f <= 0) continue;
+                int xd = Wrap(x0 - b + k, w), xs = Wrap(best - b + k, w);
+                for (var c = 0; c < a.Length; c++) o[c][y * w + xd] = (float)(a[c][y * w + xd] * (1 - f) + a[c][y * w + xs] * f);
+            }
+        // The step each cut makes (the strip lighter or darker than the picture beside it), across and down: a small
+        // one (smooth areas: a torn edge) is later taken out; a big one is the edge of a shape and is kept.
+        void Step(int ya, int ka, int yb, int kb)
+        {
+            double w0 = Ws(ya, ka), w1 = Ws(yb, kb);
+            if (w0 == w1) return;
+            int p0 = ya * w + Wrap(x0 - b + ka, w), p1 = yb * w + Wrap(x0 - b + kb, w);
+            int s0 = ya * w + Wrap(best - b + ka, w), s1 = yb * w + Wrap(best - b + kb, w);
+            double D1(int c) => (a[c][s0] + a[c][s1] - a[c][p0] - a[c][p1]) * 0.5;
+            var big = 0.0;
+            for (var c = 0; c < a.Length; c++) big = Math.Max(big, Math.Abs(D1(c)));
+            var keep = Math.Clamp((big - 0.3) / 0.2, 0, 1); // the same for each colour, so no tint
+            for (var c = 0; c < a.Length; c++)
+            {
+                var st = (float)((w1 - w0) * D1(c) * (1 - keep));
+                div[c][p0] += st; div[c][p1] -= st; // its divergence (backward differences)
+            }
+        }
+        for (var y = 0; y < h; y++)
+            for (var k = -1; k < band; k++)
+            {
+                Step(y, k, y, k + 1);
+                if (k >= 0) Step(y, k, (y + 1) % h, k); // the tile wraps down too
+            }
+        return (o, div);
     }
 
     /// <summary>
