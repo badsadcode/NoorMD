@@ -1094,6 +1094,29 @@ public class GalleryTests
     }
 
     [Fact]
+    public void An_Album_With_Its_Sub_Albums_And_A_Scan_Of_Just_One_Folder()
+    {
+        var (t, lib, folder) = Library();
+        using var _ = t;
+        t.Copy("plain.png", "Pics", "Wakacje 2023", "Dzień 1", "Las.png");
+        lib.Scan(folder);
+        var holidays = lib.Albums().Single(a => a.Name == "Wakacje 2023").Key;
+        Assert.Equal(["Mapa", "Plaża"], lib.Query(new GalleryQuery(AlbumKey: holidays, Sort: "name", Descending: false)).Select(i => i.Name));
+        Assert.Equal(["Las", "Mapa", "Plaża"], lib.Query(new GalleryQuery(AlbumKey: holidays, Sort: "name", Descending: false, SubAlbums: true)).Select(i => i.Name));
+        // The picture folder's own album with SubAlbums: everything.
+        var root = lib.Albums().Single(a => a.Name == "Pics").Key;
+        Assert.Equal(4, lib.Query(new GalleryQuery(AlbumKey: root, SubAlbums: true)).Count);
+        // A scan of one album finds what is new there and leaves the rest alone (a deleted file elsewhere is not looked at).
+        t.Copy("plain.png", "Pics", "Wakacje 2023", "Nowe.png");
+        File.Delete(t.P("Pics", "Okładka.png"));
+        var r = lib.Scan(folder, default, t.P("Pics", "Wakacje 2023"));
+        Assert.Equal((4, 1, 0), r);
+        Assert.Contains("Okładka", lib.Query(new GalleryQuery()).Select(i => i.Name)); // outside the scanned album: not marked missing yet
+        Assert.Contains("Nowe", lib.Query(new GalleryQuery()).Select(i => i.Name));
+        Assert.ThrowsAny<ArgumentException>(() => lib.Scan(folder, default, t.Path)); // not inside the picture folder
+    }
+
+    [Fact]
     public void Favourites_And_Slideshows_Survive_A_Rescan_And_Missing_Files()
     {
         var (t, lib, folder) = Library();

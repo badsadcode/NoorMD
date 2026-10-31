@@ -274,9 +274,13 @@ public partial class MainWindow
                 case "gallery.status": return GalleryStatus();
                 case "gallery.query":
                 {
-                    var q = new GalleryQuery(req.GetString("search", 200), req.GetString("filter", 20) ?? "all", req.GetString("album", 2000),
+                    // An album by its key, or any folder by its path (a folder with no pictures of its own, holding albums).
+                    var folderArg = req.GetString("folder", 2000);
+                    var albumKey = !string.IsNullOrEmpty(folderArg) ? NoorMD.Media.MusicLibrary.PathKey(folderArg.TrimEnd('\\', '/')) : req.GetString("album", 2000);
+                    var q = new GalleryQuery(req.GetString("search", 200), req.GetString("filter", 20) ?? "all", albumKey,
                         NoorMD.Core.Bridge.Json.OptLong(p, "slideshow"), req.GetString("sort", 20) ?? "taken", !p.TryGetProperty("descending", out var d) || d.ValueKind != JsonValueKind.False, Format: req.GetString("format", 20),
-                        MinRating: (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "minRating") ?? 0), Label: req.GetString("label", 20), Tag: req.GetString("tag", 80), Month: req.GetString("month", 7));
+                        MinRating: (int)(NoorMD.Core.Bridge.Json.OptDouble(p, "minRating") ?? 0), Label: req.GetString("label", 20), Tag: req.GetString("tag", 80), Month: req.GetString("month", 7),
+                        SubAlbums: NoorMD.Core.Bridge.Json.IsTrue(p, "subAlbums"));
                     return Gallery.Query(q).Select(ImageForPage);
                 }
                 case "gallery.addFolder":
@@ -294,6 +298,17 @@ public partial class MainWindow
                 case "gallery.rescan":
                     await ScanGalleryAsync(Gallery.Folders().Select(f => f.Id).ToList());
                     return GalleryStatus();
+                case "gallery.rescanAlbum":
+                {
+                    // One album (or one picture folder) and the folders inside it: quicker than looking through everything.
+                    var folder = req.GetString("folder", 2000) ?? throw new BridgeError("Missing the folder.");
+                    var full = Path.GetFullPath(folder).TrimEnd('\\', '/');
+                    var lib = Gallery.Folders()
+                        .Where(f => { var r = Path.GetFullPath(f.Path).TrimEnd('\\', '/'); return string.Equals(full, r, StringComparison.OrdinalIgnoreCase) || full.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase); })
+                        .OrderByDescending(f => f.Path.Length).FirstOrDefault() ?? throw new BridgeError("That folder isn't one of your picture folders.");
+                    await ScanGalleryAsync([lib.Id], full);
+                    return GalleryStatus();
+                }
                 case "gallery.favorite":
                     Gallery.SetFavorite(Ids(p, "ids"), NoorMD.Core.Bridge.Json.IsTrue(p, "on"));
                     return null;
@@ -591,7 +606,7 @@ public partial class MainWindow
 
     private readonly SemaphoreSlim _galleryScanGate = new(1, 1);
 
-    private async Task ScanGalleryAsync(IReadOnlyList<long> folderIds)
+    private async Task ScanGalleryAsync(IReadOnlyList<long> folderIds, string? within = null)
     {
         await _galleryScanGate.WaitAsync(); // one scan at a time: two at once would both add the same new files
         try
@@ -601,7 +616,7 @@ public partial class MainWindow
                 var found = 0; var added = 0; var missing = 0;
                 foreach (var id in folderIds)
                 {
-                    try { var r = Gallery.Scan(id); found += r.Found; added += r.Added; missing += r.Missing; }
+                    try { var r = Gallery.Scan(id, default, within); found += r.Found; added += r.Added; missing += r.Missing; }
                     catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or Microsoft.Data.Sqlite.SqliteException) { Log.Error("NoorGallery scan failed", ex); }
                 }
                 Dispatcher.BeginInvoke(() => PushEvent("gallery.scanned", new { found, added, missing }));

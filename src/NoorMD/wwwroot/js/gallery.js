@@ -209,9 +209,11 @@ window.NoorGallery = (() => {
     if (view.source.startsWith('tag:')) q.tag = view.source.slice(4);
     if (view.source.startsWith('month:')) q.month = view.source.slice(6);
     if (view.source.startsWith('album:')) q.album = view.source.slice(6);
+    if (view.source.startsWith('dir:')) q.folder = view.source.slice(4);
     if (view.source.startsWith('show:')) q.slideshow = Number(view.source.slice(5));
     let rows;
-    try { rows = await req('gallery.query', q); } catch (err) { hooks.showError(err); return; }
+    if (view.source.startsWith('library:')) rows = []; // a group with no folder of its own: only its albums show
+    else try { rows = await req('gallery.query', q); } catch (err) { hooks.showError(err); return; }
     if (gen !== loadGen) return;
     items = rows;
     shown = PAGE;
@@ -230,21 +232,35 @@ window.NoorGallery = (() => {
         el('div', { class: 'modal-buttons' }, el('button', { class: 'action primary', onclick: addFolder }, '＋ Add a picture folder…'))));
       return;
     }
+    // An album or a folder: where it is, and its sub-albums as folders before its own pictures (not while searching or filtering).
+    const node = placeNode();
+    const subs = node && !view.search && !view.format && !view.mark ? [...node.kids.values()].sort((a, b) => a.name.localeCompare(b.name)) : [];
+    const top = node ? [crumbs(node)] : [];
+    if (!items.length && subs.length) {
+      body.replaceChildren(...top, el('div', { class: 'gallery-grid gallery-folders-only', role: 'list', 'aria-label': 'Albums' }, ...subs.map(folderTile)), el('p', { class: 'gallery-foot', id: 'gallery-foot', text: footText() }));
+      return;
+    }
     if (!items.length) {
-      body.replaceChildren(el('p', { class: 'music-none', text: view.search ? 'Nothing matches.' : view.source === 'fav' ? 'No favourites yet. Press F on a picture (or right-click › Favourite).' : view.mark ? 'No pictures with those stars or that label here.' : 'No pictures here.' }));
+      body.replaceChildren(...top, el('p', { class: 'music-none', text: view.search ? 'Nothing matches.' : view.source === 'fav' ? 'No favourites yet. Press F on a picture (or right-click › Favourite).' : view.mark ? 'No pictures with those stars or that label here.' : 'No pictures here.' }));
       return;
     }
     const grid = el('div', { class: 'gallery-grid', role: 'listbox', 'aria-label': 'Pictures', 'aria-multiselectable': 'true' });
+    subs.forEach((k) => grid.append(folderTile(k)));
     items.slice(0, shown).forEach((it, i) => grid.append(tile(it, i)));
     // Keys keep working after a change (stars, label, favourite): the same picture keeps the focus.
     const focused = document.activeElement?.closest?.('#gallery-body .gallery-tile')?.dataset.id;
     if (focused) queueMicrotask(() => grid.querySelector(`.gallery-tile[data-id="${focused}"]`)?.focus({ preventScroll: true }));
-    body.replaceChildren(grid,
+    body.replaceChildren(...top, grid,
       ...(items.length > shown ? [el('button', { class: 'action gallery-show-more', onclick: () => { shown += PAGE; render(); } }, `Show more (${items.length - shown} left)`)] : []),
       el('p', { class: 'gallery-foot', id: 'gallery-foot', text: footText() }));
   }
 
-  const footText = () => `${items.length} picture${items.length === 1 ? '' : 's'}${sel.size ? ` · ${sel.size} selected` : ''}`;
+  function footText() {
+    const own = `${items.length} picture${items.length === 1 ? '' : 's'}`, node = placeNode();
+    const subs = node && !view.search && !view.format && !view.mark ? node.kids.size : 0;
+    const text = subs ? `${subs} album${subs === 1 ? '' : 's'} · ${own} (${node.total} in all)` : own;
+    return text + (sel.size ? ` · ${sel.size} selected` : '');
+  }
 
   function tile(it, i) {
     const b = el('button', {
@@ -517,6 +533,7 @@ window.NoorGallery = (() => {
 
   function albumMenu(a, x, y) {
     NoorChrome.openMenu(null, [
+      { label: 'Look for new pictures here', run: () => rescanHere(a.folder) }, '-',
       { label: 'Rename album…  (F2)', run: () => renameAlbum(a) },
       { label: 'New album inside…', run: () => newAlbum(null, a.folder) },
       { label: 'Slideshow of this album', run: async () => { view.source = 'album:' + a.key; await load(); slideshowSetup(); } },
@@ -771,13 +788,14 @@ window.NoorGallery = (() => {
     const nav = $('#gallery-nav');
     if (!nav || !isWide()) { if (nav) nav.replaceChildren(); return; }
     const item = (source, label, count, extra = {}) => {
-      const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : '') + (extra.group ? ' gnav-group' : '') + (extra.library ? ' gnav-library' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + Math.min(extra.depth, 5) * 12}px` : null,
-        onclick: () => { if (extra.group) { toggleFolder(extra.path); return; } view.source = source; sel.clear(); saveSession(); load(); } },
+      const b = el('button', { class: 'gnav-item' + (view.source === source ? ' active' : '') + (extra.node && !extra.album && !extra.library ? ' gnav-group' : '') + (extra.library ? ' gnav-library' : ''), 'data-source': source, title: extra.title || label, style: extra.depth ? `padding-left:${10 + Math.min(extra.depth, 5) * 12}px` : null,
+        onclick: () => { if (extra.path && extra.hasKids && view.source === source) { toggleFolder(extra.path); return; } if (extra.path && extra.hasKids) navOpen.add(extra.path); goTo(source); } },
       extra.path && extra.hasKids ? el('span', { class: 'gnav-twisty', role: 'button', 'aria-label': navOpen.has(extra.path) ? 'Close' : 'Open', 'aria-expanded': String(navOpen.has(extra.path)), text: navOpen.has(extra.path) ? '▾' : '▸', onclick: (e) => { e.stopPropagation(); toggleFolder(extra.path); } })
         : extra.path ? el('span', { class: 'gnav-twisty', 'aria-hidden': 'true' }) : null,
       el('span', { class: 'gnav-label', text: label }), count != null ? el('small', { text: String(count) }) : null);
+      if (extra.album) b.addEventListener('contextmenu', (e) => { e.preventDefault(); albumMenu(extra.album, e.clientX, e.clientY); });
+      else if (extra.node && extra.folder) b.addEventListener('contextmenu', (e) => { e.preventDefault(); folderMenu(extra.folder, e.clientX, e.clientY); });
       if (extra.album) {
-        b.addEventListener('contextmenu', (e) => { e.preventDefault(); albumMenu(extra.album, e.clientX, e.clientY); });
         b.addEventListener('keydown', (e) => { if (e.key === 'F2') { e.preventDefault(); e.stopPropagation(); renameAlbum(extra.album); } });
       }
       if (extra.folder) {
@@ -788,50 +806,25 @@ window.NoorGallery = (() => {
       }
       return b;
     };
-    const albums = [...status.albums].sort((a, b) => a.name.localeCompare(b.name));
-    // Albums as a folder tree: a folder with albums inside opens and closes (▸ / ▾); a folder with no pictures of its
-    // own and only one folder inside shares its row with it ("Textures › Rocks"), so deep folders don't stair-step.
-    // Albums belong to the library folder they are in (the longest one their folder starts with): with several
-    // library folders, each is its own group, so albums from different drives never look nested in each other.
-    const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
-    const roots = [...(status.folders || [])].map((f) => f.path).sort((a, b) => b.length - a.length);
-    const rootOf = (a) => roots.find((r) => { const f = norm(a.folder), n = norm(r); return f === n || f.startsWith(n + '\\') || f.startsWith(n + '/'); }) || '';
-    const groups = new Map();
-    for (const a of albums) {
-      const r = rootOf(a);
-      if (!groups.has(r)) groups.set(r, { kids: new Map() });
-      let n = groups.get(r), path = r ? `${r}|` : '';
-      for (const part of a.name.split('/')) { path = path.endsWith('|') || !path ? `${path}${part}` : `${path}/${part}`; if (!n.kids.has(part)) n.kids.set(part, { name: part, path, kids: new Map(), album: null }); n = n.kids.get(part); }
-      n.album = a;
-    }
-    const active = view.source.startsWith('album:') ? albums.find((a) => 'album:' + a.key === view.source) : null;
-    if (active && navShown !== view.source) {
-      const r = rootOf(active), parts = active.name.split('/'), pre = r ? `${r}|` : '';
-      if (r) navOpen.add('root:' + r);
-      for (let i = 1; i < parts.length; i++) navOpen.add(pre + parts.slice(0, i).join('/'));
-    }
+    const tree = albumTree();
+    const node = tree.bySource.get(view.source);
+    // Choosing a place (from the list, a folder in the pictures or the path above them) opens the folders around it.
+    if (node && navShown !== view.source) for (let n = node.parent; n; n = n.parent) navOpen.add(n.navKey);
     navShown = view.source;
-    const leaf = (p) => String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
-    const total = (n) => (n.album ? n.album.count : 0) + [...n.kids.values()].reduce((t, k) => t + total(k), 0);
+    const row = (n, label, depth) => item(n.source, label, n.total, { depth, path: n.navKey, hasKids: n.kids.size > 0, album: n.album, folder: n.folder, library: n.library,
+      title: n.album ? `${n.folder || n.album.name} (right-click: rename, look for new pictures…)` : n.folder || n.name, node: n });
     const treeRows = (node, depth) => [...node.kids.values()].sort((a, b) => a.name.localeCompare(b.name)).flatMap((k) => {
-      let n = k, label = k.name;
-      while (!n.album && n.kids.size === 1) { n = [...n.kids.values()][0]; label += ' › ' + n.name; }
-      const hasKids = n.kids.size > 0, open = navOpen.has(n.path);
-      const row = n.album
-        ? item('album:' + n.album.key, label, hasKids && !open ? total(n) : n.album.count, { depth, folder: n.album.folder, title: n.album.name + ' (right-click to rename)', album: n.album, path: n.path, hasKids })
-        : item('folder:' + n.path, label, total(n), { depth, title: n.path, path: n.path, hasKids, group: true });
-      return [row, ...(hasKids && open ? treeRows(n, depth + 1) : [])];
+      const { n, label } = chain(k);
+      return [row(n, label, depth), ...(n.kids.size && navOpen.has(n.navKey) ? treeRows(n, depth + 1) : [])];
     });
+    const groups = [...tree.groups.values()].sort((x, y) => x.name.localeCompare(y.name));
     nav.replaceChildren(
       item('all', 'All pictures', status.count),
       item('fav', '★ Favourites', null),
       el('div', { class: 'gnav-head' }, el('span', { text: 'Albums' }), el('button', { class: 'icon-btn', id: 'gallery-new-album', title: 'New album (a folder)', 'aria-label': 'New album', onclick: () => newAlbum(null) }, '＋')),
-      ...(groups.size > 1
-        ? [...groups.entries()].sort((a, b) => leaf(a[0]).localeCompare(leaf(b[0]))).flatMap(([r, tree]) => {
-          const key = 'root:' + r, open = navOpen.has(key), count = [...tree.kids.values()].reduce((t, k) => t + total(k), 0);
-          return [item('library:' + r, r ? leaf(r) : 'Other', count, { title: r || 'Albums outside the library folders', path: key, hasKids: true, group: true, library: true }), ...(open ? treeRows(tree, 1) : [])];
-        })
-        : [...groups.values()].flatMap((tree) => treeRows(tree, 0))),
+      ...(groups.length > 1
+        ? groups.flatMap((g) => [row(g, g.name, 0), ...(navOpen.has(g.navKey) ? treeRows(g, 1) : [])])
+        : groups.flatMap((g) => [...(g.album ? [row({ ...g, kids: new Map(), total: g.album.count }, g.name, 0)] : []), ...treeRows(g, 0)])),
       ...(status.slideshows.length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Slideshows' })), ...status.slideshows.map((x) => item('show:' + x.id, '▶ ' + x.name, x.count))] : []),
       ...((status.tags || []).length ? [el('div', { class: 'gnav-head' }, el('span', { text: 'Tags' })), ...status.tags.map((t) => item('tag:' + t.tag, '# ' + t.tag, t.count))] : []),
       ...dateNav(item));
@@ -845,6 +838,88 @@ window.NoorGallery = (() => {
     try { localStorage.setItem('noormd.gallery.navOpen', JSON.stringify([...navOpen].slice(-500))); } catch { /* fine */ }
     renderNav();
   }
+  function goTo(source) { view.source = source; sel.clear(); saveSession(); renderNav(); load(); }
+
+  /**
+   * The albums as a tree of folders, one per picture folder (library). Every place in it can be opened: an album shows
+   * its own pictures with its sub-albums as folders first; a folder with no pictures of its own shows only its folders.
+   * Counts are everything inside (an album with 4 pictures and a sub-album of 10 says 14).
+   */
+  function albumTree() {
+    const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
+    const leaf = (p) => String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+    const roots = [...(status.folders || [])].map((f) => f.path).sort((a, b) => b.length - a.length);
+    const rootOf = (a) => roots.find((r) => { const f = norm(a.folder), n = norm(r); return f === n || f.startsWith(n + '\\') || f.startsWith(n + '/'); }) || '';
+    const groups = new Map(), bySource = new Map();
+    const mk = (name, navKey, folder, parent, library = false) => ({ name, navKey, folder, parent, library, kids: new Map(), album: null, source: folder ? 'dir:' + folder : 'library:' + navKey, total: 0, cover: null });
+    for (const a of [...status.albums].sort((x, y) => x.name.localeCompare(y.name))) {
+      const r = rootOf(a), sep = r.includes('\\') ? '\\' : '/';
+      if (!groups.has(r)) groups.set(r, mk(r ? leaf(r) : 'Other', 'root:' + r, r || null, null, true));
+      const g = groups.get(r);
+      if (r && norm(a.folder) === norm(r)) { g.album = a; continue; } // pictures right in the picture folder
+      let n = g, rel = '';
+      for (const part of a.name.split('/')) {
+        rel = rel ? `${rel}/${part}` : part;
+        if (!n.kids.has(part)) n.kids.set(part, mk(part, `${r}|${rel}`, r ? r + sep + rel.split('/').join(sep) : null, n));
+        n = n.kids.get(part);
+      }
+      n.album = a; n.folder = a.folder;
+    }
+    const finish = (n) => {
+      if (n.album) n.source = 'album:' + n.album.key;
+      n.total = (n.album ? n.album.count : 0) + [...n.kids.values()].reduce((t, k) => t + finish(k), 0);
+      bySource.set(n.source, n);
+      // The cover: its own, else the first one inside.
+      n.cover = n.album && n.album.coverId != null ? n.album.coverId : ([...n.kids.values()].map((k) => k.cover).find((c) => c != null) ?? null);
+      return n.total;
+    };
+    for (const g of groups.values()) finish(g);
+    return { groups, bySource };
+  }
+  /** A folder with no pictures of its own and only one folder inside shares a row with it ("Textures › Rocks"). */
+  function chain(k) {
+    let n = k, label = k.name;
+    while (!n.album && n.kids.size === 1) { n = [...n.kids.values()][0]; label += ' › ' + n.name; }
+    return { n, label };
+  }
+  /** The place being shown (an album or a folder), or null. */
+  function placeNode() {
+    return /^(album|dir|library):/.test(view.source) ? albumTree().bySource.get(view.source) || null : null;
+  }
+
+  /** Right-click on a folder with no pictures of its own (or a picture folder). */
+  function folderMenu(folder, x, y) {
+    NoorChrome.openMenu(null, [
+      { label: 'Look for new pictures here', run: () => rescanHere(folder) },
+      { label: 'Show in Explorer', run: () => req('gallery.revealFolder', { folder }).catch(hooks.showError) },
+    ], { x, y });
+  }
+  async function rescanHere(folder) {
+    notice('Looking for new pictures here…', 1200);
+    try { status = await req('gallery.rescanAlbum', { folder }); renderSources(); load(); } catch (err) { hooks.showError(err); }
+  }
+
+  /** A sub-album (or a folder of albums) among the pictures: double-click (or Enter) goes into it. */
+  function folderTile(k) {
+    const { n, label } = chain(k);
+    return el('button', { class: 'gallery-folder', 'data-folder-source': n.source, title: `${label} · ${n.total} picture${n.total === 1 ? '' : 's'} (double-click to open)`,
+      ondblclick: () => goTo(n.source),
+      onkeydown: (e) => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); goTo(n.source); } },
+      oncontextmenu: (e) => { e.preventDefault(); if (n.album) albumMenu(n.album, e.clientX, e.clientY); else if (n.folder) folderMenu(n.folder, e.clientX, e.clientY); } },
+    n.cover != null ? el('img', { src: thumbUrl(n.cover), alt: '', loading: 'lazy', decoding: 'async', draggable: 'false', onerror: (e) => e.target.remove() }) : null,
+    el('span', { class: 'gallery-folder-tab', 'aria-hidden': 'true' }),
+    el('span', { class: 'gallery-folder-name' }, el('b', { text: label }), el('small', { text: String(n.total) })));
+  }
+  /** Where the place is: its picture folder › … › it (each part opens). */
+  function crumbs(node) {
+    const path = [];
+    for (let n = node; n; n = n.parent) path.unshift(n);
+    return el('nav', { class: 'gallery-crumbs', 'aria-label': 'Where these pictures are' }, ...path.flatMap((n, i) => [
+      i ? el('span', { class: 'gallery-crumb-sep', 'aria-hidden': 'true', text: '›' }) : null,
+      i === path.length - 1 ? el('strong', { text: n.name }) : el('button', { class: 'gallery-crumb', onclick: () => goTo(n.source) }, n.name),
+    ]).filter(Boolean));
+  }
+
 
   /** Years, and the months of the open year (or of the year a month is chosen in). */
   function dateNav(item) {
@@ -1164,6 +1239,11 @@ window.NoorGallery = (() => {
       list = ids.map((id) => byId.get(id) || (viewer.list || []).find((x) => x.id === id)).filter(Boolean);
     } else if (sel.size > 1) {
       list = items.filter((i) => sel.has(i.id));
+    } else if (/^(album|dir):/.test(view.source)) {
+      // An album's slideshow has its sub-albums' pictures too (as many as its count says).
+      const [sort, descending] = SORTS[view.sort] || SORTS['taken-desc'];
+      const q = { sort, descending, subAlbums: true, ...(view.source.startsWith('album:') ? { album: view.source.slice(6) } : { folder: view.source.slice(4) }) };
+      try { list = await req('gallery.query', q); } catch (err) { hooks.showError(err); return; }
     } else list = items;
     if (!list.length) { notice(status.folders.length ? 'There are no pictures to show here.' : 'Add a picture folder first.', 2200); return; }
     const current = view.source.startsWith('show:') && !saved ? status.slideshows.find((s) => 'show:' + s.id === view.source) : saved;

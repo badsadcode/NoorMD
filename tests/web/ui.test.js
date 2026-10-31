@@ -8854,29 +8854,30 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('.gallery-tile');
       await page.click('#gallery-dock');
       await page.click('.menu-popup .menu-item:has-text("In the middle")');
-      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide') && !!document.querySelector('#gallery-nav .gnav-item[data-source^="library:"]'));
-      const rows = () => page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="folder:"], #gallery-nav .gnav-item[data-source^="library:"]', (b) => b.map((x) => x.querySelector('.gnav-label').textContent));
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide') && !!document.querySelector('#gallery-nav .gnav-library'));
+      const rows = () => page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="dir:"], #gallery-nav .gnav-item[data-source^="library:"]', (b) => b.map((x) => x.querySelector('.gnav-label').textContent));
       let r = await rows();
       check('albums are grouped by library folder (closed at first)', r.join('|') === 'GameTextures_PBR|Pics', r);
-      await page.click('#gallery-nav .gnav-item[data-source="library:C:\\\\Pics"]');
+      await page.click('#gallery-nav .gnav-item[data-source="dir:C:\\\\Pics"]');
       r = await rows();
       check('…a library opens to its albums (ArchiveB holds only its own pictures)', r.join('|') === 'GameTextures_PBR|Pics|ArchiveB|Lato', r);
-      await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]');
+      await page.click('#gallery-nav .gnav-item[data-source="dir:F:\\\\Codex\\\\GameTextures_PBR"]');
       r = await rows();
       check('…the other library\'s deep folders share one row ("assets › textures › materials › minerals"), not stair-steps', r.includes('assets › textures › materials › minerals'), r);
-      await page.click('#gallery-nav .gnav-item[data-source$="|assets/textures/materials/minerals"]');
+      await page.click('#gallery-nav .gnav-item[data-source$="\\\\minerals"]');
       r = await rows();
       check('…and open to their albums', r.includes('granite') && r.includes('slate › rock_slate_01'), r);
-      const pads = await page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="folder:"]', (b) => b.map((x) => parseFloat(x.style.paddingLeft) || 10));
+      const pads = await page.$$eval('#gallery-nav .gnav-item[data-source^="album:"], #gallery-nav .gnav-item[data-source^="dir:"]', (b) => b.map((x) => parseFloat(x.style.paddingLeft) || 10));
       check('…each level is indented one small step', Math.max(...pads) <= 10 + 4 * 12, pads);
-      await page.click('#gallery-nav .gnav-item[data-source$="|assets/textures/materials/minerals/granite"]');
+      await page.click('#gallery-nav .gnav-item[data-source$="\\\\granite"]');
       await page.click('#gallery-nav .gnav-item:has-text("rock_granite_dark_01")');
       await waitFn(page, () => NoorGallery._state().source.includes('rock_granite_dark_01'));
+      await waitFn(page, () => NoorGallery._state().items.length > 0).catch(() => {});
       check('choosing an album shows its pictures', (await page.evaluate(() => NoorGallery._state().items.length)) > 0);
-      await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]');
+      await page.click('#gallery-nav .gnav-item[data-source="dir:F:\\\\Codex\\\\GameTextures_PBR"] .gnav-twisty');
       r = await rows();
       check('closing a library hides its albums (even the open one)', !r.some((x) => /granite/.test(x)), r);
-      if (shots) { await page.click('#gallery-nav .gnav-item[data-source="library:F:\\\\Codex\\\\GameTextures_PBR"]'); await page.screenshot({ path: `${shots}/70b-gallery-albums-tree.png`, clip: { x: 280, y: 250, width: 480, height: 500 } }); }
+      if (shots) { await page.click('#gallery-nav .gnav-item[data-source="dir:F:\\\\Codex\\\\GameTextures_PBR"] .gnav-twisty'); await page.screenshot({ path: `${shots}/70b-gallery-albums-tree.png`, clip: { x: 280, y: 250, width: 480, height: 500 } }); }
       check('no page errors with the albums tree', errors.length === 0, errors);
       await page.close();
     }
@@ -8913,6 +8914,54 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…the wheel alone still scrolls (the size stays)', Number(await page.inputValue('#gallery-size')) === s1 - 40 && (await page.evaluate(() => document.querySelector('#gallery-body').scrollTop)) >= sc0);
       if (shots) await page.screenshot({ path: `${shots}/70c-gallery-toolbar.png`, clip: { x: 260, y: 90, width: 1180, height: 260 } });
       check('no page errors in the gallery toolbar', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 70d. Gallery: an album with sub-albums counts everything in it; opened, it shows its sub-albums as folders
+    // (double-click goes in) before its own pictures, with the path above; its slideshow has them all; right-click looks
+    // for new pictures in just that folder.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.evaluate(() => {
+        // C:\Pics\Farm: 3 own pictures; Farm\Logos: 3; Farm\Shots: 3; Lato keeps the rest (3).
+        const set = (im, album) => { im.album = album; im.albumKey = 'c:\\pics\\' + album.toLowerCase().replace(/\//g, '\\'); im.folder = 'C:\\Pics\\' + album.replace(/\//g, '\\'); };
+        window.__mock.state.gallery.images.forEach((im, i) => set(im, ['Farm', 'Farm/Logos', 'Farm/Shots', 'Lato'][i % 4]));
+      });
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('#gallery-dock');
+      await page.click('.menu-popup .menu-item:has-text("In the middle")');
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide') && !!document.querySelector('#gallery-nav .gnav-item[data-source="album:c:\\\\pics\\\\farm"]'));
+      const farm = '#gallery-nav .gnav-item[data-source="album:c:\\\\pics\\\\farm"]';
+      check('an album counts everything in it (its 3 and its sub-albums\' 6)', (await page.textContent(`${farm} small`)) === '9');
+      await page.click(farm);
+      await waitFn(page, () => NoorGallery._state().source === 'album:c:\\pics\\farm' && document.querySelectorAll('#gallery-body .gallery-folder').length === 2);
+      const shown = await page.evaluate(() => [...document.querySelectorAll('#gallery-body .gallery-grid > *')].map((x) => (x.classList.contains('gallery-folder') ? 'folder:' + x.querySelector('b').textContent : 'picture')));
+      check('opened, it shows its sub-albums as folders first, then its own pictures', shown.join(',') === 'folder:Logos,folder:Shots,picture,picture,picture', shown);
+      check('…a folder shows how many pictures it holds', (await page.textContent('#gallery-body .gallery-folder:has-text("Logos") small')) === '3');
+      check('…the line under them: albums, pictures and the total', /2 albums · 3 pictures \(9 in all\)/.test(await page.textContent('#gallery-foot')), await page.textContent('#gallery-foot'));
+      check('…and the path above them', (await page.textContent('#gallery-body .gallery-crumbs')).replace(/\s+/g, ' ').includes('Farm'));
+      await page.dblclick('#gallery-body .gallery-folder:has-text("Shots")');
+      await waitFn(page, () => NoorGallery._state().source === 'album:c:\\pics\\farm\\shots');
+      await waitFn(page, () => document.querySelectorAll('#gallery-body .gallery-tile').length === 3);
+      check('double-clicking a folder goes into that album', (await page.textContent('#gallery-body .gallery-crumbs')).replace(/\s*›\s*/g, ' › ').trim().endsWith('Farm › Shots'), await page.textContent('#gallery-body .gallery-crumbs'));
+      check('…and the list shows it chosen', await page.evaluate(() => document.querySelector('#gallery-nav .gnav-item.active').dataset.source === 'album:c:\\pics\\farm\\shots'));
+      await page.click('#gallery-body .gallery-crumb:has-text("Farm")');
+      await waitFn(page, () => NoorGallery._state().source === 'album:c:\\pics\\farm');
+      check('the path goes back up', true);
+      // Right-click: look for new pictures in just this album.
+      await page.click(farm, { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Look for new pictures here")');
+      await waitFn(page, () => (window.__mock.state.gallery.rescanned || []).length === 1);
+      check('right-click › Look for new pictures here scans just that folder', (await page.evaluate(() => window.__mock.state.gallery.rescanned[0])) === 'C:\\Pics\\Farm');
+      // The slideshow of the album has all 9.
+      await page.click(farm, { button: 'right' });
+      await page.click('.menu-popup .menu-item:has-text("Slideshow of this album")');
+      await page.waitForSelector('#ss-music');
+      check('the album\'s slideshow has its sub-albums\' pictures too', /\b9 pictures\b/.test(await page.textContent('.modal')), (await page.textContent('.modal')).slice(0, 200));
+      await page.keyboard.press('Escape');
+      if (shots) await page.screenshot({ path: `${shots}/70d-gallery-subalbums.png`, clip: { x: 280, y: 180, width: 900, height: 420 } });
+      check('no page errors with sub-albums', errors.length === 0, errors);
       await page.close();
     }
 

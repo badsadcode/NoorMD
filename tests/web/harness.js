@@ -1170,7 +1170,10 @@ function mockHostScript(initial) {
       case 'gallery.status': return status();
       case 'gallery.query': {
         if (p.slideshow) return show(p.slideshow).ids.map(get).map((i) => ({ ...i }));
-        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && (!p.album || i.albumKey === p.album) && (!p.format || i.format === p.format)
+        // An album by key, or any folder by its path; with subAlbums the albums in folders inside it too.
+        const ak = p.folder ? p.folder.toLowerCase().replace(/\//g, '\\').replace(/\\+$/, '') : p.album;
+        const inAlbum = (i) => !ak || i.albumKey === ak || (p.subAlbums && i.albumKey.startsWith(ak + '\\'));
+        let list = GAL.images.filter((i) => (p.filter !== 'favorites' || i.favorite) && inAlbum(i) && (!p.format || i.format === p.format)
           && (i.rating || 0) >= (p.minRating || 0) && (!p.label || i.label === p.label) && (!p.tag || i.tags.some((t) => t.toLowerCase() === p.tag.toLowerCase())) && (!p.month || i.taken.startsWith(p.month)));
         if (p.search) { const t = p.search.toLowerCase(); list = list.filter((i) => (i.name + ' ' + i.album).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ł/g, 'l').includes(t)); }
         const key = p.sort === 'name' ? (i) => i.name : p.sort === 'type' ? (i) => i.format + i.name : p.sort === 'size' ? (i) => String(i.size).padStart(12, '0') : p.sort === 'added' ? (i) => String(i.id).padStart(6, '0') : p.sort === 'rating' ? (i) => String(i.rating || 0) + i.taken : (i) => i.taken;
@@ -1180,6 +1183,7 @@ function mockHostScript(initial) {
       case 'gallery.addFolder': GAL.folders.push({ id: GAL.folders.length + 1, path: 'C:\\Pics' }); galAdd(5); return status();
       case 'gallery.removeFolder': GAL.folders = GAL.folders.filter((f) => f.id !== p.id); GAL.images = []; return status();
       case 'gallery.rescan': GAL.scans++; return status();
+      case 'gallery.rescanAlbum': GAL.rescanned = (GAL.rescanned || []).concat([p.folder]); return status();
       case 'gallery.favorite': p.ids.forEach((id) => { get(id).favorite = !!p.on; }); return null;
       case 'gallery.insert': GAL.inserted.push(p.id); return { inserted: true, document: 'x.md' };
       case 'gallery.reveal': GAL.revealed.push(p.id); return null;

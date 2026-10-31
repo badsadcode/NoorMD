@@ -105,7 +105,7 @@ public sealed record Slideshow(long Id, string Name, int Count, string Settings,
 /// <param name="Tag">Only pictures with this tag.</param>
 /// <param name="Month">Only pictures taken in this month ("2023-07") or year ("2023").</param>
 public sealed record GalleryQuery(string? Search = null, string Filter = "all", string? AlbumKey = null, long? SlideshowId = null, string Sort = "taken", bool Descending = true, int Limit = 5000, string? Format = null,
-    int MinRating = 0, string? Label = null, string? Tag = null, string? Month = null);
+    int MinRating = 0, string? Label = null, string? Tag = null, string? Month = null, bool SubAlbums = false);
 
 /// <summary>
 /// The Gallery: pictures in the folders you add (subfolders are albums), indexed in a local database with the size and
@@ -197,21 +197,40 @@ public sealed class GalleryLibrary
         return list;
     }
 
-    /// <summary>Scans a folder (subfolders included). Known pictures keep their id, favourite and place in slideshows.</summary>
-    public (int Found, int Added, int Missing) Scan(long folderId, CancellationToken ct = default)
+    /// <summary>
+    /// Scans a folder (subfolders included). Known pictures keep their id, favourite and place in slideshows. With
+    /// <paramref name="within"/> (a folder inside it, such as one album) only that part is looked at, which is quicker.
+    /// </summary>
+    public (int Found, int Added, int Missing) Scan(long folderId, CancellationToken ct = default, string? within = null)
     {
         string root;
         using (var c0 = Open())
         using (var q = Cmd(c0, "SELECT path FROM folders WHERE id = $id", null, ("$id", folderId)))
             root = q.ExecuteScalar() as string ?? throw new ArgumentException("Unknown folder.");
         if (!Directory.Exists(root)) return (0, 0, 0); // a disconnected drive: nothing is marked missing
+        string? part = null;
+        if (!string.IsNullOrEmpty(within))
+        {
+            var w = System.IO.Path.GetFullPath(within).TrimEnd('\\', '/');
+            var r0 = System.IO.Path.GetFullPath(root).TrimEnd('\\', '/');
+            if (!string.Equals(w, r0, StringComparison.OrdinalIgnoreCase))
+            {
+                if (!w.StartsWith(r0 + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) && !w.StartsWith(r0 + "/", StringComparison.OrdinalIgnoreCase))
+                    throw new ArgumentException("That folder isn't inside this picture folder.");
+                if (!Directory.Exists(w)) return (0, 0, 0);
+                part = w;
+            }
+        }
         var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System | FileAttributes.Hidden };
-        var files = Directory.EnumerateFiles(root, "*", opts).Where(ImageFormats.IsImage).ToList();
+        var files = Directory.EnumerateFiles(part ?? root, "*", opts).Where(ImageFormats.IsImage).ToList();
+        // Only pictures in the scanned part can be found missing.
+        var partKey = part == null ? null : MusicLibrary.PathKey(part);
+        bool InPart(string pathKey) => partKey == null || pathKey.StartsWith(partKey + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal) || pathKey.StartsWith(partKey + "/", StringComparison.Ordinal);
         var known = new Dictionary<string, (long Id, long Size, long Mtime)>();
         using var c = Open();
         using (var cmd = Cmd(c, "SELECT id, path_key, size, mtime FROM images WHERE folder_id = $f", null, ("$f", folderId)))
         using (var r = cmd.ExecuteReader())
-            while (r.Read()) known[r.GetString(1)] = (r.GetInt64(0), r.GetInt64(2), r.GetInt64(3));
+            while (r.Read()) if (InPart(r.GetString(1))) known[r.GetString(1)] = (r.GetInt64(0), r.GetInt64(2), r.GetInt64(3));
         using var tx = c.BeginTransaction();
         var seen = new HashSet<long>();
         var added = 0;
@@ -351,7 +370,13 @@ public sealed class GalleryLibrary
         var where = new List<string> { "i.missing = 0" };
         var args = new List<(string, object?)>();
         if (q.Filter == "favorites") where.Add("i.favorite = 1");
-        if (!string.IsNullOrEmpty(q.AlbumKey)) { where.Add("i.album_key = $ak"); args.Add(("$ak", q.AlbumKey)); }
+        if (!string.IsNullOrEmpty(q.AlbumKey))
+        {
+            // With SubAlbums: the album and every album in folders inside it (keys are full paths, so they start with its own).
+            if (q.SubAlbums) { where.Add("(i.album_key = $ak OR substr(i.album_key, 1, length($akb)) = $akb OR substr(i.album_key, 1, length($aks)) = $aks)"); args.Add(("$akb", q.AlbumKey.TrimEnd('\\', '/') + "\\")); args.Add(("$aks", q.AlbumKey.TrimEnd('\\', '/') + "/")); }
+            else where.Add("i.album_key = $ak");
+            args.Add(("$ak", q.AlbumKey));
+        }
         if (q.MinRating > 0) { where.Add("i.rating >= $mr"); args.Add(("$mr", q.MinRating)); }
         if (!string.IsNullOrEmpty(q.Label)) { where.Add("i.label = $lb"); args.Add(("$lb", q.Label)); }
         if (!string.IsNullOrWhiteSpace(q.Tag)) { where.Add("EXISTS (SELECT 1 FROM image_tags t WHERE t.image_id = i.id AND t.tag_key = $tg)"); args.Add(("$tg", TagKey(q.Tag))); }
