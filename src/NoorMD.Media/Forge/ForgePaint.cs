@@ -34,6 +34,11 @@ public sealed class ForgeStroke
     public int Seed { get; set; }
     /// <summary>A picture laid over the view while painting: paint gets through where it is white.</summary>
     public ForgeStencil? Stencil { get; set; }
+    /// <summary>
+    /// The colour it was painted with ("#rrggbb"), on a paint layer: what it painted keeps that colour when the layer's
+    /// colour changes later (as in a painting program). Null: the layer's colour (strokes from before this existed).
+    /// </summary>
+    public string? Color { get; set; }
 
     public int DabCount => Dabs.Length / 5;
 
@@ -48,6 +53,7 @@ public sealed class ForgeStroke
         Tip = Tip is { Length: <= 40 } t && t.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? t : "";
         Angle = double.IsFinite(Angle) ? Angle % 360 : 0; Jitter = ForgeMask.C(Jitter, 0, 1);
         Stencil = Stencil?.Clamped();
+        Color = Color is { Length: 7 } c && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : null;
         return this;
     }
 }
@@ -90,7 +96,14 @@ public static class ForgePaint
 {
     /// <summary>The layer's mask with its strokes, 0–1 a texel (before the layer's opacity).</summary>
     /// <param name="layers">The masks of the layers below, by id (for masks that follow one).</param>
-    public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null, Func<string, float[]?>? layers = null)
+    public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null, Func<string, float[]?>? layers = null) =>
+        LayerMask(bake, layer, setIndex, pictures, layers, out _);
+
+    /// <summary>
+    /// The layer's mask, and (for a plain layer with strokes that keep their own colour) the colour of each texel: the
+    /// layer's colour, then each stroke's own over it where it painted (by how much it covered), in order.
+    /// </summary>
+    public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures, Func<string, float[]?>? layers, out Vector3[]? colors)
     {
         var n = bake.Size * bake.Size;
         var v = new float[n];
@@ -104,7 +117,28 @@ public static class ForgePaint
             _ => null,
         };
         Parallel.For(0, n, i => { if (bake.Covered[i] != 0) v[i] = ForgeCompositor.MaskAt(mask, bake, i, setIndex, span, given); });
-        foreach (var stroke in layer.Strokes) Apply(bake, stroke, v, pictures);
+        colors = null;
+        if (layer.Material.Length == 0 && layer.Strokes.Any(st => st.Color != null))
+        {
+            var own = ForgeCompositor.Hex(layer.Color);
+            colors = new Vector3[n];
+            Array.Fill(colors, own);
+        }
+        foreach (var stroke in layer.Strokes)
+        {
+            if (colors == null) { Apply(bake, stroke, v, pictures); continue; }
+            var cover = Coverage(bake, stroke, pictures);
+            var col = stroke.Color != null ? ForgeCompositor.Hex(stroke.Color) : ForgeCompositor.Hex(layer.Color);
+            foreach (var (i, a) in cover)
+            {
+                if (stroke.Erase) { v[i] *= 1 - a; continue; }
+                // The new paint over what was there, as much as it covers (a soft edge blends the two colours).
+                var before = v[i];
+                v[i] = before + (1 - before) * a;
+                var share = v[i] > 1e-6f ? (v[i] - before + before * a) / v[i] : 1;
+                colors[i] = Vector3.Lerp(colors[i], col, Math.Clamp(share, 0, 1));
+            }
+        }
         return v;
     }
 

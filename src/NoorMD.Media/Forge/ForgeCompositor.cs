@@ -55,7 +55,7 @@ public static class ForgeCompositor
         var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
         foreach (var layer in recipe.Layers)
         {
-            var mk = ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id));
+            var mk = ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id), out var painted);
             masks[layer.Id] = mk;
             if (!layer.Visible || layer.Opacity <= 0) continue;
             var maps = layer.Material.Length > 0 ? materials(layer.Material) : null;
@@ -79,7 +79,7 @@ public static class ForgeCompositor
                     c = tinting ? Vector3.Min(alb * tintScale, Vector3.One) : alb; r = ro; mt = me; h = he;
                     nw = Vector3.Normalize(ng + tn * (float)layer.NormalStrength);
                 }
-                else { c = tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
+                else { c = painted != null ? painted[i] : tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
                 if (layer.UseColor) color[i] = Vector3.Lerp(color[i], c, m);
                 if (layer.UseRoughness) rough[i] += (r - rough[i]) * m;
                 if (layer.UseMetallic) metal[i] += (mt - metal[i]) * m;
@@ -200,7 +200,7 @@ public static class ForgeCompositor
     private static float Srgb(float c) => c <= 0.0031308f ? c * 12.92f : 1.055f * MathF.Pow(MathF.Max(0, c), 1 / 2.4f) - 0.055f;
     private static byte B(float v) => (byte)Math.Clamp((int)MathF.Round(v * 255), 0, 255);
 
-    private static Vector3 Hex(string hex)
+    internal static Vector3 Hex(string hex)
     {
         int v = Convert.ToInt32(hex[1..], 16);
         return new Vector3(Lin((byte)(v >> 16)), Lin((byte)(v >> 8)), Lin((byte)v));
