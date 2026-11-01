@@ -181,7 +181,10 @@ window.NoorGallery = (() => {
     const s = $('#gallery-source');
     const tags = status.tags || [];
     const years = yearsOf(status.months || []);
-    const known = new Set(['all', 'fav', ...status.albums.map((a) => 'album:' + a.key), ...status.slideshows.map((x) => 'show:' + x.id), ...tags.map((t) => 'tag:' + t.tag),
+    // Every place in the albums tree counts too (a picture folder, a folder holding only albums): else opening one
+    // would fall back to all pictures.
+    const places = albumTree().bySource;
+    const known = new Set(['all', 'fav', ...places.keys(), ...status.albums.map((a) => 'album:' + a.key), ...status.slideshows.map((x) => 'show:' + x.id), ...tags.map((t) => 'tag:' + t.tag),
       ...years.flatMap((y) => ['month:' + y.year, ...y.months.map((m) => 'month:' + m.month)])]);
     if (!known.has(view.source)) view.source = 'all';
     s.replaceChildren(
@@ -192,6 +195,8 @@ window.NoorGallery = (() => {
       ...(tags.length ? [el('optgroup', { label: 'Tags' }, ...tags.map((t) => el('option', { value: 'tag:' + t.tag, text: `# ${t.tag} (${t.count})` })))] : []),
       ...(years.length ? [el('optgroup', { label: 'By date' }, ...years.flatMap((y) => [el('option', { value: 'month:' + y.year, text: `${y.year} (${y.count})` }),
         ...y.months.map((m) => el('option', { value: 'month:' + m.month, text: `\u2003${monthName(m.month)} (${m.count})` }))]))] : []));
+    // A folder that is no album of its own is in the list while it is open.
+    if (![...s.options].some((o) => o.value === view.source) && places.has(view.source)) s.prepend(el('option', { value: view.source, text: `📁 ${places.get(view.source).name} (${places.get(view.source).total})` }));
     s.value = view.source;
     const mk = $('#gallery-mark');
     if (mk) mk.value = view.mark;
@@ -210,6 +215,9 @@ window.NoorGallery = (() => {
     if (view.source.startsWith('month:')) q.month = view.source.slice(6);
     if (view.source.startsWith('album:')) q.album = view.source.slice(6);
     if (view.source.startsWith('dir:')) q.folder = view.source.slice(4);
+    // Finding or filtering inside an album or a folder looks through everything in it (its sub-albums too); the
+    // folders aren't shown then, so their pictures would otherwise be out of reach.
+    if ((q.album || q.folder) && (view.search || view.format || view.mark)) q.subAlbums = true;
     if (view.source.startsWith('show:')) q.slideshow = Number(view.source.slice(5));
     let rows;
     if (view.source.startsWith('library:')) rows = []; // a group with no folder of its own: only its albums show
@@ -848,7 +856,9 @@ window.NoorGallery = (() => {
   function albumTree() {
     const norm = (p) => String(p || '').replace(/[\\/]+$/, '').toLowerCase();
     const leaf = (p) => String(p).replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
-    const roots = [...(status.folders || [])].map((f) => f.path).sort((a, b) => b.length - a.length);
+    // The outermost picture folder holding the album: a picture folder added inside another one is a folder in it
+    // (as on the disk), not a second tree with the same folders in both.
+    const roots = [...(status.folders || [])].map((f) => String(f.path).replace(/[\\/]+$/, '')).sort((a, b) => a.length - b.length);
     const rootOf = (a) => roots.find((r) => { const f = norm(a.folder), n = norm(r); return f === n || f.startsWith(n + '\\') || f.startsWith(n + '/'); }) || '';
     const groups = new Map(), bySource = new Map();
     const mk = (name, navKey, folder, parent, library = false) => ({ name, navKey, folder, parent, library, kids: new Map(), album: null, source: folder ? 'dir:' + folder : 'library:' + navKey, total: 0, cover: null });
@@ -857,11 +867,14 @@ window.NoorGallery = (() => {
       if (!groups.has(r)) groups.set(r, mk(r ? leaf(r) : 'Other', 'root:' + r, r || null, null, true));
       const g = groups.get(r);
       if (r && norm(a.folder) === norm(r)) { g.album = a; continue; } // pictures right in the picture folder
+      // Where it is from its folder on the disk (its name says where it is from the picture folder that last looked
+      // through it, which for folders inside folders can be another one).
+      const parts = r ? String(a.folder).slice(r.length).split(/[\\/]+/).filter(Boolean) : a.name.split('/');
       let n = g, rel = '';
-      for (const part of a.name.split('/')) {
+      for (const part of parts) {
         rel = rel ? `${rel}/${part}` : part;
-        if (!n.kids.has(part)) n.kids.set(part, mk(part, `${r}|${rel}`, r ? r + sep + rel.split('/').join(sep) : null, n));
-        n = n.kids.get(part);
+        if (!n.kids.has(part.toLowerCase())) n.kids.set(part.toLowerCase(), mk(part, `${r}|${rel}`, r ? r + sep + rel.split('/').join(sep) : null, n));
+        n = n.kids.get(part.toLowerCase());
       }
       n.album = a; n.folder = a.folder;
     }

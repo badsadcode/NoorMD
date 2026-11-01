@@ -5,6 +5,10 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorGallery fixes (preview.133): opening a picture folder (or a folder holding only albums) from the list shows
+  its folders and pictures instead of falling back to all pictures; a picture folder added inside another one is a
+  folder in it, its albums placed by where they are on the disk, with the same names whichever of the two looked
+  through them last; finding (or filtering) inside an album or folder looks through the albums in it too.
 - NoorMaterial makes pictures that don't tile seamless (preview.132): a picture layer is made to tile by stitching
   (its edges covered with matching pieces from elsewhere in the picture, joined along the line where they differ
   least, so no see-through doubles; small steps of light along the joins are smoothed away over the whole tile, edges

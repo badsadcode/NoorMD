@@ -221,6 +221,13 @@ public sealed class GalleryLibrary
                 part = w;
             }
         }
+        // Album names from the outermost picture folder holding this one (a picture folder added inside another one):
+        // the same names whichever of the two looked through them last.
+        var rootTrim = root.TrimEnd('\\', '/');
+        var outer = Folders().Select(f => f.Path.TrimEnd('\\', '/'))
+            .Where(f => rootTrim.StartsWith(f + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) || rootTrim.StartsWith(f + "/", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(f => f.Length).FirstOrDefault();
+        if (outer != null) rootTrim = outer;
         var opts = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.System | FileAttributes.Hidden };
         var files = Directory.EnumerateFiles(part ?? root, "*", opts).Where(ImageFormats.IsImage).ToList();
         // Only pictures in the scanned part can be found missing.
@@ -234,7 +241,6 @@ public sealed class GalleryLibrary
         using var tx = c.BeginTransaction();
         var seen = new HashSet<long>();
         var added = 0;
-        var rootTrim = root.TrimEnd('\\', '/');
         foreach (var f in files)
         {
             ct.ThrowIfCancellationRequested();
@@ -498,8 +504,10 @@ public sealed class GalleryLibrary
     public void Relocate(long id, string newPath)
     {
         var full = System.IO.Path.GetFullPath(newPath);
-        var folder = Folders().Where(f => full.StartsWith(System.IO.Path.TrimEndingDirectorySeparator(f.Path) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-            .OrderByDescending(f => f.Path.Length).FirstOrDefault() ?? throw new ArgumentException("That place is not in a NoorGallery folder.");
+        var holding = Folders().Where(f => full.StartsWith(System.IO.Path.TrimEndingDirectorySeparator(f.Path) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(f => f.Path.Length).ToList();
+        var folder = holding.FirstOrDefault() ?? throw new ArgumentException("That place is not in a NoorGallery folder.");
+        var outer = holding[^1]; // album names from the outermost picture folder, as a scan gives them
         var dir = System.IO.Path.GetDirectoryName(full)!;
         var info = new FileInfo(full);
         using var c = Open();
@@ -508,7 +516,7 @@ public sealed class GalleryLibrary
         using (var stale = Cmd(c, "DELETE FROM images WHERE path_key = $k AND id <> $id", tx, ("$k", MusicLibrary.PathKey(full)), ("$id", id))) stale.ExecuteNonQuery();
         using (var u = Cmd(c, "UPDATE images SET folder_id=$f, path=$p, path_key=$k, name=$n, album=$al, album_key=$ak, mtime=$m, missing=0 WHERE id=$id", tx,
             ("$f", folder.Id), ("$p", full), ("$k", MusicLibrary.PathKey(full)), ("$n", System.IO.Path.GetFileNameWithoutExtension(full)),
-            ("$al", AlbumName(System.IO.Path.TrimEndingDirectorySeparator(folder.Path), dir)), ("$ak", MusicLibrary.PathKey(dir)), ("$m", info.Exists ? info.LastWriteTimeUtc.Ticks : 0), ("$id", id)))
+            ("$al", AlbumName(System.IO.Path.TrimEndingDirectorySeparator(outer.Path), dir)), ("$ak", MusicLibrary.PathKey(dir)), ("$m", info.Exists ? info.LastWriteTimeUtc.Ticks : 0), ("$id", id)))
             u.ExecuteNonQuery();
         tx.Commit();
     }

@@ -9058,6 +9058,55 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 70e. Gallery: a picture folder added inside another one is a folder in it (as on the disk). Its albums are
+    // placed by their folders, not by their names (which say where they are from whichever picture folder last looked
+    // through them), so opening the picture folder shows its folders, and each folder opens the right pictures.
+    {
+      const { page, errors } = await open(browser, url, { gallery: 12, document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      await page.evaluate(() => {
+        const G = window.__mock.state.gallery;
+        G.folders.push({ id: 2, path: 'C:\\Pics\\Archive' }, { id: 3, path: 'D:\\Art' });
+        // Named from C:\Pics\Archive (the inner picture folder looked through them last): "Rocks", "Rocks/Wet".
+        const at = [['Rocks', 'C:\\Pics\\Archive\\Rocks'], ['Rocks/Wet', 'C:\\Pics\\Archive\\Rocks\\Wet'], ['Lato', 'C:\\Pics\\Lato'], ['Art', 'D:\\Art']];
+        G.images.forEach((im, i) => { const [album, folder] = at[i % 4]; Object.assign(im, { album, folder, albumKey: folder.toLowerCase() }); });
+      });
+      await page.keyboard.press('Control+Alt+g');
+      await page.waitForSelector('.gallery-tile');
+      await page.click('#gallery-dock');
+      await page.click('.menu-popup .menu-item:has-text("In the middle")');
+      await waitFn(page, () => document.querySelector('#gallery').classList.contains('wide'));
+      const groups = await page.evaluate(() => [...document.querySelectorAll('#gallery-nav .gnav-item')].filter((x) => x.dataset.source?.startsWith('dir:')).map((x) => x.dataset.source));
+      check('a picture folder inside another one is not a second tree beside it', groups.join(',') === 'dir:C:\\Pics', groups);
+      const pics = '#gallery-nav .gnav-item[data-source="dir:C:\\\\Pics"]';
+      check('the picture folder counts everything in it', (await page.textContent(`${pics} small`)) === '9');
+      await page.click(pics);
+      await waitFn(page, () => NoorGallery._state().source === 'dir:C:\\Pics' && document.querySelectorAll('#gallery-body .gallery-folder').length > 0);
+      const tiles = await page.evaluate(() => [...document.querySelectorAll('#gallery-body .gallery-folder')].map((x) => x.querySelector('b').textContent + '=' + x.querySelector('small').textContent));
+      check('opened, the picture folder shows its folders (the inner picture folder among them)', tiles.join(',') === 'Archive › Rocks=6,Lato=3', tiles);
+      await page.dblclick('#gallery-body .gallery-folder:has-text("Archive")');
+      await waitFn(page, () => NoorGallery._state().source === 'album:c:\\pics\\archive\\rocks');
+      await waitFn(page, () => document.querySelectorAll('#gallery-body .gallery-tile').length === 3 && document.querySelectorAll('#gallery-body .gallery-folder').length === 1);
+      check('…a folder in it opens its own pictures and its folders', (await page.textContent('#gallery-body .gallery-folder b')) === 'Wet');
+      check('…with the path from the picture folder', (await page.textContent('#gallery-body .gallery-crumbs')).replace(/\s*›\s*/g, ' › ').trim() === 'Pics › Archive › Rocks', await page.textContent('#gallery-body .gallery-crumbs'));
+      // Opened from the list, a picture folder stays open (it used to fall back to all pictures).
+      await page.click(pics);
+      await waitFn(page, () => NoorGallery._state().source === 'dir:C:\\Pics' && document.querySelectorAll('#gallery-body .gallery-folder').length === 2);
+      await page.waitForTimeout(300);
+      check('…and stays open (not back to all pictures)', (await page.evaluate(() => NoorGallery._state().source)) === 'dir:C:\\Pics');
+      // Finding inside it looks through its folders too.
+      await page.fill('#gallery-search', 'wet');
+      await waitFn(page, () => document.querySelectorAll('#gallery-body .gallery-tile').length === 3);
+      check('finding inside a picture folder looks through the albums in it', (await page.evaluate(() => NoorGallery._state().source)) === 'dir:C:\\Pics');
+      await page.fill('#gallery-search', '');
+      await page.evaluate(() => [...document.querySelectorAll('#gallery-nav .gnav-item')].find((x) => x.dataset.source === 'album:d:\\art').click());
+      await waitFn(page, () => NoorGallery._state().source === 'album:d:\\art');
+      await page.fill('#gallery-search', 'Zdj');
+      await waitFn(page, () => document.querySelectorAll('#gallery-body .gallery-tile').length === 3);
+      check('…and finding inside an album finds its pictures (not all of them)', true);
+      check('no page errors with picture folders inside picture folders', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

@@ -1195,6 +1195,22 @@ public class GalleryTests
         Assert.Equal(0, r.Added); // nothing doubled, nothing failed
         Assert.Equal(3, lib.Count());
     }
+
+    [Fact]
+    public void Album_Names_Are_The_Same_Whichever_Overlapping_Folder_Looked_Last()
+    {
+        var (t, lib, child) = Library();
+        using var _ = t;
+        var parent = lib.AddFolder(t.Path); // Pics is inside it
+        string Names() => string.Join(",", lib.Albums().Select(a => a.Name).OrderBy(n => n, StringComparer.Ordinal));
+        lib.Scan(parent);
+        var fromOuter = Names();
+        lib.Scan(child); // the inner picture folder looks through them last
+        Assert.Equal(fromOuter, Names());
+        Assert.Contains("Pics/Wakacje 2023", Names());
+        lib.Scan(child, within: t.P("Pics", "Wakacje 2023")); // and one album of it
+        Assert.Equal(fromOuter, Names());
+    }
 }
 
 public class OverlapTests
