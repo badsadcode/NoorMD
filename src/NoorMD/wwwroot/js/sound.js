@@ -41,7 +41,7 @@ window.NoorSound = (() => {
     synth: { type: 'synth', name: 'Synth voice', gain: -12, wave: 'sine', pitch: 440, pitchEnd: 0, attack: 0.005, hold: 0, release: 0.3, width: 0 },
     sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0, filter: 'lowpass', freq: 4000, q: 0.7, playMode: 'tape' },
     voice: { type: 'voice', name: 'Voice', gain: -6, width: 0, pitch: 150, voiceSays: 'chatter', voiceLength: 3, voiceProfile: null, voiceRange: 7, voiceSize: 1, breath: 0.1, rasp: 0, nasal: 0.1, creature: 0, clarity: 0.7,
-      syllableRate: 5, pauses: 0.4, hesitation: 0, emotion: 'calm', emotionAmount: 0.6, emotionEnd: null, delivery: 'normal', language: 'common', languageSeed: 1, consistency: 0.75, voiceSource: '', keepWords: 0, keepVoice: 0, followPitch: 0.8, filter: 'lowpass', freq: 8000, q: 0.7 },
+      syllableRate: 5, pauses: 0.4, hesitation: 0, emotion: 'calm', emotionAmount: 0.6, emotionEnd: null, delivery: 'normal', language: 'common', languageSeed: 1, consistency: 0.75, voiceSource: '', keepWords: 0, keepVoice: 0, followPitch: 0.8, wordClarity: 1, filter: 'lowpass', freq: 8000, q: 0.7 },
   };
   const MASTER = [['gain', 'Level', -40, 24, 0.5, 'db'], ['highPass', 'Low cut', 10, 5000, 1, 'hz'], ['lowPass', 'High cut', 200, 20000, 1, 'hz'], ['width', 'Stereo width', 0, 2, 0.05, 'pct'],
     ['reverb', 'Room sound', 0, 1, 0.05, 'pct'], ['room', 'Room size', 0, 1, 0.05, 'pct'], ['ceiling', 'Ceiling', -24, 0, 0.5, 'db']];
@@ -687,7 +687,7 @@ window.NoorSound = (() => {
     if (l.voiceSource !== 'recording') return FIELDS.voice;
     const pick = (keys) => keys.map((k) => FIELDS.voice.find(([x]) => x === k)).filter(Boolean);
     return [...pick(['gain', 'pan', 'start']),
-      ['keepWords', 'Keeps its own words', 0, 1, 0.01, 'pct'], ['keepVoice', 'Keeps its own voice', 0, 1, 0.01, 'pct'], ['followPitch', 'Invented words follow its melody', 0, 1, 0.01, 'pct'],
+      ['keepWords', 'Keeps its own words', 0, 1, 0.01, 'pct'], ['wordClarity', 'How clear its own words are', 0, 1, 0.01, 'pct'], ['keepVoice', 'Keeps its own voice', 0, 1, 0.01, 'pct'], ['followPitch', 'Invented words follow its melody', 0, 1, 0.01, 'pct'],
       ...pick(['pitch', 'voiceSize', 'breath', 'rasp', 'creature', 'nasal', 'clarity', 'voiceRange', 'emotionAmount', 'consistency', 'repeat']), ...FILTERED, ...GRIT];
   }
 

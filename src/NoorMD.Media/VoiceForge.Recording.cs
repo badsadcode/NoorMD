@@ -214,6 +214,106 @@ public static partial class VoiceForge
         return y;
     }
 
+    // ---------------------------------------------------------------- how clear its words are
+
+    /// <summary>
+    /// Makes a recording's words less clear while keeping the voice, its timing and its melody. Each moment of the sound
+    /// is split (cepstrum) into the mouth's shape (the spectral envelope: what tells one vowel or consonant from another)
+    /// and the voice itself (the harmonics of its pitch, the noise of breath); the mouth's shape is moved toward the
+    /// recording's average one (every vowel heads toward "uh") by 1 − clarity. Below about 45 % some syllables also play
+    /// backwards, so no word is left to recognise at 0.
+    /// </summary>
+    internal static float[] Blur(float[] x, Analysis an, int sr, double clarity, SoundRng rng)
+    {
+        var n = 1; while (n < 0.032 * sr) n <<= 1;
+        var hop = n / 4;
+        var half = n / 2;
+        var win = new double[n];
+        for (var i = 0; i < n; i++) win[i] = 0.5 - 0.5 * Math.Cos(2 * Math.PI * i / n);
+        var lifter = Math.Max(8, sr / 800); // shapes finer than a 800 Hz voice's harmonics are the voice, not the mouth
+        var frames = Math.Max(1, (x.Length + n) / hop);
+        var envs = new double[frames][];
+        var spectra = new (double[] Re, double[] Im)[frames];
+        var speaking = new bool[frames];
+        double[] re = new double[n], im = new double[n];
+        for (var f = 0; f < frames; f++)
+        {
+            var at = f * hop - half;
+            for (var i = 0; i < n; i++) { var k = at + i; re[i] = k >= 0 && k < x.Length ? x[k] * win[i] : 0; im[i] = 0; }
+            SoundAnalysis.Fft(re, im);
+            spectra[f] = ((double[])re.Clone(), (double[])im.Clone());
+            // The envelope: the log spectrum with only its slow changes kept (low quefrencies).
+            var lr = new double[n]; var li = new double[n];
+            for (var k = 0; k < n; k++) lr[k] = Math.Log(Math.Sqrt(re[k] * re[k] + im[k] * im[k]) + 1e-9);
+            Inverse(lr, li);
+            for (var q = lifter; q <= n - lifter; q++) { lr[q] = 0; li[q] = 0; }
+            SoundAnalysis.Fft(lr, li);
+            envs[f] = lr.Take(half + 1).ToArray();
+            var t = (double)(f * hop) / sr;
+            speaking[f] = an.Speech.Any(r => t >= r.Start && t <= r.End);
+        }
+        // The average mouth shape while it speaks.
+        var avg = new double[half + 1]; var count = 0;
+        for (var f = 0; f < frames; f++) if (speaking[f]) { count++; for (var k = 0; k <= half; k++) avg[k] += envs[f][k]; }
+        if (count == 0) return x;
+        for (var k = 0; k <= half; k++) avg[k] /= count;
+        var top = Math.Min(half, (int)(5000.0 * n / sr));
+        var w = 1 - clarity;
+        var outp = new double[x.Length + n]; var weight = new double[x.Length + n];
+        for (var f = 0; f < frames; f++)
+        {
+            var (sr0, si0) = spectra[f];
+            var e = envs[f];
+            // The average shape at this moment's loudness (so the level and its changes stay).
+            double shift = 0; for (var k = 1; k <= top; k++) shift += e[k] - avg[k]; shift /= top;
+            // (Each change kept within ±20 dB, and the moment as loud as it was: no bursts where the shapes differ most.)
+            double e0 = 0, e1 = 0;
+            for (var k = 0; k < n; k++)
+            {
+                var b = k <= half ? k : n - k;
+                var g = Math.Exp(Math.Clamp(w * (avg[b] + shift - e[b]), -2.3, 2.3));
+                e0 += sr0[k] * sr0[k] + si0[k] * si0[k];
+                re[k] = sr0[k] * g; im[k] = si0[k] * g;
+                e1 += re[k] * re[k] + im[k] * im[k];
+            }
+            var keepLevel = e1 > 1e-18 ? Math.Sqrt(e0 / e1) : 1;
+            for (var k = 0; k < n; k++) { re[k] *= keepLevel; im[k] *= keepLevel; }
+            Inverse(re, im);
+            var at = f * hop - half;
+            for (var i = 0; i < n; i++) { var k = at + i; if (k < 0 || k >= x.Length) continue; outp[k] += re[i] * win[i]; weight[k] += win[i] * win[i]; }
+        }
+        var y = new float[x.Length];
+        for (var i = 0; i < x.Length; i++) y[i] = weight[i] > 1e-6 ? (float)(outp[i] / weight[i]) : 0;
+        // Barely clear: some syllables backwards (the melody runs backwards inside them, the rhythm stays).
+        var backwards = Math.Clamp((0.45 - clarity) / 0.45, 0, 1) * 0.7;
+        if (backwards > 0)
+        {
+            var fade = sr / 100;
+            foreach (var syl in an.Syllables)
+            {
+                if (rng.NextDouble() >= backwards) continue;
+                int a = (int)(syl.Start * sr), b = Math.Min(y.Length, (int)(syl.End * sr));
+                if (b - a < 4 * fade) continue;
+                var seg = y[a..b]; Array.Reverse(seg);
+                for (var i = 0; i < seg.Length; i++)
+                {
+                    var m = Math.Min(1.0, Math.Min(i, seg.Length - 1 - i) / (double)fade); // soft joins
+                    y[a + i] = (float)(seg[i] * m + y[a + i] * (1 - m));
+                }
+            }
+        }
+        return y;
+    }
+
+    /// <summary>The inverse Fourier transform (in place, scaled), by the forward one on the conjugate.</summary>
+    private static void Inverse(double[] re, double[] im)
+    {
+        var n = re.Length;
+        for (var i = 0; i < n; i++) im[i] = -im[i];
+        SoundAnalysis.Fft(re, im);
+        for (var i = 0; i < n; i++) { re[i] /= n; im[i] = -im[i] / n; }
+    }
+
     // ---------------------------------------------------------------- invented words, its acting
 
     /// <summary>
@@ -289,7 +389,11 @@ public static partial class VoiceForge
         {
             var pitchFactor = an.MedianPitch > 0 ? Math.Pow(l.Pitch / an.MedianPitch, change) : 1;
             var formant = Math.Pow(1 / Math.Clamp(l.VoiceSize, 0.4, 2.5), change);
-            own = Transform(x, an, sr, pitchFactor, formant, l.Rasp * change, l.Creature * change, l.Breath * change * 0.5, robot, robot ? l.Pitch : 0, rng);
+            // How clear its own words stay: the mouth's shapes blurred toward an average (and, when barely clear,
+            // some syllables backwards) before the voice is changed.
+            var clear = Math.Clamp(l.WordClarity, 0, 1);
+            var src = clear < 0.999 ? Blur(x, an, sr, clear, rng) : x;
+            own = Transform(src, an, sr, pitchFactor, formant, l.Rasp * change, l.Creature * change, l.Breath * change * 0.5, robot, robot ? l.Pitch : 0, rng);
         }
         if (keep < 1)
         {

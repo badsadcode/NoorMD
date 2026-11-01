@@ -53,6 +53,10 @@ An emotion is not just louder or higher: it changes the pitch contour and its ra
      how loud each one is, and its melody (as much as "follow its melody" says), in the layer's voice and feeling.
    - **A mix** in between: by groups of one to three syllables (about a word), joined softly where it is quiet.
    - **Keeps its own voice**: from the recording's own voice (100 %) to the layer's (0 %); choosing a voice sets 0.
+   - **How clear its own words are** (preview.136): each moment's mouth shape (the spectral envelope, by cepstrum) is
+     moved toward the recording's average one, every vowel heading toward "uh", while the voice (its harmonics and
+     breath), its timing, melody and loudness stay; below about 45 % some syllables also play backwards. 100 % is the
+     recording as it is, about 60 % mumbled, about 30 % barely understandable, 0 % no word left.
 3. **Spoken lines**: written text spoken by Windows' own voice (offline), with speed, pitch, emphasis and a list of how
    names and invented words are said. What it can't do (real emotion) is shown as not available, not faked.
 4. **Later, optional**: neural speech and voice conversion (only for recordings you own or may use), several speakers in

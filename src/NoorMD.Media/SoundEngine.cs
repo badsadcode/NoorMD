@@ -189,6 +189,8 @@ public sealed class SoundLayer
     public double KeepWords { get; set; }
     public double KeepVoice { get; set; }
     public double FollowPitch { get; set; } = 0.8;
+    /// <summary>How clear its own words stay (1 = as recorded … 0 = no word left to recognise; its voice, timing and melody stay).</summary>
+    public double WordClarity { get; set; } = 1;
 
     /// <summary>A file the layer reads: a sample's WAV, or a voice's recording.</summary>
     [System.Text.Json.Serialization.JsonIgnore]
@@ -362,7 +364,7 @@ public sealed class SoundRecipe
             l.Language = VoiceForge.Languages.Any(x => x.Id == l.Language) ? l.Language : "common";
             l.LanguageSeed = Math.Clamp(l.LanguageSeed, 0, 999_999); l.Consistency = C(l.Consistency, 0, 1);
             l.VoiceSource = l.VoiceSource == "recording" ? "recording" : "";
-            l.KeepWords = C(l.KeepWords, 0, 1); l.KeepVoice = C(l.KeepVoice, 0, 1); l.FollowPitch = C(l.FollowPitch, 0, 1);
+            l.KeepWords = C(l.KeepWords, 0, 1); l.KeepVoice = C(l.KeepVoice, 0, 1); l.FollowPitch = C(l.FollowPitch, 0, 1); l.WordClarity = C(l.WordClarity, 0, 1);
             if (l.VoiceProfile != null) l.VoiceProfile = l.VoiceProfile.Length > 60 ? l.VoiceProfile[..60] : l.VoiceProfile;
             l.Effects = (l.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         }

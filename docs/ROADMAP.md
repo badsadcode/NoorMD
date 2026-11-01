@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Voice Forge (preview.136): "How clear its own words are" for a voice from a recording: from as recorded, through
+  mumbled and barely understandable, to no word left, with the voice, timing and melody kept.
 - Voice Forge, stage 2 (preview.135): voices from recordings (picked, or recorded in NoorSound): its own words with
   another voice (pitch and body size apart, breath, rasp, creature, robot), invented words with its timing, pauses,
   loudness and melody, or a mix word by word. See [VOICE_FORGE_PLAN.md](VOICE_FORGE_PLAN.md).

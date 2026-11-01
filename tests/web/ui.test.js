@@ -9183,12 +9183,16 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('a voice "from a recording" asks for the file and uses it', (await page.evaluate(() => window.__mock.state.sound.picks)) === picks + 1 && v.sampleName === 'door creak.wav', v);
       check('…by default invented words with its acting, in the layer\'s voice', v.keepWords === 0 && v.keepVoice === 0 && v.followPitch === 0.8);
       check('…its card has how much keeps its words and voice, follows its melody, and no "Says" (its timing is the recording\'s)',
-        await page.evaluate((c) => ['keepWords', 'keepVoice', 'followPitch', 'pitch', 'voiceSize'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)) && !document.querySelector(`${c} select[data-voice="says"]`) && !document.querySelector(`${c} input[data-num="voiceLength"]`), card));
+        await page.evaluate((c) => ['keepWords', 'wordClarity', 'keepVoice', 'followPitch', 'pitch', 'voiceSize'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)) && !document.querySelector(`${c} select[data-voice="says"]`) && !document.querySelector(`${c} input[data-num="voiceLength"]`), card));
       check('…and the recording\'s waveform to choose the part used', !!(await page.$(`${card} canvas.sb-region`)));
       await page.fill(`${card} input[data-num="keepWords"]`, '60');
       await page.press(`${card} input[data-num="keepWords"]`, 'Enter');
       await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.keepWords === 0.6);
       check('"Keeps its own words" goes into the recipe (a mix, word by word)', true);
+      await page.fill(`${card} input[data-num="wordClarity"]`, '30');
+      await page.press(`${card} input[data-num="wordClarity"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.wordClarity === 0.3);
+      check('"How clear its own words are" goes into the recipe (barely clear at 30 %)', true);
       // A chosen voice: the recording takes it on.
       await page.fill(`${card} input[data-num="keepVoice"]`, '100'); await page.press(`${card} input[data-num="keepVoice"]`, 'Enter');
       await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.keepVoice === 1);

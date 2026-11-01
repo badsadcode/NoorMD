@@ -107,6 +107,40 @@ public class VoiceRecordingTests
     }
 
     [Fact]
+    public void Its_Own_Words_Become_Less_Clear_While_Its_Voice_Timing_And_Level_Stay()
+    {
+        var audio = Recording();
+        var original = VoiceForge.Mono(audio, 0, 0, Sr);
+        var a0 = VoiceForge.Analyze(original, Sr);
+        float[] At(double clarity) { var l = FromRecording(1, 1, "Narrator"); l.WordClarity = clarity; return Render(l, audio); }
+        // How much the mouth's shape moves: the spread of the brightness (spectral centroid) from moment to moment.
+        static double Movement(float[] x)
+        {
+            var n = 1024; var list = new List<double>();
+            for (var at = 0; at + n < x.Length; at += n / 2)
+            {
+                var re = new double[n]; var im = new double[n]; double e = 0;
+                for (var i = 0; i < n; i++) { re[i] = x[at + i] * (0.5 - 0.5 * Math.Cos(2 * Math.PI * i / n)); e += re[i] * re[i]; }
+                if (e < 1e-3) continue; // quiet: no shape to measure
+                SoundAnalysis.Fft(re, im);
+                double num = 0, den = 0;
+                for (var k = 1; k < n / 2; k++) { var m = Math.Sqrt(re[k] * re[k] + im[k] * im[k]); num += k * m; den += m; }
+                list.Add(num / den);
+            }
+            var mean = list.Average();
+            return Math.Sqrt(list.Average(v => (v - mean) * (v - mean)));
+        }
+        static double Rms(float[] x) => Math.Sqrt(x.Average(v => (double)v * v));
+        var clear = At(1); var mumbled = At(0.6); var gone = At(0);
+        Assert.True(Correlation(original, clear) > 0.9);
+        Assert.True(Movement(gone) < Movement(mumbled) && Movement(mumbled) < Movement(clear), $"{Movement(clear):0.0} > {Movement(mumbled):0.0} > {Movement(gone):0.0}");
+        Assert.InRange(20 * Math.Log10(Rms(gone) / Rms(clear)), -2, 2); // as loud
+        var a1 = VoiceForge.Analyze(gone, Sr);
+        Assert.Equal(a0.Speech.Count, a1.Speech.Count); // the same phrases and pauses
+        Assert.InRange(a1.MedianPitch, a0.MedianPitch * 0.9, a0.MedianPitch * 1.1); // the same voice
+    }
+
+    [Fact]
     public void A_Missing_Recording_Is_Reported_And_Recordings_Are_Files_The_Recipe_Reads()
     {
         var l = FromRecording(0, 0);
