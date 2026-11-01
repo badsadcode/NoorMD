@@ -278,7 +278,7 @@ window.NoorVoice = (() => {
   function quickRecord() { if (rec) stop(); else start(); }
 
   return {
-    init, open, close, toggle, isOpen, quickRecord, refresh,
+    init, open, close, toggle, isOpen, quickRecord, refresh, toWav, toBase64,
     _state: () => ({ open: isOpen(), recording: !!rec, paused: !!(rec && rec.pausedAt), take: take && { seconds: take.seconds, size: take.blob.size, type: take.blob.type }, files: (status.recordings || []).map((r) => r.file) }),
   };
 })();

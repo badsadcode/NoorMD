@@ -5,6 +5,9 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Voice Forge, stage 2 (preview.135): voices from recordings (picked, or recorded in NoorSound): its own words with
+  another voice (pitch and body size apart, breath, rasp, creature, robot), invented words with its timing, pauses,
+  loudness and melody, or a mix word by word. See [VOICE_FORGE_PLAN.md](VOICE_FORGE_PLAN.md).
 - Voice Forge, stage 1 (preview.134): a voice layer in NoorSound: invented speech in a language of its own
   (8 styles; the same number, the same words), sounds with no words (laughs, screams, grunts, sighs…), 14 built-in
   voices and your own, feelings with arcs, deliveries, takes, presets and Generate. See

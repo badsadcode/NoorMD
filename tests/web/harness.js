@@ -1047,6 +1047,10 @@ function mockHostScript(initial) {
           { name: 'Robot', pitch: 120, range: 4, size: 1, breath: 0, rasp: 0, nasal: 0.1, creature: 0.2, clarity: 0.95, rate: 5, language: 'common', delivery: 'robotic' }],
         mine: (SND.voices || []).map((v) => ({ ...v })) };
       case 'sound.voice.save': { if (!String(p.name || '').trim()) throw new Error('Give the voice a name.'); const replaced = (SND.voices || []).some((v) => v.name === p.name); SND.voices = (SND.voices || []).filter((v) => v.name !== p.name).concat([{ ...p }]); return { replaced, mine: SND.voices.map((v) => ({ ...v })) }; }
+      case 'sound.recording.begin': SND.recUploads = { token: 'r1', name: p.name, bytes: 0 }; return { token: 'r1' };
+      case 'sound.recording.chunk': if (!SND.recUploads || p.token !== SND.recUploads.token) throw new Error('That recording is no longer being saved.'); SND.recUploads.bytes += atob(p.data).length; return null;
+      case 'sound.recording.cancel': SND.recUploads = null; return null;
+      case 'sound.recording.finish': { const u = SND.recUploads; SND.recUploads = null; if (!u || u.bytes < 44) throw new Error('The recording is empty.'); SND.recorded = (SND.recorded || []).concat([u]); return { path: 'C:\\Users\\me\\Documents\\NoorMD\\Sound recordings\\Voice take.wav', name: 'Voice take.wav', seconds: 2 }; }
       case 'sound.voice.delete': SND.voices = (SND.voices || []).filter((v) => v.name !== p.name); return { mine: SND.voices.map((v) => ({ ...v })) };
       default: throw new Error('Unknown command ' + type);
     }

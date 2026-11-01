@@ -9124,7 +9124,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and the sound is long enough to hear it', (await last()).duration >= 3.3, (await last()).duration);
       const card = '#sb-pane .sb-layer:has(select[data-voice="says"])';
       await page.waitForSelector(`${card} select[data-voice="profile"]`);
-      check('its card has the voice, what it says, feeling, how it ends, delivery, language and its words', (await page.$$(`${card} [data-voice]`)).length === 7);
+      check('its card has where it comes from, the voice, what it says, feeling, how it ends, delivery, language and its words', (await page.$$(`${card} [data-voice]`)).length === 8);
       check('…and sliders for who (pitch, size, breath, rasp…) and how (syllables, pauses, emotion strength)', await page.evaluate((c) => ['pitch', 'voiceSize', 'breath', 'rasp', 'nasal', 'creature', 'syllableRate', 'pauses', 'emotionAmount', 'consistency'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card));
       // A built-in voice puts its identity on the layer; what it says stays.
       await page.selectOption(`${card} select[data-voice="profile"]`, 'b:Goblin');
@@ -9160,6 +9160,59 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and can be removed (the layer keeps its settings)', (await voice()).pitch === 235);
       if (shots) await page.screenshot({ path: `${shots}/38v-voice-forge.png` });
       check('no page errors with voice layers', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 38w. Voice Forge with a recording: a voice layer from a picked WAV or one recorded here (the microphone only
+    // once Record is pressed); how much keeps its words and its voice; a chosen voice morphs it.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const voice = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'voice'));
+      await page.keyboard.press('Control+Alt+k');
+      await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('#sb-pane button[data-add="voice"]');
+      const card = '#sb-pane .sb-layer:has(select[data-voice="source"])';
+      await page.waitForSelector(`${card} select[data-voice="source"]`);
+      // From a recording: it asks for the file.
+      const picks = (await page.evaluate(() => window.__mock.state.sound.picks || 0));
+      await page.selectOption(`${card} select[data-voice="source"]`, 'recording');
+      await waitFn(page, () => { const l = window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice'); return l?.voiceSource === 'recording' && /door creak/.test(l.path || ''); });
+      let v = await voice();
+      check('a voice "from a recording" asks for the file and uses it', (await page.evaluate(() => window.__mock.state.sound.picks)) === picks + 1 && v.sampleName === 'door creak.wav', v);
+      check('…by default invented words with its acting, in the layer\'s voice', v.keepWords === 0 && v.keepVoice === 0 && v.followPitch === 0.8);
+      check('…its card has how much keeps its words and voice, follows its melody, and no "Says" (its timing is the recording\'s)',
+        await page.evaluate((c) => ['keepWords', 'keepVoice', 'followPitch', 'pitch', 'voiceSize'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)) && !document.querySelector(`${c} select[data-voice="says"]`) && !document.querySelector(`${c} input[data-num="voiceLength"]`), card));
+      check('…and the recording\'s waveform to choose the part used', !!(await page.$(`${card} canvas.sb-region`)));
+      await page.fill(`${card} input[data-num="keepWords"]`, '60');
+      await page.press(`${card} input[data-num="keepWords"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.keepWords === 0.6);
+      check('"Keeps its own words" goes into the recipe (a mix, word by word)', true);
+      // A chosen voice: the recording takes it on.
+      await page.fill(`${card} input[data-num="keepVoice"]`, '100'); await page.press(`${card} input[data-num="keepVoice"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.keepVoice === 1);
+      await page.selectOption(`${card} select[data-voice="profile"]`, 'b:Goblin');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.voiceProfile === 'Goblin');
+      v = await voice();
+      check('choosing a voice morphs the recording into it (keeps its own voice: 0)', v.keepVoice === 0 && v.pitch === 235, v);
+      // Record here: the microphone is asked for only on Record.
+      const armed = await page.evaluate(() => window.__mock.state.voice.armed);
+      await page.click(`${card} button[data-recordvoice]`);
+      await page.waitForSelector('#sb-rec-go');
+      check('🎙 Record… opens without touching the microphone', (await page.evaluate(() => window.__mock.state.voice.armed)) === armed);
+      await page.click('#sb-rec-go');
+      await waitFn(page, () => /Recording/.test(document.querySelector('#sb-rec-status')?.textContent || ''));
+      check('…Record asks the app for the microphone first', (await page.evaluate(() => window.__mock.state.voice.armed)) === armed + 1);
+      await page.waitForTimeout(700);
+      await page.click('#sb-rec-go');
+      await waitFn(page, () => !document.querySelector('#sb-rec-use').disabled);
+      await page.click('#sb-rec-use');
+      await waitFn(page, () => /Voice take/.test(window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice')?.path || ''));
+      const rec = await page.evaluate(() => window.__mock.state.sound.recorded.at(-1));
+      check('…the take is saved as a WAV and becomes the layer\'s recording', rec.bytes > 1000 && (await voice()).sampleName === 'Voice take.wav', rec);
+      if (shots) await page.screenshot({ path: `${shots}/38w-voice-recording.png` });
+      check('no page errors with recorded voices', errors.length === 0, errors);
       await page.close();
     }
 

@@ -520,12 +520,15 @@ el('span', { class: 'tb-zoom' },
     const box = el('input', { type: 'number', class: 'sb-num', value: shown(value), step: 'any', 'aria-label': `${label}${unit ? ` (${unit})` : ''}`, 'data-num': key });
     const input = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(clamp(value)), 'aria-label': label, 'data-key': key });
     const set = (v) => { obj[key] = kind === 'int' ? Math.round(v / step) * step : Number(v.toFixed(5)); };
-    input.addEventListener('input', () => { set(Number(input.value)); box.value = shown(obj[key]); changed(false); });
+    let applied = box.value; // what the box last put into the recipe
+    input.addEventListener('input', () => { set(Number(input.value)); box.value = shown(obj[key]); applied = box.value; changed(false); });
     box.addEventListener('change', () => {
+      // Leaving a box after Enter fires another change: it must not put back a value set elsewhere since.
+      if (box.value === applied) return;
       const typed = Number(box.value);
       if (!Number.isFinite(typed)) { box.value = shown(obj[key]); return; }
       set(clamp(typed / factor));
-      box.value = shown(obj[key]); input.value = String(obj[key]);
+      box.value = shown(obj[key]); input.value = String(obj[key]); applied = box.value;
       changed(false);
     });
     box.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); box.dispatchEvent(new Event('change')); } });

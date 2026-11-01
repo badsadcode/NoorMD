@@ -10,7 +10,7 @@ namespace NoorMD.Media;
 /// <para>The same settings give the same sound. The language's words come from its own seed (LanguageSeed), so one
 /// character keeps one language; the take (word choice, timing, small variations) from the recipe's seed.</para>
 /// </summary>
-public static class VoiceForge
+public static partial class VoiceForge
 {
     public sealed record Choice(string Id, string Name, string Group = "");
 
@@ -253,23 +253,27 @@ public static class VoiceForge
     }
 
     /// <summary>Speech: phrases of words in the language, with stress, phrase-final lengthening and a pitch contour.</summary>
-    private static void PlanSpeech(SoundLayer l, SoundRng rng, Plan plan, Func<double, Feel> feel)
+    /// <summary>
+    /// Picks words of the layer's language: its own words (from its seed: the same seed, the same words, in every take
+    /// and every line; common ones more often, as in a real language), or new ones as often as Consistency allows.
+    /// </summary>
+    private static Func<List<Syl>> WordPicker(SoundLayer l, SoundRng rng)
     {
         var style = Style(l.Language);
-        // The language's own words, from its seed (the same seed: the same words, in every take and every line).
         // (Hashed first: seeds next to each other must not give the same stream one step apart.)
         var lrng = new SoundRng(new SoundRng(((ulong)(uint)l.LanguageSeed << 20) ^ Hash(l.Language)).Next());
         var vocab = Enumerable.Range(0, 48).Select(_ => MakeWord(style, lrng)).ToList();
-        List<Syl> Word()
+        return () =>
         {
-            if (rng.NextDouble() < l.Consistency)
-            {
-                // Common words come up more often (a Zipf-like spread), as in a real language.
-                var r = Math.Pow(rng.NextDouble(), 2.2);
-                return vocab[(int)(r * vocab.Count) % vocab.Count];
-            }
+            if (rng.NextDouble() < l.Consistency) return vocab[(int)(Math.Pow(rng.NextDouble(), 2.2) * vocab.Count) % vocab.Count];
             return MakeWord(style, rng);
-        }
+        };
+    }
+
+    private static void PlanSpeech(SoundLayer l, SoundRng rng, Plan plan, Func<double, Feel> feel)
+    {
+        var style = Style(l.Language);
+        var Word = WordPicker(l, rng);
         var says = l.VoiceSays;
         var total = l.VoiceLength;
         var robotic = l.Delivery == "robotic";
@@ -536,11 +540,7 @@ public static class VoiceForge
     public static float[] Render(SoundLayer l, SoundRng rng, int sr)
     {
         var plan = new Plan();
-        // Strength: half of it is most of the way there (a little emotion is already clearly heard).
-        var amount = Math.Pow(l.EmotionAmount, 0.7);
-        var startFeel = Lerp(Neutral, EmotionFeel(l.Emotion), amount);
-        var endFeel = string.IsNullOrEmpty(l.EmotionEnd) ? startFeel : Lerp(Neutral, EmotionFeel(l.EmotionEnd), amount);
-        Feel FeelAt(double x) => Feel.Lerp(startFeel, endFeel, Math.Clamp(x, 0, 1));
+        var FeelAt = Feeling(l);
         var speech = Says.FirstOrDefault(s => s.Id == l.VoiceSays)?.Group != "Sounds";
         if (speech) PlanSpeech(l, rng, plan, FeelAt); else PlanSound(l, rng, plan);
         if (plan.Segs.Count == 0 || plan.Time <= 0) return [];
@@ -558,6 +558,16 @@ public static class VoiceForge
     }
 
     private static Feel Lerp(Feel a, Feel b, double t) => Feel.Lerp(a, b, t);
+
+    /// <summary>The feeling along the utterance (0 = its start, 1 = its end): the emotion, or an arc to another.</summary>
+    private static Func<double, Feel> Feeling(SoundLayer l)
+    {
+        // Strength: half of it is most of the way there (a little emotion is already clearly heard).
+        var amount = Math.Pow(l.EmotionAmount, 0.7);
+        var startFeel = Lerp(Neutral, EmotionFeel(l.Emotion), amount);
+        var endFeel = string.IsNullOrEmpty(l.EmotionEnd) ? startFeel : Lerp(Neutral, EmotionFeel(l.EmotionEnd), amount);
+        return x => Feel.Lerp(startFeel, endFeel, Math.Clamp(x, 0, 1));
+    }
 
     /// <summary>The words a speech layer says with this seed (for tests: one language keeps its words across takes).</summary>
     internal static IReadOnlyList<string> Words(SoundLayer l, int seed)

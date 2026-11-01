@@ -41,7 +41,7 @@ window.NoorSound = (() => {
     synth: { type: 'synth', name: 'Synth voice', gain: -12, wave: 'sine', pitch: 440, pitchEnd: 0, attack: 0.005, hold: 0, release: 0.3, width: 0 },
     sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0, filter: 'lowpass', freq: 4000, q: 0.7, playMode: 'tape' },
     voice: { type: 'voice', name: 'Voice', gain: -6, width: 0, pitch: 150, voiceSays: 'chatter', voiceLength: 3, voiceProfile: null, voiceRange: 7, voiceSize: 1, breath: 0.1, rasp: 0, nasal: 0.1, creature: 0, clarity: 0.7,
-      syllableRate: 5, pauses: 0.4, hesitation: 0, emotion: 'calm', emotionAmount: 0.6, emotionEnd: null, delivery: 'normal', language: 'common', languageSeed: 1, consistency: 0.75, filter: 'lowpass', freq: 8000, q: 0.7 },
+      syllableRate: 5, pauses: 0.4, hesitation: 0, emotion: 'calm', emotionAmount: 0.6, emotionEnd: null, delivery: 'normal', language: 'common', languageSeed: 1, consistency: 0.75, voiceSource: '', keepWords: 0, keepVoice: 0, followPitch: 0.8, filter: 'lowpass', freq: 8000, q: 0.7 },
   };
   const MASTER = [['gain', 'Level', -40, 24, 0.5, 'db'], ['highPass', 'Low cut', 10, 5000, 1, 'hz'], ['lowPass', 'High cut', 200, 20000, 1, 'hz'], ['width', 'Stereo width', 0, 2, 0.05, 'pct'],
     ['reverb', 'Room sound', 0, 1, 0.05, 'pct'], ['room', 'Room size', 0, 1, 0.05, 'pct'], ['ceiling', 'Ceiling', -24, 0, 0.5, 'db']];
@@ -530,14 +530,17 @@ window.NoorSound = (() => {
       let v = fromPos(Number(input.value));
       if (!log) v = Math.round(v / step) * step;
       obj[key] = Number(v.toFixed(4));
-      box.value = shown(obj[key]);
+      box.value = shown(obj[key]); applied = box.value;
       changed(rebuild);
     });
+    let applied = box.value; // what the box last put into the recipe
     box.addEventListener('change', () => {
+      // Leaving a box after Enter fires another change: it must not put back a value set elsewhere since.
+      if (box.value === applied) return;
       const typed = Number(box.value);
       if (!Number.isFinite(typed)) { box.value = shown(obj[key]); return; }
       obj[key] = Number(clamp(typed / factor).toFixed(6));
-      box.value = shown(obj[key]);
+      box.value = shown(obj[key]); applied = box.value;
       input.value = String(toPos(obj[key]) || 0);
       changed(rebuild);
     });
@@ -672,6 +675,22 @@ window.NoorSound = (() => {
   }
 
   /** The sliders of a sample layer, for the way it plays. */
+  /** A layer's sliders: by its kind (a sample by its play mode, a voice by where it comes from). */
+  function fieldsOf(l) {
+    if (l.type === 'sample') return sampleFields(l);
+    if (l.type === 'voice') return voiceFields(l);
+    return FIELDS[l.type] || FIELDS.noise;
+  }
+
+  /** A voice from a recording: how much keeps its words and voice, and what changes; its timing is the recording's. */
+  function voiceFields(l) {
+    if (l.voiceSource !== 'recording') return FIELDS.voice;
+    const pick = (keys) => keys.map((k) => FIELDS.voice.find(([x]) => x === k)).filter(Boolean);
+    return [...pick(['gain', 'pan', 'start']),
+      ['keepWords', 'Keeps its own words', 0, 1, 0.01, 'pct'], ['keepVoice', 'Keeps its own voice', 0, 1, 0.01, 'pct'], ['followPitch', 'Invented words follow its melody', 0, 1, 0.01, 'pct'],
+      ...pick(['pitch', 'voiceSize', 'breath', 'rasp', 'creature', 'nasal', 'clarity', 'voiceRange', 'emotionAmount', 'consistency', 'repeat']), ...FILTERED, ...GRIT];
+  }
+
   function sampleFields(l) {
     const mode = l.playMode || 'tape';
     const keep = (k) => !(mode === 'grains' && k === 'repeat');
@@ -791,6 +810,7 @@ window.NoorSound = (() => {
       if (!p) return;
       for (const k of PROFILE_KEYS) l[LAYER_KEY[k] || k] = p[k];
       l.voiceProfile = p.name;
+      if (l.voiceSource === 'recording') l.keepVoice = 0; // a recording takes on the chosen voice
       changed(true);
     });
     const groups = [...new Set(voiceData.says.map((x) => x.group))];
@@ -808,7 +828,17 @@ window.NoorSound = (() => {
     const save = el('button', { class: 'utility-btn', 'data-savevoice': '', title: 'Keep this voice (pitch, size, breath, rasp… and its language style) to use again in any sound', onclick: () => saveVoice(l) }, '💾 Save voice…');
     const mineNow = voiceData.mine.find((p) => p.name === l.voiceProfile);
     const del = mineNow ? el('button', { class: 'icon-btn', 'data-deletevoice': '', title: `Remove “${mineNow.name}” from your voices`, 'aria-label': 'Remove this saved voice', onclick: () => deleteVoice(mineNow.name) }, '🗑') : null;
-    return [profile, save, del, says, emotion, end, delivery, language, el('label', { class: 'sb-inline' }, el('span', { text: 'Words' }), seed), newLang].filter(Boolean);
+    const rec = l.voiceSource === 'recording';
+    const source = sel('source', 'From', [opt('', 'nothing (made up)'), opt('recording', 'a recording')], rec ? 'recording' : '', (v) => {
+      l.voiceSource = v === 'recording' ? 'recording' : '';
+      changed(true);
+      if (l.voiceSource && !l.path) chooseRecording(l);
+    }, { title: 'Made up: it says what you choose. A recording: its words with the voice changed, or invented words with its timing, pauses and melody' });
+    const recording = rec ? [
+      el('span', { class: 'sb-file', title: l.path || '', text: '🎙 ' + (l.sampleName || 'no recording yet') }),
+      el('button', { class: 'utility-btn', 'data-pickrecording': '', title: 'A WAV of someone speaking (or laughing, shouting…): yours, or one you may use', onclick: () => chooseRecording(l) }, 'Choose a recording…'),
+      el('button', { class: 'utility-btn', 'data-recordvoice': '', title: 'Record with your microphone (it is used only once you press Record)', onclick: () => recordVoice(l) }, '🎙 Record…')] : [];
+    return [source, ...recording, profile, save, del, rec ? null : says, emotion, end, delivery, language, el('label', { class: 'sb-inline' }, el('span', { text: 'Words' }), seed), newLang].filter(Boolean);
   }
 
   /** After a small change: each voice layer's Voice menu shows whether it is still that voice exactly. */
@@ -826,6 +856,71 @@ window.NoorSound = (() => {
     const same = (a, b) => (typeof a === 'number' ? Math.abs(a - b) < 1e-6 : a === b);
     const p = all.find((x) => x.name === l.voiceProfile && PROFILE_KEYS.every((k) => same(x[k], l[LAYER_KEY[k] || k])));
     return p ? (p.mine ? 'm:' : 'b:') + p.name : '';
+  }
+
+  async function chooseRecording(l) {
+    const f = await pickSample();
+    if (!f) return;
+    useRecording(l, f);
+  }
+  function useRecording(l, f) {
+    l.path = f.path; l.sampleName = f.name; l.trimStart = 0; l.trimEnd = 0; l.voiceSource = 'recording';
+    // It is heard whole: the sound is made long enough.
+    if (f.seconds && recipe.duration < (l.start || 0) + f.seconds + 0.2) recipe.duration = Number(((l.start || 0) + f.seconds + 0.3).toFixed(2));
+    changed(true);
+  }
+
+  /** Records a take with the microphone (asked for only when Record is pressed), then uses it as the layer's recording. */
+  function recordVoice(l) {
+    let rec = null, take = null, tick = 0;
+    const status = el('p', { class: 'pref-hint', id: 'sb-rec-status', text: 'Press Record and speak (or laugh, shout…). Nothing is recorded before that.' });
+    const go = el('button', { class: 'action primary', id: 'sb-rec-go' }, '● Record');
+    const use = el('button', { class: 'action', id: 'sb-rec-use', disabled: true }, 'Use it');
+    const listen = el('audio', { controls: true, hidden: true, id: 'sb-rec-listen' });
+    const stopAll = () => { if (rec) { clearInterval(tick); rec.stream.getTracks().forEach((t) => t.stop()); } };
+    const m = NoorUI.modal({ label: 'Record a voice', width: 460, onClose: () => { if (rec && rec.recorder.state !== 'inactive') rec.recorder.stop(); stopAll(); } }, (surface, close) => surface.append(
+      NoorUI.head('🎙 Record a voice', close), status, listen,
+      el('div', { class: 'modal-buttons' }, go, use, el('button', { class: 'action', onclick: () => close() }, 'Cancel'))));
+    go.addEventListener('click', async () => {
+      if (rec && rec.recorder.state === 'recording') { rec.recorder.stop(); return; }
+      try {
+        await req('voice.arm'); // the app allows the microphone for this one request
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        rec = { stream, recorder, chunks: [], started: performance.now() };
+        recorder.ondataavailable = (e) => { if (e.data && e.data.size) rec.chunks.push(e.data); };
+        recorder.onstop = () => {
+          stopAll();
+          take = new Blob(rec.chunks, { type: recorder.mimeType || 'audio/webm' });
+          listen.src = URL.createObjectURL(take); listen.hidden = false;
+          go.textContent = '● Record again'; use.disabled = false;
+          status.textContent = `Recorded ${((performance.now() - rec.started) / 1000).toFixed(1)} s. Listen, then use it or record again.`;
+        };
+        recorder.start(250);
+        go.textContent = '■ Stop';
+        tick = setInterval(() => { status.textContent = `Recording… ${((performance.now() - rec.started) / 1000).toFixed(1)} s`; }, 200);
+      } catch (err) { stopAll(); hooks.showError(new Error(err && err.name === 'NotAllowedError' ? 'The microphone is not available. Check Windows Settings › Privacy › Microphone (desktop apps).' : (err && err.message) || String(err))); }
+    });
+    use.addEventListener('click', async () => {
+      if (!take) return;
+      use.disabled = true; status.textContent = 'Saving…';
+      let token = null;
+      try {
+        const wav = await NoorVoice.toWav(take);
+        token = (await req('sound.recording.begin', { name: l.name && l.name !== 'Voice' ? l.name : '' })).token;
+        const CH = 512 * 1024;
+        for (let i = 0; i < wav.size; i += CH) await req('sound.recording.chunk', { token, data: await NoorVoice.toBase64(wav.slice(i, i + CH)) });
+        const f = await req('sound.recording.finish', { token });
+        token = null;
+        m.close();
+        useRecording(l, f);
+        notice(`🎙 Saved “${f.name}”`, 1600);
+      } catch (err) {
+        if (token) req('sound.recording.cancel', { token }).catch(() => {});
+        use.disabled = false; status.textContent = 'Not saved.';
+        hooks.showError(err);
+      }
+    });
   }
 
   async function saveVoice(l) {
@@ -863,7 +958,7 @@ window.NoorSound = (() => {
   function layersPane() {
     const g = recipe.gust;
     const cards = recipe.layers.map((l, i) => {
-      const fields = l.type === 'sample' ? sampleFields(l) : FIELDS[l.type] || FIELDS.noise;
+      const fields = fieldsOf(l);
       const name = el('input', { type: 'text', value: l.name, 'aria-label': 'Layer name', spellcheck: 'false', maxlength: '60' });
       name.addEventListener('input', () => { l.name = name.value; changed(false); });
       const choice = (key) => {
@@ -892,7 +987,7 @@ window.NoorSound = (() => {
             : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
               el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
               playMode(l), check('reverse', 'Backwards', true), ...(l.playMode === 'grains' ? [] : [check('loopSample', 'Loop it', true)]), check('useFilter', 'Filter'), choice('filter')] : [])),
-        ...(l.type === 'sample' ? [regionEditor(l)] : []),
+        ...(l.type === 'sample' || (l.type === 'voice' && l.voiceSource === 'recording' && l.path) ? [regionEditor(l)] : []),
         el('div', { class: 'sb-fields' }, ...fields.map((f) => slider(l, f, false))),
         ...((recipe.buses || []).length ? [sendsRow(l)] : []),
         el('details', { class: 'sb-fxgroup', open: (l.effects || []).length > 0 || undefined }, el('summary', { text: `Effects${(l.effects || []).length ? ` (${l.effects.length})` : ''}` }), effectsRack(l.effects ||= [], 'layer-' + i, l.id)));
@@ -1446,7 +1541,7 @@ window.NoorSound = (() => {
     let changedCount = 0;
     for (const l of r.layers) {
       if (opts.locked && opts.locked.has(l.id)) continue;
-      const fields = l.type === 'sample' ? sampleFields(l) : FIELDS[l.type] || FIELDS.noise;
+      const fields = fieldsOf(l);
       for (const [key, , min, max, step, kind] of fields) {
         if (!keys.has(key) || typeof l[key] !== 'number') continue;
         const v = l[key];

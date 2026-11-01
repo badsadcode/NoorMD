@@ -182,6 +182,17 @@ public sealed class SoundLayer
     public string Language { get; set; } = "common";
     public int LanguageSeed { get; set; } = 1;
     public double Consistency { get; set; } = 0.75;
+    /// <summary>Where the voice comes from: made up ("") or a recording ("recording": Path, trimmed by TrimStart/TrimEnd).
+    /// With a recording: how much keeps its own words (1) rather than invented ones with its acting (0), how much keeps
+    /// its own voice (1) rather than this layer's (0), and how closely invented words follow its melody.</summary>
+    public string VoiceSource { get; set; } = "";
+    public double KeepWords { get; set; }
+    public double KeepVoice { get; set; }
+    public double FollowPitch { get; set; } = 0.8;
+
+    /// <summary>A file the layer reads: a sample's WAV, or a voice's recording.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool UsesFile => Type == "sample" || (Type == "voice" && VoiceSource == "recording");
 
     /// <summary>This layer's effects, in order (EQ, compressor, delay…).</summary>
     public List<SoundEffect> Effects { get; set; } = [];
@@ -292,7 +303,7 @@ public sealed class SoundRecipe
             }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { return path; /* reported missing when rendered */ }
         }
-        foreach (var l in Layers) if (l.Type == "sample") l.Path = Find(l.Path);
+        foreach (var l in Layers) if (l.UsesFile) l.Path = Find(l.Path);
         foreach (var fx in AllEffects()) if (fx.Type == "convolution") fx.IrPath = Find(fx.IrPath);
         return this;
     }
@@ -303,7 +314,7 @@ public sealed class SoundRecipe
 
     /// <summary>Every file the recipe reads: sample layers' WAVs and recorded spaces.</summary>
     public IEnumerable<string> Files() =>
-        (Layers ?? []).Where(l => l.Type == "sample" && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!)
+        (Layers ?? []).Where(l => l.UsesFile && !string.IsNullOrEmpty(l.Path)).Select(l => l.Path!)
             .Concat(AllEffects().Where(fx => fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath)).Select(fx => fx.IrPath!));
 
     private static double C(double v, double lo, double hi) => double.IsFinite(v) ? Math.Clamp(v, lo, hi) : lo;
@@ -350,6 +361,8 @@ public sealed class SoundRecipe
             l.Delivery = VoiceForge.Deliveries.Any(x => x.Id == l.Delivery) ? l.Delivery : "normal";
             l.Language = VoiceForge.Languages.Any(x => x.Id == l.Language) ? l.Language : "common";
             l.LanguageSeed = Math.Clamp(l.LanguageSeed, 0, 999_999); l.Consistency = C(l.Consistency, 0, 1);
+            l.VoiceSource = l.VoiceSource == "recording" ? "recording" : "";
+            l.KeepWords = C(l.KeepWords, 0, 1); l.KeepVoice = C(l.KeepVoice, 0, 1); l.FollowPitch = C(l.FollowPitch, 0, 1);
             if (l.VoiceProfile != null) l.VoiceProfile = l.VoiceProfile.Length > 60 ? l.VoiceProfile[..60] : l.VoiceProfile;
             l.Effects = (l.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         }
@@ -568,7 +581,14 @@ public static class SoundEngine
                 case "noise": RenderNoise(layer, rng, gust, tl, tr, sampleRate, total, md); break;
                 case "events": RenderEvents(layer, rng, gust, tl, tr, sampleRate, total, md); break;
                 case "synth": RenderSynth(layer, rng, tl, tr, sampleRate, total, md); break;
-                case "voice": RenderVoice(layer, rng, tl, tr, sampleRate, total); break;
+                case "voice":
+                {
+                    if (layer.VoiceSource != "recording") { RenderVoice(layer, VoiceForge.Render(layer, rng, sampleRate), tl, tr, sampleRate, total); break; }
+                    var audio = string.IsNullOrEmpty(layer.Path) ? null : samples?.Invoke(layer.Path);
+                    if (audio == null) { warnings.Add($"“{layer.SampleName ?? layer.Name}”: the recording is missing or can't be read"); continue; }
+                    RenderVoice(layer, VoiceForge.RenderRecording(layer, audio, rng, sampleRate), tl, tr, sampleRate, total);
+                    break;
+                }
                 case "sample":
                 {
                     var audio = string.IsNullOrEmpty(layer.Path) ? null : samples?.Invoke(layer.Path);
@@ -943,9 +963,8 @@ public static class SoundEngine
     }
 
     /// <summary>Voice Forge: the voice, from the layer's start, at its level and place (repeated if asked).</summary>
-    private static void RenderVoice(SoundLayer l, SoundRng rng, double[] L, double[] R, int sr, int total)
+    private static void RenderVoice(SoundLayer l, float[] mono, double[] L, double[] R, int sr, int total)
     {
-        var mono = VoiceForge.Render(l, rng, sr);
         var gain = Math.Pow(10, l.Gain / 20);
         var (pl, pr) = PanGains(l.Pan);
         foreach (var t0 in Starts(l, (double)total / sr))

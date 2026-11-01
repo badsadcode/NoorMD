@@ -42,8 +42,17 @@ An emotion is not just louder or higher: it changes the pitch contour and its ra
 1. **Done in preview.134**: the voice layer; 14 built-in voices and voices of your own (saved, chosen, removed);
    8 language styles; 10 kinds of speech and 14 sounds with no words; 14 feelings, an arc from one to another, 8
    deliveries; takes (🎲 Variation and several files at export); 20 presets (Voices); Generate › Voice and Vocal reaction.
-2. **Recordings**: open or record a voice; find where it speaks; transforms that keep the words (pitch, body size,
-   breath, rasp, creature, robot); then the recording's timing, pauses, loudness and pitch put onto invented speech.
+2. **Done in preview.135: recordings.** A voice layer can come from a recording: a WAV you pick, or one recorded in
+   the bench (🎙 Record…; the microphone is asked for only when Record is pressed; takes are saved as WAV files in
+   Documents\NoorMD\Sound recordings, and the original is never changed). It is analysed: where it speaks, its
+   syllables (loudness peaks with dips between), its pitch every 10 ms (YIN). Then:
+   - **Keeps its own words** (100 %): the voice changed with a pitch-synchronous method (TD-PSOLA): one grain per pitch
+     period, put back at the new pitch's spacing (the pitch moves, the mouth doesn't) and read faster or slower (the
+     mouth moves: body size); rasp, creature (an undertone), robot (one pitch) and breath on top. Timing stays exact.
+   - **Invented words** (0 %): words of the layer's language, one syllable where the recording has one, its pauses,
+     how loud each one is, and its melody (as much as "follow its melody" says), in the layer's voice and feeling.
+   - **A mix** in between: by groups of one to three syllables (about a word), joined softly where it is quiet.
+   - **Keeps its own voice**: from the recording's own voice (100 %) to the layer's (0 %); choosing a voice sets 0.
 3. **Spoken lines**: written text spoken by Windows' own voice (offline), with speed, pitch, emphasis and a list of how
    names and invented words are said. What it can't do (real emotion) is shown as not available, not faked.
 4. **Later, optional**: neural speech and voice conversion (only for recordings you own or may use), several speakers in

@@ -30,6 +30,9 @@ public partial class MainWindow
     private static readonly SemaphoreSlim SoundGate = new(1);
 
     private static string UserSoundFolder => Path.Combine(App.Paths.Local, "Sound", "Presets");
+    /// <summary>Voices recorded in NoorSound (Voice Forge): ordinary WAV files in Documents\NoorMD\Sound recordings.</summary>
+    private static readonly NoorMD.Core.Media.VoiceNotes SoundRecordings = new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "NoorMD", "Sound recordings"));
+
     /// <summary>Your own voice profiles (Voice Forge), all in one file beside the presets.</summary>
     private static string UserVoicesFile => Path.Combine(App.Paths.Local, "Sound", "voices.json");
     private static readonly JsonSerializerOptions VoiceJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
@@ -207,6 +210,28 @@ public partial class MainWindow
                     Directory.CreateDirectory(Path.GetDirectoryName(UserVoicesFile)!);
                     await File.WriteAllTextAsync(UserVoicesFile, JsonSerializer.Serialize(list, VoiceJson), new UTF8Encoding(false));
                     return new { mine = list };
+                }
+                case "sound.recording.begin":
+                {
+                    var name = req.GetString("name", 100);
+                    return new { token = SoundRecordings.Begin(string.IsNullOrWhiteSpace(name) ? "Voice " + DateTime.Now.ToString("yyyy-MM-dd HH-mm", System.Globalization.CultureInfo.InvariantCulture) : name, ".wav") };
+                }
+                case "sound.recording.chunk":
+                    SoundRecordings.Append(req.GetString("token", 40) ?? "", Convert.FromBase64String(req.GetString("data", 2_000_000) ?? ""));
+                    return null;
+                case "sound.recording.cancel":
+                    SoundRecordings.Cancel(req.GetString("token", 40) ?? "");
+                    return null;
+                case "sound.recording.finish":
+                {
+                    var path = await Task.Run(() => SoundRecordings.Finish(req.GetString("token", 40) ?? "", DateTime.Now));
+                    // Only a WAV that can be read is kept (and then, like a picked file, it may be used).
+                    SampleAudio? audio = null;
+                    try { audio = SampleAudio.ReadWav(await File.ReadAllBytesAsync(path)); } catch (ArgumentException) { }
+                    if (audio == null) { File.Delete(path); throw new BridgeError("The recording can't be read."); }
+                    var full = Path.GetFullPath(path);
+                    _soundSampleFiles.Add(full);
+                    return new { path = full, name = Path.GetFileName(full), seconds = Math.Round(audio.Seconds, 3) };
                 }
                 case "sound.presets":
                     return new
@@ -408,7 +433,7 @@ public partial class MainWindow
                     var recipe = RecipeFrom(p);
                     // Only files already allowed are kept, so a preset can't smuggle in another path.
                     foreach (var l in recipe.Layers)
-                        if (l.Type == "sample" && !string.IsNullOrEmpty(l.Path) && !_soundSampleFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
+                        if (l.UsesFile && !string.IsNullOrEmpty(l.Path) && !_soundSampleFiles.Contains(Path.GetFullPath(l.Path))) l.Path = null;
                     foreach (var fx in recipe.AllEffects())
                         if (fx.Type == "convolution" && !string.IsNullOrEmpty(fx.IrPath) && !_soundSampleFiles.Contains(Path.GetFullPath(fx.IrPath))) fx.IrPath = null;
                     Directory.CreateDirectory(UserSoundFolder);
