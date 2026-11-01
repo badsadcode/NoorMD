@@ -9107,6 +9107,62 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 38v. Voice Forge in NoorSound: a voice layer (what it says, feeling and the one it ends in, delivery, language
+    // and its words' seed), built-in voices put on it, voices of your own saved and removed, all in the recipe.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1));
+      const voice = () => page.evaluate(() => window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'voice'));
+      await page.keyboard.press('Control+Alt+k');
+      await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
+      await waitFn(page, () => NoorSound._state().render !== null);
+      await page.click('#soundbench .sb-tabs button[data-tab="layers"]');
+      await page.click('#sb-pane button[data-add="voice"]');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.some((l) => l.type === 'voice'));
+      let v = await voice();
+      check('Layers › ＋ Voice adds a voice layer (chatter, calm, the common language)', v.voiceSays === 'chatter' && v.emotion === 'calm' && v.language === 'common' && v.voiceLength === 3, v);
+      check('…and the sound is long enough to hear it', (await last()).duration >= 3.3, (await last()).duration);
+      const card = '#sb-pane .sb-layer:has(select[data-voice="says"])';
+      await page.waitForSelector(`${card} select[data-voice="profile"]`);
+      check('its card has the voice, what it says, feeling, how it ends, delivery, language and its words', (await page.$$(`${card} [data-voice]`)).length === 7);
+      check('…and sliders for who (pitch, size, breath, rasp…) and how (syllables, pauses, emotion strength)', await page.evaluate((c) => ['pitch', 'voiceSize', 'breath', 'rasp', 'nasal', 'creature', 'syllableRate', 'pauses', 'emotionAmount', 'consistency'].every((k) => document.querySelector(`${c} input[data-num="${k}"]`)), card));
+      // A built-in voice puts its identity on the layer; what it says stays.
+      await page.selectOption(`${card} select[data-voice="profile"]`, 'b:Goblin');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((l) => l.type === 'voice').voiceProfile === 'Goblin');
+      v = await voice();
+      check('choosing a built-in voice (Goblin) sets its pitch, size, nasality and language', v.pitch === 235 && v.voiceSize === 0.74 && v.nasal === 0.6 && v.language === 'harsh' && v.voiceSays === 'chatter', v);
+      // What it says, the feeling and its arc, delivery.
+      await page.selectOption(`${card} select[data-voice="says"]`, 'laugh');
+      await page.selectOption(`${card} select[data-voice="emotion"]`, 'calm');
+      await page.selectOption(`${card} select[data-voice="emotionEnd"]`, 'furious');
+      await page.selectOption(`${card} select[data-voice="delivery"]`, 'shout');
+      await waitFn(page, () => { const l = window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice'); return l.voiceSays === 'laugh' && l.emotionEnd === 'furious' && l.delivery === 'shout'; });
+      check('what it says (a laugh), an emotion arc (calm → furious) and a delivery (shout) go into the recipe', true);
+      check('…changing them by hand shows the voice as changed', (await page.inputValue(`${card} select[data-voice="profile"]`)) === '');
+      // The language's words: its seed.
+      await page.fill(`${card} input[data-voice="languageSeed"]`, '4242');
+      await page.press(`${card} input[data-voice="languageSeed"]`, 'Enter');
+      await waitFn(page, () => window.__mock.state.sound.renders.at(-1).layers.find((x) => x.type === 'voice').languageSeed === 4242);
+      check('the language\'s words come from a number of their own (the same number: the same words)', true);
+      // Save the voice; it shows under Yours and can be removed.
+      await page.click(`${card} button[data-savevoice]`);
+      await page.waitForSelector('.modal input');
+      await page.fill('.modal input', 'Grumpy goblin');
+      await page.keyboard.press('Enter');
+      await waitFn(page, () => (window.__mock.state.sound.voices || []).length === 1);
+      const saved = await page.evaluate(() => window.__mock.state.sound.voices[0]);
+      check('💾 Save voice… keeps its identity under a name of your own', saved.name === 'Grumpy goblin' && saved.pitch === 235 && saved.delivery === 'shout' && saved.language === 'harsh', saved);
+      await waitFn(page, (c) => document.querySelector(`${c} select[data-voice="profile"]`)?.value === 'm:Grumpy goblin', card);
+      check('…it shows as the layer\'s voice, under Yours', true);
+      await page.click(`${card} button[data-deletevoice]`);
+      await page.click('.modal button:has-text("Remove")');
+      await waitFn(page, () => (window.__mock.state.sound.voices || []).length === 0);
+      check('…and can be removed (the layer keeps its settings)', (await voice()).pitch === 235);
+      if (shots) await page.screenshot({ path: `${shots}/38v-voice-forge.png` });
+      check('no page errors with voice layers', errors.length === 0, errors);
+      await page.close();
+    }
+
   } finally {
     await browser.close();
     server.close();

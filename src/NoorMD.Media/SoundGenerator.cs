@@ -25,6 +25,8 @@ public static class SoundGenerator
         new("scifi", "Sci-fi", "Beeps, warbles, teleports."),
         new("alarm", "Alarm", "A repeating warning (loops)."),
         new("engine", "Engine / machine hum", "A running motor (loops)."),
+        new("voice", "Voice (a character talking)", "A random character in an invented language."),
+        new("reaction", "Vocal reaction", "A laugh, a scream, a grunt, a gasp…"),
     ];
 
     public static SoundRecipe Make(string category, int seed)
@@ -41,6 +43,35 @@ public static class SoundGenerator
             new() { Type = "noise", Name = name, Color = color, Filter = filter, Freq = freq, Q = q, Attack = attack, Release = release, Gain = gain, Width = 0.6 };
         switch (category)
         {
+            case "voice":
+            case "reaction":
+            {
+                var talk = category == "voice";
+                var p = VoiceForge.Profiles[(int)(rng.NextDouble() * VoiceForge.Profiles.Count) % VoiceForge.Profiles.Count];
+                var says = talk ? Pick("chatter", "chatter", "greeting", "question", "command", "argument", "complaint", "celebration", "mutter")
+                    : Pick("laugh", "giggle", "chuckle", "scream", "yelp", "grunt", "groan", "sigh", "gasp", "growl", "cheer", "hmm", "cry", "pant");
+                var length = talk ? Math.Round(R(1.5, 5), 1) : says switch
+                {
+                    "grunt" or "yelp" => Math.Round(R(0.2, 0.4), 2), "gasp" => Math.Round(R(0.3, 0.5), 2), "hmm" => Math.Round(R(0.5, 1), 2),
+                    "scream" or "sigh" => Math.Round(R(1, 2), 1), _ => Math.Round(R(1.5, 3.5), 1),
+                };
+                var emotion = says switch
+                {
+                    "laugh" or "giggle" or "chuckle" or "cheer" => Pick("happy", "excited"), "scream" or "gasp" or "yelp" => Pick("afraid", "surprised"),
+                    "cry" => "sad", "growl" or "grunt" => Pick("angry", "annoyed"), "groan" or "sigh" or "pant" => "tired",
+                    "argument" or "complaint" => Pick("annoyed", "angry", "furious"), "question" => Pick("curious", "surprised"),
+                    _ => Pick("calm", "happy", "curious", "sad", "afraid", "excited", "sarcastic"),
+                };
+                var l = new SoundLayer { Type = "voice", Name = p.Name, Gain = -3, Width = 0, VoiceSays = says, Emotion = emotion, EmotionAmount = Math.Round(R(0.4, 0.9), 2), VoiceLength = length, LanguageSeed = (int)(rng.NextDouble() * 999_999) };
+                VoiceForge.Apply(p, l);
+                if (talk && Chance(0.5)) l.Language = Pick(VoiceForge.Languages.Select(x => x.Id).ToArray());
+                l.Pitch = Math.Round(l.Pitch * R(0.85, 1.18)); l.VoiceSize = Math.Round(l.VoiceSize * R(0.9, 1.1), 2);
+                r.Name = $"{p.Name}: {VoiceForge.Says.First(x => x.Id == says).Name.ToLowerInvariant()} {seed % 1000:000}";
+                r.Layers.Add(l);
+                r.Duration = Math.Round(length + 0.4, 2);
+                r.Master.Reverb = 0.08; r.Master.Room = 0.3;
+                break;
+            }
             case "pickup":
             {
                 var p = R(600, 1600);

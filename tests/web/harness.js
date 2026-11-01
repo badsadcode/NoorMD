@@ -1037,6 +1037,17 @@ function mockHostScript(initial) {
       }
       case 'sound.delete': SND.mine = SND.mine.filter((x) => x.id !== p.id); return { mine: SND.mine.map((x) => ({ id: x.id, family: x.recipe.family, name: x.recipe.name, description: 'Your preset' })) };
       case 'sound.open': return { recipe: { ...JSON.parse(JSON.stringify(SND.recipes['ui-coin'])), name: 'Opened coin' } };
+      // Voice Forge: the same lists as VoiceForge.cs (a few of each), built-in profiles and yours.
+      case 'sound.voices': return {
+        says: [['chatter', 'Chatter (talking)', 'Speech'], ['question', 'Questions', 'Speech'], ['argument', 'Arguing', 'Speech'], ['laugh', 'Laugh', 'Sounds'], ['scream', 'Scream', 'Sounds'], ['grunt', 'Grunt (effort, pain)', 'Sounds']].map(([id, name, group]) => ({ id, name, group })),
+        emotions: ['calm', 'happy', 'angry', 'furious', 'sad', 'afraid'].map((id) => ({ id, name: id })),
+        deliveries: ['normal', 'whisper', 'shout', 'robotic'].map((id) => ({ id, name: id })),
+        languages: [['common', 'common (balanced)'], ['harsh', 'harsh (k, g, rr, kh)'], ['soft', 'soft (flowing, m, n, l)']].map(([id, name]) => ({ id, name })),
+        builtIn: [{ name: 'Goblin', pitch: 235, range: 9, size: 0.74, breath: 0.1, rasp: 0.35, nasal: 0.6, creature: 0.2, clarity: 0.7, rate: 7, language: 'harsh', delivery: 'normal' },
+          { name: 'Robot', pitch: 120, range: 4, size: 1, breath: 0, rasp: 0, nasal: 0.1, creature: 0.2, clarity: 0.95, rate: 5, language: 'common', delivery: 'robotic' }],
+        mine: (SND.voices || []).map((v) => ({ ...v })) };
+      case 'sound.voice.save': { if (!String(p.name || '').trim()) throw new Error('Give the voice a name.'); const replaced = (SND.voices || []).some((v) => v.name === p.name); SND.voices = (SND.voices || []).filter((v) => v.name !== p.name).concat([{ ...p }]); return { replaced, mine: SND.voices.map((v) => ({ ...v })) }; }
+      case 'sound.voice.delete': SND.voices = (SND.voices || []).filter((v) => v.name !== p.name); return { mine: SND.voices.map((v) => ({ ...v })) };
       default: throw new Error('Unknown command ' + type);
     }
   }

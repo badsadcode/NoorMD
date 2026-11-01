@@ -30,6 +30,30 @@ public partial class MainWindow
     private static readonly SemaphoreSlim SoundGate = new(1);
 
     private static string UserSoundFolder => Path.Combine(App.Paths.Local, "Sound", "Presets");
+    /// <summary>Your own voice profiles (Voice Forge), all in one file beside the presets.</summary>
+    private static string UserVoicesFile => Path.Combine(App.Paths.Local, "Sound", "voices.json");
+    private static readonly JsonSerializerOptions VoiceJson = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true };
+
+    private static List<VoiceForge.VoiceProfile> UserVoices()
+    {
+        try { return File.Exists(UserVoicesFile) ? JsonSerializer.Deserialize<List<VoiceForge.VoiceProfile>>(File.ReadAllText(UserVoicesFile), VoiceJson) ?? [] : []; }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { Log.Error("Voice profiles can't be read", ex); return []; }
+    }
+
+    /// <summary>A profile from the page, kept within sensible ranges (the same ones a voice layer has).</summary>
+    private static VoiceForge.VoiceProfile VoiceFrom(JsonElement p)
+    {
+        var name = (p.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null)?.Trim() ?? "";
+        if (name.Length == 0) throw new BridgeError("Give the voice a name.");
+        if (name.Length > 60) name = name[..60];
+        var l = new SoundLayer { Type = "voice" };
+        double D(string k, double fallback) => p.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : fallback;
+        string S(string k, string fallback) => p.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? fallback : fallback;
+        l.Pitch = D("pitch", 140); l.VoiceRange = D("range", 7); l.VoiceSize = D("size", 1); l.Breath = D("breath", 0.1); l.Rasp = D("rasp", 0); l.Nasal = D("nasal", 0.1);
+        l.Creature = D("creature", 0); l.Clarity = D("clarity", 0.7); l.SyllableRate = D("rate", 5); l.Language = S("language", "common"); l.Delivery = S("delivery", "normal");
+        var r = new SoundRecipe { Layers = [l] }.Clamped().Layers[0];
+        return new VoiceForge.VoiceProfile(name, r.Pitch, r.VoiceRange, r.VoiceSize, r.Breath, r.Rasp, r.Nasal, r.Creature, r.Clarity, r.SyllableRate, r.Language, r.Delivery);
+    }
 
     // Sample layers read only files you picked, or that a recipe or preset you opened names (never a path the page made up).
     private readonly HashSet<string> _soundSampleFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -155,6 +179,35 @@ public partial class MainWindow
         {
             switch (req.Type)
             {
+                case "sound.voices":
+                    // Voice Forge: what a voice can say, feel and sound like, and the voices to start from.
+                    return new
+                    {
+                        says = VoiceForge.Says.Select(x => new { id = x.Id, name = x.Name, group = x.Group }),
+                        emotions = VoiceForge.Emotions.Select(x => new { id = x.Id, name = x.Name }),
+                        deliveries = VoiceForge.Deliveries.Select(x => new { id = x.Id, name = x.Name }),
+                        languages = VoiceForge.Languages.Select(x => new { id = x.Id, name = x.Name }),
+                        builtIn = VoiceForge.Profiles, mine = UserVoices(),
+                    };
+                case "sound.voice.save":
+                {
+                    var v = VoiceFrom(p);
+                    var list = UserVoices().Where(x => !string.Equals(x.Name, v.Name, StringComparison.CurrentCultureIgnoreCase)).ToList();
+                    var replaced = list.Count < UserVoices().Count;
+                    list.Add(v);
+                    if (list.Count > 500) throw new BridgeError("That is a lot of voices: remove some first.");
+                    Directory.CreateDirectory(Path.GetDirectoryName(UserVoicesFile)!);
+                    await File.WriteAllTextAsync(UserVoicesFile, JsonSerializer.Serialize(list.OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase), VoiceJson), new UTF8Encoding(false));
+                    return new { replaced, mine = UserVoices() };
+                }
+                case "sound.voice.delete":
+                {
+                    var name = req.GetString("name", 80) ?? "";
+                    var list = UserVoices().Where(x => !string.Equals(x.Name, name, StringComparison.CurrentCultureIgnoreCase)).ToList();
+                    Directory.CreateDirectory(Path.GetDirectoryName(UserVoicesFile)!);
+                    await File.WriteAllTextAsync(UserVoicesFile, JsonSerializer.Serialize(list, VoiceJson), new UTF8Encoding(false));
+                    return new { mine = list };
+                }
                 case "sound.presets":
                     return new
                     {

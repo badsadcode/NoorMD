@@ -21,8 +21,41 @@ public static class SoundPresets
     private static SoundRecipe OneShot(string family, string name, double seconds, params SoundLayer[] layers) =>
         new() { Family = family, Name = name, Duration = seconds, Loop = false, Gust = new GustSettings { Depth = 0, Base = 0.5 }, Layers = [.. layers], Master = new MasterSettings { Normalize = true, Ceiling = -1 } };
 
+    /// <summary>Voice Forge: one voice layer from a profile, saying something, feeling something.</summary>
+    private static SoundRecipe Voice(string name, string profile, string says, string emotion, double seconds, string? emotionEnd = null, string? delivery = null, int languageSeed = 1, string? language = null)
+    {
+        var l = new SoundLayer { Type = "voice", Name = profile, Gain = -3, Width = 0, VoiceSays = says, Emotion = emotion, EmotionEnd = emotionEnd, VoiceLength = seconds, LanguageSeed = languageSeed };
+        VoiceForge.Apply(VoiceForge.Profiles.First(p => p.Name == profile), l);
+        if (delivery != null) l.Delivery = delivery;
+        if (language != null) l.Language = language;
+        var r = OneShot("Voices", name, Math.Round(seconds + 0.4, 2), l);
+        r.Master.Reverb = 0.08; r.Master.Room = 0.3;
+        return r;
+    }
+
     public static readonly IReadOnlyList<Preset> All =
     [
+        // Voices (Voice Forge): invented speech and sounds with no words, for characters of any kind.
+        new("voice-chatter", "Voices", "Friendly chatter", "A cheerful character talking in a language of its own.", () => Voice("Friendly chatter", "Adult, high", "chatter", "happy", 5)),
+        new("voice-goblin-argue", "Voices", "Goblin arguing", "A nasal little creature, cross and fast.", () => Voice("Goblin arguing", "Goblin", "argument", "angry", 4, languageSeed: 7)),
+        new("voice-fairy-question", "Voices", "Fairy asking", "Light, quick questions, rising at the end.", () => Voice("Fairy asking", "Fairy", "question", "curious", 3)),
+        new("voice-brute-command", "Voices", "Brute giving orders", "Deep, rough, short commands.", () => Voice("Brute giving orders", "Brute", "command", "annoyed", 3)),
+        new("voice-narrator", "Voices", "Calm narrator", "Even, clear speech (invented words).", () => Voice("Calm narrator", "Narrator", "chatter", "calm", 6, language: "melodic")),
+        new("voice-calm-to-furious", "Voices", "Calm, then furious", "Starts calm and ends shouting: an emotion arc.", () => Voice("Calm, then furious", "Adult, low", "argument", "calm", 6, emotionEnd: "furious")),
+        new("voice-robot", "Voices", "Robot announcement", "Flat, stepped pitch, no breaths.", () => Voice("Robot announcement", "Robot", "command", "calm", 3)),
+        new("voice-ghost", "Voices", "Ghost whisper", "A frightened whisper.", () => Voice("Ghost whisper", "Ghost", "mutter", "afraid", 3)),
+        new("voice-alien", "Voices", "Alien chatter", "Clicks and odd vowels.", () => Voice("Alien chatter", "Alien", "chatter", "curious", 4)),
+        new("voice-laugh", "Voices", "Laugh", "A hearty laugh with breaths in between.", () => Voice("Laugh", "Adult, low", "laugh", "happy", 3)),
+        new("voice-giggle", "Voices", "Giggle", "A quick, high giggle.", () => Voice("Giggle", "Fairy", "giggle", "happy", 2)),
+        new("voice-scream", "Voices", "Scream", "A scream of fright.", () => Voice("Scream", "Adult, high", "scream", "afraid", 1.6)),
+        new("voice-grunt", "Voices", "Pain grunt", "A short grunt: hit, lifting, effort.", () => Voice("Pain grunt", "Brute", "grunt", "angry", 0.3)),
+        new("voice-groan", "Voices", "Groan", "A long, tired groan.", () => Voice("Groan", "Elder", "groan", "tired", 1.8)),
+        new("voice-sigh", "Voices", "Sigh", "Breathe in, a long sigh out.", () => Voice("Sigh", "Adult, high", "sigh", "tired", 1.5)),
+        new("voice-gasp", "Voices", "Gasp", "A sharp breath in: surprise or fright.", () => Voice("Gasp", "Adult, high", "gasp", "surprised", 0.4)),
+        new("voice-cry", "Voices", "Crying", "Sobs and wails.", () => Voice("Crying", "Cartoon kid", "cry", "sad", 4)),
+        new("voice-growl", "Voices", "Monster growl", "A deep, rough growl.", () => Voice("Monster growl", "Monster", "growl", "angry", 2.5)),
+        new("voice-cheer", "Voices", "Cheer", "Yeah! Woo! Hey!", () => Voice("Cheer", "Adult, low", "cheer", "excited", 2.5)),
+        new("voice-hmm", "Voices", "Hmm", "A thinking hum.", () => Voice("Hmm", "Narrator", "hmm", "curious", 0.8)),
         // Wind: a moving air bed, gusts, vegetation that answers the gusts, and whistles only where there's something to whistle around.
         new("wind-forest", "Wind", "Gentle forest breeze", "Soft air through trees, leaves stirring with each gust.", () => Ambience("Wind", "Gentle forest breeze", 5, 0.5, 0.35,
             Noise("Air", "pink", "lowpass", 600, 0.7, -14, gust: 0.7, gustFilter: 0.6),

@@ -153,6 +153,36 @@ public sealed class SoundLayer
     /// <summary>Grains: random pitch of each grain, in semitones either way.</summary>
     public double GrainPitch { get; set; }
 
+    // voice (Voice Forge): Pitch is the voice's middle pitch (Hz)
+    /// <summary>What it says: speech of a kind ("chatter", "question"…) or a sound with no words ("laugh", "scream"…).</summary>
+    public string VoiceSays { get; set; } = "chatter";
+    /// <summary>How long it talks (seconds; a grunt or a gasp is as long as this, a laugh keeps going for it).</summary>
+    public double VoiceLength { get; set; } = 3;
+    /// <summary>Who: the profile it came from (for show), pitch range (semitones), body size (0.4–2.5; 1 = an adult;
+    /// smaller is higher), breath, rasp, nasality, creature (growl, undertone) and clarity (0–1 each).</summary>
+    public string? VoiceProfile { get; set; }
+    public double VoiceRange { get; set; } = 7;
+    public double VoiceSize { get; set; } = 1;
+    public double Breath { get; set; } = 0.1;
+    public double Rasp { get; set; }
+    public double Nasal { get; set; } = 0.1;
+    public double Creature { get; set; }
+    public double Clarity { get; set; } = 0.7;
+    /// <summary>How: syllables per second, how often it pauses (0–1), hesitation (0–1), emotion and how strong (and the
+    /// emotion it ends in: an arc), delivery (normal, whisper, shout…).</summary>
+    public double SyllableRate { get; set; } = 5;
+    public double Pauses { get; set; } = 0.4;
+    public double Hesitation { get; set; }
+    public string Emotion { get; set; } = "calm";
+    public double EmotionAmount { get; set; } = 0.6;
+    public string? EmotionEnd { get; set; }
+    public string Delivery { get; set; } = "normal";
+    /// <summary>The language: its style of sounds, the seed of its words (the same seed: the same language), and how much it
+    /// keeps to its own words (1) rather than making new ones each time (0).</summary>
+    public string Language { get; set; } = "common";
+    public int LanguageSeed { get; set; } = 1;
+    public double Consistency { get; set; } = 0.75;
+
     /// <summary>This layer's effects, in order (EQ, compressor, delay…).</summary>
     public List<SoundEffect> Effects { get; set; } = [];
 
@@ -290,7 +320,7 @@ public sealed class SoundRecipe
         if (Layers.Count > 16) Layers = Layers.Take(16).ToList();
         foreach (var l in Layers)
         {
-            l.Type = l.Type is "noise" or "events" or "synth" or "sample" ? l.Type : "noise";
+            l.Type = l.Type is "noise" or "events" or "synth" or "sample" or "voice" ? l.Type : "noise";
             l.Name = string.IsNullOrWhiteSpace(l.Name) ? "Layer" : l.Name.Trim()[..Math.Min(l.Name.Trim().Length, 60)];
             l.Gain = C(l.Gain, -80, 12); l.Pan = C(l.Pan, -1, 1); l.Width = C(l.Width, 0, 1); l.GustAmount = C(l.GustAmount, 0, 1);
             l.Start = C(l.Start, 0, 600); l.Attack = C(l.Attack, 0, 60); l.Release = C(l.Release, 0, 120);
@@ -311,6 +341,16 @@ public sealed class SoundRecipe
             l.Scan = double.IsFinite(l.Scan) ? Math.Clamp(l.Scan, -4, 4) : 0; l.GrainPitch = C(l.GrainPitch, 0, 24);
             if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
             if (l.SampleName != null) l.SampleName = l.SampleName.Length > 120 ? l.SampleName[..120] : l.SampleName;
+            l.VoiceSays = VoiceForge.Says.Any(x => x.Id == l.VoiceSays) ? l.VoiceSays : "chatter";
+            l.VoiceLength = C(l.VoiceLength, 0.05, 120); l.VoiceRange = C(l.VoiceRange, 0, 24); l.VoiceSize = C(l.VoiceSize, 0.4, 2.5);
+            l.Breath = C(l.Breath, 0, 1); l.Rasp = C(l.Rasp, 0, 1); l.Nasal = C(l.Nasal, 0, 1); l.Creature = C(l.Creature, 0, 1); l.Clarity = C(l.Clarity, 0, 1);
+            l.SyllableRate = C(l.SyllableRate, 1, 14); l.Pauses = C(l.Pauses, 0, 1); l.Hesitation = C(l.Hesitation, 0, 1); l.EmotionAmount = C(l.EmotionAmount, 0, 1);
+            l.Emotion = VoiceForge.Emotions.Any(x => x.Id == l.Emotion) ? l.Emotion : "calm";
+            l.EmotionEnd = VoiceForge.Emotions.Any(x => x.Id == l.EmotionEnd) ? l.EmotionEnd : null;
+            l.Delivery = VoiceForge.Deliveries.Any(x => x.Id == l.Delivery) ? l.Delivery : "normal";
+            l.Language = VoiceForge.Languages.Any(x => x.Id == l.Language) ? l.Language : "common";
+            l.LanguageSeed = Math.Clamp(l.LanguageSeed, 0, 999_999); l.Consistency = C(l.Consistency, 0, 1);
+            if (l.VoiceProfile != null) l.VoiceProfile = l.VoiceProfile.Length > 60 ? l.VoiceProfile[..60] : l.VoiceProfile;
             l.Effects = (l.Effects ?? []).Where(e => e != null).Take(SoundEffect.MaxPerChain).Select(e => e.Clamped()).ToList();
         }
         Master.Gain = C(Master.Gain, -40, 24); Master.HighPass = C(Master.HighPass, 10, 5000); Master.LowPass = C(Master.LowPass, 200, 20000);
@@ -519,7 +559,7 @@ public static class SoundEngine
             var md = new LayerMod(mods.For(layer.Id + ":pitch"), mods.For(layer.Id + ":freq"), mods.For(layer.Id + ":density"), mods.For(layer.Id + ":position"));
             var gainMod = mods.For(layer.Id + ":gain");
             var panMod = mods.For(layer.Id + ":pan");
-            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass)
+            var post = layer.Drive > 0.001 || layer.Crush > 0.001 || (layer.Type is "synth" or "sample" or "voice" && layer.UseFilter && layer.Filter != "none") || layer.Effects.Any(e => !e.Bypass)
                 || gainMod != null || panMod != null || sends.Count > 0;
             var tl = post ? new double[total] : L;
             var tr = post ? new double[total] : R;
@@ -528,6 +568,7 @@ public static class SoundEngine
                 case "noise": RenderNoise(layer, rng, gust, tl, tr, sampleRate, total, md); break;
                 case "events": RenderEvents(layer, rng, gust, tl, tr, sampleRate, total, md); break;
                 case "synth": RenderSynth(layer, rng, tl, tr, sampleRate, total, md); break;
+                case "voice": RenderVoice(layer, rng, tl, tr, sampleRate, total); break;
                 case "sample":
                 {
                     var audio = string.IsNullOrEmpty(layer.Path) ? null : samples?.Invoke(layer.Path);
@@ -899,6 +940,19 @@ public static class SoundEngine
         if (l.Repeat > 0) for (var t = l.Start; t < totalSeconds; t += l.Repeat) starts.Add(t);
         else starts.Add(l.Start);
         return starts;
+    }
+
+    /// <summary>Voice Forge: the voice, from the layer's start, at its level and place (repeated if asked).</summary>
+    private static void RenderVoice(SoundLayer l, SoundRng rng, double[] L, double[] R, int sr, int total)
+    {
+        var mono = VoiceForge.Render(l, rng, sr);
+        var gain = Math.Pow(10, l.Gain / 20);
+        var (pl, pr) = PanGains(l.Pan);
+        foreach (var t0 in Starts(l, (double)total / sr))
+        {
+            var from = (int)(t0 * sr);
+            for (var i = 0; i < mono.Length && from + i < total; i++) { var v = mono[i] * gain; L[from + i] += v * pl; R[from + i] += v * pr; }
+        }
     }
 
     /// <summary>A tone with a pitch sweep, an optional jump (Arp), FM and an envelope (UI sounds, pickups, lasers, bells, engines); it can repeat.</summary>

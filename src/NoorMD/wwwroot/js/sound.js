@@ -25,14 +25,23 @@ window.NoorSound = (() => {
     sample: [...COMMON.filter(([k]) => k !== 'gustAmount'), ['semitones', 'Pitch (semitones, like tape)', -24, 24, 0.1, 'num'], ['trimStart', 'Use from', 0, 60, 0.001, 's'], ['trimEnd', '…to (0 = the end)', 0, 60, 0.001, 's'],
       ['start', 'Start', 0, 30, 0.01, 's'], ['attack', 'Fade in', 0, 5, 0.001, 's'], ['hold', 'Hold', 0, 30, 0.01, 's'], ['release', 'Fade out (0 = none)', 0, 20, 0.01, 's'],
       ['repeat', 'Repeat every (0 = once)', 0, 10, 0.01, 's'], ...FILTERED, ...GRIT],
+    // Voice Forge: who is speaking (pitch, size, breath…), how (speed, pauses, emotion strength), and its language.
+    voice: [['gain', 'Level', -60, 12, 0.5, 'db'], ['pan', 'Pan', -1, 1, 0.05, 'pan'], ['voiceLength', 'How long', 0.05, 60, 0.01, 's'], ['start', 'Start', 0, 30, 0.01, 's'],
+      ['pitch', 'Pitch', 40, 1000, 1, 'hz'], ['voiceRange', 'Pitch range (melody)', 0, 24, 0.5, 'st'], ['voiceSize', 'Body size (small ↔ big)', 0.4, 2.5, 0.01, 'x'],
+      ['breath', 'Breathiness', 0, 1, 0.01, 'pct'], ['rasp', 'Rasp', 0, 1, 0.01, 'pct'], ['nasal', 'Nasal', 0, 1, 0.01, 'pct'], ['creature', 'Creature (growl, undertone)', 0, 1, 0.01, 'pct'],
+      ['clarity', 'Clarity (mumbled ↔ crisp)', 0, 1, 0.01, 'pct'], ['syllableRate', 'Syllables per second', 1, 14, 0.1, 'num'], ['pauses', 'Pauses', 0, 1, 0.01, 'pct'],
+      ['hesitation', 'Hesitation (uh, st-stutter)', 0, 1, 0.01, 'pct'], ['emotionAmount', 'Emotion strength', 0, 1, 0.01, 'pct'],
+      ['consistency', 'Keeps to its own words', 0, 1, 0.01, 'pct'], ['repeat', 'Repeat every (0 = once)', 0, 10, 0.01, 's'], ...FILTERED, ...GRIT],
   };
   const CHOICES = { color: ['white', 'pink', 'brown'], filter: ['lowpass', 'highpass', 'bandpass', 'none'], wave: ['sine', 'square', 'saw', 'triangle', 'noise'] };
-  const TYPE_LABEL = { noise: 'Noise bed', events: 'Events (drops, crackles, steps)', synth: 'Synth voice', sample: 'Sample (your WAV)' };
+  const TYPE_LABEL = { noise: 'Noise bed', events: 'Events (drops, crackles, steps)', synth: 'Synth voice', sample: 'Sample (your WAV)', voice: 'Voice (speech, laughs, screams…)' };
   const NEW_LAYER = {
     noise: { type: 'noise', name: 'Noise bed', gain: -18, color: 'pink', filter: 'lowpass', freq: 1000, q: 0.7, width: 0.8 },
     events: { type: 'events', name: 'Events', gain: -24, density: 30, decay: 10, pitch: 3000, pitchSpread: 0.7, tone: 0.3, gainSpread: 6, width: 0.9 },
     synth: { type: 'synth', name: 'Synth voice', gain: -12, wave: 'sine', pitch: 440, pitchEnd: 0, attack: 0.005, hold: 0, release: 0.3, width: 0 },
     sample: { type: 'sample', name: 'Sample', gain: -6, width: 1, semitones: 0, trimStart: 0, trimEnd: 0, release: 0, filter: 'lowpass', freq: 4000, q: 0.7, playMode: 'tape' },
+    voice: { type: 'voice', name: 'Voice', gain: -6, width: 0, pitch: 150, voiceSays: 'chatter', voiceLength: 3, voiceProfile: null, voiceRange: 7, voiceSize: 1, breath: 0.1, rasp: 0, nasal: 0.1, creature: 0, clarity: 0.7,
+      syllableRate: 5, pauses: 0.4, hesitation: 0, emotion: 'calm', emotionAmount: 0.6, emotionEnd: null, delivery: 'normal', language: 'common', languageSeed: 1, consistency: 0.75, filter: 'lowpass', freq: 8000, q: 0.7 },
   };
   const MASTER = [['gain', 'Level', -40, 24, 0.5, 'db'], ['highPass', 'Low cut', 10, 5000, 1, 'hz'], ['lowPass', 'High cut', 200, 20000, 1, 'hz'], ['width', 'Stereo width', 0, 2, 0.05, 'pct'],
     ['reverb', 'Room sound', 0, 1, 0.05, 'pct'], ['room', 'Room size', 0, 1, 0.05, 'pct'], ['ceiling', 'Ceiling', -24, 0, 0.5, 'db']];
@@ -134,7 +143,7 @@ window.NoorSound = (() => {
   function changed(rebuild) {
     ensureIds(recipe);
     listening = 'B';
-    if (rebuild) renderEditor(); else renderHeader();
+    if (rebuild) renderEditor(); else { renderHeader(); refreshVoiceMenus(); }
     clearTimeout(snapTimer);
     snapTimer = setTimeout(pushHistory, 600);
     schedule(220);
@@ -752,6 +761,92 @@ window.NoorSound = (() => {
     return wrap;
   }
 
+  // ---------------------------------------------------------------- Voice Forge (voice layers)
+
+  let voiceData = null; // what voices can say and feel, their languages and profiles (built-in and yours)
+  async function loadVoices() {
+    if (voiceData) return voiceData;
+    try { voiceData = await req('sound.voices'); } catch (err) { hooks.showError(err); }
+    return voiceData;
+  }
+  const PROFILE_KEYS = ['pitch', 'range', 'size', 'breath', 'rasp', 'nasal', 'creature', 'clarity', 'rate', 'language', 'delivery'];
+  const LAYER_KEY = { range: 'voiceRange', size: 'voiceSize', rate: 'syllableRate' };
+
+  /** A voice layer's choices: the voice it is (profiles), what it says, its emotion (and the one it ends in), delivery, language. */
+  function voiceChoices(l) {
+    if (!voiceData) { loadVoices().then(() => { if (voiceData) renderEditor(); }); return [el('span', { class: 'pref-hint', text: 'Loading voices…' })]; }
+    const sel = (key, label, options, value, onChange, attrs = {}) => {
+      const s = el('select', { 'aria-label': label, 'data-voice': key, ...attrs }, ...options);
+      s.value = value;
+      s.addEventListener('change', () => onChange(s.value));
+      return el('label', { class: 'sb-inline' }, el('span', { text: label }), s);
+    };
+    const opt = (id, name) => el('option', { value: id, text: name });
+    const all = [...voiceData.builtIn.map((p) => ({ ...p, mine: false })), ...voiceData.mine.map((p) => ({ ...p, mine: true }))];
+    const profile = sel('profile', 'Voice', [opt('', l.voiceProfile && all.some((p) => p.name === l.voiceProfile) ? `${l.voiceProfile} (changed)` : '(your own settings)'),
+      el('optgroup', { label: 'Built in' }, ...voiceData.builtIn.map((p) => opt('b:' + p.name, p.name))),
+      ...(voiceData.mine.length ? [el('optgroup', { label: 'Yours' }, ...voiceData.mine.map((p) => opt('m:' + p.name, p.name)))] : [])],
+    matchingProfile(l, all), (v) => {
+      const p = all.find((x) => (x.mine ? 'm:' : 'b:') + x.name === v);
+      if (!p) return;
+      for (const k of PROFILE_KEYS) l[LAYER_KEY[k] || k] = p[k];
+      l.voiceProfile = p.name;
+      changed(true);
+    });
+    const groups = [...new Set(voiceData.says.map((x) => x.group))];
+    const says = sel('says', 'Says', groups.map((g) => el('optgroup', { label: g === 'Sounds' ? 'Sounds with no words' : g }, ...voiceData.says.filter((x) => x.group === g).map((x) => opt(x.id, x.name)))),
+      l.voiceSays, (v) => { l.voiceSays = v; changed(false); });
+    const emotions = voiceData.emotions.map((x) => opt(x.id, x.name));
+    const emotion = sel('emotion', 'Feeling', emotions, l.emotion, (v) => { l.emotion = v; changed(false); });
+    const end = sel('emotionEnd', '…ends', [opt('', '(the same)'), ...voiceData.emotions.map((x) => opt(x.id, x.name))], l.emotionEnd || '', (v) => { l.emotionEnd = v || null; changed(false); },
+      { title: 'An emotion arc: it starts with the feeling on the left and ends with this one' });
+    const delivery = sel('delivery', 'Delivery', voiceData.deliveries.map((x) => opt(x.id, x.name)), l.delivery, (v) => { l.delivery = v; changed(false); });
+    const language = sel('language', 'Language', voiceData.languages.map((x) => opt(x.id, x.name)), l.language, (v) => { l.language = v; changed(false); });
+    const seed = el('input', { type: 'number', class: 'sb-num', min: '0', max: '999999', step: '1', value: String(l.languageSeed ?? 1), 'data-voice': 'languageSeed', 'aria-label': 'Language seed (the same number: the same words)', title: 'The same number gives the same words: one character, one language' });
+    seed.addEventListener('change', () => { const n = Math.max(0, Math.min(999999, Math.round(Number(seed.value) || 0))); l.languageSeed = n; seed.value = String(n); changed(false); });
+    const newLang = el('button', { class: 'icon-btn', 'data-newlanguage': '', title: 'Another language of this style (new words)', 'aria-label': 'Another language', onclick: () => { l.languageSeed = Math.floor(Math.random() * 999999); changed(true); } }, '🎲');
+    const save = el('button', { class: 'utility-btn', 'data-savevoice': '', title: 'Keep this voice (pitch, size, breath, rasp… and its language style) to use again in any sound', onclick: () => saveVoice(l) }, '💾 Save voice…');
+    const mineNow = voiceData.mine.find((p) => p.name === l.voiceProfile);
+    const del = mineNow ? el('button', { class: 'icon-btn', 'data-deletevoice': '', title: `Remove “${mineNow.name}” from your voices`, 'aria-label': 'Remove this saved voice', onclick: () => deleteVoice(mineNow.name) }, '🗑') : null;
+    return [profile, save, del, says, emotion, end, delivery, language, el('label', { class: 'sb-inline' }, el('span', { text: 'Words' }), seed), newLang].filter(Boolean);
+  }
+
+  /** After a small change: each voice layer's Voice menu shows whether it is still that voice exactly. */
+  function refreshVoiceMenus() {
+    if (!voiceData || !recipe) return;
+    const all = [...voiceData.builtIn.map((p) => ({ ...p, mine: false })), ...voiceData.mine.map((p) => ({ ...p, mine: true }))];
+    document.querySelectorAll('#sb-pane .sb-layer select[data-voice="profile"]').forEach((s) => {
+      const l = recipe.layers[Number(s.closest('.sb-layer').dataset.index)];
+      if (l && l.type === 'voice') s.value = matchingProfile(l, all);
+    });
+  }
+
+  /** The profile this layer still is exactly (else none: "your own settings"). */
+  function matchingProfile(l, all) {
+    const same = (a, b) => (typeof a === 'number' ? Math.abs(a - b) < 1e-6 : a === b);
+    const p = all.find((x) => x.name === l.voiceProfile && PROFILE_KEYS.every((k) => same(x[k], l[LAYER_KEY[k] || k])));
+    return p ? (p.mine ? 'm:' : 'b:') + p.name : '';
+  }
+
+  async function saveVoice(l) {
+    const name = await NoorUI.prompt('Save this voice', 'Its name (a saved voice of the same name is replaced):', l.voiceProfile && !voiceData.builtIn.some((p) => p.name === l.voiceProfile) ? l.voiceProfile : '');
+    if (!name || !name.trim()) return;
+    const profile = { name: name.trim() };
+    for (const k of PROFILE_KEYS) profile[k] = l[LAYER_KEY[k] || k];
+    try {
+      const r = await req('sound.voice.save', profile);
+      voiceData.mine = r.mine;
+      l.voiceProfile = name.trim();
+      notice(r.replaced ? `Replaced the voice “${name.trim()}”` : `Saved the voice “${name.trim()}”`, 1500);
+      changed(true);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  async function deleteVoice(name) {
+    if (!await NoorUI.confirm(`Remove the voice “${name}”?`, ['Sounds that use it keep their settings.'], 'Remove')) return;
+    try { const r = await req('sound.voice.delete', { name }); voiceData.mine = r.mine; renderEditor(); } catch (err) { hooks.showError(err); }
+  }
+
   /** A new layer of a kind (a sample layer asks for its file first). */
   function addLayer(t) {
     if (recipe.layers.length >= 16) { notice('Sixteen layers is the most.', 1500); return; }
@@ -759,7 +854,10 @@ window.NoorSound = (() => {
       pickSample().then((f) => { if (!f) return; recipe.layers.push({ ...clone(NEW_LAYER.sample), path: f.path, sampleName: f.name, name: f.name.replace(/\.wav$/i, '') }); changed(true); });
       return;
     }
-    recipe.layers.push(clone(NEW_LAYER[t])); changed(true);
+    const layer = clone(NEW_LAYER[t]);
+    // A voice needs the sound to be long enough to hear it all.
+    if (t === 'voice' && recipe.duration < layer.start + layer.voiceLength + 0.3) recipe.duration = Number((layer.start + layer.voiceLength + 0.4).toFixed(2));
+    recipe.layers.push(layer); changed(true);
   }
 
   function layersPane() {
@@ -790,6 +888,7 @@ window.NoorSound = (() => {
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { dropRoutes((t) => t.startsWith(l.id + ':') || t.startsWith(l.id + '/')); recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...(l.type === 'noise' ? [choice('color'), choice('filter')]
           : l.type === 'synth' ? [choice('wave'), check('useFilter', 'Filter'), choice('filter')]
+            : l.type === 'voice' ? [...voiceChoices(l), check('useFilter', 'Filter'), choice('filter')]
             : l.type === 'sample' ? [el('span', { class: 'sb-file', title: l.path || '', text: '🎵 ' + (l.sampleName || 'no file') }),
               el('button', { class: 'utility-btn', onclick: async () => { const f = await pickSample(); if (f) { l.path = f.path; l.sampleName = f.name; l.name = l.name === 'Sample' ? f.name.replace(/\.wav$/i, '') : l.name; changed(true); } } }, 'Change file…'),
               playMode(l), check('reverse', 'Backwards', true), ...(l.playMode === 'grains' ? [] : [check('loopSample', 'Loop it', true)]), check('useFilter', 'Filter'), choice('filter')] : [])),
@@ -1332,8 +1431,8 @@ window.NoorSound = (() => {
 
   // Which settings belong to which kind of change.
   const MUTATE_GROUPS = {
-    timing: ['density', 'rhythm', 'burst', 'burstSpread', 'start', 'attack', 'hold', 'release', 'repeat', 'wobbleRate', 'arpTime', 'vibratoRate'],
-    tone: ['pitch', 'pitchEnd', 'pitchSpread', 'freq', 'freqEnd', 'q', 'tone', 'decay', 'drift', 'wobble', 'duty', 'fmRatio', 'fmDepth', 'vibrato', 'semitones', 'drive', 'gustFilter'],
+    timing: ['syllableRate', 'pauses', 'density', 'rhythm', 'burst', 'burstSpread', 'start', 'attack', 'hold', 'release', 'repeat', 'wobbleRate', 'arpTime', 'vibratoRate'],
+    tone: ['voiceRange', 'voiceSize', 'breath', 'rasp', 'nasal', 'pitch', 'pitchEnd', 'pitchSpread', 'freq', 'freqEnd', 'q', 'tone', 'decay', 'drift', 'wobble', 'duty', 'fmRatio', 'fmDepth', 'vibrato', 'semitones', 'drive', 'gustFilter'],
     level: ['gain', 'pan', 'width', 'gainSpread', 'gustAmount'],
   };
 

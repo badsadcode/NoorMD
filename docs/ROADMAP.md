@@ -5,6 +5,10 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- Voice Forge, stage 1 (preview.134): a voice layer in NoorSound: invented speech in a language of its own
+  (8 styles; the same number, the same words), sounds with no words (laughs, screams, grunts, sighs…), 14 built-in
+  voices and your own, feelings with arcs, deliveries, takes, presets and Generate. See
+  [VOICE_FORGE_PLAN.md](VOICE_FORGE_PLAN.md).
 - NoorGallery fixes (preview.133): opening a picture folder (or a folder holding only albums) from the list shows
   its folders and pictures instead of falling back to all pictures; a picture folder added inside another one is a
   folder in it, its albums placed by where they are on the disk, with the same names whichever of the two looked
