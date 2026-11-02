@@ -13,6 +13,9 @@ window.NoorMesh = (() => {
   let built = false, view = null;
   // The scene: objects { id, name, kind, mesh, t, r, s, hidden }; the selection; the active object.
   let objects = [], selected = new Set(), active = null, nextId = 1;
+  // Materials (B2): the scene's, each { id, name, color: [r, g, b, a] 0–1, rough, metal }; an object's slots (o.mats: ids)
+  // say which a face uses (its m: the slot), as Blender's material slots.
+  let materials = [], nextMat = 1;
   let history = [], future = [];
   let op = null;           // a transform under way (G, R, S)
   let lastAdd = null;      // the last primitive added, its settings still adjustable
@@ -75,7 +78,7 @@ window.NoorMesh = (() => {
   const sel = () => objects.filter((o) => selected.has(o.id) && !o.hidden);
 
   // ---------------------------------------------------------------- history (a scene per step; meshes by reference)
-  const snapshot = () => ({ objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel), multi: multi && { ids: multi.ids.slice() } });
+  const snapshot = () => ({ materials: materials.map((m) => ({ ...m, color: m.color.slice() })), objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel), multi: multi && { ids: multi.ids.slice() } });
   function pushHistory() { history.push(snapshot()); if (history.length > 200) history.shift(); future = []; changed(); }
   /** Something changed: the title shows it, and a draft is kept a few seconds later (to bring back after a crash). */
   function changed() {
@@ -89,6 +92,7 @@ window.NoorMesh = (() => {
   function restore(s) {
     objects = s.objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })); selected = new Set(s.selected); active = s.active; nextId = Math.max(nextId, s.nextId); lastAdd = null;
     mode = s.mode || 'object'; editSel = s.editSel ? K().cloneSelection(s.editSel) : null;
+    if (s.materials) materials = s.materials.map((m) => ({ ...m, color: m.color.slice() }));
     multi = s.multi && mode === 'edit' ? { ids: s.multi.ids.slice() } : null;
     if (mode === 'edit' && !editing()) { mode = 'object'; editSel = null; }
     syncAll(); renderAll();
@@ -108,7 +112,7 @@ window.NoorMesh = (() => {
     if (!view) return;
     const inEdit = mode === 'edit' && o.id === active; // its overlay shows the selection instead of an outline
     const absorbed = !!multi && mode === 'edit' && o.id !== active && multi.ids.includes(o.id);
-    const look = { matrix: matrixOf(o), selected: selected.has(o.id) && !inEdit, active: active === o.id && !inEdit, hidden: o.hidden || absorbed };
+    const look = { matrix: matrixOf(o), selected: selected.has(o.id) && !inEdit, active: active === o.id && !inEdit, hidden: o.hidden || absorbed, mats: slotLooks(o) };
     if (uploaded.get(o.id) !== o.mesh) { view.setObject(o.id, K().buffers(o.mesh), look); uploaded.set(o.id, o.mesh); }
     else view.setLook(o.id, look);
   }
@@ -254,7 +258,8 @@ window.NoorMesh = (() => {
     others.forEach((o, j) => {
       const L = K().multiply(Ai, matrixOf(o)), base = K().vertexCount(mesh), flip = detOf(L) < 0;
       for (let i = 0; i < K().vertexCount(o.mesh); i++) mesh.v.push(...K().transformPoint(L, vOf(o.mesh, i)));
-      for (const f of o.mesh.f) { const nf = { v: f.v.map((v) => v + base), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s, o: j + 1 }; if (flip) K().flipFace(nf); mesh.f.push(nf); }
+      const remap = slotRemap(a, o);
+      for (const f of o.mesh.f) { const nf = { v: f.v.map((v) => v + base), uv: f.uv ? f.uv.slice() : null, m: remap(f.m || 0), s: !!f.s, o: j + 1 }; if (flip) K().flipFace(nf); mesh.f.push(nf); }
     });
     multi = { ids: [a.id, ...others.map((o) => o.id)] };
     a.mesh = mesh;
@@ -277,13 +282,14 @@ window.NoorMesh = (() => {
       const L = K().multiply(invertOf(o), matrixOf(a)), flip = detOf(L) < 0;
       for (let i = 0; i < K().vertexCount(part); i++) { const q = K().transformPoint(L, vOf(part, i)); part.v[i * 3] = q[0]; part.v[i * 3 + 1] = q[1]; part.v[i * 3 + 2] = q[2]; }
       if (flip) part.f.forEach((f) => K().flipFace(f));
+      part.mats = (a.mats || []).slice();
       out.set(id, part);
     });
     return out;
   }
   function leaveMulti() {
     const parts = splitMulti();
-    for (const [id, mesh] of parts) { const o = byId(id); if (o) o.mesh = mesh; }
+    for (const [id, mesh] of parts) { const o = byId(id); if (o) { o.mats = mesh.mats; delete mesh.mats; o.mesh = mesh; } }
     multi = null;
   }
   function setSelectMode(m) {
@@ -1259,7 +1265,8 @@ window.NoorMesh = (() => {
       // A mirrored placement (a negative scale) turns faces inside out: turned back.
       const det = L[0] * (L[5] * L[10] - L[6] * L[9]) - L[4] * (L[1] * L[10] - L[2] * L[9]) + L[8] * (L[1] * L[6] - L[2] * L[5]);
       for (let i = 0; i < K().vertexCount(o.mesh); i++) mesh.v.push(...K().transformPoint(L, vOf(o.mesh, i)));
-      for (const f of o.mesh.f) { const nf = { v: f.v.map((v) => v + base), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s }; if (det < 0) K().flipFace(nf); mesh.f.push(nf); }
+      const remap = slotRemap(target, o);
+      for (const f of o.mesh.f) { const nf = { v: f.v.map((v) => v + base), uv: f.uv ? f.uv.slice() : null, m: remap(f.m || 0), s: !!f.s }; if (det < 0) K().flipFace(nf); mesh.f.push(nf); }
     }
     target.mesh = mesh;
     objects = objects.filter((o) => o === target || !list.includes(o));
@@ -1293,7 +1300,7 @@ window.NoorMesh = (() => {
     }
     pushHistory();
     o.mesh = subMesh(m, parts[0]);
-    const made = parts.slice(1).map((g) => ({ id: `o${nextId++}`, name: uniqueName(o.name.replace(/\.\d{3}$/, '')), kind: 'mesh', mesh: subMesh(m, g), t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: false }));
+    const made = parts.slice(1).map((g) => ({ id: `o${nextId++}`, name: uniqueName(o.name.replace(/\.\d{3}$/, '')), kind: 'mesh', mesh: subMesh(m, g), t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: false, mats: (o.mats || []).slice() }));
     objects.push(...made);
     made.forEach((x) => selected.add(x.id));
     editSel = K().emptySelection(editSel.mode); lastAdd = null;
@@ -1830,18 +1837,28 @@ window.NoorMesh = (() => {
     // Several objects in Edit Mode together: saved as they will be when it ends (each its own mesh).
     const parts = multi && mode === 'edit' ? splitMulti() : null;
     const meshOf = (o) => (parts && parts.has(o.id) ? parts.get(o.id) : o.mesh);
-    return { format: 'noormesh', version: 1, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t, r: o.r, s: o.s, hidden: !!o.hidden,
+    const used = new Set(objects.flatMap((o) => o.mats || []));
+    return { format: 'noormesh', version: 1, materials: materials.filter((m) => used.has(m.id)).map((m) => ({ id: m.id, name: m.name, color: m.color, roughness: m.rough, metallic: m.metal })),
+      objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t, r: o.r, s: o.s, hidden: !!o.hidden, materials: (o.mats || []).slice(),
       mesh: { v: meshOf(o).v, f: meshOf(o).f.map((f) => ({ v: f.v, uv: f.uv || null, m: f.m || 0, s: !!f.s })), e: meshOf(o).e || {} } })) };
   }
   /** Objects from a scene the app read: given ids of their own, meshes in the page's shape. */
   function objectsIn(doc) {
+    // The file's materials added to the scene (ids of their own), its objects' slots pointed at them.
+    const idMap = new Map();
+    for (const m of doc.materials || []) {
+      const c = Array.isArray(m.color) ? m.color : [0.8, 0.8, 0.8, 1];
+      const nm = { id: `m${nextMat++}`, name: String(m.name || 'Material').slice(0, 64), color: [0, 1, 2, 3].map((k) => (Number.isFinite(c[k]) ? Math.min(1, Math.max(0, c[k])) : k === 3 ? 1 : 0.8)), rough: Number.isFinite(m.roughness) ? m.roughness : 0.5, metal: Number.isFinite(m.metallic) ? m.metallic : 0 };
+      idMap.set(m.id, nm.id); materials.push(nm);
+    }
     return (doc.objects || []).map((o) => ({ id: `o${nextId++}`, name: uniqueName(o.name || 'Object'), kind: o.kind || 'mesh', t: (o.t || [0, 0, 0]).slice(), r: (o.r || [0, 0, 0]).slice(), s: (o.s || [1, 1, 1]).slice(), hidden: !!o.hidden,
+      mats: (o.materials || []).map((id) => idMap.get(id) || null).filter(Boolean),
       mesh: { v: Array.from(o.mesh.v || []), f: (o.mesh.f || []).map((f) => ({ v: Array.from(f.v), uv: f.uv ? Array.from(f.uv) : null, m: f.m || 0, s: !!f.s })), e: o.mesh.e || {} } }));
   }
   function setScene(doc, from) {
     cancelOp();
     mode = 'object'; editSel = null; lastAdd = null; multi = null;
-    objects = []; nextId = 1;
+    objects = []; nextId = 1; materials = []; nextMat = 1;
     objects = objectsIn(doc);
     selected = new Set(objects.length ? [objects[objects.length - 1].id] : []); active = objects.length ? objects[objects.length - 1].id : null;
     history = []; future = [];
@@ -1968,6 +1985,108 @@ window.NoorMesh = (() => {
     });
     return el('div', { class: 'nm-vec', title }, el('span', { class: 'nm-veclabel', text: `${label}${unit ? ` (${unit})` : ''}` }), ...inputs);
   }
+  // ---------------------------------------------------------------- materials (B2)
+  const matById = (id) => materials.find((m) => m.id === id);
+  /** How each of an object's slots draws (null: no slots, the plain grey). */
+  function slotLooks(o) {
+    if (!o.mats || !o.mats.length) return null;
+    return o.mats.map((id) => { const m = matById(id) || { color: [0.8, 0.8, 0.8, 1], rough: 0.5, metal: 0 }; return { base: m.color.slice(0, 3), rough: m.rough, metal: m.metal }; });
+  }
+  /** Another object's slots into a target's (added to its slots where missing): old slot → new slot. */
+  function slotRemap(target, o) {
+    const ts = (target.mats || []).slice(), map = (o.mats || []).map((id) => { let k = ts.indexOf(id); if (k < 0) { ts.push(id); k = ts.length - 1; } return k; });
+    target.mats = ts;
+    return (m) => (map.length ? (map[m] ?? 0) : 0);
+  }
+  function uniqueMatName(base) { const names = new Set(materials.map((m) => m.name)); if (!names.has(base)) return base; for (let i = 1; ; i++) { const n = `${base}.${String(i).padStart(3, '0')}`; if (!names.has(n)) return n; } }
+  function newMaterial(from) {
+    const m = { id: `m${nextMat++}`, name: uniqueMatName(from ? from.name.replace(/\.\d{3}$/, '') : 'Material'), color: from ? from.color.slice() : [0.8, 0.8, 0.8, 1], rough: from ? from.rough : 0.5, metal: from ? from.metal : 0 };
+    materials.push(m);
+    return m;
+  }
+  function addSlot() {
+    const o = byId(active); if (!o) return;
+    pushHistory();
+    const m = newMaterial(null);
+    o.mats = [...(o.mats || []), m.id]; o.slot = o.mats.length - 1;
+    syncAll(); renderProps();
+    setStatus(`${m.name} added (slot ${o.mats.length}).`);
+  }
+  function removeSlot() {
+    const o = byId(active); if (!o || !o.mats || !o.mats.length) return;
+    pushHistory();
+    const k = Math.min(o.slot || 0, o.mats.length - 1);
+    o.mats = o.mats.filter((_, i) => i !== k);
+    // Faces on it go to the slot before; those after move down one.
+    o.mesh = { ...o.mesh, f: o.mesh.f.map((f) => ({ ...f, m: (f.m || 0) > k ? f.m - 1 : (f.m || 0) === k ? Math.max(0, k - 1) : f.m || 0 })) };
+    o.slot = Math.max(0, k - 1);
+    syncAll(); syncEdit(); renderProps();
+  }
+  function setSlotMaterial(id) {
+    const o = byId(active); if (!o || !o.mats || !o.mats.length) return;
+    pushHistory();
+    const k = Math.min(o.slot || 0, o.mats.length - 1);
+    o.mats = o.mats.map((x, i) => (i === k ? id : x));
+    syncAll(); renderProps();
+  }
+  function editMaterial(m, patch) {
+    pushHistory();
+    Object.assign(m, patch);
+    syncAll(); renderProps();
+  }
+  /** Edit Mode: the selected faces onto the chosen slot (Assign), or that slot's faces selected (Select / Deselect). */
+  function slotFaces(how) {
+    const o = editing(); if (!o) return;
+    const k = Math.min(o.slot || 0, Math.max(0, (o.mats || []).length - 1));
+    if (how === 'assign') {
+      const f = flushed();
+      if (!f || !f.faces.size) { setStatus('Select faces to assign the material to.'); return; }
+      if (!o.mats || !o.mats.length) { setStatus('Add a material first (+).'); return; }
+      editStep((m) => ({ mesh: { ...m, f: m.f.map((face, i) => (f.faces.has(i) ? { ...face, m: k } : face)) } }), `Assigned ${f.faces.size} face${f.faces.size === 1 ? '' : 's'}.`);
+      return;
+    }
+    const faces = o.mesh.f.map((_, i) => i).filter((i) => (o.mesh.f[i].m || 0) === k);
+    const cur = K().flush(o.mesh, editSel);
+    const next = how === 'select' ? new Set([...cur.faces, ...faces]) : new Set([...cur.faces].filter((i) => !faces.includes(i)));
+    editSel = K().selectionFromFaces(o.mesh, [...next], editSel.mode);
+    syncEdit(); renderAll();
+  }
+  function materialPanel(o) {
+    const slots = o.mats || [], k = Math.min(o.slot || 0, Math.max(0, slots.length - 1));
+    const hex = (c) => '#' + c.slice(0, 3).map((x) => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, '0')).join('');
+    const unhex = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
+    const list = el('ul', { class: 'nm-slots', role: 'listbox', 'aria-label': 'Material slots' }, ...slots.map((id, i) => {
+      const m = matById(id) || { name: '(missing)', color: [0.8, 0.8, 0.8, 1] };
+      return el('li', { class: 'nm-slot' + (i === k ? ' active' : ''), role: 'option', 'aria-selected': String(i === k), 'data-slot': String(i), onclick: () => { o.slot = i; renderProps(); keepFocus(); } },
+        el('span', { class: 'nm-swatch', style: `background:${hex(m.color)}` }), el('span', { text: m.name }));
+    }));
+    const parts = [el('h3', { class: 'music-subhead', text: 'Material' }),
+      slots.length ? list : el('p', { class: 'pref-hint', text: 'No material: the plain grey. + adds one.' }),
+      el('div', { class: 'nm-prims' },
+        el('button', { class: 'utility-btn', id: 'nm-mat-add', title: 'A new material in a new slot', onclick: () => { addSlot(); keepFocus(); } }, '＋ New'),
+        el('button', { class: 'utility-btn', id: 'nm-mat-remove', title: 'Take the chosen slot away (its faces go to the slot before)', onclick: () => { removeSlot(); keepFocus(); }, disabled: !slots.length }, '－ Remove'))];
+    const m = slots.length ? matById(slots[k]) : null;
+    if (m) {
+      const others = materials.filter((x) => x.id !== m.id);
+      const name = el('input', { type: 'text', value: m.name, 'aria-label': 'Material name', id: 'nm-mat-name', class: 'nm-text' });
+      name.addEventListener('change', () => { const v = name.value.trim().slice(0, 64); if (v) editMaterial(m, { name: v }); });
+      const color = el('input', { type: 'color', value: hex(m.color), 'aria-label': 'Base colour', id: 'nm-mat-color' });
+      color.addEventListener('change', () => editMaterial(m, { color: [...unhex(color.value), m.color[3]] }));
+      const slider = (key, label, idv) => { const i = el('input', { type: 'range', min: '0', max: '1', step: '0.01', value: String(m[key]), 'aria-label': label, id: idv }); i.addEventListener('change', () => editMaterial(m, { [key]: Number(i.value) })); return el('label', { class: 'sb-inline' }, el('span', { text: label }), i); };
+      parts.push(el('div', { class: 'sb-fields nm-matedit' },
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Name' }), name),
+        el('label', { class: 'sb-inline' }, el('span', { text: 'Base colour' }), color),
+        slider('rough', 'Roughness', 'nm-mat-rough'), slider('metal', 'Metallic', 'nm-mat-metal'),
+        others.length ? el('label', { class: 'sb-inline' }, el('span', { text: 'Use another' }), el('select', { 'aria-label': 'Use another material in this slot', id: 'nm-mat-browse', onchange: (e) => { if (e.target.value) setSlotMaterial(e.target.value); } }, el('option', { value: '' }, '—'), ...others.map((x) => el('option', { value: x.id }, x.name)))) : null,
+        el('button', { class: 'utility-btn', title: 'A copy of this material for this slot alone', onclick: () => { pushHistory(); const c = newMaterial(m); o.mats = o.mats.map((x, i) => (i === k ? c.id : x)); syncAll(); renderProps(); } }, 'Make single user')));
+      if (mode === 'edit') parts.push(el('div', { class: 'nm-prims' },
+        el('button', { class: 'utility-btn', id: 'nm-mat-assign', title: 'The selected faces onto this slot', onclick: () => { slotFaces('assign'); keepFocus(); } }, 'Assign'),
+        el('button', { class: 'utility-btn', title: 'Select this slot\'s faces', onclick: () => { slotFaces('select'); keepFocus(); } }, 'Select'),
+        el('button', { class: 'utility-btn', title: 'Deselect this slot\'s faces', onclick: () => { slotFaces('deselect'); keepFocus(); } }, 'Deselect')));
+    }
+    return parts;
+  }
+
   function renderProps() {
     const pane = $('#nm-pane');
     if (!pane) return;
@@ -2005,6 +2124,7 @@ window.NoorMesh = (() => {
           el('button', { class: 'utility-btn', onclick: () => deleteMenu(), title: 'Delete (X)' }, 'Delete…'), el('button', { class: 'utility-btn', onclick: dissolveSel, title: 'Dissolve (Ctrl+X)' }, 'Dissolve'),
           el('button', { class: 'utility-btn', onclick: () => normalsMenu(), title: 'Normals (Alt+N)' }, 'Normals…'), el('button', { class: 'utility-btn', onclick: () => shade(true), title: 'Shade the selected faces smooth' }, 'Smooth'),
           el('button', { class: 'utility-btn', onclick: () => shade(false), title: 'Shade the selected faces flat' }, 'Flat')),
+        ...materialPanel(o),
         el('p', { class: 'pref-hint', text: 'Tab: back to Object Mode · 1 2 3: vertices, edges, faces · Alt+click: a loop · right-click: menu · F1: every key' }));
       pane.replaceChildren(...parts.filter(Boolean));
       return;
@@ -2022,7 +2142,8 @@ window.NoorMesh = (() => {
         el('p', { class: 'pref-hint', id: 'nm-dims', text: `Size: ${dims.map(fmt).join(' × ')} m` }),
         el('h3', { class: 'music-subhead', text: 'Mesh' }),
         el('p', { class: 'pref-hint', id: 'nm-stats', text: `${c.vertices} vertices · ${c.edges ?? 0} edges · ${c.faces} faces · ${c.triangles ?? 0} triangles${c.closed ? ' · closed' : c.open ? ` · open (${c.open} border edges)` : ''}` }),
-        c.problems.length ? el('p', { class: 'pref-hint nm-problems', id: 'nm-problems', text: `⚠ ${c.problems.join('; ')}` }) : null);
+        c.problems.length ? el('p', { class: 'pref-hint nm-problems', id: 'nm-problems', text: `⚠ ${c.problems.join('; ')}` }) : null,
+        ...materialPanel(o));
     } else parts.push(el('p', { class: 'pref-hint', text: sel().length ? `${sel().length} selected (none active).` : 'Click an object to select it; Shift+click adds to the selection; drag to box-select; Shift+A adds a mesh.' }));
     // Adjust the last primitive added (as Blender's panel after Add).
     const last = lastAdd && byId(lastAdd.id);
@@ -2309,7 +2430,7 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, uv: { open: uvOpen, sel: [...uvSel], op: uvOp ? uvOp.kind : null, checker: checkerOn }, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, materials: materials.map((m) => ({ ...m })), slots: objects.map((o) => (o.mats || []).slice()), faceMats: editing() ? editing().mesh.f.map((f) => f.m || 0) : null, uv: { open: uvOpen, sel: [...uvSel], op: uvOp ? uvOp.kind : null, checker: checkerOn }, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
     _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },

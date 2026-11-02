@@ -10280,6 +10280,60 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with UVs', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80j. NoorMesh materials (preview.152): slots (+ New, − Remove), a material's colour, roughness, metallic,
+    // Assign / Select in Edit Mode, materials saved with the scene.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      check('a new cube has no material slots (the plain grey), the panel says how to add one', (await MS()).slots[0].length === 0 && /No material/.test(await page.textContent('#nm-pane')));
+      await page.click('#nm-mat-add');
+      let st = await MS();
+      check('＋ New: a material in slot 1 (named Material)', st.slots[0].length === 1 && st.materials[0].name === 'Material' && st.history === 1);
+      // Its colour, roughness and metallic.
+      await page.$eval('#nm-mat-color', (i) => { i.value = '#cc3311'; i.dispatchEvent(new Event('change', { bubbles: true })); });
+      await page.$eval('#nm-mat-metal', (i) => { i.value = '1'; i.dispatchEvent(new Event('change', { bubbles: true })); });
+      await page.$eval('#nm-mat-rough', (i) => { i.value = '0.2'; i.dispatchEvent(new Event('change', { bubbles: true })); });
+      st = await MS();
+      check('…its colour, metallic and roughness changed (each one undo step)', Math.abs(st.materials[0].color[0] - 0.8) < 0.01 && st.materials[0].metal === 1 && st.materials[0].rough === 0.2 && st.history === 4, st.materials[0]);
+      await page.fill('#nm-mat-name', 'Red metal'); await page.press('#nm-mat-name', 'Enter');
+      check('…renamed', (await MS()).materials[0].name === 'Red metal');
+      // Edit Mode: a second material on the top.
+      await page.mouse.move(700, 600);
+      await page.focus('#nm-canvas');
+      await page.keyboard.press('Tab'); await page.keyboard.press('3');
+      check('…(in Edit Mode)', (await MS()).mode === 'edit');
+      const top = await page.evaluate(() => { const K = NoorMeshKernel, c = K.cube(2); return c.f.findIndex((f) => K.faceNormal(c, f).n[2] > 0.9); });
+      await page.evaluate((t) => NoorMesh._editSel({ faces: [t] }), top);
+      await page.click('#nm-mat-add');
+      await page.click('#nm-mat-assign');
+      st = await MS();
+      check('Edit Mode: ＋ New, then Assign: the top face on slot 2, the rest on slot 1', st.slots[0].length === 2 && st.faceMats[top] === 1 && st.faceMats.filter((m) => m === 0).length === 5, st.faceMats);
+      await page.click('#meshbench .nm-slot[data-slot="0"]');
+      await page.keyboard.press('Alt+a');
+      await page.click('#meshbench button:has-text("Select"):not(:has-text("Deselect"))');
+      check('…slot 1 chosen, Select: its 5 faces selected', (await MS()).editFlush.faces === 5, (await MS()).editFlush);
+      await page.keyboard.press('Tab');
+      // Saved with the scene.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      const saved = await page.evaluate(() => window.__mock.state.mesh.saves[0]);
+      check('Ctrl+S: both materials saved, the cube with its 2 slots', saved.materials.length === 2 && saved.materials.includes('Red metal') && saved.slots[0] === 2, saved);
+      // Undo all the way: the materials go too.
+      await page.keyboard.press('Control+z');
+      check('undo: the last step back (the assignment)', (await MS()).slots[0].length === 2);
+      // Removing a slot: its faces go to the slot before.
+      await page.click('#meshbench .nm-slot[data-slot="1"]');
+      await page.click('#nm-mat-remove');
+      check('− Remove: one slot left', (await MS()).slots[0].length === 1);
+      if (shots) {
+        await page.keyboard.press('Control+z'); await page.keyboard.press('Control+Shift+z'); await page.keyboard.press('Control+z');
+        await page.waitForTimeout(200); await page.screenshot({ path: `${shots}/80j-noormesh-materials.png` });
+      }
+      check('no page errors with materials', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -33,6 +33,31 @@ public class MeshDocTests
     }
 
     [Fact]
+    public void Materials_go_into_the_file_and_the_glb_and_come_back()
+    {
+        var doc = Scene();
+        doc.Materials = [new MeshMaterial { Id = "m1", Name = "Wood", Color = [0.6f, 0.4f, 0.2f, 1], Roughness = 0.8f }, new MeshMaterial { Id = "m2", Name = "Metal", Color = [0.7f, 0.7f, 0.75f, 1], Roughness = 0.3f, Metallic = 1 }];
+        doc.Objects[0].Materials = ["m1", "m2"];
+        doc.Objects[0].Mesh.F[4].M = 1; doc.Objects[0].Mesh.F[5].M = 1; // top and bottom metal
+        var file = MeshDoc.FromFile(doc.ToFile());
+        Assert.Equal(2, file.Materials!.Count); Assert.Equal(["m1", "m2"], file.Objects[0].Materials);
+        Assert.Equal("Metal", file.Materials[1].Name); Assert.Equal(1f, file.Materials[1].Metallic);
+        // GLB: two glTF materials, one primitive each; read back as two slots.
+        var back = MeshDoc.FromGlb(doc.ToGlb());
+        Assert.Equal(2, back.Materials!.Count);
+        Assert.Equal(new[] { "Wood", "Metal" }, back.Materials.Select(m => m.Name));
+        Near(0.6f, back.Materials[0].Color[0]); Near(0.3f, back.Materials[1].Roughness); Near(1f, back.Materials[1].Metallic);
+        var o = back.Objects[0];
+        Assert.Equal(2, o.Materials!.Count);
+        var metal = o.Materials.IndexOf(back.Materials.First(m => m.Name == "Metal").Id);
+        Assert.Equal(4, o.Mesh.F.Count(f => f.M == metal)); // 2 quads → 4 triangles
+        Assert.Equal(8, o.Mesh.F.Count(f => f.M != metal));
+        // A slot pointing at a material that isn't there is dropped; numbers out of range are held in.
+        var c = MeshDoc.FromJson("{\"format\":\"noormesh\",\"materials\":[{\"id\":\"m1\",\"color\":[2,-1,0.5],\"roughness\":5}],\"objects\":[{\"materials\":[\"m1\",\"nope\"],\"mesh\":{\"v\":[0,0,0,1,0,0,0,1,0],\"f\":[{\"v\":[0,1,2]}]}}]}");
+        Assert.Equal(["m1"], c.Objects[0].Materials); Assert.Equal([1f, 0f, 0.5f, 1f], c.Materials![0].Color); Assert.Equal(1f, c.Materials[0].Roughness);
+    }
+
+    [Fact]
     public void Broken_scenes_are_refused_and_newer_ones_explained()
     {
         var bad = Scene(); bad.Objects[0].Mesh.F[0].V = [0, 1, 99];

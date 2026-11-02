@@ -8,19 +8,23 @@
   'use strict';
 
   const VS = `#version 300 es
-    in vec3 aPos; in vec3 aNorm; in vec2 aUV; uniform mat4 uModel, uView, uProj; uniform mat3 uNormalMat;
-    out vec3 vPos; out vec3 vNorm; out vec2 vUV;
-    void main() { vec4 w = uModel * vec4(aPos, 1.0); vPos = w.xyz; vNorm = uNormalMat * aNorm; vUV = aUV; gl_Position = uProj * uView * w; }`;
+    in vec3 aPos; in vec3 aNorm; in vec2 aUV; in float aMat; uniform mat4 uModel, uView, uProj; uniform mat3 uNormalMat;
+    out vec3 vPos; out vec3 vNorm; out vec2 vUV; flat out int vMat;
+    void main() { vec4 w = uModel * vec4(aPos, 1.0); vPos = w.xyz; vNorm = uNormalMat * aNorm; vUV = aUV; vMat = int(aMat + 0.5); gl_Position = uProj * uView * w; }`;
   const FS = `#version 300 es
     precision highp float;
-    in vec3 vPos; in vec3 vNorm; in vec2 vUV;
+    in vec3 vPos; in vec3 vNorm; in vec2 vUV; flat in int vMat;
     uniform vec3 uEye, uKey, uFill, uBase; uniform float uRough, uMetal; uniform int uOrtho; uniform vec3 uViewDir; uniform int uChecker;
+    // The object's materials by slot (a face's slot picks one): colour, roughness and metallic.
+    uniform int uMatCount; uniform vec3 uMatBase[16]; uniform vec2 uMatRM[16];
     out vec4 outColor;
     void main() {
       vec3 N = normalize(vNorm);
       vec3 V = uOrtho == 1 ? -uViewDir : normalize(uEye - vPos);
       if (!gl_FrontFacing) N = -N;
       vec3 base = uBase;
+      float rough = uRough, metal = uMetal;
+      if (uMatCount > 0) { int k = clamp(vMat, 0, uMatCount - 1); base = uMatBase[k]; rough = uMatRM[k].x; metal = uMatRM[k].y; }
       if (uChecker == 1) {
         // A UV checker (as Blender's UV grid): 8×8 squares, each of the 4×4 big cells its own tint, so stretching and
         // turned islands show at a glance.
@@ -30,7 +34,6 @@
         base = mix(vec3(0.16), mix(vec3(0.92), tint, 0.55), k);
       }
       vec3 albedo = pow(base, vec3(2.2));
-      float rough = uRough, metal = uMetal;
       vec3 F0 = mix(vec3(0.04), albedo, metal), diff = albedo * (1.0 - metal);
       float nv = max(dot(N, V), 1e-3);
       vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
@@ -191,12 +194,12 @@
       drop(objects.get(id));
       const vao = gl.createVertexArray();
       gl.bindVertexArray(vao);
-      const b1 = upload('aPos', buf.positions, 3, main), b2 = upload('aNorm', buf.normals, 3, main), b4 = upload('aUV', buf.uvs, 2, main);
+      const b1 = upload('aPos', buf.positions, 3, main), b2 = upload('aNorm', buf.normals, 3, main), b4 = upload('aUV', buf.uvs, 2, main), b5 = upload('aMat', buf.mats || new Float32Array(buf.positions.length / 3), 1, main);
       const lineVao = gl.createVertexArray();
       gl.bindVertexArray(lineVao);
       const b3 = upload('aPos', buf.lines, 3, lineProg);
       gl.bindVertexArray(null);
-      objects.set(id, { vao, count: buf.triangles * 3, lineVao, lineCount: buf.lines.length / 3, glBuffers: [b1, b2, b3, b4], buffers: buf, base: [0.72, 0.72, 0.74], rough: 0.55, metal: 0, matrix: IDENTITY, ...look });
+      objects.set(id, { vao, count: buf.triangles * 3, lineVao, lineCount: buf.lines.length / 3, glBuffers: [b1, b2, b3, b4, b5], buffers: buf, base: [0.72, 0.72, 0.74], rough: 0.55, metal: 0, matrix: IDENTITY, ...look });
       redraw();
     }
     function setLook(id, look) { const o = objects.get(id); if (o) { Object.assign(o, look); redraw(); } }
@@ -243,6 +246,9 @@
       for (const o of objects.values()) {
         if (o.hidden) continue;
         gl.uniform3fv(main.u.uBase, o.base); gl.uniform1f(main.u.uRough, o.rough); gl.uniform1f(main.u.uMetal, o.metal);
+        const mats = (o.mats || []).slice(0, 16);
+        gl.uniform1i(main.u.uMatCount, mats.length);
+        if (mats.length) { gl.uniform3fv(main.u.uMatBase, new Float32Array(mats.flatMap((m) => m.base))); gl.uniform2fv(main.u.uMatRM, new Float32Array(mats.flatMap((m) => [m.rough, m.metal]))); }
         gl.uniformMatrix4fv(main.u.uModel, false, o.matrix); gl.uniformMatrix3fv(main.u.uNormalMat, false, window.NoorMeshKernel.normalMatrix(o.matrix));
         if (o.doubleSided) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
         gl.bindVertexArray(o.vao); gl.drawArrays(gl.TRIANGLES, 0, o.count);

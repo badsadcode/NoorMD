@@ -170,7 +170,7 @@
     });
     mesh.f.forEach((f, fi) => { for (const t of triangulateFace(mesh, f)) tris.push([fi, t]); });
     const count = tris.length * 3;
-    const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2), face = new Int32Array(tris.length);
+    const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2), mats = new Float32Array(count), face = new Int32Array(tris.length);
     const m = matrix || null;
     const tp = (p) => (m ? transformPoint(m, p) : p);
     const nm = m ? normalMatrix(m) : null;
@@ -185,7 +185,7 @@
         let n = faceN[fi].n;
         if (f.s) { const s = [vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]]; if (len(s) > 0) n = norm(s); }
         n = tn(n);
-        pos.set(p, o * 3); nor.set(n, o * 3);
+        pos.set(p, o * 3); nor.set(n, o * 3); mats[o] = f.m || 0;
         if (f.uv) { uv[o * 2] = f.uv[k * 2]; uv[o * 2 + 1] = f.uv[k * 2 + 1]; }
         o++;
       }
@@ -193,7 +193,7 @@
     const es = edges(mesh);
     const lines = new Float32Array(es.length * 6);
     es.forEach((e, k) => { lines.set(tp(vert(mesh, e.a)), k * 6); lines.set(tp(vert(mesh, e.b)), k * 6 + 3); });
-    return { positions: pos, normals: nor, uvs: uv, faceOfTriangle: face, lines, triangles: tris.length };
+    return { positions: pos, normals: nor, uvs: uv, mats, faceOfTriangle: face, lines, triangles: tris.length };
   }
 
   function bounds(mesh, matrix) {

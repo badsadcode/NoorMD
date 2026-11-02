@@ -26,6 +26,16 @@ public sealed class MeshData
     public Vector3 Vertex(int i) => new(V[i * 3], V[i * 3 + 1], V[i * 3 + 2]);
 }
 
+/// <summary>A material of the scene (as glTF's metallic-roughness): base colour (linear RGBA 0–1), roughness, metallic.</summary>
+public sealed class MeshMaterial
+{
+    public string Id { get; set; } = "m1";
+    public string Name { get; set; } = "Material";
+    public float[] Color { get; set; } = [0.8f, 0.8f, 0.8f, 1];
+    public float Roughness { get; set; } = 0.5f;
+    public float Metallic { get; set; }
+}
+
 /// <summary>An object of the scene: its mesh placed by location, rotation (degrees, X then Y then Z, as Blender's XYZ) and scale.</summary>
 public sealed class MeshObject
 {
@@ -36,6 +46,8 @@ public sealed class MeshObject
     public float[] R { get; set; } = [0, 0, 0];
     public float[] S { get; set; } = [1, 1, 1];
     public bool Hidden { get; set; }
+    /// <summary>Its material slots (ids of the scene's materials): a face's M is the slot it uses.</summary>
+    public List<string>? Materials { get; set; }
     public MeshData Mesh { get; set; } = new();
 }
 
@@ -53,6 +65,7 @@ public sealed class MeshDoc
     public string Format { get; set; } = "noormesh";
     public int Version { get; set; } = CurrentVersion;
     public List<MeshObject> Objects { get; set; } = [];
+    public List<MeshMaterial>? Materials { get; set; }
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -74,6 +87,19 @@ public sealed class MeshDoc
         if (Version > CurrentVersion) throw new InvalidDataException($"That scene was saved by a newer NoorMD (format {Version}); update NoorMD to open it.");
         if (Objects.Count > MaxObjects) throw new InvalidDataException($"Too many objects (more than {MaxObjects}).");
         long verts = 0, faces = 0;
+        // Materials: ids unique, numbers in range; slots pointing at none are dropped.
+        var matIds = new HashSet<string>(StringComparer.Ordinal);
+        Materials = (Materials ?? []).Take(1000).Where(x => x != null).ToList();
+        foreach (var mt in Materials)
+        {
+            if (string.IsNullOrWhiteSpace(mt.Id) || !matIds.Add(mt.Id)) { var n = 1; while (!matIds.Add($"m{n}")) n++; mt.Id = $"m{n}"; }
+            mt.Name = string.IsNullOrWhiteSpace(mt.Name) ? "Material" : mt.Name.Trim()[..Math.Min(64, mt.Name.Trim().Length)];
+            var c = mt.Color is { Length: >= 3 } ? mt.Color : [0.8f, 0.8f, 0.8f, 1];
+            mt.Color = [.. Enumerable.Range(0, 4).Select(k => k < c.Length && float.IsFinite(c[k]) ? Math.Clamp(c[k], 0, 1) : k == 3 ? 1 : 0.8f)];
+            mt.Roughness = float.IsFinite(mt.Roughness) ? Math.Clamp(mt.Roughness, 0, 1) : 0.5f;
+            mt.Metallic = float.IsFinite(mt.Metallic) ? Math.Clamp(mt.Metallic, 0, 1) : 0;
+        }
+        if (Materials.Count == 0) Materials = null;
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var o in Objects)
         {
@@ -82,6 +108,8 @@ public sealed class MeshDoc
             o.Kind = string.IsNullOrWhiteSpace(o.Kind) || o.Kind.Length > 20 ? "mesh" : o.Kind;
             float[] Vec(float[]? v, float d) => v is { Length: 3 } && v.All(float.IsFinite) ? v : [d, d, d];
             o.T = Vec(o.T, 0); o.R = Vec(o.R, 0); o.S = Vec(o.S, 1);
+            o.Materials = o.Materials?.Where(id => id != null && matIds.Contains(id)).Take(256).ToList();
+            if (o.Materials is { Count: 0 }) o.Materials = null;
             var m = o.Mesh ??= new MeshData();
             if (m.V.Length % 3 != 0 || m.V.Any(x => !float.IsFinite(x))) throw new InvalidDataException($"\"{o.Name}\": its vertex positions are broken.");
             var n3 = m.VertexCount;
@@ -186,22 +214,31 @@ public sealed class MeshDoc
     public byte[] ToGlb(string generator = "NoorMD NoorMesh")
     {
         var asset = new Asset3D { Name = "NoorMesh scene" };
-        asset.Materials.Add(new Material3D { Name = "Material", BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1), Roughness = 0.6f, Metallic = 0 });
+        // The scene's materials (glTF's metallic-roughness), and a plain one for faces without.
+        var index = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var mt in Materials ?? [])
+        {
+            index[mt.Id] = asset.Materials.Count;
+            asset.Materials.Add(new Material3D { Name = mt.Name, BaseColor = new Vector4(mt.Color[0], mt.Color[1], mt.Color[2], mt.Color[3]), Roughness = mt.Roughness, Metallic = mt.Metallic, Alpha = mt.Color[3] < 0.999f ? "blend" : "opaque" });
+        }
+        var plain = -1;
+        int Plain() { if (plain < 0) { plain = asset.Materials.Count; asset.Materials.Add(new Material3D { Name = "Material", BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1), Roughness = 0.6f, Metallic = 0 }); } return plain; }
         foreach (var o in Objects.Where(x => !x.Hidden))
         {
-            var mesh = BuildMesh(o.Mesh, yUp: true);
+            var slots = o.Materials ?? [];
+            var mesh = BuildMesh(o.Mesh, yUp: true, slot => slot >= 0 && slot < slots.Count && index.TryGetValue(slots[slot], out var mi) ? mi : Plain());
             if (mesh.TriangleCount == 0) continue;
             var (t, q, s) = M4.DecomposeQ(M4.Mul(C, M4.Mul(Matrix(o), Ci)));
             asset.Root.Children.Add(new Node3D { Name = o.Name, Mesh = mesh, Translation = t, Rotation = q, Scale = s });
         }
+        if (asset.Materials.Count == 0) Plain();
         return GlbWriter.Write(asset, generator);
     }
 
-    /// <summary>A mesh made for drawing or export: triangles, vertices split where normals or UVs differ.</summary>
-    internal static Mesh3D BuildMesh(MeshData m, bool yUp)
+    /// <summary>A mesh made for drawing or export: triangles (one submesh per material), vertices split where normals or UVs differ.</summary>
+    internal static Mesh3D BuildMesh(MeshData m, bool yUp, Func<int, int>? materialOf = null)
     {
         var mesh = new Mesh3D();
-        var sub = mesh.Sub(0);
         var vn = new Vector3[m.VertexCount];
         var fn = m.F.Select(f => FaceNormal(m, f)).ToList();
         for (var i = 0; i < m.F.Count; i++) if (m.F[i].S) foreach (var v in m.F[i].V) vn[v] += fn[i].N * fn[i].Area;
@@ -209,6 +246,7 @@ public sealed class MeshDoc
         for (var i = 0; i < m.F.Count; i++)
         {
             var f = m.F[i];
+            var sub = mesh.Sub(materialOf?.Invoke(f.M) ?? 0);
             foreach (var (a, b, c) in Triangulate(m, f))
                 foreach (var k in new[] { a, b, c })
                 {
@@ -230,12 +268,16 @@ public sealed class MeshDoc
     {
         var gltf = GltfReader.Read(data);
         var doc = new MeshDoc();
+        // The file's materials (and a plain one for primitives without), each object's slots its primitives' materials.
+        var mats = gltf.Materials.Select((mt, i) => new MeshMaterial { Id = $"g{i + 1}", Name = mt.Name, Color = [mt.Color.X, mt.Color.Y, mt.Color.Z, mt.Color.W], Roughness = mt.Roughness, Metallic = mt.Metallic }).ToList();
+        string MatId(int i) { if (i >= 0 && i < mats.Count) return mats[i].Id; var p = mats.FirstOrDefault(x => x.Id == "g0"); if (p == null) { p = new MeshMaterial { Id = "g0", Name = "Material" }; mats.Add(p); } return p.Id; }
         var n = 0;
         foreach (var node in gltf.Nodes)
         {
             if (node.Mesh is not { } prims || prims.Count == 0) continue;
             var m = new MeshData();
             var verts = new List<float>();
+            var slots = new List<string>();
             var slot = 0;
             foreach (var prim in prims)
             {
@@ -253,7 +295,7 @@ public sealed class MeshDoc
                 {
                     int i0 = prim.Indices[t], i1 = prim.Indices[t + 1], i2 = prim.Indices[t + 2];
                     if (local[i0] == local[i1] || local[i1] == local[i2] || local[i0] == local[i2]) continue;
-                    var face = new MeshFace { V = [local[i0], local[i1], local[i2]], M = slot };
+                    var face = new MeshFace { V = [local[i0], local[i1], local[i2]], M = slots.IndexOf(MatId(prim.Material)) is var si && si >= 0 ? si : slots.Count };
                     if (prim.Uvs != null) face.Uv = [prim.Uvs[i0].X, 1 - prim.Uvs[i0].Y, prim.Uvs[i1].X, 1 - prim.Uvs[i1].Y, prim.Uvs[i2].X, 1 - prim.Uvs[i2].Y];
                     if (prim.Normals != null)
                     {
@@ -262,13 +304,15 @@ public sealed class MeshDoc
                     }
                     m.F.Add(face);
                 }
+                if (!slots.Contains(MatId(prim.Material))) slots.Add(MatId(prim.Material));
                 slot++;
             }
             m.V = verts.ToArray();
             var (t3, r3, s3) = M4.DecomposeEuler(M4.Mul(Ci, M4.Mul(node.World, C)));
-            doc.Objects.Add(new MeshObject { Id = $"o{++n}", Name = string.IsNullOrWhiteSpace(node.Name) ? $"{name}.{n:000}" : node.Name, Kind = "imported", T = t3, R = r3, S = s3, Mesh = m });
+            doc.Objects.Add(new MeshObject { Id = $"o{++n}", Name = string.IsNullOrWhiteSpace(node.Name) ? $"{name}.{n:000}" : node.Name, Kind = "imported", T = t3, R = r3, S = s3, Mesh = m, Materials = slots.Count > 0 && gltf.Materials.Count > 0 ? slots : null });
         }
         if (doc.Objects.Count == 0) throw new InvalidDataException("That GLB has no meshes NoorMesh can read (triangles).");
+        if (gltf.Materials.Count > 0) doc.Materials = mats;
         return doc.Checked();
     }
 
@@ -438,9 +482,10 @@ internal static class M4
 /// <summary>Just enough of a GLB reader for NoorMesh: nodes with their world matrices and their meshes' triangles (positions, normals, UV0).</summary>
 internal static class GltfReader
 {
-    public sealed record Prim(Vector3[] Positions, Vector3[]? Normals, Vector2[]? Uvs, int[] Indices);
+    public sealed record Prim(Vector3[] Positions, Vector3[]? Normals, Vector2[]? Uvs, int[] Indices, int Material = -1);
     public sealed record Node(string Name, double[] World, List<Prim>? Mesh);
-    public sealed record Gltf(List<Node> Nodes);
+    public sealed record Mat(string Name, Vector4 Color, float Roughness, float Metallic);
+    public sealed record Gltf(List<Node> Nodes, List<Mat> Materials);
 
     public static Gltf Read(byte[] data)
     {
@@ -512,7 +557,8 @@ internal static class GltfReader
                 if (at.TryGetProperty("TEXCOORD_0", out var ta)) { var f = Floats(ta.GetInt32(), 2); if (f.Length / 2 == pos.Length) uv = Enumerable.Range(0, f.Length / 2).Select(k => new Vector2(f[k * 2], f[k * 2 + 1])).ToArray(); }
                 var idx = p.TryGetProperty("indices", out var ia) ? Ints(ia.GetInt32()) : Enumerable.Range(0, pos.Length).ToArray();
                 if (idx.Any(x => x < 0 || x >= pos.Length)) throw new InvalidDataException("That GLB has an index outside its vertices.");
-                prims.Add(new Prim(pos, nrm, uv, idx));
+                var matIndex = p.TryGetProperty("material", out var pm) && pm.ValueKind == JsonValueKind.Number ? pm.GetInt32() : -1;
+                prims.Add(new Prim(pos, nrm, uv, idx, matIndex));
             }
             return prims;
         }
@@ -542,6 +588,19 @@ internal static class GltfReader
             if (scenes[si].TryGetProperty("nodes", out var sn)) foreach (var x in sn.EnumerateArray()) Walk(x.GetInt32(), I, 0);
         }
         else if (root.TryGetProperty("nodes", out var all)) for (var i = 0; i < all.GetArrayLength(); i++) Walk(i, I, 0);
-        return new Gltf(nodes);
+        var mats = new List<Mat>();
+        if (root.TryGetProperty("materials", out var ms) && ms.ValueKind == JsonValueKind.Array)
+            foreach (var mt in ms.EnumerateArray().Take(1000))
+            {
+                var c = Vector4.One; float r = 1, mtl = 1;
+                if (mt.TryGetProperty("pbrMetallicRoughness", out var pbr))
+                {
+                    if (pbr.TryGetProperty("baseColorFactor", out var bc) && bc.GetArrayLength() == 4) c = new Vector4(bc[0].GetSingle(), bc[1].GetSingle(), bc[2].GetSingle(), bc[3].GetSingle());
+                    if (pbr.TryGetProperty("roughnessFactor", out var rf)) r = rf.GetSingle();
+                    if (pbr.TryGetProperty("metallicFactor", out var mf)) mtl = mf.GetSingle();
+                }
+                mats.Add(new Mat(mt.TryGetProperty("name", out var mn) ? mn.GetString() ?? "Material" : "Material", c, r, mtl));
+            }
+        return new Gltf(nodes, mats);
     }
 }

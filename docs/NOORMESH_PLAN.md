@@ -265,6 +265,15 @@ for steps, wheel and middle-drag for its view; the islands' count, the share of 
 Not yet: selecting single UV vertices or edges, pinning, live unwrap, stitch / weld, UV sync selection, texel density
 set to a value, a second UV set for lightmaps.
 
+**Done in preview.152: B2 materials, first stage** — the scene's materials (name, base colour, roughness, metallic, as
+glTF's metallic-roughness) and each object's material slots (as Blender's: a face's slot picks its material; ＋ New, −
+Remove, use another material in a slot, make single user); the view draws each face in its material; in Edit Mode,
+Assign puts the selected faces on the chosen slot, Select / Deselect picks that slot's faces. Join, separate and Edit
+Mode on several objects keep each face's material. Saved in the .noormesh scene; GLB export writes one glTF material per
+material (one primitive each, alpha below 1 blended); GLB import reads them back as materials and slots. The pointer is
+the system arrow in Object Mode and a crosshair in Edit Mode. Next in B2: textures (linked, packed, relinked when
+missing) and the NoorForge / NoorMaterial hand-off.
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |

@@ -600,7 +600,7 @@ function mockHostScript(initial) {
       case 'mesh.open': MESH.opens = (MESH.opens || 0) + 1; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Opened', 0), { ...meshTri('Second', 2), id: 'o2' }] }, path: 'C:\\Models\\crate.noormesh', name: 'crate.noormesh' };
       case 'mesh.recent': return { files: [{ path: 'C:\\Models\\crate.noormesh', name: 'crate.noormesh' }] };
       case 'mesh.openRecent': MESH.openedRecent = p.path; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Recent', 0)] }, path: p.path, name: 'crate.noormesh' };
-      case 'mesh.save': MESH.saves.push({ path: p.path, name: p.name, objects: p.doc.objects.length, faces: p.doc.objects.map((o) => o.mesh.f.length), format: p.doc.format }); { const path = p.path || 'C:\\Models\\scene.noormesh'; return { path, name: path.split('\\').pop() }; }
+      case 'mesh.save': MESH.saves.push({ path: p.path, name: p.name, objects: p.doc.objects.length, faces: p.doc.objects.map((o) => o.mesh.f.length), format: p.doc.format, materials: (p.doc.materials || []).map((m) => m.name), slots: p.doc.objects.map((o) => (o.materials || []).length) }); { const path = p.path || 'C:\\Models\\scene.noormesh'; return { path, name: path.split('\\').pop() }; }
       case 'mesh.import': MESH.imports = (MESH.imports || 0) + 1; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Rock', 3)] }, name: 'rock.glb' };
       case 'mesh.export': MESH.exports.push({ format: p.format, name: p.name, objects: p.doc.objects.length }); return { path: `C:\\Models\\${p.name}.${p.format}`, name: `${p.name}.${p.format}` };
       case 'mesh.draft.save': MESH.drafts++; MESH.lastDraft = p.doc.objects.length; return { ok: true };
