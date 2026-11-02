@@ -10051,6 +10051,89 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with bevel, knife, slide and the rest', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80g. NoorMesh (preview.148): the 3D cursor (Shift+right-click, Shift+S, Shift+C; new objects there), the pivot
+    // point (".": individual origins, 3D cursor), join (Ctrl+J), separate (P, loose parts), origins.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const near3 = (a, b, e = 1e-6) => a.every((x, i) => Math.abs(x - b[i]) < e);
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      // Shift+right-click on the cube's front face: the cursor on it.
+      const onFace = await page.evaluate(() => NoorMesh._project([0.3, -1, 0.2]));
+      await page.keyboard.down('Shift'); await page.mouse.click(onFace.x, onFace.y, { button: 'right' }); await page.keyboard.up('Shift');
+      let st = await MS();
+      check('Shift+right-click: the 3D cursor onto the surface under the mouse (no menu)', near3(st.cursor, [0.3, -1, 0.2], 0.02) && !(await page.$('#nm-popup')), st.cursor);
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Shift+S');
+      await page.waitForSelector('#nm-popup');
+      check('Shift+S: the snap menu', !!(await page.$('#nm-popup .nm-menuitem:has-text("Cursor to selected")')) && !!(await page.$('#nm-popup .nm-menuitem:has-text("Selection to cursor")')));
+      await page.click('#nm-popup .nm-menuitem:has-text("Cursor to grid")');
+      check('…cursor to grid: (0, −1, 0)', near3((await MS()).cursor, [0, -1, 0]), (await MS()).cursor);
+      // A new object goes to the cursor.
+      await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Cube")');
+      st = await MS();
+      check('a new cube at the 3D cursor', st.objects.length === 2 && near3(st.objects[1].t, [0, -1, 0]), st.objects[1] && st.objects[1].t);
+      await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('4'); await page.keyboard.press('Enter');
+      // Individual origins: each turns about its own origin.
+      await page.keyboard.press('a');
+      await page.keyboard.press('.');
+      await page.waitForSelector('#nm-popup');
+      check('.: the pivot point menu', !!(await page.$('#nm-popup .nm-menuitem:has-text("Individual origins")')));
+      await page.click('#nm-popup .nm-menuitem:has-text("Individual origins")');
+      check('…individual origins chosen (the toolbar shows it, remembered)', (await MS()).pivot === 'individual' && (await page.$eval('#nm-pivot', (s) => s.value)) === 'individual' && (await page.evaluate(() => localStorage.getItem('noormd.mesh.pivot'))) === 'individual');
+      await page.keyboard.press('r'); await page.keyboard.press('z'); await page.keyboard.type('90'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('…R Z 90: both turned where they stand', near3(st.objects[0].t, [0, 0, 0]) && near3(st.objects[1].t, [4, -1, 0]) && Math.abs(st.objects[0].r[2] - 90) < 1e-6 && Math.abs(st.objects[1].r[2] - 90) < 1e-6, st.objects.map((o) => [o.t, o.r]));
+      await page.keyboard.press('Control+z');
+      await page.selectOption('#nm-pivot', 'cursor');
+      await page.keyboard.press('r'); await page.keyboard.press('z'); await page.keyboard.type('90'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('pivot at the 3D cursor: R Z 90 swings both round it', near3(st.objects[0].t, [-1, -1, 0]) && near3(st.objects[1].t, [0, 3, 0]), st.objects.map((o) => o.t));
+      await page.keyboard.press('Control+z');
+      await page.selectOption('#nm-pivot', 'median');
+      // Join: into the active one (the new cube).
+      await page.keyboard.press('Control+j');
+      st = await MS();
+      check('Ctrl+J: joined into the active cube (one object, 16 vertices, 12 faces)', st.objects.length === 1 && st.objects[0].vertices === 16 && st.objects[0].faces === 12 && near3(st.objects[0].t, [4, -1, 0]), st.objects.map((o) => [o.name, o.vertices]));
+      // Separate by loose parts.
+      await page.keyboard.press('Tab'); await page.keyboard.press('a');
+      await page.keyboard.press('p');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("By loose parts")');
+      st = await MS();
+      check('P › by loose parts: two objects again (8 vertices each, still in Edit Mode)', st.objects.length === 2 && st.objects.every((o) => o.vertices === 8 && o.check.closed) && st.mode === 'edit', st.objects.map((o) => o.vertices));
+      await page.keyboard.press('Tab'); await page.keyboard.press('a');
+      // Origins: to the geometry (each its middle), to the cursor, geometry to origin.
+      await page.mouse.click(box.cx - 200, box.cy + 150, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Origin to geometry")');
+      st = await MS();
+      const ts = st.objects.map((o) => o.t);
+      check('Origin to geometry: each object\'s origin in its middle (one back at 0,0,0, one at 4,−1,0)', ts.some((t) => near3(t, [0, 0, 0])) && ts.some((t) => near3(t, [4, -1, 0])), ts);
+      await page.mouse.click(box.cx - 200, box.cy + 150, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Origin to 3D cursor")');
+      st = await MS();
+      check('Origin to 3D cursor: both origins at the cursor, nothing moved on the screen (same vertices)', st.objects.every((o) => near3(o.t, [0, -1, 0])) && st.objects.every((o) => o.check.ok), st.objects.map((o) => o.t));
+      await page.mouse.click(box.cx - 200, box.cy + 150, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Geometry to origin")');
+      st = await MS();
+      check('Geometry to origin: the meshes moved onto their origins (both at the cursor now)', st.objects.every((o) => near3(o.t, [0, -1, 0])), st.objects.map((o) => o.t));
+      await page.keyboard.press('Shift+C');
+      check('Shift+C: the cursor back at the origin', near3((await MS()).cursor, [0, 0, 0]));
+      if (shots) {
+        await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+        const f2 = await page.evaluate(() => NoorMesh._project([0.5, -1, 0.5]));
+        await page.keyboard.down('Shift'); await page.mouse.click(f2.x, f2.y, { button: 'right' }); await page.keyboard.up('Shift');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80g-noormesh-cursor.png` });
+      }
+      check('no page errors with the cursor, pivots, join and separate', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

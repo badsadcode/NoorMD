@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.148): the 3D cursor (Shift+right-click, Shift+S, Shift+C), the pivot point menu, join, separate,
+  origin tools.
 - NoorMesh (preview.147): bevel (edges, vertices, segments), knife, proportional editing, mirror editing, edge and
   vertex slide (G twice), Shift+X/Y/Z scaling, auto merge vertices.
 - NoorMesh (preview.146), phase A3 begun: move/rotate/scale gizmos (switched on or off), plane constraints, region inset,

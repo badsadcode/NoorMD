@@ -176,6 +176,9 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Duplicate / delete | Shift+D / X or Delete |
 | Hide / show all / hide others | H / Alt+H / Shift+H |
 | Rename | F2 |
+| Join (into the active one) | Ctrl+J |
+| Place the 3D cursor / snap menu / cursor to the origin and frame everything | Shift+right-click / Shift+S / Shift+C |
+| Pivot point menu (median, 3D cursor, individual origins, active) | . |
 | Turn / move / zoom the view | Middle-drag (or Alt+drag) / Shift+middle-drag / wheel or Ctrl+middle-drag |
 | Front / right / top (Ctrl: the other side), perspective | Numpad 1 / 3 / 7, Numpad 5 |
 | Frame the selection / everything | Numpad . / Home |
@@ -203,4 +206,5 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Merge / make a face | M / F |
 | Normals menu / recalculate outside | Alt+N / Shift+N |
 | Duplicate faces | Shift+D |
+| Separate (selection, loose parts) | P |
 | The Edit Mode menu | Right-click |

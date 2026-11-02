@@ -210,6 +210,17 @@ Shift+X/Y/Z while scaling (two axes, the third left alone); auto merge (Alt+O or
 merged into them, in the same undo step). Not yet: proportional "connected only", the bevel profile shape, knife
 through face interiors (points inside a face), Blender's grid-filled bevel corners (an n-gon patch here).
 
+**Done in preview.148** — the 3D cursor (drawn as Blender's red and white ring; Shift+right-click puts it on the surface
+under the mouse, or in the view's plane off every object; Shift+S: selection to cursor, with or without keeping its
+offset, cursor to selected / active / world origin / grid; Shift+C: back to the origin and everything framed; new
+objects and "merge at the cursor" go there); the pivot point (".", or the toolbar: median point, 3D cursor, individual
+origins: each object, or each connected part of an Edit Mode selection, turns and scales about its own middle; active
+element: the active object; remembered) for G/R/S and the gizmos; join (Ctrl+J: into the active object, its placement
+kept, mirrored objects turned the right way out); separate (P: the selected faces, or each loose part, as new objects
+with the same placement); origins (origin to geometry, origin to 3D cursor, geometry to origin; the object's look
+unchanged). Not yet: the cursor's own rotation, the active vertex or face as a pivot in Edit Mode, the cursor kept in
+the file.
+
 **Next, agreed after preview.146:**
 
 - **preview.147:** bevel (Ctrl+B: width, segments, profile; Ctrl+Shift+B for vertices), knife (K), proportional editing
