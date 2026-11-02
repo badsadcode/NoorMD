@@ -343,5 +343,55 @@ const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
   check('edge chains: an open run of 3 vertices and one of 2', chains.length === 2 && chains.some((c2) => c2.verts.length === 3 && !c2.closed));
 }
 
+
+{
+  // Bevel (Ctrl+B): one cube edge, all twelve, rounded, vertices.
+  const c = K.cube(2), top = topFace(c), [a, b] = [c.f[top].v[0], c.f[top].v[1]];
+  const one = K.bevel(c, { mode: 'edge', verts: new Set(), edges: new Set([K.edgeKey(a, b)]), faces: new Set() }, 0.2);
+  check('bevel one cube edge: 7 faces, 10 vertices, closed and sound', one.mesh.f.length === 7 && K.vertexCount(one.mesh) === 10 && K.check(one.mesh).ok && K.check(one.mesh).closed, [one.mesh.f.length, K.vertexCount(one.mesh), K.check(one.mesh)]);
+  check('…the volume a little less (a corner of the cube cut off along the edge)', K.volume(one.mesh) < 8 && K.volume(one.mesh) > 7.9, K.volume(one.mesh));
+  const round = K.bevel(c, { mode: 'edge', verts: new Set(), edges: new Set([K.edgeKey(a, b)]), faces: new Set() }, 0.3, 3);
+  check('…3 segments: 3 strips, still closed and sound (the end faces take the rounded points)', round.faces.length === 3 && K.check(round.mesh).ok && K.check(round.mesh).closed && K.check(round.mesh).flipped === 0, [round.faces.length, K.check(round.mesh)]);
+  const all = K.selectionFromVerts(c, [...Array(8).keys()], 'edge');
+  const full = K.bevel(c, all, 0.2);
+  check('bevel every edge: 6 + 12 strips + 8 corner triangles = 26 faces, 24 vertices, closed, consistent', full.mesh.f.length === 26 && K.vertexCount(full.mesh) === 24 && K.check(full.mesh).ok && K.check(full.mesh).closed && K.check(full.mesh).flipped === 0, [full.mesh.f.length, K.vertexCount(full.mesh), K.check(full.mesh)]);
+  check('…pointing out (positive volume)', K.volume(full.mesh) > 7.5 && K.volume(full.mesh) < 8, K.volume(full.mesh));
+  const fullR = K.bevel(c, all, 0.2, 2);
+  check('…2 segments everywhere: closed and sound', K.check(fullR.mesh).ok && K.check(fullR.mesh).closed && K.check(fullR.mesh).flipped === 0, K.check(fullR.mesh));
+  const two = K.bevel(c, { mode: 'edge', verts: new Set(), edges: new Set([K.edgeKey(c.f[top].v[0], c.f[top].v[1]), K.edgeKey(c.f[top].v[1], c.f[top].v[2])]), faces: new Set() }, 0.2, 2);
+  check('two edges meeting at a corner, 2 segments: closed and sound', K.check(two.mesh).ok && K.check(two.mesh).closed && K.check(two.mesh).flipped === 0, K.check(two.mesh));
+  const vb = K.bevel(c, { mode: 'vert', verts: new Set([0]), edges: new Set(), faces: new Set() }, 0.3, 1, true);
+  check('bevel a vertex: the corner cut off (a triangle), 7 faces, 10 vertices, closed', vb.mesh.f.length === 7 && K.vertexCount(vb.mesh) === 10 && K.check(vb.mesh).ok && K.check(vb.mesh).closed && K.check(vb.mesh).flipped === 0, [vb.mesh.f.length, K.check(vb.mesh)]);
+  const wide = K.bevel(c, all, 50);
+  check('a width far too big is held back (no overlap): still sound', K.check(wide.mesh).ok && K.volume(wide.mesh) > 0, K.check(wide.mesh));
+}
+{
+  // Knife: across the cube's top face from one edge to the opposite one.
+  const c = K.cube(2), top = topFace(c), v = c.f[top].v;
+  const cut = K.knifeCut(c, [{ a: v[0], b: v[1], t: 0.5 }, { a: v[2], b: v[3], t: 0.5 }]);
+  check('knife across a face: 2 new vertices, the face split (7 faces), closed and sound', K.vertexCount(cut.mesh) === 10 && cut.mesh.f.length === 7 && cut.edges.length === 1 && K.check(cut.mesh).ok && K.check(cut.mesh).closed, [K.vertexCount(cut.mesh), cut.mesh.f.length, K.check(cut.mesh)]);
+  const g = K.grid(2, 2, 1);
+  const across = K.knifeCut(g, [{ a: 0, b: 3, t: 0.5 }, { a: 1, b: 4, t: 0.5 }, { a: 2, b: 5, t: 0.5 }]);
+  check('knife across two faces: 3 new vertices, 4 faces, sound', K.vertexCount(across.mesh) === 9 && across.mesh.f.length === 4 && K.check(across.mesh).ok, [K.vertexCount(across.mesh), across.mesh.f.length, K.check(across.mesh)]);
+  const corner = K.knifeCut(c, [{ v: v[0] }, { v: v[2] }]);
+  check('knife from corner to corner: the face split by its diagonal', corner.mesh.f.length === 7 && K.vertexCount(corner.mesh) === 8 && K.check(corner.mesh).ok);
+}
+{
+  // Slide: an edge loop round a cut cube slides between its neighbours.
+  const c = K.cube(2), top = topFace(c), [a, b] = [c.f[top].v[0], c.f[top].v[1]];
+  const cut = K.loopCut(c, a, b);
+  const sides = K.slideSides(cut.mesh, { mode: 'edge', verts: new Set(), edges: new Set(cut.edges), faces: new Set() });
+  check('slide sides for a loop round a cube: each of its 4 vertices with a neighbour on both sides', sides.size === 4 && [...sides.values()].every((s2) => s2.a !== undefined && s2.b !== undefined && s2.a !== s2.b), [...sides.values()]);
+  const one = K.slideSides(c, { mode: 'vert', verts: new Set([0]), edges: new Set(), faces: new Set() });
+  check('one vertex: its 3 neighbours to slide along', one.get(0).all.length === 3);
+  // Auto merge: a vertex moved onto another.
+  const g = K.grid(2, 1, 1), moved = K.clone(g);
+  moved.v[0] = g.v[3]; moved.v[1] = g.v[4]; moved.v[2] = g.v[5];
+  const am = K.autoMerge(moved, [0], 0.001);
+  check('auto merge: a vertex moved onto its neighbour is merged (3 left, the quad a triangle)', am.merged === 1 && K.vertexCount(am.mesh) === 3 && am.mesh.f[0].v.length === 3 && am.map[0] === am.map[1], [am.merged, K.vertexCount(am.mesh)]);
+  const none = K.autoMerge(g, [0], 0.001);
+  check('…nothing near: nothing merged', none.merged === 0 && none.mesh === g);
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

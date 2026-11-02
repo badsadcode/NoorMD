@@ -168,7 +168,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Add a mesh | Shift+A |
 | Select / add to it | Click / Shift+click; drag: box select (Shift adds, Ctrl takes away) |
 | Select all / none / invert | A / Alt+A / Ctrl+I |
-| Move / rotate / scale | G / R / S, then X, Y or Z for an axis (or hold the middle button and move towards it), Shift+X/Y/Z for a plane leaving that axis out, a number typed, Ctrl for steps; click or Enter: done; right-click or Esc: back |
+| Move / rotate / scale | G / R / S, then X, Y or Z for an axis (or hold the middle button and move towards it), Shift+X/Y/Z for a plane leaving that axis out (moving or scaling), a number typed, Ctrl for steps; click or Enter: done; right-click or Esc: back |
 | Gizmos (move, rotate, scale) | The ✥ ⟳ ⤡ buttons; drag a handle |
 | Snapping on or off (steps or to vertices; Ctrl: the other) | Shift+Tab |
 | Clear location / rotation / scale | Alt+G / Alt+R / Alt+S |
@@ -193,6 +193,12 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Extrude (then along the normal) / inset faces (as one region; I again: each face) | E / I |
 | Loop cut and slide (wheel or + −: how many; right-click while sliding: in the middle) | Ctrl+R |
 | Edge menu (bridge edge loops, loop cut) | Ctrl+E |
+| Bevel edges / vertices (wheel or + −: segments; V: which) | Ctrl+B / Ctrl+Shift+B |
+| Knife (click points; Enter or Space: cut) | K |
+| Slide vertices or an edge loop (E: even, F: flip) | G G |
+| Proportional editing / its falloff (wheel or Page Up / Down while moving: size) | O / Shift+O |
+| Auto merge vertices | Alt+O |
+| Mirror editing | The ⇋X ⇋Y ⇋Z buttons |
 | Delete menu / dissolve | X or Delete / Ctrl+X |
 | Merge / make a face | M / F |
 | Normals menu / recalculate outside | Alt+N / Shift+N |

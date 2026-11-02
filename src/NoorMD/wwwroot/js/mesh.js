@@ -25,6 +25,8 @@ window.NoorMesh = (() => {
   // The transform gizmos (as Blender's): each shown or not, remembered; the handle under the mouse.
   // Snapping (as Blender's magnet, Shift+Tab): steps of 0.1 m / 5° / 0.1, or a moved selection onto the vertex nearest the mouse. Ctrl does the other.
   let snapping = (() => { try { return { on: false, mode: 'increment', ...JSON.parse(localStorage.getItem('noormd.mesh.snap') || '{}') }; } catch { return { on: false, mode: 'increment' }; } })();
+  // Edit Mode helpers, as Blender's: proportional editing (O), mirror (X/Y/Z), auto merge; remembered.
+  let editOpts = (() => { const d = { prop: false, falloff: 'smooth', radius: 1, mirror: [false, false, false], autoMerge: false, mergeDist: 0.001 }; try { return { ...d, ...JSON.parse(localStorage.getItem('noormd.mesh.editopts') || '{}') }; } catch { return d; } })();
   let gizmos = (() => { try { return { move: true, rotate: false, scale: false, ...JSON.parse(localStorage.getItem('noormd.mesh.gizmos') || '{}') }; } catch { return { move: true, rotate: false, scale: false }; } })();
   let gizmoHover = null, gizmoHandles = [];
   const editing = () => (mode === 'edit' ? byId(active) : null);
@@ -384,7 +386,7 @@ window.NoorMesh = (() => {
       { label: 'Duplicate', keys: 'Shift+D', run: duplicateEdit, disabled: noFaces }, { label: 'Dissolve faces', keys: 'Ctrl+X', run: dissolveSel, disabled: noFaces }, { label: 'Delete…', keys: 'X', run: () => deleteMenu(x, y), disabled: noFaces },
     ] : [
       { label: 'Extrude', keys: 'E', run: extrude, disabled: none }, { label: 'Merge…', keys: 'M', run: () => mergeMenu(x, y), disabled: none }, { label: 'Make face', keys: 'F', run: makeFaceSel, disabled: none }, '-',
-      { label: 'Loop cut and slide', keys: 'Ctrl+R', run: loopCutStart }, { label: 'Bridge edge loops', run: bridge, disabled: none }, '-',
+      { label: 'Loop cut and slide', keys: 'Ctrl+R', run: loopCutStart }, { label: 'Bevel', keys: 'Ctrl+B', run: () => bevelStart(editSel.mode === 'vert'), disabled: none }, { label: 'Knife', keys: 'K', run: knifeStart }, { label: 'Bridge edge loops', run: bridge, disabled: none }, '-',
       { label: editSel.mode === 'edge' ? 'Dissolve edges' : 'Dissolve vertices', keys: 'Ctrl+X', run: dissolveSel, disabled: none }, { label: 'Delete…', keys: 'X', run: () => deleteMenu(x, y), disabled: none },
     ];
     popup(x, y, { vert: 'Vertex', edge: 'Edge', face: 'Face' }[editSel.mode], [
@@ -517,16 +519,90 @@ window.NoorMesh = (() => {
     const verts = [...f.verts];
     const pivot = K().vec.scale(verts.reduce((a, v) => K().vec.add(a, worldOf(o, v)), [0, 0, 0]), 1 / verts.length);
     op = { kind, edit: true, obj: o, startMesh: o.mesh, verts, faces: f.faces, pivot, m0: { ...mouse }, axis: null, dir, typed: '', fromDuplicate: already, before: already ? null : snapshot() };
+    if (kind === 'move' || kind === 'rotate' || kind === 'scale') { setupProp(); setupMirror(); }
     updateOp();
   }
   /** A world transform put onto the edited vertices (in the object's own space). */
   function applyEdit(W) {
     const o = op.obj, M = matrixOf(o), L = K().multiply(invertOf(o), K().multiply(W, M));
-    o.mesh = K().transformVerts(op.startMesh, op.verts, L);
+    const out = K().transformVerts(op.startMesh, op.verts, L);
+    // Proportional editing: the vertices round the selection follow, less the further they are.
+    if (op.prop) for (const { v, w } of op.prop) {
+      const p = vOf(op.startMesh, v), q = K().transformPoint(L, p);
+      for (let c = 0; c < 3; c++) out.v[v * 3 + c] = p[c] + (q[c] - p[c]) * w;
+    }
+    if (op.mirror) mirrorMoved(out);
+    o.mesh = out;
   }
+  const vOf = (m, i) => [m.v[i * 3], m.v[i * 3 + 1], m.v[i * 3 + 2]];
+  const FALLOFFS = { smooth: (t) => t * t * (3 - 2 * t), sphere: (t) => Math.sqrt(Math.max(0, 1 - (1 - t) * (1 - t))), root: (t) => Math.sqrt(t), linear: (t) => t, sharp: (t) => t * t, constant: () => 1 };
+  /** The vertices within the proportional radius of the selection (in the world), each with how much it follows. */
+  function setupProp() {
+    op.prop = null; op.propDist = null;
+    if (!editOpts.prop) return;
+    const o = op.obj, m = op.startMesh, n = K().vertexCount(m), sel = new Set(op.verts), M = matrixOf(o);
+    const selW = op.verts.map((v) => K().transformPoint(M, vOf(m, v)));
+    const dist = [];
+    for (let i = 0; i < n; i++) {
+      if (sel.has(i)) continue;
+      const p = K().transformPoint(M, vOf(m, i));
+      let d = Infinity;
+      for (const q of selW) { const dd = Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]); if (dd < d) d = dd; }
+      dist.push([i, d]);
+    }
+    op.propDist = dist;
+    weighProp();
+  }
+  function weighProp() {
+    if (!op.propDist) return;
+    const r = Math.max(1e-4, editOpts.radius), fall = FALLOFFS[editOpts.falloff] || FALLOFFS.smooth;
+    op.prop = op.propDist.filter(([, d]) => d < r).map(([v, d]) => ({ v, w: fall(1 - d / r) }));
+  }
+  /** Mirror editing: each moved vertex's twin across the chosen axes (in the object's own space). */
+  function setupMirror() {
+    op.mirror = null;
+    const axes = [0, 1, 2].filter((k) => editOpts.mirror[k]);
+    if (!axes.length) return;
+    const m = op.startMesh, n = K().vertexCount(m), key = (p) => p.map((x) => Math.round(x * 1e4)).join(',');
+    const at = new Map();
+    for (let i = 0; i < n; i++) at.set(key(vOf(m, i)), i);
+    // Every combination of the chosen axes: X; or X, Y and both; …
+    const flips = [];
+    for (let mask = 1; mask < 1 << axes.length; mask++) flips.push(axes.filter((_, j) => mask & (1 << j)));
+    const moved = new Set([...op.verts, ...(op.propDist || []).map(([v]) => v)]);
+    const pairs = [];
+    for (const v of moved) for (const fl of flips) {
+      const p = vOf(m, v).slice(); fl.forEach((k) => { p[k] = -p[k]; });
+      const c = at.get(key(p));
+      if (c !== undefined && c !== v && !op.verts.includes(c)) pairs.push({ v, c, fl });
+    }
+    op.mirror = pairs;
+  }
+  function mirrorMoved(out) {
+    for (const { v, c, fl } of op.mirror) {
+      const p = vOf(out, v); fl.forEach((k) => { p[k] = -p[k]; });
+      for (let k = 0; k < 3; k++) out.v[c * 3 + k] = p[k];
+    }
+  }
+  function setEditOpts(patch, say) {
+    editOpts = { ...editOpts, ...patch };
+    try { localStorage.setItem('noormd.mesh.editopts', JSON.stringify(editOpts)); } catch { /* not kept */ }
+    renderEditOpts();
+    if (op && op.edit && op.propDist) { weighProp(); updateOp(); }
+    if (say) setStatus(say);
+  }
+  function renderEditOpts() {
+    const pr = $('#nm-prop'); if (pr) pr.setAttribute('aria-pressed', String(!!editOpts.prop));
+    const fo = $('#nm-falloff'); if (fo) fo.value = editOpts.falloff;
+    document.querySelectorAll('#meshbench [data-mirror]').forEach((b) => b.setAttribute('aria-pressed', String(!!editOpts.mirror[Number(b.dataset.mirror)])));
+    const am = $('#nm-automerge'); if (am) am.setAttribute('aria-pressed', String(!!editOpts.autoMerge));
+  }
+  const togglePropEdit = () => setEditOpts({ prop: !editOpts.prop }, editOpts.prop ? 'Proportional editing off.' : 'Proportional editing on: the wheel (or Page Up / Down) sets its size while moving.');
+  const toggleAutoMerge = () => setEditOpts({ autoMerge: !editOpts.autoMerge }, editOpts.autoMerge ? 'Auto merge off.' : 'Auto merge on: vertices moved onto others are merged into them.');
+  function toggleMirror(k) { const m = editOpts.mirror.slice(); m[k] = !m[k]; setEditOpts({ mirror: m }, m.some(Boolean) ? `Mirror editing: ${m.map((on, j) => (on ? AXIS_NAMES[j] : '')).filter(Boolean).join(' ')}.` : 'Mirror editing off.'); }
   const translation = (d) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, d[0], d[1], d[2], 1];
-  function scaleAbout(p, axis, f) {
-    const s = [1, 1, 1].map((x, k) => (axis === null || axis === k ? f : 1));
+  function scaleAbout(p, axis, f, plane = null) {
+    const s = [1, 1, 1].map((x, k) => (plane != null ? (k === plane ? 1 : f) : axis === null || axis === k ? f : 1));
     return K().multiply(translation(p), K().multiply([s[0], 0, 0, 0, 0, s[1], 0, 0, 0, 0, s[2], 0, 0, 0, 0, 1], translation(p.map((x) => -x))));
   }
   function rayPlane(r, p, n) { const d = K().vec.dot(n, r.dir); if (Math.abs(d) < 1e-9) return null; const t = K().vec.dot(n, K().vec.sub(p, r.origin)) / d; return K().vec.add(r.origin, K().vec.scale(r.dir, t)); }
@@ -539,6 +615,9 @@ window.NoorMesh = (() => {
     if (!op) return;
     const V = K().vec, typed = op.typed !== '' && op.typed !== '-' && op.typed !== '.' ? Number(op.typed) : null;
     if (op.kind === 'loopcut') { updateLoopCut(); return; }
+    if (op.kind === 'slide') { updateSlide(); return; }
+    if (op.kind === 'bevel') { updateBevel(); return; }
+    if (op.kind === 'knife') { updateKnife(); return; }
     // Steps when snapping is on (Ctrl: free) or off (Ctrl: steps), as Blender's.
     const snap = snapping.on ? !op.ctrl : !!op.ctrl;
     op.snapAt = null;
@@ -586,7 +665,8 @@ window.NoorMesh = (() => {
       } else if (snap && typed === null) delta = delta.map((x) => Math.round(x * 10) / 10);
       if (op.edit) applyEdit(translation(delta));
       else op.list.forEach((o, i) => { o.t = V.add(op.start[i].t, delta); });
-      text = op.axis !== null ? `Move ${AXIS_NAMES[op.axis]}: ${fmt(delta[op.axis])} m` : op.plane != null ? `Move (not ${AXIS_NAMES[op.plane]}): ${delta.map(fmt).join(', ')} m` : op.dir ? `Move along the normal: ${fmt(V.dot(delta, op.dir))} m` : `Move: ${delta.map(fmt).join(', ')} m`;
+      text = op.prop ? `Proportional ${fmt(editOpts.radius)} m   ·   ` : '';
+      text += op.axis !== null ? `Move ${AXIS_NAMES[op.axis]}: ${fmt(delta[op.axis])} m` : op.plane != null ? `Move (not ${AXIS_NAMES[op.plane]}): ${delta.map(fmt).join(', ')} m` : op.dir ? `Move along the normal: ${fmt(V.dot(delta, op.dir))} m` : `Move: ${delta.map(fmt).join(', ')} m`;
     } else if (op.kind === 'rotate') {
       const c = view.project(op.pivot);
       const ang = (p) => Math.atan2(-(p.y - c.y), p.x - c.x);
@@ -598,15 +678,22 @@ window.NoorMesh = (() => {
       if (op.edit) applyEdit(R);
       else op.list.forEach((o, i) => { const d = K().decompose(K().multiply(R, op.start[i].m)); o.t = d.t; o.r = d.r; o.s = op.start[i].s.slice(); });
       text = `Rotate${op.axis !== null ? ' ' + AXIS_NAMES[op.axis] : ''}: ${fmt(deg)}°`;
+      if (op.prop) text += `   ·   proportional ${fmt(editOpts.radius)} m`;
     } else {
       const c = view.project(op.pivot);
       const d0 = Math.max(4, Math.hypot(op.m0.x - c.x, op.m0.y - c.y));
       let f = typed !== null ? typed : Math.hypot(mouse.x - c.x, mouse.y - c.y) / d0;
       if (snap && typed === null) f = Math.round(f * 10) / 10;
-      if (op.edit) applyEdit(scaleAbout(op.pivot, op.axis, f));
+      if (op.edit) applyEdit(scaleAbout(op.pivot, op.axis, f, op.plane));
       else op.list.forEach((o, i) => {
         const st = op.start[i];
-        if (op.axis === null) { o.s = st.s.map((x) => x * f); o.t = st.t.map((x, k) => op.pivot[k] + (x - op.pivot[k]) * f); }
+        if (op.plane != null) {
+          // Two world axes: the object's own axes that lie most along each are scaled.
+          const m = st.m, cols = [0, 1, 2].map((k) => V.norm([m[k * 4], m[k * 4 + 1], m[k * 4 + 2]]));
+          const most = cols.map((v) => Math.abs(V.dot(v, AXES[op.plane]))).reduce((b, v, j, a) => (v > a[b] ? j : b), 0);
+          o.s = st.s.map((x, j) => (j === most ? x : x * f));
+          o.t = st.t.map((x, j) => (j === op.plane ? x : op.pivot[j] + (x - op.pivot[j]) * f));
+        } else if (op.axis === null) { o.s = st.s.map((x) => x * f); o.t = st.t.map((x, k) => op.pivot[k] + (x - op.pivot[k]) * f); }
         else {
           // Along one world axis: the object's own axis that lies most along it is scaled (an object has no shear).
           const m = st.m, cols = [0, 1, 2].map((k) => V.norm([m[k * 4], m[k * 4 + 1], m[k * 4 + 2]]));
@@ -615,13 +702,14 @@ window.NoorMesh = (() => {
           o.t = st.t.map((x, j) => (j === op.axis ? op.pivot[j] + (x - op.pivot[j]) * f : x));
         }
       });
-      text = `Scale${op.axis !== null ? ' ' + AXIS_NAMES[op.axis] : ''}: ${fmt(f)}`;
+      text = op.plane != null ? `Scale (not ${AXIS_NAMES[op.plane]}): ${fmt(f)}` : `Scale${op.axis !== null ? ' ' + AXIS_NAMES[op.axis] : ''}: ${fmt(f)}`;
+      if (op.prop) text += `   ·   proportional ${fmt(editOpts.radius)} m`;
     }
     if (op.typed !== '') text += `  [${op.typed}]`;
     if (op.edit) { sync(op.obj); syncEdit(); } else op.list.forEach(sync);
     // The axis (or normal) it is held to, as a long line through the pivot.
     const guide = op.axis !== null ? [AXES[op.axis], AXIS_COLOURS[op.axis]] : op.dir && op.kind === 'move' ? [op.dir, [1, 1, 1, 0.8]] : null;
-    const lines = guide ? [guide] : op.plane != null && op.kind === 'move' ? [0, 1, 2].filter((k) => k !== op.plane).map((k) => [AXES[k], AXIS_COLOURS[k]]) : [];
+    const lines = guide ? [guide] : op.plane != null && (op.kind === 'move' || op.kind === 'scale') ? [0, 1, 2].filter((k) => k !== op.plane).map((k) => [AXES[k], AXIS_COLOURS[k]]) : [];
     view.setGuides(lines.map(([a, c]) => ({ from: V.add(op.pivot, V.scale(a, -1000)), to: V.add(op.pivot, V.scale(a, 1000)), color: c })));
     hud(`${text}   ·   X Y Z or middle-drag: an axis · type a number · click or Enter: done · right-click or Esc: back`);
   }
@@ -646,6 +734,17 @@ window.NoorMesh = (() => {
   function confirmOp() {
     if (!op) return;
     if (op.kind === 'loopcut' && !op.result) { cancelOp(); return; }
+    if (op.kind === 'knife') { finishKnife(); return; }
+    if (op.edit && editOpts.autoMerge && ['move', 'rotate', 'scale', 'slide'].includes(op.kind)) {
+      const moved = [...op.verts, ...(op.prop || []).map((x) => x.v), ...(op.mirror || []).map((x) => x.c)];
+      const r = K().autoMerge(op.obj.mesh, moved, editOpts.mergeDist);
+      if (r.merged) {
+        op.obj.mesh = r.mesh;
+        editSel = K().selectionFromVerts(r.mesh, [...K().flush(op.startMesh, editSel).verts].map((v) => r.map[v]).filter((v) => v >= 0), editSel.mode);
+        sync(op.obj);
+        setTimeout(() => setStatus(`Auto merge: ${r.merged} merged.`), 0);
+      }
+    }
     const done = op;
     op = null;
     view.setGuides([]);
@@ -758,6 +857,9 @@ window.NoorMesh = (() => {
     return true; // nothing else while cutting
   }
   function loopCutWheel(e) {
+    // Proportional editing: the wheel sets its size while moving, rotating or scaling.
+    if (op && op.edit && op.propDist && ['move', 'rotate', 'scale'].includes(op.kind)) { e.preventDefault(); e.stopPropagation(); setEditOpts({ radius: Math.max(0.001, editOpts.radius * (e.deltaY < 0 ? 1 / 1.15 : 1.15)) }); return; }
+    if (op && op.kind === 'bevel') { e.preventDefault(); e.stopPropagation(); op.segments = Math.max(1, Math.min(32, op.segments + (e.deltaY < 0 ? 1 : -1))); updateOp(); return; }
     if (!op || op.kind !== 'loopcut' || op.phase !== 'pick') return;
     e.preventDefault(); e.stopPropagation();
     op.typed = ''; op.cuts = Math.max(1, Math.min(64, op.cuts + (e.deltaY < 0 ? 1 : -1)));
@@ -778,10 +880,197 @@ window.NoorMesh = (() => {
     const f = flushed(), none = !f || !f.edges.size;
     popup(x, y, 'Edge', [
       { label: 'Loop cut and slide', keys: 'Ctrl+R', run: loopCutStart },
+      { label: 'Bevel edges', keys: 'Ctrl+B', run: () => bevelStart(false), disabled: none },
+      { label: 'Edge slide', keys: 'G G', run: () => { startOp('move'); if (op && op.edit) startSlide(); }, disabled: none },
       { label: 'Bridge edge loops', run: bridge, disabled: none },
       { label: 'Extrude edges', keys: 'E', run: extrude, disabled: none },
       { label: 'Dissolve edges', keys: 'Ctrl+X', run: dissolveSel, disabled: none },
     ]);
+  }
+
+  // ---------------------------------------------------------------- slide (G twice), as Blender's vertex and edge slide
+  function startSlide() {
+    const o = op.obj, startMesh = op.startMesh, before = op.before;
+    o.mesh = startMesh;
+    const sides = K().slideSides(startMesh, editSel);
+    const edgeSlide = [...sides.values()].some((x) => x.a !== undefined || x.b !== undefined);
+    op = { kind: 'slide', edit: true, obj: o, startMesh, verts: [...sides.keys()], faces: new Set(), pivot: op.pivot, m0: { ...mouse }, axis: null, typed: '', fromDuplicate: false, before, sides, edgeSlide, even: false, flip: false, f: 0 };
+    if (edgeSlide) {
+      // The vertex nearest the mouse leads (its edges on the screen say how far along).
+      let best = null, bestD = Infinity;
+      for (const [v, sd] of sides) { if (sd.a === undefined && sd.b === undefined) continue; const sc = view.project(worldOf({ ...o, mesh: startMesh }, v)); const d = Math.hypot(sc.x - mouse.x, sc.y - mouse.y); if (d < bestD) { bestD = d; best = v; } }
+      op.lead = best;
+    }
+    updateOp();
+  }
+  function updateSlide() {
+    const o = op.obj, m = op.startMesh, W = (v) => worldOf({ ...o, mesh: m }, v), S = (v) => view.project(W(v));
+    const out = K().clone(m), dx = mouse.x - op.m0.x, dy = mouse.y - op.m0.y;
+    const typed = op.typed !== '' && op.typed !== '-' && op.typed !== '.' ? Math.max(-1, Math.min(1, Number(op.typed))) : null;
+    const put = (v, p) => { out.v[v * 3] = p[0]; out.v[v * 3 + 1] = p[1]; out.v[v * 3 + 2] = p[2]; };
+    if (op.edgeSlide) {
+      const sd = op.sides.get(op.lead), sv = S(op.lead);
+      const along = (nb) => { if (nb === undefined) return -1; const t = S(nb), ex = t.x - sv.x, ey = t.y - sv.y, l2 = ex * ex + ey * ey || 1; return (dx * ex + dy * ey) / l2; };
+      let f = typed;
+      if (f === null) { const ta = along(sd.a); f = ta >= 0 ? Math.min(1, ta) : -Math.min(1, Math.max(0, along(sd.b))); }
+      if (op.flip) f = -f;
+      op.f = f;
+      const sideOf = (x) => (f >= 0 ? x.a : x.b);
+      const leadT = sideOf(sd), refLen = leadT === undefined ? 0 : K().vec.len(K().vec.sub(vOf(m, leadT), vOf(m, op.lead)));
+      for (const [v, x] of op.sides) {
+        const t = sideOf(x);
+        if (t === undefined) continue;
+        const p = vOf(m, v), q = vOf(m, t), d = K().vec.sub(q, p), L = K().vec.len(d) || 1;
+        put(v, op.even ? K().vec.add(p, K().vec.scale(d, Math.min(1, (Math.abs(f) * refLen) / L))) : K().vec.add(p, K().vec.scale(d, Math.abs(f))));
+      }
+      hud(`Edge slide: ${fmt(f)}${op.even ? ' (even)' : ''}${op.typed !== '' ? `  [${op.typed}]` : ''}   ·   move along the edges · E: even · F: flip · click or Enter: done · right-click or Esc: back`);
+    } else {
+      // Vertex slide: each along its edge that runs most the way the mouse has gone.
+      const md = Math.hypot(dx, dy);
+      let shown = 0;
+      for (const [v, x] of op.sides) {
+        const sv = S(v);
+        let best = null, bestDot = 0.3;
+        for (const nb of x.all || []) { const t = S(nb), ex = t.x - sv.x, ey = t.y - sv.y, l = Math.hypot(ex, ey); if (l < 1 || md < 2) continue; const c = (dx * ex + dy * ey) / (l * md); if (c > bestDot) { bestDot = c; best = [nb, ex, ey, l]; } }
+        if (!best) continue;
+        const [nb, ex, ey, l] = best, t = typed !== null ? Math.abs(typed) : Math.max(0, Math.min(1, (dx * ex + dy * ey) / (l * l)));
+        const p = vOf(m, v), q = vOf(m, nb);
+        put(v, K().vec.add(p, K().vec.scale(K().vec.sub(q, p), t)));
+        shown = t;
+      }
+      op.f = shown;
+      hud(`Vertex slide: ${fmt(shown)}   ·   move towards a neighbour · click or Enter: done · right-click or Esc: back`);
+    }
+    o.mesh = out;
+    sync(o); syncEdit();
+    view.setGuides([]);
+  }
+  function slideKey(e) {
+    const k = e.key.toLowerCase();
+    if (k === 'escape') { cancelOp(); return true; }
+    if (k === 'enter') { confirmOp(); return true; }
+    if (k === 'e' || k === 'c') { op.even = !op.even; updateOp(); return true; }
+    if (k === 'f') { op.flip = !op.flip; updateOp(); return true; }
+    if (/^[0-9.]$/.test(k) || (k === '-' && op.typed === '')) { op.typed += k; updateOp(); return true; }
+    if (k === 'backspace') { op.typed = op.typed.slice(0, -1); updateOp(); return true; }
+    return true;
+  }
+
+  // ---------------------------------------------------------------- bevel (Ctrl+B; Ctrl+Shift+B: vertices)
+  function bevelStart(vertices = false) {
+    const o = editing(), f = flushed();
+    if (!o || !f) return;
+    if (!vertices && !f.edges.size && f.verts.size) vertices = true;
+    if (vertices ? !f.verts.size : !f.edges.size) { setStatus('Select edges (or vertices) to bevel.'); return; }
+    cancelOp();
+    const verts = [...f.verts], pivot = K().vec.scale(verts.reduce((a, v) => K().vec.add(a, worldOf(o, v)), [0, 0, 0]), 1 / verts.length);
+    op = { kind: 'bevel', edit: true, obj: o, startMesh: o.mesh, verts: [], faces: new Set(), pivot, m0: { ...mouse }, axis: null, typed: '', segments: 1, vertices, sel0: K().cloneSelection(editSel), before: snapshot(), width: 0 };
+    updateOp();
+  }
+  function updateBevel() {
+    const V = K().vec, cam = view.camera(), toViewer = V.norm(V.sub(cam.eye, cam.target));
+    const c = view.project(op.pivot), d0 = Math.hypot(op.m0.x - c.x, op.m0.y - c.y), d = Math.hypot(mouse.x - c.x, mouse.y - c.y);
+    const p1 = rayPlane(view.ray(c.x, c.y), op.pivot, toViewer), p2 = rayPlane(view.ray(c.x + 100, c.y), op.pivot, toViewer);
+    const perPx = p1 && p2 ? V.len(V.sub(p2, p1)) / 100 : 0.01;
+    const typed = op.typed !== '' && op.typed !== '.' ? Number(op.typed) : null;
+    let w = typed !== null ? Math.max(0, typed) : Math.max(0, d - d0) * perPx;
+    if ((snapping.on ? !op.ctrl : op.ctrl) && typed === null) w = Math.round(w * 100) / 100;
+    op.width = w;
+    const r = K().bevel(op.startMesh, op.sel0, w, op.segments, op.vertices);
+    op.obj.mesh = r.mesh; op.result = r;
+    editSel = w > 0 && r.faces.length ? K().selectionFromFaces(r.mesh, r.faces, op.sel0.mode) : K().cloneSelection(op.sel0);
+    sync(op.obj); syncEdit();
+    view.setGuides([]);
+    hud(`Bevel${op.vertices ? ' vertices' : ''}: ${fmt(w)} m · ${op.segments} segment${op.segments === 1 ? '' : 's'}${op.typed !== '' ? `  [${op.typed}]` : ''}   ·   move away from the middle · wheel or + −: segments · V: vertices or edges · click or Enter: done · right-click or Esc: back`);
+  }
+  function bevelKey(e) {
+    const k = e.key;
+    if (k === 'Escape') { cancelOp(); return true; }
+    if (k === 'Enter') { op.sel0 = null; confirmOp(); return true; }
+    if (k === '+' || k === '=' || e.code === 'NumpadAdd' || k === 'PageUp') { op.segments = Math.min(32, op.segments + 1); updateOp(); return true; }
+    if (k === '-' || e.code === 'NumpadSubtract' || k === 'PageDown') { op.segments = Math.max(1, op.segments - 1); updateOp(); return true; }
+    if (k.toLowerCase() === 'v') { op.vertices = !op.vertices; updateOp(); return true; }
+    if (/^[0-9.]$/.test(k)) { op.typed += k; updateOp(); return true; }
+    if (k === 'Backspace') { op.typed = op.typed.slice(0, -1); updateOp(); return true; }
+    return true;
+  }
+
+  // ---------------------------------------------------------------- knife (K)
+  function knifeStart() {
+    const o = editing();
+    if (!o) return;
+    cancelOp();
+    op = { kind: 'knife', edit: true, obj: o, startMesh: o.mesh, verts: [], faces: new Set(), pivot: [0, 0, 0], m0: { ...mouse }, axis: null, typed: '', pts: [], sel0: K().cloneSelection(editSel), before: snapshot() };
+    updateOp();
+  }
+  /** A point clicked for the knife: onto a vertex when one is near (client coordinates kept). */
+  function knifePoint(x, y) {
+    const o = op.obj, v = pickVert(o, x, y, 10);
+    if (v >= 0) { const s2 = view.project(worldOf(o, v)); return { x: s2.x, y: s2.y, v }; }
+    return { x, y };
+  }
+  /** Where the knife's line crosses the edges that can be seen, in order along it. */
+  function knifeCrossings(pts) {
+    const o = op.obj, m = op.startMesh, M = matrixOf(o), list = [];
+    const es = K().edges(m);
+    const proj = new Map();
+    const P = (i) => { if (!proj.has(i)) { const w = K().transformPoint(M, vOf(m, i)); proj.set(i, { w, s: view.project(w) }); } return proj.get(i); };
+    for (let i = 0; i + 1 < pts.length; i++) {
+      const A = pts[i], B = pts[i + 1], seg = [];
+      if (A.v !== undefined) seg.push({ s: 0, c: { v: A.v } });
+      for (const e of es) {
+        const pa = P(e.a), pb = P(e.b);
+        if (!pa.s.front || !pb.s.front) continue;
+        const r = B.x - A.x, q = B.y - A.y, ux = pb.s.x - pa.s.x, uy = pb.s.y - pa.s.y, den = r * uy - q * ux;
+        if (Math.abs(den) < 1e-9) continue;
+        const sx = pa.s.x - A.x, sy = pa.s.y - A.y, s2 = (sx * uy - sy * ux) / den, u = (sx * q - sy * r) / den;
+        if (s2 < 0 || s2 > 1 || u < 0 || u > 1) continue;
+        // In the world: where the ray through the crossing passes nearest the edge.
+        const ray = view.ray(A.x + r * s2, A.y + q * s2), d = K().vec.sub(pb.w, pa.w), L2 = K().vec.dot(d, d) || 1;
+        const w0 = K().vec.sub(ray.origin, pa.w), b = K().vec.dot(ray.dir, d), dd = K().vec.dot(ray.dir, w0), ee = K().vec.dot(d, w0), den2 = L2 - b * b;
+        let t = Math.abs(den2) < 1e-12 ? u : (ee - b * dd) / den2;
+        t = Math.max(0, Math.min(1, t));
+        const pw = K().vec.add(pa.w, K().vec.scale(d, t));
+        if (!visible(o, pw)) continue;
+        seg.push({ s: s2, c: t < 0.01 ? { v: e.a } : t > 0.99 ? { v: e.b } : { a: e.a, b: e.b, t } });
+      }
+      if (B.v !== undefined) seg.push({ s: 1, c: { v: B.v } });
+      seg.sort((x, y) => x.s - y.s);
+      for (const x of seg) { const last = list[list.length - 1]; if (last && last.v !== undefined && x.c.v === last.v) continue; list.push(x.c); }
+    }
+    return list;
+  }
+  function updateKnife() {
+    const pts = [...op.pts, knifePoint(mouse.x, mouse.y)];
+    op.preview = pts;
+    op.cross = op.pts.length ? knifeCrossings(pts) : [];
+    view.setGuides([]);
+    drawGizmo();
+    hud(`Knife: ${op.pts.length} point${op.pts.length === 1 ? '' : 's'} · ${op.cross.length} crossing${op.cross.length === 1 ? '' : 's'}   ·   click: a point (near a vertex: on it) · Enter or Space: cut · Backspace: the last point back · right-click or Esc: back`);
+  }
+  function knifeDown(e) {
+    if (e.button === 0) { op.pts.push(knifePoint(e.clientX, e.clientY)); updateOp(); return; }
+    if (e.button === 2) cancelOp();
+  }
+  function knifeKey(e) {
+    const k = e.key;
+    if (k === 'Escape') { cancelOp(); return true; }
+    if (k === 'Enter' || k === ' ') { finishKnife(); return true; }
+    if (k === 'Backspace') { op.pts.pop(); updateOp(); return true; }
+    return true;
+  }
+  function finishKnife() {
+    const crossings = op.pts.length > 1 ? knifeCrossings(op.pts) : [];
+    if (crossings.length < 2) { cancelOp(); setStatus('Knife: click points across the faces to cut, then Enter.'); return; }
+    const r = K().knifeCut(op.startMesh, crossings);
+    const done = op;
+    op = null;
+    done.obj.mesh = r.mesh;
+    editSel = K().convertSelection(r.mesh, { mode: 'edge', verts: new Set(), edges: new Set(r.edges), faces: new Set() }, editSel.mode === 'face' ? 'edge' : editSel.mode);
+    if (editSel.mode === 'vert') editSel = K().selectionFromVerts(r.mesh, r.verts, 'vert');
+    history.push(done.before); if (history.length > 200) history.shift(); future = [];
+    changed(); sync(done.obj); syncEdit(); hud(''); renderAll(); drawGizmo();
+    setStatus(`Knife: ${r.edges.length} cut${r.edges.length === 1 ? '' : 's'}.`);
   }
 
   function opKey(e) {
@@ -790,8 +1079,14 @@ window.NoorMesh = (() => {
     if (k === 'Enter') { confirmOp(); return true; }
     const ax = { x: 0, y: 1, z: 2 }[k.toLowerCase()];
     // Shift+X/Y/Z: a plane that leaves that axis out (moving; scaling the other two).
-    if (ax !== undefined && e.shiftKey && op.kind === 'move') { op.plane = op.plane === ax ? null : ax; op.axis = null; op.dir = null; updateOp(); return true; }
+    if (ax !== undefined && e.shiftKey && (op.kind === 'move' || op.kind === 'scale')) { op.plane = op.plane === ax ? null : ax; op.axis = null; op.dir = null; updateOp(); return true; }
     if (op.kind === 'loopcut') return loopCutKey(e);
+    if (op.kind === 'slide') return slideKey(e);
+    if (op.kind === 'bevel') return bevelKey(e);
+    if (op.kind === 'knife') return knifeKey(e);
+    // G again in Edit Mode: slide (as Blender's).
+    if (k.toLowerCase() === 'g' && !e.shiftKey && op.kind === 'move' && op.edit && !op.fromDuplicate) { startSlide(); return true; }
+    if (e.code === 'PageUp' || e.code === 'PageDown') { if (op.edit && op.propDist) { setEditOpts({ radius: Math.max(0.001, editOpts.radius * (e.code === 'PageUp' ? 1.15 : 1 / 1.15)) }); } return true; }
     if (op.kind === 'inset' && k.toLowerCase() === 'i') { op.individual = !op.individual; updateOp(); return true; }
     if (ax !== undefined && op.kind !== 'inset') { op.axis = op.axis === ax ? null : ax; op.plane = null; op.dir = null; updateOp(); return true; }
     if (/^[0-9.]$/.test(k) || (k === '-' && op.typed === '')) { op.typed += k; updateOp(); return true; }
@@ -891,6 +1186,18 @@ window.NoorMesh = (() => {
     const handles = gizmoLayout();
     // Into the stage's coordinates.
     gizmoHandles = handles.map((h) => ({ ...h, pts: h.pts.map(([x, y]) => [x - s.left, y - s.top]) }));
+    if (op && op.kind === 'knife' && op.preview) {
+      g.strokeStyle = '#7fff7f'; g.lineWidth = 1.5; g.setLineDash([5, 4]);
+      g.beginPath(); op.preview.forEach((p2, i) => (i ? g.lineTo(p2.x - s.left, p2.y - s.top) : g.moveTo(p2.x - s.left, p2.y - s.top))); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#7fff7f'; op.preview.forEach((p2) => { g.beginPath(); g.arc(p2.x - s.left, p2.y - s.top, 3, 0, Math.PI * 2); g.fill(); });
+    }
+    if (op && op.edit && op.prop && ['move', 'rotate', 'scale'].includes(op.kind)) {
+      // The proportional radius round the pivot, as Blender's circle.
+      const c = view.project(op.pivot), V = K().vec, cam = view.camera();
+      let rr = V.cross(V.norm(V.sub(cam.target, cam.eye)), [0, 0, 1]); if (V.len(rr) < 1e-6) rr = [1, 0, 0];
+      const q = view.project(V.add(op.pivot, V.scale(V.norm(rr), editOpts.radius))), rad = Math.hypot(q.x - c.x, q.y - c.y);
+      g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = 1.5; g.beginPath(); g.arc(c.x - s.left, c.y - s.top, rad, 0, Math.PI * 2); g.stroke();
+    }
     if (op && op.snapAt) { g.strokeStyle = '#fff'; g.lineWidth = 2; g.beginPath(); g.arc(op.snapAt[0] - s.left, op.snapAt[1] - s.top, 7, 0, Math.PI * 2); g.stroke(); }
     const rgba = (c, boost) => `rgba(${c.slice(0, 3).map((v) => Math.min(255, v + (boost ? 50 : 0))).join(',')},${c[3]})`;
     for (const h of gizmoHandles) {
@@ -918,6 +1225,7 @@ window.NoorMesh = (() => {
   function onDown(e) {
     mouse = { x: e.clientX, y: e.clientY };
     if (op && op.kind === 'loopcut') { loopCutDown(e); e.preventDefault(); return; }
+    if (op && op.kind === 'knife') { knifeDown(e); e.preventDefault(); return; }
     if (op) {
       if (e.button === 0) confirmOp();
       else if (e.button === 2) cancelOp();
@@ -1169,6 +1477,7 @@ window.NoorMesh = (() => {
     drawGizmo();
     const ms = $('#nm-mode'); if (ms) ms.value = mode;
     const sm = $('#nm-selmodes');
+    const eo = $('#nm-editopts'); if (eo) eo.hidden = mode !== 'edit';
     if (sm) { sm.hidden = mode !== 'edit'; sm.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(!!editSel && b.dataset.selmode === editSel.mode))); }
     $('#meshbench') && $('#meshbench').classList.toggle('nm-editing', mode === 'edit');
     if (window.NoorChrome) NoorChrome.benchChanged();
@@ -1294,6 +1603,12 @@ window.NoorMesh = (() => {
                 (() => { const m = el('select', { id: 'nm-mode', 'aria-label': 'Mode', title: 'Object Mode: whole objects. Edit Mode (Tab): the active object\'s vertices, edges and faces.' }, el('option', { value: 'object', text: 'Object Mode' }), el('option', { value: 'edit', text: 'Edit Mode' })); m.addEventListener('change', () => { toggleEdit(m.value === 'edit'); m.value = mode; keepFocus(); }); return m; })(),
                 el('span', { class: 'nm-selmodes', id: 'nm-selmodes', role: 'group', 'aria-label': 'Select', hidden: true },
                   ...[['vert', '⋅', 'Vertices (1)'], ['edge', '╱', 'Edges (2)'], ['face', '▰', 'Faces (3)']].map(([m, g, t]) => el('button', { class: 'icon-btn nm-selmode', 'data-selmode': m, title: t, 'aria-label': t, 'aria-pressed': 'false', onclick: () => { setSelectMode(m); keepFocus(); } }, g))),
+                el('span', { class: 'nm-selmodes', id: 'nm-editopts', role: 'group', 'aria-label': 'Edit Mode options', hidden: true },
+                  el('button', { class: 'icon-btn', id: 'nm-prop', title: 'Proportional editing (O; Shift+O: falloff; the wheel while moving: its size)', 'aria-label': 'Proportional editing', 'aria-pressed': 'false', onclick: () => { togglePropEdit(); keepFocus(); } }, '◎'),
+                  el('select', { id: 'nm-falloff', class: 'nm-snapmode', title: 'Proportional falloff', 'aria-label': 'Falloff', onchange: (e) => { setEditOpts({ falloff: e.target.value }); keepFocus(); } },
+                    ...[['smooth', 'Smooth'], ['sphere', 'Sphere'], ['root', 'Root'], ['linear', 'Linear'], ['sharp', 'Sharp'], ['constant', 'Constant']].map(([v, t]) => el('option', { value: v }, t))),
+                  ...[0, 1, 2].map((k) => el('button', { class: 'icon-btn nm-mirror', 'data-mirror': String(k), title: `Mirror editing across ${'XYZ'[k]} (moves the twin on the other side too)`, 'aria-label': `Mirror ${'XYZ'[k]}`, 'aria-pressed': 'false', onclick: () => { toggleMirror(k); keepFocus(); } }, `⇋${'XYZ'[k]}`)),
+                  el('button', { class: 'icon-btn', id: 'nm-automerge', title: 'Auto merge vertices (Alt+O): moved onto another, merged into it', 'aria-label': 'Auto merge vertices', 'aria-pressed': 'false', onclick: () => { toggleAutoMerge(); keepFocus(); } }, '⊕')),
                 el('button', { class: 'utility-btn', title: 'Add a mesh (Shift+A)', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); addMenu(r.left + 12, r.bottom + 4); } }, '＋ Add'),
                 el('span', { class: 'sb-fx-space' }),
                 el('button', { class: 'icon-btn', title: 'Front (numpad 1; Ctrl: back)', 'aria-label': 'Front view', onclick: (e) => setView('front', e.ctrlKey) }, 'F'),
@@ -1331,7 +1646,7 @@ window.NoorMesh = (() => {
       view = NoorMeshView.create($('#nm-canvas'), { drawn: () => drawGizmo(), down: onDown, move: onMove, up: onUp, takes: (e) => (!!op && op.kind !== 'loopcut' && e.button === 1) || (mode === 'edit' && !op && e.button === 0 && e.altKey), viewChanged: () => { if (!view.camera().ortho && / Orthographic$/.test(viewName)) { viewName = 'User Perspective'; hud(op ? undefined : ''); } if (op) updateOp(); } });
     } catch (err) { console.warn('NoorMesh: no 3D view', err); view = null; setTimeout(() => setStatus(`The 3D view couldn't start (it needs WebGL 2): ${err && err.message ? err.message : err}`), 0); }
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('mesh', { name: 'NoorMesh', title: appTitle, menus: appMenus });
-    renderGizmoButtons(); renderSnap();
+    renderGizmoButtons(); renderSnap(); renderEditOpts();
     // While cutting a loop the wheel sets how many cuts (before the view zooms with it).
     $('#nm-stage').addEventListener('wheel', loopCutWheel, { capture: true, passive: false });
   }
@@ -1399,23 +1714,28 @@ window.NoorMesh = (() => {
       if (k === 'l') { take(); selectLinked(false); return true; }
       if (k === 'i') { take(); editSelectAll('invert'); return true; }
       if (k === 'r') { take(); loopCutStart(); return true; }
+      if (k === 'b') { take(); bevelStart(e.shiftKey); return true; }
       if (k === 'e') { take(); edgeMenu(); return true; }
       return false; // Ctrl+Z, Ctrl+Y: undo as everywhere
     }
     if (e.altKey && !e.ctrlKey) {
       if (k === 'a') { take(); editSelectAll('none'); return true; }
+      if (k === 'o') { take(); toggleAutoMerge(); return true; }
       if (k === 'n') { take(); normalsMenu(); return true; }
       return false;
     }
     if (e.shiftKey) {
       if (k === 'n') { take(); normals('outside'); return true; }
       if (k === 'd') { take(); duplicateEdit(); return true; }
+      if (k === 'o') { take(); const list = Object.keys(FALLOFFS), nx = list[(list.indexOf(editOpts.falloff) + 1) % list.length]; setEditOpts({ falloff: nx }, `Proportional falloff: ${nx}.`); return true; }
       if (k === 'a') { take(); setStatus('Adding a primitive works in Object Mode for now (Tab).'); return true; }
       return false;
     }
     if (code === 'Digit1' || code === 'Digit2' || code === 'Digit3') { take(); setSelectMode(['vert', 'edge', 'face'][Number(code.slice(5)) - 1]); return true; }
     if (k === 'a') { take(); editSelectAll('all'); return true; }
     if (k === 'e') { take(); extrude(); return true; }
+    if (k === 'k') { take(); knifeStart(); return true; }
+    if (k === 'o') { take(); togglePropEdit(); return true; }
     if (k === 'i') { take(); inset(); return true; }
     if (k === 'x' || e.key === 'Delete') { take(); deleteMenu(); return true; }
     if (k === 'm') { take(); mergeMenu(); return true; }
@@ -1431,7 +1751,7 @@ window.NoorMesh = (() => {
 
   const SHORTCUTS = [
     ['Add a mesh', 'Shift+A'], ['Select', 'Click (Shift: add or take away)'], ['Box select', 'Drag (Shift: add, Ctrl: take away)'], ['Select all / none / invert', 'A / Alt+A / Ctrl+I'],
-    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free), or hold the middle button and move towards it (a middle click: free)'], ['…in a plane (leaving an axis out)', 'Shift+X, Shift+Y or Shift+Z'],
+    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free), or hold the middle button and move towards it (a middle click: free)'], ['…in a plane (leaving an axis out; moving or scaling)', 'Shift+X, Shift+Y or Shift+Z'],
     ['Gizmos (move, rotate, scale)', 'The ✥ ⟳ ⤡ buttons; drag a handle'], ['…by a number', 'Type it (− turns it round), Backspace'], ['…in steps', 'Hold Ctrl'], ['Snapping on or off (steps, or to vertices; Ctrl: the other)', 'Shift+Tab'],
     ['…done / back', 'Click or Enter / right-click or Esc'], ['Clear location / rotation / scale', 'Alt+G / Alt+R / Alt+S'], ['Apply transforms', 'Ctrl+A'],
     ['Duplicate', 'Shift+D'], ['Delete', 'X or Delete'], ['Hide / show all / hide others', 'H / Alt+H / Shift+H'], ['Rename', 'F2'],
@@ -1440,7 +1760,8 @@ window.NoorMesh = (() => {
     ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y'], ['Object menu', 'Right-click'], ['Save / save as / open', 'Ctrl+S / Ctrl+Shift+S / Ctrl+O'],
     ['Edit Mode / Object Mode', 'Tab'], ['Vertices / edges / faces', '1 / 2 / 3'], ['Select a loop', 'Alt+click (Shift+Alt: add it)'],
     ['Select linked (under the mouse / of the selection)', 'L / Ctrl+L'], ['Select more / less', 'Ctrl+Numpad + / Ctrl+Numpad −'],
-    ['Extrude (then along the normal)', 'E'], ['Inset faces (as one region; I again: each face)', 'I'], ['Loop cut and slide (wheel or + −: how many)', 'Ctrl+R'], ['Edge menu (bridge edge loops)', 'Ctrl+E'], ['Delete / dissolve', 'X / Ctrl+X'], ['Merge', 'M'], ['Make a face', 'F'],
+    ['Extrude (then along the normal)', 'E'], ['Inset faces (as one region; I again: each face)', 'I'], ['Loop cut and slide (wheel or + −: how many)', 'Ctrl+R'], ['Edge menu (bridge edge loops)', 'Ctrl+E'], ['Bevel edges / vertices (wheel or + −: segments, V: which)', 'Ctrl+B / Ctrl+Shift+B'], ['Knife (click points, Enter: cut)', 'K'],
+    ['Slide vertices or an edge loop (E: even, F: flip)', 'G G'], ['Proportional editing / its falloff (wheel while moving: size)', 'O / Shift+O'], ['Auto merge vertices', 'Alt+O'], ['Mirror editing', 'The ⇋X ⇋Y ⇋Z buttons'], ['Delete / dissolve', 'X / Ctrl+X'], ['Merge', 'M'], ['Make a face', 'F'],
     ['Normals: menu / recalculate outside', 'Alt+N / Shift+N'], ['Duplicate faces', 'Shift+D'], ['Edit Mode menu', 'Right-click'],
   ];
   function shortcutsDialog() {
@@ -1470,7 +1791,7 @@ window.NoorMesh = (() => {
         return [go(mode === 'edit' ? 'Object Mode' : 'Edit Mode', () => toggleEdit(), 'Tab', { disabled: () => mode !== 'edit' && !active }), '-',
           go('Vertices', () => setSelectMode('vert'), '1', { disabled: off }), go('Edges', () => setSelectMode('edge'), '2', { disabled: off }), go('Faces', () => setSelectMode('face'), '3', { disabled: off }), '-',
           go('Extrude', extrude, 'E', { disabled: off }), go('Inset faces', inset, 'I', { disabled: off }), go('Merge…', () => mergeMenu(innerWidth / 2, innerHeight / 3), 'M', { disabled: off }), go('Make a face', makeFaceSel, 'F', { disabled: off }),
-          go('Loop cut and slide', loopCutStart, 'Ctrl+R', { disabled: off }), go('Bridge edge loops', bridge, '', { disabled: off }), go('Edge menu…', () => edgeMenu(innerWidth / 2, innerHeight / 3), 'Ctrl+E', { disabled: off }),
+          go('Loop cut and slide', loopCutStart, 'Ctrl+R', { disabled: off }), go('Bevel', () => bevelStart(false), 'Ctrl+B', { disabled: off }), go('Bevel vertices', () => bevelStart(true), 'Ctrl+Shift+B', { disabled: off }), go('Knife', knifeStart, 'K', { disabled: off }), go('Bridge edge loops', bridge, '', { disabled: off }), go('Edge menu…', () => edgeMenu(innerWidth / 2, innerHeight / 3), 'Ctrl+E', { disabled: off }),
           go('Duplicate faces', duplicateEdit, 'Shift+D', { disabled: off }), go('Delete…', () => deleteMenu(innerWidth / 2, innerHeight / 3), 'X', { disabled: off }), go('Dissolve', dissolveSel, 'Ctrl+X', { disabled: off }), '-',
           { label: 'Normals', sub: () => [go('Flip', () => normals('flip')), go('Recalculate outside', () => normals('outside'), 'Shift+N'), go('Recalculate inside', () => normals('inside'))], disabled: off },
           go('Shade smooth', () => shade(true)), go('Shade flat', () => shade(false)), '-',
@@ -1486,6 +1807,8 @@ window.NoorMesh = (() => {
         go('Top', () => setView('top'), 'Numpad 7'), go('Bottom', () => setView('top', true), 'Ctrl+Numpad 7'), go('Perspective or orthographic', () => setView('persp'), 'Numpad 5'), '-',
         go('Frame the selection', () => frameObjects(sel().length ? sel() : objects), 'Numpad .'), go('Frame everything', () => frameObjects(objects), 'Home'), '-',
         { label: 'Move gizmo', checked: () => gizmos.move, run: () => setGizmo('move') }, { label: 'Rotate gizmo', checked: () => gizmos.rotate, run: () => setGizmo('rotate') }, { label: 'Scale gizmo', checked: () => gizmos.scale, run: () => setGizmo('scale') }, '-',
+        { label: 'Proportional editing', checked: () => editOpts.prop, keys: 'O', run: togglePropEdit }, { label: 'Auto merge vertices', checked: () => editOpts.autoMerge, keys: 'Alt+O', run: toggleAutoMerge },
+        { label: 'Mirror X', checked: () => editOpts.mirror[0], run: () => toggleMirror(0) }, { label: 'Mirror Y', checked: () => editOpts.mirror[1], run: () => toggleMirror(1) }, { label: 'Mirror Z', checked: () => editOpts.mirror[2], run: () => toggleMirror(2) }, '-',
         { label: 'Snapping', checked: () => snapping.on, keys: 'Shift+Tab', run: () => setSnapping({ on: !snapping.on }) }, { label: 'Snap in steps', checked: () => snapping.mode === 'increment', run: () => setSnapping({ mode: 'increment' }) }, { label: 'Snap to vertices', checked: () => snapping.mode === 'vertex', run: () => setSnapping({ mode: 'vertex' }) }, '-',
         go('Shortcuts…', shortcutsDialog, 'F1')]],
     ];
@@ -1495,8 +1818,11 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt } : null, snapping: { ...snapping }, history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.cross ? op.cross.length : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
+    /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
+    _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },
+    _editMesh: () => { const o = editing(); return o ? { v: o.mesh.v.slice(), faces: o.mesh.f.length, volume: K().volume(o.mesh), check: K().check(o.mesh) } : null; },
     /** For tests: select these faces of the edited object (as clicks would). */
     _editSelect: (faces) => { const o = editing(); if (!o) return; editSel = K().selectionFromFaces(o.mesh, faces, editSel.mode); syncEdit(); renderAll(); },
     /** For tests: where a vertex (or a face's middle) of the edited object shows on the screen. */

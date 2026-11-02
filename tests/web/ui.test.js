@@ -9935,6 +9935,122 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors while modelling', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80f. NoorMesh modelling (preview.147): Shift+X/Y/Z scaling on two axes, bevel (Ctrl+B; segments; vertices),
+    // knife (K), proportional editing (O; the wheel / Page Up for its size), mirror editing, slide (G twice), auto merge.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const EM = () => page.evaluate(() => NoorMesh._editMesh());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx + 200, box.cy + 100);
+      // Shift+Z while scaling: X and Y only.
+      await page.keyboard.press('s'); await page.keyboard.press('Shift+Z');
+      check('S then Shift+Z: scaling held to the two other axes (said so)', (await MS()).op.plane === 2 && /not Z/.test(await page.textContent('#nm-hud')));
+      await page.keyboard.type('2'); await page.keyboard.press('Enter');
+      let st = await MS();
+      check('…typed 2: scaled 2 along X and Y, Z left alone', st.objects[0].s.join() === '2,2,1', st.objects[0].s);
+      await page.keyboard.press('Control+z');
+      // Edit Mode: the cube's vertices by place (cube(2)).
+      await page.keyboard.press('Tab'); await page.keyboard.press('2');
+      const at = (p) => page.evaluate((q) => { const m = NoorMesh._editMesh(); for (let i = 0; i < m.v.length / 3; i++) if (Math.abs(m.v[i * 3] - q[0]) + Math.abs(m.v[i * 3 + 1] - q[1]) + Math.abs(m.v[i * 3 + 2] - q[2]) < 1e-6) return i; return -1; }, p);
+      const a = await at([-1, -1, 1]), b = await at([1, -1, 1]);
+      const edge = a < b ? `${a}_${b}` : `${b}_${a}`;
+      await page.evaluate((e) => NoorMesh._editSel({ edges: [e] }), edge);
+      await page.keyboard.press('Control+b');
+      check('Ctrl+B with an edge: a bevel under way', (await MS()).op.kind === 'bevel' && (await MS()).op.segments === 1);
+      await page.keyboard.type('0.2');
+      check('…typed 0.2: the edge a strip (7 faces)', (await EM()).faces === 7, (await EM()).faces);
+      await page.mouse.wheel(0, -100); await page.mouse.wheel(0, -100);
+      await waitFn(page, () => NoorMesh._state().op.segments === 3);
+      check('…the wheel: 3 segments (3 strips, rounded)', (await EM()).faces === 9, (await EM()).faces);
+      await page.keyboard.press('Enter');
+      let em = await EM();
+      check('…done: closed and sound, the strips selected, one undo step', !(await MS()).op && em.check.ok && em.check.closed && (await MS()).editFlush.faces === 3 && (await MS()).history === 1, [em.check, (await MS()).editFlush]);
+      await page.keyboard.press('Control+z');
+      await page.keyboard.press('1');
+      await page.evaluate((v) => NoorMesh._editSel({ verts: [v] }), a);
+      await page.keyboard.press('Control+Shift+B'); await page.keyboard.type('0.3'); await page.keyboard.press('Enter');
+      em = await EM();
+      check('Ctrl+Shift+B: the corner cut off (7 faces, 10 vertices), still closed', em.faces === 7 && em.v.length / 3 === 10 && em.check.closed && em.check.ok, [em.faces, em.v.length / 3]);
+      await page.keyboard.press('Control+z');
+      // Knife across the top: from beyond one edge to beyond the opposite one.
+      const p1 = await page.evaluate(() => NoorMesh._project([0, -1.4, 1])), p2 = await page.evaluate(() => NoorMesh._project([0, 1.3, 1]));
+      const q1 = await page.evaluate(() => NoorMesh._project([0, -0.9, 1]));
+      await page.mouse.move(q1.x, q1.y);
+      await page.keyboard.press('k');
+      check('K: the knife', (await MS()).op.kind === 'knife');
+      await page.mouse.click(p1.x, p1.y);
+      await page.mouse.move(p2.x, p2.y, { steps: 3 });
+      await page.mouse.click(p2.x, p2.y);
+      st = await MS();
+      check('…two points across the top: its two edges crossed (shown before cutting)', st.op.points === 2 && st.op.crossings >= 2, st.op);
+      await page.keyboard.press('Enter');
+      em = await EM();
+      check('…Enter: the top split in two (7 faces, 10 vertices), closed and sound', !(await MS()).op && em.faces === 7 && em.v.length / 3 === 10 && em.check.ok && em.check.closed, [em.faces, em.v.length / 3, em.check]);
+      await page.keyboard.press('Control+z');
+      // Proportional editing: one vertex up, its neighbours follow part of the way.
+      await page.keyboard.press('o');
+      check('O: proportional editing on (the button pressed, remembered)', (await MS()).editOpts.prop && (await page.getAttribute('#nm-prop', 'aria-pressed')) === 'true');
+      await page.evaluate((v) => NoorMesh._editSel({ verts: [v] }), a);
+      const before = (await EM()).v;
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('g'); await page.keyboard.press('z');
+      for (let i = 0; i < 6; i++) await page.keyboard.press('PageUp');
+      st = await MS();
+      check('…Page Up: the radius grows (2.3 m: the three neighbours inside it)', st.editOpts.radius > 2 && st.op.prop === 3, [st.editOpts.radius, st.op.prop]);
+      await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      const after = (await EM()).v;
+      const dz = [...Array(8).keys()].map((i) => after[i * 3 + 2] - before[i * 3 + 2]);
+      check('…the vertex up 1 m, its 3 neighbours part of the way, the far ones not at all', Math.abs(dz[a] - 1) < 1e-9 && dz.filter((d) => d > 0.001 && d < 0.999).length === 3 && dz.filter((d) => Math.abs(d) < 1e-9).length === 4, dz);
+      await page.keyboard.press('Control+z');
+      await page.keyboard.press('o');
+      // Mirror X: the twin moves too.
+      await page.click('#meshbench [data-mirror="0"]');
+      check('the ⇋X button: mirror editing across X', (await MS()).editOpts.mirror[0] === true);
+      await page.evaluate((v) => NoorMesh._editSel({ verts: [v] }), a);
+      await page.keyboard.press('g'); await page.keyboard.press('y'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      em = await EM();
+      check('…moving a vertex 0.5 along Y moves its twin across X the same way', Math.abs(em.v[a * 3 + 1] - -0.5) < 1e-9 && Math.abs(em.v[b * 3 + 1] - -0.5) < 1e-9, [em.v[a * 3 + 1], em.v[b * 3 + 1]]);
+      await page.keyboard.press('Control+z');
+      await page.click('#meshbench [data-mirror="0"]');
+      // Slide: a loop cut round the cube, then G G along it.
+      const c1 = await page.evaluate((i) => NoorMesh._screenOf('vert', i), a), c2 = await page.evaluate((i) => NoorMesh._screenOf('vert', i), b);
+      await page.keyboard.press('2');
+      await page.mouse.move((c1.x + c2.x) / 2, (c1.y + c2.y) / 2);
+      await page.keyboard.press('Control+r'); await page.mouse.move((c1.x + c2.x) / 2 + 1, (c1.y + c2.y) / 2); await page.keyboard.press('Enter');
+      check('a loop cut to slide (its loop selected)', (await MS()).editFlush.edges === 4 && (await EM()).faces === 10);
+      const vol = (await EM()).volume;
+      await page.keyboard.press('g'); await page.keyboard.press('g');
+      st = await MS();
+      check('G twice: an edge slide', st.op.kind === 'slide' && st.op.edgeSlide);
+      await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      em = await EM();
+      check('…typed 0.5: the loop slid over the surface (the shape the same, the loop moved)', Math.abs(em.volume - vol) < 1e-9 && em.check.ok && (await MS()).history >= 1 && em.v.some((x, i) => i >= 24 && Math.abs(Math.abs(x) - 0.5) < 1e-9), em.v.slice(24));
+      await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+      await page.keyboard.press('1');
+      // Auto merge: a vertex moved onto its neighbour is merged.
+      await page.keyboard.press('Alt+o');
+      check('Alt+O: auto merge on', (await MS()).editOpts.autoMerge && (await page.getAttribute('#nm-automerge', 'aria-pressed')) === 'true');
+      await page.evaluate((v) => NoorMesh._editSel({ verts: [v] }), a);
+      await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('2'); await page.keyboard.press('Enter');
+      em = await EM();
+      check('…a corner moved onto the next one: merged (7 vertices), the mesh still sound', em.v.length / 3 === 7 && em.check.ok, [em.v.length / 3, em.check]);
+      await page.keyboard.press('Control+z');
+      check('…undone in one step (8 vertices)', (await EM()).v.length / 3 === 8);
+      await page.keyboard.press('Alt+o');
+      if (shots) {
+        await page.keyboard.press('a');
+        await page.keyboard.press('Control+b'); await page.keyboard.type('0.25');
+        await page.mouse.wheel(0, -100); await page.mouse.wheel(0, -100);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80f-noormesh-bevel.png` });
+      }
+      check('no page errors with bevel, knife, slide and the rest', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

@@ -198,6 +198,18 @@ the vertex nearest the mouse; Ctrl does the other). The Edit Mode overlay now hi
 lift is a share of the distance, not a fixed depth). Next (preview.147): bevel (Ctrl+B), knife (K), proportional
 editing (O), mirror editing.
 
+**Done in preview.147: A3, second half** — bevel (Ctrl+B: edges between two faces become strips, the width from the
+mouse or typed, the wheel or + − for segments rounded towards the old edge, V for vertices; Ctrl+Shift+B: vertices cut
+off; corners where beveled edges meet get a patch, two beveled edges meeting share one rounded edge; the width held
+back so nothing overlaps); knife (K: click points, onto a vertex when near, the crossings shown, Enter or Space cuts the
+faces it crosses, Backspace takes the last point back); proportional editing (O, Shift+O cycles the falloff: smooth,
+sphere, root, linear, sharp, constant; the wheel or Page Up / Down sets its radius while moving, rotating or scaling,
+shown as a circle); mirror editing (the ⇋X ⇋Y ⇋Z buttons: the twin across each chosen axis moves too); slide (G twice:
+an edge loop between its neighbours on each side, E even, F flip; a vertex along the edge most the way the mouse goes);
+Shift+X/Y/Z while scaling (two axes, the third left alone); auto merge (Alt+O or ⊕: vertices moved onto others are
+merged into them, in the same undo step). Not yet: proportional "connected only", the bevel profile shape, knife
+through face interiors (points inside a face), Blender's grid-filled bevel corners (an n-gon patch here).
+
 **Next, agreed after preview.146:**
 
 - **preview.147:** bevel (Ctrl+B: width, segments, profile; Ctrl+Shift+B for vertices), knife (K), proportional editing

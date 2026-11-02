@@ -798,6 +798,271 @@
     }
     return { mesh: out, faces };
   }
+  /**
+   * Auto merge (as Blender's): each of the moved vertices that lies within the distance of another vertex is merged
+   * into it. Returns { mesh, map: old index → new index, merged: how many }.
+   */
+  function autoMerge(mesh, moved, distance = 0.001) {
+    const n = vertexCount(mesh), rep = new Int32Array(n).map((_, i) => i), movedSet = new Set(moved);
+    const cell = Math.max(distance, 1e-9), grid = new Map();
+    const key = (c) => c.join(',');
+    for (let i = 0; i < n; i++) { const c = vert(mesh, i).map((x) => Math.floor(x / cell)); const k = key(c); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(i); }
+    let merged = 0;
+    for (const i of movedSet) {
+      if (rep[i] !== i) continue;
+      const p = vert(mesh, i), [cx, cy, cz] = p.map((x) => Math.floor(x / cell));
+      let best = -1, bestD = distance, bestMoved = true;
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        for (const j of grid.get(`${cx + dx},${cy + dy},${cz + dz}`) || []) {
+          if (j === i || rep[j] !== j) continue;
+          const d = len(sub(vert(mesh, j), p)), jm = movedSet.has(j);
+          // A vertex that stayed put wins over one that moved with it.
+          if (d <= distance && (best < 0 || (bestMoved && !jm) || (bestMoved === jm && d < bestD))) { best = j; bestD = d; bestMoved = jm; }
+        }
+      }
+      if (best >= 0) { rep[i] = best; merged++; }
+    }
+    if (!merged) return { mesh, map: Int32Array.from({ length: n }, (_, i) => i), merged: 0 };
+    const out = clone(mesh);
+    out.f = out.f.map((f) => ({ ...f, v: f.v.map((v) => rep[v]) }));
+    cleanFaces(out);
+    const keep = [...new Set([...rep])];
+    const { mesh: m2, map } = compact(out, keep);
+    return { mesh: m2, map: Int32Array.from(rep, (r) => map[r]), merged };
+  }
+
+  /**
+   * Where each selected vertex can slide (as Blender's edge slide, G twice): for runs of selected edges, the neighbour
+   * across the faces on each side ({ a, b }: side a and side b, the same for the whole run). Vertices without a selected
+   * edge get every neighbour ({ all }), for a vertex slide. Returns Map vertex → { a?, b?, all? }.
+   */
+  function slideSides(mesh, sel) {
+    const f = flush(mesh, sel), out = new Map(), ef = edgeFaces(mesh);
+    const chains = edgeChains([...f.edges]);
+    for (const c of chains) {
+      const vs = c.verts, n = vs.length, count = c.closed ? n : n - 1;
+      for (let i = 0; i < count; i++) {
+        const x = vs[i], y = vs[(i + 1) % n];
+        for (const fi of ef.get(edgeKey(x, y)) || []) {
+          if (f.faces.has(fi)) continue;
+          const fv = mesh.f[fi].v, m = fv.length, kx = fv.indexOf(x), forward = fv[(kx + 1) % m] === y;
+          const ky = fv.indexOf(y);
+          // Faces running x→y lie on side a; y→x on side b. The neighbour is the next corner away from the edge.
+          const nx = forward ? fv[(kx + m - 1) % m] : fv[(kx + 1) % m], ny = forward ? fv[(ky + 1) % m] : fv[(ky + m - 1) % m];
+          const side = forward ? 'a' : 'b';
+          for (const [v, nb] of [[x, nx], [y, ny]]) {
+            if (f.verts.has(nb)) continue;
+            if (!out.has(v)) out.set(v, {});
+            if (out.get(v)[side] === undefined) out.get(v)[side] = nb;
+          }
+        }
+      }
+    }
+    const nbs = adjacency(mesh);
+    for (const v of f.verts) if (!out.has(v)) out.set(v, { all: [...(nbs.get(v) || [])].filter((x) => !f.verts.has(x)) });
+    return out;
+  }
+
+  /** A face split in two between two of its corners (not neighbours). Returns the new face's index or −1. */
+  function splitFace(mesh, fi, x, y) {
+    const f = mesh.f[fi], n = f.v.length, i = f.v.indexOf(x), j = f.v.indexOf(y);
+    if (i < 0 || j < 0 || i === j || (i + 1) % n === j || (j + 1) % n === i) return -1;
+    const run = (a, b) => { const v = [], uv = []; for (let k = a; ; k = (k + 1) % n) { v.push(f.v[k]); if (f.uv) uv.push(f.uv[k * 2], f.uv[k * 2 + 1]); if (k === b) break; } return { v, uv: f.uv ? uv : null }; };
+    const A = run(i, j), B = run(j, i);
+    mesh.f[fi] = { ...f, v: A.v, uv: A.uv };
+    mesh.f.push({ ...f, v: B.v, uv: B.uv });
+    return mesh.f.length - 1;
+  }
+  /** A new vertex on the edge x–y (t of the way from x), put into every face along that edge. Returns its index. */
+  function splitEdge(mesh, x, y, t) {
+    const p = add(vert(mesh, x), scale(sub(vert(mesh, y), vert(mesh, x)), t)), id = vertexCount(mesh);
+    mesh.v.push(...p);
+    mesh.f.forEach((f, fi) => {
+      const n = f.v.length;
+      for (let k = 0; k < n; k++) {
+        const a = f.v[k], b = f.v[(k + 1) % n];
+        if (!((a === x && b === y) || (a === y && b === x))) continue;
+        const tt = a === x ? t : 1 - t, v = f.v.slice(), uv = f.uv ? f.uv.slice() : null;
+        v.splice(k + 1, 0, id);
+        if (uv) { const k2 = (k + 1) % n; uv.splice((k + 1) * 2, 0, f.uv[k * 2] + (f.uv[k2 * 2] - f.uv[k * 2]) * tt, f.uv[k * 2 + 1] + (f.uv[k2 * 2 + 1] - f.uv[k * 2 + 1]) * tt); }
+        mesh.f[fi] = { ...f, v, uv };
+        break;
+      }
+    });
+    return id;
+  }
+  /**
+   * A knife cut (as Blender's K): crossings along the cut, in order, each { a, b, t } (an edge and how far along it from
+   * a) or { v } (through a vertex). Each edge crossed gets a vertex; two crossings in a row that share a face split it.
+   * Returns { mesh, verts: the vertices on the cut, edges: the new edges }.
+   */
+  function knifeCut(mesh, crossings) {
+    const out = clone(mesh), ids = [];
+    const made = new Map();
+    for (const c of crossings) {
+      if (c.v !== undefined) { ids.push(c.v); continue; }
+      const k = `${edgeKey(c.a, c.b)}:${(c.a < c.b ? c.t : 1 - c.t).toFixed(6)}`;
+      if (!made.has(k)) {
+        // The edge may have been split already by an earlier crossing: find the piece the point now lies on.
+        let [a, b, t] = [c.a, c.b, c.t];
+        const P = add(vert(mesh, c.a), scale(sub(vert(mesh, c.b), vert(mesh, c.a)), c.t));
+        const pieces = [...made.entries()].filter(([kk]) => kk.startsWith(edgeKey(c.a, c.b) + ':')).map(([, id]) => id);
+        if (pieces.length) {
+          const chain = [c.a, ...pieces.sort((p1, p2) => len(sub(vert(out, p1), vert(mesh, c.a))) - len(sub(vert(out, p2), vert(mesh, c.a)))), c.b];
+          for (let i = 0; i < chain.length - 1; i++) {
+            const pa = vert(out, chain[i]), pb = vert(out, chain[i + 1]), L = len(sub(pb, pa)) || 1, tt = dot(sub(P, pa), sub(pb, pa)) / (L * L);
+            if (tt >= 0 && tt <= 1) { a = chain[i]; b = chain[i + 1]; t = tt; break; }
+          }
+        }
+        made.set(k, splitEdge(out, a, b, Math.max(1e-4, Math.min(1 - 1e-4, t))));
+      }
+      ids.push(made.get(k));
+    }
+    const edgesMade = [];
+    for (let i = 0; i + 1 < ids.length; i++) {
+      const x = ids[i], y = ids[i + 1];
+      if (x === y) continue;
+      const fi = out.f.findIndex((f) => f.v.includes(x) && f.v.includes(y));
+      if (fi < 0) continue;
+      if (splitFace(out, fi, x, y) >= 0) edgesMade.push(edgeKey(x, y));
+    }
+    return { mesh: out, verts: [...new Set(ids)], edges: edgesMade };
+  }
+
+  /**
+   * Bevel (as Blender's Ctrl+B): selected edges between two faces become strips `width` wide (measured across the
+   * faces) with `segments` rows rounded towards the old edge; corners where beveled edges meet get a patch. With
+   * `vertices`, the selected vertices are cut off instead (Ctrl+Shift+B). Returns { mesh, faces: the new faces }.
+   */
+  function bevel(mesh, sel, width, segments = 1, vertices = false) {
+    segments = Math.max(1, Math.min(32, Math.round(segments)));
+    const f0 = flush(mesh, sel), ef = edgeFaces(mesh);
+    const bev = new Set(vertices ? [] : [...f0.edges].filter((k) => (ef.get(k) || []).length === 2));
+    const bverts = new Set(vertices ? [...f0.verts] : [...bev].flatMap((k) => k.split('_').map(Number)));
+    if (!bverts.size || width <= 0) return { mesh: clone(mesh), faces: [] };
+    // No wider than a little under half the shortest edge at the beveled vertices.
+    let shortest = Infinity;
+    for (const [k] of ef) { const [a, b] = k.split('_').map(Number); if (bverts.has(a) || bverts.has(b)) shortest = Math.min(shortest, len(sub(vert(mesh, a), vert(mesh, b)))); }
+    const w = Math.min(width, shortest * (vertices ? 0.49 : 0.45));
+    const out = { v: mesh.v.slice(), f: [], e: {} }, P = (i) => vert(mesh, i);
+    const ids = new Map();
+    const point = (key, p) => { if (!ids.has(key)) { ids.set(key, vertexCount(out)); out.v.push(...p); } return ids.get(key); };
+    const isBev = (a, b) => vertices || bev.has(edgeKey(a, b));
+    // The point where an edge v–x that is not beveled is cut at v (shared by both faces beside it).
+    const slide = (v, x, dist) => point(`s${v}_${x}`, add(P(v), scale(norm(sub(P(x), P(v))), dist)));
+    const slideAt = new Map(); // `${v}_${x}` → distance, found from a face with a beveled edge at v
+    // Corners of each face: the points that replace each beveled corner, in the face's order.
+    const corners = mesh.f.map((face, fi) => {
+      const n = face.v.length, N = faceNormal(mesh, face).n;
+      return face.v.map((v, k) => {
+        if (!bverts.has(v)) return null;
+        const p = face.v[(k + n - 1) % n], q = face.v[(k + 1) % n];
+        if (vertices) return { both: false, pts: [['s', v, p, w], ['s', v, q, w]] };
+        const eIn = norm(sub(P(v), P(p))), eOut = norm(sub(P(q), P(v)));
+        const inIn = norm(cross(N, eIn)), inOut = norm(cross(N, eOut));
+        const bi = isBev(p, v), bo = isBev(v, q);
+        if (bi && bo) { const bis = norm(add(inIn, inOut)); return { pts: [['i', fi, v, add(P(v), scale(bis, w / Math.max(0.2, dot(bis, inIn))))]] }; }
+        if (bi) return { pts: [['s', v, q, w / Math.max(0.2, Math.abs(dot(eOut, inIn)))]] };
+        if (bo) return { pts: [['s', v, p, w / Math.max(0.2, Math.abs(dot(scale(eIn, -1), inOut)))]] };
+        return { pts: [['s?', v, p], ['s?', v, q]] };
+      });
+    });
+    // First the slide distances the faces with a beveled edge decide.
+    for (const c of corners) for (const corner of c) if (corner) for (const pt of corner.pts) if (pt[0] === 's' && !slideAt.has(`${pt[1]}_${pt[2]}`)) slideAt.set(`${pt[1]}_${pt[2]}`, pt[3]);
+    const resolve = (pt) => {
+      if (pt[0] === 'i') return point(`i${pt[1]}_${pt[2]}`, pt[3]);
+      const [, v, x] = pt, d = slideAt.get(`${v}_${x}`);
+      if (d === undefined) return v; // an edge no beveled face touches: v itself stays
+      return slide(v, x, d);
+    };
+    const faceCorners = corners.map((c) => c.map((corner) => (corner ? [...new Set(corner.pts.map(resolve))] : null)));
+    // The faces, their beveled corners replaced.
+    const newFaceOf = mesh.f.map((face, fi) => {
+      const v = [], uv = [];
+      face.v.forEach((x, k) => {
+        const c = faceCorners[fi][k];
+        const list = c || [x];
+        for (const id of list) { v.push(id); if (face.uv) uv.push(face.uv[k * 2], face.uv[k * 2 + 1]); }
+      });
+      return { ...face, v, uv: face.uv ? uv : null };
+    });
+    const firstAt = (fi, v) => { const k = mesh.f[fi].v.indexOf(v); return faceCorners[fi][k][0]; };
+    const lastAt = (fi, v) => { const k = mesh.f[fi].v.indexOf(v), c = faceCorners[fi][k]; return c[c.length - 1]; };
+    const profile = new Map(); // `${edgeKey}:${end}` → ids from the F side to the G side (both ends included)
+    const newFaces = [];
+    const arc = (A, B, C, k) => { const t = k / segments, u = 1 - t; return add(add(scale(A, u * u), scale(C, 2 * t * u)), scale(B, t * t)); };
+    if (!vertices) for (const k of bev) {
+      const [x, y] = k.split('_').map(Number), [f1, f2] = ef.get(k);
+      const fv = mesh.f[f1].v, kx = fv.indexOf(x), fwd = fv[(kx + 1) % fv.length] === y;
+      const F = fwd ? f1 : f2, G = fwd ? f2 : f1, a = x, b = y; // F runs a→b, G runs b→a
+      const AF = lastAt(F, a), BF = firstAt(F, b), BG = lastAt(G, b), AG = firstAt(G, a);
+      const rowA = [AF], rowB = [BF];
+      // Rounded points between two corner points, shared by any other strip that ends between the same two (so two
+      // beveled edges meeting at a corner share one rounded edge there, as in Blender).
+      const mid = (X, Y, c, s2) => { const lo = Math.min(X, Y), hi = Math.max(X, Y), j = X === lo ? s2 : segments - s2; return point(`p${lo}_${hi}_${c}:${j}`, arc(vert(out, lo), vert(out, hi), P(c), j)); };
+      for (let s = 1; s < segments; s++) { rowA.push(mid(AF, AG, a, s)); rowB.push(mid(BF, BG, b, s)); }
+      rowA.push(AG); rowB.push(BG);
+      profile.set(`${k}:${a}`, { F, ids: rowA }); profile.set(`${k}:${b}`, { F, ids: rowB });
+      for (let s = 0; s < segments; s++) {
+        newFaces.push({ v: [rowB[s], rowA[s], rowA[s + 1], rowB[s + 1]], uv: [0, s / segments, 1, s / segments, 1, (s + 1) / segments, 0, (s + 1) / segments].map((x2, i) => (i % 2 ? x2 : 1 - x2)), m: mesh.f[F].m || 0, s: segments > 1 || !!mesh.f[F].s });
+      }
+    }
+    // A patch at each beveled vertex, from the corners of the faces round it in turn.
+    for (const v of bverts) {
+      const fan = mesh.f.map((_, i) => i).filter((i) => mesh.f[i].v.includes(v));
+      if (fan.length < 2) continue;
+      const order = [fan[0]];
+      let ok = true;
+      for (let guard = 0; guard < fan.length; guard++) {
+        const fi = order[order.length - 1], fv = mesh.f[fi].v, nb = fv[(fv.indexOf(v) + 1) % fv.length];
+        const next = (ef.get(edgeKey(v, nb)) || []).find((x) => x !== fi);
+        if (next === undefined) { ok = false; break; }
+        if (next === order[0]) break;
+        order.push(next);
+      }
+      if (!ok || order.length !== fan.length) continue; // at a border: no patch
+      const ring = [], from = [];
+      order.forEach((fi, i) => {
+        const fv = mesh.f[fi].v, nb = fv[(fv.indexOf(v) + 1) % fv.length];
+        const c = faceCorners[fi][fv.indexOf(v)];
+        c.forEach((id) => { ring.push(id); from.push(fi); });
+        const pr = profile.get(`${edgeKey(v, nb)}:${v}`);
+        if (pr && segments > 1) { const mids = pr.ids.slice(1, -1); (pr.F === fi ? mids : mids.slice().reverse()).forEach((id) => { ring.push(id); from.push(-1); }); }
+        void i;
+      });
+      const pts = [];
+      ring.forEach((id) => { if (pts[pts.length - 1] !== id) pts.push(id); });
+      while (pts.length > 1 && pts[0] === pts[pts.length - 1]) pts.pop();
+      if (pts.length < 3) continue;
+      // One beveled edge at a vertex of three faces: the third face takes the rounded points instead of a patch.
+      const touching = mesh.f.map((_, i) => i).filter((i) => mesh.f[i].v.includes(v) && !faceCorners[i][mesh.f[i].v.indexOf(v)].some((id) => id === v));
+      const others = order.filter((fi) => { const fv = mesh.f[fi].v, k = fv.indexOf(v); return !isBev(fv[(k + fv.length - 1) % fv.length], v) && !isBev(v, fv[(k + 1) % fv.length]); });
+      if (!vertices && others.length === 1 && touching.length === order.length && order.length === 3) {
+        const fi = others[0], nf = newFaceOf[fi], c = faceCorners[fi][mesh.f[fi].v.indexOf(v)];
+        if (c.length === 2) {
+          const start = nf.v.indexOf(c[0]);
+          const mids = pts.filter((id) => !c.includes(id));
+          // The rounded points run from c[1] round to c[0] in the ring: into the face from c[0] to c[1], reversed.
+          const seq = mids.slice().reverse();
+          nf.v.splice(start + 1, 0, ...seq);
+          if (nf.uv) nf.uv.splice((start + 1) * 2, 0, ...seq.flatMap(() => [nf.uv[start * 2], nf.uv[start * 2 + 1]]));
+          continue;
+        }
+      }
+      // Turned to agree with the faces round it.
+      let nrm = [0, 0, 0];
+      for (let i = 0; i < pts.length; i++) nrm = add(nrm, cross(vert(out, pts[i]), vert(out, pts[(i + 1) % pts.length])));
+      const around = order.reduce((acc, fi) => add(acc, faceNormal(mesh, mesh.f[fi]).n), [0, 0, 0]);
+      if (dot(nrm, around) < 0) pts.reverse();
+      newFaces.push({ v: pts, uv: null, m: mesh.f[order[0]].m || 0, s: segments > 1 });
+    }
+    out.f = [...newFaceOf, ...newFaces];
+    cleanFaces(out);
+    const first = newFaceOf.length;
+    const { mesh: m2 } = compact(out);
+    return { mesh: m2, faces: m2.f.map((_, i) => i).filter((i) => i >= first) };
+  }
+
   const countIn = (mesh, faceSet, k) => [...faceSet].filter((i) => mesh.f[i] && faceEdgeKeys(mesh.f[i]).includes(k)).length;
 
   /**
@@ -1090,7 +1355,7 @@
     identity, multiply, rotation, compose, decompose, rotationAbout, transformPoint, normalMatrix, applyMatrix, flipFace,
     cube, plane, grid, uvSphere, icoSphere, cylinder, cone, torus, PRIMITIVES, rayHit,
     emptySelection, cloneSelection, flush, convertSelection, selectionFromVerts, selectionFromFaces, faceEdgeKeys, edgeFaces, cleanFaces, compact, remapSet,
-    transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
+    transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, autoMerge, slideSides, splitFace, splitEdge, knifeCut, bevel, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
     flipFaces, recalcOutside, setSmooth, duplicateFaces, linkedVerts, growVerts, shrinkVerts, edgeLoop, faceLoop,
     vec: { sub, add, scale, dot, cross, len, norm },
   };
