@@ -21,6 +21,8 @@ public sealed class ForgeSet
     public int TriangleCount => Positions.Count / 3;
     /// <summary>Whether the UVs were made here (the model had none usable).</summary>
     public bool Unwrapped { get; set; }
+    /// <summary>The material's own colour picture (PNG or JPEG bytes, as the GLB has it), for painting over; null when none.</summary>
+    public byte[]? ColorTexture { get; set; }
 }
 
 public sealed class ForgeModel
@@ -54,12 +56,32 @@ public sealed class ForgeModel
         var materials = new List<string>();
         if (j.TryGetProperty("materials", out var mats))
             foreach (var m in mats.EnumerateArray()) materials.Add(m.TryGetProperty("name", out var n) && n.GetString() is { Length: > 0 } s ? s : $"Material {materials.Count + 1}");
+        // A material's base colour picture, when it is inside the GLB (a buffer view) and uses the first UVs.
+        byte[]? ColorTextureOf(int material)
+        {
+            try
+            {
+                if (material < 0 || !j.TryGetProperty("materials", out var ms) || material >= ms.GetArrayLength()) return null;
+                if (!ms[material].TryGetProperty("pbrMetallicRoughness", out var pbr) || !pbr.TryGetProperty("baseColorTexture", out var bct)) return null;
+                if (bct.TryGetProperty("texCoord", out var tc) && tc.GetInt32() != 0) return null;
+                var tex = j.GetProperty("textures")[bct.GetProperty("index").GetInt32()];
+                if (!tex.TryGetProperty("source", out var src)) return null;
+                var img = j.GetProperty("images")[src.GetInt32()];
+                if (!img.TryGetProperty("bufferView", out var bvi)) return null; // a picture beside the file: not read
+                var bv = j.GetProperty("bufferViews")[bvi.GetInt32()];
+                var off = binAt + Opt(bv, "byteOffset");
+                var len = bv.GetProperty("byteLength").GetInt32();
+                if (len <= 0 || off < 0 || off + len > data.Length || len > 256 * 1024 * 1024) return null;
+                return data.AsSpan(off, len).ToArray();
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or IndexOutOfRangeException or FormatException) { return null; }
+        }
         var sets = new Dictionary<int, ForgeSet>();
         ForgeSet SetFor(int material)
         {
             if (!sets.TryGetValue(material, out var set))
             {
-                set = new ForgeSet { Name = material >= 0 && material < materials.Count ? materials[material] : "Material" };
+                set = new ForgeSet { Name = material >= 0 && material < materials.Count ? materials[material] : "Material", ColorTexture = ColorTextureOf(material) };
                 sets[material] = set; model.Sets.Add(set);
             }
             return set;

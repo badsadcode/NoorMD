@@ -5,6 +5,9 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForge paintings (preview.137): a layer of pixels painted straight onto the model in any colour (as Blender's
+  texture painting), blank or over the model's texture or a picture; the brush's colour, recent colours, a colour
+  picker and a colour-only view; paint layers keep each stroke's colour. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).
 - Voice Forge (preview.136): "How clear its own words are" for a voice from a recording: from as recorded, through
   mumbled and barely understandable, to no word left, with the voice, timing and melody kept.
 - Voice Forge, stage 2 (preview.135): voices from recordings (picked, or recorded in NoorSound): its own words with

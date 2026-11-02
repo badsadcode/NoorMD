@@ -675,6 +675,9 @@ function mockHostScript(initial) {
       }
       case 'forge.highmodel.pick': FORGE.highPicks = (FORGE.highPicks || 0) + 1; return { path: 'C:\\Models\\Crate_high.obj', name: 'Crate_high', triangles: 250000 };
       case 'forge.texels': FORGE.texels = (FORGE.texels || 0) + 1; return { size: 64, sets: ['/_forge/texels/0.bin'] };
+      // Paintings (pixels): each paint makes a new version; the strokes it got are kept to check.
+      case 'forge.image.create': FORGE.imageCreates = (FORGE.imageCreates || []).concat([{ from: p.from, set: p.set }]); if (p.from === 'model' && FORGE.noTexture) throw new Error('This model has no colour picture of its own to paint over.'); return { image: 'img' + (FORGE.imageCreates.length), size: Math.min(2048, Math.max(256, p.recipe.size)) };
+      case 'forge.image.paint': { FORGE.imagePaints = (FORGE.imagePaints || []).concat([{ layer: p.layer, image: p.recipe.layers[p.layer].image, strokes: JSON.parse(JSON.stringify(p.strokes)) }]); return { image: p.recipe.layers[p.layer].image + '.' + FORGE.imagePaints.length }; }
       case 'forge.fromAsset': {
         FORGE.fromAsset = p.key; FORGE.fromLevel = p.level;
         const file = p.level ? `${p.name}_LOD${p.level}` : p.name;

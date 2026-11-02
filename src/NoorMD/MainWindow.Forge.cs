@@ -36,6 +36,44 @@ public partial class MainWindow
 
     private (string Path, DateTime Stamp, ForgeModel Model)? _forgeHigh;
 
+    /// <summary>Image paint layers' pictures, by version (painting makes a new version; undo goes back to an older one).</summary>
+    private readonly ForgeImageStore _forgeImages = new();
+    private (int Size, byte[][] Pixels)? ForgeImage(string id) => _forgeImages.Get(id);
+
+    /// <summary>A bake for painting pixels: where each pixel of a picture this size is on the model (no AO: quick).</summary>
+    private ForgeBake ForgePaintBake(ForgeModel model, int set, int size)
+    {
+        var key = $"paint|{set}|{size}";
+        lock (_forgeBakes)
+            if (_forgeBakes.TryGetValue(key, out var hit)) return hit;
+        var bake = ForgeBake.Bake(model, set, size, new ForgeBake.Settings(AoRays: 0));
+        lock (_forgeBakes)
+        {
+            if (_forgeBakes.Count >= 16) _forgeBakes.Remove(_forgeBakes.Keys.First());
+            _forgeBakes[key] = bake;
+        }
+        return bake;
+    }
+
+    /// <summary>A picture's pixels (RGBA) from its file's bytes (PNG, JPEG…), or null when it can't be read.</summary>
+    private static (int W, int H, byte[] Rgba)? ForgeDecode(byte[] bytes)
+    {
+        try
+        {
+            var frame = System.Windows.Media.Imaging.BitmapDecoder.Create(new MemoryStream(bytes), System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
+            var conv = new System.Windows.Media.Imaging.FormatConvertedBitmap(frame, System.Windows.Media.PixelFormats.Bgra32, null, 0);
+            int w = conv.PixelWidth, h = conv.PixelHeight;
+            if (w < 1 || h < 1 || (long)w * h > 16384L * 16384) return null;
+            var px = new byte[w * h * 4];
+            conv.CopyPixels(px, w * 4, 0);
+            for (var i = 0; i < w * h; i++) (px[i * 4], px[i * 4 + 2]) = (px[i * 4 + 2], px[i * 4]); // BGRA → RGBA
+            return (w, h, px);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or FileFormatException or ArgumentException or InvalidOperationException or IOException) { return null; }
+    }
+
+    private static readonly JsonSerializerOptions ForgeStrokeJson = new() { PropertyNameCaseInsensitive = true };
+
     /// <summary>The high-poly model (only one you picked, or one an opened recipe names), read once while it is unchanged.</summary>
     private ForgeModel? ForgeLoadHigh(string? path)
     {
@@ -275,9 +313,9 @@ public partial class MainWindow
                     {
                         var bake = ForgeBakeFor(model, s, size, recipe);
                         highHits += bake.HighHits; covered += bake.Covered.Count(c => c != 0);
-                        var tex = ForgeCompositor.Compose(model, s, bake, recipe, ForgeMaterial);
+                        var tex = ForgeCompositor.Compose(model, s, bake, recipe, ForgeMaterial, ForgeImage);
                         foreach (var m in new[] { "basecolor", "normal", "orm", "roughness", "metallic", "height" }) files[$"{s}-{m}.png"] = tex.Png(m);
-                        if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe, maskLayer, s));
+                        if (maskLayer >= 0 && maskLayer < recipe.Layers.Count) files[$"{s}-mask.png"] = PngWriter.Gray(size, size, ForgeCompositor.Mask(bake, recipe, maskLayer, s, null, ForgeImage));
                         files[$"{s}-ao.png"] = PngWriter.Gray(size, size, bake.Ao.Select(v => (byte)Math.Clamp(v * 255, 0, 255)).ToArray());
                         files[$"{s}-curvature.png"] = PngWriter.Gray(size, size, bake.Curvature.Select(v => (byte)Math.Clamp(128 + v * 127, 0, 255)).ToArray());
                         return tex;
@@ -295,6 +333,74 @@ public partial class MainWindow
                         high = recipe.HighModel != null ? new { hits = highHits, texels = covered } : null,
                         sets = model.Sets.Select((s, i) => new { name = s.Name, maps = ForgePreviewMaps.Where(m => m != "mask" || files.ContainsKey($"{i}-mask.png")).ToDictionary(m => m, m => $"/_forge/{key}/{i}-{m}.png") }),
                     };
+                }
+                finally { ForgeGate.Release(); }
+            }
+            case "forge.image.create":
+            {
+                // A new image paint layer's picture: blank, the model's own colour pictures, or a picture you pick.
+                var recipe = ForgeRecipeFrom(p);
+                if (recipe.Model == null) throw new BridgeError("Open a model first.");
+                var from = req.GetString("from", 20) ?? "blank";
+                var model = await Task.Run(() => ForgeLoad(recipe.Model));
+                var size = Math.Clamp(recipe.Size, 256, 2048);
+                var pixels = ForgeImageStore.Blank(size, model.Sets.Count);
+                if (from == "model")
+                {
+                    var found = 0;
+                    for (var s = 0; s < model.Sets.Count; s++)
+                    {
+                        var set = model.Sets[s];
+                        if (set.ColorTexture == null || set.Unwrapped) continue;
+                        var d = await Task.Run(() => ForgeDecode(set.ColorTexture));
+                        if (d is not { } dd) continue;
+                        // Painted everywhere it has a picture (opaque).
+                        var px = await Task.Run(() => ForgeImageStore.Resize(dd.Rgba, dd.W, dd.H, size));
+                        for (var i = 3; i < px.Length; i += 4) px[i] = 255;
+                        pixels[s] = px; found++;
+                    }
+                    if (found == 0) throw new BridgeError("This model has no colour picture of its own to paint over (only one inside a GLB, on the model's own UVs, can be used). Start blank, or from a picture.");
+                }
+                else if (from == "file")
+                {
+                    var set = Math.Clamp(p.TryGetProperty("set", out var st) && st.TryGetInt32(out var si) ? si : 0, 0, model.Sets.Count - 1);
+                    var dlg = new OpenFileDialog { Title = Tr.T("A texture to paint over (laid out like the model's UVs)"), Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp)|*.png;*.jpg;*.jpeg;*.bmp;*.tif;*.tiff;*.webp|All files (*.*)|*.*"), CheckFileExists = true };
+                    NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    if (new FileInfo(dlg.FileName).Length > 256L * 1024 * 1024) throw new BridgeError("That picture is too big.");
+                    var d = ForgeDecode(await File.ReadAllBytesAsync(dlg.FileName)) ?? throw new BridgeError("That picture can't be read.");
+                    var px = await Task.Run(() => ForgeImageStore.Resize(d.Rgba, d.W, d.H, size));
+                    for (var i = 3; i < px.Length; i += 4) px[i] = 255;
+                    pixels[set] = px;
+                }
+                return new { image = _forgeImages.Create(size, pixels), size };
+            }
+            case "forge.image.paint":
+            {
+                // Strokes into an image paint layer's picture: a new version of it (the old one stays for undo).
+                var recipe = ForgeRecipeFrom(p);
+                if (recipe.Model == null) throw new BridgeError("Open a model first.");
+                var index = p.TryGetProperty("layer", out var li2) && li2.TryGetInt32(out var lix) ? lix : -1;
+                if (index < 0 || index >= recipe.Layers.Count || recipe.Layers[index].Image == null) throw new BridgeError("That layer isn't a painting.");
+                var layer = recipe.Layers[index];
+                if (!_forgeImages.Has(layer.Image)) throw new BridgeError("That painting is no longer here (it is kept until NoorMD closes: export to keep it).");
+                List<ForgeStroke> strokes;
+                try { strokes = p.TryGetProperty("strokes", out var sa) ? (JsonSerializer.Deserialize<List<ForgeStroke>>(sa.GetRawText(), ForgeStrokeJson) ?? []) : []; }
+                catch (JsonException ex) { throw new BridgeError("The strokes can't be read: " + ex.Message); }
+                if (strokes.Count > 64) throw new BridgeError("Too many strokes at once.");
+                await ForgeGate.WaitAsync();
+                try
+                {
+                    var model = await Task.Run(() => ForgeLoad(recipe.Model));
+                    var image = layer.Image!;
+                    var size = _forgeImages.Get(image)!.Value.Size;
+                    await Task.Run(() =>
+                    {
+                        foreach (var stroke in strokes.Select(st => st.Clamped()))
+                            for (var s = 0; s < model.Sets.Count; s++)
+                                image = ForgeImagePaint.Apply(_forgeImages, image, s, ForgePaintBake(model, s, size), stroke, layer.Color, recipe.Picture);
+                    });
+                    return new { image };
                 }
                 finally { ForgeGate.Release(); }
             }
@@ -362,7 +468,7 @@ public partial class MainWindow
                             var set = s;
                             // In an atlas each texture set has a cell: the whole atlas is the texture size.
                             var cell = atlas ? Math.Max(32, size / grid) : size;
-                            sets.Add(await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, cell, recipe), recipe, ForgeMaterial)));
+                            sets.Add(await Task.Run(() => ForgeCompositor.Compose(model, set, ForgeBakeFor(model, set, cell, recipe), recipe, ForgeMaterial, ForgeImage)));
                             if (!atlas)
                             {
                                 var setName = model.Sets.Count == 1 ? stem : $"{stem}_{NoorMD.Core.Documents.DocumentFile.SafeFileName(model.Sets[s].Name, "")}";
@@ -378,6 +484,22 @@ public partial class MainWindow
                             await File.WriteAllBytesAsync(glb, await Task.Run(() => atlasTex != null ? ForgeExport.Glb(model, [atlasTex], atlasGrid: grid) : ForgeExport.Glb(model, sets)));
                             written.Add(glb);
                         }
+                    }
+                    // Image paint layers: their pictures beside the recipe (one PNG a texture set), named in it.
+                    foreach (var layer in recipe.Layers.Where(l => l.Image != null))
+                    {
+                        var picture = _forgeImages.Get(layer.Image);
+                        if (picture is not { } pic) continue;
+                        var names = new List<string>();
+                        for (var s = 0; s < pic.Pixels.Length; s++)
+                        {
+                            var name = $"{stem}_{layer.Id}_{s}.png";
+                            var px = pic.Pixels[s];
+                            await File.WriteAllBytesAsync(Path.Combine(folder, name), await Task.Run(() => PngWriter.Rgba(pic.Size, pic.Size, px)));
+                            written.Add(Path.Combine(folder, name));
+                            names.Add(name);
+                        }
+                        layer.ImageFiles = names; layer.ImageSize = pic.Size;
                     }
                     var recipeFile = Path.Combine(folder, stem + ".noorforge.json");
                     await File.WriteAllTextAsync(recipeFile, recipe.ToJson());
@@ -412,7 +534,24 @@ public partial class MainWindow
                     if (File.Exists(high)) { recipe.HighModel = Path.GetFullPath(high); _forgeFiles.Add(recipe.HighModel); }
                     else recipe.HighModel = null;
                 }
-                return new { recipe = JsonDocument.Parse(recipe.ToJson()).RootElement.Clone(), model = info };
+                // Image paint layers: their pictures from beside the recipe (it names them), into the image store.
+                var missing = 0;
+                foreach (var layer in recipe.Layers.Where(l => l.ImageFiles is { Count: > 0 }))
+                {
+                    layer.Image = null;
+                    var pictures = new List<byte[]>();
+                    var size = layer.ImageSize > 0 ? layer.ImageSize : 1024;
+                    foreach (var name in layer.ImageFiles!)
+                    {
+                        var file = Path.Combine(Path.GetDirectoryName(dlg.FileName)!, name);
+                        var decoded = File.Exists(file) && new FileInfo(file).Length < 256L * 1024 * 1024 ? ForgeDecode(await File.ReadAllBytesAsync(file)) : null;
+                        if (decoded is not { } d) { missing++; pictures.Add(new byte[size * size * 4]); continue; }
+                        pictures.Add(d.W == size && d.H == size ? d.Rgba : ForgeImageStore.Resize(d.Rgba, d.W, d.H, size));
+                    }
+                    layer.Image = _forgeImages.Create(size, [.. pictures]);
+                    layer.ImageSize = size;
+                }
+                return new { recipe = JsonDocument.Parse(recipe.ToJson()).RootElement.Clone(), model = info, missingPictures = missing };
             }
             default:
                 throw new BridgeError($"Unknown command \"{req.Type}\".");

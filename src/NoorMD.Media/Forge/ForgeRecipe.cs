@@ -75,6 +75,13 @@ public sealed class ForgeLayer
     public ForgeMask Mask { get; set; } = new();
     /// <summary>Brush strokes into the mask, in order (painted on the model).</summary>
     public List<ForgeStroke> Strokes { get; set; } = [];
+    /// <summary>
+    /// An image paint layer: the picture painted on it, pixel by pixel (its version in the app's image store), shown by
+    /// its own alpha. Its size (square), and the PNG files it was saved as beside the recipe (one per texture set).
+    /// </summary>
+    public string? Image { get; set; }
+    public int ImageSize { get; set; }
+    public List<string>? ImageFiles { get; set; }
 
     public ForgeLayer Clamped()
     {
@@ -85,6 +92,9 @@ public sealed class ForgeLayer
         Material = Material is { Length: <= 200 } m && !m.Any(char.IsControl) ? m : "";
         Mask = (Mask ?? new()).Clamped();
         Strokes = (Strokes ?? []).Where(st => st != null).Take(MaxStrokes).Select(st => st.Clamped()).ToList();
+        Image = Image is { Length: > 1 and <= 40 } im && im.All(char.IsLetterOrDigit) ? im : null;
+        ImageSize = Math.Clamp(ImageSize, 0, ForgeImageStore.MaxSize);
+        ImageFiles = ImageFiles?.Where(f => f is { Length: > 0 and <= 200 } && f.IndexOfAny(['/', '\\', ':']) < 0 && !f.StartsWith('.')).Take(64).ToList();
         return this;
     }
 }

@@ -7684,7 +7684,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Where it shows is where it paints: at points on the model, the stencil's u, v from the app's rows match where they are in its picture on screen.
       const sb = await page.$eval('#fg-stencil', (c) => { const r = c.getBoundingClientRect(); return { l: r.left, t: r.top, w: r.width, h: r.height }; });
       const uvs = [];
-      for (const [x, y] of [[box.x, box.y], [box.x + 12, box.y - 10]]) uvs.push([await page.evaluate(([px, py]) => NoorForge._stencilUv(px, py), [x, y]), [(x - sb.l) / sb.w, (y - sb.t) / sb.h]]);
+      for (const [x, y] of [[box.x, box.y], [box.x + 6, box.y - 4]]) uvs.push([await page.evaluate(([px, py]) => NoorForge._stencilUv(px, py), [x, y]), [(x - sb.l) / sb.w, (y - sb.t) / sb.h]]);
       check('the stencil lands on the model where it shows over the view', uvs.every(([got, want]) => got && Math.abs(got[0] - want[0]) < 0.01 && Math.abs(got[1] - want[1]) < 0.01), JSON.stringify(uvs));
       check('a stroke through the stencil keeps where it lay (its picture and the camera\'s rows)', last.stencil && last.stencil.picture === 'smock2' && last.stencil.rows.length === 12 && last.stencil.rows.every(Number.isFinite));
       await page.click('#fg-brushbar [aria-label="Remove the stencil picture"]');
@@ -9217,6 +9217,85 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…the take is saved as a WAV and becomes the layer\'s recording', rec.bytes > 1000 && (await voice()).sampleName === 'Voice take.wav', rec);
       if (shots) await page.screenshot({ path: `${shots}/38w-voice-recording.png` });
       check('no page errors with recorded voices', errors.length === 0, errors);
+      await page.close();
+    }
+
+    // ---- 65g. NoorForge paintings (pixels, as Blender's texture painting): a painting layer, the brush's colour and the
+    // recent ones, strokes into the pixels (each keeping its colour), undo, the colour picker, the unlit view; paint
+    // layers keep each stroke's colour too, and can be recoloured.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      const FM = () => page.evaluate(() => window.__mock.state.forge);
+      const layerNow = async () => { const st = await FS(); return st.recipe.layers[st.selected]; };
+      await page.keyboard.press('Control+Alt+f');
+      await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
+      await page.click('#fg-pick');
+      await waitFn(page, () => window.__mock.state.forge.renders.length >= 1 && NoorForge._state().render);
+      await page.click('#fg-addpainting');
+      await page.click('.modal button:has-text("Blank")');
+      await waitFn(page, () => NoorForge._state().recipe.layers.some((l) => l.image) && NoorForge._state().texels);
+      let l = await layerNow();
+      check('＋ Painting (pixels) › Blank: a painting layer (its picture in the app), the brush ready', l.image === 'img1' && l.imageSize >= 256 && (await FS()).tool === 'brush' && (await FM()).imageCreates[0].from === 'blank');
+      check('…it paints colour only (the material below keeps its roughness, metal and height)', l.useColor && !l.useRoughness && !l.useMetallic && !l.useHeight);
+      check('…the brush bar has the brush\'s colour and the colour-only view', !!(await page.$('#fg-brushcolor')) && !!(await page.$('#fg-unlit')));
+      const setColour = (c) => page.$eval('#fg-brushcolor', (i, v) => { i.value = v; i.dispatchEvent(new Event('input')); i.dispatchEvent(new Event('change')); }, c);
+      await setColour('#ff0000');
+      await page.$eval('#fg-brushbar input[data-brush="size"]', (i) => { i.value = '20'; i.dispatchEvent(new Event('input')); });
+      const box = await page.$eval('#fg-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      const stroke = async (dx) => { await page.mouse.move(box.x - 30 + dx, box.y); await page.mouse.down(); for (let k = 1; k <= 8; k++) await page.mouse.move(box.x - 30 + dx + k * 5, box.y + k); await page.mouse.up(); };
+      await stroke(0);
+      await waitFn(page, () => (window.__mock.state.forge.imagePaints || []).length === 1 && NoorForge._state().recipe.layers.some((x) => x.image === 'img1.1'));
+      let paints = (await FM()).imagePaints;
+      check('a stroke goes into the painting\'s pixels (in the app), in the brush\'s colour', paints[0].image === 'img1' && paints[0].strokes.length === 1 && paints[0].strokes[0].color === '#ff0000' && paints[0].strokes[0].dabs.length >= 25);
+      check('…the layer holds the new version of its picture, not strokes', (await layerNow()).image === 'img1.1' && (await layerNow()).strokes.length === 0);
+      await waitFn(page, () => window.__mock.state.forge.renders.at(-1).layers.some((x) => x.image === 'img1.1'));
+      check('…and the model is textured with it', true);
+      // Another colour: only the next stroke has it.
+      await setColour('#0000ff');
+      await stroke(20);
+      await waitFn(page, () => (window.__mock.state.forge.imagePaints || []).length === 2 && NoorForge._state().recipe.layers.some((x) => x.image === 'img1.1.2'));
+      paints = (await FM()).imagePaints;
+      check('changing the colour paints the next stroke in it, over the last version (what was painted keeps its colour)', paints[1].image === 'img1.1' && paints[1].strokes[0].color === '#0000ff');
+      check('…and both colours are among the recent ones', (await page.$$eval('#fg-colorrow .fg-recentcolor', (b) => b.map((x) => x.dataset.color))).slice(0, 2).join() === '#0000ff,#ff0000');
+      await page.click('#fg-colorrow .fg-recentcolor[data-color="#ff0000"]');
+      check('…a recent colour is chosen with a click', (await FS()).brush.color === '#ff0000');
+      // Undo: the painting's earlier version.
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z goes back to the painting before the last stroke', (await layerNow()).image === 'img1.1');
+      await page.keyboard.press('Control+Shift+z');
+      check('…and Ctrl+Shift+Z forward again', (await layerNow()).image === 'img1.1.2');
+      // The colour picker (I): the colour on the model where clicked.
+      await page.keyboard.press('i');
+      check('I: the colour picker', (await FS()).tool === 'pick');
+      await page.mouse.click(box.x, box.y);
+      await waitFn(page, () => NoorForge._state().tool === 'brush');
+      check('…a click takes the colour there as the brush\'s, back to the brush', /^#[0-9a-f]{6}$/.test((await FS()).brush.color) && (await FS()).tool === 'brush');
+      // The unlit view.
+      await page.click('#fg-unlit');
+      check('◐ shows the colours only (no light and shade)', (await FS()).view === 'basecolor');
+      await page.click('#fg-unlit');
+      check('…and back to the lit model', (await FS()).view === 'shaded');
+      // A paint layer (strokes): each keeps the brush's colour; Recolour all of it.
+      await page.click('#fg-addpaint');
+      await setColour('#00ff00');
+      await stroke(10);
+      await waitFn(page, () => { const st = NoorForge._state(); return (st.recipe.layers[st.selected].strokes || []).length === 1; });
+      await setColour('#ffff00');
+      await stroke(30);
+      await waitFn(page, () => { const st = NoorForge._state(); return (st.recipe.layers[st.selected].strokes || []).length === 2; });
+      l = await layerNow();
+      check('a paint layer: each stroke keeps the brush\'s colour it was painted with', l.strokes[0].color === '#00ff00' && l.strokes[1].color === '#ffff00');
+      await page.click('#fg-recolour');
+      l = await layerNow();
+      check('…🎨 Recolour all of it puts the brush\'s colour on every stroke', l.strokes.every((x) => x.color === '#ffff00'));
+      // From the model's own texture.
+      await page.click('#fg-addpainting');
+      await page.click('.modal button:has-text("The model\'s own texture")');
+      await waitFn(page, () => (window.__mock.state.forge.imageCreates || []).length === 2);
+      check('a painting can start from the model\'s own texture', (await FM()).imageCreates[1].from === 'model' && /over its texture/.test((await layerNow()).name));
+      if (shots) await page.screenshot({ path: `${shots}/65g-noorforge-painting.png` });
+      check('no page errors with paintings', errors.length === 0, errors);
       await page.close();
     }
 

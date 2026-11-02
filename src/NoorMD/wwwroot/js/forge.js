@@ -32,7 +32,7 @@ window.NoorForge = (() => {
   // Painting (stage 2): the tool, the brush, where each texel is on the model, the stroke being painted.
   let tool = null;         // null, 'brush' or 'fill'
   let erasing = false;
-  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false, tip: '', angle: 0, jitter: 0 };
+  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false, tip: '', angle: 0, jitter: 0, color: '#c8643c', recent: [] };
   // The stencil: a picture of the recipe laid over the view (where, how big, turned how far clockwise), white lets paint through.
   let stencil = null;      // { id, fx, fy, size, angle, tile, invert, opacity, shown }
   let stencilKey = false;  // S held: the mouse moves the stencil, the wheel sizes (Shift: turns) it
@@ -238,6 +238,7 @@ window.NoorForge = (() => {
         if (k === 'b') { e.preventDefault(); setTool(tool === 'brush' && !erasing ? null : 'brush', false); return; }
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
         if (k === 't' && tool) { e.preventDefault(); setTool('stamp'); return; }
+        if (k === 'i' && tool) { e.preventDefault(); setTool(tool === 'pick' ? 'brush' : 'pick', false); return; }
         if ((k === '[' || k === ']') && tool) { e.preventDefault(); brushSize(k === ']' ? 1 : -1); return; }
       }
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
@@ -352,7 +353,7 @@ window.NoorForge = (() => {
     list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off'), 'data-layer': String(i), role: 'button', tabindex: '0',
       onclick: () => selectLayer(i) }, // its mask, shown
       el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden (click to show)', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); l.visible = !l.visible; changed('layers'); } }, l.visible ? '👁' : '◌'),
-      el('span', { class: 'fg-swatch', style: `background:${l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}` }),
+      el('span', { class: 'fg-swatch', style: `background:${l.image ? 'conic-gradient(#e0605a,#e8c35a,#6ac27a,#5a9ae0,#b46ae0,#e0605a)' : l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}`, title: l.image ? 'A painting (pixels)' : '' }),
       el('span', { class: 'fg-layername', text: l.name }),
       el('small', { text: l.mask.kind === 'all' ? '' : MASKS[l.mask.kind].split(' (')[0] }))));
     keepFocus();
@@ -365,6 +366,25 @@ window.NoorForge = (() => {
       height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
     recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
   }
+  /** Whether a layer takes the brush's colour: a painting (pixels), or a paint layer (strokes keep their colour). */
+  const takesColor = (l) => !!l && (!!l.image || (!l.material && l.mask.kind === 'none'));
+
+  /** A painting: a layer of pixels painted straight onto the model (as Blender's texture painting), blank or from a texture. */
+  async function addPainting() {
+    if (!recipe.model) { notice('Open a model first', 1800); return; }
+    if (recipe.layers.length >= 32) return;
+    const from = await NoorUI.choose('Add a painting (pixels)', ['Paint straight onto the model, pixel by pixel, in any colour (as Blender\'s texture painting). It goes into the colour map.', 'Start from:'],
+      [{ label: 'Cancel', value: null }, { label: 'A picture…', value: 'file' }, { label: 'The model\'s own texture', value: 'model' }, { label: 'Blank', value: 'blank', primary: true }]);
+    if (!from) return;
+    let r;
+    try { r = await req('forge.image.create', { recipe, from, set: shownSet }); } catch (err) { hooks.showError(err); return; }
+    if (!r || r.cancelled) return;
+    const l = { id: newId(), name: from === 'model' ? 'Painting (over its texture)' : 'Painting', visible: true, opacity: 1, material: '', scale: 1, color: brush.color, roughness: 0.7, metallic: 0, height: 0.5,
+      useColor: true, useRoughness: false, useMetallic: false, useNormal: false, useHeight: false, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [], image: r.image, imageSize: r.size };
+    recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
+    setTool('brush', false);
+  }
+
   /** The chosen layer up (1) or down (−1) the stack. */
   function moveLayer(d) { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); }
   function removeLayer() { if (!recipe.layers.length) return; recipe.layers.splice(selected, 1); selected = Math.max(0, selected - 1); changed('all'); }
@@ -375,6 +395,7 @@ window.NoorForge = (() => {
       el('div', { class: 'sb-row' },
         el('button', { class: 'utility-btn', id: 'fg-addmat', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(true) }, '＋ Material layer'),
         el('button', { class: 'utility-btn', id: 'fg-addplain', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(false) }, '＋ Colour layer'),
+        el('button', { class: 'utility-btn', id: 'fg-addpainting', title: 'Paint pixels straight onto the model in any colour (as Blender\'s texture painting): blank, over its own texture, or over a picture', disabled: recipe.layers.length >= 32 || undefined, onclick: addPainting }, '＋ Painting (pixels)'),
         el('button', { class: 'utility-btn', id: 'fg-addpaint', title: 'A colour layer shown only where you paint it, with the brush ready', disabled: recipe.layers.length >= 32 || undefined, onclick: () => { add(false, true); setTool('brush', false); } }, '＋ Paint layer'),
         el('button', { class: 'icon-btn', title: 'Up the stack', 'aria-label': 'Move up', onclick: () => move(1) }, '↑'),
         el('button', { class: 'icon-btn', title: 'Down the stack', 'aria-label': 'Move down', onclick: () => move(-1) }, '↓'),
@@ -431,9 +452,13 @@ window.NoorForge = (() => {
         return el('label', { class: 'sb-inline' }, el('span', { text: m.kind === 'part' ? 'Part' : 'Material' }), s);
       })() : null;
     const shaped = !['all', 'none', 'part', 'material'].includes(m.kind);
+    const strokesKeep = !l.image && takesColor(l);
+    const recolour = el('button', { class: 'utility-btn', id: 'fg-recolour', title: 'Every stroke of this layer in the brush\'s colour', onclick: () => { l.strokes = (l.strokes || []).map((st) => (st.erase ? st : { ...st, color: brush.color })); l.color = brush.color; paintVersion++; changed('all'); } }, '🎨 Recolour all of it');
     box.replaceChildren(...[
-      el('h4', { class: 'music-subhead', text: 'Layer' }),
-      el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
+      el('h4', { class: 'music-subhead', text: l.image ? 'Painting' : 'Layer' }),
+      l.image ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', id: 'fg-paintinginfo', text: `🖌 Pixels painted on the model, ${l.imageSize} px a texture set, in the brush's colour.` }))
+        : strokesKeep ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', text: 'Each stroke keeps the brush\'s colour it was painted with.' }), (l.strokes || []).some((st) => !st.erase) ? recolour : null)
+          : el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
       el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
         ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01), slider(l, 'height', 'Height (mid: flat)', 0, 1, 0.01)])),
       el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
@@ -604,10 +629,12 @@ window.NoorForge = (() => {
   }
 
   /** The brush on and off ('brush' or 'fill'; erasing for the brush), the mouse given to it or back to turning. */
+  let litView = 'shaded'; // the view to go back to from "colour only"
   function setTool(t, erase = erasing) {
     if (t && !recipe.model) { notice('Open a model first', 1800); return; }
     if (t && !recipe.layers.length) { notice('Add a layer to paint into first', 1800); return; }
     tool = t; erasing = !!t && t === 'brush' && erase;
+    if ($('#fg-canvas')) $('#fg-canvas').style.cursor = '';
     $('#fg-paint').setAttribute('aria-pressed', String(!!tool));
     $('#forgebench').classList.toggle('fg-painting', !!tool);
     if (viewer) { viewer.setPainter(tool ? PAINTER : null); if (!tool) viewer.setBrush(null); }
@@ -634,15 +661,26 @@ window.NoorForge = (() => {
       toolBtn('fg-tool-brush', '🖌', 'Brush (B): paint the layer in', tool === 'brush' && !erasing, () => setTool('brush', false)),
       toolBtn('fg-tool-erase', '🧽', 'Eraser (E): take the layer away (its smart mask too)', tool === 'brush' && erasing, () => setTool('brush', true)),
       toolBtn('fg-tool-fill', '🪣', 'Fill a part: click it', tool === 'fill', () => setTool('fill')),
-      toolBtn('fg-tool-stamp', '🏷', 'Stamp a decal (T): a picture or text, placed where you click', tool === 'stamp', () => setTool('stamp'))];
+      toolBtn('fg-tool-stamp', '🏷', 'Stamp a decal (T): a picture or text, placed where you click', tool === 'stamp', () => setTool('stamp')),
+      toolBtn('fg-tool-pick', '💧', 'Pick a colour from the model (I)', tool === 'pick', () => setTool(tool === 'pick' ? 'brush' : 'pick', false))];
+    // The brush's colour (for paintings and paint layers), the recent ones, and the unlit view to judge colours.
+    const colorIn = el('input', { type: 'color', id: 'fg-brushcolor', value: brush.color || '#c8643c', 'aria-label': 'Brush colour', title: 'The brush\'s colour (paintings and paint layers)' });
+    colorIn.addEventListener('input', () => { brush.color = colorIn.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } });
+    colorIn.addEventListener('change', () => { useColor(colorIn.value); renderBrushBar(); });
+    // Always there (the view doesn't jump when the tool or the layer changes); it paints paintings and paint layers.
+    const colorRow = el('div', { class: 'sb-row fg-colorrow', id: 'fg-colorrow', title: takesColor(layer) ? '' : 'The brush\'s colour paints paintings and paint layers (this layer paints its own material where you paint)' },
+      el('label', { class: 'sb-inline' }, el('span', { text: 'Colour' }), colorIn),
+      el('span', { class: 'fg-recent', 'aria-label': 'Recent colours' }, ...(brush.recent || []).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); } }))),
+      el('button', { class: 'icon-btn', id: 'fg-unlit', 'aria-pressed': String(view === 'basecolor'), title: 'Colour only: the painting without light and shade (click again for the lit model)', 'aria-label': 'Colour only', onclick: () => { setView(view === 'basecolor' ? (litView || 'shaded') : ((litView = view), 'basecolor')); renderBrushBar(); } }, '◐'));
     if (tool === 'stamp') {
-      bar.replaceChildren(el('div', { class: 'sb-row' }, ...tools, ...stampControls()), el('div', { class: 'sb-row' },
+      bar.replaceChildren(colorRow, el('div', { class: 'sb-row' }, ...tools, ...stampControls()), el('div', { class: 'sb-row' },
         el('span', { class: 'pref-hint fg-into', text: layer ? `Click the model to place it in “${layer.name}” · Alt+drag turns the model` : 'Choose a layer' }),
         texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null));
       drawStamp(); showStencil(); keepFocus();
       return;
     }
     bar.replaceChildren(
+      colorRow,
       el('div', { class: 'sb-row' },
         ...tools,
         num('size', 'Size', 0.2, 25, 0.1, 'The brush\'s size, a share of the model ([ and ])'),
@@ -936,7 +974,7 @@ window.NoorForge = (() => {
     if (!overlay || !overlay.dirty || !viewer) return;
     overlay.dirty = false;
     const layer = recipe.layers[selected];
-    const color = overlay.erase ? [0.05, 0.05, 0.06] : view === 'mask' ? [1, 1, 1] : layer && !layer.material ? hexRgb(layer.color) : [1, 0.62, 0.22];
+    const color = overlay.erase ? [0.05, 0.05, 0.06] : view === 'mask' ? [1, 1, 1] : takesColor(layer) ? hexRgb(brush.color) : layer && !layer.material ? hexRgb(layer.color) : [1, 0.62, 0.22];
     viewer.setPaint(overlay.bytes.map((b) => ({ size: texels.size, data: b })), color, overlay.erase ? 0.6 : 0.85);
   }
 
@@ -997,12 +1035,74 @@ window.NoorForge = (() => {
   function commitStrokes(list) {
     const layer = recipe.layers[selected];
     if (!layer) return;
+    // A painting: into its pixels (in the app). A paint layer: each stroke keeps the brush's colour.
+    if (takesColor(layer)) { list = list.map((st) => (st.erase ? st : { ...st, color: brush.color })); useColor(brush.color); }
+    if (layer.image) { paintImage(layer, list); return; }
     clearTimeout(snapTimer); pushHistory();
     layer.strokes = (layer.strokes || []).concat(list);
     pushHistory();
     paintVersion++;
     renderLayers(); renderLayerEditor();
     schedule();
+  }
+
+  // Strokes into a painting's pixels, one after another (each paints over the version the last one made).
+  let imageQueue = Promise.resolve();
+  function paintImage(layer, strokes) {
+    paintVersion++; // the stroke stays shown until the painting with it is back
+    imageQueue = imageQueue.then(async () => {
+      const index = recipe.layers.indexOf(layer);
+      if (index < 0) return; // undone or removed meanwhile
+      try {
+        const r = await req('forge.image.paint', { recipe, layer: index, strokes });
+        clearTimeout(snapTimer); pushHistory();
+        layer.image = r.image;
+        pushHistory();
+        paintVersion++;
+        schedule();
+      } catch (err) { hooks.showError(err); overlay = null; if (viewer) viewer.setPaint(null); }
+    });
+    return imageQueue;
+  }
+
+  /** A colour used: the brush's, and first in the recent ones. */
+  function useColor(c) {
+    brush.color = c;
+    brush.recent = [c, ...(brush.recent || []).filter((x) => x !== c)].slice(0, 10);
+    try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ }
+  }
+
+  /** 💧: the colour of the model where you click (as the preview shows it), as the brush's colour. */
+  const colourMaps = new Map(); // url → ImageData of a preview's colour map
+  async function pickColor(hit) {
+    if (!render || !texels) return;
+    let best = Infinity, set = -1, tex = -1;
+    for (const reach of [1, 3, 10]) {
+      near(hit.point, texels.cell * reach, (s, t) => {
+        const f = texels.sets[s], b = t * 7;
+        const d = Math.hypot(f[b] - hit.point[0], f[b + 1] - hit.point[1], f[b + 2] - hit.point[2]);
+        if (d < best) { best = d; set = s; tex = t; }
+      });
+      if (set >= 0) break;
+    }
+    if (set < 0) return;
+    const url = render.sets[set] && render.sets[set].maps.basecolor;
+    if (!url) return;
+    let data = colourMaps.get(url);
+    if (!data) {
+      try {
+        const bmp = await createImageBitmap(await (await fetch(url)).blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+        const c = document.createElement('canvas'); c.width = bmp.width; c.height = bmp.height;
+        const g = c.getContext('2d', { willReadFrequently: true }); g.drawImage(bmp, 0, 0);
+        data = g.getImageData(0, 0, bmp.width, bmp.height);
+        colourMaps.clear(); colourMaps.set(url, data);
+      } catch { return; }
+    }
+    const i = tex * 4;
+    const hex = '#' + [data.data[i], data.data[i + 1], data.data[i + 2]].map((v) => v.toString(16).padStart(2, '0')).join('');
+    useColor(hex);
+    setTool('brush', false);
+    notice(`Picked ${hex}`, 1000);
   }
 
   let lastLineEnd = null;    // where the last stroke ended (Shift+click draws a straight line from it)
@@ -1023,6 +1123,7 @@ window.NoorForge = (() => {
       const hit = viewer.pick(e.clientX, e.clientY);
       if (tool === 'stamp') { viewer.setBrush(hit ? hit.point : null, (stamp.size / 100) * modelSize() / 2, 1); return; }
       viewer.setBrush(hit && tool === 'brush' ? hit.point : null, radius(), brush.hardness);
+      if (tool === 'pick' && $('#fg-canvas')) $('#fg-canvas').style.cursor = hit ? 'copy' : '';
     },
     down(e) {
       if (stencilKey && stencil) { stencilDrag = { x: e.clientX, y: e.clientY }; return true; }
@@ -1031,6 +1132,7 @@ window.NoorForge = (() => {
       const hit = viewer.pick(e.clientX, e.clientY);
       if (!hit) return false; // off the model: turns it, as usual
       if (tool === 'fill') { fillPart(hit); return true; }
+      if (tool === 'pick') { pickColor(hit); return true; }
       if (tool === 'stamp') { placeStamp(hit); return true; }
       beginStroke(hit);
       if (e.shiftKey && lastLineEnd) {
@@ -1155,6 +1257,7 @@ window.NoorForge = (() => {
       if (!r.model && r.recipe.model) notice('The model the recipe names was not found: open it again with 📂', 3200);
       if (!r.model) r.recipe.model = null;
       setRecipe(r.recipe, true);
+      if (r.missingPictures) notice(`${r.missingPictures} painting picture${r.missingPictures === 1 ? ' was' : 's were'} not found beside the recipe`, 3200);
     } catch (err) { hooks.showError(err); }
   }
 
@@ -1246,6 +1349,7 @@ window.NoorForge = (() => {
       ['Layer', 'l', () => [
         go('Add a material layer', () => addLayer(true), '', { disabled: () => recipe.layers.length >= 32 }),
         go('Add a colour layer', () => addLayer(false), '', { disabled: () => recipe.layers.length >= 32 }),
+        go('Add a painting (pixels)…', addPainting, '', { disabled: () => recipe.layers.length >= 32 || !recipe.model }),
         go('Add a paint layer (the brush ready)', () => { addLayer(false, true); setTool('brush', false); }, '', { disabled: () => recipe.layers.length >= 32 }), '-',
         { label: 'Choose a layer', sub: () => (recipe.layers.length ? recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => ({ label: l.name, checked: () => i === selected, run: () => selectLayer(i) })) : [{ label: 'No layers yet', disabled: true }]) },
         { label: 'Shown', checked: () => !!(layer() && layer().visible), disabled: () => !layer(), run: () => { layer().visible = !layer().visible; changed('layers'); } },
@@ -1261,6 +1365,7 @@ window.NoorForge = (() => {
       ['Paint', 'p', () => [
         { label: 'Brush', keys: 'B', checked: () => tool === 'brush' && !erasing, disabled: cantPaint, run: () => setTool(tool === 'brush' && !erasing ? null : 'brush', false) },
         { label: 'Eraser', keys: 'E', checked: () => tool === 'brush' && erasing, disabled: cantPaint, run: () => setTool('brush', true) },
+        { label: 'Pick a colour from the model', keys: 'I', checked: () => tool === 'pick', disabled: cantPaint, run: () => setTool(tool === 'pick' ? 'brush' : 'pick', false) },
         { label: 'Fill a part', checked: () => tool === 'fill', disabled: cantPaint, run: () => setTool('fill') },
         { label: 'Stamp a decal', keys: 'T', checked: () => tool === 'stamp', disabled: cantPaint, run: () => setTool('stamp') },
         go('Put the brush down', () => setTool(null), 'Esc', { disabled: () => !tool }), '-',

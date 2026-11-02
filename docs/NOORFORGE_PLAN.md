@@ -156,6 +156,30 @@ structures as the Texture and Asset Benches. Nothing leaves the computer.
 - **Smaller copies for lower levels:** the maps made again at half (…_LOD1) and a quarter (…_LOD2) of the size, from
   the recipe (not shrunk pictures), for a model's lower levels.
 
+## Stage 4 — paintings (pixels, as Blender's texture painting)
+
+Material layers and smart masks are the Substance Painter side; a **painting** is the Blender side: a layer of pixels
+painted straight onto the model in any colour, for hand-painted albedo.
+
+### Done in preview.137 (stage 4, first part)
+
+- **＋ Painting (pixels)**: blank, over the model's own colour picture (one inside a GLB, on its own UVs), or over a
+  picture you pick (laid out like the model's UVs). It paints colour only by default (the material below keeps its
+  roughness, metal and height); its size is the texture size, up to 2048 px a texture set.
+- **The app keeps the pixels** (an image store): each stroke is painted into them (the same dabs, tips, stencils, mirror,
+  fill and decals as before, through a quick bake at the picture's size) and makes a new version that keeps only the
+  64-pixel tiles it changed, so Ctrl+Z goes back through the versions and nothing slows down however long you paint.
+  The compositor samples the picture (weighted by what is painted, so no dark rims) over the layers below.
+- **The brush's colour** in the brush bar, ten recent colours, 💧 the colour picker (I) and ◐ colour only (the unlit
+  view, to judge the painting). Paint layers (strokes) keep each stroke's colour too, with 🎨 Recolour all of it.
+- **Export** writes each painting as PNGs beside the recipe (one a texture set), and opening the recipe reads them back.
+
+### Next (stage 4, second part)
+
+- Blender's other brushes: soften (blur), smear, clone (Ctrl+click for the source), and blend modes (mix, multiply,
+  add, lighten, darken, erase).
+- A 2D view of the picture beside the model (its UV layout), painted in either.
+
 ## Non-goals
 
 - A modeller or sculpting tool (Blender is for that), or animated textures.

@@ -44,7 +44,8 @@ public sealed class ForgeTextures
 public static class ForgeCompositor
 {
     /// <param name="materials">NoorMaterial preset's maps (cached by the caller), or null when it can't be made.</param>
-    public static ForgeTextures Compose(ForgeModel model, int setIndex, ForgeBake bake, ForgeRecipe recipe, Func<string, TextureMaps?> materials)
+    /// <param name="images">An image paint layer's picture by its version (null when it isn't known).</param>
+    public static ForgeTextures Compose(ForgeModel model, int setIndex, ForgeBake bake, ForgeRecipe recipe, Func<string, TextureMaps?> materials, Func<string, (int Size, byte[][] Pixels)?>? images = null)
     {
         var size = bake.Size;
         var n = size * size;
@@ -65,11 +66,23 @@ public static class ForgeCompositor
             var tintScale = tint / Lin(128);
             var mask = layer.Mask;
             var scale = (float)layer.Scale;
+            // An image paint layer: its picture's colour, shown by its alpha (its mask still applies on top).
+            var picture = layer.Image != null ? images?.Invoke(layer.Image) : null;
+            var pixels = picture is { } pic && setIndex < pic.Pixels.Length ? pic.Pixels[setIndex] : null;
+            if (layer.Image != null && pixels == null) continue; // nothing painted on this set (or not known): shows nothing
             Parallel.For(0, n, i =>
             {
                 if (bake.Covered[i] == 0) return;
                 var m = mk[i] * (float)layer.Opacity;
                 if (m <= 0) return;
+                Vector3? fromImage = null;
+                if (pixels != null)
+                {
+                    var (pr, pg, pb, pa) = ForgeImagePaint.Sample(pixels, picture!.Value.Size, (i % size + 0.5f) / size, (i / size + 0.5f) / size);
+                    m *= pa;
+                    if (m <= 0) return;
+                    fromImage = new Vector3(Lin((byte)Math.Round(pr * 255)), Lin((byte)Math.Round(pg * 255)), Lin((byte)Math.Round(pb * 255)));
+                }
                 var p = bake.Position[i] / scale;
                 var ng = bake.Shade(i); // the high-poly model's normal, after a high-poly bake
                 Vector3 c; float r, mt, h; Vector3 nw;
@@ -79,7 +92,7 @@ public static class ForgeCompositor
                     c = tinting ? Vector3.Min(alb * tintScale, Vector3.One) : alb; r = ro; mt = me; h = he;
                     nw = Vector3.Normalize(ng + tn * (float)layer.NormalStrength);
                 }
-                else { c = painted != null ? painted[i] : tint; r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
+                else { c = fromImage ?? (painted != null ? painted[i] : tint); r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
                 if (layer.UseColor) color[i] = Vector3.Lerp(color[i], c, m);
                 if (layer.UseRoughness) rough[i] += (r - rough[i]) * m;
                 if (layer.UseMetallic) metal[i] += (mt - metal[i]) * m;
@@ -110,7 +123,7 @@ public static class ForgeCompositor
         Mask(bake, new ForgeRecipe { Layers = [layer] }, 0, setIndex, pictures);
 
     /// <summary>A layer of a recipe's mask (with the masks below it, for one that follows another).</summary>
-    public static byte[] Mask(ForgeBake bake, ForgeRecipe recipe, int layerIndex, int setIndex, Func<string, ForgePicture?>? pictures = null)
+    public static byte[] Mask(ForgeBake bake, ForgeRecipe recipe, int layerIndex, int setIndex, Func<string, ForgePicture?>? pictures = null, Func<string, (int Size, byte[][] Pixels)?>? images = null)
     {
         var n = bake.Size * bake.Size;
         var px = new byte[n];
@@ -118,7 +131,13 @@ public static class ForgeCompositor
         float[] v = [];
         for (var k = 0; k <= layerIndex; k++) masks[recipe.Layers[k].Id] = v = ForgePaint.LayerMask(bake, recipe.Layers[k], setIndex, pictures ?? recipe.Picture, id => masks.GetValueOrDefault(id));
         var layer = recipe.Layers[layerIndex];
-        for (var i = 0; i < n; i++) if (bake.Covered[i] != 0) px[i] = B(v[i] * (float)layer.Opacity);
+        // An image paint layer shows where it is painted (its alpha) too.
+        var picture = layer.Image != null ? images?.Invoke(layer.Image) : null;
+        var image = picture is { } pic && setIndex < pic.Pixels.Length ? pic.Pixels[setIndex] : null;
+        var size = bake.Size;
+        for (var i = 0; i < n; i++)
+            if (bake.Covered[i] != 0)
+                px[i] = B(v[i] * (float)layer.Opacity * (layer.Image == null ? 1 : image == null ? 0 : ForgeImagePaint.Sample(image, picture!.Value.Size, (i % size + 0.5f) / size, (i / size + 0.5f) / size).A));
         Bleed(bake.Covered, bake.Size, px, 1);
         return px;
     }
