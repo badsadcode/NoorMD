@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForge (preview.140): the layers' height as bumps in the normal map (Bumps slider), and a key light that follows
+  the view so the relief reads from every side.
 - NoorForge (preview.139): F / Shift+F show a flat circle in place; W: colour by hue, saturation and value and the
   brush's blend on paintings; a look-dev light in the view (metal, reflections); the stroke shown as it will be; the
   textured model's normal maps lit the right way (its tangents were turned over).

@@ -6,15 +6,16 @@ public static class ForgeSmart
     public sealed record Smart(string Id, string Name, string Description, Func<List<ForgeLayer>> Make);
 
     private static ForgeLayer Mat(string name, string material, double scale, string tint = "#808080") => new() { Name = name, Material = material, Scale = scale, Color = tint };
-    private static ForgeLayer Plain(string name, string color, double rough, double metal, ForgeMask mask) => new() { Name = name, Color = color, Roughness = rough, Metallic = metal, UseNormal = false, Mask = mask };
+    private static ForgeLayer Plain(string name, string color, double rough, double metal, ForgeMask mask, double height = 0.5, bool useHeight = true) =>
+        new() { Name = name, Color = color, Roughness = rough, Metallic = metal, UseNormal = false, Mask = mask, Height = height, UseHeight = useHeight };
 
     public static readonly IReadOnlyList<Smart> All =
     [
         new("mossy-stone", "Mossy stone", "Rock with dirt in its cracks, worn light edges and moss on top.", () =>
         [
             Mat("Stone", "stone-rock", 1.5),
-            Plain("Dirt in the cracks", "#3a2a1a", 1, 0, new ForgeMask { Kind = "cavity", Amount = 0.45, Noise = 0.4, NoiseScale = 0.3 }),
-            Plain("Worn edges", "#c8c0b0", 0.55, 0, new ForgeMask { Kind = "edges", Amount = 0.3, Noise = 0.5, NoiseScale = 0.1 }),
+            Plain("Dirt in the cracks", "#3a2a1a", 1, 0, new ForgeMask { Kind = "cavity", Amount = 0.45, Noise = 0.4, NoiseScale = 0.3 }, height: 0.3),
+            Plain("Worn edges", "#c8c0b0", 0.55, 0, new ForgeMask { Kind = "edges", Amount = 0.3, Noise = 0.5, NoiseScale = 0.1 }, useHeight: false),
             new ForgeLayer { Name = "Moss", Material = "stone-mossy", Scale = 1, Color = "#585e3e", Mask = new ForgeMask { Kind = "top", Amount = 0.3, Noise = 0.6, NoiseScale = 0.4 } },
         ]),
         new("snowy-rock", "Snowy rock", "Grey rock, snow settled on everything facing up.", () =>

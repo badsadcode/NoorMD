@@ -98,3 +98,28 @@ public class ForgeBlendTests
         Assert.Null(new ForgeStroke { Blend = "nonsense" }.Clamped().Blend);
     }
 }
+
+/// <summary>The layers' height as bumps in the normal map.</summary>
+public class ForgeReliefTests
+{
+    [Fact]
+    public void Height_becomes_bumps_unless_relief_is_off()
+    {
+        var model = ForgeModel.ReadObj(ForgeModelTests.CubeOnFloor(), "Test");
+        var bake = ForgeBake.Bake(model, 1, 128, new ForgeBake.Settings(AoRays: 0));
+        double Tilt(double relief)
+        {
+            var recipe = new ForgeRecipe
+            {
+                Relief = relief,
+                Layers = [new ForgeLayer { Color = "#808080", Height = 0.5 }, new ForgeLayer { Color = "#808080", Height = 1, Mask = new ForgeMask { Kind = "edges", Amount = 0.3, Noise = 0 } }],
+            }.Clamped();
+            var t = ForgeCompositor.Compose(model, 1, bake, recipe, _ => null);
+            return Enumerable.Range(0, bake.Size * bake.Size).Where(i => bake.Covered[i] == 1).Average(i => 255.0 - t.Normal[i * 3 + 2]);
+        }
+        Assert.True(Tilt(0) < 0.5, "no relief: flat");
+        Assert.True(Tilt(1) > 1, "relief: the raised edges tilt the normals");
+        Assert.True(Tilt(3) > Tilt(1));
+        Assert.Equal(4, new ForgeRecipe { Relief = 9 }.Clamped().Relief);
+    }
+}

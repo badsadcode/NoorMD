@@ -100,6 +100,7 @@ public static class ForgeCompositor
                 if (layer.UseNormal && maps != null) world[i] = Vector3.Normalize(Vector3.Lerp(world[i], nw, m));
             });
         }
+        if (recipe.Relief > 0) Relief(bake, height, world, (float)(recipe.Relief * 0.01 * span.Length()));
         // Out: the normal in the surface's own tangent frame; everything bled outwards past the charts' edges.
         var outColor = new byte[n * 3]; var outNormal = new byte[n * 3]; var outRough = new byte[n]; var outMetal = new byte[n]; var outAo = new byte[n]; var outHeight = new byte[n];
         for (var i = 0; i < n; i++)
@@ -117,6 +118,52 @@ public static class ForgeCompositor
         Bleed(bake.Covered, size, outColor, 3); Bleed(bake.Covered, size, outNormal, 3); Bleed(bake.Covered, size, outRough, 1); Bleed(bake.Covered, size, outMetal, 1); Bleed(bake.Covered, size, outAo, 1); Bleed(bake.Covered, size, outHeight, 1);
         return new ForgeTextures { Size = size, BaseColor = outColor, Normal = outNormal, Roughness = outRough, Metallic = outMetal, Ao = outAo, Height = outHeight };
     }
+
+    /// <summary>
+    /// The layers' height as bumps (as a painting program turns height into normal detail): its slope across the
+    /// surface, in metres (depth: the full height range), tilts each texel's normal. Neighbours on another chart (far
+    /// away on the model) or not on it are left out, so charts' edges make no false bumps.
+    /// </summary>
+    internal static void Relief(ForgeBake bake, float[] height, Vector3[] world, float depth)
+    {
+        var size = bake.Size;
+        var tilted = new Vector3[world.Length];
+        Parallel.For(0, size, y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                var i = y * size + x;
+                tilted[i] = world[i];
+                if (bake.Covered[i] == 0) continue;
+                // A neighbour counts if it is on the model and next to this texel there too.
+                bool Near(int xx, int yy, out int j)
+                {
+                    j = yy * size + xx;
+                    if (xx < 0 || yy < 0 || xx >= size || yy >= size || bake.Covered[j] == 0) return false;
+                    return (bake.Position[j] - bake.Position[i]).LengthSquared() < Gap(bake, i) * Gap(bake, i);
+                }
+                float Slope(int dx, int dy)
+                {
+                    var hasA = Near(x + dx, y + dy, out var a); var hasB = Near(x - dx, y - dy, out var b);
+                    if (!hasA && !hasB) return 0;
+                    var ia = hasA ? a : i; var ib = hasB ? b : i;
+                    var d = (bake.Position[ia] - bake.Position[ib]).Length();
+                    return d > 1e-9f ? (height[ia] - height[ib]) * depth / d : 0;
+                }
+                // Along the tangent (+u: right) and the bitangent (+v: up the picture, so a row above).
+                var su = Slope(1, 0); var sv = Slope(0, -1);
+                if (su == 0 && sv == 0) continue;
+                var n = world[i];
+                var t = bake.Tangent[i] - n * Vector3.Dot(n, bake.Tangent[i]);
+                var bt = bake.Bitangent[i] - n * Vector3.Dot(n, bake.Bitangent[i]);
+                tilted[i] = Vector3.Normalize(n - t * su - bt * sv);
+            }
+        });
+        Array.Copy(tilted, world, world.Length);
+    }
+
+    /// <summary>How far a texel's neighbour may be on the model (more is another chart): a few texels' worth.</summary>
+    private static float Gap(ForgeBake bake, int i) => (bake.BoundsMax - bake.BoundsMin).Length() / bake.Size * 6;
 
     /// <summary>Where one layer shows (its mask times its opacity), 0–255 a texel: for looking at it on the model.</summary>
     public static byte[] Mask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures = null) =>

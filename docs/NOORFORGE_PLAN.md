@@ -192,6 +192,11 @@ painted straight onto the model in any colour, for hand-painted albedo.
   the textured model's tangents fixed: its normal maps' green was turned over (bumps lit from the wrong side, in the
   view and in engines).
 
+- preview.140: the layers' height becomes bumps in the normal map (its slope across the surface, as a painting
+  program turns height into normal detail; Model & bakes › Bumps, 0–4, default 1), so cracks, moss and painted height
+  catch the light; the view's key light comes from above and left of where you look from (the relief reads from every
+  side), with less flat ambient light; Mossy stone's dirt sits in its cracks and its worn edges keep the stone's height.
+
 ### Next (stage 4, second part)
 
 - Blender's other brushes: soften (blur), smear, clone (Ctrl+click for the source), and blend modes (mix, multiply,

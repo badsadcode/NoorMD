@@ -119,6 +119,11 @@ public sealed class ForgeRecipe
     public int AoRays { get; set; } = 24;
     public double AoDistance { get; set; } = 0.25;
     public double EdgeWidth { get; set; } = 0.02;
+    /// <summary>
+    /// How deep the layers' height is, as bumps in the normal map (0: the height map only, as before preview.140;
+    /// 1: the full range of height a hundredth of the model's size deep; up to 4).
+    /// </summary>
+    public double Relief { get; set; } = 1;
     /// <summary>A high-poly model of the same thing (GLB or OBJ), as picked: its detail baked onto the model.</summary>
     public string? HighModel { get; set; }
     /// <summary>How far from the model its surface is looked for, as a share of the model's size.</summary>
@@ -142,7 +147,7 @@ public sealed class ForgeRecipe
         Size = Sizes.Contains(Size) ? Size : 1024;
         Export = ForgeExport.Presets.Any(p => p.Id == Export) ? Export : "godot";
         LodCopies = Math.Clamp(LodCopies, 0, 2);
-        AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2);
+        AoRays = Math.Clamp(AoRays, 0, 256); AoDistance = ForgeMask.C(AoDistance, 0.01, 1); EdgeWidth = ForgeMask.C(EdgeWidth, 0, 0.2); Relief = ForgeMask.C(Relief, 0, 4);
         HighDistance = ForgeMask.C(HighDistance, 0.001, 0.5);
         if (HighModel != null && (HighModel.Length > 1000 || HighModel.Any(char.IsControl) || HighModel.Length == 0)) HighModel = null;
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).Select(l => l.Clamped()).ToList();

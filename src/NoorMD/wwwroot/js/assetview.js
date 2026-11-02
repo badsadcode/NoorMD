@@ -128,7 +128,7 @@ window.NoorAssetView = (() => {
     in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind; in vec4 vCol;
     uniform sampler2D tColor, tNormal, tOrm, tPaint; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint, uHasPaint, uPaintLit, uStudio;
     uniform vec4 uPaint, uBrush; uniform float uBrushHard;
-    uniform vec4 uBase; uniform float uRough, uMetal, uCutoff; uniform vec3 uEye, uSun, uPart, uEmissive;
+    uniform vec4 uBase; uniform float uRough, uMetal, uCutoff; uniform vec3 uEye, uSun, uFill, uPart, uEmissive;
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
     // NoorForge painting: the stroke being painted (a coverage picture in UV space) over the result, and the brush's
@@ -190,7 +190,7 @@ window.NoorAssetView = (() => {
         vec3 F0 = mix(vec3(0.04), albedo, metal), diff = albedo * (1.0 - metal);
         float nv = max(dot(N, V), 1e-3);
         vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
-        vec3 L2 = normalize(vec3(-0.6, 0.25, -0.5)), H2 = normalize(V + L2);
+        vec3 L2 = normalize(uFill), H2 = normalize(V + L2);
         float nl2 = max(dot(N, L2), 0.0);
         float a2 = max(rough * rough, 0.002); a2 *= a2;
         float d1 = dot(N, H) * dot(N, H) * (a2 - 1.0) + 1.0, d2 = dot(N, H2) * dot(N, H2) * (a2 - 1.0) + 1.0;
@@ -201,11 +201,11 @@ window.NoorAssetView = (() => {
         vec3 env = mix(vec3(0.34, 0.32, 0.30), vec3(0.85, 0.9, 0.98), smoothstep(0.5 - blur * 0.5, 0.5 + blur * 0.5, up));
         env += vec3(0.35) * exp(-abs(R.y) * mix(14.0, 2.0, rough)); // a bright horizon
         env += vec3(1.6) * pow(max(dot(R, L), 0.0), mix(400.0, 2.0, rough)) * (1.0 - rough); // the key light's window
-        vec3 amb = mix(vec3(0.20, 0.19, 0.18), vec3(0.42, 0.46, 0.52), N.y * 0.5 + 0.5);
-        col = diff * (amb * ao + vec3(1.0, 0.96, 0.9) * nl * 2.2 + vec3(0.55, 0.62, 0.75) * nl2 * 0.8)
-            + (spec1 * nl * 2.2 + spec2 * nl2 * 0.8) + env * F * ao;
+        vec3 amb = mix(vec3(0.10, 0.10, 0.10), vec3(0.24, 0.26, 0.30), N.y * 0.5 + 0.5);
+        col = diff * (amb * ao + vec3(1.0, 0.96, 0.9) * nl * 2.0 + vec3(0.55, 0.62, 0.75) * nl2 * 0.35)
+            + (spec1 * nl * 2.0 + spec2 * nl2 * 0.35) + env * F * ao;
         if (uMode == 0) col += uEmissive * 1.4;
-        col *= 0.9;
+        col *= 0.85;
         col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0); // ACES (Narkowicz)
       } else {
         col = albedo * (sky * 0.75 * ao + vec3(1.0, 0.95, 0.85) * (nl + back) * 1.35) + vec3(spec) * nl;
@@ -466,7 +466,14 @@ window.NoorAssetView = (() => {
       if (!scene) return;
       gl.useProgram(main.p);
       gl.uniformMatrix4fv(main.u.uView, false, view); gl.uniformMatrix4fv(main.u.uProj, false, proj);
-      gl.uniform3fv(main.u.uEye, eye); gl.uniform3fv(main.u.uSun, [0.45, 0.8, 0.4]);
+      gl.uniform3fv(main.u.uEye, eye);
+      if (studio) {
+        // Look-dev: the key light comes from above and left of where you look from, the fill from the right (as a
+        // painting program's default), so the relief reads from every side as you turn the model.
+        const f = norm([target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]]), r = norm(cross(f, [0, 1, 0])), u = cross(r, f);
+        const at = (a, b, c) => norm([r[0] * a + u[0] * b - f[0] * c, r[1] * a + u[1] * b - f[1] * c, r[2] * a + u[2] * b - f[2] * c]);
+        gl.uniform3fv(main.u.uSun, at(-0.6, 0.7, 0.45)); gl.uniform3fv(main.u.uFill, at(0.8, -0.05, 0.35));
+      } else gl.uniform3fv(main.u.uSun, [0.45, 0.8, 0.4]);
       gl.uniform1f(main.u.uTime, time); gl.uniform1f(main.u.uWind, wind); gl.uniform1f(main.u.uHeight, height);
       gl.uniform1i(main.u.uWindFrom, scene.windFrom); gl.uniform3fv(main.u.uWindDir, windDir);
       gl.uniform1i(main.u.uMode, mode);

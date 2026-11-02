@@ -68,7 +68,7 @@ window.NoorForge = (() => {
     if (!recipe) {
       const size = lists.sizes.includes(settings.size) ? settings.size : 1024;
       const exportFor = !lists.exports || lists.exports.some((x) => x.id === settings.export) ? settings.export : 'godot';
-      setRecipe({ version: 1, name: 'Textured model', model: null, size, export: exportFor, aoRays: settings.aoRays, aoDistance: 0.25, edgeWidth: 0.02, layers: smartLayers(settings.smart) }, true);
+      setRecipe({ version: 1, name: 'Textured model', model: null, size, export: exportFor, aoRays: settings.aoRays, aoDistance: 0.25, edgeWidth: 0.02, relief: 1, layers: smartLayers(settings.smart) }, true);
     }
     $('#forgebench').focus({ preventScroll: true });
   }
@@ -87,6 +87,7 @@ window.NoorForge = (() => {
   function setRecipe(r, fresh) {
     if (!fresh && recipe) pushHistory();
     recipe = r;
+    if (recipe && typeof recipe.relief !== 'number') recipe.relief = 1; // recipes from before bumps from height
     ensureIds();
     if (fresh) { history.length = 0; future = []; selected = recipe.layers.length - 1; } // the top layer, as in a painting program
     selected = Math.max(0, Math.min(recipe.layers.length - 1, selected));
@@ -506,6 +507,9 @@ window.NoorForge = (() => {
         slider(recipe, 'aoRays', 'Ambient occlusion rays (more: smoother, slower)', 0, 128, 1),
         slider(recipe, 'aoDistance', 'How far occlusion reaches (share of the model)', 0.01, 1, 0.01),
         slider(recipe, 'edgeWidth', 'How wide edges and creases are (share of the model)', 0, 0.2, 0.002)),
+      el('h4', { class: 'music-subhead', text: 'Bumps' }),
+      el('div', { class: 'sb-fields' },
+        slider(recipe, 'relief', 'Height as bumps in the normal map (0: none; 1: the full height a hundredth of the model deep)', 0, 4, 0.05)),
     ];
   }
 
