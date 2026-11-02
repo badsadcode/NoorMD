@@ -177,7 +177,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Hide / show all / hide others | H / Alt+H / Shift+H |
 | Rename | F2 |
 | Join (into the active one) | Ctrl+J |
-| Place the 3D cursor / snap menu / cursor to the origin and frame everything | Shift+right-click / Shift+S / Shift+C |
+| Place the 3D cursor (drag: slide it over the surface) / snap menu / cursor to the origin and frame everything | Shift+right-click / Shift+S / Shift+C |
 | Pivot point menu (median, 3D cursor, individual origins, active) | . |
 | Turn / move / zoom the view | Middle-drag (or Alt+drag) / Shift+middle-drag / wheel or Ctrl+middle-drag |
 | Front / right / top (Ctrl: the other side), perspective | Numpad 1 / 3 / 7, Numpad 5 |

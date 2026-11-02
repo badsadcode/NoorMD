@@ -26,9 +26,26 @@ public sealed class MeshData
     public Vector3 Vertex(int i) => new(V[i * 3], V[i * 3 + 1], V[i * 3 + 2]);
 }
 
+/// <summary>
+/// A picture a material uses: packed (kept inside the .noormesh file) or linked (a path to a file beside it, read when the
+/// scene opens; Missing when it isn't there). Data is the picture's bytes (base64) on the way to and from the page.
+/// </summary>
+public sealed class MeshTexture
+{
+    public string Id { get; set; } = "t1";
+    public string Name { get; set; } = "Texture";
+    public string? Path { get; set; }
+    public bool Packed { get; set; }
+    public string? Data { get; set; }
+    public string? Mime { get; set; }
+    public bool Missing { get; set; }
+}
+
 /// <summary>A material of the scene (as glTF's metallic-roughness): base colour (linear RGBA 0–1), roughness, metallic.</summary>
 public sealed class MeshMaterial
 {
+    /// <summary>Its base colour picture (a texture's id), multiplied by the colour, as glTF does.</summary>
+    public string? Texture { get; set; }
     public string Id { get; set; } = "m1";
     public string Name { get; set; } = "Material";
     public float[] Color { get; set; } = [0.8f, 0.8f, 0.8f, 1];
@@ -66,6 +83,8 @@ public sealed class MeshDoc
     public int Version { get; set; } = CurrentVersion;
     public List<MeshObject> Objects { get; set; } = [];
     public List<MeshMaterial>? Materials { get; set; }
+    public List<MeshTexture>? Textures { get; set; }
+    public const long MaxTextureBytes = 64L * 1024 * 1024;
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
 
@@ -99,6 +118,20 @@ public sealed class MeshDoc
             mt.Roughness = float.IsFinite(mt.Roughness) ? Math.Clamp(mt.Roughness, 0, 1) : 0.5f;
             mt.Metallic = float.IsFinite(mt.Metallic) ? Math.Clamp(mt.Metallic, 0, 1) : 0;
         }
+        // Textures: ids unique, pictures within the size limit and really base64; a material's map pointing at none dropped.
+        var texIds = new HashSet<string>(StringComparer.Ordinal);
+        Textures = (Textures ?? []).Take(1000).Where(x => x != null).ToList();
+        foreach (var t in Textures)
+        {
+            if (string.IsNullOrWhiteSpace(t.Id) || !texIds.Add(t.Id)) { var n = 1; while (!texIds.Add($"t{n}")) n++; t.Id = $"t{n}"; }
+            t.Name = string.IsNullOrWhiteSpace(t.Name) ? "Texture" : t.Name.Trim()[..Math.Min(128, t.Name.Trim().Length)];
+            if (t.Path is { Length: > 2000 }) t.Path = null;
+            if (t.Data != null && (t.Data.Length > MaxTextureBytes * 4 / 3 + 4 || !Convert.TryFromBase64String(t.Data, new byte[t.Data.Length], out _))) { t.Data = null; }
+            if (t.Mime is not ("image/png" or "image/jpeg" or "image/webp" or "image/bmp")) t.Mime = t.Data != null ? "image/png" : null;
+            if (!t.Packed && string.IsNullOrEmpty(t.Path)) t.Packed = true;
+        }
+        foreach (var mt in Materials) if (mt.Texture != null && !texIds.Contains(mt.Texture)) mt.Texture = null;
+        if (Textures.Count == 0) Textures = null;
         if (Materials.Count == 0) Materials = null;
         var ids = new HashSet<string>(StringComparer.Ordinal);
         foreach (var o in Objects)
@@ -130,14 +163,29 @@ public sealed class MeshDoc
     public byte[] ToFile()
     {
         using var ms = new MemoryStream();
-        using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
+        // Packed pictures go into the zip as files of their own (textures/<id>.png …); linked ones keep only their path.
+        var kept = (Textures ?? []).Select(t => (t, t.Data, t.Missing)).ToList();
+        try
         {
+            using var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true);
+            foreach (var (t, data, _) in kept)
+            {
+                if (t.Packed && data != null)
+                {
+                    var ext = t.Mime switch { "image/jpeg" => ".jpg", "image/webp" => ".webp", "image/bmp" => ".bmp", _ => ".png" };
+                    var te = zip.CreateEntry($"textures/{SafeId(t.Id)}{ext}", CompressionLevel.NoCompression);
+                    using var ts = te.Open(); var bytes = Convert.FromBase64String(data); ts.Write(bytes, 0, bytes.Length);
+                }
+                t.Data = null; t.Missing = false;
+            }
             var e = zip.CreateEntry("scene.json", CompressionLevel.Optimal);
             using var w = new StreamWriter(e.Open(), new UTF8Encoding(false));
             w.Write(ToJson());
         }
+        finally { foreach (var (t, data, missing) in kept) { t.Data = data; t.Missing = missing; } }
         return ms.ToArray();
     }
+    private static string SafeId(string id) => new(id.Where(c => char.IsAsciiLetterOrDigit(c) || c == '_' || c == '-').Take(40).ToArray());
 
     public static MeshDoc FromFile(byte[] data)
     {
@@ -146,12 +194,27 @@ public sealed class MeshDoc
             using var zip = new ZipArchive(new MemoryStream(data), ZipArchiveMode.Read);
             var e = zip.GetEntry("scene.json") ?? throw new InvalidDataException("That isn't a NoorMesh file (no scene inside).");
             if (e.Length > MaxFileBytes) throw new InvalidDataException("That NoorMesh file is too big.");
-            using var r = new StreamReader(e.Open(), Encoding.UTF8);
-            return FromJson(r.ReadToEnd());
+            string json;
+            using (var r = new StreamReader(e.Open(), Encoding.UTF8)) json = r.ReadToEnd();
+            var doc = FromJson(json);
+            foreach (var t in doc.Textures ?? [])
+            {
+                if (!t.Packed) continue;
+                var te = zip.Entries.FirstOrDefault(x => x.FullName.StartsWith($"textures/{SafeId(t.Id)}.", StringComparison.Ordinal));
+                if (te == null) { t.Missing = true; continue; }
+                if (te.Length > MaxTextureBytes) throw new InvalidDataException("A picture in that NoorMesh file is too big.");
+                using var s2 = te.Open(); using var buf = new MemoryStream(); s2.CopyTo(buf);
+                t.Data = Convert.ToBase64String(buf.ToArray());
+                t.Mime = MimeOf(te.Name);
+            }
+            return doc;
         }
         catch (InvalidDataException) { throw; }
         catch (Exception ex) when (ex is IOException or NotSupportedException) { throw new InvalidDataException("That isn't a NoorMesh file: " + ex.Message); }
     }
+
+    public static string MimeOf(string name) => System.IO.Path.GetExtension(name).ToLowerInvariant() switch { ".jpg" or ".jpeg" => "image/jpeg", ".webp" => "image/webp", ".bmp" => "image/bmp", _ => "image/png" };
+    private static bool IsPng(byte[] b) => b.Length > 8 && b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47;
 
     // ------------------------------------------------------------------ geometry helpers
 
@@ -219,7 +282,11 @@ public sealed class MeshDoc
         foreach (var mt in Materials ?? [])
         {
             index[mt.Id] = asset.Materials.Count;
-            asset.Materials.Add(new Material3D { Name = mt.Name, BaseColor = new Vector4(mt.Color[0], mt.Color[1], mt.Color[2], mt.Color[3]), Roughness = mt.Roughness, Metallic = mt.Metallic, Alpha = mt.Color[3] < 0.999f ? "blend" : "opaque" });
+            // Its picture (PNG; the page sends every picture as PNG for export), multiplied by the colour as glTF does.
+            var tex = mt.Texture == null ? null : Textures?.FirstOrDefault(t => t.Id == mt.Texture);
+            byte[]? png = null;
+            if (tex?.Data != null) { try { var b = Convert.FromBase64String(tex.Data); if (IsPng(b)) png = b; } catch (FormatException) { } }
+            asset.Materials.Add(new Material3D { Name = mt.Name, BaseColor = new Vector4(mt.Color[0], mt.Color[1], mt.Color[2], mt.Color[3]), Roughness = mt.Roughness, Metallic = mt.Metallic, Alpha = mt.Color[3] < 0.999f ? "blend" : "opaque", BaseColorPng = png });
         }
         var plain = -1;
         int Plain() { if (plain < 0) { plain = asset.Materials.Count; asset.Materials.Add(new Material3D { Name = "Material", BaseColor = new Vector4(0.8f, 0.8f, 0.8f, 1), Roughness = 0.6f, Metallic = 0 }); } return plain; }
@@ -269,7 +336,8 @@ public sealed class MeshDoc
         var gltf = GltfReader.Read(data);
         var doc = new MeshDoc();
         // The file's materials (and a plain one for primitives without), each object's slots its primitives' materials.
-        var mats = gltf.Materials.Select((mt, i) => new MeshMaterial { Id = $"g{i + 1}", Name = mt.Name, Color = [mt.Color.X, mt.Color.Y, mt.Color.Z, mt.Color.W], Roughness = mt.Roughness, Metallic = mt.Metallic }).ToList();
+        var mats = gltf.Materials.Select((mt, i) => new MeshMaterial { Id = $"g{i + 1}", Name = mt.Name, Color = [mt.Color.X, mt.Color.Y, mt.Color.Z, mt.Color.W], Roughness = mt.Roughness, Metallic = mt.Metallic, Texture = mt.Image != null ? $"gt{i + 1}" : null }).ToList();
+        var texs = gltf.Materials.Select((mt, i) => (mt, i)).Where(x => x.mt.Image != null).Select(x => new MeshTexture { Id = $"gt{x.i + 1}", Name = $"{x.mt.Name} colour", Packed = true, Data = Convert.ToBase64String(x.mt.Image!), Mime = x.mt.Mime }).ToList();
         string MatId(int i) { if (i >= 0 && i < mats.Count) return mats[i].Id; var p = mats.FirstOrDefault(x => x.Id == "g0"); if (p == null) { p = new MeshMaterial { Id = "g0", Name = "Material" }; mats.Add(p); } return p.Id; }
         var n = 0;
         foreach (var node in gltf.Nodes)
@@ -313,6 +381,7 @@ public sealed class MeshDoc
         }
         if (doc.Objects.Count == 0) throw new InvalidDataException("That GLB has no meshes NoorMesh can read (triangles).");
         if (gltf.Materials.Count > 0) doc.Materials = mats;
+        if (texs.Count > 0) doc.Textures = texs;
         return doc.Checked();
     }
 
@@ -484,7 +553,7 @@ internal static class GltfReader
 {
     public sealed record Prim(Vector3[] Positions, Vector3[]? Normals, Vector2[]? Uvs, int[] Indices, int Material = -1);
     public sealed record Node(string Name, double[] World, List<Prim>? Mesh);
-    public sealed record Mat(string Name, Vector4 Color, float Roughness, float Metallic);
+    public sealed record Mat(string Name, Vector4 Color, float Roughness, float Metallic, byte[]? Image = null, string? Mime = null);
     public sealed record Gltf(List<Node> Nodes, List<Mat> Materials);
 
     public static Gltf Read(byte[] data)
@@ -599,7 +668,18 @@ internal static class GltfReader
                     if (pbr.TryGetProperty("roughnessFactor", out var rf)) r = rf.GetSingle();
                     if (pbr.TryGetProperty("metallicFactor", out var mf)) mtl = mf.GetSingle();
                 }
-                mats.Add(new Mat(mt.TryGetProperty("name", out var mn) ? mn.GetString() ?? "Material" : "Material", c, r, mtl));
+                // Its base colour picture, when it is kept inside the GLB (a buffer view, not another file).
+                byte[]? img = null; string? mime = null;
+                if (mt.TryGetProperty("pbrMetallicRoughness", out var pbr2) && pbr2.TryGetProperty("baseColorTexture", out var bct) && bct.TryGetProperty("index", out var ti)
+                    && root.TryGetProperty("textures", out var texs) && ti.GetInt32() >= 0 && ti.GetInt32() < texs.GetArrayLength() && texs[ti.GetInt32()].TryGetProperty("source", out var src)
+                    && root.TryGetProperty("images", out var imgs) && src.GetInt32() >= 0 && src.GetInt32() < imgs.GetArrayLength() && imgs[src.GetInt32()].TryGetProperty("bufferView", out var ibv))
+                {
+                    var bv = Arr("bufferViews")[ibv.GetInt32()];
+                    var off = binStart + (bv.TryGetProperty("byteOffset", out var bo2) ? bo2.GetInt32() : 0);
+                    var ln = bv.GetProperty("byteLength").GetInt32();
+                    if (ln > 0 && ln <= MeshDoc.MaxTextureBytes && off >= binStart && off + (long)ln <= binStart + binLen) { img = data.AsSpan(off, ln).ToArray(); mime = imgs[src.GetInt32()].TryGetProperty("mimeType", out var mm) ? mm.GetString() : "image/png"; }
+                }
+                mats.Add(new Mat(mt.TryGetProperty("name", out var mn) ? mn.GetString() ?? "Material" : "Material", c, r, mtl, img, mime));
             }
         return new Gltf(nodes, mats);
     }

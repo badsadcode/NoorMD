@@ -57,6 +57,35 @@ public class MeshDocTests
         Assert.Equal(["m1"], c.Objects[0].Materials); Assert.Equal([1f, 0f, 0.5f, 1f], c.Materials![0].Color); Assert.Equal(1f, c.Materials[0].Roughness);
     }
 
+    private static string Png8() { var px = new byte[8 * 8 * 4]; for (var i = 0; i < 64; i++) { px[i * 4] = (byte)(i * 4); px[i * 4 + 3] = 255; } return Convert.ToBase64String(NoorMD.Media.PngWriter.Rgba(8, 8, px)); }
+
+    [Fact]
+    public void Packed_pictures_go_inside_the_file_linked_ones_by_path_and_glb_carries_them()
+    {
+        var doc = Scene();
+        var png = Png8();
+        doc.Textures = [new MeshTexture { Id = "t1", Name = "bricks.png", Packed = true, Data = png, Mime = "image/png" }, new MeshTexture { Id = "t2", Name = "far.png", Path = @"C:\Textures\far.png", Packed = false, Data = png }];
+        doc.Materials = [new MeshMaterial { Id = "m1", Name = "Bricks", Texture = "t1" }, new MeshMaterial { Id = "m2", Name = "Far", Texture = "t2" }];
+        doc.Objects[0].Materials = ["m1", "m2"]; doc.Objects[0].Mesh.F[4].M = 1;
+        var bytes = doc.ToFile();
+        Assert.Equal(png, doc.Textures[0].Data); // the scene in memory keeps its pictures
+        var back = MeshDoc.FromFile(bytes);
+        Assert.Equal(png, back.Textures!.First(t => t.Id == "t1").Data);           // packed: inside the zip
+        var far = back.Textures!.First(t => t.Id == "t2");
+        Assert.Null(far.Data); Assert.Equal(@"C:\Textures\far.png", far.Path); // linked: only its path
+        Assert.Equal("t1", back.Materials![0].Texture);
+        using (var zip = new System.IO.Compression.ZipArchive(new MemoryStream(bytes)))
+            Assert.Contains(zip.Entries, e => e.FullName == "textures/t1.png");
+        // GLB: the pictures go in (as glTF images) and come back as packed textures on the materials.
+        var glb = MeshDoc.FromGlb(doc.ToGlb());
+        Assert.Equal(2, glb.Textures!.Count);
+        Assert.All(glb.Textures, t => { Assert.True(t.Packed); Assert.Equal(png, t.Data); });
+        Assert.All(glb.Materials!, m => Assert.NotNull(m.Texture));
+        // A material pointing at a picture that isn't there loses the link.
+        var c = MeshDoc.FromJson("{\"format\":\"noormesh\",\"materials\":[{\"id\":\"m1\",\"texture\":\"nope\"}],\"objects\":[]}");
+        Assert.Null(c.Materials![0].Texture);
+    }
+
     [Fact]
     public void Broken_scenes_are_refused_and_newer_ones_explained()
     {

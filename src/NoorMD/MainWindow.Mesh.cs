@@ -52,6 +52,19 @@ public partial class MainWindow
         try
         {
             var doc = MeshDoc.FromFile(File.ReadAllBytes(path));
+            // Linked pictures: the files the scene names (read because the scene names them); missing ones marked.
+            foreach (var t in doc.Textures ?? [])
+            {
+                if (t.Packed || string.IsNullOrEmpty(t.Path)) continue;
+                try
+                {
+                    var tp = Path.IsPathRooted(t.Path) ? t.Path : Path.Combine(Path.GetDirectoryName(path) ?? "", t.Path);
+                    var fi = new FileInfo(tp);
+                    if (!fi.Exists || fi.Length > MeshDoc.MaxTextureBytes) { t.Missing = true; continue; }
+                    t.Data = Convert.ToBase64String(File.ReadAllBytes(fi.FullName)); t.Mime = MeshDoc.MimeOf(fi.Name); t.Missing = false;
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException) { t.Missing = true; }
+            }
             AddMeshRecent(path);
             return new { doc = MeshDocOut(doc), path, name = Path.GetFileName(path) };
         }
@@ -70,6 +83,17 @@ public partial class MainWindow
                 if (dlg.ShowDialog(this) != true) return new { cancelled = true };
                 var path = dlg.FileName;
                 return await Task.Run(() => MeshOpenPath(path));
+            }
+            case "mesh.pickTexture":
+            {
+                // A picture for a material, chosen here (only a file you choose is read).
+                var dlg = new OpenFileDialog { Title = Tr.T("Choose a picture for the material"), Filter = Tr.T("Pictures (*.png;*.jpg;*.jpeg;*.webp;*.bmp)|*.png;*.jpg;*.jpeg;*.webp;*.bmp"), CheckFileExists = true };
+                NativeCursor.Restore();
+                if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                var fi = new FileInfo(dlg.FileName);
+                if (fi.Length > MeshDoc.MaxTextureBytes) throw new BridgeError("That picture is too big for a material.");
+                var bytes = await File.ReadAllBytesAsync(fi.FullName);
+                return new { name = fi.Name, path = fi.FullName, data = Convert.ToBase64String(bytes), mime = MeshDoc.MimeOf(fi.Name) };
             }
             case "mesh.recent":
                 return new { files = MeshRecent().Where(File.Exists).Select(f => new { path = f, name = Path.GetFileName(f) }).ToList() };

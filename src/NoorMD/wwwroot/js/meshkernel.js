@@ -169,6 +169,8 @@
       for (const i of f.v) { vn[i * 3] += n[0] * area; vn[i * 3 + 1] += n[1] * area; vn[i * 3 + 2] += n[2] * area; }
     });
     mesh.f.forEach((f, fi) => { for (const t of triangulateFace(mesh, f)) tris.push([fi, t]); });
+    // Grouped by material slot (each group drawn with its own material and picture).
+    tris.sort((p, q) => (mesh.f[p[0]].m || 0) - (mesh.f[q[0]].m || 0));
     const count = tris.length * 3;
     const pos = new Float32Array(count * 3), nor = new Float32Array(count * 3), uv = new Float32Array(count * 2), mats = new Float32Array(count), face = new Int32Array(tris.length);
     const m = matrix || null;
@@ -193,7 +195,9 @@
     const es = edges(mesh);
     const lines = new Float32Array(es.length * 6);
     es.forEach((e, k) => { lines.set(tp(vert(mesh, e.a)), k * 6); lines.set(tp(vert(mesh, e.b)), k * 6 + 3); });
-    return { positions: pos, normals: nor, uvs: uv, mats, faceOfTriangle: face, lines, triangles: tris.length };
+    const groups = [];
+    tris.forEach(([fi], ti) => { const m = mesh.f[fi].m || 0, g = groups[groups.length - 1]; if (g && g.m === m) g.count += 3; else groups.push({ m, first: ti * 3, count: 3 }); });
+    return { positions: pos, normals: nor, uvs: uv, mats, groups, faceOfTriangle: face, lines, triangles: tris.length };
   }
 
   function bounds(mesh, matrix) {

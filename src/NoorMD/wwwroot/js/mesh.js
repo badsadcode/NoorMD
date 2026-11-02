@@ -16,6 +16,9 @@ window.NoorMesh = (() => {
   // Materials (B2): the scene's, each { id, name, color: [r, g, b, a] 0–1, rough, metal }; an object's slots (o.mats: ids)
   // say which a face uses (its m: the slot), as Blender's material slots.
   let materials = [], nextMat = 1;
+  // Pictures materials use: { id, name, path (linked), packed, data (base64), mime, missing }; ids never reused, so undo is safe.
+  let textures = [], nextTex = 1;
+  let cursorDrag = false;
   let history = [], future = [];
   let op = null;           // a transform under way (G, R, S)
   let lastAdd = null;      // the last primitive added, its settings still adjustable
@@ -78,7 +81,7 @@ window.NoorMesh = (() => {
   const sel = () => objects.filter((o) => selected.has(o.id) && !o.hidden);
 
   // ---------------------------------------------------------------- history (a scene per step; meshes by reference)
-  const snapshot = () => ({ materials: materials.map((m) => ({ ...m, color: m.color.slice() })), objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel), multi: multi && { ids: multi.ids.slice() } });
+  const snapshot = () => ({ textures: textures.slice(), materials: materials.map((m) => ({ ...m, color: m.color.slice() })), objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel), multi: multi && { ids: multi.ids.slice() } });
   function pushHistory() { history.push(snapshot()); if (history.length > 200) history.shift(); future = []; changed(); }
   /** Something changed: the title shows it, and a draft is kept a few seconds later (to bring back after a crash). */
   function changed() {
@@ -93,6 +96,7 @@ window.NoorMesh = (() => {
     objects = s.objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })); selected = new Set(s.selected); active = s.active; nextId = Math.max(nextId, s.nextId); lastAdd = null;
     mode = s.mode || 'object'; editSel = s.editSel ? K().cloneSelection(s.editSel) : null;
     if (s.materials) materials = s.materials.map((m) => ({ ...m, color: m.color.slice() }));
+    if (s.textures) textures = s.textures.slice();
     multi = s.multi && mode === 'edit' ? { ids: s.multi.ids.slice() } : null;
     if (mode === 'edit' && !editing()) { mode = 'object'; editSel = null; }
     syncAll(); renderAll();
@@ -1706,12 +1710,14 @@ window.NoorMesh = (() => {
         e.preventDefault(); return;
       }
     }
-    if (e.button === 2 && e.shiftKey) { placeCursor(e.clientX, e.clientY); e.preventDefault(); return; }
+    if (e.button === 2 && e.shiftKey) { placeCursor(e.clientX, e.clientY); cursorDrag = true; e.preventDefault(); return; }
     if (e.button === 0) box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, moved: false };
     if (e.button === 2) box = { menu: true, x0: e.clientX, y0: e.clientY };
   }
   function onMove(e) {
     mouse = { x: e.clientX, y: e.clientY };
+    // Shift+right-drag: the cursor slides over the surface (as Blender's).
+    if (cursorDrag) { if (e.buttons & 2) { placeCursor(e.clientX, e.clientY); return; } cursorDrag = false; }
     op && (op.ctrl = e.ctrlKey);
     if (op && op.mmb) pickAxis();
     if (op) { updateOp(); return; }
@@ -1723,6 +1729,7 @@ window.NoorMesh = (() => {
     }
   }
   function onUp(e) {
+    if (cursorDrag && e.button === 2) { cursorDrag = false; return; }
     if (op && op.drag && e.button === 0) { confirmOp(); return; }
     if (op && op.mmb && e.button === 1) {
       if (!op.mmb.moved) op.axis = null;
@@ -1833,22 +1840,29 @@ window.NoorMesh = (() => {
 
   // ---------------------------------------------------------------- files: .noormesh, GLB and OBJ (A4)
   /** The scene as the app keeps it (MeshDoc's JSON). */
-  function docOut() {
+  function docOut(forExport = false) {
     // Several objects in Edit Mode together: saved as they will be when it ends (each its own mesh).
     const parts = multi && mode === 'edit' ? splitMulti() : null;
     const meshOf = (o) => (parts && parts.has(o.id) ? parts.get(o.id) : o.mesh);
     const used = new Set(objects.flatMap((o) => o.mats || []));
-    return { format: 'noormesh', version: 1, materials: materials.filter((m) => used.has(m.id)).map((m) => ({ id: m.id, name: m.name, color: m.color, roughness: m.rough, metallic: m.metal })),
+    const usedMats = materials.filter((m) => used.has(m.id)), usedTex = new Set(usedMats.map((m) => m.tex).filter(Boolean));
+    // Packed pictures go with the scene; linked ones by their path (and, for an export, their pixels too).
+    const texOut = textures.filter((t) => usedTex.has(t.id)).map((t) => ({ id: t.id, name: t.name, path: t.path || null, packed: !!t.packed, data: t.packed || forExport ? t.data : null, mime: t.mime }));
+    return { format: 'noormesh', version: 1, textures: texOut, materials: usedMats.map((m) => ({ id: m.id, name: m.name, color: m.color, roughness: m.rough, metallic: m.metal, texture: m.tex || null })),
       objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t, r: o.r, s: o.s, hidden: !!o.hidden, materials: (o.mats || []).slice(),
       mesh: { v: meshOf(o).v, f: meshOf(o).f.map((f) => ({ v: f.v, uv: f.uv || null, m: f.m || 0, s: !!f.s })), e: meshOf(o).e || {} } })) };
   }
   /** Objects from a scene the app read: given ids of their own, meshes in the page's shape. */
   function objectsIn(doc) {
     // The file's materials added to the scene (ids of their own), its objects' slots pointed at them.
-    const idMap = new Map();
+    const idMap = new Map(), texMap = new Map();
+    for (const t of doc.textures || []) {
+      const nt = { id: `t${nextTex++}`, name: String(t.name || 'Texture').slice(0, 128), path: t.path || '', packed: !!t.packed, data: t.data || null, mime: t.mime || 'image/png', missing: !!t.missing || (!t.data) };
+      texMap.set(t.id, nt.id); textures.push(nt); loadTexture(nt);
+    }
     for (const m of doc.materials || []) {
       const c = Array.isArray(m.color) ? m.color : [0.8, 0.8, 0.8, 1];
-      const nm = { id: `m${nextMat++}`, name: String(m.name || 'Material').slice(0, 64), color: [0, 1, 2, 3].map((k) => (Number.isFinite(c[k]) ? Math.min(1, Math.max(0, c[k])) : k === 3 ? 1 : 0.8)), rough: Number.isFinite(m.roughness) ? m.roughness : 0.5, metal: Number.isFinite(m.metallic) ? m.metallic : 0 };
+      const nm = { id: `m${nextMat++}`, name: String(m.name || 'Material').slice(0, 64), color: [0, 1, 2, 3].map((k) => (Number.isFinite(c[k]) ? Math.min(1, Math.max(0, c[k])) : k === 3 ? 1 : 0.8)), rough: Number.isFinite(m.roughness) ? m.roughness : 0.5, metal: Number.isFinite(m.metallic) ? m.metallic : 0, tex: (m.texture && texMap.get(m.texture)) || null };
       idMap.set(m.id, nm.id); materials.push(nm);
     }
     return (doc.objects || []).map((o) => ({ id: `o${nextId++}`, name: uniqueName(o.name || 'Object'), kind: o.kind || 'mesh', t: (o.t || [0, 0, 0]).slice(), r: (o.r || [0, 0, 0]).slice(), s: (o.s || [1, 1, 1]).slice(), hidden: !!o.hidden,
@@ -1859,6 +1873,8 @@ window.NoorMesh = (() => {
     cancelOp();
     mode = 'object'; editSel = null; lastAdd = null; multi = null;
     objects = []; nextId = 1; materials = []; nextMat = 1;
+    if (view) textures.forEach((t) => view.setTexture(t.id, null));
+    textures = [];
     objects = objectsIn(doc);
     selected = new Set(objects.length ? [objects[objects.length - 1].id] : []); active = objects.length ? objects[objects.length - 1].id : null;
     history = []; future = [];
@@ -1921,7 +1937,7 @@ window.NoorMesh = (() => {
   async function exportAs(format) {
     cancelOp();
     try {
-      const r = await req('mesh.export', { doc: docOut(), format, name: (file.name || 'scene').replace(/\.noormesh$/i, '') });
+      const r = await req('mesh.export', { doc: docOut(true), format, name: (file.name || 'scene').replace(/\.noormesh$/i, '') });
       if (!r || r.cancelled) return;
       setStatus(`Exported ${r.name} (+Y up, as engines and Blender's importer expect)`);
     } catch (err) { hooks.showError(err); } finally { keepFocus(); }
@@ -1990,7 +2006,7 @@ window.NoorMesh = (() => {
   /** How each of an object's slots draws (null: no slots, the plain grey). */
   function slotLooks(o) {
     if (!o.mats || !o.mats.length) return null;
-    return o.mats.map((id) => { const m = matById(id) || { color: [0.8, 0.8, 0.8, 1], rough: 0.5, metal: 0 }; return { base: m.color.slice(0, 3), rough: m.rough, metal: m.metal }; });
+    return o.mats.map((id) => { const m = matById(id) || { color: [0.8, 0.8, 0.8, 1], rough: 0.5, metal: 0 }; return { base: m.color.slice(0, 3), rough: m.rough, metal: m.metal, tex: m.tex || null }; });
   }
   /** Another object's slots into a target's (added to its slots where missing): old slot → new slot. */
   function slotRemap(target, o) {
@@ -2051,6 +2067,56 @@ window.NoorMesh = (() => {
     editSel = K().selectionFromFaces(o.mesh, [...next], editSel.mode);
     syncEdit(); renderAll();
   }
+  /** A picture shown in the view: decoded, turned into PNG (what GLB export writes), handed to the view. */
+  function loadTexture(t) {
+    if (!t.data) return;
+    const img = new Image();
+    img.onload = () => {
+      if (t.mime !== 'image/png') {
+        try { const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight; c.getContext('2d').drawImage(img, 0, 0); t.data = c.toDataURL('image/png').split(',')[1]; t.mime = 'image/png'; } catch { /* kept as it is */ }
+      }
+      t.w = img.naturalWidth; t.h = img.naturalHeight;
+      if (view) view.setTexture(t.id, img);
+      renderProps();
+    };
+    img.onerror = () => { t.missing = true; renderProps(); };
+    img.src = `data:${t.mime || 'image/png'};base64,${t.data}`;
+  }
+  /** A picture chosen for a material's base colour (linked to its file; Pack keeps it in the scene). */
+  async function pickTexture(m) {
+    try {
+      const r = await req('mesh.pickTexture');
+      if (!r || r.cancelled) return;
+      pushHistory();
+      const t = { id: `t${nextTex++}`, name: r.name, path: r.path || '', packed: false, data: r.data, mime: r.mime || 'image/png', missing: false };
+      textures = [...textures, t];
+      m.tex = t.id;
+      loadTexture(t);
+      syncAll(); renderProps();
+      setStatus(`${r.name} on ${m.name} (linked; Pack keeps it inside the scene).`);
+    } catch (err) { hooks.showError(err); } finally { keepFocus(); }
+  }
+  function texPanel(m) {
+    const t = m.tex ? textures.find((x) => x.id === m.tex) : null;
+    if (!t) return el('div', { class: 'nm-prims' }, el('button', { class: 'utility-btn', id: 'nm-tex-open', title: 'A picture for the base colour (multiplied by the colour)', onclick: () => pickTexture(m) }, '🖼 Base colour map…'));
+    const setPacked = (on) => { pushHistory(); textures = textures.map((x) => (x.id === t.id ? { ...x, packed: on } : x)); renderProps(); keepFocus(); setStatus(on ? `${t.name} packed into the scene.` : `${t.name} linked to its file again.`); };
+    return el('div', { class: 'nm-tex' },
+      el('p', { class: 'pref-hint', id: 'nm-tex-info', text: `🖼 ${t.name}${t.w ? ` · ${t.w}×${t.h}` : ''} · ${t.missing ? '⚠ missing' : t.packed ? 'packed' : 'linked'}${!t.packed && t.path ? ` · ${t.path}` : ''}` }),
+      el('div', { class: 'nm-prims' },
+        el('button', { class: 'utility-btn', id: 'nm-tex-replace', title: t.missing ? 'Find the picture again' : 'Another picture', onclick: () => pickTexture(m) }, t.missing ? 'Relink…' : 'Replace…'),
+        t.packed ? el('button', { class: 'utility-btn', id: 'nm-tex-unpack', title: 'Keep only the link to its file', disabled: !t.path, onclick: () => setPacked(false) }, 'Unpack') : el('button', { class: 'utility-btn', id: 'nm-tex-pack', title: 'Keep the picture inside the scene file', disabled: !t.data, onclick: () => setPacked(true) }, 'Pack'),
+        el('button', { class: 'utility-btn', id: 'nm-tex-remove', title: 'No picture on this material', onclick: () => { pushHistory(); m.tex = null; syncAll(); renderProps(); keepFocus(); } }, 'Remove')));
+  }
+
+  /** The 3D cursor's place, typed (as Blender's sidebar › View › 3D Cursor). */
+  function cursorRow() {
+    const inputs = [0, 1, 2].map((k) => {
+      const i = el('input', { type: 'number', step: '0.1', value: String(Math.round(cursor[k] * 1e4) / 1e4), 'aria-label': `3D cursor ${AXIS_NAMES[k]}`, 'data-cursor': String(k), class: 'nm-num' });
+      i.addEventListener('change', () => { const v = Number(i.value); if (!Number.isFinite(v)) return; const c = cursor.slice(); c[k] = v; setCursor(c); });
+      return el('label', { class: 'nm-axis' }, el('span', { class: `nm-axisname nm-${AXIS_NAMES[k].toLowerCase()}`, text: AXIS_NAMES[k] }), i);
+    });
+    return el('div', { class: 'nm-vec', id: 'nm-cursor-row', title: 'Where the 3D cursor is (Shift+right-click or drag places it; Shift+S snaps it)' }, el('span', { class: 'nm-veclabel', text: '3D cursor (m)' }), ...inputs);
+  }
   function materialPanel(o) {
     const slots = o.mats || [], k = Math.min(o.slot || 0, Math.max(0, slots.length - 1));
     const hex = (c) => '#' + c.slice(0, 3).map((x) => Math.round(Math.min(1, Math.max(0, x)) * 255).toString(16).padStart(2, '0')).join('');
@@ -2076,9 +2142,9 @@ window.NoorMesh = (() => {
       parts.push(el('div', { class: 'sb-fields nm-matedit' },
         el('label', { class: 'sb-inline' }, el('span', { text: 'Name' }), name),
         el('label', { class: 'sb-inline' }, el('span', { text: 'Base colour' }), color),
-        slider('rough', 'Roughness', 'nm-mat-rough'), slider('metal', 'Metallic', 'nm-mat-metal'),
+        slider('rough', 'Roughness', 'nm-mat-rough'), slider('metal', 'Metallic', 'nm-mat-metal'), texPanel(m),
         others.length ? el('label', { class: 'sb-inline' }, el('span', { text: 'Use another' }), el('select', { 'aria-label': 'Use another material in this slot', id: 'nm-mat-browse', onchange: (e) => { if (e.target.value) setSlotMaterial(e.target.value); } }, el('option', { value: '' }, '—'), ...others.map((x) => el('option', { value: x.id }, x.name)))) : null,
-        el('button', { class: 'utility-btn', title: 'A copy of this material for this slot alone', onclick: () => { pushHistory(); const c = newMaterial(m); o.mats = o.mats.map((x, i) => (i === k ? c.id : x)); syncAll(); renderProps(); } }, 'Make single user')));
+        el('button', { class: 'utility-btn', title: 'A copy of this material for this slot alone', onclick: () => { pushHistory(); const c = newMaterial(m); o.mats = o.mats.map((x, i) => (i === k ? c.id : x)); syncAll(); renderProps(); keepFocus(); } }, 'Make single user')));
       if (mode === 'edit') parts.push(el('div', { class: 'nm-prims' },
         el('button', { class: 'utility-btn', id: 'nm-mat-assign', title: 'The selected faces onto this slot', onclick: () => { slotFaces('assign'); keepFocus(); } }, 'Assign'),
         el('button', { class: 'utility-btn', title: 'Select this slot\'s faces', onclick: () => { slotFaces('select'); keepFocus(); } }, 'Select'),
@@ -2124,7 +2190,7 @@ window.NoorMesh = (() => {
           el('button', { class: 'utility-btn', onclick: () => deleteMenu(), title: 'Delete (X)' }, 'Delete…'), el('button', { class: 'utility-btn', onclick: dissolveSel, title: 'Dissolve (Ctrl+X)' }, 'Dissolve'),
           el('button', { class: 'utility-btn', onclick: () => normalsMenu(), title: 'Normals (Alt+N)' }, 'Normals…'), el('button', { class: 'utility-btn', onclick: () => shade(true), title: 'Shade the selected faces smooth' }, 'Smooth'),
           el('button', { class: 'utility-btn', onclick: () => shade(false), title: 'Shade the selected faces flat' }, 'Flat')),
-        ...materialPanel(o),
+        ...materialPanel(o), cursorRow(),
         el('p', { class: 'pref-hint', text: 'Tab: back to Object Mode · 1 2 3: vertices, edges, faces · Alt+click: a loop · right-click: menu · F1: every key' }));
       pane.replaceChildren(...parts.filter(Boolean));
       return;
@@ -2157,6 +2223,7 @@ window.NoorMesh = (() => {
           return el('label', { class: 'sb-inline nm-param' }, el('span', { text: PARAM_LABELS[key] || key }), i);
         }))));
     }
+    parts.push(cursorRow());
     parts.push(el('h3', { class: 'music-subhead', text: 'Add' }),
       el('div', { class: 'nm-prims' }, ...Object.entries(K().PRIMITIVES).map(([id, p]) => el('button', { class: 'utility-btn nm-prim', 'data-prim': id, title: `Add a ${p.name.toLowerCase()} at the origin`, onclick: () => addPrimitive(id) }, el('span', { text: PRIM_ICONS[id] || '◆' }), ` ${p.name}`))),
       el('p', { class: 'pref-hint nm-preview', text: 'NoorMesh is a preview: Tab for Edit Mode (vertices, edges, faces). Ctrl+S saves the scene (.noormesh); ⤓ exports GLB or OBJ for engines; ⤒ imports GLB or OBJ.' }));
@@ -2430,7 +2497,7 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, materials: materials.map((m) => ({ ...m })), slots: objects.map((o) => (o.mats || []).slice()), faceMats: editing() ? editing().mesh.f.map((f) => f.m || 0) : null, uv: { open: uvOpen, sel: [...uvSel], op: uvOp ? uvOp.kind : null, checker: checkerOn }, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, materials: materials.map((m) => ({ ...m })), textures: textures.map((t) => ({ id: t.id, name: t.name, packed: t.packed, missing: !!t.missing, w: t.w || 0, path: t.path })), slots: objects.map((o) => (o.mats || []).slice()), faceMats: editing() ? editing().mesh.f.map((f) => f.m || 0) : null, uv: { open: uvOpen, sel: [...uvSel], op: uvOp ? uvOp.kind : null, checker: checkerOn }, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
     _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },

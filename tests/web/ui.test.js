@@ -10334,6 +10334,55 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with materials', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80k. NoorMesh (preview.153): a material's picture (linked, packed, unpacked, removed), saved and exported;
+    // the 3D cursor dragged with Shift+right and typed.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const MM = () => page.evaluate(() => window.__mock.state.mesh);
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      await page.click('#nm-mat-add');
+      await page.click('#nm-tex-open');
+      await waitFn(page, () => NoorMesh._state().textures.length === 1 && NoorMesh._state().textures[0].w === 8);
+      let st = await MS();
+      check('🖼 Base colour map…: the chosen picture on the material, linked to its file (8×8, shown)', st.textures[0].name === 'bricks.png' && !st.textures[0].packed && st.textures[0].path === 'C:\\Textures\\bricks.png' && st.materials[0].tex === st.textures[0].id, st.textures);
+      check('…the panel says so', /bricks\.png · 8×8 · linked/.test(await page.textContent('#nm-tex-info')), await page.textContent('#nm-tex-info'));
+      await page.click('#nm-tex-pack');
+      check('Pack: kept inside the scene', (await MS()).textures[0].packed && /packed/.test(await page.textContent('#nm-tex-info')));
+      await page.mouse.move(700, 600);
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      let mm = await MM();
+      check('…saved with its pixels (packed)', mm.saves[0].textures.length === 1 && mm.saves[0].textures[0].packed && mm.saves[0].textures[0].data, mm.saves[0].textures);
+      await page.click('#nm-tex-unpack');
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 2);
+      mm = await MM();
+      check('Unpack: saved by its path alone (no pixels in the scene)', !mm.saves[1].textures[0].packed && !mm.saves[1].textures[0].data && mm.saves[1].textures[0].path === 'C:\\Textures\\bricks.png', mm.saves[1].textures);
+      await page.click('#nm-export'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("GLB")');
+      await waitFn(page, () => (window.__mock.state.mesh.exports || []).length === 1);
+      check('…but a GLB export carries its pixels (linked or packed)', (await MM()).exports[0].texData === 1);
+      await page.keyboard.press('Control+z');
+      check('undo: packed again', (await MS()).textures[0].packed);
+      await page.click('#nm-tex-remove');
+      check('Remove: the material without a picture (the picture kept for undo)', !(await MS()).materials[0].tex);
+      await page.keyboard.press('Control+z');
+      // The 3D cursor: dragged over the surface with Shift+right, then typed.
+      const a = await page.evaluate(() => NoorMesh._project([-0.6, -1, 0.3])), b = await page.evaluate(() => NoorMesh._project([0.6, -1, -0.3]));
+      await page.keyboard.down('Shift');
+      await page.mouse.move(a.x, a.y); await page.mouse.down({ button: 'right' });
+      const c0 = (await MS()).cursor;
+      await page.mouse.move(b.x, b.y, { steps: 6 });
+      const c1 = (await MS()).cursor;
+      await page.mouse.up({ button: 'right' }); await page.keyboard.up('Shift');
+      check('Shift+right-drag: the cursor slides over the surface (on the front face, from one place to another)', Math.abs(c0[1] + 1) < 0.02 && Math.abs(c1[1] + 1) < 0.02 && Math.abs(c1[0] - 0.6) < 0.05 && Math.abs(c0[0] + 0.6) < 0.05 && !(await page.$('#nm-popup')), [c0, c1]);
+      await page.fill('#nm-cursor-row input[data-cursor="2"]', '2'); await page.press('#nm-cursor-row input[data-cursor="2"]', 'Enter');
+      check('…typed: Z 2', Math.abs((await MS()).cursor[2] - 2) < 1e-9, (await MS()).cursor);
+      if (shots) { await page.waitForTimeout(250); await page.screenshot({ path: `${shots}/80k-noormesh-texture.png` }); }
+      check('no page errors with pictures and the cursor', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

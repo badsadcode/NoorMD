@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.153): pictures on materials (linked, packed, relinked when missing), drawn in the view, in GLB out
+  and in; the 3D cursor dragged over the surface and typed.
 - NoorMesh (preview.152), phase B2 begun: materials (colour, roughness, metallic) in slots, assigned per face, saved,
   exported to GLB and read back.
 - NoorMesh (preview.151), phase B1 begun: seams, unwrap (conformal), Smart UV project, cube and view projections, island

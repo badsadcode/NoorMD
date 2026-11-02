@@ -274,6 +274,19 @@ material (one primitive each, alpha below 1 blended); GLB import reads them back
 the system arrow in Object Mode and a crosshair in Edit Mode. Next in B2: textures (linked, packed, relinked when
 missing) and the NoorForge / NoorMaterial hand-off.
 
+**Done in preview.153** — a material's base colour picture (🖼 Base colour map…: a file you choose, linked to it by
+default; Pack keeps it inside the .noormesh file, Unpack goes back to the link; a linked picture that isn't there when
+the scene opens shows as missing, with Relink…; Remove takes it off), multiplied by the material's colour as glTF does;
+the view draws each material slot with its own picture (mipmapped, repeating); GLB export writes the pictures (every
+picture sent as PNG), GLB import reads them back as packed pictures. The 3D cursor slides over the surface with
+Shift+right-drag, and its place can be typed (the properties panel's 3D cursor row).
+
+**Later (asked for, waiting for a design):** a "Select with: Left / Right" setting for old-school Blender users. With
+right: right-click selects (Shift adds), right-drag box-selects, left-click (and drag) places the 3D cursor, W opens the
+menu right-click opens now (as Blender 2.7x); during G/R/S left still confirms and right / Esc still cancels. It changes
+what right-click does everywhere in the bench (the context menus, Shift+right for the cursor), so the menus need a
+second way in (W, and the Mesh / Object menus) before it is switched on.
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |

@@ -15,8 +15,8 @@
     precision highp float;
     in vec3 vPos; in vec3 vNorm; in vec2 vUV; flat in int vMat;
     uniform vec3 uEye, uKey, uFill, uBase; uniform float uRough, uMetal; uniform int uOrtho; uniform vec3 uViewDir; uniform int uChecker;
-    // The object's materials by slot (a face's slot picks one): colour, roughness and metallic.
-    uniform int uMatCount; uniform vec3 uMatBase[16]; uniform vec2 uMatRM[16];
+    // A material's picture (its base colour map), multiplied by its colour.
+    uniform int uHasTex; uniform sampler2D uTex;
     out vec4 outColor;
     void main() {
       vec3 N = normalize(vNorm);
@@ -24,7 +24,7 @@
       if (!gl_FrontFacing) N = -N;
       vec3 base = uBase;
       float rough = uRough, metal = uMetal;
-      if (uMatCount > 0) { int k = clamp(vMat, 0, uMatCount - 1); base = uMatBase[k]; rough = uMatRM[k].x; metal = uMatRM[k].y; }
+      if (uHasTex == 1) base *= texture(uTex, vUV).rgb;
       if (uChecker == 1) {
         // A UV checker (as Blender's UV grid): 8×8 squares, each of the 4×4 big cells its own tint, so stretching and
         // turned islands show at a glance.
@@ -153,6 +153,23 @@
     let objects = new Map(); // id → { vao, count, lineVao, lineCount, base, rough, metal, selected, active, hidden, buffers }
     let guides = [];
     let showEdges = false, showGrid = true, checker = false;
+    // Pictures by key (a material's base colour map), uploaded once, mipmapped, repeating.
+    const textures = new Map();
+    function setTexture(key, img) {
+      const old = textures.get(key);
+      if (old) { gl.deleteTexture(old.t); textures.delete(key); }
+      if (!img) { redraw(); return; }
+      const t = gl.createTexture();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); // UV v up, a picture's rows from the top
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+      textures.set(key, { t, ready: true });
+      redraw();
+    }
     let dirty = true, raf = 0;
 
     function upload(attrib, data, size, prog) {
@@ -246,12 +263,20 @@
       for (const o of objects.values()) {
         if (o.hidden) continue;
         gl.uniform3fv(main.u.uBase, o.base); gl.uniform1f(main.u.uRough, o.rough); gl.uniform1f(main.u.uMetal, o.metal);
-        const mats = (o.mats || []).slice(0, 16);
-        gl.uniform1i(main.u.uMatCount, mats.length);
-        if (mats.length) { gl.uniform3fv(main.u.uMatBase, new Float32Array(mats.flatMap((m) => m.base))); gl.uniform2fv(main.u.uMatRM, new Float32Array(mats.flatMap((m) => [m.rough, m.metal]))); }
+        gl.uniform1i(main.u.uHasTex, 0); gl.uniform1i(main.u.uTex, 0);
         gl.uniformMatrix4fv(main.u.uModel, false, o.matrix); gl.uniformMatrix3fv(main.u.uNormalMat, false, window.NoorMeshKernel.normalMatrix(o.matrix));
         if (o.doubleSided) gl.disable(gl.CULL_FACE); else gl.enable(gl.CULL_FACE);
-        gl.bindVertexArray(o.vao); gl.drawArrays(gl.TRIANGLES, 0, o.count);
+        gl.bindVertexArray(o.vao);
+        const groups = o.mats && o.buffers.groups ? o.buffers.groups : null;
+        if (!groups) gl.drawArrays(gl.TRIANGLES, 0, o.count);
+        else for (const g of groups) {
+          // Each material slot drawn with its own colour, roughness, metallic and picture.
+          const m = o.mats[Math.min(g.m, o.mats.length - 1)];
+          gl.uniform3fv(main.u.uBase, m.base); gl.uniform1f(main.u.uRough, m.rough); gl.uniform1f(main.u.uMetal, m.metal);
+          const tex = m.tex ? textures.get(m.tex) : null;
+          if (tex && tex.ready) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tex.t); gl.uniform1i(main.u.uHasTex, 1); } else gl.uniform1i(main.u.uHasTex, 0);
+          gl.drawArrays(gl.TRIANGLES, g.first, g.count);
+        }
       }
       gl.disable(gl.POLYGON_OFFSET_FILL);
       gl.disable(gl.CULL_FACE);
@@ -424,7 +449,7 @@
     return {
       setObject, setLook, removeObject, clear, redraw, ray, project, pick, frame, viewFrom, setOrtho, setEdit,
       setGuides(g) { guides = g || []; redraw(); },
-      setEdges(on) { showEdges = !!on; redraw(); }, setGrid(on) { showGrid = !!on; redraw(); }, setChecker(on) { checker = !!on; redraw(); },
+      setEdges(on) { showEdges = !!on; redraw(); }, setGrid(on) { showGrid = !!on; redraw(); }, setChecker(on) { checker = !!on; redraw(); }, setTexture, hasTexture: (key) => textures.has(key),
       camera: () => ({ ...cam, target: cam.target.slice(), eye: eyeOf() }),
       setCamera(c) { cam = { ...cam, ...c }; redraw(); },
       matrices,
