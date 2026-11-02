@@ -9745,6 +9745,76 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with NoorMesh files', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80d. NoorMesh gizmos (move, rotate, scale; each toggled, remembered), dragging a handle holds the transform to
+    // its axis or plane; Shift+X/Y/Z leaves an axis out; the axis line shows in Edit Mode too.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const G = () => page.evaluate(() => NoorMesh._gizmo());
+      const near = (a, b, e = 1e-6) => Math.abs(a - b) <= e;
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      await waitFn(page, () => NoorMesh._gizmo().length > 0);
+      let g = await G();
+      check('the move gizmo is on at first: the middle, three squares, three arrows', g.filter((h) => h.kind === 'move').length === 7 && (await MS()).gizmos.move && !(await MS()).gizmos.rotate);
+      const drag = async (h, dx, dy) => { await page.mouse.move(h.at[0] + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().left)), h.at[1] + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().top))); await page.mouse.down(); await page.mouse.move(h.at[0] + dx + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().left)), h.at[1] + dy + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().top)), { steps: 5 }); };
+      // The X arrow: only X changes, and while dragging the axis line shows.
+      await drag(g.find((h) => h.id === 'move0'), 60, 20);
+      let st = await MS();
+      check('dragging the red arrow moves along X only (a transform held to X while the button is held)', st.op && st.op.axis === 0 && st.objects[0].t[0] !== 0 && st.objects[0].t[1] === 0 && st.objects[0].t[2] === 0, st.objects[0].t);
+      await page.mouse.up();
+      st = await MS();
+      check('…letting go keeps it (one undo step)', !st.op && st.history === 1 && st.objects[0].t[0] !== 0);
+      // The square that leaves Z out: X and Y change, Z doesn't.
+      g = await G();
+      await drag(g.find((h) => h.id === 'movep2'), 40, 30);
+      await page.mouse.up();
+      st = await MS();
+      check('dragging the blue square moves in the floor\'s plane (Z stays)', st.objects[0].t[2] === 0 && st.objects[0].t[1] !== 0, st.objects[0].t);
+      // Rotate and scale gizmos on, move off.
+      await page.click('#meshbench [data-gizmo="move"]'); await page.click('#meshbench [data-gizmo="rotate"]'); await page.click('#meshbench [data-gizmo="scale"]');
+      st = await MS();
+      check('the buttons toggle the gizmos (and they are remembered)', !st.gizmos.move && st.gizmos.rotate && st.gizmos.scale && JSON.parse(await page.evaluate(() => localStorage.getItem('noormd.mesh.gizmos'))).rotate === true);
+      g = await G();
+      check('…rings for the three axes and the view, scale handles and the middle ring', g.filter((h) => h.kind === 'rotate').length === 4 && g.filter((h) => h.kind === 'scale').length === 4 && !g.some((h) => h.kind === 'move'));
+      await drag(g.find((h) => h.id === 'rot2'), 40, 40);
+      await page.mouse.up();
+      st = await MS();
+      check('dragging the blue ring turns it about Z only', st.objects[0].r[2] !== 0 && near(st.objects[0].r[0], 0, 1e-6) && near(st.objects[0].r[1], 0, 1e-6), st.objects[0].r);
+      g = await G();
+      const sx = g.find((h) => h.id === 'scale0');
+      await drag(sx, 0, 0); // a handle grabbed and moved away from the middle
+      await page.mouse.move(sx.at[0] + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().left)) + 50, sx.at[1] + (await page.$eval('#nm-stage', (s) => s.getBoundingClientRect().top)) + 25, { steps: 4 });
+      await page.mouse.up();
+      st = await MS();
+      check('dragging a scale handle scales along that axis', st.objects[0].s.filter((x) => x !== 1).length === 1, st.objects[0].s);
+      // Shift+Z with G: a plane.
+      await page.click('#meshbench [data-gizmo="rotate"]'); await page.click('#meshbench [data-gizmo="scale"]');
+      await page.mouse.move(700, 600);
+      const z0 = (await MS()).objects[0].t[2];
+      await page.keyboard.press('g'); await page.keyboard.press('Shift+Z');
+      check('G then Shift+Z: held to the plane that leaves Z out', (await MS()).op && /not Z/.test(await page.textContent('#nm-hud')));
+      await page.mouse.move(760, 640, { steps: 3 }); await page.keyboard.press('Enter');
+      check('…Z stays where it was', (await MS()).objects[0].t[2] === z0);
+      // Edit Mode: the gizmo on the selection, moving vertices.
+      await page.click('#meshbench [data-gizmo="move"]');
+      await page.keyboard.press('Tab'); await page.keyboard.press('a');
+      await waitFn(page, () => NoorMesh._gizmo().some((h) => h.id === 'move2'));
+      g = await G();
+      const facesBefore = (await MS()).objects[0].faces;
+      await drag(g.find((h) => h.id === 'move2'), 0, -50);
+      await page.mouse.up();
+      st = await MS();
+      check('in Edit Mode the gizmo moves the selected vertices (the mesh still valid)', st.mode === 'edit' && st.objects[0].check.ok && st.objects[0].faces === facesBefore && st.history >= 6);
+      if (shots) {
+        await page.click('#meshbench [data-gizmo="rotate"]'); await page.click('#meshbench [data-gizmo="scale"]');
+        await page.keyboard.press('Tab');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80d-noormesh-gizmos.png` });
+      }
+      check('no page errors with the gizmos', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

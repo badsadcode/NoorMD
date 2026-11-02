@@ -22,6 +22,9 @@ window.NoorMesh = (() => {
   let mode = 'object', editSel = null;
   // The file: where it was saved (or opened from), its name, whether it has changed since.
   let file = { path: '', name: '' }, dirty = false, draftTimer = 0, draftChecked = false;
+  // The transform gizmos (as Blender's): each shown or not, remembered; the handle under the mouse.
+  let gizmos = (() => { try { return { move: true, rotate: false, scale: false, ...JSON.parse(localStorage.getItem('noormd.mesh.gizmos') || '{}') }; } catch { return { move: true, rotate: false, scale: false }; } })();
+  let gizmoHover = null, gizmoHandles = [];
   const editing = () => (mode === 'edit' ? byId(active) : null);
   const uploaded = new Map(); // id → the mesh object last sent to the view
 
@@ -559,13 +562,16 @@ window.NoorMesh = (() => {
         const a = along, s0 = rayLine(view.ray(op.m0.x, op.m0.y), op.pivot, a), s1 = rayLine(view.ray(mouse.x, mouse.y), op.pivot, a);
         delta = V.scale(a, s1 - s0);
       } else {
-        const p0 = rayPlane(view.ray(op.m0.x, op.m0.y), op.pivot, toViewer), p1 = rayPlane(view.ray(mouse.x, mouse.y), op.pivot, toViewer);
+        // Free in the view's plane, or in a plane that leaves one axis out (Shift+X/Y/Z, a gizmo's square).
+        const n = op.plane != null ? AXES[op.plane] : toViewer;
+        const p0 = rayPlane(view.ray(op.m0.x, op.m0.y), op.pivot, n), p1 = rayPlane(view.ray(mouse.x, mouse.y), op.pivot, n);
         delta = p0 && p1 ? V.sub(p1, p0) : [0, 0, 0];
+        if (op.plane != null) delta[op.plane] = 0;
       }
       if (snap && typed === null) delta = delta.map((x) => Math.round(x * 10) / 10);
       if (op.edit) applyEdit(translation(delta));
       else op.list.forEach((o, i) => { o.t = V.add(op.start[i].t, delta); });
-      text = op.axis !== null ? `Move ${AXIS_NAMES[op.axis]}: ${fmt(delta[op.axis])} m` : op.dir ? `Move along the normal: ${fmt(V.dot(delta, op.dir))} m` : `Move: ${delta.map(fmt).join(', ')} m`;
+      text = op.axis !== null ? `Move ${AXIS_NAMES[op.axis]}: ${fmt(delta[op.axis])} m` : op.plane != null ? `Move (not ${AXIS_NAMES[op.plane]}): ${delta.map(fmt).join(', ')} m` : op.dir ? `Move along the normal: ${fmt(V.dot(delta, op.dir))} m` : `Move: ${delta.map(fmt).join(', ')} m`;
     } else if (op.kind === 'rotate') {
       const c = view.project(op.pivot);
       const ang = (p) => Math.atan2(-(p.y - c.y), p.x - c.x);
@@ -600,7 +606,8 @@ window.NoorMesh = (() => {
     if (op.edit) { sync(op.obj); syncEdit(); } else op.list.forEach(sync);
     // The axis (or normal) it is held to, as a long line through the pivot.
     const guide = op.axis !== null ? [AXES[op.axis], AXIS_COLOURS[op.axis]] : op.dir && op.kind === 'move' ? [op.dir, [1, 1, 1, 0.8]] : null;
-    view.setGuides(guide ? [{ from: V.add(op.pivot, V.scale(guide[0], -1000)), to: V.add(op.pivot, V.scale(guide[0], 1000)), color: guide[1] }] : []);
+    const lines = guide ? [guide] : op.plane != null && op.kind === 'move' ? [0, 1, 2].filter((k) => k !== op.plane).map((k) => [AXES[k], AXIS_COLOURS[k]]) : [];
+    view.setGuides(lines.map(([a, c]) => ({ from: V.add(op.pivot, V.scale(a, -1000)), to: V.add(op.pivot, V.scale(a, 1000)), color: c })));
     hud(`${text}   ·   X Y Z or middle-drag: an axis · type a number · click or Enter: done · right-click or Esc: back`);
   }
   /** While the middle button is held in a transform: the world axis whose direction on the screen is nearest the mouse's movement. */
@@ -647,7 +654,9 @@ window.NoorMesh = (() => {
     if (k === 'Escape') { cancelOp(); return true; }
     if (k === 'Enter') { confirmOp(); return true; }
     const ax = { x: 0, y: 1, z: 2 }[k.toLowerCase()];
-    if (ax !== undefined && op.kind !== 'inset') { op.axis = op.axis === ax ? null : ax; op.dir = null; updateOp(); return true; }
+    // Shift+X/Y/Z: a plane that leaves that axis out (moving; scaling the other two).
+    if (ax !== undefined && e.shiftKey && op.kind === 'move') { op.plane = op.plane === ax ? null : ax; op.axis = null; op.dir = null; updateOp(); return true; }
+    if (ax !== undefined && op.kind !== 'inset') { op.axis = op.axis === ax ? null : ax; op.plane = null; op.dir = null; updateOp(); return true; }
     if (/^[0-9.]$/.test(k) || (k === '-' && op.typed === '')) { op.typed += k; updateOp(); return true; }
     if (k === '-' && op.typed !== '') { op.typed = op.typed.startsWith('-') ? op.typed.slice(1) : '-' + op.typed; updateOp(); return true; }
     if (k === 'Backspace') { op.typed = op.typed.slice(0, -1); updateOp(); return true; }
@@ -667,6 +676,106 @@ window.NoorMesh = (() => {
     return false;
   }
 
+  // ---------------------------------------------------------------- gizmos (move, rotate, scale), as Blender's
+  /** Where the gizmo stands: the selection's middle (Edit Mode) or the selected objects' (Object Mode); null: nothing selected. */
+  function gizmoPivot() {
+    if (mode === 'edit') {
+      const o = editing(); if (!o) return null;
+      const f = K().flush(o.mesh, editSel); if (!f.verts.size) return null;
+      return K().vec.scale([...f.verts].reduce((a, v) => K().vec.add(a, worldOf(o, v)), [0, 0, 0]), 1 / f.verts.size);
+    }
+    const list = sel();
+    return list.length ? pivotOf(list) : null;
+  }
+  /** The gizmo's handles on the screen: { id, kind, axis | plane, shape, pts, color }, hit-tested in that order. */
+  function gizmoLayout() {
+    const out = [];
+    if (!view || op || !(gizmos.move || gizmos.rotate || gizmos.scale)) return out;
+    const p = gizmoPivot(); if (!p) return out;
+    const V = K().vec, c = view.project(p); if (!c.front) return out;
+    const cam = view.camera(), f = V.norm(V.sub(cam.target, cam.eye));
+    let r = V.cross(f, [0, 0, 1]); if (V.len(r) < 1e-6) r = [1, 0, 0]; r = V.norm(r);
+    const q = view.project(V.add(p, r)), ppm = Math.max(1e-6, Math.hypot(q.x - c.x, q.y - c.y));
+    const L = 80 / ppm; // 80 pixels long, wherever it is
+    const S = (w) => { const s = view.project(w); return [s.x, s.y]; };
+    const C = [c.x, c.y];
+    const col = (k, a = 1) => [[240, 82, 82], [122, 204, 76], [77, 140, 242]][k].concat(a);
+    if (gizmos.rotate) {
+      // A ring round each axis (dimmer where it turns away), and the view's own ring.
+      for (let k = 0; k < 3; k++) {
+        const a = AXES[k], u = AXES[(k + 1) % 3], w = AXES[(k + 2) % 3], pts = [];
+        for (let i = 0; i <= 64; i++) { const t = (i / 64) * Math.PI * 2; pts.push(S(V.add(p, V.add(V.scale(u, Math.cos(t) * L * 0.95), V.scale(w, Math.sin(t) * L * 0.95))))); }
+        out.push({ id: `rot${k}`, kind: 'rotate', axis: k, shape: 'ring', pts, color: col(k) });
+      }
+      const pts = []; for (let i = 0; i <= 64; i++) { const t = (i / 64) * Math.PI * 2; pts.push([C[0] + Math.cos(t) * 92, C[1] + Math.sin(t) * 92]); }
+      out.push({ id: 'rotv', kind: 'rotate', axis: null, shape: 'ring', pts, color: [235, 235, 235, 1] });
+    }
+    if (gizmos.move) {
+      out.push({ id: 'movec', kind: 'move', axis: null, shape: 'dot', pts: [C], r: 9, color: [235, 235, 235, 1] });
+      for (let k = 0; k < 3; k++) {
+        const u = AXES[(k + 1) % 3], w = AXES[(k + 2) % 3];
+        // The plane square that leaves axis k out, between the other two arrows.
+        const sq = [V.add(p, V.scale(V.add(u, w), L * 0.28)), V.add(p, V.add(V.scale(u, L * 0.42), V.scale(w, L * 0.28))), V.add(p, V.scale(V.add(u, w), L * 0.42)), V.add(p, V.add(V.scale(u, L * 0.28), V.scale(w, L * 0.42)))].map(S);
+        out.push({ id: `movep${k}`, kind: 'move', plane: k, shape: 'quad', pts: sq, color: col(k, 0.55) });
+      }
+      for (let k = 0; k < 3; k++) out.push({ id: `move${k}`, kind: 'move', axis: k, shape: 'arrow', pts: [S(V.add(p, V.scale(AXES[k], L * 0.18))), S(V.add(p, V.scale(AXES[k], L)))], color: col(k) });
+    }
+    if (gizmos.scale) {
+      out.push({ id: 'scalec', kind: 'scale', axis: null, shape: 'ring', pts: (() => { const pts = []; for (let i = 0; i <= 32; i++) { const t = (i / 32) * Math.PI * 2; pts.push([C[0] + Math.cos(t) * 16, C[1] + Math.sin(t) * 16]); } return pts; })(), color: [235, 235, 235, 1] });
+      for (let k = 0; k < 3; k++) out.push({ id: `scale${k}`, kind: 'scale', axis: k, shape: 'box', pts: [S(V.add(p, V.scale(AXES[k], L * 0.2))), S(V.add(p, V.scale(AXES[k], gizmos.move ? L * 0.68 : L)))], color: col(k) });
+    }
+    return out;
+  }
+  const segDist = (x, y, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], l2 = dx * dx + dy * dy || 1, t = Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / l2)); return Math.hypot(a[0] + dx * t - x, a[1] + dy * t - y); };
+  function inQuad(x, y, pts) { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; } return inside; }
+  /** The handle under a point of the canvas (client coordinates), or null. */
+  function gizmoHit(x, y) {
+    const s = $('#nm-stage').getBoundingClientRect(), lx = x - s.left, ly = y - s.top;
+    // Small things first (the middle, the squares), then arrows and boxes, then rings.
+    const order = ['dot', 'quad', 'arrow', 'box', 'ring'];
+    for (const shape of order) for (const h of gizmoHandles) {
+      if (h.shape !== shape) continue;
+      if (shape === 'dot' && Math.hypot(lx - h.pts[0][0], ly - h.pts[0][1]) <= h.r + 3) return h;
+      if (shape === 'quad' && inQuad(lx, ly, h.pts)) return h;
+      if ((shape === 'arrow' || shape === 'box') && segDist(lx, ly, h.pts[0], h.pts[1]) <= 7) return h;
+      if (shape === 'ring') for (let i = 1; i < h.pts.length; i++) if (segDist(lx, ly, h.pts[i - 1], h.pts[i]) <= 6) return h;
+    }
+    return null;
+  }
+  /** The gizmo drawn on its own canvas over the view (crisp at any size), after every frame of the view. */
+  function drawGizmo() {
+    const cv = $('#nm-gizmo'), stage = $('#nm-stage');
+    if (!cv || !stage) return;
+    const s = stage.getBoundingClientRect(), dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(s.width * dpr) || cv.height !== Math.round(s.height * dpr)) { cv.width = Math.round(s.width * dpr); cv.height = Math.round(s.height * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, s.width, s.height);
+    const handles = gizmoLayout();
+    // Into the stage's coordinates.
+    gizmoHandles = handles.map((h) => ({ ...h, pts: h.pts.map(([x, y]) => [x - s.left, y - s.top]) }));
+    const rgba = (c, boost) => `rgba(${c.slice(0, 3).map((v) => Math.min(255, v + (boost ? 50 : 0))).join(',')},${c[3]})`;
+    for (const h of gizmoHandles) {
+      const hot = gizmoHover === h.id;
+      g.strokeStyle = rgba(h.color, hot); g.fillStyle = rgba(h.color, hot); g.lineWidth = hot ? 4 : 2.5; g.lineCap = 'round';
+      if (h.shape === 'ring') { g.beginPath(); h.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.stroke(); }
+      else if (h.shape === 'dot') { g.beginPath(); g.arc(h.pts[0][0], h.pts[0][1], h.r, 0, Math.PI * 2); g.lineWidth = hot ? 3 : 2; g.stroke(); }
+      else if (h.shape === 'quad') { g.beginPath(); h.pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y))); g.closePath(); g.globalAlpha = hot ? 0.9 : 0.6; g.fill(); g.globalAlpha = 1; }
+      else {
+        const [a, b] = h.pts; g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+        const ang = Math.atan2(b[1] - a[1], b[0] - a[0]);
+        if (h.shape === 'arrow') { g.beginPath(); g.moveTo(b[0] + Math.cos(ang) * 12, b[1] + Math.sin(ang) * 12); g.lineTo(b[0] + Math.cos(ang + 2.6) * 9, b[1] + Math.sin(ang + 2.6) * 9); g.lineTo(b[0] + Math.cos(ang - 2.6) * 9, b[1] + Math.sin(ang - 2.6) * 9); g.closePath(); g.fill(); }
+        else { const z = hot ? 6 : 5; g.fillRect(b[0] - z, b[1] - z, z * 2, z * 2); }
+      }
+    }
+  }
+  function setGizmo(kind, on = !gizmos[kind]) {
+    gizmos = { ...gizmos, [kind]: on };
+    try { localStorage.setItem('noormd.mesh.gizmos', JSON.stringify(gizmos)); } catch { /* not kept */ }
+    renderGizmoButtons(); drawGizmo();
+  }
+  function renderGizmoButtons() { document.querySelectorAll('#meshbench [data-gizmo]').forEach((b) => b.setAttribute('aria-pressed', String(!!gizmos[b.dataset.gizmo]))); }
+
   // ---------------------------------------------------------------- mouse in the view
   function onDown(e) {
     mouse = { x: e.clientX, y: e.clientY };
@@ -677,6 +786,15 @@ window.NoorMesh = (() => {
       else if (e.button === 1) { op.mmb = { x: e.clientX, y: e.clientY, moved: false }; updateOp(); }
       e.preventDefault(); return;
     }
+    if (e.button === 0 && !e.altKey) {
+      // A gizmo's handle: that transform, held to its axis (or plane), for as long as the button is held.
+      const h = gizmoHit(e.clientX, e.clientY);
+      if (h) {
+        startOp(h.kind);
+        if (op) { op.axis = h.axis ?? null; op.plane = h.plane ?? null; op.dir = null; op.drag = true; op.m0 = { ...mouse }; gizmoHover = null; updateOp(); }
+        e.preventDefault(); return;
+      }
+    }
     if (e.button === 0) box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey, alt: e.altKey, moved: false };
     if (e.button === 2) box = { menu: true, x0: e.clientX, y0: e.clientY };
   }
@@ -685,6 +803,7 @@ window.NoorMesh = (() => {
     op && (op.ctrl = e.ctrlKey);
     if (op && op.mmb) pickAxis();
     if (op) { updateOp(); return; }
+    if (!box) { const h = gizmoHit(e.clientX, e.clientY), id = h ? h.id : null; if (id !== gizmoHover) { gizmoHover = id; drawGizmo(); } }
     if (box && !box.menu) {
       box.x1 = e.clientX; box.y1 = e.clientY;
       if (Math.hypot(box.x1 - box.x0, box.y1 - box.y0) > 4) box.moved = true;
@@ -692,6 +811,7 @@ window.NoorMesh = (() => {
     }
   }
   function onUp(e) {
+    if (op && op.drag && e.button === 0) { confirmOp(); return; }
     if (op && op.mmb && e.button === 1) {
       if (!op.mmb.moved) op.axis = null;
       op.mmb = null; updateOp(); return;
@@ -907,6 +1027,7 @@ window.NoorMesh = (() => {
   function renderAll() {
     renderOutliner(); renderProps(); hud(op ? undefined : '');
     const info = $('#nm-info'); if (info) info.textContent = fileLabel();
+    drawGizmo();
     const ms = $('#nm-mode'); if (ms) ms.value = mode;
     const sm = $('#nm-selmodes');
     if (sm) { sm.hidden = mode !== 'edit'; sm.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(!!editSel && b.dataset.selmode === editSel.mode))); }
@@ -1041,12 +1162,17 @@ window.NoorMesh = (() => {
                 el('button', { class: 'icon-btn', title: 'Top (numpad 7; Ctrl: bottom)', 'aria-label': 'Top view', onclick: (e) => setView('top', e.ctrlKey) }, 'T'),
                 el('button', { class: 'icon-btn', id: 'nm-persp', title: 'Perspective or orthographic (numpad 5)', 'aria-label': 'Perspective or orthographic', onclick: () => setView('persp') }, '⧉'),
                 el('button', { class: 'icon-btn', title: 'Frame the selection (numpad .)', 'aria-label': 'Frame the selection', onclick: () => frameObjects(sel().length ? sel() : objects) }, '⌖'),
+                el('span', { class: 'nm-gizmos', role: 'group', 'aria-label': 'Gizmos' },
+                  el('button', { class: 'icon-btn', 'data-gizmo': 'move', title: 'Move gizmo: arrows (an axis), squares (a plane), the middle (free)', 'aria-label': 'Move gizmo', 'aria-pressed': 'false', onclick: () => { setGizmo('move'); keepFocus(); } }, '✥'),
+                  el('button', { class: 'icon-btn', 'data-gizmo': 'rotate', title: 'Rotate gizmo: a ring for each axis, the white one turns about the view', 'aria-label': 'Rotate gizmo', 'aria-pressed': 'false', onclick: () => { setGizmo('rotate'); keepFocus(); } }, '⟳'),
+                  el('button', { class: 'icon-btn', 'data-gizmo': 'scale', title: 'Scale gizmo: a handle for each axis, the middle ring scales evenly', 'aria-label': 'Scale gizmo', 'aria-pressed': 'false', onclick: () => { setGizmo('scale'); keepFocus(); } }, '⤡')),
                 el('button', { class: 'icon-btn', id: 'nm-edges', title: 'Show every object\'s edges', 'aria-label': 'Edges', 'aria-pressed': 'false', onclick: () => { showEdges = !showEdges; view && view.setEdges(showEdges); $('#nm-edges').setAttribute('aria-pressed', String(showEdges)); } }, '▦'),
                 el('button', { class: 'icon-btn', id: 'nm-side', title: 'The view big, the properties in a column on the right; or under it', 'aria-label': 'Properties beside the view', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
                 el('button', { class: 'icon-btn', id: 'nm-list', title: 'Show or hide the scene list', 'aria-label': 'The scene list', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
               el('div', { class: 'tb-stage nm-stage', id: 'nm-stage' },
                 el('canvas', { id: 'nm-canvas', class: 'tb-canvas', tabindex: '-1', role: 'img', 'aria-label': 'The scene: click to select, middle-drag to turn the view, wheel to zoom', title: 'Click: select · drag: box select · middle-drag: turn · Shift+middle-drag: move · wheel: zoom · right-click: menu' }),
                 el('div', { class: 'nm-hud', id: 'nm-hud', 'aria-live': 'polite' }),
+                el('canvas', { class: 'nm-gizmo', id: 'nm-gizmo', 'aria-hidden': 'true' }),
                 el('div', { class: 'nm-box', id: 'nm-box', hidden: true })),
               el('p', { class: 'pref-hint sb-status', id: 'nm-status', 'aria-live': 'polite' })),
             el('div', { class: 'tb-splitter', id: 'nm-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to share the room between the view and the properties (double-click: back to normal)' }),
@@ -1059,9 +1185,10 @@ window.NoorMesh = (() => {
     root.addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; });
     try {
       // The bench takes the middle button during a transform (an axis), and Alt+click in Edit Mode (a loop, as Blender's).
-      view = NoorMeshView.create($('#nm-canvas'), { down: onDown, move: onMove, up: onUp, takes: (e) => (!!op && e.button === 1) || (mode === 'edit' && !op && e.button === 0 && e.altKey), viewChanged: () => { if (!view.camera().ortho && / Orthographic$/.test(viewName)) { viewName = 'User Perspective'; hud(op ? undefined : ''); } if (op) updateOp(); } });
+      view = NoorMeshView.create($('#nm-canvas'), { drawn: () => drawGizmo(), down: onDown, move: onMove, up: onUp, takes: (e) => (!!op && e.button === 1) || (mode === 'edit' && !op && e.button === 0 && e.altKey), viewChanged: () => { if (!view.camera().ortho && / Orthographic$/.test(viewName)) { viewName = 'User Perspective'; hud(op ? undefined : ''); } if (op) updateOp(); } });
     } catch (err) { console.warn('NoorMesh: no 3D view', err); view = null; setTimeout(() => setStatus(`The 3D view couldn't start (it needs WebGL 2): ${err && err.message ? err.message : err}`), 0); }
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('mesh', { name: 'NoorMesh', title: appTitle, menus: appMenus });
+    renderGizmoButtons();
   }
   let layout = null;
 
@@ -1156,7 +1283,8 @@ window.NoorMesh = (() => {
 
   const SHORTCUTS = [
     ['Add a mesh', 'Shift+A'], ['Select', 'Click (Shift: add or take away)'], ['Box select', 'Drag (Shift: add, Ctrl: take away)'], ['Select all / none / invert', 'A / Alt+A / Ctrl+I'],
-    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free), or hold the middle button and move towards it (a middle click: free)'], ['…by a number', 'Type it (− turns it round), Backspace'], ['…in steps', 'Hold Ctrl'],
+    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free), or hold the middle button and move towards it (a middle click: free)'], ['…in a plane (leaving an axis out)', 'Shift+X, Shift+Y or Shift+Z'],
+    ['Gizmos (move, rotate, scale)', 'The ✥ ⟳ ⤡ buttons; drag a handle'], ['…by a number', 'Type it (− turns it round), Backspace'], ['…in steps', 'Hold Ctrl'],
     ['…done / back', 'Click or Enter / right-click or Esc'], ['Clear location / rotation / scale', 'Alt+G / Alt+R / Alt+S'], ['Apply transforms', 'Ctrl+A'],
     ['Duplicate', 'Shift+D'], ['Delete', 'X or Delete'], ['Hide / show all / hide others', 'H / Alt+H / Shift+H'], ['Rename', 'F2'],
     ['Turn the view', 'Middle-drag (or Alt+drag)'], ['Move the view', 'Shift+middle-drag'], ['Zoom', 'Wheel or Ctrl+middle-drag'],
@@ -1207,14 +1335,17 @@ window.NoorMesh = (() => {
         go('Hide', () => hide('selected'), 'H', { disabled: none }), go('Show everything', () => hide('reveal'), 'Alt+H'), go('Hide the others', () => hide('others'), 'Shift+H')]],
       ['View', 'v', () => [go('Front', () => setView('front'), 'Numpad 1'), go('Back', () => setView('front', true), 'Ctrl+Numpad 1'), go('Right', () => setView('right'), 'Numpad 3'), go('Left', () => setView('right', true), 'Ctrl+Numpad 3'),
         go('Top', () => setView('top'), 'Numpad 7'), go('Bottom', () => setView('top', true), 'Ctrl+Numpad 7'), go('Perspective or orthographic', () => setView('persp'), 'Numpad 5'), '-',
-        go('Frame the selection', () => frameObjects(sel().length ? sel() : objects), 'Numpad .'), go('Frame everything', () => frameObjects(objects), 'Home'), '-', go('Shortcuts…', shortcutsDialog, 'F1')]],
+        go('Frame the selection', () => frameObjects(sel().length ? sel() : objects), 'Numpad .'), go('Frame everything', () => frameObjects(objects), 'Home'), '-',
+        { label: 'Move gizmo', checked: () => gizmos.move, run: () => setGizmo('move') }, { label: 'Rotate gizmo', checked: () => gizmos.rotate, run: () => setGizmo('rotate') }, { label: 'Scale gizmo', checked: () => gizmos.scale, run: () => setGizmo('scale') }, '-',
+        go('Shortcuts…', shortcutsDialog, 'F1')]],
     ];
   }
 
   return {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
-    _state: () => ({ file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed } : null, history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed } : null, history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: where a vertex (or a face's middle) of the edited object shows on the screen. */
     _screenOf: (what, i) => { const o = editing(); if (!o) return null; const p = what === 'face' ? K().transformPoint(matrixOf(o), K().faceCentre(o.mesh, o.mesh.f[i])) : worldOf(o, i); return view.project(p); },

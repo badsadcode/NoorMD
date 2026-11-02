@@ -280,9 +280,27 @@
       // Guides (a transform's axis), drawn through everything.
       if (guides.length) {
         gl.disable(gl.DEPTH_TEST);
+        // Its own program again (Edit Mode's overlay may have been drawn just before with another).
+        gl.useProgram(lineProg.p);
+        gl.uniformMatrix4fv(lineProg.u.uView, false, view); gl.uniformMatrix4fv(lineProg.u.uProj, false, proj);
+        // Each line cut to what the camera can see (in front of it, short of the far plane): a line that runs behind
+        // the camera, or a kilometre past it, is otherwise lost by some renderers.
+        const far = cam.dist * 50 + 100, nearCut = cam.ortho ? -far * 0.9 : Math.max(0.01, cam.dist / 200);
+        const depth = (p) => dot([p[0] - eye[0], p[1] - eye[1], p[2] - eye[2]], f);
         for (const g of guides) {
+          let a = g.from.slice(), b2 = g.to.slice();
+          const da = depth(a), db = depth(b2), lo = nearCut, hi = far * 0.9;
+          if ((da < lo && db < lo) || (da > hi && db > hi)) continue;
+          const at = (t) => [a[0] + (b2[0] - a[0]) * t, a[1] + (b2[1] - a[1]) * t, a[2] + (b2[2] - a[2]) * t];
+          let t0 = 0, t1 = 1;
+          if (db !== da) {
+            const tl = (lo - da) / (db - da), th = (hi - da) / (db - da);
+            if (db > da) { t0 = Math.max(t0, tl); t1 = Math.min(t1, th); } else { t0 = Math.max(t0, th); t1 = Math.min(t1, tl); }
+          }
+          if (t1 <= t0) continue;
+          [a, b2] = [at(t0), at(t1)];
           const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
-          const b = upload('aPos', new Float32Array([...g.from, ...g.to]), 3, lineProg);
+          const b = upload('aPos', new Float32Array([...a, ...b2]), 3, lineProg);
           gl.uniform4fv(lineProg.u.uColor, g.color); gl.uniform1f(lineProg.u.uLift, 0); gl.uniformMatrix4fv(lineProg.u.uModel, false, IDENTITY);
           gl.drawArrays(gl.LINES, 0, 2);
           gl.deleteBuffer(b); gl.deleteVertexArray(vao);
