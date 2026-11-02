@@ -9815,6 +9815,126 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with the gizmos', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80e. NoorMesh modelling (preview.146): region inset (I; I again: each face), Ctrl+R loop cut and slide (wheel:
+    // how many), bridge edge loops (Ctrl+E), snapping (Shift+Tab: steps without Ctrl; to vertices).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const faces = () => page.evaluate(() => NoorMesh._state().objects[0].faces);
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, l: r.left, t: r.top, w: r.width, h: r.height }; });
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Tab'); await page.keyboard.press('3');
+      // The cube's top face and a side next to it (cube(2): the kernel's own numbering).
+      const [top, side, bottom] = await page.evaluate(() => { const K = NoorMeshKernel, c = K.cube(2), n = (i) => K.faceNormal(c, c.f[i]).n; return [c.f.findIndex((_, i) => n(i)[2] > 0.9), c.f.findIndex((_, i) => n(i)[1] < -0.9), c.f.findIndex((_, i) => n(i)[2] < -0.9)]; });
+      await page.evaluate((f) => NoorMesh._editSelect(f), [top, side]);
+      // Region inset: the mouse starts away from the middle and comes in.
+      const mid = await page.evaluate(() => NoorMesh._project([0, -0.5, 0.5]));
+      await page.mouse.move(mid.x + 220, mid.y + 120);
+      await page.keyboard.press('i');
+      check('I with two neighbouring faces: an inset under way', (await MS()).op && (await MS()).op.kind === 'inset' && !(await MS()).op.individual);
+      await page.keyboard.type('0.2');
+      check('…as one region: one ring round both (6 new faces, the edge between them kept)', (await faces()) === 12, await faces());
+      await page.keyboard.press('i');
+      check('…I again: each face by itself (8 new faces)', (await MS()).op.individual && (await faces()) === 14, await faces());
+      await page.keyboard.press('i'); await page.keyboard.press('Enter');
+      let st = await MS();
+      check('…done as a region: 12 faces, still closed, one undo step', !st.op && st.objects[0].faces === 12 && st.objects[0].check.closed && st.objects[0].check.ok && st.history === 1);
+      await page.keyboard.press('Control+z');
+      check('…undone', (await faces()) === 6);
+      // Loop cut: Ctrl+R, point at an edge, the wheel for two cuts, click, slide, click.
+      const ea = await page.evaluate(() => { const K = NoorMeshKernel, c = K.cube(2), f = c.f.find((f) => K.faceNormal(c, f).n[1] < -0.9); return [f.v[0], f.v[1]]; });
+      const pa = await page.evaluate((i) => NoorMesh._screenOf('vert', i), ea[0]), pb = await page.evaluate((i) => NoorMesh._screenOf('vert', i), ea[1]);
+      const em = { x: (pa.x + pb.x) / 2, y: (pa.y + pb.y) / 2 };
+      await page.keyboard.press('2');
+      await page.mouse.move(em.x, em.y);
+      await page.keyboard.press('Control+r');
+      await page.mouse.move(em.x + 1, em.y + 1);
+      st = await MS();
+      check('Ctrl+R: a loop cut, the cut shown where the mouse points (one loop: 4 more faces)', st.op && st.op.kind === 'loopcut' && st.op.phase === 'pick' && st.objects[0].faces === 10, [st.op, st.objects[0].faces]);
+      await page.mouse.wheel(0, -100);
+      await waitFn(page, () => NoorMesh._state().op && NoorMesh._state().op.cuts === 2);
+      check('…the wheel: two cuts (not a zoom)', (await faces()) === 14 && (await MS()).camera.dist === st.camera.dist, [await faces()]);
+      await page.mouse.down(); await page.mouse.up();
+      check('…a click places it, then it slides', (await MS()).op.phase === 'slide');
+      await page.mouse.move(em.x + (pb.x - pa.x) * 0.2, em.y + (pb.y - pa.y) * 0.2, { steps: 3 });
+      check('…sliding towards one end', (await MS()).op.factor > 0.55, (await MS()).op.factor);
+      await page.mouse.down(); await page.mouse.up();
+      st = await MS();
+      check('…clicked: 14 faces, still closed and sound, the new loops selected, one undo step', !st.op && st.objects[0].faces === 14 && st.objects[0].check.closed && st.objects[0].check.ok && st.history === 1 && st.editFlush.edges === 8, [st.objects[0].faces, st.editFlush]);
+      // Right-click while sliding: in the middle.
+      await page.mouse.move(em.x + 40, em.y + 10);
+      await page.keyboard.press('Control+r');
+      await page.mouse.move(em.x - (pb.x - pa.x) * 0.3, em.y - (pb.y - pa.y) * 0.3);
+      const picked = (await MS()).objects[0].faces;
+      if ((await MS()).op.phase === 'pick' && picked > 14) {
+        await page.mouse.down(); await page.mouse.up();
+        await page.mouse.move(em.x + 30, em.y + 30, { steps: 2 });
+        await page.mouse.down({ button: 'right' }); await page.mouse.up({ button: 'right' });
+        st = await MS();
+        check('a second cut, right-clicked while sliding: kept, in the middle (Blender\'s way)', !st.op && st.objects[0].faces === picked && st.objects[0].check.ok);
+      } else check('a second cut, right-clicked while sliding: kept, in the middle (Blender\'s way)', false, (await MS()).op);
+      await page.keyboard.press('Control+r'); await page.keyboard.press('Escape');
+      check('Ctrl+R then Esc: nothing cut, nothing to undo added', !(await MS()).op && (await MS()).history === 2);
+      // Bridge: back to the cube, inset the top, then bridge the inner top face to the bottom face: a hole through.
+      while ((await MS()).history > 0) await page.keyboard.press('Control+z');
+      await page.keyboard.press('3');
+      await page.evaluate((f) => NoorMesh._editSelect(f), [top]);
+      await page.keyboard.press('i'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      await page.evaluate((f) => NoorMesh._editSelect(f), [top, bottom]);
+      await page.keyboard.press('Control+e');
+      await page.waitForSelector('#nm-popup');
+      check('Ctrl+E: the edge menu (loop cut, bridge)', !!(await page.$('#nm-popup .nm-menuitem:has-text("Bridge edge loops")')) && !!(await page.$('#nm-popup .nm-menuitem:has-text("Loop cut and slide")')));
+      await page.click('#nm-popup .nm-menuitem:has-text("Bridge edge loops")');
+      st = await MS();
+      check('…bridge the inner top face to the bottom: both go, 4 walls join them (a hole through, closed and sound)', st.objects[0].faces === 12 && st.objects[0].check.closed && st.objects[0].check.ok && st.objects[0].check.euler === 0, st.objects[0].check);
+      await page.evaluate((f) => NoorMesh._editSelect(f), [0]);
+      await page.keyboard.press('Control+e'); await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Bridge edge loops")');
+      check('…one face is not two loops: said so, nothing changed', /two loops/.test(await page.textContent('#nm-status')) && (await faces()) === 12);
+      // Snapping: Shift+Tab, steps without Ctrl.
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Shift+Tab');
+      st = await MS();
+      check('Shift+Tab: snapping on (the magnet pressed, remembered)', st.snapping.on && (await page.getAttribute('#nm-snap', 'aria-pressed')) === 'true' && JSON.parse(await page.evaluate(() => localStorage.getItem('noormd.mesh.snap'))).on === true);
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('g');
+      await page.mouse.move(box.cx + 37, box.cy + 23, { steps: 3 });
+      st = await MS();
+      check('…moving goes in steps of 0.1 m (no Ctrl)', st.objects[0].t.every((x) => Math.abs(x * 10 - Math.round(x * 10)) < 1e-9) && st.objects[0].t.some((x) => x !== 0), st.objects[0].t);
+      await page.keyboard.press('Escape');
+      // To vertices: a copy moved away, then dragged onto the first cube's corner.
+      await page.selectOption('#nm-snapmode', 'vertex');
+      check('…snap to vertices chosen', (await MS()).snapping.mode === 'vertex');
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Shift+d'); await page.keyboard.press('x'); await page.keyboard.type('4'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('…a copy 4 m along X', st.objects.length === 2 && st.objects[1].t[0] === 4, st.objects.map((o) => o.t));
+      const corner = await page.evaluate(() => NoorMesh._project([1, -1, 1]));
+      await page.keyboard.press('g');
+      await page.mouse.move(corner.x + 3, corner.y - 2, { steps: 4 });
+      st = await MS();
+      check('…moved near the first cube\'s corner: the copy\'s middle snaps onto it', st.op && st.op.snapped && [1, -1, 1].every((v, k) => Math.abs(st.objects[1].t[k] - v) < 1e-6), st.objects[1].t);
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Shift+Tab');
+      check('Shift+Tab again: off', !(await MS()).snapping.on);
+      if (shots) {
+        await page.keyboard.press('Control+z');
+        const front = await page.evaluate(() => NoorMesh._project([0.7, -1, -0.6]));
+        await page.mouse.click(front.x, front.y);
+        await page.keyboard.press('Tab'); await page.keyboard.press('2');
+        await page.mouse.move(em.x, em.y);
+        await page.keyboard.press('Control+r');
+        await page.mouse.move(em.x + 1, em.y);
+        await page.mouse.wheel(0, -100); await page.mouse.wheel(0, -100);
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80e-noormesh-loopcut.png` });
+        await page.keyboard.press('Escape');
+      }
+      check('no page errors while modelling', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

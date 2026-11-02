@@ -268,5 +268,80 @@ const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
   check('duplicate a face: a copy with 4 vertices of its own (the cube untouched)', d.mesh.f.length === 7 && K.vertexCount(d.mesh) === 12 && d.faces.length === 1 && d.verts.length === 4);
 }
 
+
+{
+  // Region inset (as Blender's I): two neighbouring faces of a cube's top inset together — one ring, the edge between them kept.
+  const g = K.grid(2, 2, 1), all = new Set([0, 1]);
+  const r = K.insetRegion(g, all, 0.1);
+  check('region inset of two neighbouring faces: one ring of 6 quads (not 8), 2+6 faces', r.mesh.f.length === 8, r.mesh.f.length);
+  check('…6 new vertices round the border, the region still 2 faces', K.vertexCount(r.mesh) === 12 && r.faces.length === 2, K.vertexCount(r.mesh));
+  check('…no problems', K.check(r.mesh).ok, K.check(r.mesh).problems);
+  const c = K.cube(2), top = topFace(c);
+  const sides = new Set(c.f.map((f, i) => i).filter((i) => i !== top && Math.abs(K.faceNormal(c, c.f[i]).n[2]) < 0.5));
+  const band = K.insetRegion(c, sides, 0.2);
+  check('region inset of a cube\'s four sides: two rings (top and bottom), closed and consistent', band.mesh.f.length === 6 + 8 && K.check(band.mesh).closed && K.check(band.mesh).flipped === 0, [band.mesh.f.length, K.check(band.mesh)]);
+  const lifted = K.insetRegion(c, new Set([top]), 0.2, 0.5);
+  check('…with depth: the region lifted along its normal (the top at z 1.5)', lifted.verts.every((v) => Math.abs(lifted.mesh.v[v * 3 + 2] - 1.5) < 1e-9), lifted.verts.map((v) => lifted.mesh.v[v * 3 + 2]));
+  const whole = K.insetRegion(c, new Set(c.f.map((_, i) => i)), 0.2);
+  check('…a whole closed mesh has no border: unchanged', whole.mesh.f.length === 6);
+}
+{
+  // Loop cut (Ctrl+R): round a cube, across a cylinder's sides, at a grid's open ends.
+  const c = K.cube(2), top = topFace(c), [a, b] = [c.f[top].v[0], c.f[top].v[1]];
+  const ring = K.loopRing(c, a, b);
+  check('loop ring from a cube\'s top edge: 4 faces, 4 edges', ring.faces.size === 4 && ring.ring.size === 4, [ring.faces.size, ring.ring.size]);
+  const cut = K.loopCut(c, a, b);
+  check('loop cut round a cube: 10 faces, 12 vertices, a loop of 4 new edges', cut.mesh.f.length === 10 && K.vertexCount(cut.mesh) === 12 && cut.edges.length === 4, [cut.mesh.f.length, K.vertexCount(cut.mesh), cut.edges.length]);
+  check('…closed and consistent (no problems)', K.check(cut.mesh).ok && K.check(cut.mesh).closed && K.check(cut.mesh).flipped === 0, K.check(cut.mesh));
+  check('…the same volume', Math.abs(K.volume(cut.mesh) - 8) < 1e-9, K.volume(cut.mesh));
+  const three = K.loopCut(c, a, b, 3);
+  check('three cuts: 12 new vertices, 3 loops (12 edges), 6 + 4·3 faces', K.vertexCount(three.mesh) === 20 && three.edges.length === 12 && three.mesh.f.length === 18 && K.check(three.mesh).ok);
+  const slid = K.loopCut(c, a, b, 1, 0.9), pa = K.vec.sub([c.v[a * 3], c.v[a * 3 + 1], c.v[a * 3 + 2]], [0, 0, 0]);
+  const nv = slid.verts.find((v) => true), pn = [slid.mesh.v[nv * 3], slid.mesh.v[nv * 3 + 1], slid.mesh.v[nv * 3 + 2]];
+  const pb = [c.v[b * 3], c.v[b * 3 + 1], c.v[b * 3 + 2]];
+  check('slid to 0.9: the first new vertex 90% of the way from a to b', K.vec.len(K.vec.sub(pn, K.vec.add(pa, K.vec.scale(K.vec.sub(pb, pa), 0.9)))) < 1e-6, pn);
+  const cy = K.cylinder(1, 2, 8), side = cy.f.findIndex((f) => f.v.length === 4);
+  const sv = cy.f[side].v;
+  // The side quad's vertical edge: the one whose ends differ in Z.
+  let ve = null; for (let k = 0; k < 4; k++) { const x = sv[k], y = sv[(k + 1) % 4]; if (Math.abs(cy.v[x * 3 + 2] - cy.v[y * 3 + 2]) > 1) ve = [x, y]; }
+  const cc = K.loopCut(cy, ve[0], ve[1]);
+  check('loop cut round a cylinder: the 8 sides split, the 8-sided caps untouched, still closed', cc.mesh.f.length === cy.f.length + 8 && cc.edges.length === 8 && K.check(cc.mesh).closed && K.check(cc.mesh).ok, [cc.mesh.f.length, K.check(cc.mesh)]);
+  const cy2 = K.loopCut(cy, sv[0], sv[1].valueOf ? sv[1] : sv[1]);
+  void cy2;
+  const g = K.grid(2, 3, 1);
+  const ge = K.loopCut(g, 0, 4);
+  check('a grid strip cut along: 3 quads into 6, open at both ends (4 new vertices)', ge.mesh.f.length === 6 && ge.verts.length === 4 && K.check(ge.mesh).ok, [ge.mesh.f.length, ge.verts.length]);
+  const tri = { v: [0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 2, 0.5, 0], f: [{ v: [0, 1, 2, 3], uv: null, m: 0, s: false }, { v: [1, 4, 2], uv: null, m: 0, s: false }], e: {} };
+  const tc = K.loopCut(tri, 3, 0);
+  check('a triangle at the loop\'s end gets the new vertex in its edge (a quad then)', tc.mesh.f.length === 3 && tc.mesh.f[1].v.length === 4 && K.check(tc.mesh).ok, tc.mesh.f.map((f) => f.v));
+}
+{
+  // Bridge edge loops: an open box's rim to a lid's border (closed after), two separate faces (a tube), mismatched counts.
+  const c = K.cube(2), top = topFace(c);
+  const box = K.deleteElements(c, K.selectionFromFaces(c, [top], 'face'), 'only-faces');
+  const lid = K.grid(2, 1, 1);
+  const join = (m1, m2, dz) => ({ v: [...m1.v, ...m2.v.map((x, i) => (i % 3 === 2 ? x + dz : x))], f: [...m1.f, ...m2.f.map((f) => ({ ...f, v: f.v.map((v) => v + m1.v.length / 3) }))], e: {} });
+  const boxLid = join(box, lid, 3);
+  const borders = [...K.edgeFaces(boxLid)].filter(([, fs]) => fs.length === 1).map(([k]) => k);
+  check('an open box and a lid above it: 8 open edges', borders.length === 8);
+  const br = K.bridgeLoops(boxLid, { mode: 'edge', verts: new Set(), edges: new Set(borders), faces: new Set() });
+  // The lid's four edges all selected select its face too, so (as in Blender) it goes: a taller open box.
+  check('bridging the rim to the lid\'s border: 4 walls the same way round as the box (the lid\'s face gone, as in Blender)', !br.error && br.faces.length === 4 && br.mesh.f.length === 9 && K.check(br.mesh).ok && K.check(br.mesh).open === 4 && K.check(br.mesh).flipped === 0, [br.error, br.mesh && K.check(br.mesh)]);
+  const two = join(lid, lid, 2);
+  const bf = K.bridgeLoops(two, K.selectionFromFaces(two, [0, 1], 'face'));
+  const ctr = [0, 0, 1];
+  check('bridging two selected faces: they go, a tube of 4 faces pointing outwards', !bf.error && bf.mesh.f.length === 4 && K.check(bf.mesh).nonManifold === 0 && bf.mesh.f.every((f) => K.vec.dot(K.faceNormal(bf.mesh, f).n, K.vec.sub(K.faceCentre(bf.mesh, f), ctr)) > 0), [bf.error, bf.mesh && bf.mesh.f.length]);
+  const tube = box;
+  const one = K.bridgeLoops(tube, { mode: 'edge', verts: new Set(), edges: new Set(borders.slice(0, 1)), faces: new Set() });
+  check('one run of edges: not two loops', one.error === 'two');
+  const g = K.grid(2, 2, 1), g2 = K.grid(2, 3, 1);
+  const both = { v: [...g.v, ...g2.v.map((x, i) => (i % 3 === 2 ? x + 1 : x))], f: [...g.f, ...g2.f.map((f) => ({ ...f, v: f.v.map((v) => v + g.v.length / 3) }))], e: {} };
+  const bord = [...K.edgeFaces(both)].filter(([, fs]) => fs.length === 1).map(([k]) => k);
+  const mis = K.bridgeLoops(both, { mode: 'edge', verts: new Set(), edges: new Set(bord), faces: new Set() });
+  check('loops of different lengths: refused (counts)', mis.error === 'counts', mis.error);
+  const chains = K.edgeChains(['0_1', '1_2', '5_6']);
+  check('edge chains: an open run of 3 vertices and one of 2', chains.length === 2 && chains.some((c2) => c2.verts.length === 3 && !c2.closed));
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

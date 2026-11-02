@@ -590,6 +590,217 @@
   }
 
   /**
+   * Inset a region of faces as one (as Blender's I): a ring of quads along the region's border only, the faces inside
+   * left whole; depth lifts the region along its normal. A region with no border (a whole closed mesh) is unchanged.
+   * Returns { mesh, faces: the region's faces, verts: the region's vertices after it }.
+   */
+  function insetRegion(mesh, faceSet, thickness, depth = 0) {
+    const region = [...faceSet].filter((i) => mesh.f[i]);
+    const out = clone(mesh);
+    if (!region.length) return { mesh: out, faces: [], verts: [] };
+    const count = new Map();
+    region.forEach((i) => faceEdgeKeys(mesh.f[i]).forEach((k) => count.set(k, (count.get(k) || 0) + 1)));
+    // Each border vertex: the inward directions of the border edges coming in and going out, and the normals around it.
+    const info = new Map(), vn = new Map();
+    const border = [];
+    for (const i of region) {
+      const f = mesh.f[i], n = f.v.length, { n: N, area } = faceNormal(mesh, f);
+      f.v.forEach((v) => vn.set(v, add(vn.get(v) || [0, 0, 0], scale(N, area || 1))));
+      for (let k = 0; k < n; k++) {
+        const a = f.v[k], b = f.v[(k + 1) % n];
+        if (count.get(edgeKey(a, b)) !== 1) continue;
+        border.push({ face: i, k, a, b });
+        const inward = norm(cross(N, norm(sub(vert(mesh, b), vert(mesh, a)))));
+        if (!info.has(a)) info.set(a, { into: [], outof: [] });
+        if (!info.has(b)) info.set(b, { into: [], outof: [] });
+        info.get(a).outof.push(inward); info.get(b).into.push(inward);
+      }
+    }
+    if (!border.length) return { mesh: out, faces: region, verts: [...new Set(region.flatMap((i) => mesh.f[i].v))] };
+    const lift = (v) => scale(norm(vn.get(v) || [0, 0, 1]), depth);
+    // The border's inner copies.
+    const inner = new Map();
+    for (const [v, { into, outof }] of info) {
+      const in1 = into[0] || outof[0], in2 = outof[0] || into[0];
+      const bis = norm(add(in1, in2)), d = thickness / Math.max(0.2, dot(bis, in1));
+      inner.set(v, vertexCount(out));
+      out.v.push(...add(add(vert(mesh, v), scale(bis, d)), lift(v)));
+    }
+    // The region's own vertices inside are lifted.
+    const insideVerts = new Set();
+    region.forEach((i) => mesh.f[i].v.forEach((v) => { if (!inner.has(v)) insideVerts.add(v); }));
+    for (const v of insideVerts) { const p = add(vert(mesh, v), lift(v)); out.v[v * 3] = p[0]; out.v[v * 3 + 1] = p[1]; out.v[v * 3 + 2] = p[2]; }
+    // The ring: a→b along the border, then b'→a'.
+    for (const { face, k, a, b } of border) {
+      const f = mesh.f[face], n = f.v.length, k2 = (k + 1) % n;
+      const uv = f.uv ? [f.uv[k * 2], f.uv[k * 2 + 1], f.uv[k2 * 2], f.uv[k2 * 2 + 1], f.uv[k2 * 2], f.uv[k2 * 2 + 1], f.uv[k * 2], f.uv[k * 2 + 1]] : null;
+      out.f.push({ v: [a, b, inner.get(b), inner.get(a)], uv, m: f.m || 0, s: !!f.s });
+    }
+    for (const i of region) out.f[i] = { ...out.f[i], v: out.f[i].v.map((v) => (inner.has(v) ? inner.get(v) : v)) };
+    return { mesh: out, faces: region, verts: [...new Set(region.flatMap((i) => out.f[i].v))] };
+  }
+
+  /**
+   * The ring of edges a loop cut crosses (as Blender's Ctrl+R): from the edge a–b on through quads by their opposite
+   * edges, both ways. Returns { ring: Map edge key → [from, to] (all running the same way round), faces: Map face → the
+   * index in it of one of its ring edges }.
+   */
+  function loopRing(mesh, a, b) {
+    const ef = edgeFaces(mesh), ring = new Map(), faces = new Map();
+    if (!ef.has(edgeKey(a, b))) return { ring, faces };
+    ring.set(edgeKey(a, b), [a, b]);
+    const walk = (face, from, to) => {
+      for (let guard = 0; face !== undefined && guard < 100000; guard++) {
+        if (faces.has(face)) return;
+        const f = mesh.f[face];
+        if (f.v.length !== 4) return;
+        let k = -1;
+        for (let j = 0; j < 4; j++) { const x = f.v[j], y = f.v[(j + 1) % 4]; if ((x === from && y === to) || (x === to && y === from)) { k = j; break; } }
+        if (k < 0) return;
+        faces.set(face, k);
+        // f.v[k+3] sits beside f.v[k], f.v[k+2] beside f.v[k+1].
+        const nf = f.v[k] === from ? f.v[(k + 3) % 4] : f.v[(k + 2) % 4], nt = f.v[k] === from ? f.v[(k + 2) % 4] : f.v[(k + 3) % 4];
+        const ok = edgeKey(nf, nt);
+        if (ring.has(ok)) return; // round the loop
+        ring.set(ok, [nf, nt]);
+        face = (ef.get(ok) || []).find((x) => x !== face && !faces.has(x));
+        from = nf; to = nt;
+      }
+    };
+    for (const fc of ef.get(edgeKey(a, b))) walk(fc, a, b);
+    return { ring, faces };
+  }
+  /**
+   * A loop cut (as Blender's Ctrl+R): `cuts` new edge loops across the ring from the edge a–b, evenly spaced; `factor`
+   * (0..1, 0.5 in the middle) slides them towards a or b. Faces at the loop's ends (not quads) get the new vertices on
+   * their edges. Returns { mesh, verts: the new vertices, edges: the new loops' edge keys }.
+   */
+  function loopCut(mesh, a, b, cuts = 1, factor = 0.5) {
+    cuts = Math.max(1, Math.min(64, Math.round(cuts)));
+    const { ring, faces } = loopRing(mesh, a, b), out = clone(mesh);
+    if (!faces.size) return { mesh: out, verts: [], edges: [] };
+    const h = 1 / (cuts + 1), off = (Math.max(0.01, Math.min(0.99, factor)) - 0.5) * 2 * h;
+    const ts = Array.from({ length: cuts }, (_, i) => (i + 1) * h + off);
+    const made = new Map(), newVerts = [];
+    for (const [k, [from, to]] of ring) {
+      const pa = vert(mesh, from), pb = vert(mesh, to), ids = [];
+      for (const t of ts) { ids.push(vertexCount(out)); out.v.push(...add(pa, scale(sub(pb, pa), t))); }
+      made.set(k, { from, ids });
+      newVerts.push(...ids);
+    }
+    // The points along an edge x→y: x, the new ones in that direction, y (and the share of the way along each).
+    const along = (x, y) => { const m = made.get(edgeKey(x, y)), ids = m.from === x ? m.ids : m.ids.slice().reverse(), t = m.from === x ? ts : ts.map((v) => 1 - v).reverse(); return { ids: [x, ...ids, y], t: [0, ...t, 1] }; };
+    const lerp2 = (p, q, t) => [p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t];
+    const newEdges = [];
+    for (const [fi, k] of faces) {
+      const f = mesh.f[fi], q = [0, 1, 2, 3].map((j) => f.v[(k + j) % 4]);
+      const uv = f.uv ? [0, 1, 2, 3].map((j) => [f.uv[((k + j) % 4) * 2], f.uv[((k + j) % 4) * 2 + 1]]) : null;
+      const P = along(q[0], q[1]), Q = along(q[3], q[2]);
+      const parts = [];
+      for (let j = 0; j <= cuts; j++) {
+        const fv = [P.ids[j], P.ids[j + 1], Q.ids[j + 1], Q.ids[j]];
+        const fuv = uv ? [lerp2(uv[0], uv[1], P.t[j]), lerp2(uv[0], uv[1], P.t[j + 1]), lerp2(uv[3], uv[2], Q.t[j + 1]), lerp2(uv[3], uv[2], Q.t[j])].flat() : null;
+        parts.push({ v: fv, uv: fuv, m: f.m || 0, s: !!f.s });
+        if (j > 0) newEdges.push(edgeKey(P.ids[j], Q.ids[j]));
+      }
+      out.f[fi] = parts[0];
+      out.f.push(...parts.slice(1));
+    }
+    // Faces at the ends: the new vertices put into their edges.
+    mesh.f.forEach((f, fi) => {
+      if (faces.has(fi)) return;
+      const n = f.v.length;
+      if (!faceEdgeKeys(f).some((k) => made.has(k))) return;
+      const v = [], uv = f.uv ? [] : null;
+      for (let j = 0; j < n; j++) {
+        const x = f.v[j], y = f.v[(j + 1) % n];
+        v.push(x); if (uv) uv.push(f.uv[j * 2], f.uv[j * 2 + 1]);
+        if (!made.has(edgeKey(x, y))) continue;
+        const A = along(x, y), u0 = f.uv ? [f.uv[j * 2], f.uv[j * 2 + 1]] : null, u1 = f.uv ? [f.uv[((j + 1) % n) * 2], f.uv[((j + 1) % n) * 2 + 1]] : null;
+        for (let i = 1; i <= cuts; i++) { v.push(A.ids[i]); if (uv) uv.push(...lerp2(u0, u1, A.t[i])); }
+      }
+      out.f[fi] = { ...out.f[fi], v, uv };
+    });
+    return { mesh: out, verts: newVerts, edges: [...new Set(newEdges)] };
+  }
+
+  /** Selected edges in runs: each { verts: in order, closed }. */
+  function edgeChains(edgeKeys) {
+    const nb = new Map(), left = new Set(edgeKeys);
+    for (const k of left) { const [a, b] = k.split('_').map(Number); if (!nb.has(a)) nb.set(a, []); if (!nb.has(b)) nb.set(b, []); nb.get(a).push(b); nb.get(b).push(a); }
+    const chains = [];
+    const take = (a, b) => left.delete(edgeKey(a, b));
+    const follow = (start) => {
+      const verts = [start];
+      let cur = start;
+      for (;;) {
+        const next = (nb.get(cur) || []).find((x) => left.has(edgeKey(cur, x)));
+        if (next === undefined) break;
+        take(cur, next);
+        if (next === start) return { verts, closed: true };
+        verts.push(next); cur = next;
+      }
+      return { verts, closed: false };
+    };
+    // Open runs from their ends first, then what is left is closed.
+    for (const [v, list] of nb) if (list.length === 1 && list.some((x) => left.has(edgeKey(v, x)))) chains.push(follow(v));
+    for (const k of [...left]) { if (!left.has(k)) continue; const [a] = k.split('_').map(Number); chains.push(follow(a)); }
+    return chains;
+  }
+  /**
+   * Bridge two edge loops (as Blender's Bridge Edge Loops): quads between two runs of selected edges with the same
+   * number of edges, turned and lined up so that the quads are the shortest. Selected faces (whose borders the loops
+   * are) are taken out first. Returns { mesh, faces: the new faces } or { error: 'two' | 'counts' }.
+   */
+  function bridgeLoops(mesh, sel) {
+    const f = flush(mesh, sel);
+    let out = clone(mesh);
+    let keys = [...f.edges];
+    if (f.faces.size) {
+      // The faces between the loops go; the edges between two of them are not loops.
+      out.f = out.f.filter((_, i) => !f.faces.has(i));
+      keys = keys.filter((k) => countIn(mesh, f.faces, k) < 2);
+    }
+    const chains = edgeChains(keys);
+    if (chains.length !== 2) return { error: 'two' };
+    let [A, B] = chains;
+    const edgesOf = (c) => c.verts.length - (c.closed ? 0 : 1);
+    if (A.closed !== B.closed || edgesOf(A) !== edgesOf(B)) return { error: 'counts' };
+    const P = (v) => vert(out, v), n = A.verts.length;
+    // Line B up with A: the turn (closed) and the direction with the shortest joins.
+    let best = null;
+    for (const dir of [1, -1]) for (let r = 0; r < (A.closed ? n : 1); r++) {
+      const b = Array.from({ length: n }, (_, i) => B.verts[(((dir === 1 ? i : n - 1 - i) + r) % n + n) % n]);
+      const cost = A.verts.reduce((s, v, i) => s + len(sub(P(v), P(b[i]))), 0);
+      if (!best || cost < best.cost) best = { cost, b };
+    }
+    const a = A.verts, b = best.b, faces = [];
+    // Which way round: against the faces already on the loop's edges (so normals agree), else outwards from the middle.
+    const ef = edgeFaces(out);
+    let flip = null;
+    for (let i = 0; i < (A.closed ? n : n - 1) && flip === null; i++) {
+      const x = a[i], y = a[(i + 1) % n], fs = ef.get(edgeKey(x, y)) || [];
+      if (!fs.length) continue;
+      const fv = out.f[fs[0]].v, kx = fv.indexOf(x);
+      flip = fv[(kx + 1) % fv.length] === y; // the face there runs x→y: ours must run y→x
+    }
+    const quad = (i) => { const j = (i + 1) % n; return [a[i], a[j], b[j], b[i]]; };
+    const count = A.closed ? n : n - 1;
+    if (flip === null) {
+      const c = scale([...a, ...b].reduce((s, v) => add(s, P(v)), [0, 0, 0]), 1 / (2 * n)), q = quad(0);
+      const nrm = cross(sub(P(q[1]), P(q[0])), sub(P(q[3]), P(q[0])));
+      flip = dot(nrm, sub(P(q[0]), c)) < 0;
+    }
+    for (let i = 0; i < count; i++) {
+      const q = quad(i);
+      faces.push(out.f.length);
+      out.f.push(flip ? { v: q.reverse(), uv: [0, 1, 1, 1, 1, 0, 0, 0], m: 0, s: false } : { v: q, uv: [0, 0, 1, 0, 1, 1, 0, 1], m: 0, s: false });
+    }
+    return { mesh: out, faces };
+  }
+  const countIn = (mesh, faceSet, k) => [...faceSet].filter((i) => mesh.f[i] && faceEdgeKeys(mesh.f[i]).includes(k)).length;
+
+  /**
    * Delete (as Blender's X): 'verts' takes the vertices and every face using them; 'edges' the faces using the edges
    * (and vertices left with none); 'faces' the faces and vertices left with none; 'only-faces' the faces alone.
    */
@@ -879,7 +1090,7 @@
     identity, multiply, rotation, compose, decompose, rotationAbout, transformPoint, normalMatrix, applyMatrix, flipFace,
     cube, plane, grid, uvSphere, icoSphere, cylinder, cone, torus, PRIMITIVES, rayHit,
     emptySelection, cloneSelection, flush, convertSelection, selectionFromVerts, selectionFromFaces, faceEdgeKeys, edgeFaces, cleanFaces, compact, remapSet,
-    transformVerts, extrudeFaces, extrudeEdges, insetFaces, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
+    transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
     flipFaces, recalcOutside, setSmooth, duplicateFaces, linkedVerts, growVerts, shrinkVerts, edgeLoop, faceLoop,
     vec: { sub, add, scale, dot, cross, len, norm },
   };

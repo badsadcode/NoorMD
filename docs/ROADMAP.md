@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.146), phase A3 begun: move/rotate/scale gizmos (switched on or off), plane constraints, region inset,
+  Ctrl+R loop cut and slide, bridge edge loops, snapping (steps, vertices).
 - NoorMesh (preview.145), phase A4: .noormesh files (save, open, recent, a draft after a crash), GLB and OBJ export
   (+Y up, for engines) and import.
 - NoorMesh (preview.144), phase A2: Edit Mode as Blender's (Tab; vertices, edges, faces; loops, linked; G/R/S, extrude,

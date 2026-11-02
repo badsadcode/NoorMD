@@ -41,14 +41,16 @@
       outColor = vec4(pow(col, vec3(1.0 / 2.2)), 1.0);
     }`;
   const LINE_VS = `#version 300 es
-    in vec3 aPos; uniform mat4 uModel, uView, uProj; uniform float uLift;
-    void main() { gl_Position = uProj * uView * uModel * vec4(aPos, 1.0); gl_Position.z -= uLift * gl_Position.w; }`;
+    in vec3 aPos; uniform mat4 uModel, uView, uProj; uniform float uLift, uOrthoDist;
+    // Lifted towards the camera by a share of its distance (the same on the screen): drawn over the surface it lies on,
+    // and still hidden behind surfaces in front of it, near or far.
+    void main() { vec4 v = uView * uModel * vec4(aPos, 1.0); if (uOrthoDist > 0.0) v.z += uLift * uOrthoDist; else v.xyz *= 1.0 - uLift; gl_Position = uProj * v; }`;
   const LINE_FS = `#version 300 es
     precision highp float; uniform vec4 uColor; out vec4 outColor; void main() { outColor = uColor; }`;
   // Edit Mode's overlay: vertices (round dots), edges and selected faces, each with its own colour.
   const OVER_VS = `#version 300 es
-    in vec3 aPos; in vec4 aCol; uniform mat4 uModel, uView, uProj; uniform float uLift, uPointSize; out vec4 vCol;
-    void main() { vCol = aCol; gl_Position = uProj * uView * uModel * vec4(aPos, 1.0); gl_Position.z -= uLift * gl_Position.w; gl_PointSize = uPointSize; }`;
+    in vec3 aPos; in vec4 aCol; uniform mat4 uModel, uView, uProj; uniform float uLift, uOrthoDist, uPointSize; out vec4 vCol;
+    void main() { vCol = aCol; vec4 v = uView * uModel * vec4(aPos, 1.0); if (uOrthoDist > 0.0) v.z += uLift * uOrthoDist; else v.xyz *= 1.0 - uLift; gl_Position = uProj * v; gl_PointSize = uPointSize; }`;
   const OVER_FS = `#version 300 es
     precision highp float; in vec4 vCol; uniform int uRound; out vec4 outColor;
     void main() { if (uRound == 1 && length(gl_PointCoord - 0.5) > 0.5) discard; outColor = vCol; }`;
@@ -170,7 +172,7 @@
           gl.bindVertexArray(null);
           return { vao, buffers, count: pos.length / 3, mode };
         };
-        edit = { matrix: data.matrix || IDENTITY, parts: [part(data.tris, data.triColors, 'tris'), part(data.lines, data.lineColors, 'lines'), part(data.points, data.pointColors, 'points')].filter(Boolean) };
+        edit = { id: data.id, matrix: data.matrix || IDENTITY, parts: [part(data.tris, data.triColors, 'tris'), part(data.lines, data.lineColors, 'lines'), part(data.points, data.pointColors, 'points')].filter(Boolean) };
       }
       redraw();
     }
@@ -254,12 +256,16 @@
       // Edges and the selection's outline.
       gl.useProgram(lineProg.p);
       gl.uniformMatrix4fv(lineProg.u.uView, false, view); gl.uniformMatrix4fv(lineProg.u.uProj, false, proj);
-      for (const o of objects.values()) {
+      const orthoDist = cam.ortho ? cam.dist : 0;
+      gl.uniform1f(lineProg.u.uOrthoDist, orthoDist);
+      for (const [id, o] of objects) {
         if (o.hidden) continue;
+        // The object being edited shows its own edges in the overlay (as Blender: no object outline in Edit Mode).
+        if (edit && edit.id !== undefined && edit.id === id) continue;
         const sel = o.selected || o.active;
         if (!sel && !showEdges) continue;
         gl.uniform4fv(lineProg.u.uColor, o.active ? [1, 0.67, 0.25, 1] : o.selected ? [0.95, 0.45, 0.12, 0.95] : [0.05, 0.05, 0.06, 0.45]);
-        gl.uniform1f(lineProg.u.uLift, 0.0002);
+        gl.uniform1f(lineProg.u.uLift, 0.002);
         gl.uniformMatrix4fv(lineProg.u.uModel, false, o.matrix);
         gl.bindVertexArray(o.lineVao); gl.drawArrays(gl.LINES, 0, o.lineCount);
       }
@@ -268,11 +274,12 @@
         gl.useProgram(over.p);
         gl.uniformMatrix4fv(over.u.uView, false, view); gl.uniformMatrix4fv(over.u.uProj, false, proj);
         gl.uniformMatrix4fv(over.u.uModel, false, edit.matrix);
+        gl.uniform1f(over.u.uOrthoDist, orthoDist);
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         for (const p of edit.parts) {
           gl.uniform1i(over.u.uRound, p.mode === 'points' ? 1 : 0);
           gl.uniform1f(over.u.uPointSize, 6 * dpr);
-          gl.uniform1f(over.u.uLift, p.mode === 'tris' ? 0.00003 : p.mode === 'lines' ? 0.00008 : 0.00016);
+          gl.uniform1f(over.u.uLift, p.mode === 'tris' ? 0.0006 : p.mode === 'lines' ? 0.0015 : 0.003);
           gl.bindVertexArray(p.vao);
           gl.drawArrays(p.mode === 'tris' ? gl.TRIANGLES : p.mode === 'lines' ? gl.LINES : gl.POINTS, 0, p.count);
         }

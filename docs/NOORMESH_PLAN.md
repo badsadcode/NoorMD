@@ -185,6 +185,19 @@ an independent reader in the tests. Import: GLB (each node with a mesh an object
 welded, smooth faces found from the normals) and OBJ (n-gons, "o"/"g" objects, smoothing groups), turned to +Z up. Not
 yet: tris-to-quads after a GLB import, materials and textures in exports (phase B), glTF (.gltf with a separate .bin).
 
+**Done in preview.146: A3, first half** — gizmos for move, rotate and scale (each switched on or off with the ✥ ⟳ ⤡
+buttons or the View menu, remembered; the arrows hold to an axis, the squares to a plane, the rings turn about an axis or
+the view, the boxes scale along one, the middle ring evenly; in Object and Edit Mode); Shift+X/Y/Z during G holds to a
+plane leaving that axis out; the coloured axis line shows during G/R/S in Edit Mode too. Region inset (I: a ring along
+the region's border only; I again: each face by itself). Loop cut and slide (Ctrl+R: point at an edge, the wheel or + −
+or a number for how many cuts, click, slide, click; right-click while sliding keeps it in the middle; faces at the
+loop's ends get the new vertices on their edges). Bridge edge loops (Ctrl+E, or the right-click menu: two runs of edges
+with the same count, lined up for the shortest joins and turned to agree with the faces beside them; two selected faces
+are taken out and their borders joined). Snapping (Shift+Tab or the magnet: steps of 0.1 m / 5° / 0.1, or a move onto
+the vertex nearest the mouse; Ctrl does the other). The Edit Mode overlay now hides behind nearby surfaces properly (its
+lift is a share of the distance, not a fixed depth). Next (preview.147): bevel (Ctrl+B), knife (K), proportional
+editing (O), mirror editing.
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |
