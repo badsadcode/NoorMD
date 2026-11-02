@@ -204,7 +204,8 @@ editing (O), mirror editing.
   (O: falloff shapes, the wheel for its size, connected only), mirror editing (X/Y/Z symmetry in Edit Mode); vertex and
   edge slide (G pressed twice in Edit Mode, as Blender's: a vertex slides along one of its edges, an edge loop along the
   faces beside it; Alt or C for even, F to flip); Shift+X/Y/Z for scaling too (scale on two axes, the third left alone),
-  not only for moving.
+  not only for moving; auto merge vertices (a toggle beside snapping, as Blender's: after a move in Edit Mode, vertices
+  that land on others within a small distance are merged into them; the distance adjustable, remembered).
 - **preview.148:** the 3D cursor (Shift+right-click places it on the surface under the mouse; Shift+S: cursor to selected,
   to world origin, selection to cursor; Shift+C: reset it and frame everything; new objects and "merge at the cursor" use
   it); the pivot point menu (`.`: median, 3D cursor, individual origins, active element) for G/R/S, the gizmos and
