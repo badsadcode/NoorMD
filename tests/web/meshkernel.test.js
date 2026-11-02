@@ -23,16 +23,19 @@ const near = (a, b, eps = 1e-6) => Math.abs(a - b) <= eps;
     check(`${name}: every corner has a UV`, m.f.every((f) => f.uv && f.uv.length === f.v.length * 2 && f.uv.every(Number.isFinite)));
   }
   const g = K.grid(2, 4, 3), cg = K.check(g);
-  check('grid: valid and open (a border of 14 edges), facing +Y', cg.ok && cg.open === 14 && g.f.every((f) => K.faceNormal(g, f).n[1] > 0.99), cg);
+  check('grid: valid and open (a border of 14 edges), on the floor facing +Z', cg.ok && cg.open === 14 && g.f.every((f) => K.faceNormal(g, f).n[2] > 0.99) && K.bounds(g).max[2] === 0, cg);
   check('grid: 4 × 3 quads, 20 vertices', g.f.length === 12 && K.vertexCount(g) === 20);
   const p = K.plane(3), bp = K.bounds(p);
-  check('plane: one quad, 3 m across', p.f.length === 1 && near(bp.max[0] - bp.min[0], 3) && near(bp.max[2] - bp.min[2], 3));
+  check('plane: one quad, 3 m across on the floor', p.f.length === 1 && near(bp.max[0] - bp.min[0], 3) && near(bp.max[1] - bp.min[1], 3) && near(bp.max[2], 0));
   const cube = K.cube(2);
   check('cube: 6 quads, 8 vertices, 12 triangles', cube.f.length === 6 && K.vertexCount(cube) === 8 && K.check(cube).triangles === 12);
   check('cube: each face points along its axis', cube.f.every((f) => Math.max(...K.faceNormal(cube, f).n.map(Math.abs)) > 0.999));
   check('cylinder: smooth sides, flat caps with sharp rims', K.cylinder(1, 2, 8).f.filter((f) => f.s).length === 8 && Object.keys(K.cylinder(1, 2, 8).e).length === 16);
   for (const [id, prim] of Object.entries(K.PRIMITIVES)) check(`PRIMITIVES.${id} makes a valid mesh from its defaults`, K.check(prim.make(prim.params)).ok);
 }
+
+check('Z is up, as in Blender: the sphere\'s poles, the cylinder\'s and the torus\'s axes are on Z', near(K.bounds(K.uvSphere(1, 8, 4)).max[2], 1) && near(K.bounds(K.cylinder(0.5, 4, 8)).max[2], 2) && near(K.bounds(K.torus(1, 0.25)).max[2], 0.25, 1e-3));
+check('the cube\'s top face points up (+Z) and its front (−Y) is the middle of the UV cross', (() => { const c = K.cube(2); const top = c.f.find((f) => K.faceNormal(c, f).n[2] > 0.99), front = c.f.find((f) => K.faceNormal(c, f).n[1] < -0.99); return top && front && front.uv[0] === 0.25 && near(front.uv[1], 1 / 3); })());
 
 // ---- triangulation: n-gons, concave faces
 {

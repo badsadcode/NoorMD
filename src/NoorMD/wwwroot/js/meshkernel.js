@@ -1,7 +1,7 @@
 /* NoorMesh's geometry kernel: the editable polygon mesh and what is done to it. Pure functions, no DOM (tested in
    plain Node: tests/web/meshkernel.test.js).
 
-   A mesh: { v: [x, y, z, x, y, z, …] (metres, +Y up), f: [face…], e?: { 'a_b': { seam, sharp } } } where a face is
+   A mesh: { v: [x, y, z, x, y, z, …] (metres, +Z up as in Blender; exports turn it to glTF's +Y up), f: [face…], e?: { 'a_b': { seam, sharp } } } where a face is
    { v: [vertex indices, counter-clockwise seen from outside], uv: [u, v per corner] | null, m: material slot,
    s: smooth (true) or flat }. Faces have 3 or more corners (n-gons are kept for modelling and triangulated only to draw
    and export). UVs belong to the corners, so a seam is two corners of one vertex with different UVs. Edges are not
@@ -283,43 +283,49 @@
   /** A cube: size along each axis, centred on the origin; each face its own square of the UVs' cross layout. */
   function cube(size = 2) {
     const h = size / 2;
-    const v = [[-h, -h, -h], [h, -h, -h], [h, h, -h], [-h, h, -h], [-h, -h, h], [h, -h, h], [h, h, h], [-h, h, h]];
-    // Each face: corners counter-clockwise seen from outside; UVs in a 4×3 cross (+Z front in the middle row).
+    const v = [], index = new Map();
+    const at = (p) => { const k = p.join(','); if (!index.has(k)) { index.set(k, v.length); v.push(p); } return index.get(k); };
     const cell = (cx, cy) => [[cx / 4, cy / 3], [(cx + 1) / 4, cy / 3], [(cx + 1) / 4, (cy + 1) / 3], [cx / 4, (cy + 1) / 3]];
-    const faces = [
-      [[4, 5, 6, 7], cell(1, 1)], // +Z front
-      [[1, 0, 3, 2], cell(3, 1)], // −Z back
-      [[5, 1, 2, 6], cell(2, 1)], // +X right
-      [[0, 4, 7, 3], cell(0, 1)], // −X left
-      [[7, 6, 2, 3], cell(1, 2)], // +Y top
-      [[0, 1, 5, 4], cell(1, 0)], // −Y bottom
+    // Each face from its normal n and two axes u, v across it with u × v = n: corners −u−v, +u−v, +u+v, −u+v are then
+    // counter-clockwise seen from outside. UVs: a 4×3 cross, the front (−Y, as Blender's front view sees it) in the middle.
+    const sides = [
+      [[0, -1, 0], [1, 0, 0], [0, 0, 1], cell(1, 1)], // front (−Y)
+      [[0, 1, 0], [-1, 0, 0], [0, 0, 1], cell(3, 1)], // back (+Y)
+      [[1, 0, 0], [0, 1, 0], [0, 0, 1], cell(2, 1)], // right (+X)
+      [[-1, 0, 0], [0, -1, 0], [0, 0, 1], cell(0, 1)], // left (−X)
+      [[0, 0, 1], [1, 0, 0], [0, 1, 0], cell(1, 2)], // top (+Z)
+      [[0, 0, -1], [1, 0, 0], [0, -1, 0], cell(1, 0)], // bottom (−Z)
     ];
+    const faces = sides.map(([n, u, w, uv]) => {
+      const c = (a, b) => at([0, 1, 2].map((k) => (n[k] + a * u[k] + b * w[k]) * h));
+      return [[c(-1, -1), c(1, -1), c(1, 1), c(-1, 1)], uv];
+    });
     return fromQuads(v, faces);
   }
 
-  /** A grid on the XZ plane (facing +Y): size, cuts across and along. A plane is a grid of one. */
+  /** A grid on the floor (the XY plane, facing +Z): size, cuts along X and along Y. A plane is a grid of one. */
   function grid(size = 2, cutsX = 10, cutsZ = 10) {
     cutsX = Math.max(1, Math.round(cutsX)); cutsZ = Math.max(1, Math.round(cutsZ));
     const v = [], faces = [];
-    for (let j = 0; j <= cutsZ; j++) for (let i = 0; i <= cutsX; i++) v.push([(i / cutsX - 0.5) * size, 0, (j / cutsZ - 0.5) * size]);
+    for (let j = 0; j <= cutsZ; j++) for (let i = 0; i <= cutsX; i++) v.push([(i / cutsX - 0.5) * size, (j / cutsZ - 0.5) * size, 0]);
     const at = (i, j) => j * (cutsX + 1) + i;
     for (let j = 0; j < cutsZ; j++) for (let i = 0; i < cutsX; i++) {
-      // Counter-clockwise seen from +Y: (i, j+1) → (i+1, j+1) → (i+1, j) → (i, j).
-      faces.push([[at(i, j + 1), at(i + 1, j + 1), at(i + 1, j), at(i, j)], [[i / cutsX, j / cutsZ], [(i + 1) / cutsX, j / cutsZ], [(i + 1) / cutsX, (j + 1) / cutsZ], [i / cutsX, (j + 1) / cutsZ]]]);
+      // Counter-clockwise seen from +Z: (i, j) → (i+1, j) → (i+1, j+1) → (i, j+1).
+      faces.push([[at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)], [[i / cutsX, j / cutsZ], [(i + 1) / cutsX, j / cutsZ], [(i + 1) / cutsX, (j + 1) / cutsZ], [i / cutsX, (j + 1) / cutsZ]]]);
     }
     return fromQuads(v, faces);
   }
   const plane = (size = 2) => grid(size, 1, 1);
 
-  /** A UV sphere: radius, segments round, rings top to bottom (poles of triangles). */
+  /** A UV sphere: radius, segments round, rings top to bottom (poles of triangles on the Z axis). */
   function uvSphere(radius = 1, segments = 32, rings = 16) {
     segments = Math.max(3, Math.round(segments)); rings = Math.max(2, Math.round(rings));
-    const v = [[0, radius, 0]];
+    const v = [[0, 0, radius]];
     for (let r = 1; r < rings; r++) {
       const phi = (Math.PI * r) / rings;
-      for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([radius * Math.sin(phi) * Math.cos(th), radius * Math.cos(phi), -radius * Math.sin(phi) * Math.sin(th)]); }
+      for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([radius * Math.sin(phi) * Math.cos(th), radius * Math.sin(phi) * Math.sin(th), radius * Math.cos(phi)]); }
     }
-    v.push([0, -radius, 0]);
+    v.push([0, 0, -radius]);
     const bottom = v.length - 1, ring = (r, s) => 1 + (r - 1) * segments + (s % segments);
     const faces = [];
     const U = (s) => s / segments, V = (r) => 1 - r / rings;
@@ -341,7 +347,7 @@
       const m = (a, b) => { const k = edgeKey(a, b); if (!mid.has(k)) { mid.set(k, v.length); v.push(norm(add(v[a], v[b]))); } return mid.get(k); };
       f = f.flatMap(([a, b, c]) => { const ab = m(a, b), bc = m(b, c), ca = m(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]; });
     }
-    const uvOf = (p) => [0.5 + Math.atan2(-p[2], p[0]) / (2 * Math.PI), 0.5 + Math.asin(Math.max(-1, Math.min(1, p[1]))) / Math.PI];
+    const uvOf = (p) => [0.5 + Math.atan2(p[1], p[0]) / (2 * Math.PI), 0.5 + Math.asin(Math.max(-1, Math.min(1, p[2]))) / Math.PI];
     const faces = f.map((tri) => {
       const uvs = tri.map((i) => uvOf(v[i]));
       // A triangle across the seam at the back: its low-u corners wrap round.
@@ -352,21 +358,21 @@
     return fromQuads(v.map((p) => scale(p, radius)), faces, true);
   }
 
-  /** A cylinder (or a cone when the top radius is 0): bottom radius, top radius, depth (height), segments, capped. */
+  /** A cylinder along Z (or a cone when the top radius is 0): bottom radius, top radius, depth (height), segments, capped. */
   function cylinder(radius = 1, depth = 2, segments = 32, topRadius = radius) {
     segments = Math.max(3, Math.round(segments));
     const h = depth / 2, v = [], faces = [];
     const cone = topRadius <= 1e-9;
-    for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([radius * Math.cos(th), -h, -radius * Math.sin(th)]); }
-    if (!cone) for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([topRadius * Math.cos(th), h, -topRadius * Math.sin(th)]); }
-    const tip = cone ? v.push([0, h, 0]) - 1 : -1;
+    for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([radius * Math.cos(th), radius * Math.sin(th), -h]); }
+    if (!cone) for (let s = 0; s < segments; s++) { const th = (2 * Math.PI * s) / segments; v.push([topRadius * Math.cos(th), topRadius * Math.sin(th), h]); }
+    const tip = cone ? v.push([0, 0, h]) - 1 : -1;
     const B = (s) => s % segments, T = (s) => segments + (s % segments);
     for (let s = 0; s < segments; s++) {
       if (cone) faces.push([[B(s), B(s + 1), tip], [[s / segments, 0.5], [(s + 1) / segments, 0.5], [(s + 0.5) / segments, 1]]]);
       else faces.push([[B(s), B(s + 1), T(s + 1), T(s)], [[s / segments, 0.5], [(s + 1) / segments, 0.5], [(s + 1) / segments, 1], [s / segments, 1]]]);
     }
     const capUv = (s, cx) => [cx + 0.25 * Math.cos((2 * Math.PI * s) / segments) * 0.9, 0.25 + 0.25 * Math.sin((2 * Math.PI * s) / segments) * 0.9];
-    // Bottom cap: counter-clockwise seen from below (−Y), so the ring backwards.
+    // Bottom cap: counter-clockwise seen from below (−Z), so the ring backwards.
     faces.push([[...Array(segments).keys()].reverse().map(B), [...Array(segments).keys()].reverse().map((s) => capUv(s, 0.25))]);
     if (!cone) faces.push([[...Array(segments).keys()].map(T), [...Array(segments).keys()].map((s) => capUv(s, 0.75))]);
     const mesh = fromQuads(v, faces);
@@ -378,7 +384,7 @@
   }
   const cone = (radius = 1, depth = 2, segments = 32) => cylinder(radius, depth, segments, 0);
 
-  /** A torus round the Y axis: major radius (to the tube's centre), minor radius (the tube's), segments, sides. */
+  /** A torus round the Z axis: major radius (to the tube's centre), minor radius (the tube's), segments, sides. */
   function torus(major = 1, minor = 0.25, segments = 48, sides = 12) {
     segments = Math.max(3, Math.round(segments)); sides = Math.max(3, Math.round(sides));
     const v = [], faces = [];
@@ -386,7 +392,7 @@
       const th = (2 * Math.PI * s) / segments;
       for (let k = 0; k < sides; k++) {
         const ph = (2 * Math.PI * k) / sides, r = major + minor * Math.cos(ph);
-        v.push([r * Math.cos(th), minor * Math.sin(ph), -r * Math.sin(th)]);
+        v.push([r * Math.cos(th), r * Math.sin(th), minor * Math.sin(ph)]);
       }
     }
     const at = (s, k) => (s % segments) * sides + (k % sides);

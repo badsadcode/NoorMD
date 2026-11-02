@@ -1,4 +1,4 @@
-/* NoorMesh's viewport (WebGL 2): objects lit as NoorForge's look-dev view lights them (a key light from above and
+/* NoorMesh's viewport (WebGL 2), Z up as in Blender: objects lit as NoorForge's look-dev view lights them (a key light from above and
    left of where you look from, a fill, a sky and floor), a floor grid with the X and Z axes, outlines of the selection,
    edges as lines, guides (a transform's axis), orthographic front / side / top views and perspective, and rays for
    picking. It draws what it is given (meshes already in world space, from NoorMeshKernel.buffers); the bench owns the
@@ -32,9 +32,9 @@
       float k = (rough + 1.0) * (rough + 1.0) / 8.0, g = nv / (nv * (1.0 - k) + k);
       vec3 s1 = F * (a2 / (3.14159 * d1 * d1)) * g / (4.0 * nv + 1e-3), s2 = F * (a2 / (3.14159 * d2 * d2)) * g / (4.0 * nv + 1e-3);
       vec3 R = reflect(-V, N);
-      float up = R.y * 0.5 + 0.5, blur = mix(0.08, 0.9, rough);
+      float up = R.z * 0.5 + 0.5, blur = mix(0.08, 0.9, rough);
       vec3 env = mix(vec3(0.34, 0.32, 0.30), vec3(0.85, 0.9, 0.98), smoothstep(0.5 - blur * 0.5, 0.5 + blur * 0.5, up));
-      vec3 amb = mix(vec3(0.12, 0.12, 0.12), vec3(0.26, 0.28, 0.32), N.y * 0.5 + 0.5);
+      vec3 amb = mix(vec3(0.12, 0.12, 0.12), vec3(0.26, 0.28, 0.32), N.z * 0.5 + 0.5);
       vec3 col = diff * (amb + vec3(1.0, 0.96, 0.9) * nl * 2.0 + vec3(0.55, 0.62, 0.75) * nl2 * 0.45) + s1 * nl * 2.0 + s2 * nl2 * 0.45 + env * F;
       col *= 0.85;
       col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0);
@@ -50,7 +50,7 @@
     in vec2 aPos; uniform mat4 uView, uProj; uniform float uSize; uniform int uPlane; out vec2 vP;
     void main() {
       vP = aPos * uSize;
-      vec3 p = uPlane == 0 ? vec3(vP.x, 0.0, vP.y) : uPlane == 1 ? vec3(vP.x, vP.y, 0.0) : vec3(0.0, vP.y, vP.x);
+      vec3 p = uPlane == 0 ? vec3(vP.x, vP.y, 0.0) : uPlane == 1 ? vec3(vP.x, 0.0, vP.y) : vec3(0.0, vP.x, vP.y);
       gl_Position = uProj * uView * vec4(p, 1.0);
     }`;
   const GRID_FS = `#version 300 es
@@ -59,13 +59,13 @@
     void main() {
       float fine = lines(vP, uStep), coarse = lines(vP, uStep * 10.0);
       float fade = 1.0 - smoothstep(uSize * 0.45, uSize, length(vP));
-      // The axes on the floor: X red, the other blue (Z) or green (Y), as Blender colours them.
+      // The axes, as Blender colours them: X red, Y green, Z blue. ax: the line along the plane's first axis, az: along its second.
       float ax = 1.0 - min(abs(vP.y) / fwidth(vP.y), 1.0), az = 1.0 - min(abs(vP.x) / fwidth(vP.x), 1.0);
       vec3 c = vec3(0.42, 0.44, 0.46);
       float a = max(fine * 0.28, coarse * 0.55);
-      vec3 second = uPlane == 1 ? vec3(0.45, 0.8, 0.3) : vec3(0.3, 0.55, 0.95);
-      if (uPlane == 2) { c = mix(c, vec3(0.45, 0.8, 0.3), az); c = mix(c, vec3(0.3, 0.55, 0.95), ax); }
-      else { c = mix(c, vec3(0.95, 0.32, 0.32), ax); c = mix(c, second, az); }
+      vec3 red = vec3(0.95, 0.32, 0.32), green = vec3(0.45, 0.8, 0.3), blue = vec3(0.3, 0.55, 0.95);
+      vec3 first = uPlane == 2 ? green : red, second = uPlane == 0 ? green : blue;
+      c = mix(c, first, ax); c = mix(c, second, az);
       a = max(a, max(ax, az) * 0.9);
       outColor = vec4(c, a * fade);
     }`;
@@ -77,7 +77,7 @@
   function lookAt(eye, target, up) {
     const z = norm([eye[0] - target[0], eye[1] - target[1], eye[2] - target[2]]);
     let x = cross(up, z);
-    if (Math.hypot(x[0], x[1], x[2]) < 1e-6) x = cross([0, 0, -1], z);
+    if (Math.hypot(x[0], x[1], x[2]) < 1e-6) x = cross([0, 1, 0], z);
     x = norm(x);
     const y = cross(z, x);
     return [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, eye), -dot(y, eye), -dot(z, eye), 1];
@@ -126,8 +126,8 @@
     gl.enableVertexAttribArray(grid.a('aPos')); gl.vertexAttribPointer(grid.a('aPos'), 2, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
-    // The camera: turned round a target (yaw, pitch), at a distance; perspective or orthographic.
-    let cam = { target: [0, 0, 0], yaw: 0.65, pitch: 0.42, dist: 9, ortho: false };
+    // The camera: turned round a target (yaw about Z, 0 looking from −Y as Blender's front view; pitch up), at a distance.
+    let cam = { target: [0, 0, 0], yaw: 0.8, pitch: 0.45, dist: 9, ortho: false };
     let objects = new Map(); // id → { vao, count, lineVao, lineCount, base, rough, metal, selected, active, hidden, buffers }
     let guides = [];
     let showEdges = false, showGrid = true;
@@ -172,12 +172,13 @@
     }
     const eyeOf = () => {
       const { target: t, yaw, pitch, dist } = cam;
-      return [t[0] + Math.sin(yaw) * Math.cos(pitch) * dist, t[1] + Math.sin(pitch) * dist, t[2] + Math.cos(yaw) * Math.cos(pitch) * dist];
+      return [t[0] + Math.sin(yaw) * Math.cos(pitch) * dist, t[1] - Math.cos(yaw) * Math.cos(pitch) * dist, t[2] + Math.sin(pitch) * dist];
     };
     const FOV = 0.69; // about Blender's 50 mm lens
     function matrices() {
       const s = size(), aspect = s.w / s.h, eye = eyeOf();
-      const up = Math.abs(Math.cos(cam.pitch)) < 1e-4 ? [-Math.sin(cam.yaw) * Math.sign(cam.pitch), 0, -Math.cos(cam.yaw) * Math.sign(cam.pitch)] : [0, 1, 0];
+      // Straight down (or up), "up" on the screen is away from where the camera came from (top view: +Y up).
+      const up = Math.abs(Math.cos(cam.pitch)) < 1e-4 ? [-Math.sin(cam.yaw) * Math.sign(cam.pitch), Math.cos(cam.yaw) * Math.sign(cam.pitch), 0] : [0, 0, 1];
       const view = lookAt(eye, cam.target, up);
       const far = cam.dist * 50 + 100, near = cam.ortho ? -far : Math.max(0.005, cam.dist / 1000);
       const proj = cam.ortho ? ortho(cam.dist * Math.tan(FOV / 2), aspect, near, far) : perspective(FOV, aspect, near, far);
@@ -191,7 +192,7 @@
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.enable(gl.DEPTH_TEST);
       const f = norm([cam.target[0] - eye[0], cam.target[1] - eye[1], cam.target[2] - eye[2]]);
-      let r = cross(f, [0, 1, 0]); if (Math.hypot(...r) < 1e-6) r = [Math.cos(cam.yaw), 0, -Math.sin(cam.yaw)]; r = norm(r);
+      let r = cross(f, [0, 0, 1]); if (Math.hypot(...r) < 1e-6) r = [Math.cos(cam.yaw), Math.sin(cam.yaw), 0]; r = norm(r);
       const u = cross(r, f);
       const at = (a, b, c) => norm([r[0] * a + u[0] * b - f[0] * c, r[1] * a + u[1] * b - f[1] * c, r[2] * a + u[2] * b - f[2] * c]);
       gl.useProgram(main.p);
@@ -214,7 +215,8 @@
       if (showGrid) {
         gl.useProgram(grid.p);
         gl.uniformMatrix4fv(grid.u.uView, false, view); gl.uniformMatrix4fv(grid.u.uProj, false, proj);
-        const plane = cam.ortho && Math.abs(f[1]) < 0.01 ? (Math.abs(f[2]) > Math.abs(f[0]) ? 1 : 2) : 0;
+        // Looking level in an orthographic view, the grid stands behind the model: XZ from the front, YZ from the side.
+        const plane = cam.ortho && Math.abs(f[2]) < 0.01 ? (Math.abs(f[1]) > Math.abs(f[0]) ? 1 : 2) : 0;
         const step = Math.pow(10, Math.floor(Math.log10(Math.max(0.01, cam.dist / 8))));
         gl.uniform1f(grid.u.uSize, Math.max(20, cam.dist * 6)); gl.uniform1f(grid.u.uStep, step); gl.uniform1i(grid.u.uPlane, plane);
         gl.depthMask(false);
@@ -315,7 +317,7 @@
       if (nav.pan) {
         const s = (cam.dist * Math.tan(FOV / 2) * 2) / Math.max(1, canvas.getBoundingClientRect().height);
         const eye = eyeOf(), f = norm([cam.target[0] - eye[0], cam.target[1] - eye[1], cam.target[2] - eye[2]]);
-        let r = cross(f, [0, 1, 0]); if (Math.hypot(...r) < 1e-6) r = [Math.cos(cam.yaw), 0, -Math.sin(cam.yaw)]; r = norm(r);
+        let r = cross(f, [0, 0, 1]); if (Math.hypot(...r) < 1e-6) r = [Math.cos(cam.yaw), Math.sin(cam.yaw), 0]; r = norm(r);
         const u = cross(r, f);
         cam.target = [cam.target[0] - (r[0] * dx - u[0] * dy) * s, cam.target[1] - (r[1] * dx - u[1] * dy) * s, cam.target[2] - (r[2] * dx - u[2] * dy) * s];
       } else if (nav.zoom) cam.dist = Math.max(0.02, cam.dist * Math.exp(dy * 0.01));

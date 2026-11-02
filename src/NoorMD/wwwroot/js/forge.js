@@ -827,7 +827,8 @@ window.NoorForge = (() => {
       return el('label', { class: 'fg-popfield' }, el('span', { text: label }), r, out);
     };
     const tool2 = (label, title, on, run) => el('button', { class: 'icon-btn', title, 'aria-label': title, 'aria-pressed': String(on), onclick: () => { run(); closeBrushPopup(); } }, label);
-    const pop = el('div', { class: 'fg-popup', id: 'fg-popup', role: 'dialog', 'aria-label': 'The brush' },
+    // Opened by a right-click that ends over it: the browser's own menu must not open there too.
+    const pop = el('div', { class: 'fg-popup', id: 'fg-popup', role: 'dialog', 'aria-label': 'The brush', oncontextmenu: (e) => e.preventDefault() },
       el('div', { class: 'sb-row' },
         tool2('🖌', 'Brush', tool === 'brush' && !erasing, () => setTool('brush', false)), tool2('🧽', 'Eraser', tool === 'brush' && erasing, () => setTool('brush', true)),
         tool2('🪣', 'Fill a part', tool === 'fill', () => setTool('fill')), tool2('💧', 'Pick a colour', tool === 'pick', () => setTool('pick', false)),

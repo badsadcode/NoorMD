@@ -96,7 +96,9 @@ it reads, validates, triangulates and writes. One kernel, one place for the edit
 
 ### 1.6 Units and axes
 
-Metres and +Y up, as glTF. Export presets per engine (Godot, Unity, Unreal: axis, scale, naming of collision and LODs)
+Metres and **+Z up, as in Blender** (the floor is X by Y; X red, Y green, Z blue; the front view looks from −Y), so
+numbers and directions read the same as in Blender. Exports turn it to glTF's +Y up (and OBJ's), as Blender's
+exporters do. Export presets per engine (Godot, Unity, Unreal: axis, scale, naming of collision and LODs)
 reuse NoorForm's export profiles (`GameProfiles.cs`).
 
 ---

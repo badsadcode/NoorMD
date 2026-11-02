@@ -9519,10 +9519,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Alt+a');
       await page.mouse.move(box.x + 6, box.y + 6); await page.mouse.down(); await page.mouse.move(box.x + box.w - 6, box.y + box.h - 6, { steps: 5 }); await page.mouse.up();
       check('dragging a box selects what is inside it', (await MS()).selected.length === 2);
-      // Right-click: the object menu.
+      // Right-click: the object menu (and not the browser's own menu as well).
+      await page.evaluate(() => { window.__nativeMenu = null; window.addEventListener('contextmenu', (e) => { window.__nativeMenu = !e.defaultPrevented; }, { once: true }); });
       await page.mouse.click(box.cx, box.cy, { button: 'right' });
       await page.waitForSelector('#nm-popup');
       check('right-click: the object menu (move, rotate, scale, duplicate, delete…)', /Move[\s\S]*Rotate[\s\S]*Scale[\s\S]*Duplicate[\s\S]*Delete/.test(await page.textContent('#nm-popup')));
+      check('…the browser\'s own menu does not open as well', (await page.evaluate(() => window.__nativeMenu)) === false);
+      { const c = (await MS()).camera; check('Blender\'s axes: the front view looks from −Y (level, Z up)', c.eye[1] < c.target[1] - 1 && Math.abs(c.eye[2] - c.target[2]) < 1e-6 && Math.abs(c.eye[0] - c.target[0]) < 1e-6, c); }
       await page.keyboard.press('Escape');
       check('…Esc closes it', !(await page.$('#nm-popup')));
       // Numpad 5 back to perspective; F1 lists the keys.
@@ -9536,15 +9539,17 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Tab');
       check('Tab says Edit Mode comes in the next preview', /Edit Mode/.test(await page.textContent('#nm-status')));
       if (shots) {
-        await page.keyboard.press('Numpad5');
+        // Turn the view (middle-drag) into perspective, as it is at first.
+        await page.mouse.move(box.cx, box.cy); await page.mouse.down({ button: 'middle' }); await page.mouse.move(box.cx - 90, box.cy + 70, { steps: 6 }); await page.mouse.up({ button: 'middle' });
         await page.mouse.move(box.cx, box.cy);
         await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Torus")');
         await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('-3'); await page.keyboard.press('Enter');
         await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Cylinder")');
         await page.keyboard.press('g'); await page.keyboard.press('z'); await page.keyboard.type('3');
+        await page.keyboard.press('Enter');
+        await page.keyboard.press('Home');
         await page.waitForTimeout(200);
         await page.screenshot({ path: `${shots}/80-noormesh.png` });
-        await page.keyboard.press('Enter');
       }
       check('no page errors in NoorMesh', errors.length === 0, errors);
       await page.close();

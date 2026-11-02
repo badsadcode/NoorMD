@@ -357,7 +357,8 @@ window.NoorMesh = (() => {
   // ---------------------------------------------------------------- menus at the cursor
   function popup(x, y, title, items) {
     closePopup();
-    const pop = el('div', { class: 'fg-popup nm-menu', id: 'nm-popup', role: 'menu', 'aria-label': title },
+    // The right-click that opened it ends over it: the browser's own menu must not open there too.
+    const pop = el('div', { class: 'fg-popup nm-menu', id: 'nm-popup', role: 'menu', 'aria-label': title, oncontextmenu: (e) => e.preventDefault() },
       el('strong', { class: 'nm-menutitle', text: title }),
       ...items.map((it) => (it === '-' ? el('hr') : el('button', { class: 'nm-menuitem', role: 'menuitem', disabled: it.disabled || undefined, onclick: () => { closePopup(); it.run(); } }, el('span', { text: it.label }), it.keys ? el('kbd', { text: it.keys }) : null))));
     pop.addEventListener('keydown', (e) => {
