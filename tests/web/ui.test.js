@@ -9704,6 +9704,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Ctrl+S the first time: Save as (the app asks where), then clean.
       await page.keyboard.press('Control+s');
       await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      await waitFn(page, () => !NoorMesh._state().dirty);
       st = await MS();
       let mm = await MM();
       check('Ctrl+S: the scene saved (the app asked where: no path yet), the draft cleared', mm.saves[0].path === '' && mm.saves[0].format === 'noormesh' && mm.saves[0].objects === 1 && mm.clears >= 1 && !st.dirty && st.file.name === 'scene.noormesh');
@@ -9719,6 +9720,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and a draft is kept a few seconds later (to bring back after a crash)', (await MM()).drafts > drafts0 && (await MM()).lastDraft === 1);
       await page.keyboard.press('Control+s');
       await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 2);
+      await waitFn(page, () => !NoorMesh._state().dirty);
       check('Ctrl+S again saves to the same file (no question)', (await MM()).saves[1].path === 'C:\\Models\\scene.noormesh' && !(await MS()).dirty);
       // Import: added to the scene, selected.
       await page.click('#nm-import');
