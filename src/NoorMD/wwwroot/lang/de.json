@@ -6022,7 +6022,7 @@
  "{0} colour{|s} in the sprite (every frame).": "Farben im Sprite (alle Frames): {0}.",
  "{0} directions": "{0} Richtungen",
  "{0} doubled corner{|s} taken out": "Entfernte doppelte Ecken: {0}",
- "{0} edge{|s} between faces turned opposite ways": "{0} Kante{|n} zwischen entgegengesetzt gedrehten Flächen",
+ "{0} edge{|s} between faces turned opposite ways": "{0} Kante(n) zwischen entgegengesetzt gedrehten Flächen",
  "{0} file{|s} will be changed{1}.": "Zu ändernde Dateien: {0}{1}.",
  "{0} frames on a new layer, from frame {1}: draw over them as you like": "{0} Frames auf einer neuen Ebene, ab Frame {1}: Zeichne darüber, wie du möchtest",
  "{0} frames turning all the way round (a new sprite: export it as you like)": "{0} Frames, die sich einmal ganz herumdrehen (ein neues Sprite: exportiere es, wie du möchtest)",

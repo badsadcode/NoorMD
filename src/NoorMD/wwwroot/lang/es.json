@@ -6022,7 +6022,7 @@
  "{0} colour{|s} in the sprite (every frame).": "Colores en el sprite (todos los fotogramas): {0}.",
  "{0} directions": "{0} direcciones",
  "{0} doubled corner{|s} taken out": "Esquinas dobles eliminadas: {0}",
- "{0} edge{|s} between faces turned opposite ways": "{0} arista{|s} entre caras giradas al revés",
+ "{0} edge{|s} between faces turned opposite ways": "{0} arista(s) entre caras giradas al revés",
  "{0} file{|s} will be changed{1}.": "Archivos que se cambiarán: {0}{1}.",
  "{0} frames on a new layer, from frame {1}: draw over them as you like": "{0} fotogramas en una capa nueva, desde el fotograma {1}: dibuja encima como quieras",
  "{0} frames turning all the way round (a new sprite: export it as you like)": "{0} fotogramas girando una vuelta completa (un sprite nuevo: expórtalo como quieras)",
