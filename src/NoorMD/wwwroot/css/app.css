@@ -2123,3 +2123,40 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.ben
 .tb-finish > summary { cursor: pointer; font-size: 12px; color: var(--muted); padding: 2px 0; }
 .tb-finish[open] > summary { color: var(--text); }
 .tb-finish .utility-btn { margin-top: 4px; }
+
+/* ---- NoorMesh (preview): the scene list, the view's readout and box, properties */
+.meshbench .nm-badge { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); }
+.meshbench .nm-stage { position: relative; min-height: 260px; }
+.meshbench .nm-hud { position: absolute; left: 8px; top: 6px; right: 8px; font-size: 12px; color: #e8e8ea; text-shadow: 0 1px 2px rgba(0,0,0,.8); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meshbench .nm-box { position: absolute; border: 1px dashed #fff; background: rgba(255,255,255,.06); pointer-events: none; }
+.meshbench .nm-box[hidden] { display: none; }
+.meshbench .nm-outliner { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.meshbench .nm-obj { display: flex; align-items: center; gap: 6px; padding: 3px 6px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; }
+.meshbench .nm-obj:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.meshbench .nm-obj.sel { background: color-mix(in srgb, #f08a2a 16%, transparent); }
+.meshbench .nm-obj.active { border-color: #f0a040; }
+.meshbench .nm-obj.off { opacity: .5; }
+.meshbench .nm-objname { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.meshbench .nm-objicon { width: 16px; text-align: center; color: var(--muted); }
+.meshbench .nm-eye { width: 22px; height: 22px; padding: 0; font-size: 12px; }
+.meshbench .nm-vec { display: grid; grid-template-columns: 1fr; gap: 3px; margin: 6px 0; }
+.meshbench .nm-veclabel { font-size: 12px; color: var(--muted); }
+.meshbench .nm-axis { display: grid; grid-template-columns: 16px 1fr; align-items: center; gap: 4px; }
+.meshbench .nm-axisname { font-size: 11px; font-weight: 700; text-align: center; }
+.meshbench .nm-x { color: #f05252; } .meshbench .nm-y { color: #7acc4c; } .meshbench .nm-z { color: #4d8cf2; }
+.meshbench .nm-num { width: 100%; min-width: 0; }
+.meshbench .nm-problems { color: var(--warn, #e0a030); }
+.meshbench .nm-prims { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 4px; margin: 4px 0 8px; }
+.meshbench .nm-prim { text-align: left; }
+.meshbench .nm-adjust { margin: 8px 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 8px; }
+.meshbench .nm-adjust summary { cursor: pointer; font-size: 12.5px; }
+.meshbench .nm-param { display: grid; grid-template-columns: 1fr 90px; align-items: center; gap: 6px; }
+.nm-menu { min-width: 200px; padding: 6px; gap: 1px; }
+.nm-menu .nm-menutitle { font-size: 12px; color: var(--muted); padding: 2px 6px 4px; }
+.nm-menu hr { border: 0; border-top: 1px solid var(--border); margin: 3px 0; width: 100%; }
+.nm-menu .nm-menuitem { display: flex; justify-content: space-between; gap: 16px; padding: 4px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--text); text-align: left; cursor: pointer; font-size: 13px; }
+.nm-menu .nm-menuitem:hover, .nm-menu .nm-menuitem:focus-visible { background: color-mix(in srgb, var(--accent) 20%, transparent); outline: none; }
+.nm-menu .nm-menuitem[disabled] { opacity: .45; cursor: default; }
+.nm-menu kbd, .nm-keys kbd { font-size: 11px; color: var(--muted); font-family: inherit; }
+.nm-keys { width: 100%; border-collapse: collapse; font-size: 13px; }
+.nm-keys td { padding: 3px 6px; border-bottom: 1px solid var(--border); }

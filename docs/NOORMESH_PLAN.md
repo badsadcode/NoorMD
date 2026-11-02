@@ -140,6 +140,13 @@ Chromium) and is usable on its own. The bench is marked *preview* until phase A'
 
 ### Phase A: a working modeller (MVP)
 
+**Done in preview.142: A1** — the geometry kernel (`meshkernel.js`: polygon faces with per-corner UVs, the eight
+primitives, checks, triangulation of concave n-gons, transforms; tested in Node), the viewport (`meshview.js`: look-dev
+light, grid with axes, orthographic front/side/top and perspective, picking, outlines), and the bench in Object Mode
+(Shift+A, click and box select, G/R/S with X/Y/Z, typed numbers and Ctrl steps, Shift+D, X, H/Alt+H/Shift+H, Ctrl+A
+apply, Alt+G/R/S clear, the Adjust panel for the last primitive, the properties' numbers, undo and redo, focus-mode
+menus, F1 shortcuts). Not yet: Edit Mode, saving, GLB export (A2–A4) and shortcuts of one's own.
+
 | Milestone | Contents | Test that proves it |
 |---|---|---|
 | **A1. Kernel and view** | Mesh representation, primitives, triangulation for drawing, the editing viewport (orbit, pan, zoom, ortho front/side/top, frame selected/all), Object Mode: select, move/rotate/scale with axis constraints and typed values, duplicate, delete, rename | Kernel tests: primitives are closed and manifold, Euler characteristic right; UI: G/R/S with X/Y/Z and typed numbers |
@@ -198,7 +205,7 @@ richer animation.
    yes.*
 3. **Default shortcuts.** Blender's (G/R/S, E, I, Ctrl+B, Ctrl+R, K, 1/2/3, Tab, A, Alt+A, numpad views), all
    remappable. Some clash with NoorMD's own (Ctrl+K is the command palette): inside NoorMesh, NoorMesh's win, as in the
-   other benches. *Recommendation: Blender's.*
+   other benches. **Decided: Blender's.**
 4. **FBX.** The Autodesk FBX SDK's licence does not suit redistribution in an open project; **ufbx** (MIT, C, an FBX
    reader) could give FBX import later through a small native wrapper; no FBX export. *Recommendation: not before
    phase C; import only, via ufbx, if it is still wanted then.*
@@ -208,7 +215,7 @@ richer animation.
    (LSCM, packing and QEM already half exist), revisit at B1 if quality falls short.*
 6. **What happens to NoorForm assets.** "Edit a copy in NoorMesh" keeps the recipe untouched; no live link back.
    *Recommendation: yes.*
-7. **Where NoorMesh sits in releases.** A bench marked *preview* from A1 so you can try it early, or hidden until
-   phase A is complete. *Your call.*
+7. **Where NoorMesh sits in releases.** **Decided: visible from A1 as a bench marked *preview*,** so each step can be
+   tried and steered early.
 8. **Engine integration.** None in phases A–C beyond export presets; Bad 3D Engine adapters only when that engine
    exists, without NoorMD depending on it. *Recommendation: as stated.*

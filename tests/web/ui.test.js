@@ -9417,6 +9417,138 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.close();
     }
 
+    // ---- 80. NoorMesh (preview, phase A1): a scene of meshes in Object Mode with Blender's keys — Shift+A adds, G/R/S
+    // with X/Y/Z and typed numbers, Shift+D, X, H/Alt+H, Ctrl+A apply, Alt+G/R/S clear, click and box select, numpad
+    // views, the properties' numbers, the Add panel's settings, undo and redo.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const near = (a, b, e = 1e-3) => Math.abs(a - b) <= e;
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      let st = await MS();
+      check('Ctrl+Alt+N opens NoorMesh (a preview) with a cube, selected and active', st.objects[0].kind === 'cube' && st.selected.length === 1 && st.active === st.objects[0].id && /preview/i.test(await page.textContent('#meshbench .nm-badge')));
+      check('…the cube is a closed, valid mesh (8 vertices, 6 faces), as the properties say', st.objects[0].check.ok && st.objects[0].check.closed && st.objects[0].vertices === 8 && /8 vertices · 12 edges · 6 faces · 12 triangles · closed/.test(await page.textContent('#nm-stats')));
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx, box.cy);
+      // G X 2 Enter
+      await page.keyboard.press('g');
+      check('G starts moving it', (await MS()).op && (await MS()).op.kind === 'move');
+      await page.keyboard.press('x');
+      await page.keyboard.type('2');
+      check('…X holds it to the X axis, a number typed is how far', (await MS()).op.axis === 0 && (await MS()).op.typed === '2' && /Move X: 2 m/.test(await page.textContent('#nm-hud')));
+      await page.keyboard.press('Enter');
+      st = await MS();
+      check('…Enter keeps it: 2 m along X', near(st.objects[0].t[0], 2) && near(st.objects[0].t[1], 0) && !st.op && st.history === 1);
+      // R Z 90, S 2
+      await page.keyboard.press('r'); await page.keyboard.press('z'); await page.keyboard.type('90'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('R Z 90: turned 90° about Z (its location stays, the pivot is its own origin)', near(st.objects[0].r[2], 90, 1e-6) && near(st.objects[0].t[0], 2));
+      await page.keyboard.press('s'); await page.keyboard.type('2'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('S 2: twice the size', st.objects[0].s.every((x) => near(x, 2)));
+      await page.keyboard.press('s'); await page.keyboard.press('y'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('S Y 0.5: along world Y the object\'s own axis lying along it (its X, turned 90° about Z) is halved', near(st.objects[0].s[0], 1) && near(st.objects[0].s[1], 2), st.objects[0].s);
+      // Esc puts it back.
+      await page.keyboard.press('g'); await page.keyboard.type('5'); await page.keyboard.press('Escape');
+      st = await MS();
+      check('Esc (or right-click) puts a transform back, no undo step', near(st.objects[0].t[0], 2) && st.history === 4 && !st.op);
+      // Undo / redo.
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z undoes the last transform', near((await MS()).objects[0].s[0], 2) && near((await MS()).objects[0].s[1], 2));
+      await page.keyboard.press('Control+Shift+z');
+      check('Ctrl+Shift+Z does it again', near((await MS()).objects[0].s[0], 1));
+      // Clear and apply.
+      await page.keyboard.press('Alt+r');
+      check('Alt+R clears the rotation', (await MS()).objects[0].r.every((x) => x === 0));
+      await page.keyboard.press('Control+a');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Scale")');
+      st = await MS();
+      check('Ctrl+A › Scale puts the scale into the mesh (scale back to 1, the size kept)', st.objects[0].s.every((x) => x === 1) && /Size: 2 × 4 × 4 m/.test(await page.textContent('#nm-dims')), await page.textContent('#nm-dims'));
+      check('…and the mesh is still valid and closed', st.objects[0].check.ok && st.objects[0].check.closed);
+      await page.keyboard.press('Alt+g');
+      check('Alt+G clears the location', (await MS()).objects[0].t.every((x) => x === 0));
+      // Shift+A adds; its settings can be changed (Adjust).
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Shift+A');
+      await page.waitForSelector('#nm-popup');
+      check('Shift+A: the Add menu at the cursor with the eight primitives', (await page.$$('#nm-popup .nm-menuitem')).length === 8);
+      await page.click('#nm-popup .nm-menuitem:has-text("UV sphere")');
+      st = await MS();
+      const sphere = st.objects.at(-1);
+      check('…a UV sphere, selected and active, valid and closed', sphere.kind === 'uvsphere' && st.active === sphere.id && st.selected.length === 1 && sphere.check.ok && sphere.check.closed && sphere.check.euler === 2);
+      await page.$eval('#nm-pane input[data-param="segments"]', (i) => { i.value = '8'; i.dispatchEvent(new Event('change', { bubbles: true })); });
+      st = await MS();
+      check('…Adjust: fewer segments makes it again with fewer faces (one undo step)', st.objects.at(-1).faces === 8 * 16 && st.objects.at(-1).check.ok);
+      await page.keyboard.press('Control+z');
+      check('…undone back to 32 segments', (await MS()).objects.at(-1).faces === 32 * 16);
+      // The properties' numbers.
+      await page.$eval('#nm-pane input[data-prop="t1"]', (i) => { i.value = '3'; i.dispatchEvent(new Event('input', { bubbles: true })); i.dispatchEvent(new Event('change', { bubbles: true })); });
+      check('typing a location in the properties moves it', near((await MS()).objects.at(-1).t[1], 3));
+      // Shift+D duplicates and follows the mouse; Esc leaves the copy where it was.
+      await page.keyboard.press('Shift+D');
+      st = await MS();
+      check('Shift+D: a copy, moving with the mouse', st.objects.length === 3 && st.op && st.op.kind === 'move' && /\.001$/.test(st.objects.at(-1).name));
+      await page.keyboard.press('Escape');
+      st = await MS();
+      check('…Esc: the copy stays where the original is', st.objects.length === 3 && near(st.objects.at(-1).t[1], 3));
+      // Delete, hide, select.
+      await page.keyboard.press('x');
+      check('X deletes the selection', (await MS()).objects.length === 2);
+      await page.keyboard.press('a');
+      check('A selects everything', (await MS()).selected.length === 2);
+      await page.keyboard.press('Alt+a');
+      check('Alt+A selects nothing', (await MS()).selected.length === 0);
+      // Click selection: the front view, then the cube in the middle.
+      await page.keyboard.press('Home');
+      await page.keyboard.press('Numpad1');
+      const cam = (await MS()).camera;
+      check('Numpad 1: the front view, orthographic', cam.ortho && near(cam.pitch, 0) && near(cam.yaw, 0) && /Front Orthographic/.test(await page.textContent('#nm-hud')));
+      const cubeId = (await MS()).objects[0].id;
+      const at = await page.evaluate(() => NoorMesh._project([0, 0, 0]));
+      await page.mouse.click(at.x, at.y);
+      st = await MS();
+      check('clicking the cube selects it', st.selected.length === 1 && st.active === cubeId, st.selected);
+      await page.keyboard.press('h');
+      check('H hides it', (await MS()).objects[0].hidden && (await MS()).selected.length === 0);
+      await page.keyboard.press('Alt+h');
+      check('Alt+H shows it again (selected)', !(await MS()).objects[0].hidden && (await MS()).selected.includes(cubeId));
+      // Box select: everything in a rectangle round the whole view.
+      await page.keyboard.press('Alt+a');
+      await page.mouse.move(box.x + 6, box.y + 6); await page.mouse.down(); await page.mouse.move(box.x + box.w - 6, box.y + box.h - 6, { steps: 5 }); await page.mouse.up();
+      check('dragging a box selects what is inside it', (await MS()).selected.length === 2);
+      // Right-click: the object menu.
+      await page.mouse.click(box.cx, box.cy, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      check('right-click: the object menu (move, rotate, scale, duplicate, delete…)', /Move[\s\S]*Rotate[\s\S]*Scale[\s\S]*Duplicate[\s\S]*Delete/.test(await page.textContent('#nm-popup')));
+      await page.keyboard.press('Escape');
+      check('…Esc closes it', !(await page.$('#nm-popup')));
+      // Numpad 5 back to perspective; F1 lists the keys.
+      await page.keyboard.press('Numpad5');
+      check('Numpad 5: perspective again', !(await MS()).camera.ortho);
+      await page.keyboard.press('F1');
+      await page.waitForSelector('.nm-keys');
+      check('F1: NoorMesh\'s shortcuts (as Blender\'s)', /Shift\+A/.test(await page.textContent('.nm-keys')) && /G \/ R \/ S/.test(await page.textContent('.nm-keys')));
+      await page.keyboard.press('Escape');
+      // Tab: Edit Mode is not here yet, and it says so.
+      await page.keyboard.press('Tab');
+      check('Tab says Edit Mode comes in the next preview', /Edit Mode/.test(await page.textContent('#nm-status')));
+      if (shots) {
+        await page.keyboard.press('Numpad5');
+        await page.mouse.move(box.cx, box.cy);
+        await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Torus")');
+        await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('-3'); await page.keyboard.press('Enter');
+        await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Cylinder")');
+        await page.keyboard.press('g'); await page.keyboard.press('z'); await page.keyboard.type('3');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80-noormesh.png` });
+        await page.keyboard.press('Enter');
+      }
+      check('no page errors in NoorMesh', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

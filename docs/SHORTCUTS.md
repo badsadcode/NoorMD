@@ -96,6 +96,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorSprite (pixel art) | Ctrl+Alt+P |
 | NoorPhoto (photos and painting) | Ctrl+Alt+J |
 | NoorInk (vector drawing, SVG) | Ctrl+Alt+U |
+| NoorMesh (model meshes for games, preview) | Ctrl+Alt+N |
 | NoorInk tools: select · edit points · pen · pencil · rectangle · ellipse · line · text · gradient · eyedropper · hand (or hold Space) · zoom | V · A · P · N · M · L · \ · T · G · I · H · Z |
 | NoorInk: text to outlines · snap to objects on / off (hold Ctrl while dragging: not this time) | Ctrl+Shift+O · Ctrl+; |
 | NoorInk: group / ungroup · duplicate · bring forward / back (Shift: to the front / back) · unite · subtract · intersect · exclude · simplify · flip · nudge (Shift: 10) · to the layer above / below · snap to the grid · fit / actual size | Ctrl+G / Ctrl+Shift+G · Ctrl+D · Ctrl+] / Ctrl+[ · Ctrl++ · Ctrl+- · Ctrl+* · Ctrl+Shift+^ · Ctrl+L · Shift+H / Shift+V · arrows · Shift+PgUp / PgDn · Ctrl+' · Ctrl+0 / Ctrl+1 |
@@ -159,3 +160,21 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Insert into document | Ctrl+Enter |
 | Pick a colour from the picture (and, painting for a material, from the material under it) | Alt+click |
 | Painting for a material: apply it to the material | Ctrl+S |
+
+## NoorMesh (preview): Blender's keys
+
+| What | Keys |
+|---|---|
+| Add a mesh | Shift+A |
+| Select / add to it | Click / Shift+click; drag: box select (Shift adds, Ctrl takes away) |
+| Select all / none / invert | A / Alt+A / Ctrl+I |
+| Move / rotate / scale | G / R / S, then X, Y or Z for an axis, a number typed, Ctrl for steps; click or Enter: done; right-click or Esc: back |
+| Clear location / rotation / scale | Alt+G / Alt+R / Alt+S |
+| Apply transforms | Ctrl+A |
+| Duplicate / delete | Shift+D / X or Delete |
+| Hide / show all / hide others | H / Alt+H / Shift+H |
+| Rename | F2 |
+| Turn / move / zoom the view | Middle-drag (or Alt+drag) / Shift+middle-drag / wheel or Ctrl+middle-drag |
+| Front / right / top (Ctrl: the other side), perspective | Numpad 1 / 3 / 7, Numpad 5 |
+| Frame the selection / everything | Numpad . / Home |
+| NoorMesh's shortcuts | F1 |

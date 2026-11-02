@@ -31,6 +31,9 @@ jobs:
       - name: NoorInk tracing (Node)
         working-directory: tests/web
         run: node inktrace.test.js
+      - name: NoorMesh geometry (Node)
+        working-directory: tests/web
+        run: node meshkernel.test.js
       - name: Run UI tests
         working-directory: tests/web
         run: node ui.test.js --screenshots ../../ui-screenshots

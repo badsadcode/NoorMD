@@ -5,6 +5,9 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.142), phase A1: a new bench for modelling game meshes (Ctrl+Alt+N): the scene in Object Mode with
+  Blender's keys, eight primitives, move/rotate/scale with axes and typed numbers, apply, undo. See
+  [NOORMESH_PLAN.md](NOORMESH_PLAN.md).
 - NoorForge (preview.141): Paints on the brush bar (Colour, Rough, Metal, Height, each with its value): paint any map
   straight onto the model, as in Substance Painter or Blender; each stroke keeps what it painted.
 - NoorForge (preview.140): the layers' height as bumps in the normal map (Bumps slider), and a key light that follows

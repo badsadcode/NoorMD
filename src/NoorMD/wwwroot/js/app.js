@@ -1407,6 +1407,7 @@
     ['sprite.toggle', 'NoorSprite (pixel art and animation)', 'Tools', 'Ctrl+Alt+P', () => NoorSprite.toggle()],
     ['photo.toggle', 'NoorPhoto (photos and painting: layers, masks, filters)', 'Tools', 'Ctrl+Alt+J', () => NoorPhoto.toggle()],
     ['ink.toggle', 'NoorInk (vector drawing: SVG)', 'Tools', 'Ctrl+Alt+U', () => NoorInk.toggle()],
+    ['mesh.toggle', 'NoorMesh (model meshes for games — preview)', 'Tools', 'Ctrl+Alt+N', () => NoorMesh.toggle()],
     ['radio.find', 'NoorRadio: find stations online…', 'Tools', '', () => { NoorRadio.open(); NoorRadio.findOnline(); }],
     ['voice.toggle', 'NoorVoice (recorder)', 'Tools', '', () => NoorVoice.toggle()],
     ['gallery.toggle', 'NoorGallery (your pictures)', 'Tools', 'Ctrl+Alt+G', () => NoorGallery.toggle()],
@@ -1487,7 +1488,7 @@
     const hasEditor = !!(t && t.editor);
     const checked = {
       'view.toolbar': prefs.showToolbar !== false, 'view.sidebar': !document.body.classList.contains('sidebar-collapsed'), 'view.sidebarRight': document.body.classList.contains('sidebar-right'),
-      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'radio.toggle': !!(window.NoorRadio && NoorRadio.isOpen()), 'sound.toggle': !!(window.NoorSound && NoorSound.isOpen()), 'texture.toggle': !!(window.NoorTexture && NoorTexture.isOpen()), 'seq.toggle': !!(window.NoorSequencer && NoorSequencer.isOpen()), 'cal.toggle': !!(window.NoorCalendar && NoorCalendar.isOpen()), 'assets.toggle': !!(window.NoorAssets && NoorAssets.isOpen()), 'forge.toggle': !!(window.NoorForge && NoorForge.isOpen()), 'sprite.toggle': !!(window.NoorSprite && NoorSprite.isOpen()), 'photo.toggle': !!(window.NoorPhoto && NoorPhoto.isOpen()), 'ink.toggle': !!(window.NoorInk && NoorInk.isOpen()), 'music.mini': prefs.miniPlayer !== false,
+      'music.toggle': !!(window.NoorMusic && NoorMusic.isOpen()), 'video.toggle': !!(window.NoorVideo && NoorVideo.isOpen()), 'stream.toggle': !!(window.NoorStream && NoorStream.isOpen()), 'apps.toggle': !!(window.NoorApps && NoorApps.isOpen()), 'voice.toggle': !!(window.NoorVoice && NoorVoice.isOpen()), 'gallery.toggle': !!(window.NoorGallery && NoorGallery.isOpen()), 'radio.toggle': !!(window.NoorRadio && NoorRadio.isOpen()), 'sound.toggle': !!(window.NoorSound && NoorSound.isOpen()), 'texture.toggle': !!(window.NoorTexture && NoorTexture.isOpen()), 'seq.toggle': !!(window.NoorSequencer && NoorSequencer.isOpen()), 'cal.toggle': !!(window.NoorCalendar && NoorCalendar.isOpen()), 'assets.toggle': !!(window.NoorAssets && NoorAssets.isOpen()), 'forge.toggle': !!(window.NoorForge && NoorForge.isOpen()), 'sprite.toggle': !!(window.NoorSprite && NoorSprite.isOpen()), 'photo.toggle': !!(window.NoorPhoto && NoorPhoto.isOpen()), 'ink.toggle': !!(window.NoorInk && NoorInk.isOpen()), 'mesh.toggle': !!(window.NoorMesh && NoorMesh.isOpen()), 'music.mini': prefs.miniPlayer !== false,
       'view.visual': t?.mode === 'wysiwyg', 'view.markdown': t?.mode === 'markdown', 'view.split': t?.mode === 'split',
       'view.focus': document.body.classList.contains('zen'), 'layout.compact': !!prefs.compact, 'spell.toggle': prefs.spellcheck !== false,
       'source.lineNumbers': prefs.lineNumbers !== false, 'source.wrap': prefs.wordWrap !== false, 'source.sync': !!prefs.syncScroll,
@@ -2144,6 +2145,9 @@
     // NoorInk keeps its Ctrl shortcuts (group, arrange, combine shapes, zoom…) while it has the keyboard.
     const toInk = e.target && ((e.target.closest && e.target.closest('#inkbench')) || (e.target === document.body && window.NoorInk && NoorInk.isOpen() && $('#inkbench') && $('#inkbench').offsetParent));
     if (ctrl && toInk && !e.altKey && key !== 'Tab' && !/^F\d+$/.test(key) && !(e.getModifierState && e.getModifierState('AltGraph'))) return;
+    // NoorMesh keeps Blender's keys while it has the keyboard: Ctrl ones (undo, apply, invert), Alt+A/H/G/R/S, F1, F2, Home.
+    const toMesh = e.target && ((e.target.closest && e.target.closest('#meshbench')) || (e.target === document.body && window.NoorMesh && NoorMesh.isOpen() && $('#meshbench') && $('#meshbench').offsetParent));
+    if (toMesh && !(e.getModifierState && e.getModifierState('AltGraph')) && ((ctrl && !e.altKey && ['z', 'y', 'a', 'i'].includes(key)) || (e.altKey && !ctrl && ['a', 'h', 'g', 'r', 's'].includes(key)) || key === 'F1' || key === 'F2' || key === 'Home')) return;
     // Menus first: Alt+letter / F10 open them, and while one is open its keys belong to it.
     if (!(e.getModifierState && e.getModifierState('AltGraph')) && NoorChrome.handleKey(e)) { e.stopPropagation(); return; }
     if (e.target && e.target.closest && e.target.closest('.menu-popup, #menubar') && !ctrl) return;
@@ -2173,6 +2177,7 @@
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyP') cmd = 'sprite.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyJ') cmd = 'photo.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyU') cmd = 'ink.toggle';
+    else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyN') cmd = 'mesh.toggle';
     else if (ctrl && e.altKey && !e.shiftKey && !(e.getModifierState && e.getModifierState('AltGraph')) && e.code === 'KeyD') cmd = 'voice.record';
     else if (e.altKey && !ctrl && !e.shiftKey && /^Digit[0-4]$/.test(e.code))
       cmd = ['music.clearTriage', 'music.fav', 'music.keep', 'music.maybe', 'music.skip'][Number(e.code.slice(5))];
@@ -2313,6 +2318,7 @@
         sprite: { label: 'NoorSprite', el: () => $('#spritebench'), open: () => NoorSprite.open(), close: () => NoorSprite.close(), isOpen: () => NoorSprite.isOpen() },
         photo: { label: 'NoorPhoto', el: () => $('#photobench'), open: () => NoorPhoto.open(), close: () => NoorPhoto.close(), isOpen: () => NoorPhoto.isOpen() },
         ink: { label: 'NoorInk', el: () => $('#inkbench'), open: () => NoorInk.open(), close: () => NoorInk.close(), isOpen: () => NoorInk.isOpen() },
+        mesh: { label: 'NoorMesh', el: () => $('#meshbench'), open: () => NoorMesh.open(), close: () => NoorMesh.close(), isOpen: () => NoorMesh.isOpen() },
         sequencer: { label: 'NoorSequencer', el: () => $('#seqbench'), open: () => NoorSequencer.open(), close: () => NoorSequencer.close(), isOpen: () => NoorSequencer.isOpen() },
         apps: { label: 'NoorHub', el: () => $('#appshub'), open: () => NoorApps.open(), close: () => NoorApps.close(), isOpen: () => NoorApps.isOpen() },
         stream: { label: 'NoorStream', el: () => $('#streamdesk'), open: () => NoorStream.open(), close: () => NoorStream.close(), isOpen: () => document.body.classList.contains('stream-open') },
@@ -2331,6 +2337,7 @@
     NoorSprite.init({ showError });
     NoorPhoto.init({ showError });
     NoorInk.init({ showError });
+    NoorMesh.init({ showError });
     NoorStream.init({ showError });
     NoorApps.init({ showError });
     NoorGallery.init({ showError, hasDocument: () => !!editor });
