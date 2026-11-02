@@ -10272,7 +10272,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // The checker.
       await page.click('#nm-checker');
       check('▦: the checker texture on (remembered)', (await MS()).uv.checker && (await page.evaluate(() => localStorage.getItem('noormd.mesh.checker'))) === '1');
+      const cur = () => page.$eval('#nm-canvas', (c) => getComputedStyle(c).cursor);
+      check('the pointer: a crosshair in Edit Mode (in the view and the UV editor)', (await cur()) === 'crosshair' && (await page.$eval('#nm-uvcanvas', (c) => getComputedStyle(c).cursor)) === 'crosshair');
       if (shots) { await page.waitForTimeout(200); await page.screenshot({ path: `${shots}/80i-noormesh-uv.png` }); }
+      await page.mouse.move(box.cx - 150, box.cy); await page.keyboard.press('Tab');
+      check('…the system arrow in Object Mode', (await cur()) === 'default', await cur());
       check('no page errors with UVs', errors.length === 0, errors);
       await page.close();
     }
