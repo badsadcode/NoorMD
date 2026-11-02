@@ -7,6 +7,11 @@ has, a phased plan with testable milestones and risks, and the decisions to make
 here: the screens follow the workflows and the architecture, and follow the other benches' conventions (one look for
 every bench).
 
+**The rule of thumb: Blender stripped down to its modelling.** Where NoorMesh does something Blender does, it does it
+the way Blender does it (the keys, the order of the clicks, the names, the axes, how selection and transforms behave),
+so a Blender user feels at home and a beginner learns skills that carry over. Everything in Blender that is not about
+making a game asset's mesh (rendering, compositing, nodes, physics, video editing, scripting) is left out.
+
 What NoorMesh is not (from the specification's guardrails): a sculpting suite, an offline renderer, VFX or physics, a
 geometry-nodes system, CAD, a game engine, or FBX parity on day one. It must not hold up NoorMD's stable release, and
 it must not depend on any game engine (Bad 3D Engine included).
