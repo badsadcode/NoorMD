@@ -505,7 +505,7 @@ window.NoorAssetView = (() => {
     // A painter (NoorForge's brush) takes the left button when it wants it; Alt+drag still turns the model.
     canvas.addEventListener('pointerdown', (e) => {
       if (painter && e.button === 0 && !e.altKey && painter.down(e)) { drag = { paint: true }; canvas.setPointerCapture(e.pointerId); return; }
-      drag = { x: e.clientX, y: e.clientY, pan: e.button === 2 || e.shiftKey }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
+      drag = { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY, button: e.button, pan: e.button === 2 || e.shiftKey }; canvas.setPointerCapture(e.pointerId); canvas.classList.add('dragging');
     });
     canvas.addEventListener('pointermove', (e) => {
       if (painter && (!drag || drag.paint)) { if (drag) painter.move(e); else painter.hover(e); }
@@ -518,7 +518,12 @@ window.NoorAssetView = (() => {
       } else { yaw -= dx * 0.008; pitch = Math.max(-0.2, Math.min(1.45, pitch + dy * 0.006)); }
       dirty = true; tick();
     });
-    const end = (e) => { if (drag && drag.paint && painter) painter.up(e); drag = null; canvas.classList.remove('dragging'); };
+    const end = (e) => {
+      if (drag && drag.paint && painter) painter.up(e);
+      // A right-click that didn't move the view: the painter's menu (NoorForge's brush at the cursor).
+      else if (drag && drag.button === 2 && e && e.type === 'pointerup' && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4 && painter && painter.menu) painter.menu(e);
+      drag = null; canvas.classList.remove('dragging');
+    };
     canvas.addEventListener('pointerleave', () => { if (painter && !drag) painter.hover(null); });
     canvas.addEventListener('pointerup', end);
     canvas.addEventListener('pointercancel', end);

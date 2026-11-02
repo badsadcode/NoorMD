@@ -174,6 +174,15 @@ painted straight onto the model in any colour, for hand-painted albedo.
   view, to judge the painting). Paint layers (strokes) keep each stroke's colour too, with 🎨 Recolour all of it.
 - **Export** writes each painting as PNGs beside the recipe (one a texture set), and opening the recipe reads them back.
 
+### Done in preview.138: a brush bar that stays out of the way
+
+- One slim row: the tools, the brush's colour and the last four, Size, Hard(ness) and Flow as small fields (drag the word
+  left or right, type, or turn the wheel), ◐ and ⚙. The rest (spacing, pen pressure, mirror, the tip, a stencil) is
+  under ⚙, floating over the view, so the model never moves.
+- F: the size on the model, by moving the mouse (click or F keeps it, Esc puts it back); Shift+F: the flow. [ ] still
+  size it.
+- Right-click on the model while painting: the brush at the cursor (tools, colours, size, hardness, flow).
+
 ### Next (stage 4, second part)
 
 - Blender's other brushes: soften (blur), smear, clone (Ctrl+click for the source), and blend modes (mix, multiply,

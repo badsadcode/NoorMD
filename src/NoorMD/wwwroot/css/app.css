@@ -1552,7 +1552,36 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .forgebench .fg-recent { display: inline-flex; gap: 4px; flex-wrap: wrap; align-items: center; }
 .forgebench .fg-recentcolor { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); padding: 0; cursor: pointer; }
 .forgebench .fg-recentcolor.on { outline: 2px solid var(--accent); outline-offset: 1px; }
-.forgebench .fg-colorrow { min-height: 34px; flex-wrap: nowrap; overflow: hidden; }
+/* The brush bar: one slim row; the rest (⚙) floats over the view so the model never moves. */
+.forgebench #fg-brushbar { position: relative; padding: 3px 6px; gap: 2px; margin: 3px 0; }
+.forgebench .fg-brushbar .sb-row.fg-barrow { gap: 3px 2px; flex-wrap: wrap; }
+.forgebench .fg-brushbar .icon-btn { width: 26px; height: 26px; padding: 0; font-size: 14px; }
+.forgebench .fg-sep { width: 1px; align-self: stretch; margin: 3px 3px; background: var(--border); }
+.forgebench .fg-colorwell { width: 28px; height: 24px; padding: 0 2px; border: 1px solid var(--border); border-radius: 5px; background: transparent; cursor: pointer; }
+.forgebench .fg-field { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; }
+.forgebench .fg-fieldlabel { cursor: ew-resize; user-select: none; color: var(--muted); padding: 2px 2px; border-radius: 4px; }
+.forgebench .fg-fieldlabel:hover { color: var(--text); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.forgebench .fg-fieldnum { width: 46px; padding: 2px 2px; font-size: 12px; }
+.forgebench .fg-field { margin-right: 4px; }
+.forgebench .fg-field small { color: var(--muted); }
+.forgebench .fg-morepanel { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+.forgebench .fg-morepanel .sb-row { flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.forgebench .tb-stage { position: relative; }
+.forgebench .fg-adjust { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; padding: 4px 10px; border-radius: 999px; font-size: 12px; pointer-events: none;
+  background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--accent); }
+.forgebench .fg-adjust[hidden] { display: none; }
+.fg-popup { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; min-width: 220px; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--surface); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45); }
+.fg-popup .sb-row { display: flex; gap: 4px; align-items: center; }
+.fg-popup .icon-btn { width: 28px; height: 28px; padding: 0; }
+.fg-popup .icon-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+.fg-popup .fg-colorwell { width: 28px; height: 24px; padding: 0 2px; border: 1px solid var(--border); border-radius: 5px; background: transparent; }
+.fg-popup .fg-recent { display: flex; flex-wrap: wrap; gap: 4px; }
+.fg-popup .fg-recentcolor { width: 18px; height: 18px; border-radius: 50%; border: 1px solid var(--border); padding: 0; cursor: pointer; }
+.fg-popup .fg-recentcolor.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.fg-popup .fg-popfield { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: 6px; font-size: 12px; }
+.fg-popup .fg-popfield small { color: var(--muted); text-align: right; }
 .forgebench .fg-layername { font-weight: 600; }
 .forgebench .fg-pickbig { width: calc(100% - 8px); margin: 4px; text-align: left; }
 .forgebench .fg-mine-row { display: flex; align-items: center; gap: 2px; }

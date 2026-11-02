@@ -229,6 +229,8 @@ window.NoorForge = (() => {
     window.addEventListener('blur', stencilUp);
     root.addEventListener('keydown', (e) => {
       const typing = e.target.closest('input[type=text], input[type=number], select, textarea');
+      if (e.key === 'Escape' && $('#fg-popup')) { e.preventDefault(); e.stopPropagation(); closeBrushPopup(); return; }
+      if (e.key === 'Escape' && adjust) { e.preventDefault(); e.stopPropagation(); endAdjust(false); return; }
       if (e.key === 'Escape' && !typing && tool) { e.preventDefault(); e.stopPropagation(); setTool(null); return; }
       if (e.key === 'Escape' && !typing && !document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); close(); return; }
       if (typing) return;
@@ -239,6 +241,8 @@ window.NoorForge = (() => {
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
         if (k === 't' && tool) { e.preventDefault(); setTool('stamp'); return; }
         if (k === 'i' && tool) { e.preventDefault(); setTool(tool === 'pick' ? 'brush' : 'pick', false); return; }
+        if (k === 'f' && tool) { e.preventDefault(); if (adjust) endAdjust(true); else startAdjust(e.shiftKey ? 'flow' : 'size'); return; }
+        if (e.key === 'Enter' && adjust) { e.preventDefault(); endAdjust(true); return; }
         if ((k === '[' || k === ']') && tool) { e.preventDefault(); brushSize(k === ']' ? 1 : -1); return; }
       }
       if (k === 'z' && e.ctrlKey) { e.preventDefault(); undo(e.shiftKey); }
@@ -663,39 +667,125 @@ window.NoorForge = (() => {
       toolBtn('fg-tool-fill', '🪣', 'Fill a part: click it', tool === 'fill', () => setTool('fill')),
       toolBtn('fg-tool-stamp', '🏷', 'Stamp a decal (T): a picture or text, placed where you click', tool === 'stamp', () => setTool('stamp')),
       toolBtn('fg-tool-pick', '💧', 'Pick a colour from the model (I)', tool === 'pick', () => setTool(tool === 'pick' ? 'brush' : 'pick', false))];
-    // The brush's colour (for paintings and paint layers), the recent ones, and the unlit view to judge colours.
-    const colorIn = el('input', { type: 'color', id: 'fg-brushcolor', value: brush.color || '#c8643c', 'aria-label': 'Brush colour', title: 'The brush\'s colour (paintings and paint layers)' });
+    // The brush's colour (for paintings and paint layers): a small swatch and the last few, then the unlit view.
+    const colorIn = el('input', { type: 'color', id: 'fg-brushcolor', class: 'fg-colorwell', value: brush.color || '#c8643c', 'aria-label': 'Brush colour', title: takesColor(layer) ? 'The brush\'s colour' : 'The brush\'s colour paints paintings and paint layers (this layer paints its own material where you paint)' });
     colorIn.addEventListener('input', () => { brush.color = colorIn.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } });
     colorIn.addEventListener('change', () => { useColor(colorIn.value); renderBrushBar(); });
-    // Always there (the view doesn't jump when the tool or the layer changes); it paints paintings and paint layers.
-    const colorRow = el('div', { class: 'sb-row fg-colorrow', id: 'fg-colorrow', title: takesColor(layer) ? '' : 'The brush\'s colour paints paintings and paint layers (this layer paints its own material where you paint)' },
-      el('label', { class: 'sb-inline' }, el('span', { text: 'Colour' }), colorIn),
-      el('span', { class: 'fg-recent', 'aria-label': 'Recent colours' }, ...(brush.recent || []).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); } }))),
-      el('button', { class: 'icon-btn', id: 'fg-unlit', 'aria-pressed': String(view === 'basecolor'), title: 'Colour only: the painting without light and shade (click again for the lit model)', 'aria-label': 'Colour only', onclick: () => { setView(view === 'basecolor' ? (litView || 'shaded') : ((litView = view), 'basecolor')); renderBrushBar(); } }, '◐'));
+    const recent = el('span', { class: 'fg-recent', 'aria-label': 'Recent colours' }, ...(brush.recent || []).slice(0, 4).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); } })));
+    const unlit = el('button', { class: 'icon-btn', id: 'fg-unlit', 'aria-pressed': String(view === 'basecolor'), title: 'Colour only: the painting without light and shade (click again for the lit model)', 'aria-label': 'Colour only', onclick: () => { setView(view === 'basecolor' ? (litView || 'shaded') : ((litView = view), 'basecolor')); renderBrushBar(); } }, '◐');
+    const sep = () => el('span', { class: 'fg-sep', 'aria-hidden': 'true' });
+    const more = el('button', { class: 'icon-btn', id: 'fg-more', 'aria-expanded': String(moreOpen), 'aria-pressed': String(moreOpen), title: 'More: spacing, pen pressure, mirror, the tip, a stencil', 'aria-label': 'More brush settings', onclick: () => { moreOpen = !moreOpen; renderBrushBar(); } }, '⚙');
+    const hint = texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null;
     if (tool === 'stamp') {
-      bar.replaceChildren(colorRow, el('div', { class: 'sb-row' }, ...tools, ...stampControls()), el('div', { class: 'sb-row' },
-        el('span', { class: 'pref-hint fg-into', text: layer ? `Click the model to place it in “${layer.name}” · Alt+drag turns the model` : 'Choose a layer' }),
-        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null));
+      bar.replaceChildren(el('div', { class: 'sb-row fg-barrow' }, ...tools, sep(), colorIn, recent, sep(), ...stampControls(), unlit, hint),
+        el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint fg-into', text: layer ? `Click the model to place it in “${layer.name}” · Alt+drag turns the model` : 'Choose a layer' })));
       drawStamp(); showStencil(); keepFocus();
       return;
     }
-    bar.replaceChildren(
-      colorRow,
-      el('div', { class: 'sb-row' },
-        ...tools,
-        num('size', 'Size', 0.2, 25, 0.1, 'The brush\'s size, a share of the model ([ and ])'),
-        num('hardness', 'Hardness', 0, 1, 0.01, 'How much of the brush paints fully before it fades'),
-        num('flow', 'Flow', 0.02, 1, 0.01, 'How much each dab adds (going over builds it up)'),
-        num('spacing', 'Spacing', 0.05, 1, 0.01, 'How far apart the dabs are, a share of the brush')),
-      el('div', { class: 'sb-row' },
+    const panel = moreOpen ? el('div', { class: 'fg-morepanel', id: 'fg-morepanel', role: 'group', 'aria-label': 'More brush settings' },
+      el('div', { class: 'sb-row' }, num('spacing', 'Spacing', 0.05, 1, 0.01, 'How far apart the dabs are, a share of the brush'),
         el('span', { class: 'pref-hint', text: 'Pen pressure:' }), check('pressureSize', 'size', 'A pen\'s pressure makes the brush smaller'), check('pressureFlow', 'flow', 'A pen\'s pressure makes the paint lighter'),
-        check('mirror', 'Mirror across X', 'Paint the other side too (mirrored across the model\'s middle, left to right)'),
-        el('span', { class: 'pref-hint fg-into', text: layer ? `Into “${layer.name}” · Alt+drag turns the model · Shift+click: a straight line` : 'Choose a layer' }),
-        texelsLoading ? el('span', { class: 'pref-hint', text: 'Getting ready…' }) : null),
-      tipRow(num), stencilRow(check));
+        check('mirror', 'Mirror across X', 'Paint the other side too (mirrored across the model\'s middle, left to right)')),
+      tipRow(num), stencilRow(check),
+      el('p', { class: 'pref-hint fg-into', text: `${layer ? `Into “${layer.name}”. ` : ''}F: size, Shift+F: flow (move the mouse, click) · [ ]: size · right-click: the brush at the cursor · Alt+drag: turn · Shift+click: a straight line` })) : null;
+    bar.replaceChildren(el('div', { class: 'sb-row fg-barrow' },
+      ...tools, sep(), colorIn, recent, sep(),
+      field('size', 'Size', 0.2, 25, 0.1, 1, '%', 'The brush\'s size, a share of the model (F, [ and ]; drag the word to change it)'),
+      field('hardness', 'Hard', 0, 1, 0.01, 100, '%', 'How much of the brush paints fully before it fades (drag the word to change it)'),
+      field('flow', 'Flow', 0.02, 1, 0.01, 100, '%', 'How much each dab adds (Shift+F; drag the word to change it)'),
+      sep(), unlit, more, hint), ...(panel ? [panel] : []));
     drawTip();
     showStencil();
     keepFocus();
+  }
+
+  let moreOpen = false; // the brush bar's ⚙ panel
+
+  /**
+   * A small number field for a brush setting, with its word as a handle: drag it left or right to change the value
+   * (Shift: finely), or type, or turn the wheel over it. Shown in its unit (the brush keeps 0–1 for hardness and flow).
+   */
+  function field(key, label, min, max, step, factor, unit, title) {
+    const shown = () => String(Math.round(brush[key] * factor * 10) / 10);
+    const input = el('input', { type: 'number', class: 'fg-fieldnum', min: String(min * factor), max: String(max * factor), step: String(step * factor), value: shown(), 'aria-label': label, 'data-brush': key });
+    const put = (v) => { brush[key] = Math.max(min, Math.min(max, Math.round(v / step) * step)); brush[key] = Number(brush[key].toFixed(4)); try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } if (key === 'hardness') drawTip(); };
+    input.addEventListener('input', () => { const v = Number(input.value); if (Number.isFinite(v)) put(v / factor); });
+    input.addEventListener('change', () => { input.value = shown(); });
+    const handle = el('span', { class: 'fg-fieldlabel', text: label });
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      handle.setPointerCapture(e.pointerId);
+      const x0 = e.clientX, v0 = brush[key];
+      const move = (ev) => { put(v0 + (ev.clientX - x0) * (max - min) / (ev.shiftKey ? 2000 : 240)); input.value = shown(); };
+      const up = () => { handle.removeEventListener('pointermove', move); handle.removeEventListener('pointerup', up); };
+      handle.addEventListener('pointermove', move); handle.addEventListener('pointerup', up);
+    });
+    // A span, not a label: dragging the word must not put the typing into the box (F would land there).
+    return el('span', { class: 'fg-field', title: `${title} (${unit})` }, handle, input);
+  }
+
+  // ---- F / Shift+F: the brush's size or flow changed on the model by moving the mouse (click or F to keep it, Esc: back)
+  let adjust = null; // { key, x0, v0 }
+  function startAdjust(key) {
+    if (!tool || tool === 'stamp') return;
+    adjust = { key, x0: lastHover ? lastHover.x : 0, v0: brush[key] };
+    showAdjust();
+  }
+  function moveAdjust(x) {
+    if (!adjust) return;
+    const [min, max] = adjust.key === 'size' ? [0.2, 25] : [0.02, 1];
+    brush[adjust.key] = Number(Math.max(min, Math.min(max, adjust.v0 + (x - adjust.x0) * (max - min) / 300)).toFixed(adjust.key === 'size' ? 1 : 2));
+    showAdjust();
+  }
+  function endAdjust(keep) {
+    if (!adjust) return;
+    if (!keep) brush[adjust.key] = adjust.v0;
+    adjust = null;
+    try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ }
+    const hud = $('#fg-adjust'); if (hud) hud.hidden = true;
+    renderBrushBar();
+  }
+  function showAdjust() {
+    const stage = $('#fg-canvas') && $('#fg-canvas').parentElement;
+    if (!stage) return;
+    let hud = $('#fg-adjust');
+    if (!hud) { hud = el('div', { class: 'fg-adjust', id: 'fg-adjust', 'aria-live': 'polite' }); stage.append(hud); }
+    hud.hidden = false;
+    hud.textContent = adjust.key === 'size' ? `Size ${brush.size}% · click to keep, Esc: back` : `Flow ${Math.round(brush.flow * 100)}% · click to keep, Esc: back`;
+    if (viewer && lastHover && lastHover.hit) viewer.setBrush(lastHover.hit.point, radius(), adjust.key === 'flow' ? brush.flow : brush.hardness);
+  }
+
+  // ---- right-click while painting: the brush at the cursor (tools, colour, size, hardness, flow)
+  function brushPopup(e) {
+    closeBrushPopup();
+    const layer = recipe.layers[selected];
+    const range = (key, label, min, max, step, factor) => {
+      const out = el('small', { text: `${Math.round(brush[key] * factor * 10) / 10}${key === 'size' ? '%' : '%'}` });
+      const r = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(brush[key]), 'aria-label': label, 'data-pop': key });
+      r.addEventListener('input', () => { brush[key] = Number(r.value); out.textContent = `${Math.round(brush[key] * factor * 10) / 10}%`; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } });
+      return el('label', { class: 'fg-popfield' }, el('span', { text: label }), r, out);
+    };
+    const tool2 = (label, title, on, run) => el('button', { class: 'icon-btn', title, 'aria-label': title, 'aria-pressed': String(on), onclick: () => { run(); closeBrushPopup(); } }, label);
+    const pop = el('div', { class: 'fg-popup', id: 'fg-popup', role: 'dialog', 'aria-label': 'The brush' },
+      el('div', { class: 'sb-row' },
+        tool2('🖌', 'Brush', tool === 'brush' && !erasing, () => setTool('brush', false)), tool2('🧽', 'Eraser', tool === 'brush' && erasing, () => setTool('brush', true)),
+        tool2('🪣', 'Fill a part', tool === 'fill', () => setTool('fill')), tool2('💧', 'Pick a colour', tool === 'pick', () => setTool('pick', false)),
+        takesColor(layer) ? (() => { const c = el('input', { type: 'color', class: 'fg-colorwell', value: brush.color, 'aria-label': 'Brush colour' }); c.addEventListener('change', () => { useColor(c.value); renderBrushBar(); closeBrushPopup(); }); return c; })() : null),
+      takesColor(layer) && (brush.recent || []).length ? el('div', { class: 'fg-recent fg-poprecent' }, ...(brush.recent || []).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); closeBrushPopup(); } }))) : null,
+      range('size', 'Size', 0.2, 25, 0.1, 1), range('hardness', 'Hardness', 0, 1, 0.01, 100), range('flow', 'Flow', 0.02, 1, 0.01, 100));
+    document.body.append(pop);
+    const w = pop.offsetWidth, h = pop.offsetHeight;
+    pop.style.left = `${Math.max(4, Math.min(innerWidth - w - 4, e.clientX - w / 2))}px`;
+    pop.style.top = `${Math.max(4, Math.min(innerHeight - h - 4, e.clientY - 20))}px`;
+    setTimeout(() => document.addEventListener('pointerdown', outsidePopup, true), 0);
+  }
+  function outsidePopup(e) { const p = $('#fg-popup'); if (p && !p.contains(e.target)) closeBrushPopup(); }
+  function closeBrushPopup() {
+    const p = $('#fg-popup');
+    if (!p) return;
+    p.remove();
+    document.removeEventListener('pointerdown', outsidePopup, true);
+    renderBrushBar();
   }
 
   // ---- the stamp: a decal (a picture of the recipe, or text made into one) placed where you click
@@ -1121,12 +1211,15 @@ window.NoorForge = (() => {
     hover(e) {
       if (!e || !tool) { viewer.setBrush(null); return; }
       const hit = viewer.pick(e.clientX, e.clientY);
+      lastHover = { x: e.clientX, y: e.clientY, hit: hit || (lastHover && lastHover.hit) };
+      if (adjust) { moveAdjust(e.clientX); return; }
       if (tool === 'stamp') { viewer.setBrush(hit ? hit.point : null, (stamp.size / 100) * modelSize() / 2, 1); return; }
       viewer.setBrush(hit && tool === 'brush' ? hit.point : null, radius(), brush.hardness);
       if (tool === 'pick' && $('#fg-canvas')) $('#fg-canvas').style.cursor = hit ? 'copy' : '';
     },
     down(e) {
       if (stencilKey && stencil) { stencilDrag = { x: e.clientX, y: e.clientY }; return true; }
+      if (adjust) { endAdjust(true); return true; } // F: a click keeps the new size or flow
       if (!tool || !recipe.layers[selected]) return false;
       if (!texels || texels.key !== texKey()) { ensureTexels(); notice('Getting the model ready for painting…', 1400); return false; }
       const hit = viewer.pick(e.clientX, e.clientY);
@@ -1169,7 +1262,10 @@ window.NoorForge = (() => {
       frame();
     },
     up() { if (stencilDrag) { stencilDrag = null; return; } endStroke(); },
+    /** A right-click (no drag) while painting: the brush at the cursor. */
+    menu(e) { if (!tool) return false; brushPopup(e); return true; },
   };
+  let lastHover = null; // where the mouse last was over the view (and the model under it), for F
 
   /** 🪣: the whole part under the click (its texels' part), into the layer. */
   function fillPart(hit) {
@@ -1305,7 +1401,7 @@ window.NoorForge = (() => {
     const rows = [
       ['Open or close NoorForge', 'Ctrl+Alt+F'], ['Focus mode (NoorForge as an app) on / off', 'F11'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (Ctrl+Shift+Z)'],
       ['Turn the model · zoom · move it', 'drag · wheel · right-drag'],
-      ['The brush on / off', 'B'], ['The eraser (while painting)', 'E'], ['Stamp a decal (while painting)', 'T'], ['Brush smaller / bigger (while painting)', '[ / ]'],
+      ['The brush on / off', 'B'], ['The eraser (while painting)', 'E'], ['Stamp a decal (while painting)', 'T'], ['Brush smaller / bigger (while painting)', '[ / ]'], ['Brush size on the model: move the mouse, click (while painting)', 'F'], ['Brush flow on the model', 'Shift+F'], ['Pick a colour from the model', 'I'], ['The brush at the cursor', 'Right-click'],
       ['A straight line from the last stroke', 'Shift+click'], ['Turn the model while painting', 'Alt+drag'],
       ['Move the stencil · size it · turn it', 'hold S: drag · wheel · Shift+wheel'], ['Put the brush down (out of focus mode: close NoorForge)', 'Esc'],
     ];

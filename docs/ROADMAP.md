@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForge's brush bar (preview.138): one slim row (size, hardness and flow as small fields you drag), the rest under
+  ⚙ floating over the view; F / Shift+F size or flow on the model; right-click: the brush at the cursor.
 - NoorForge paintings (preview.137): a layer of pixels painted straight onto the model in any colour (as Blender's
   texture painting), blank or over the model's texture or a picture; the brush's colour, recent colours, a colour
   picker and a colour-only view; paint layers keep each stroke's colour. See [NOORFORGE_PLAN.md](NOORFORGE_PLAN.md).

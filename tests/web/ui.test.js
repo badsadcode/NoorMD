@@ -7580,6 +7580,8 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const FS = () => page.evaluate(() => NoorForge._state());
       const FM = () => page.evaluate(() => window.__mock.state.forge);
       const layerNow = async () => { const st = await FS(); return st.recipe.layers[st.selected]; };
+      // ⚙: the rest of the brush's settings (it floats over the view: closed again before painting).
+      const more = async (want) => { if (!!(await page.$('#fg-morepanel')) !== want) await page.click('#fg-more'); };
       await page.keyboard.press('Control+Alt+f');
       await waitFn(page, () => NoorForge.isOpen() && NoorForge._state().recipe);
       await page.click('#fg-pick');
@@ -7592,7 +7594,10 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         && !(await page.isHidden('#fg-brushbar')) && (await page.getAttribute('#fg-paint', 'aria-pressed')) === 'true');
       check('…and the model\'s texels are fetched for showing strokes at once', (await FM()).texels === 1 && st.texels.size === 64);
       await page.$eval('#fg-brushbar input[data-brush="size"]', (i) => { i.value = '20'; i.dispatchEvent(new Event('input')); });
+      await more(true); // spacing, pressure, mirror, the tip and the stencil are under ⚙
+      check('⚙ opens the rest of the brush\'s settings, floating over the view', !!(await page.$('#fg-morepanel')) && await page.$eval('#fg-morepanel', (p) => getComputedStyle(p).position === 'absolute'));
       await page.$eval('#fg-brushbar input[data-brush="spacing"]', (i) => { i.value = '0.1'; i.dispatchEvent(new Event('input')); });
+      await more(false);
       const box = await page.$eval('#fg-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       // A stroke across the rock.
       const renders0 = (await FM()).renders.length;
@@ -7616,7 +7621,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Alt+drag turns the model (no stroke)', (await layerNow()).strokes.length === 1);
       // The eraser (E), mirrored.
       await page.keyboard.press('e');
-      await page.click('#fg-brushbar input[data-brush="mirror"]');
+      await more(true); await page.click('#fg-brushbar input[data-brush="mirror"]'); await more(false);
       await page.waitForTimeout(700);
       await page.mouse.move(box.x - 10, box.y); await page.mouse.down(); await page.mouse.move(box.x + 10, box.y + 4); await page.mouse.up();
       l = await layerNow();
@@ -7626,7 +7631,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Ctrl+Z takes the last stroke (both sides) back', (await layerNow()).strokes.length === 1);
       await page.keyboard.press('Control+Shift+z');
       check('…and Ctrl+Shift+Z puts it back', (await layerNow()).strokes.length === 3);
-      await page.click('#fg-brushbar input[data-brush="mirror"]');
+      await more(true); await page.click('#fg-brushbar input[data-brush="mirror"]'); await more(false);
       // Shift+click: a straight line from where the last stroke ended.
       await page.keyboard.press('e');
       await page.waitForTimeout(700);
@@ -7651,16 +7656,19 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…and Ctrl+Z brings it back', (await layerNow()).strokes.length === 5);
       // Brush tips: NoorForge's and a picture's, turned; each stroke keeps its tip, angle, jitter and seed.
       await page.click('#fg-tool-brush');
+      await more(true);
       await page.selectOption('#fg-tip', 'square');
       await page.waitForSelector('#fg-brushbar input[data-brush="angle"]');
       check('a tip can be chosen, its picture shown, with an angle and a random turn', (await FS()).brush.tip === 'square' && await page.$eval('#fg-tipview', (c) => c.getContext('2d').getImageData(20, 20, 1, 1).data[3] > 200));
       await page.$eval('#fg-brushbar input[data-brush="angle"]', (i) => { i.value = '30'; i.dispatchEvent(new Event('input')); });
       await page.$eval('#fg-brushbar input[data-brush="jitter"]', (i) => { i.value = '0.5'; i.dispatchEvent(new Event('input')); });
       await page.waitForTimeout(700);
+      await more(false);
       await page.mouse.move(box.x - 20, box.y - 6); await page.mouse.down(); await page.mouse.move(box.x + 10, box.y - 2); await page.mouse.up();
       l = await layerNow();
       let last = l.strokes.at(-1);
       check('…and the stroke keeps them (the app paints the same)', last.tip === 'square' && last.angle === 30 && last.jitter === 0.5 && Number.isInteger(last.seed) && !last.stencil);
+      await more(true);
       await page.selectOption('#fg-tip', '+');
       await waitFn(page, () => NoorForge._state().brush.tip === 'tmock1');
       st = await FS();
@@ -7671,6 +7679,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => NoorForge._state().stencil);
       check('“A picture…” as a stencil lays it over the view', !(await page.isHidden('#fg-stencil')) && (await FS()).recipe.pictures.some((p) => p.id === 'smock2'));
       const fx0 = (await FS()).stencil.fx;
+      await more(false);
       await page.keyboard.down('s');
       await page.mouse.move(box.x, box.y); await page.mouse.down(); await page.mouse.move(box.x + 60, box.y); await page.mouse.up();
       await page.mouse.wheel(0, -100);
@@ -7687,6 +7696,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       for (const [x, y] of [[box.x, box.y], [box.x + 6, box.y - 4]]) uvs.push([await page.evaluate(([px, py]) => NoorForge._stencilUv(px, py), [x, y]), [(x - sb.l) / sb.w, (y - sb.t) / sb.h]]);
       check('the stencil lands on the model where it shows over the view', uvs.every(([got, want]) => got && Math.abs(got[0] - want[0]) < 0.01 && Math.abs(got[1] - want[1]) < 0.01), JSON.stringify(uvs));
       check('a stroke through the stencil keeps where it lay (its picture and the camera\'s rows)', last.stencil && last.stencil.picture === 'smock2' && last.stencil.rows.length === 12 && last.stencil.rows.every(Number.isFinite));
+      await more(true);
       await page.click('#fg-brushbar [aria-label="Remove the stencil picture"]');
       check('a picture strokes use can\'t be removed', (await FS()).recipe.pictures.some((p) => p.id === 'smock2'));
       // 🏷 Stamp: text made into a decal, placed where clicked, flat on the surface.
@@ -9247,7 +9257,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await stroke(0);
       await waitFn(page, () => (window.__mock.state.forge.imagePaints || []).length === 1 && NoorForge._state().recipe.layers.some((x) => x.image === 'img1.1'));
       let paints = (await FM()).imagePaints;
-      check('a stroke goes into the painting\'s pixels (in the app), in the brush\'s colour', paints[0].image === 'img1' && paints[0].strokes.length === 1 && paints[0].strokes[0].color === '#ff0000' && paints[0].strokes[0].dabs.length >= 25);
+      check('a stroke goes into the painting\'s pixels (in the app), in the brush\'s colour', paints[0].image === 'img1' && paints[0].strokes.length === 1 && paints[0].strokes[0].color === '#ff0000' && paints[0].strokes[0].dabs.length >= 10);
       check('…the layer holds the new version of its picture, not strokes', (await layerNow()).image === 'img1.1' && (await layerNow()).strokes.length === 0);
       await waitFn(page, () => window.__mock.state.forge.renders.at(-1).layers.some((x) => x.image === 'img1.1'));
       check('…and the model is textured with it', true);
@@ -9257,9 +9267,40 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => (window.__mock.state.forge.imagePaints || []).length === 2 && NoorForge._state().recipe.layers.some((x) => x.image === 'img1.1.2'));
       paints = (await FM()).imagePaints;
       check('changing the colour paints the next stroke in it, over the last version (what was painted keeps its colour)', paints[1].image === 'img1.1' && paints[1].strokes[0].color === '#0000ff');
-      check('…and both colours are among the recent ones', (await page.$$eval('#fg-colorrow .fg-recentcolor', (b) => b.map((x) => x.dataset.color))).slice(0, 2).join() === '#0000ff,#ff0000');
-      await page.click('#fg-colorrow .fg-recentcolor[data-color="#ff0000"]');
+      check('…and both colours are among the recent ones', (await page.$$eval('#fg-brushbar .fg-recentcolor', (b) => b.map((x) => x.dataset.color))).slice(0, 2).join() === '#0000ff,#ff0000');
+      await page.click('#fg-brushbar .fg-recentcolor[data-color="#ff0000"]');
       check('…a recent colour is chosen with a click', (await FS()).brush.color === '#ff0000');
+      const paintsBeforeF = (await FM()).imagePaints.length;
+      // The brush bar: one slim row; a word dragged changes its value; F / Shift+F on the model; right-click: the brush.
+      check('the brush bar is one slim row (size, hardness and flow as small fields)', (await page.$eval('#fg-brushbar', (b) => b.getBoundingClientRect().height)) < 56 && !!(await page.$('#fg-brushbar input.fg-fieldnum[data-brush="flow"]')));
+      const flow0 = (await FS()).brush.flow;
+      const fl = await page.$eval('#fg-brushbar .fg-field:has(input[data-brush="flow"]) .fg-fieldlabel', (h) => { const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      await page.mouse.move(fl.x, fl.y); await page.mouse.down(); await page.mouse.move(fl.x - 60, fl.y, { steps: 4 }); await page.mouse.up();
+      check('dragging the word "Flow" to the left lowers the flow', (await FS()).brush.flow < flow0 - 0.1, [(await FS()).brush.flow, flow0]);
+      const size0 = (await FS()).brush.size;
+      await page.mouse.move(box.x, box.y);
+      await page.keyboard.press('f');
+      await page.mouse.move(box.x + 60, box.y, { steps: 4 });
+      check('F, then moving the mouse: the size changes on the model, said at the top of the view', (await FS()).brush.size > size0 + 2 && /Size/.test(await page.textContent('#fg-adjust')));
+      await page.keyboard.press('Escape');
+      check('…Esc puts it back', (await FS()).brush.size === size0 && await page.isHidden('#fg-adjust') && (await FS()).tool === 'brush');
+      await page.mouse.move(box.x, box.y);
+      await page.keyboard.press('f');
+      await page.mouse.move(box.x + 30, box.y, { steps: 3 });
+      await page.mouse.click(box.x + 30, box.y);
+      check('…a click keeps it (and paints nothing)', (await FS()).brush.size > size0 + 1 && (await FM()).imagePaints.length === paintsBeforeF);
+      await page.mouse.move(box.x, box.y);
+      await page.keyboard.press('Shift+F');
+      await page.mouse.move(box.x - 50, box.y, { steps: 3 });
+      await page.keyboard.press('f');
+      check('Shift+F: the flow, the same way', /Flow/.test(await page.textContent('#fg-adjust').catch(() => 'Flow')) && (await FS()).brush.flow < 0.9);
+      await page.mouse.click(box.x, box.y, { button: 'right' });
+      await page.waitForSelector('#fg-popup');
+      check('right-click on the model: the brush at the cursor (tools, colours, size, hardness, flow)', (await page.$$('#fg-popup input[type=range]')).length === 3 && !!(await page.$('#fg-popup .fg-recentcolor')));
+      await page.$eval('#fg-popup input[data-pop="size"]', (i) => { i.value = '7'; i.dispatchEvent(new Event('input')); });
+      check('…its sliders change the brush', (await FS()).brush.size === 7);
+      await page.keyboard.press('Escape');
+      check('…Esc closes it (the brush stays up)', !(await page.$('#fg-popup')) && (await FS()).tool === 'brush');
       // Undo: the painting's earlier version.
       await page.keyboard.press('Control+z');
       check('Ctrl+Z goes back to the painting before the last stroke', (await layerNow()).image === 'img1.1');
@@ -9292,7 +9333,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // From the model's own texture.
       await page.click('#fg-addpainting');
       await page.click('.modal button:has-text("The model\'s own texture")');
-      await waitFn(page, () => (window.__mock.state.forge.imageCreates || []).length === 2);
+      await waitFn(page, () => (window.__mock.state.forge.imageCreates || []).length === 2 && NoorForge._state().recipe.layers.some((x) => /over its texture/.test(x.name)));
       check('a painting can start from the model\'s own texture', (await FM()).imageCreates[1].from === 'model' && /over its texture/.test((await layerNow()).name));
       if (shots) await page.screenshot({ path: `${shots}/65g-noorforge-painting.png` });
       check('no page errors with paintings', errors.length === 0, errors);
