@@ -139,5 +139,134 @@ check('the cube\'s top face points up (+Z) and its front (−Y) is the middle of
   check('clone copies positions, faces and UVs', a.v[0] !== 42 && a.f[0].v[0] !== 3 && a.f[0].uv[0] !== 9);
 }
 
+// ================================================================ Edit Mode operations
+const ok = (m) => K.check(m);
+const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
+{
+  // Selection modes and flushing.
+  const c = K.cube(2), top = topFace(c);
+  const sv = K.selectionFromFaces(c, [top], 'vert');
+  check('a face selected is its 4 vertices in vertex mode', sv.verts.size === 4);
+  const fl = K.flush(c, sv);
+  check('…and 4 edges and that face, flushed', fl.edges.size === 4 && fl.faces.size === 1 && fl.faces.has(top));
+  const two = K.selectionFromFaces(c, [top, c.f.findIndex((f) => K.faceNormal(c, f).n[2] < -0.99)], 'face');
+  check('two opposite faces in face mode stay two faces (not all six)', K.flush(c, two).faces.size === 2 && K.flush(c, two).verts.size === 8);
+  check('…turned into vertex mode they are all 8 vertices (and so every face)', K.flush(c, K.convertSelection(c, two, 'vert')).faces.size === 6);
+  const e = K.convertSelection(c, sv, 'edge');
+  check('vertex → edge mode: the 4 edges', e.mode === 'edge' && e.edges.size === 4);
+}
+{
+  // Extrude a face of a cube: still closed, 4 more faces, the region on top of new vertices.
+  const c = K.cube(2), top = topFace(c);
+  const r = K.extrudeFaces(c, new Set([top]));
+  check('extrude the top face: closed, 10 faces, 12 vertices (its 4 walls flat until it is moved, as in Blender)', ok(r.mesh).closed && ok(r.mesh).flipped === 0 && ok(r.mesh).degenerate === 4 && r.mesh.f.length === 10 && K.vertexCount(r.mesh) === 12, ok(r.mesh));
+  check('…the region keeps its index, its normal is up, its 4 new vertices returned', r.faces[0] === top && r.normal[2] > 0.99 && r.verts.length === 4);
+  const moved = K.transformVerts(r.mesh, r.verts, K.compose([0, 0, 1], [0, 0, 0], [1, 1, 1]));
+  check('…moved up 1 m: a box 3 m tall, still pointing out', Math.abs(K.bounds(moved).max[2] - 2) < 1e-9 && Math.abs(K.volume(moved) - 12) < 1e-6 && ok(moved).ok);
+  // Two adjacent faces extruded as one region: no wall between them.
+  const c2 = K.cube(2), side = c2.f.findIndex((f) => K.faceNormal(c2, f).n[0] > 0.99);
+  const r2 = K.extrudeFaces(c2, new Set([topFace(c2), side]));
+  const r2up = K.transformVerts(r2.mesh, r2.verts, K.compose([0.3, 0, 0.3], [0, 0, 0], [1, 1, 1]));
+  check('extrude two neighbouring faces as one region: 6 walls (none between them), closed and valid once moved', r2.mesh.f.length === 12 && ok(r2up).closed && ok(r2up).ok, ok(r2up));
+  // A plane extruded: a box open at the bottom.
+  const pl = K.plane(2), rp = K.extrudeFaces(pl, new Set([0]));
+  const up = K.transformVerts(rp.mesh, rp.verts, K.compose([0, 0, 1], [0, 0, 0], [1, 1, 1]));
+  check('extrude a plane up: 5 faces, open at the bottom (4 border edges), all valid', up.f.length === 5 && ok(up).open === 4 && ok(up).ok, ok(up));
+}
+{
+  // Extrude border edges of a plane: a new face beside each, turned to match.
+  const pl = K.plane(2), keys = K.faceEdgeKeys(pl.f[0]);
+  const r = K.extrudeEdges(pl, [keys[0]]);
+  const rOut = K.transformVerts(r.mesh, r.verts, K.compose([0, -1, 0], [0, 0, 0], [1, 1, 1]));
+  check('extrude one border edge of a plane: a second face, valid once moved (no flipped edge)', r.mesh.f.length === 2 && ok(rOut).ok && ok(rOut).flipped === 0 && r.verts.length === 2 && r.edges.length === 1, ok(rOut));
+  const inner = K.extrudeEdges(K.cube(2), [K.faceEdgeKeys(K.cube(2).f[0])[0]]);
+  check('…an edge between two faces is not extruded (no fins)', inner.mesh.f.length === 6);
+}
+{
+  // Inset the top face of a cube by 0.25: 5 faces in its place, still closed, the inner face 1.5 m across.
+  const c = K.cube(2), top = topFace(c);
+  const r = K.insetFaces(c, new Set([top]), 0.25);
+  const f = r.mesh.f[r.faces[0]], b = K.bounds({ v: f.v.flatMap((v) => [r.mesh.v[v * 3], r.mesh.v[v * 3 + 1], r.mesh.v[v * 3 + 2]]), f: [] });
+  check('inset the top by 0.25 m: 10 faces, closed, valid', r.mesh.f.length === 10 && ok(r.mesh).closed && ok(r.mesh).ok, ok(r.mesh));
+  check('…the inner face is 1.5 m across, on top, facing up', near(b.max[0] - b.min[0], 1.5) && near(b.max[2], 1) && K.faceNormal(r.mesh, f).n[2] > 0.99);
+  const d = K.insetFaces(c, new Set([top]), 0.25, 0.5);
+  check('…with depth 0.5 the inner face rises', near(Math.max(...d.mesh.f[d.faces[0]].v.map((v) => d.mesh.v[v * 3 + 2])), 1.5) && ok(d.mesh).ok);
+}
+{
+  const c = K.cube(2), top = topFace(c);
+  const fv = K.selectionFromFaces(c, [top], 'vert');
+  check('delete vertices of the top face: only the bottom face is left (4 vertices)', (() => { const m = K.deleteElements(c, fv, 'verts'); return m.f.length === 1 && K.vertexCount(m) === 4 && ok(m).ok; })());
+  check('delete the top face: an open box (5 faces, 8 vertices)', (() => { const m = K.deleteElements(c, K.selectionFromFaces(c, [top], 'face'), 'faces'); return m.f.length === 5 && K.vertexCount(m) === 8 && ok(m).open === 4; })());
+  const e = K.convertSelection(c, K.selectionFromFaces(c, [top], 'face'), 'edge');
+  e.edges = new Set([[...e.edges][0]]);
+  check('delete one edge: the two faces on it go', K.deleteElements(c, e, 'edges').f.length === 4);
+  check('delete only faces: the vertices stay', (() => { const m = K.deleteElements(c, K.selectionFromFaces(c, [top], 'face'), 'only-faces'); return m.f.length === 5 && K.vertexCount(m) === 8; })());
+}
+{
+  // Dissolve: two quads of a grid into one face; an edge between them; a vertex in the middle of 4 quads.
+  const g = K.grid(2, 2, 2); // 4 quads, 9 vertices
+  const fsel = K.selectionFromFaces(g, [0, 1], 'face');
+  const d = K.dissolve(g, fsel);
+  check('dissolve two neighbouring faces: one face for both (3 faces left), its middle vertex gone from it', d.f.length === 3 && ok(d).ok, d.f.map((f) => f.v.length));
+  const mid = 4; // the grid's centre vertex
+  const dv = K.dissolve(g, { mode: 'vert', verts: new Set([mid]), edges: new Set(), faces: new Set() });
+  check('dissolve the centre vertex of a 2×2 grid: one face, 8 corners, the vertex gone', dv.f.length === 1 && dv.f[0].v.length === 8 && K.vertexCount(dv) === 8 && ok(dv).ok, dv.f.map((f) => f.v.length));
+  const k = K.edgeKey(1, 4);
+  const de = K.dissolve(g, { mode: 'edge', verts: new Set(), edges: new Set([k]), faces: new Set() });
+  check('dissolve the edge between two quads: 3 faces, the joined one a 5-gon (the border vertex taken out, the centre kept: it joins 3 edges, as in Blender)', de.f.length === 3 && ok(de).ok && de.f.some((f) => f.v.length === 5 && near(K.faceNormal(de, f).area, 2)), de.f.map((f) => f.v.length));
+  const c = K.cube(2);
+  const dc = K.dissolve(c, K.selectionFromFaces(c, c.f.map((_, i) => i), 'face'));
+  check('dissolving every face of a cube does nothing (their border is not one loop)', dc.f.length === 6 && ok(dc).ok);
+}
+{
+  // Merge at the centre: the top face's vertices to one point: a pyramid.
+  const c = K.cube(2), top = topFace(c), verts = new Set(c.f[top].v);
+  const r = K.mergeVerts(c, verts, [0, 0, 1]);
+  check('merge the top 4 vertices at their centre: a pyramid (5 vertices, 5 faces, closed)', K.vertexCount(r.mesh) === 5 && r.mesh.f.length === 5 && ok(r.mesh).closed && ok(r.mesh).ok, ok(r.mesh));
+  // Merge by distance: two cubes' touching… a grid duplicated on itself.
+  const g = K.grid(2, 2, 2), n = K.vertexCount(g), doubled = { v: [...g.v, ...g.v], f: [...g.f, ...g.f.map((f) => ({ ...f, v: f.v.map((v) => v + n) }))], e: {} };
+  const md = K.mergeByDistance(doubled, 0.001);
+  check('merge by distance: a grid lying on its own copy welds back to 9 vertices', K.vertexCount(md.mesh) === 9 && md.removed === 9);
+}
+{
+  // Make face: fill the hole of an open box.
+  const c = K.cube(2), top = topFace(c), loop = c.f[top].v.slice();
+  const open = K.deleteElements(c, K.selectionFromFaces(c, [top], 'face'), 'only-faces');
+  const r = K.makeFace(open, loop.slice().reverse());
+  check('F on the 4 vertices round a hole fills it, turned to match (closed again, pointing out)', r.face >= 0 && ok(r.mesh).closed && ok(r.mesh).ok && K.volume(r.mesh) > 0, ok(r.mesh));
+  check('F with 2 vertices makes nothing', K.makeFace(c, [0, 1]).face === -1);
+}
+{
+  const c = K.cube(2), top = topFace(c);
+  const flipped = K.flipFaces(c, new Set([top]));
+  check('flip one face: the mesh reports it turned the wrong way', ok(flipped).flipped === 4);
+  const fixed = K.recalcOutside(flipped);
+  check('recalculate outside: consistent and pointing out again', ok(fixed).ok && K.volume(fixed) > 0);
+  const inside = K.flipFaces(c, new Set(c.f.map((_, i) => i)));
+  check('…even when every face points in', K.volume(K.recalcOutside(inside)) > 0);
+  const sm = K.setSmooth(c, new Set([top]), true);
+  check('shade smooth one face', sm.f[top].s && !sm.f[(top + 1) % 6].s);
+}
+{
+  // Loops on a UV sphere (quads round the middle) and a grid's border.
+  const s = K.uvSphere(1, 12, 6), mid = 1 + 2 * 12; // a vertex on the ring between rows 2 and 3
+  const loop = K.edgeLoop(s, mid, mid + 1);
+  check('edge loop round a sphere\'s ring: 12 edges', loop.size === 12, loop.size);
+  const g = K.grid(2, 3, 3);
+  check('edge loop along a grid\'s border: the whole border (12 edges)', K.edgeLoop(g, 0, 1).size === 12, K.edgeLoop(g, 0, 1).size);
+  const fl = K.faceLoop(s, mid, mid + 12);
+  check('face loop across a sphere\'s vertical edge: the 12 quads round its band', fl.size === 12, fl.size);
+  const lv = K.linkedVerts(K.cube(2), [0]);
+  check('linked: every vertex of a cube from one', lv.size === 8);
+  const gg = K.grid(2, 4, 4), centre = 12;
+  check('shrink a whole 4×4 grid: its border goes (9 inner vertices left)', K.shrinkVerts(gg, new Set([...Array(25).keys()])).size === 9);
+  check('grow from the centre of a grid: 9; shrink back: 1', K.growVerts(gg, new Set([centre])).size === 9 && K.shrinkVerts(gg, K.growVerts(gg, new Set([centre]))).size === 1);
+}
+
+{
+  const c = K.cube(2), top = topFace(c), d = K.duplicateFaces(c, new Set([top]));
+  check('duplicate a face: a copy with 4 vertices of its own (the cube untouched)', d.mesh.f.length === 7 && K.vertexCount(d.mesh) === 12 && d.faces.length === 1 && d.verts.length === 4);
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

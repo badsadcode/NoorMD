@@ -178,3 +178,18 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Front / right / top (Ctrl: the other side), perspective | Numpad 1 / 3 / 7, Numpad 5 |
 | Frame the selection / everything | Numpad . / Home |
 | NoorMesh's shortcuts | F1 |
+
+### NoorMesh Edit Mode (Tab)
+
+| What | Keys |
+|---|---|
+| Vertices / edges / faces | 1 / 2 / 3 |
+| Select a loop | Alt+click (Shift+Alt adds it) |
+| Select linked under the mouse / of the selection | L / Ctrl+L |
+| Select more / less | Ctrl+Numpad + / Ctrl+Numpad − |
+| Extrude (then along the normal) / inset faces | E / I |
+| Delete menu / dissolve | X or Delete / Ctrl+X |
+| Merge / make a face | M / F |
+| Normals menu / recalculate outside | Alt+N / Shift+N |
+| Duplicate faces | Shift+D |
+| The Edit Mode menu | Right-click |

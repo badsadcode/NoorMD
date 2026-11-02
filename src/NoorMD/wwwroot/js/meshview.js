@@ -45,6 +45,13 @@
     void main() { gl_Position = uProj * uView * uModel * vec4(aPos, 1.0); gl_Position.z -= uLift * gl_Position.w; }`;
   const LINE_FS = `#version 300 es
     precision highp float; uniform vec4 uColor; out vec4 outColor; void main() { outColor = uColor; }`;
+  // Edit Mode's overlay: vertices (round dots), edges and selected faces, each with its own colour.
+  const OVER_VS = `#version 300 es
+    in vec3 aPos; in vec4 aCol; uniform mat4 uModel, uView, uProj; uniform float uLift, uPointSize; out vec4 vCol;
+    void main() { vCol = aCol; gl_Position = uProj * uView * uModel * vec4(aPos, 1.0); gl_Position.z -= uLift * gl_Position.w; gl_PointSize = uPointSize; }`;
+  const OVER_FS = `#version 300 es
+    precision highp float; in vec4 vCol; uniform int uRound; out vec4 outColor;
+    void main() { if (uRound == 1 && length(gl_PointCoord - 0.5) > 0.5) discard; outColor = vCol; }`;
   const GRID_VS = `#version 300 es
     precision highp float; precision highp int;
     in vec2 aPos; uniform mat4 uView, uProj; uniform float uSize; uniform int uPlane; out vec2 vP;
@@ -118,7 +125,8 @@
       const u = new Proxy({}, { get: (c, n) => (n in c ? c[n] : (c[n] = gl.getUniformLocation(p, n))) });
       return { p, u, a: (n) => gl.getAttribLocation(p, n) };
     }
-    const main = program(VS, FS), lineProg = program(LINE_VS, LINE_FS), grid = program(GRID_VS, GRID_FS);
+    const main = program(VS, FS), lineProg = program(LINE_VS, LINE_FS), grid = program(GRID_VS, GRID_FS), over = program(OVER_VS, OVER_FS);
+    let edit = null; // { matrix, parts: [{ vao, buffers, count, mode }] }
     const gridVao = gl.createVertexArray();
     gl.bindVertexArray(gridVao);
     const gb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gb);
@@ -147,6 +155,26 @@
     }
 
     const IDENTITY = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+    /**
+     * Edit Mode's overlay for one object (null: none): { matrix, points, pointColors, lines, lineColors, tris, triColors }
+     * (positions in the object's own space, colours RGBA per vertex).
+     */
+    function setEdit(data) {
+      if (edit) edit.parts.forEach((p) => { p.buffers.forEach((b) => gl.deleteBuffer(b)); gl.deleteVertexArray(p.vao); });
+      edit = null;
+      if (data) {
+        const part = (pos, col, mode) => {
+          if (!pos || !pos.length) return null;
+          const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+          const buffers = [upload('aPos', pos, 3, over), upload('aCol', col, 4, over)];
+          gl.bindVertexArray(null);
+          return { vao, buffers, count: pos.length / 3, mode };
+        };
+        edit = { matrix: data.matrix || IDENTITY, parts: [part(data.tris, data.triColors, 'tris'), part(data.lines, data.lineColors, 'lines'), part(data.points, data.pointColors, 'points')].filter(Boolean) };
+      }
+      redraw();
+    }
+
     /** One object to draw (or replaced): its own buffers (NoorMeshKernel.buffers), its matrix and how it looks. */
     function setObject(id, buf, look = {}) {
       drop(objects.get(id));
@@ -235,6 +263,20 @@
         gl.uniformMatrix4fv(lineProg.u.uModel, false, o.matrix);
         gl.bindVertexArray(o.lineVao); gl.drawArrays(gl.LINES, 0, o.lineCount);
       }
+      // Edit Mode's overlay: on the surface (lifted a little towards the camera), hidden behind it as in Blender.
+      if (edit) {
+        gl.useProgram(over.p);
+        gl.uniformMatrix4fv(over.u.uView, false, view); gl.uniformMatrix4fv(over.u.uProj, false, proj);
+        gl.uniformMatrix4fv(over.u.uModel, false, edit.matrix);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        for (const p of edit.parts) {
+          gl.uniform1i(over.u.uRound, p.mode === 'points' ? 1 : 0);
+          gl.uniform1f(over.u.uPointSize, 6 * dpr);
+          gl.uniform1f(over.u.uLift, p.mode === 'tris' ? 0.00003 : p.mode === 'lines' ? 0.00008 : 0.00016);
+          gl.bindVertexArray(p.vao);
+          gl.drawArrays(p.mode === 'tris' ? gl.TRIANGLES : p.mode === 'lines' ? gl.LINES : gl.POINTS, 0, p.count);
+        }
+      }
       // Guides (a transform's axis), drawn through everything.
       if (guides.length) {
         gl.disable(gl.DEPTH_TEST);
@@ -269,11 +311,12 @@
       const x = m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12], y = m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13], w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
       return { x: s.left + ((x / w + 1) / 2) * s.cssW, y: s.top + ((1 - y / w) / 2) * s.cssH, front: w > 0 };
     }
-    /** The nearest object a ray from the canvas meets: { id, face, point } or null. */
-    function pick(clientX, clientY) {
+    /** The nearest object a ray from the canvas meets (or only that one): { id, face, t, point } or null. */
+    function pick(clientX, clientY, onlyId) {
       const { origin, dir } = ray(clientX, clientY);
       let best = null;
       for (const [id, o] of objects) {
+        if (onlyId !== undefined && id !== onlyId) continue;
         if (o.hidden || o.pickable === false) continue;
         // In the object's own space: an affine map keeps the ray's parameter, so t compares across objects.
         const inv = invert(o.matrix);
@@ -339,7 +382,7 @@
     const ro = new ResizeObserver(() => redraw()); ro.observe(canvas);
 
     return {
-      setObject, setLook, removeObject, clear, redraw, ray, project, pick, frame, viewFrom, setOrtho,
+      setObject, setLook, removeObject, clear, redraw, ray, project, pick, frame, viewFrom, setOrtho, setEdit,
       setGuides(g) { guides = g || []; redraw(); },
       setEdges(on) { showEdges = !!on; redraw(); }, setGrid(on) { showGrid = !!on; redraw(); },
       camera: () => ({ ...cam, target: cam.target.slice(), eye: eyeOf() }),

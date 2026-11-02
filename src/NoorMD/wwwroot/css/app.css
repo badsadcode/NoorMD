@@ -2160,3 +2160,6 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.ben
 .nm-menu kbd, .nm-keys kbd { font-size: 11px; color: var(--muted); font-family: inherit; }
 .nm-keys { width: 100%; border-collapse: collapse; font-size: 13px; }
 .nm-keys td { padding: 3px 6px; border-bottom: 1px solid var(--border); }
+.meshbench .nm-selmodes { display: inline-flex; gap: 2px; margin-left: 4px; }
+.meshbench .nm-selmodes[hidden] { display: none; }
+.meshbench .nm-selmode[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }

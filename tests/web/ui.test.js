@@ -9549,9 +9549,11 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('.nm-keys');
       check('F1: NoorMesh\'s shortcuts (as Blender\'s)', /Shift\+A/.test(await page.textContent('.nm-keys')) && /G \/ R \/ S/.test(await page.textContent('.nm-keys')));
       await page.keyboard.press('Escape');
-      // Tab: Edit Mode is not here yet, and it says so.
+      // Tab: Edit Mode on the active object, and back.
       await page.keyboard.press('Tab');
-      check('Tab says Edit Mode comes in the next preview', /Edit Mode/.test(await page.textContent('#nm-status')));
+      check('Tab: Edit Mode on the active object', (await MS()).mode === 'edit' && /Edit Mode/.test(await page.textContent('#nm-status')));
+      await page.keyboard.press('Tab');
+      check('…Tab again: Object Mode', (await MS()).mode === 'object');
       if (shots) {
         // Turn the view (middle-drag) into perspective, as it is at first.
         await page.mouse.move(box.cx, box.cy); await page.mouse.down({ button: 'middle' }); await page.mouse.move(box.cx - 90, box.cy + 70, { steps: 6 }); await page.mouse.up({ button: 'middle' });
@@ -9566,6 +9568,122 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
         await page.screenshot({ path: `${shots}/80-noormesh.png` });
       }
       check('no page errors in NoorMesh', errors.length === 0, errors);
+      await page.close();
+    }
+    // ---- 80b. NoorMesh Edit Mode (phase A2), as Blender's: Tab, 1/2/3, click and Alt+click (loops), extrude (E, then
+    // along the normal), inset (I), delete (X), merge (M), make face (F), normals, dissolve, linked, undo across modes.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const near = (a, b, e = 1e-3) => Math.abs(a - b) <= e;
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Tab');
+      let st = await MS();
+      check('Tab: Edit Mode on the cube, vertices first, nothing selected', st.mode === 'edit' && st.editSel.mode === 'vert' && st.editFlush.verts === 0 && /Edit Mode \(vertices\)/.test(await page.textContent('#nm-hud')));
+      check('…the vertex / edge / face buttons show, the properties count the selection', !(await page.$eval('#nm-selmodes', (e) => e.hidden)) && /Selected: 0\/8 vertices/.test(await page.textContent('#nm-editcounts')));
+      // Faces: click the top face (the view looks down on it).
+      await page.keyboard.press('3');
+      const faceCentres = await page.evaluate(() => [0, 1, 2, 3, 4, 5].map((i) => NoorMesh._screenOf('face', i)));
+      // The top face is face 4 (the cube is built front, back, right, left, top, bottom).
+      await page.mouse.click(faceCentres[4].x, faceCentres[4].y);
+      st = await MS();
+      check('3, then a click on the top face: that face selected', st.editSel.mode === 'face' && st.editSel.faces.length === 1 && st.editSel.faces[0] === 4, st.editSel);
+      // E, 1, Enter: extruded up 1 m.
+      await page.keyboard.press('e');
+      st = await MS();
+      check('E: extruded, and moving along its normal', st.op && st.op.kind === 'move' && /along the normal/.test(await page.textContent('#nm-hud')));
+      await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      st = await MS();
+      const c = st.objects[0].check;
+      check('…1 Enter: 10 faces, 12 vertices, closed, valid (one undo step)', c.ok && c.closed && st.objects[0].faces === 10 && c.vertices === 12 && st.history === 1, c);
+      // I 0.25 Enter: inset the top.
+      await page.keyboard.press('i');
+      check('I: inset under way', (await MS()).op && (await MS()).op.kind === 'inset');
+      await page.keyboard.type('0.25'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('…0.25 Enter: 14 faces, closed and valid, the inner face selected', st.objects[0].faces === 14 && st.objects[0].check.ok && st.objects[0].check.closed && st.editSel.faces.length === 1);
+      // X › Faces: a hole on top.
+      await page.keyboard.press('x');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Faces"):not(:has-text("Only")):not(:has-text("Dissolve"))');
+      st = await MS();
+      check('X › Faces: the inner face gone, a hole (4 border edges)', st.objects[0].faces === 13 && st.objects[0].check.open === 4);
+      await page.keyboard.press('Control+z');
+      check('Ctrl+Z: the face is back (and the mode and selection as they were)', (await MS()).objects[0].faces === 14 && (await MS()).mode === 'edit');
+      // Vertex mode from the face: its 4 vertices.
+      await page.keyboard.press('1');
+      st = await MS();
+      check('1: the selected face becomes its 4 vertices', st.editSel.mode === 'vert' && st.editFlush.verts === 4 && st.editFlush.faces === 1);
+      // G Z 0.5: the inner face's vertices up.
+      await page.keyboard.press('g'); await page.keyboard.press('z'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      st = await MS();
+      check('G Z 0.5 moves the selected vertices (the mesh still valid)', st.objects[0].check.ok && st.objects[0].check.closed && /Median/.test(await page.textContent('#nm-pane')));
+      const medZ = await page.$eval('#nm-pane input[data-median="2"]', (i) => Number(i.value));
+      check('…their median is now at Z 2.5', near(medZ, 2.5), medZ);
+      // M › At center: a point on top (a pyramid tip).
+      await page.keyboard.press('m');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("At center")');
+      st = await MS();
+      check('M › At center: the 4 vertices become one (16 → 13; closed, valid)', st.editFlush.verts === 1 && st.objects[0].check.ok && st.objects[0].check.closed && st.objects[0].vertices === 13, [st.editFlush, st.objects[0].vertices, st.objects[0].check.problems, st.objects[0].check.closed]);
+      // Ctrl+X on it: dissolved into the ring round it (one n-gon).
+      await page.keyboard.press('Control+x');
+      st = await MS();
+      check('Ctrl+X dissolves that vertex: an n-gon in its place, still closed', st.objects[0].vertices === 12 && st.objects[0].check.ok && st.objects[0].check.closed);
+      // A selects all; Alt+N › Flip turns everything inside out; Shift+N puts it back.
+      await page.keyboard.press('a');
+      check('A selects everything', (await MS()).editFlush.verts === 12);
+      await page.keyboard.press('Alt+n');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Flip")');
+      await page.keyboard.press('Shift+N');
+      st = await MS();
+      check('Alt+N › Flip, then Shift+N: pointing outside again (valid)', st.objects[0].check.ok);
+      // Edges: Alt+click a grid's border edge selects the whole border loop.
+      await page.keyboard.press('Tab');
+      check('Tab: back to Object Mode', (await MS()).mode === 'object');
+      await page.keyboard.press('Shift+A'); await page.waitForSelector('#nm-popup'); await page.click('#nm-popup .nm-menuitem:has-text("Grid")');
+      await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('5'); await page.keyboard.press('Enter');
+      await page.keyboard.press('Numpad7'); await page.keyboard.press('NumpadDecimal');
+      await page.keyboard.press('Tab'); await page.keyboard.press('2');
+      // Grid vertices 0 and 1: its first border edge.
+      const a0 = await page.evaluate(() => NoorMesh._screenOf('vert', 0)), a1 = await page.evaluate(() => NoorMesh._screenOf('vert', 1));
+      await page.keyboard.down('Alt'); await page.mouse.click((a0.x + a1.x) / 2, (a0.y + a1.y) / 2); await page.keyboard.up('Alt');
+      st = await MS();
+      check('Alt+click a grid\'s border edge: its whole border (40 edges)', st.editSel.mode === 'edge' && st.editFlush.edges === 40, st.editFlush);
+      // L: linked under the mouse.
+      await page.keyboard.press('Alt+a');
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('l');
+      st = await MS();
+      check('L over the grid: all of it (linked)', st.editFlush.verts === 121, st.editFlush);
+      // Ctrl+Numpad − / +: less, more.
+      await page.keyboard.press('Control+NumpadSubtract');
+      check('Ctrl+Numpad −: one ring less (the border off)', (await MS()).editFlush.verts === 81, (await MS()).editFlush);
+      await page.keyboard.press('Control+NumpadAdd');
+      check('Ctrl+Numpad +: one ring more', (await MS()).editFlush.verts === 121);
+      // Right-click: the Edit Mode menu.
+      await page.mouse.click(box.cx, box.cy, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      check('right-click: the Edit Mode menu (extrude, merge, make face, delete…)', /Extrude[\s\S]*Merge[\s\S]*Make face[\s\S]*Delete/.test(await page.textContent('#nm-popup')));
+      await page.keyboard.press('Escape');
+      // Undo all the way back to the cube in Object Mode, then redo.
+      for (let k = 0; k < 30 && (await MS()).history; k++) await page.keyboard.press('Control+z');
+      st = await MS();
+      check('undo goes back through Edit Mode too, to the first cube', st.objects.length === 1 && st.objects[0].faces === 6, [st.objects.length, st.objects[0] && st.objects[0].faces, st.history]);
+      if (shots) {
+        await page.keyboard.press('Control+Shift+z'); await page.keyboard.press('Control+Shift+z'); await page.keyboard.press('Control+Shift+z');
+        await page.keyboard.press('Numpad1');
+        await page.mouse.move(box.cx, box.cy); await page.mouse.down({ button: 'middle' }); await page.mouse.move(box.cx - 80, box.cy + 60, { steps: 6 }); await page.mouse.up({ button: 'middle' });
+        check('turning the view leaves the orthographic side view for "User Perspective"', /^User Perspective/.test(await page.textContent('#nm-hud')));
+        await page.keyboard.press('Home');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80b-noormesh-edit.png` });
+      }
+      check('no page errors in NoorMesh Edit Mode', errors.length === 0, errors);
       await page.close();
     }
   } finally {

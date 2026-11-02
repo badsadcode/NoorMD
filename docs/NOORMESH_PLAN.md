@@ -152,7 +152,17 @@ primitives, checks, triangulation of concave n-gons, transforms; tested in Node)
 light, grid with axes, orthographic front/side/top and perspective, picking, outlines), and the bench in Object Mode
 (Shift+A, click and box select, G/R/S with X/Y/Z, typed numbers and Ctrl steps, Shift+D, X, H/Alt+H/Shift+H, Ctrl+A
 apply, Alt+G/R/S clear, the Adjust panel for the last primitive, the properties' numbers, undo and redo, focus-mode
-menus, F1 shortcuts). Not yet: Edit Mode, saving, GLB export (A2–A4) and shortcuts of one's own.
+menus, F1 shortcuts). preview.143: Blender's axes (Z up) and the middle button picking an axis during G/R/S.
+
+**Done in preview.144: A2** — Edit Mode (Tab) on the active object: vertices, edges and faces (1, 2, 3) with Blender's
+selection rules (the mode's own set, the others following from it); click, Shift+click, box select, Alt+click loops
+(edge loops through quads, border loops, face loops), L / Ctrl+L linked, Ctrl+Numpad +/− more and less; only what can be
+seen is picked (X-ray off). G/R/S on the selection (axes, numbers, Ctrl, middle button) and the Median in the
+properties; E extrude (faces as a region, then along their normal; border edges), I inset (each face by itself), X
+delete (vertices, edges, faces, only faces, dissolve…), Ctrl+X dissolve, M merge (at the centre, at the 3D cursor,
+collapse, by distance), F make face (fills a border loop), Alt+N / Shift+N normals, shade smooth/flat, Shift+D duplicate
+faces, the right-click menu, undo across modes. Not yet: region inset (several faces as one), vertex extrude into loose
+edges, hiding parts of a mesh, A3's bevel / loop cut / knife.
 
 | Milestone | Contents | Test that proves it |
 |---|---|---|
