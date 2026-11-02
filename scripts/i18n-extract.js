@@ -12,7 +12,7 @@ function isText(s) {
   const t = s.trim();
   if (t.length < 2 || t.length > 600 || !/[A-Za-z]{2}/.test(t)) return false;
   if (/^[a-z0-9_.:\-\/#\[\]=*>+~^$|"' ,()@%!]+$/.test(t) && !/^[a-z]+ [a-z]/.test(t)) return false; // ids, selectors, keys
-  if (/^(https?:|mailto:|data:|_noormd|\.\/|\/|#|\.|--|var\(|rgba?\(|url\(|[a-z-]+:\s*[^ ]+;)/.test(t)) return false;
+  if (/^(https?:|mailto:|data:|_noormd|\.\/|\/|#|\.|--|var\(|rgba?\(|url\(|(radial|linear|conic)-gradient\(|[a-z-]+:\s*[^ ]+;)/.test(t)) return false;
   if (/[{};]\s*$|=>|\bfunction\b|\breturn\b|\bconst\b|===|\|\||&&|\.(js|css|html|png|json)\b/.test(t)) return false;
   if (/\$\{|\$\{?$|\?\s*$|['"`]\s*\)|\b(err|catch|notice|el)\(|^[a-z]\s|^[,;:)}\]'"’”]|^[a-z]+\.[a-z]+[A-Z]?\w*$/.test(t)) return false; // code and pieces of it
   if (/^[A-Z][A-Za-z]+$/.test(t) && t.length > 18) return false; // a long CamelCase name

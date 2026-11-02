@@ -241,6 +241,7 @@ window.NoorForge = (() => {
         if (k === 'e' && tool) { e.preventDefault(); setTool('brush', !erasing); return; }
         if (k === 't' && tool) { e.preventDefault(); setTool('stamp'); return; }
         if (k === 'i' && tool) { e.preventDefault(); setTool(tool === 'pick' ? 'brush' : 'pick', false); return; }
+        if (k === 'w' && tool && tool !== 'stamp') { e.preventDefault(); if ($('#fg-popup.fg-colorpop')) closeBrushPopup(); else colorPopup(); return; }
         if (k === 'f' && tool) { e.preventDefault(); if (adjust) endAdjust(true); else startAdjust(e.shiftKey ? 'flow' : 'size'); return; }
         if (e.key === 'Enter' && adjust) { e.preventDefault(); endAdjust(true); return; }
         if ((k === '[' || k === ']') && tool) { e.preventDefault(); brushSize(k === ']' ? 1 : -1); return; }
@@ -249,7 +250,7 @@ window.NoorForge = (() => {
       else if (k === 'y' && e.ctrlKey) { e.preventDefault(); undo(true); }
     });
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('forge', { name: 'NoorForge', title: appTitle, menus: appMenus });
-    try { viewer = NoorAssetView.create($('#fg-canvas')); } catch (err) { console.warn('NoorForge: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2. Exports still work.'); }
+    try { viewer = NoorAssetView.create($('#fg-canvas')); if (viewer.setStudio) viewer.setStudio(true); } catch (err) { console.warn('NoorForge: no 3D preview', err); viewer = null; setStatus('The 3D preview needs WebGL 2. Exports still work.'); }
   }
 
   function renderAll() {
@@ -672,6 +673,8 @@ window.NoorForge = (() => {
     colorIn.addEventListener('input', () => { brush.color = colorIn.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } });
     colorIn.addEventListener('change', () => { useColor(colorIn.value); renderBrushBar(); });
     const recent = el('span', { class: 'fg-recent', 'aria-label': 'Recent colours' }, ...(brush.recent || []).slice(0, 4).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); } })));
+    // A blend other than Mix (paintings): shown, as it changes how the brush paints; a click opens W's colour pop-up.
+    const blendBadge = layer && layer.image && blendOn() ? el('button', { class: 'utility-btn fg-blendbadge', id: 'fg-blendbadge', title: 'The brush blends with what is painted (W to change)', onclick: (e) => { lastHover = { x: e.clientX, y: e.clientY + 120, hit: lastHover && lastHover.hit }; colorPopup(); } }, (BLENDS.find(([v]) => v === brush.blend) || [0, brush.blend])[1]) : null;
     const unlit = el('button', { class: 'icon-btn', id: 'fg-unlit', 'aria-pressed': String(view === 'basecolor'), title: 'Colour only: the painting without light and shade (click again for the lit model)', 'aria-label': 'Colour only', onclick: () => { setView(view === 'basecolor' ? (litView || 'shaded') : ((litView = view), 'basecolor')); renderBrushBar(); } }, '◐');
     const sep = () => el('span', { class: 'fg-sep', 'aria-hidden': 'true' });
     const more = el('button', { class: 'icon-btn', id: 'fg-more', 'aria-expanded': String(moreOpen), 'aria-pressed': String(moreOpen), title: 'More: spacing, pen pressure, mirror, the tip, a stencil', 'aria-label': 'More brush settings', onclick: () => { moreOpen = !moreOpen; renderBrushBar(); } }, '⚙');
@@ -687,9 +690,9 @@ window.NoorForge = (() => {
         el('span', { class: 'pref-hint', text: 'Pen pressure:' }), check('pressureSize', 'size', 'A pen\'s pressure makes the brush smaller'), check('pressureFlow', 'flow', 'A pen\'s pressure makes the paint lighter'),
         check('mirror', 'Mirror across X', 'Paint the other side too (mirrored across the model\'s middle, left to right)')),
       tipRow(num), stencilRow(check),
-      el('p', { class: 'pref-hint fg-into', text: `${layer ? `Into “${layer.name}”. ` : ''}F: size, Shift+F: flow (move the mouse, click) · [ ]: size · right-click: the brush at the cursor · Alt+drag: turn · Shift+click: a straight line` })) : null;
+      el('p', { class: 'pref-hint fg-into', text: `${layer ? `Into “${layer.name}”. ` : ''}F: size, Shift+F: flow (move the mouse, click) · W: colour and blend · [ ]: size · right-click: the brush at the cursor · Alt+drag: turn · Shift+click: a straight line` })) : null;
     bar.replaceChildren(el('div', { class: 'sb-row fg-barrow' },
-      ...tools, sep(), colorIn, recent, sep(),
+      ...tools, sep(), colorIn, recent, blendBadge, sep(),
       field('size', 'Size', 0.2, 25, 0.1, 1, '%', 'The brush\'s size, a share of the model (F, [ and ]; drag the word to change it)'),
       field('hardness', 'Hard', 0, 1, 0.01, 100, '%', 'How much of the brush paints fully before it fades (drag the word to change it)'),
       field('flow', 'Flow', 0.02, 1, 0.01, 100, '%', 'How much each dab adds (Shift+F; drag the word to change it)'),
@@ -725,11 +728,23 @@ window.NoorForge = (() => {
   }
 
   // ---- F / Shift+F: the brush's size or flow changed on the model by moving the mouse (click or F to keep it, Esc: back)
-  let adjust = null; // { key, x0, v0 }
+  let adjust = null; // { key, x0, v0, at: [x, y] where it stays, perMetre: screen pixels a metre there }
   function startAdjust(key) {
     if (!tool || tool === 'stamp') return;
-    adjust = { key, x0: lastHover ? lastHover.x : 0, v0: brush[key] };
+    const x = lastHover ? lastHover.x : 0, y = lastHover ? lastHover.y : 0;
+    adjust = { key, x0: x, v0: brush[key], at: [x, y], perMetre: pixelsPerMetre(lastHover && lastHover.hit && lastHover.hit.point) };
+    if (viewer) viewer.setBrush(null); // the ring on the model is hidden: a flat one stays where F was pressed
     showAdjust();
+  }
+  /** How many screen pixels a metre is at a point of the model (as the camera sees it now). */
+  function pixelsPerMetre(point) {
+    const c = $('#fg-canvas');
+    if (!viewer || !c) return 100;
+    const h = c.getBoundingClientRect().height;
+    const cam = viewer.camera(), m = cam.viewProj;
+    const p = point || [0, 0, 0];
+    const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15]; // the depth in front of the camera
+    return w > 1e-6 ? (h / 2) / (w * Math.tan(0.75 / 2)) : 100;
   }
   function moveAdjust(x) {
     if (!adjust) return;
@@ -742,17 +757,26 @@ window.NoorForge = (() => {
     if (!keep) brush[adjust.key] = adjust.v0;
     adjust = null;
     try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ }
-    const hud = $('#fg-adjust'); if (hud) hud.hidden = true;
+    for (const id of ['#fg-adjust', '#fg-adjustring']) { const n = $(id); if (n) n.hidden = true; }
+    if (viewer && lastHover && lastHover.hit && tool === 'brush') viewer.setBrush(lastHover.hit.point, radius(), brush.hardness);
     renderBrushBar();
   }
+  /** While F / Shift+F: a flat circle of the brush (its size as it paints there; its flow as how solid it is), and the value under it, in place. */
   function showAdjust() {
-    const stage = $('#fg-canvas') && $('#fg-canvas').parentElement;
+    const canvas = $('#fg-canvas'), stage = canvas && canvas.parentElement;
     if (!stage) return;
-    let hud = $('#fg-adjust');
-    if (!hud) { hud = el('div', { class: 'fg-adjust', id: 'fg-adjust', 'aria-live': 'polite' }); stage.append(hud); }
-    hud.hidden = false;
-    hud.textContent = adjust.key === 'size' ? `Size ${brush.size}% · click to keep, Esc: back` : `Flow ${Math.round(brush.flow * 100)}% · click to keep, Esc: back`;
-    if (viewer && lastHover && lastHover.hit) viewer.setBrush(lastHover.hit.point, radius(), adjust.key === 'flow' ? brush.flow : brush.hardness);
+    let ring = $('#fg-adjustring'), label = $('#fg-adjust');
+    if (!ring) { ring = el('div', { class: 'fg-adjustring', id: 'fg-adjustring', 'aria-hidden': 'true' }); stage.append(ring); }
+    if (!label) { label = el('div', { class: 'fg-adjust', id: 'fg-adjust', 'aria-live': 'polite' }); stage.append(label); }
+    const sr = stage.getBoundingClientRect();
+    const r = Math.max(3, radius() * adjust.perMetre);
+    const cx = adjust.at[0] - sr.left, cy = adjust.at[1] - sr.top;
+    ring.hidden = false;
+    Object.assign(ring.style, { left: `${cx - r}px`, top: `${cy - r}px`, width: `${2 * r}px`, height: `${2 * r}px`,
+      background: `radial-gradient(circle, rgba(255,255,255,${(0.55 * brush.flow).toFixed(3)}) ${Math.round(brush.hardness * 100)}%, rgba(255,255,255,0) 100%)` });
+    label.hidden = false;
+    Object.assign(label.style, { left: `${cx}px`, top: `${cy + r + 8}px` });
+    label.textContent = adjust.key === 'size' ? `Size ${brush.size}% · click to keep, Esc: back` : `Flow ${Math.round(brush.flow * 100)}% · click to keep, Esc: back`;
   }
 
   // ---- right-click while painting: the brush at the cursor (tools, colour, size, hardness, flow)
@@ -777,6 +801,66 @@ window.NoorForge = (() => {
     const w = pop.offsetWidth, h = pop.offsetHeight;
     pop.style.left = `${Math.max(4, Math.min(innerWidth - w - 4, e.clientX - w / 2))}px`;
     pop.style.top = `${Math.max(4, Math.min(innerHeight - h - 4, e.clientY - 20))}px`;
+    setTimeout(() => document.addEventListener('pointerdown', outsidePopup, true), 0);
+  }
+  // ---- W: the colour at the cursor (hue, saturation, value) and, on a painting, how the brush blends with it
+  const BLENDS = [['mix', 'Mix'], ['multiply', 'Multiply'], ['screen', 'Screen'], ['overlay', 'Overlay'], ['softlight', 'Soft light'], ['add', 'Add'], ['subtract', 'Subtract'],
+    ['darken', 'Darken'], ['lighten', 'Lighten'], ['hue', 'Hue'], ['saturation', 'Saturation'], ['color', 'Colour'], ['value', 'Value']];
+  const blendOn = () => !!brush.blend && brush.blend !== 'mix';
+  function toHsv(hex) {
+    const [r, g, b] = hexRgb(hex), max = Math.max(r, g, b), d = max - Math.min(r, g, b);
+    let h = d === 0 ? 0 : max === r ? ((g - b) / d) % 6 : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
+    if (h < 0) h += 6;
+    return [h * 60, max === 0 ? 0 : d / max, max];
+  }
+  function fromHsv(h, s, v) {
+    const k = (n) => { const x = (n + h / 60) % 6; return v - v * s * Math.max(0, Math.min(x, 4 - x, 1)); };
+    return '#' + [k(5), k(3), k(1)].map((c) => Math.round(c * 255).toString(16).padStart(2, '0')).join('');
+  }
+  function colorPopup() {
+    closeBrushPopup();
+    const layer = recipe.layers[selected];
+    if (!takesColor(layer)) { setStatus('Colours are for paintings and paint layers: choose one, or add a painting (Layer › Add a painting).'); return; }
+    let [h, sat, val] = toHsv(brush.color);
+    const swatch = el('span', { class: 'fg-popswatch', id: 'fg-popswatch' });
+    const hex = el('input', { type: 'color', class: 'fg-colorwell', value: brush.color, 'aria-label': 'Brush colour' });
+    const ranges = {};
+    const show = () => {
+      swatch.style.background = brush.color; hex.value = brush.color;
+      ranges.h.style.setProperty('--fg-track', 'linear-gradient(90deg,#f00,#ff0,#0f0,#0ff,#00f,#f0f,#f00)');
+      ranges.s.style.setProperty('--fg-track', `linear-gradient(90deg,${fromHsv(h, 0, val)},${fromHsv(h, 1, val)})`);
+      ranges.v.style.setProperty('--fg-track', `linear-gradient(90deg,#000,${fromHsv(h, sat, 1)})`);
+    };
+    const set = () => { brush.color = fromHsv(h, sat, val); try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } show(); };
+    const range = (key, label, max, get, put, unit) => {
+      const out = el('small', { text: `${Math.round(get())}${unit}` });
+      const r = el('input', { type: 'range', class: 'fg-hsv', min: '0', max: String(max), step: '1', value: String(Math.round(get())), 'aria-label': label, 'data-hsv': key });
+      r.addEventListener('input', () => { put(Number(r.value)); out.textContent = `${r.value}${unit}`; set(); });
+      r.addEventListener('change', () => useColor(brush.color));
+      ranges[key] = r;
+      return el('label', { class: 'fg-popfield' }, el('span', { text: label }), r, out);
+    };
+    hex.addEventListener('input', () => { brush.color = hex.value; [h, sat, val] = toHsv(hex.value); ['h', 's', 'v'].forEach((k) => { ranges[k].value = String(Math.round(k === 'h' ? h : (k === 's' ? sat : val) * 100)); }); show(); });
+    hex.addEventListener('change', () => useColor(hex.value));
+    const blend = el('select', { id: 'fg-blend', 'aria-label': 'Blend' }, ...BLENDS.map(([v, t]) => el('option', { value: v, text: t })));
+    blend.value = brush.blend || 'mix';
+    blend.addEventListener('change', () => { brush.blend = blend.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } renderBrushBar(); });
+    const pop = el('div', { class: 'fg-popup fg-colorpop', id: 'fg-popup', role: 'dialog', 'aria-label': 'Brush colour and blend' },
+      el('div', { class: 'sb-row' }, swatch, hex),
+      range('h', 'Hue', 359, () => h, (x) => { h = x; }, '°'),
+      range('s', 'Saturation', 100, () => sat * 100, (x) => { sat = x / 100; }, '%'),
+      range('v', 'Value', 100, () => val * 100, (x) => { val = x / 100; }, '%'),
+      (brush.recent || []).length ? el('div', { class: 'fg-recent fg-poprecent' }, ...(brush.recent || []).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); [h, sat, val] = toHsv(c); ['h', 's', 'v'].forEach((k) => { ranges[k].value = String(Math.round(k === 'h' ? h : (k === 's' ? sat : val) * 100)); }); show(); } }))) : null,
+      layer.image
+        ? el('label', { class: 'fg-popfield' }, el('span', { text: 'Blend' }), blend)
+        : el('p', { class: 'fg-pophint', text: 'Blend modes are for paintings (pixels); a paint layer lays its colour on as it is.' }),
+      el('p', { class: 'fg-pophint', text: 'W or Esc: close' }));
+    document.body.append(pop);
+    show();
+    const at = lastHover || { x: innerWidth / 2, y: innerHeight / 2 };
+    const w = pop.offsetWidth, ht = pop.offsetHeight;
+    pop.style.left = `${Math.max(4, Math.min(innerWidth - w - 4, at.x - w / 2))}px`;
+    pop.style.top = `${Math.max(4, Math.min(innerHeight - ht - 4, at.y - ht / 2))}px`;
     setTimeout(() => document.addEventListener('pointerdown', outsidePopup, true), 0);
   }
   function outsidePopup(e) { const p = $('#fg-popup'); if (p && !p.contains(e.target)) closeBrushPopup(); }
@@ -1065,7 +1149,9 @@ window.NoorForge = (() => {
     overlay.dirty = false;
     const layer = recipe.layers[selected];
     const color = overlay.erase ? [0.05, 0.05, 0.06] : view === 'mask' ? [1, 1, 1] : takesColor(layer) ? hexRgb(brush.color) : layer && !layer.material ? hexRgb(layer.color) : [1, 0.62, 0.22];
-    viewer.setPaint(overlay.bytes.map((b) => ({ size: texels.size, data: b })), color, overlay.erase ? 0.6 : 0.85);
+    // Painting a colour on the lit model: shown as it will be (in the surface, under the light, as much as it covers).
+    const exact = !overlay.erase && (view === 'shaded' || view === 'basecolor') && !!layer && (takesColor(layer) || !layer.material) && !(layer.image && blendOn());
+    viewer.setPaint(overlay.bytes.map((b) => ({ size: texels.size, data: b })), color, exact ? 1 : overlay.erase ? 0.6 : 0.85, exact && view === 'shaded');
   }
 
   function startOverlay(erase) {
@@ -1126,7 +1212,7 @@ window.NoorForge = (() => {
     const layer = recipe.layers[selected];
     if (!layer) return;
     // A painting: into its pixels (in the app). A paint layer: each stroke keeps the brush's colour.
-    if (takesColor(layer)) { list = list.map((st) => (st.erase ? st : { ...st, color: brush.color })); useColor(brush.color); }
+    if (takesColor(layer)) { list = list.map((st) => (st.erase ? st : { ...st, color: brush.color, ...(layer.image && blendOn() ? { blend: brush.blend } : {}) })); useColor(brush.color); }
     if (layer.image) { paintImage(layer, list); return; }
     clearTimeout(snapTimer); pushHistory();
     layer.strokes = (layer.strokes || []).concat(list);
@@ -1401,7 +1487,7 @@ window.NoorForge = (() => {
     const rows = [
       ['Open or close NoorForge', 'Ctrl+Alt+F'], ['Focus mode (NoorForge as an app) on / off', 'F11'], ['Undo · redo', 'Ctrl+Z · Ctrl+Y (Ctrl+Shift+Z)'],
       ['Turn the model · zoom · move it', 'drag · wheel · right-drag'],
-      ['The brush on / off', 'B'], ['The eraser (while painting)', 'E'], ['Stamp a decal (while painting)', 'T'], ['Brush smaller / bigger (while painting)', '[ / ]'], ['Brush size on the model: move the mouse, click (while painting)', 'F'], ['Brush flow on the model', 'Shift+F'], ['Pick a colour from the model', 'I'], ['The brush at the cursor', 'Right-click'],
+      ['The brush on / off', 'B'], ['The eraser (while painting)', 'E'], ['Stamp a decal (while painting)', 'T'], ['Brush smaller / bigger (while painting)', '[ / ]'], ['Brush size on the model: move the mouse, click (while painting)', 'F'], ['Brush flow on the model', 'Shift+F'], ['Pick a colour from the model', 'I'], ['The brush at the cursor', 'Right-click'], ['Colour (hue, saturation, value) and blend at the cursor', 'W'],
       ['A straight line from the last stroke', 'Shift+click'], ['Turn the model while painting', 'Alt+drag'],
       ['Move the stencil · size it · turn it', 'hold S: drag · wheel · Shift+wheel'], ['Put the brush down (out of focus mode: close NoorForge)', 'Esc'],
     ];

@@ -41,6 +41,18 @@ public class ForgeImageTests
     }
 
     [Fact]
+    public void A_blend_mode_mixes_with_what_is_painted_and_paints_bare_texels_plainly()
+    {
+        var store = new ForgeImageStore();
+        var blank = store.Create(Size, ForgeImageStore.Blank(Size, Model.Sets.Count));
+        var red = ForgeImagePaint.Apply(store, blank, 1, Paint, Dab(A, "#ff0000"), "#808080");
+        var mul = Dab(A, "#808080"); mul.Blend = "multiply"; mul.Dabs = [A.X, A.Y, A.Z, 1, 1, B2.X, B2.Y, B2.Z, 1, 1];
+        var px = store.Get(ForgeImagePaint.Apply(store, red, 1, Paint, mul.Clamped(), "#808080"))!.Value.Pixels[1];
+        Assert.InRange((int)At(px, Paint, A).R, 126, 130); Assert.Equal(0, At(px, Paint, A).G); // red × grey: darker red
+        Assert.InRange((int)At(px, Paint, B2).R, 126, 130); Assert.InRange((int)At(px, Paint, B2).G, 126, 130); // nothing there: the grey itself
+    }
+
+    [Fact]
     public void Each_version_stays_so_undo_and_redo_work_and_the_eraser_takes_paint_away()
     {
         var store = new ForgeImageStore();

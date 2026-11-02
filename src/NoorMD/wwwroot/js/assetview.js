@@ -126,15 +126,15 @@ window.NoorAssetView = (() => {
   const FS = `#version 300 es
     precision highp float;
     in vec3 vPos; in vec3 vNorm; in vec4 vTan; in vec2 vUv; in vec4 vWind; in vec4 vCol;
-    uniform sampler2D tColor, tNormal, tOrm, tPaint; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint, uHasPaint;
+    uniform sampler2D tColor, tNormal, tOrm, tPaint; uniform int uHasColor, uHasNormal, uHasOrm, uMask, uMode, uTint, uHasPaint, uPaintLit, uStudio;
     uniform vec4 uPaint, uBrush; uniform float uBrushHard;
-    uniform vec4 uBase; uniform float uRough, uCutoff; uniform vec3 uEye, uSun, uPart, uEmissive;
+    uniform vec4 uBase; uniform float uRough, uMetal, uCutoff; uniform vec3 uEye, uSun, uPart, uEmissive;
     out vec4 outColor;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
     // NoorForge painting: the stroke being painted (a coverage picture in UV space) over the result, and the brush's
     // ring where it touches the surface (its inner ring: where the hardness ends).
     vec3 painted(vec3 c) {
-      if (uHasPaint == 1) c = mix(c, uPaint.rgb, texture(tPaint, vUv).r * uPaint.a);
+      if (uHasPaint == 1 && (uPaintLit == 0 || uMode != 0)) c = mix(c, uPaint.rgb, texture(tPaint, vUv).r * uPaint.a);
       if (uBrush.w > 0.0) {
         float d = distance(vPos, uBrush.xyz), w = max(uBrush.w * 0.05, fwidth(d) * 1.5);
         float ring = 1.0 - smoothstep(0.0, w, abs(d - uBrush.w));
@@ -166,9 +166,11 @@ window.NoorAssetView = (() => {
         vec3 tn = texture(tNormal, vUv).xyz * 2.0 - 1.0;
         N = normalize(T * tn.x + B * tn.y + N * tn.z);
       }
-      float rough = uRough, ao = 1.0;
-      if (uHasOrm == 1) { vec3 o = texture(tOrm, vUv).rgb; ao = o.r; rough *= o.g; }
+      float rough = uRough, ao = 1.0, metal = 0.0;
+      if (uHasOrm == 1) { vec3 o = texture(tOrm, vUv).rgb; ao = o.r; rough *= o.g; metal = uMetal * o.b; }
       vec3 albedo = base.rgb;
+      // The stroke being painted, in the surface's own colour before the light (as it will be once it is painted).
+      if (uHasPaint == 1 && uPaintLit == 1 && uMode == 0) albedo = mix(albedo, toLinear(uPaint.rgb), texture(tPaint, vUv).r * uPaint.a);
       // Painted shading in the vertex colours (when they don't carry the wind data), as engines multiply it.
       if (uTint == 1 && uMode != 3) albedo *= vCol.rgb;
       if (uMode == 1) albedo = vec3(0.62);
@@ -180,9 +182,36 @@ window.NoorAssetView = (() => {
       float back = uMask == 1 ? max(dot(-N, L), 0.0) * 0.35 : 0.0;
       vec3 sky = mix(vec3(0.28, 0.25, 0.2), vec3(0.62, 0.72, 0.85), N.y * 0.5 + 0.5);
       float spec = pow(max(dot(N, H), 0.0), mix(64.0, 4.0, rough)) * (1.0 - rough) * 0.5;
-      vec3 col = albedo * (sky * 0.75 * ao + vec3(1.0, 0.95, 0.85) * (nl + back) * 1.35) + vec3(spec) * nl;
-      if (uMode == 0) col += uEmissive * 1.4;          // glowing crystals and caps
-      col = col / (col + vec3(0.9)) * 1.6;           // gentle tone mapping
+      vec3 col;
+      if (uStudio == 1 && uMode != 2) {
+        // NoorForge's look-dev light: a key and a fill, a sky and floor all round that reflects (sharper the smoother),
+        // metals tinting their reflection with their colour and having no diffuse; filmic tone mapping.
+        if (uMode != 0) metal = 0.0;
+        vec3 F0 = mix(vec3(0.04), albedo, metal), diff = albedo * (1.0 - metal);
+        float nv = max(dot(N, V), 1e-3);
+        vec3 F = F0 + (max(vec3(1.0 - rough), F0) - F0) * pow(1.0 - nv, 5.0);
+        vec3 L2 = normalize(vec3(-0.6, 0.25, -0.5)), H2 = normalize(V + L2);
+        float nl2 = max(dot(N, L2), 0.0);
+        float a2 = max(rough * rough, 0.002); a2 *= a2;
+        float d1 = dot(N, H) * dot(N, H) * (a2 - 1.0) + 1.0, d2 = dot(N, H2) * dot(N, H2) * (a2 - 1.0) + 1.0;
+        float k = (rough + 1.0) * (rough + 1.0) / 8.0, g = nv / (nv * (1.0 - k) + k);
+        vec3 spec1 = F * (a2 / (3.14159 * d1 * d1)) * g / (4.0 * nv + 1e-3), spec2 = F * (a2 / (3.14159 * d2 * d2)) * g / (4.0 * nv + 1e-3);
+        vec3 R = reflect(-V, N);
+        float up = R.y * 0.5 + 0.5, blur = mix(0.08, 0.9, rough);
+        vec3 env = mix(vec3(0.34, 0.32, 0.30), vec3(0.85, 0.9, 0.98), smoothstep(0.5 - blur * 0.5, 0.5 + blur * 0.5, up));
+        env += vec3(0.35) * exp(-abs(R.y) * mix(14.0, 2.0, rough)); // a bright horizon
+        env += vec3(1.6) * pow(max(dot(R, L), 0.0), mix(400.0, 2.0, rough)) * (1.0 - rough); // the key light's window
+        vec3 amb = mix(vec3(0.20, 0.19, 0.18), vec3(0.42, 0.46, 0.52), N.y * 0.5 + 0.5);
+        col = diff * (amb * ao + vec3(1.0, 0.96, 0.9) * nl * 2.2 + vec3(0.55, 0.62, 0.75) * nl2 * 0.8)
+            + (spec1 * nl * 2.2 + spec2 * nl2 * 0.8) + env * F * ao;
+        if (uMode == 0) col += uEmissive * 1.4;
+        col *= 0.9;
+        col = clamp((col * (2.51 * col + 0.03)) / (col * (2.43 * col + 0.59) + 0.14), 0.0, 1.0); // ACES (Narkowicz)
+      } else {
+        col = albedo * (sky * 0.75 * ao + vec3(1.0, 0.95, 0.85) * (nl + back) * 1.35) + vec3(spec) * nl;
+        if (uMode == 0) col += uEmissive * 1.4;          // glowing crystals and caps
+        col = col / (col + vec3(0.9)) * 1.6;           // gentle tone mapping
+      }
       outColor = vec4(painted(pow(col, vec3(1.0 / 2.2))), 1.0);
     }`;
   const GRID_VS = `#version 300 es
@@ -269,7 +298,7 @@ window.NoorAssetView = (() => {
     let scene = null;          // { draws: [...], textures: [...], bounds, windFrom }
     let mode = 0, wind = 0, wireframe = false;
     let channel = [];      // NoorForge: one channel's textures, per material
-    let paint = [], paintColor = [1, 1, 1, 0]; // NoorForge: the stroke being painted (R8 coverage per material)
+    let paint = [], paintColor = [1, 1, 1, 0], paintLit = 0, studio = 0; // NoorForge: the stroke being painted (R8 coverage per material)
     let brush = [0, 0, 0, 0], brushHard = 1;
     let painter = null;    // NoorForge's brush: takes the left button while painting
     let pickTris = null;   // world-space triangles, made on the first pick
@@ -442,7 +471,7 @@ window.NoorAssetView = (() => {
       gl.uniform1i(main.u.uWindFrom, scene.windFrom); gl.uniform3fv(main.u.uWindDir, windDir);
       gl.uniform1i(main.u.uMode, mode);
       gl.uniform1i(main.u.tColor, 0); gl.uniform1i(main.u.tNormal, 1); gl.uniform1i(main.u.tOrm, 2); gl.uniform1i(main.u.tPaint, 3);
-      gl.uniform4fv(main.u.uPaint, paintColor); gl.uniform4fv(main.u.uBrush, brush); gl.uniform1f(main.u.uBrushHard, brushHard);
+      gl.uniform4fv(main.u.uPaint, paintColor); gl.uniform1i(main.u.uPaintLit, paintLit); gl.uniform1i(main.u.uStudio, studio); gl.uniform4fv(main.u.uBrush, brush); gl.uniform1f(main.u.uBrushHard, brushHard);
       for (const d of scene.draws) {
         const m = d.material;
         const tex = (unit, img, flag) => {
@@ -464,7 +493,7 @@ window.NoorAssetView = (() => {
         tex(1, m ? m.normalImage : -1, 'uHasNormal');
         tex(2, m ? m.ormImage : -1, 'uHasOrm');
         gl.uniform4fv(main.u.uBase, m ? m.color : [1, 1, 1, 1]);
-        gl.uniform1f(main.u.uRough, m ? m.roughness : 0.9);
+        gl.uniform1f(main.u.uRough, m ? m.roughness : 0.9); gl.uniform1f(main.u.uMetal, m ? m.metallic : 0);
         gl.uniform1i(main.u.uMask, m && m.mask ? 1 : 0);
         gl.uniform1f(main.u.uCutoff, m ? m.cutoff : 0.5);
         gl.uniform3fv(main.u.uEmissive, m ? m.emissive : [0, 0, 0]);
@@ -551,8 +580,10 @@ window.NoorAssetView = (() => {
       setPainter(p) { painter = p || null; },
       /** The brush's ring on the surface (null: none), its radius in metres and its hardness (0–1). */
       setBrush(at, radius, hardness = 1) { brush = at ? [at[0], at[1], at[2], radius] : [0, 0, 0, 0]; brushHard = hardness; dirty = true; tick(); },
-      /** The stroke being painted: per material { size, data: Uint8Array coverage } (or null), drawn in a colour. */
-      setPaint(layers, color = [1, 1, 1], strength = 0.85) {
+      /** NoorForge's look-dev light (metals, reflections, a fill light, filmic tones) in place of the outdoor one. */
+      setStudio(on) { studio = on ? 1 : 0; dirty = true; tick(); },
+      /** The stroke being painted: per material { size, data: Uint8Array coverage } (or null), drawn in a colour; lit: in the surface's colour, under the light. */
+      setPaint(layers, color = [1, 1, 1], strength = 0.85, lit = false) {
         (layers || []).forEach((l, i) => {
           if (!l) return;
           if (!paint[i]) {
@@ -566,7 +597,7 @@ window.NoorAssetView = (() => {
           gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, l.size, l.size, 0, gl.RED, gl.UNSIGNED_BYTE, l.data);
         });
         if (!layers) { paint.forEach((t) => t && gl.deleteTexture(t)); paint = []; }
-        paintColor = [color[0], color[1], color[2], strength];
+        paintColor = [color[0], color[1], color[2], strength]; paintLit = lit ? 1 : 0;
         dirty = true; tick();
       },
       /**

@@ -164,6 +164,9 @@ public static class ForgeExport
             }
         }
         mesh.ComputeTangents();
+        // The UVs were flipped for glTF (its first row is the top), and its normal maps' green points up the picture
+        // (towards smaller v), as the bake made them: the handedness turns over with the flip.
+        for (var i = 0; i < mesh.Tangents.Count; i++) { var t = mesh.Tangents[i]; mesh.Tangents[i] = new System.Numerics.Vector4(t.X, t.Y, t.Z, -t.W); }
         asset.Root.Children.Add(new Node3D { Name = model.Name, Mesh = mesh });
         return GlbWriter.Write(asset, generator);
     }

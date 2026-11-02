@@ -1568,8 +1568,10 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
 .forgebench .fg-morepanel .sb-row { flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .forgebench .tb-stage { position: relative; }
-.forgebench .fg-adjust { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 5; padding: 4px 10px; border-radius: 999px; font-size: 12px; pointer-events: none;
+.forgebench .fg-adjust { position: absolute; transform: translateX(-50%); z-index: 6; padding: 3px 10px; border-radius: 999px; font-size: 12px; pointer-events: none; white-space: nowrap;
   background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--accent); }
+.forgebench .fg-adjustring { position: absolute; z-index: 5; border-radius: 50%; pointer-events: none; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.45); }
+.forgebench .fg-adjustring[hidden] { display: none; }
 .forgebench .fg-adjust[hidden] { display: none; }
 .fg-popup { position: fixed; z-index: 1000; display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; min-width: 220px; border: 1px solid var(--border); border-radius: 10px;
   background: var(--surface); box-shadow: 0 12px 34px rgba(0, 0, 0, 0.45); }
@@ -1582,6 +1584,12 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .fg-popup .fg-recentcolor.on { outline: 2px solid var(--accent); outline-offset: 1px; }
 .fg-popup .fg-popfield { display: grid; grid-template-columns: 64px 1fr 42px; align-items: center; gap: 6px; font-size: 12px; }
 .fg-popup .fg-popfield small { color: var(--muted); text-align: right; }
+.fg-popup .fg-popfield select { min-width: 0; }
+.fg-popswatch { width: 40px; height: 24px; border-radius: 6px; border: 1px solid var(--border); }
+.fg-popup input.fg-hsv { -webkit-appearance: none; appearance: none; height: 10px; border-radius: 5px; background: var(--fg-track, var(--border)); border: 1px solid var(--border); }
+.fg-popup input.fg-hsv::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 16px; border-radius: 4px; background: #fff; border: 1px solid #333; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
+.fg-pophint { margin: 0; font-size: 11px; color: var(--muted); }
+.fg-blendbadge { font-size: 11px; padding: 1px 6px; }
 .forgebench .fg-layername { font-weight: 600; }
 .forgebench .fg-pickbig { width: calc(100% - 8px); margin: 4px; text-align: left; }
 .forgebench .fg-mine-row { display: flex; align-items: center; gap: 2px; }

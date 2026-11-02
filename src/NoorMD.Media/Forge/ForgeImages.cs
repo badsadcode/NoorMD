@@ -185,13 +185,64 @@ public static class ForgeImagePaint
                 if (stroke.Erase) { px[o + 3] = (byte)Math.Round(old * (1 - a) * 255); continue; }
                 var na = a + old * (1 - a);
                 if (na <= 1e-6f) continue;
+                // The brush's colour blended with what is painted here (as much as something is: over bare texels it is
+                // the brush's own colour), then laid over it.
+                float sr = cr, sg = cg, sb = cb;
+                if (stroke.Blend != null && old > 0)
+                {
+                    var (br, bg, bb) = BlendRgb(stroke.Blend, (cr / 255f, cg / 255f, cb / 255f), (px[o] / 255f, px[o + 1] / 255f, px[o + 2] / 255f));
+                    sr = cr + (br * 255 - cr) * old; sg = cg + (bg * 255 - cg) * old; sb = cb + (bb * 255 - cb) * old;
+                }
                 float Mix(float c, byte was) => (c * a + was * old * (1 - a)) / na;
-                px[o] = (byte)Math.Clamp(Math.Round(Mix(cr, px[o])), 0, 255);
-                px[o + 1] = (byte)Math.Clamp(Math.Round(Mix(cg, px[o + 1])), 0, 255);
-                px[o + 2] = (byte)Math.Clamp(Math.Round(Mix(cb, px[o + 2])), 0, 255);
+                px[o] = (byte)Math.Clamp(Math.Round(Mix(sr, px[o])), 0, 255);
+                px[o + 1] = (byte)Math.Clamp(Math.Round(Mix(sg, px[o + 1])), 0, 255);
+                px[o + 2] = (byte)Math.Clamp(Math.Round(Mix(sb, px[o + 2])), 0, 255);
                 px[o + 3] = (byte)Math.Clamp(Math.Round(na * 255), 0, 255);
             }
         });
+    }
+
+    /// <summary>A brush colour (s) blended onto a colour (d), both 0–1, by a blend mode's name.</summary>
+    public static (float R, float G, float B) BlendRgb(string mode, (float R, float G, float B) s, (float R, float G, float B) d)
+    {
+        static float Each(string m, float s, float d) => m switch
+        {
+            "multiply" => s * d,
+            "screen" => 1 - (1 - s) * (1 - d),
+            "overlay" => d < 0.5f ? 2 * s * d : 1 - 2 * (1 - s) * (1 - d),
+            "softlight" => (1 - 2 * s) * d * d + 2 * s * d,
+            "add" => Math.Min(1, s + d),
+            "subtract" => Math.Max(0, d - s),
+            "darken" => Math.Min(s, d),
+            "lighten" => Math.Max(s, d),
+            _ => s,
+        };
+        if (mode is "hue" or "saturation" or "color" or "value")
+        {
+            var (sh, ss, sv) = Hsv(s); var (dh, ds, dv) = Hsv(d);
+            return mode switch
+            {
+                "hue" => Rgb(sh, ds, dv),
+                "saturation" => Rgb(dh, ss, dv),
+                "color" => Rgb(sh, ss, dv),
+                _ => Rgb(dh, ds, sv),
+            };
+        }
+        return (Each(mode, s.R, d.R), Each(mode, s.G, d.G), Each(mode, s.B, d.B));
+    }
+
+    private static (float H, float S, float V) Hsv((float R, float G, float B) c)
+    {
+        var max = Math.Max(c.R, Math.Max(c.G, c.B)); var min = Math.Min(c.R, Math.Min(c.G, c.B)); var d = max - min;
+        var h = d <= 1e-6f ? 0 : max == c.R ? (c.G - c.B) / d % 6 : max == c.G ? (c.B - c.R) / d + 2 : (c.R - c.G) / d + 4;
+        if (h < 0) h += 6;
+        return (h / 6, max <= 1e-6f ? 0 : d / max, max);
+    }
+
+    private static (float R, float G, float B) Rgb(float h, float s, float v)
+    {
+        var k = (float n) => { var x = (n + h * 6) % 6; return v - v * s * Math.Max(0, Math.Min(Math.Min(x, 4 - x), 1)); };
+        return (k(5), k(3), k(1));
     }
 
     /// <summary>

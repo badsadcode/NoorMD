@@ -9280,10 +9280,15 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const size0 = (await FS()).brush.size;
       await page.mouse.move(box.x, box.y);
       await page.keyboard.press('f');
+      const ring = () => page.$eval('#fg-adjustring', (r) => { const q = r.getBoundingClientRect(); return { cx: Math.round(q.left + q.width / 2), cy: Math.round(q.top + q.height / 2), w: Math.round(q.width), shown: !r.hidden }; });
+      const ring0 = await ring();
       await page.mouse.move(box.x + 60, box.y, { steps: 4 });
+      const ring1 = await ring();
+      check('…a flat circle of the brush, where F was pressed: it grows with the size and stays in place as the mouse moves', ring0.shown && ring1.w > ring0.w + 4 && Math.abs(ring1.cx - ring0.cx) <= 1 && Math.abs(ring1.cy - ring0.cy) <= 1
+        && Math.abs(ring0.cx - Math.round(box.x)) <= 2, [ring0, ring1]);
       check('F, then moving the mouse: the size changes on the model, said at the top of the view', (await FS()).brush.size > size0 + 2 && /Size/.test(await page.textContent('#fg-adjust')));
       await page.keyboard.press('Escape');
-      check('…Esc puts it back', (await FS()).brush.size === size0 && await page.isHidden('#fg-adjust') && (await FS()).tool === 'brush');
+      check('…Esc puts it back', (await FS()).brush.size === size0 && await page.isHidden('#fg-adjust') && await page.isHidden('#fg-adjustring') && (await FS()).tool === 'brush');
       await page.mouse.move(box.x, box.y);
       await page.keyboard.press('f');
       await page.mouse.move(box.x + 30, box.y, { steps: 3 });
@@ -9335,6 +9340,32 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.click('.modal button:has-text("The model\'s own texture")');
       await waitFn(page, () => (window.__mock.state.forge.imageCreates || []).length === 2 && NoorForge._state().recipe.layers.some((x) => /over its texture/.test(x.name)));
       check('a painting can start from the model\'s own texture', (await FM()).imageCreates[1].from === 'model' && /over its texture/.test((await layerNow()).name));
+      // W: the colour at the cursor (hue, saturation, value) and the blend, on a painting.
+      await waitFn(page, () => NoorForge._state().texels && NoorForge._state().tool === 'brush');
+      await setColour('#ff0000');
+      await page.mouse.move(box.x, box.y);
+      await page.keyboard.press('w');
+      await page.waitForSelector('#fg-popup.fg-colorpop');
+      check('W: the colour at the cursor (hue, saturation, value) and the blend', (await page.$$('#fg-popup input.fg-hsv')).length === 3 && !!(await page.$('#fg-popup #fg-blend')));
+      await page.$eval('#fg-popup input[data-hsv="h"]', (i) => { i.value = '120'; i.dispatchEvent(new Event('input')); i.dispatchEvent(new Event('change')); });
+      check('…Hue turns the brush\'s colour (red to green)', (await FS()).brush.color === '#00ff00');
+      await page.$eval('#fg-popup input[data-hsv="s"]', (i) => { i.value = '50'; i.dispatchEvent(new Event('input')); });
+      check('…Saturation paler', (await FS()).brush.color === '#80ff80');
+      await page.$eval('#fg-popup input[data-hsv="v"]', (i) => { i.value = '50'; i.dispatchEvent(new Event('input')); });
+      check('…Value darker', (await FS()).brush.color === '#408040');
+      await page.selectOption('#fg-blend', 'multiply');
+      check('…a blend other than Mix shows on the brush bar', /Multiply/.test(await page.textContent('#fg-blendbadge')));
+      await page.keyboard.press('w');
+      check('…W again closes it', !(await page.$('#fg-popup')));
+      const before = (await FM()).imagePaints.length;
+      await stroke(40);
+      await waitFn(page, (n) => (window.__mock.state.forge.imagePaints || []).length > n, before);
+      check('…the next stroke on the painting blends (multiply)', (await FM()).imagePaints.at(-1).strokes[0].blend === 'multiply');
+      if (shots) { await page.mouse.move(box.x, box.y); await page.keyboard.press('w'); await page.waitForSelector('#fg-popup'); await page.screenshot({ path: `${shots}/65g-w-colour.png` }); await page.keyboard.press('Escape'); }
+      await page.click('#fg-blendbadge');
+      await page.selectOption('#fg-blend', 'mix');
+      await page.keyboard.press('Escape');
+      check('…back to Mix: no badge', !(await page.$('#fg-blendbadge')));
       if (shots) await page.screenshot({ path: `${shots}/65g-noorforge-painting.png` });
       check('no page errors with paintings', errors.length === 0, errors);
       await page.close();

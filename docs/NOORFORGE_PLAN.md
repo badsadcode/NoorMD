@@ -182,6 +182,15 @@ painted straight onto the model in any colour, for hand-painted albedo.
 - F: the size on the model, by moving the mouse (click or F keeps it, Esc puts it back); Shift+F: the flow. [ ] still
   size it.
 - Right-click on the model while painting: the brush at the cursor (tools, colours, size, hardness, flow).
+- preview.139: while F or Shift+F changes the brush, a flat circle (no perspective) stays where F was pressed: its size
+  as the brush paints there, how solid it is the flow, the value under it; the ring on the model hides meanwhile.
+- preview.139: W at the cursor: the brush's colour by hue, saturation and value, the recent colours, and on a painting
+  the brush's blend with what is painted (mix, multiply, screen, overlay, soft light, add, subtract, darken, lighten,
+  hue, saturation, colour, value; over bare texels it paints its own colour); a blend other than Mix shows on the bar.
+- preview.139: the view's look-dev light (a key and a fill, reflections of a sky and floor, metals as metal, filmic
+  tones), the stroke being painted shown in the surface's colour under the light (as it will be, not on top of it), and
+  the textured model's tangents fixed: its normal maps' green was turned over (bumps lit from the wrong side, in the
+  view and in engines).
 
 ### Next (stage 4, second part)
 

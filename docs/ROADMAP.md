@@ -5,6 +5,9 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForge (preview.139): F / Shift+F show a flat circle in place; W: colour by hue, saturation and value and the
+  brush's blend on paintings; a look-dev light in the view (metal, reflections); the stroke shown as it will be; the
+  textured model's normal maps lit the right way (its tangents were turned over).
 - NoorForge's brush bar (preview.138): one slim row (size, hardness and flow as small fields you drag), the rest under
   ⚙ floating over the view; F / Shift+F size or flow on the model; right-click: the brush at the cursor.
 - NoorForge paintings (preview.137): a layer of pixels painted straight onto the model in any colour (as Blender's

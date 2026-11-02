@@ -39,6 +39,12 @@ public sealed class ForgeStroke
     /// colour changes later (as in a painting program). Null: the layer's colour (strokes from before this existed).
     /// </summary>
     public string? Color { get; set; }
+    /// <summary>
+    /// How it goes onto what a painting already has (as a painting program's brush blend): mix (null), multiply, screen,
+    /// overlay, softlight, add, subtract, darken, lighten, hue, saturation, color, value. Only paintings use it.
+    /// </summary>
+    public string? Blend { get; set; }
+    public static readonly string[] Blends = ["mix", "multiply", "screen", "overlay", "softlight", "add", "subtract", "darken", "lighten", "hue", "saturation", "color", "value"];
 
     public int DabCount => Dabs.Length / 5;
 
@@ -53,6 +59,7 @@ public sealed class ForgeStroke
         Tip = Tip is { Length: <= 40 } t && t.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? t : "";
         Angle = double.IsFinite(Angle) ? Angle % 360 : 0; Jitter = ForgeMask.C(Jitter, 0, 1);
         Stencil = Stencil?.Clamped();
+        Blend = Blend is { } bl && Blends.Contains(bl) && bl != "mix" ? bl : null;
         Color = Color is { Length: 7 } c && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : null;
         return this;
     }
