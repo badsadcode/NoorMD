@@ -44,6 +44,12 @@ public sealed class ForgeStroke
     /// overlay, softlight, add, subtract, darken, lighten, hue, saturation, color, value. Only paintings use it.
     /// </summary>
     public string? Blend { get; set; }
+    /// <summary>
+    /// The maps it paints and their values (as a painting program's brush): its colour (Color, or the layer's), and a
+    /// roughness, metal or height of its own. Null: the layer's maps and values (strokes from before preview.141).
+    /// Erasing, it takes away only these maps (null: all of them).
+    /// </summary>
+    public ForgeStrokeMaps? Maps { get; set; }
     public static readonly string[] Blends = ["mix", "multiply", "screen", "overlay", "softlight", "add", "subtract", "darken", "lighten", "hue", "saturation", "color", "value"];
 
     public int DabCount => Dabs.Length / 5;
@@ -60,8 +66,27 @@ public sealed class ForgeStroke
         Angle = double.IsFinite(Angle) ? Angle % 360 : 0; Jitter = ForgeMask.C(Jitter, 0, 1);
         Stencil = Stencil?.Clamped();
         Blend = Blend is { } bl && Blends.Contains(bl) && bl != "mix" ? bl : null;
+        Maps = Maps?.Clamped();
         Color = Color is { Length: 7 } c && c[0] == '#' && c[1..].All(Uri.IsHexDigit) ? c.ToLowerInvariant() : null;
         return this;
+    }
+}
+
+/// <summary>The maps a stroke paints (see <see cref="ForgeStroke.Maps"/>): each on or off, with its value.</summary>
+public sealed class ForgeStrokeMaps
+{
+    public bool Color { get; set; }
+    public double? Roughness { get; set; }
+    public double? Metallic { get; set; }
+    public double? Height { get; set; }
+
+    public bool Any => Color || Roughness != null || Metallic != null || Height != null;
+
+    public ForgeStrokeMaps? Clamped()
+    {
+        static double? C(double? v) => v is { } x ? ForgeMask.C(x, 0, 1) : null;
+        Roughness = C(Roughness); Metallic = C(Metallic); Height = C(Height);
+        return Any ? this : null;
     }
 }
 
@@ -125,6 +150,8 @@ public static class ForgePaint
         };
         Parallel.For(0, n, i => { if (bake.Covered[i] != 0) v[i] = ForgeCompositor.MaskAt(mask, bake, i, setIndex, span, given); });
         colors = null;
+        // Strokes that paint maps of their own are worked out by Channels (a layer's mask is its smart mask then).
+        if (HasChannels(layer)) return v;
         if (layer.Material.Length == 0 && layer.Strokes.Any(st => st.Color != null))
         {
             var own = ForgeCompositor.Hex(layer.Color);
@@ -147,6 +174,79 @@ public static class ForgePaint
             }
         }
         return v;
+    }
+
+    /// <summary>Whether a layer's strokes paint maps of their own (a paint layer or a painting, preview.141 on).</summary>
+    public static bool HasChannels(ForgeLayer layer) => layer.Material.Length == 0 && layer.Strokes.Any(st => st.Maps != null);
+
+    /// <summary>Each map's coverage and value from a layer's strokes (see <see cref="ForgeStroke.Maps"/>).</summary>
+    public sealed class ChannelPaint
+    {
+        public required float[] ColorCover, RoughCover, MetalCover, HeightCover;
+        public required Vector3[] Color;
+        public required float[] Rough, Metal, Height;
+    }
+
+    /// <summary>
+    /// A layer whose strokes paint their own maps: each map starts as the layer's own value where its smart mask shows
+    /// (if the layer paints that map), then each stroke's value over it where it painted, in order; erasing takes away
+    /// its maps. A painting (pixels) keeps its colour in its picture: only the other maps come from here.
+    /// </summary>
+    public static ChannelPaint Channels(ForgeBake bake, ForgeLayer layer, float[] smart, Func<string, ForgePicture?>? pictures = null)
+    {
+        var n = bake.Size * bake.Size;
+        var picture = layer.Image != null;
+        var p = new ChannelPaint
+        {
+            ColorCover = new float[n], RoughCover = new float[n], MetalCover = new float[n], HeightCover = new float[n],
+            Color = new Vector3[n], Rough = new float[n], Metal = new float[n], Height = new float[n],
+        };
+        var own = ForgeCompositor.Hex(layer.Color);
+        for (var i = 0; i < n; i++)
+        {
+            p.Color[i] = own; p.Rough[i] = (float)layer.Roughness; p.Metal[i] = (float)layer.Metallic; p.Height[i] = (float)layer.Height;
+            if (picture) continue; // a painting's own maps are its picture's colour only
+            if (layer.UseColor) p.ColorCover[i] = smart[i];
+            if (layer.UseRoughness) p.RoughCover[i] = smart[i];
+            if (layer.UseMetallic) p.MetalCover[i] = smart[i];
+            if (layer.UseHeight) p.HeightCover[i] = smart[i];
+        }
+        static void Over(float[] cover, int i, float a, Action<float> mix)
+        {
+            var before = cover[i];
+            cover[i] = before + (1 - before) * a;
+            var share = cover[i] > 1e-6f ? (cover[i] - before + before * a) / cover[i] : 1;
+            mix(Math.Clamp(share, 0, 1));
+        }
+        foreach (var stroke in layer.Strokes)
+        {
+            if (picture && stroke.Maps == null) continue; // a painting's colour strokes are in its pixels
+            // Before preview.141 a stroke painted the layer's maps with its values.
+            var m = stroke.Maps ?? new ForgeStrokeMaps
+            {
+                Color = layer.UseColor, Roughness = layer.UseRoughness ? layer.Roughness : null,
+                Metallic = layer.UseMetallic ? layer.Metallic : null, Height = layer.UseHeight ? layer.Height : null,
+            };
+            var paintsColor = m.Color && !picture;
+            var col = stroke.Color != null ? ForgeCompositor.Hex(stroke.Color) : own;
+            foreach (var (i, a) in Coverage(bake, stroke, pictures))
+            {
+                if (stroke.Erase)
+                {
+                    var all = stroke.Maps == null;
+                    if (all || m.Color) p.ColorCover[i] *= 1 - a;
+                    if (all || m.Roughness != null) p.RoughCover[i] *= 1 - a;
+                    if (all || m.Metallic != null) p.MetalCover[i] *= 1 - a;
+                    if (all || m.Height != null) p.HeightCover[i] *= 1 - a;
+                    continue;
+                }
+                if (paintsColor) Over(p.ColorCover, i, a, s => p.Color[i] = Vector3.Lerp(p.Color[i], col, s));
+                if (m.Roughness is { } r) Over(p.RoughCover, i, a, s => p.Rough[i] += ((float)r - p.Rough[i]) * s);
+                if (m.Metallic is { } mt) Over(p.MetalCover, i, a, s => p.Metal[i] += ((float)mt - p.Metal[i]) * s);
+                if (m.Height is { } h) Over(p.HeightCover, i, a, s => p.Height[i] += ((float)h - p.Height[i]) * s);
+            }
+        }
+        return p;
     }
 
     /// <summary>One stroke onto a mask: its coverage (dabs building up by their flow) added, or taken away.</summary>

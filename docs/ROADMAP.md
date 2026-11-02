@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForge (preview.141): Paints on the brush bar (Colour, Rough, Metal, Height, each with its value): paint any map
+  straight onto the model, as in Substance Painter or Blender; each stroke keeps what it painted.
 - NoorForge (preview.140): the layers' height as bumps in the normal map (Bumps slider), and a key light that follows
   the view so the relief reads from every side.
 - NoorForge (preview.139): F / Shift+F show a flat circle in place; W: colour by hue, saturation and value and the

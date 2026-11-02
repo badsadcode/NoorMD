@@ -32,12 +32,17 @@ window.NoorForge = (() => {
   // Painting (stage 2): the tool, the brush, where each texel is on the model, the stroke being painted.
   let tool = null;         // null, 'brush' or 'fill'
   let erasing = false;
-  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false, tip: '', angle: 0, jitter: 0, color: '#c8643c', recent: [] };
+  const BRUSH_DEFAULTS = { size: 4, hardness: 0.5, flow: 1, spacing: 0.25, pressureSize: true, pressureFlow: false, mirror: false, tip: '', angle: 0, jitter: 0, color: '#c8643c', recent: [], paints: { color: true, rough: false, metal: false, height: false }, rough: 0.4, metal: 1, height: 0.65 };
   // The stencil: a picture of the recipe laid over the view (where, how big, turned how far clockwise), white lets paint through.
   let stencil = null;      // { id, fx, fy, size, angle, tile, invert, opacity, shown }
   let stencilKey = false;  // S held: the mouse moves the stencil, the wheel sizes (Shift: turns) it
   const grays = new Map(); // picture id → { w, h, g: Uint8Array }
   let brush = (() => { try { return { ...BRUSH_DEFAULTS, ...JSON.parse(localStorage.getItem('noormd.forge.brush') || '{}') }; } catch { return { ...BRUSH_DEFAULTS }; } })();
+  brush.paints = { ...BRUSH_DEFAULTS.paints, ...(brush.paints || {}) };
+  const keepBrush = () => { try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } };
+  /** The maps the brush paints and their values (as a painting program's brush), as a stroke keeps them. */
+  const brushMaps = () => ({ color: !!brush.paints.color, ...(brush.paints.rough ? { roughness: brush.rough } : {}), ...(brush.paints.metal ? { metallic: brush.metal } : {}), ...(brush.paints.height ? { height: brush.height } : {}) });
+  const paintsAny = () => Object.values(brush.paints).some(Boolean);
   let texels = null;       // { key, size, sets: [Float32Array (7 a texel)], grid, center }
   let texelsLoading = null;
   let stroke = null;       // { strokes: [the stroke (and its mirror)], last: [x, y, z] }
@@ -459,15 +464,18 @@ window.NoorForge = (() => {
       })() : null;
     const shaped = !['all', 'none', 'part', 'material'].includes(m.kind);
     const strokesKeep = !l.image && takesColor(l);
+    // The brush decides what each stroke paints (strokes from before preview.141 still use the layer's values).
+    const brushDecides = !!l.image || (strokesKeep && !(l.strokes || []).some((st) => !st.maps && !st.erase));
     const recolour = el('button', { class: 'utility-btn', id: 'fg-recolour', title: 'Every stroke of this layer in the brush\'s colour', onclick: () => { l.strokes = (l.strokes || []).map((st) => (st.erase ? st : { ...st, color: brush.color })); l.color = brush.color; paintVersion++; changed('all'); } }, '🎨 Recolour all of it');
     box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: l.image ? 'Painting' : 'Layer' }),
-      l.image ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', id: 'fg-paintinginfo', text: `🖌 Pixels painted on the model, ${l.imageSize} px a texture set, in the brush's colour.` }))
-        : strokesKeep ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', text: 'Each stroke keeps the brush\'s colour it was painted with.' }), (l.strokes || []).some((st) => !st.erase) ? recolour : null)
+      l.image ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', id: 'fg-paintinginfo', text: `🖌 Pixels painted on the model, ${l.imageSize} px a texture set. Its colour is in the pixels; roughness, metal and height are kept as strokes on it (Paints on the brush bar).` }))
+        : strokesKeep ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', text: 'Each stroke keeps what the brush painted with it (Paints on the brush bar: colour, roughness, metal, height, and their values).' }), (l.strokes || []).some((st) => !st.erase) ? recolour : null)
           : el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
-      el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
+      // A paint layer or a painting: the brush decides what each stroke paints, so only its opacity here.
+      brushDecides ? el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01)) : el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
         ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01), slider(l, 'height', 'Height (mid: flat)', 0, 1, 0.01)])),
-      el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
+      brushDecides ? null : el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
       el('h4', { class: 'music-subhead', text: 'Where it shows (smart mask)' }),
       (l.strokes || []).length ? el('div', { class: 'sb-row', id: 'fg-strokes' },
         el('span', { class: 'pref-hint', text: `Painted: ${l.strokes.length} stroke${l.strokes.length === 1 ? '' : 's'} (${l.strokes.filter((st) => st.erase).length} erasing)` }),
@@ -677,6 +685,31 @@ window.NoorForge = (() => {
     colorIn.addEventListener('input', () => { brush.color = colorIn.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } });
     colorIn.addEventListener('change', () => { useColor(colorIn.value); renderBrushBar(); });
     const recent = el('span', { class: 'fg-recent', 'aria-label': 'Recent colours' }, ...(brush.recent || []).slice(0, 4).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); renderBrushBar(); } })));
+    // Paints: the maps the brush paints (a click turns one on or off, dragging sideways changes its value).
+    const chip = (key, label, title) => {
+      const valueKey = key === 'color' ? null : key;
+      const on = !!brush.paints[key];
+      const b = el('button', { class: 'fg-mapchip', 'data-map': key, 'aria-pressed': String(on), title: `${title}${valueKey ? ' · click: on / off, drag sideways: the value' : ' · click: on / off'}` },
+        el('span', { text: label }), valueKey && on ? el('small', { text: String(Math.round(brush[valueKey] * 100)) }) : null);
+      let x0 = 0, v0 = 0, moved = false;
+      b.addEventListener('pointerdown', (e) => { if (e.button !== 0) return; e.preventDefault(); b.setPointerCapture(e.pointerId); x0 = e.clientX; v0 = valueKey ? brush[valueKey] : 0; moved = false; });
+      b.addEventListener('pointermove', (e) => {
+        if (!b.hasPointerCapture(e.pointerId) || !valueKey) return;
+        if (!moved && Math.abs(e.clientX - x0) < 4) return;
+        moved = true;
+        if (!brush.paints[key]) { brush.paints[key] = true; b.setAttribute('aria-pressed', 'true'); }
+        brush[valueKey] = Math.round(Math.max(0, Math.min(1, v0 + (e.clientX - x0) / (e.shiftKey ? 800 : 160))) * 100) / 100;
+        let sm = b.querySelector('small'); if (!sm) { sm = el('small'); b.append(sm); }
+        sm.textContent = String(Math.round(brush[valueKey] * 100));
+      });
+      b.addEventListener('pointerup', (e) => { if (!b.hasPointerCapture(e.pointerId)) return; b.releasePointerCapture(e.pointerId); if (!moved) brush.paints[key] = !brush.paints[key]; keepBrush(); renderBrushBar(); });
+      return b;
+    };
+    const paintsRow = layer && layer.material
+      ? el('span', { class: 'pref-hint fg-paintsnote', text: 'Paints: where this material shows' })
+      : el('span', { class: 'fg-paints', role: 'group', 'aria-label': 'Paints' },
+        chip('color', 'Colour', 'Paint the colour'), chip('rough', 'Rough', 'Paint roughness (0 glossy, 100 rough)'),
+        chip('metal', 'Metal', 'Paint metal (100 bare metal, 0 not metal)'), chip('height', 'Height', 'Paint height (50 flat, more raised, less dug in; it shows as bumps)'));
     // A blend other than Mix (paintings): shown, as it changes how the brush paints; a click opens W's colour pop-up.
     const blendBadge = layer && layer.image && blendOn() ? el('button', { class: 'utility-btn fg-blendbadge', id: 'fg-blendbadge', title: 'The brush blends with what is painted (W to change)', onclick: (e) => { lastHover = { x: e.clientX, y: e.clientY + 120, hit: lastHover && lastHover.hit }; colorPopup(); } }, (BLENDS.find(([v]) => v === brush.blend) || [0, brush.blend])[1]) : null;
     const unlit = el('button', { class: 'icon-btn', id: 'fg-unlit', 'aria-pressed': String(view === 'basecolor'), title: 'Colour only: the painting without light and shade (click again for the lit model)', 'aria-label': 'Colour only', onclick: () => { setView(view === 'basecolor' ? (litView || 'shaded') : ((litView = view), 'basecolor')); renderBrushBar(); } }, '◐');
@@ -696,7 +729,7 @@ window.NoorForge = (() => {
       tipRow(num), stencilRow(check),
       el('p', { class: 'pref-hint fg-into', text: `${layer ? `Into “${layer.name}”. ` : ''}F: size, Shift+F: flow (move the mouse, click) · W: colour and blend · [ ]: size · right-click: the brush at the cursor · Alt+drag: turn · Shift+click: a straight line` })) : null;
     bar.replaceChildren(el('div', { class: 'sb-row fg-barrow' },
-      ...tools, sep(), colorIn, recent, blendBadge, sep(),
+      ...tools, sep(), paintsRow, colorIn, recent, blendBadge, sep(),
       field('size', 'Size', 0.2, 25, 0.1, 1, '%', 'The brush\'s size, a share of the model (F, [ and ]; drag the word to change it)'),
       field('hardness', 'Hard', 0, 1, 0.01, 100, '%', 'How much of the brush paints fully before it fades (drag the word to change it)'),
       field('flow', 'Flow', 0.02, 1, 0.01, 100, '%', 'How much each dab adds (Shift+F; drag the word to change it)'),
@@ -824,7 +857,7 @@ window.NoorForge = (() => {
   function colorPopup() {
     closeBrushPopup();
     const layer = recipe.layers[selected];
-    if (!takesColor(layer)) { setStatus('Colours are for paintings and paint layers: choose one, or add a painting (Layer › Add a painting).'); return; }
+    if (!layer || layer.material) { setStatus('A material layer paints where its material shows: choose a paint layer or a painting to paint colour, roughness, metal or height.'); return; }
     let [h, sat, val] = toHsv(brush.color);
     const swatch = el('span', { class: 'fg-popswatch', id: 'fg-popswatch' });
     const hex = el('input', { type: 'color', class: 'fg-colorwell', value: brush.color, 'aria-label': 'Brush colour' });
@@ -850,15 +883,25 @@ window.NoorForge = (() => {
     blend.value = brush.blend || 'mix';
     blend.addEventListener('change', () => { brush.blend = blend.value; try { localStorage.setItem('noormd.forge.brush', JSON.stringify(brush)); } catch { /* not kept */ } renderBrushBar(); });
     const pop = el('div', { class: 'fg-popup fg-colorpop', id: 'fg-popup', role: 'dialog', 'aria-label': 'Brush colour and blend' },
-      el('div', { class: 'sb-row' }, swatch, hex),
+      el('div', { class: 'sb-row' }, swatch, hex, (() => { const c = el('input', { type: 'checkbox', checked: brush.paints.color || undefined, 'aria-label': 'Paint colour', 'data-paints': 'color' }); c.addEventListener('change', () => { brush.paints.color = c.checked; keepBrush(); }); return el('label', { class: 'fg-popcheck' }, c, ' paints colour'); })()),
       range('h', 'Hue', 359, () => h, (x) => { h = x; }, '°'),
       range('s', 'Saturation', 100, () => sat * 100, (x) => { sat = x / 100; }, '%'),
       range('v', 'Value', 100, () => val * 100, (x) => { val = x / 100; }, '%'),
       (brush.recent || []).length ? el('div', { class: 'fg-recent fg-poprecent' }, ...(brush.recent || []).map((c) => el('button', { class: 'fg-recentcolor' + (c === brush.color ? ' on' : ''), style: `background:${c}`, title: c, 'aria-label': `Colour ${c}`, 'data-color': c, onclick: () => { useColor(c); [h, sat, val] = toHsv(c); ['h', 's', 'v'].forEach((k) => { ranges[k].value = String(Math.round(k === 'h' ? h : (k === 's' ? sat : val) * 100)); }); show(); } }))) : null,
+      // The other maps the brush paints: each on or off, with its value.
+      ...[['rough', 'Roughness'], ['metal', 'Metal'], ['height', 'Height']].map(([key, label]) => {
+        const on = el('input', { type: 'checkbox', checked: brush.paints[key] || undefined, 'aria-label': `Paint ${label.toLowerCase()}`, 'data-paints': key });
+        const out = el('small', { text: String(Math.round(brush[key] * 100)) });
+        const r = el('input', { type: 'range', min: '0', max: '100', step: '1', value: String(Math.round(brush[key] * 100)), 'aria-label': label, 'data-mapvalue': key });
+        on.addEventListener('change', () => { brush.paints[key] = on.checked; keepBrush(); });
+        r.addEventListener('input', () => { brush[key] = Number(r.value) / 100; out.textContent = r.value; if (!on.checked) { on.checked = true; brush.paints[key] = true; } keepBrush(); });
+        return el('label', { class: 'fg-popfield fg-popmap' }, el('span', {}, on, ` ${label}`), r, out);
+      }),
       layer.image
         ? el('label', { class: 'fg-popfield' }, el('span', { text: 'Blend' }), blend)
-        : el('p', { class: 'fg-pophint', text: 'Blend modes are for paintings (pixels); a paint layer lays its colour on as it is.' }),
+        : null,
       el('p', { class: 'fg-pophint', text: 'W or Esc: close' }));
+    pop.addEventListener('change', () => renderBrushBar());
     document.body.append(pop);
     show();
     const at = lastHover || { x: innerWidth / 2, y: innerHeight / 2 };
@@ -1152,9 +1195,13 @@ window.NoorForge = (() => {
     if (!overlay || !overlay.dirty || !viewer) return;
     overlay.dirty = false;
     const layer = recipe.layers[selected];
-    const color = overlay.erase ? [0.05, 0.05, 0.06] : view === 'mask' ? [1, 1, 1] : takesColor(layer) ? hexRgb(brush.color) : layer && !layer.material ? hexRgb(layer.color) : [1, 0.62, 0.22];
+    // A map's own view while painting it: the value as grey, exactly.
+    const chan = { roughness: 'rough', metallic: 'metal', height: 'height' }[view];
+    const own = !overlay.erase && layer && !layer.material && chan && brush.paints[chan];
+    const paintsColor = !!layer && !layer.material && brush.paints.color;
+    const color = overlay.erase ? [0.05, 0.05, 0.06] : own ? [brush[chan], brush[chan], brush[chan]] : view === 'mask' ? [1, 1, 1] : paintsColor ? hexRgb(brush.color) : [1, 0.62, 0.22];
     // Painting a colour on the lit model: shown as it will be (in the surface, under the light, as much as it covers).
-    const exact = !overlay.erase && (view === 'shaded' || view === 'basecolor') && !!layer && (takesColor(layer) || !layer.material) && !(layer.image && blendOn());
+    const exact = own || (!overlay.erase && (view === 'shaded' || view === 'basecolor') && paintsColor && !(layer.image && blendOn()));
     viewer.setPaint(overlay.bytes.map((b) => ({ size: texels.size, data: b })), color, exact ? 1 : overlay.erase ? 0.6 : 0.85, exact && view === 'shaded');
   }
 
@@ -1215,9 +1262,22 @@ window.NoorForge = (() => {
   function commitStrokes(list) {
     const layer = recipe.layers[selected];
     if (!layer) return;
-    // A painting: into its pixels (in the app). A paint layer: each stroke keeps the brush's colour.
-    if (takesColor(layer)) { list = list.map((st) => (st.erase ? st : { ...st, color: brush.color, ...(layer.image && blendOn() ? { blend: brush.blend } : {}) })); useColor(brush.color); }
-    if (layer.image) { paintImage(layer, list); return; }
+    // A material layer: the brush shows or hides it (its mask). Any other layer: each stroke keeps the maps the brush
+    // paints and their values (Paints on the brush bar): its colour, roughness, metal, height.
+    if (!layer.material) {
+      if (!paintsAny()) { setStatus('The brush paints nothing: turn on a map under Paints (Colour, Rough, Metal, Height).'); overlay = null; if (viewer) viewer.setPaint(null); return; }
+      const maps = brushMaps();
+      if (maps.color && takesColor(layer)) useColor(brush.color);
+      if (layer.image) {
+        // A painting: its colour into its pixels (in the app); its other maps kept as strokes on it.
+        const { color: withColor, ...others } = maps;
+        const kept = Object.keys(others).length ? list.map((st) => ({ ...st, maps: { color: false, ...others } })) : [];
+        if (kept.length) { clearTimeout(snapTimer); pushHistory(); layer.strokes = (layer.strokes || []).concat(kept); pushHistory(); renderLayers(); }
+        if (withColor) { paintImage(layer, list.map((st) => (st.erase ? st : { ...st, color: brush.color, ...(blendOn() ? { blend: brush.blend } : {}) }))); return; }
+        paintVersion++; schedule(); return;
+      }
+      list = list.map((st) => ({ ...st, maps, ...(maps.color && !st.erase ? { color: brush.color } : {}) }));
+    }
     clearTimeout(snapTimer); pushHistory();
     layer.strokes = (layer.strokes || []).concat(list);
     pushHistory();

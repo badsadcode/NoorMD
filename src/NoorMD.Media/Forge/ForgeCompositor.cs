@@ -58,7 +58,30 @@ public static class ForgeCompositor
         {
             var mk = ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id), out var painted);
             masks[layer.Id] = mk;
+            // Strokes that paint their own maps (colour, roughness, metal, height: each its own coverage and value).
+            var ch = ForgePaint.HasChannels(layer) ? ForgePaint.Channels(bake, layer, mk, recipe.Picture) : null;
+            if (ch != null && layer.Image == null)
+            {
+                var shown = new float[n];
+                for (var i = 0; i < n; i++) shown[i] = MathF.Max(MathF.Max(ch.ColorCover[i], ch.RoughCover[i]), MathF.Max(ch.MetalCover[i], ch.HeightCover[i]));
+                masks[layer.Id] = shown;
+            }
             if (!layer.Visible || layer.Opacity <= 0) continue;
+            if (ch != null)
+            {
+                var o = (float)layer.Opacity;
+                var plain = layer.Image == null; // a painting's colour comes from its picture, below
+                Parallel.For(0, n, i =>
+                {
+                    if (bake.Covered[i] == 0) return;
+                    float a;
+                    if (plain && (a = ch.ColorCover[i] * o) > 0) color[i] = Vector3.Lerp(color[i], ch.Color[i], a);
+                    if ((a = ch.RoughCover[i] * o) > 0) rough[i] += (ch.Rough[i] - rough[i]) * a;
+                    if ((a = ch.MetalCover[i] * o) > 0) metal[i] += (ch.Metal[i] - metal[i]) * a;
+                    if ((a = ch.HeightCover[i] * o) > 0) height[i] += (ch.Height[i] - height[i]) * a;
+                });
+                if (plain) continue;
+            }
             var maps = layer.Material.Length > 0 ? materials(layer.Material) : null;
             var tint = Hex(layer.Color);
             // A tint over a material: mid grey leaves it as it is, a colour shifts it that way (darker, or brighter).
@@ -176,7 +199,18 @@ public static class ForgeCompositor
         var px = new byte[n];
         var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
         float[] v = [];
-        for (var k = 0; k <= layerIndex; k++) masks[recipe.Layers[k].Id] = v = ForgePaint.LayerMask(bake, recipe.Layers[k], setIndex, pictures ?? recipe.Picture, id => masks.GetValueOrDefault(id));
+        for (var k = 0; k <= layerIndex; k++)
+        {
+            var l = recipe.Layers[k];
+            v = ForgePaint.LayerMask(bake, l, setIndex, pictures ?? recipe.Picture, id => masks.GetValueOrDefault(id));
+            // A paint layer whose strokes paint their own maps shows wherever any of them is painted.
+            if (ForgePaint.HasChannels(l) && l.Image == null)
+            {
+                var ch = ForgePaint.Channels(bake, l, v, pictures ?? recipe.Picture);
+                v = Enumerable.Range(0, n).Select(i => MathF.Max(MathF.Max(ch.ColorCover[i], ch.RoughCover[i]), MathF.Max(ch.MetalCover[i], ch.HeightCover[i]))).ToArray();
+            }
+            masks[l.Id] = v;
+        }
         var layer = recipe.Layers[layerIndex];
         // An image paint layer shows where it is painted (its alpha) too.
         var picture = layer.Image != null ? images?.Invoke(layer.Image) : null;

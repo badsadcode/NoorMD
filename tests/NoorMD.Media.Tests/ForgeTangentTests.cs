@@ -123,3 +123,68 @@ public class ForgeReliefTests
         Assert.Equal(4, new ForgeRecipe { Relief = 9 }.Clamped().Relief);
     }
 }
+
+/// <summary>Strokes that paint their own maps (as a painting program's brush: colour, roughness, metal, height).</summary>
+public class ForgeChannelTests
+{
+    private static readonly ForgeModel Model = ForgeModel.ReadObj(ForgeModelTests.CubeOnFloor(), "Test");
+    private static readonly ForgeBake Bake = ForgeBake.Bake(Model, 1, 128, new ForgeBake.Settings(AoRays: 0));
+    private static readonly System.Numerics.Vector3 A = new(-0.25f, 1, 0), B = new(0.25f, 1, 0);
+
+    private static ForgeStroke Dab(System.Numerics.Vector3 at, ForgeStrokeMaps? maps, string? color = null, bool erase = false) =>
+        new ForgeStroke { Radius = 0.12, Hardness = 0.9, View = [0, -1, 0], Dabs = [at.X, at.Y, at.Z, 1, 1], Maps = maps, Color = color, Erase = erase }.Clamped();
+
+    private static int At(ForgeBake b, System.Numerics.Vector3 p)
+    {
+        var best = -1; var d = float.MaxValue;
+        for (var i = 0; i < b.Size * b.Size; i++)
+            if (b.Covered[i] == 1 && b.Normal[i].Y > 0.9f && (b.Position[i] - p).LengthSquared() is var dd && dd < d) { d = dd; best = i; }
+        return best;
+    }
+
+    private static ForgeTextures Run(params ForgeLayer[] layers) => ForgeCompositor.Compose(Model, 1, Bake, new ForgeRecipe { Relief = 0, Layers = [.. layers] }.Clamped(), _ => null);
+
+    [Fact]
+    public void Each_stroke_paints_only_its_own_maps()
+    {
+        var baseLayer = new ForgeLayer { Color = "#808080", Roughness = 0.8, Metallic = 0 };
+        // A paint layer: shown only where painted; a metal stroke at A, a red colour stroke at B.
+        var paint = new ForgeLayer { Color = "#808080", Mask = new ForgeMask { Kind = "none" } };
+        paint.Strokes.Add(Dab(A, new ForgeStrokeMaps { Metallic = 1, Roughness = 0.2 }));
+        paint.Strokes.Add(Dab(B, new ForgeStrokeMaps { Color = true }, "#ff0000"));
+        var t = Run(baseLayer, paint);
+        int a = At(Bake, A), b = At(Bake, B);
+        Assert.True(t.Metallic[a] > 240 && t.Roughness[a] < 70, "metal and smooth at A");
+        Assert.InRange(t.BaseColor[a * 3], 120, 135); // its colour left as it was (grey)
+        Assert.True(t.BaseColor[b * 3] > 240 && t.BaseColor[b * 3 + 1] < 20, "red at B");
+        Assert.True(t.Metallic[b] < 10 && t.Roughness[b] > 190, "B keeps the metal and roughness below");
+        // Erasing only the metal at A: back to the base's metal, the roughness stroke stays.
+        paint.Strokes.Add(Dab(A, new ForgeStrokeMaps { Metallic = 0 }, erase: true));
+        t = Run(baseLayer, paint);
+        Assert.True(t.Metallic[a] < 10 && t.Roughness[a] < 70);
+    }
+
+    [Fact]
+    public void Height_strokes_raise_and_a_painting_keeps_its_colour_in_pixels()
+    {
+        var store = new ForgeImageStore();
+        var big = ForgeBake.Bake(Model, 1, 256, new ForgeBake.Settings(AoRays: 0));
+        var img = store.Create(256, ForgeImageStore.Blank(256, Model.Sets.Count));
+        img = ForgeImagePaint.Apply(store, img, 1, big, new ForgeStroke { Radius = 0.12, Hardness = 0.9, View = [0, -1, 0], Dabs = [A.X, A.Y, A.Z, 1, 1], Color = "#0000ff" }.Clamped(), "#808080");
+        var painting = new ForgeLayer { Image = img, UseRoughness = false, UseMetallic = false, UseHeight = false };
+        painting.Strokes.Add(new ForgeStroke { Radius = 0.12, Hardness = 0.9, View = [0, -1, 0], Dabs = [B.X, B.Y, B.Z, 1, 1], Maps = new ForgeStrokeMaps { Height = 1 } }.Clamped());
+        var t = ForgeCompositor.Compose(Model, 1, big, new ForgeRecipe { Relief = 0, Layers = [new ForgeLayer { Color = "#808080" }, painting] }.Clamped(), _ => null, id => store.Get(id));
+        int a = At(big, A), b = At(big, B);
+        Assert.True(t.BaseColor[a * 3 + 2] > 240, "blue from the picture at A");
+        Assert.True(t.Height[b] > 240 && t.Height[a] < 140, "raised at B only");
+        Assert.InRange(t.BaseColor[b * 3 + 2], 120, 135); // nothing painted in the picture at B
+        Assert.True(ForgePaint.HasChannels(painting));
+        Assert.Null(new ForgeStrokeMaps().Clamped());
+        // Kept in the recipe file, as the page sends it.
+        var back = ForgeRecipe.FromJson(new ForgeRecipe { Layers = [painting] }.ToJson());
+        Assert.Equal(1, back.Layers[0].Strokes[0].Maps!.Height);
+        Assert.Null(back.Layers[0].Strokes[0].Maps!.Metallic);
+        var page = ForgeRecipe.FromJson("{\"layers\":[{\"name\":\"P\",\"strokes\":[{\"dabs\":[0,1,0,1,1],\"maps\":{\"color\":true,\"metallic\":1}}]}]}");
+        Assert.True(page.Layers[0].Strokes[0].Maps!.Color); Assert.Equal(1, page.Layers[0].Strokes[0].Maps!.Metallic);
+    }
+}

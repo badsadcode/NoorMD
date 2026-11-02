@@ -9272,7 +9272,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('…a recent colour is chosen with a click', (await FS()).brush.color === '#ff0000');
       const paintsBeforeF = (await FM()).imagePaints.length;
       // The brush bar: one slim row; a word dragged changes its value; F / Shift+F on the model; right-click: the brush.
-      check('the brush bar is one slim row (size, hardness and flow as small fields)', (await page.$eval('#fg-brushbar', (b) => b.getBoundingClientRect().height)) < 56 && !!(await page.$('#fg-brushbar input.fg-fieldnum[data-brush="flow"]')));
+      check('the brush bar is slim (size, hardness and flow as small fields; at most two short rows in a narrow view)', (await page.$eval('#fg-brushbar', (b) => b.getBoundingClientRect().height)) < 84 && !!(await page.$('#fg-brushbar input.fg-fieldnum[data-brush="flow"]')));
       const flow0 = (await FS()).brush.flow;
       const fl = await page.$eval('#fg-brushbar .fg-field:has(input[data-brush="flow"]) .fg-fieldlabel', (h) => { const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
       await page.mouse.move(fl.x, fl.y); await page.mouse.down(); await page.mouse.move(fl.x - 60, fl.y, { steps: 4 }); await page.mouse.up();
@@ -9366,6 +9366,52 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.selectOption('#fg-blend', 'mix');
       await page.keyboard.press('Escape');
       check('…back to Mix: no badge', !(await page.$('#fg-blendbadge')));
+      // Paints: the maps the brush paints (colour, roughness, metal, height), each stroke keeping them.
+      check('the brush bar has Paints: colour, roughness, metal and height', (await page.$$('#fg-brushbar .fg-mapchip')).length === 4 && (await page.getAttribute('#fg-brushbar .fg-mapchip[data-map="color"]', 'aria-pressed')) === 'true');
+      const chipAt = (k) => page.$eval(`#fg-brushbar .fg-mapchip[data-map="${k}"]`, (b) => { const r = b.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; });
+      // On the painting: metal only, no colour: kept as a stroke on it, nothing painted into its pixels.
+      await page.click('#fg-brushbar .fg-mapchip[data-map="color"]');
+      await page.click('#fg-brushbar .fg-mapchip[data-map="metal"]');
+      check('…a click turns a map on or off', (await FS()).brush.paints.metal === true && (await FS()).brush.paints.color === false);
+      let c = await chipAt('rough');
+      await page.mouse.move(c.x, c.y); await page.mouse.down(); await page.mouse.move(c.x - 40, c.y, { steps: 4 }); await page.mouse.up();
+      check('…dragging a map sideways turns it on and changes its value', (await FS()).brush.paints.rough === true && (await FS()).brush.rough < 0.3, (await FS()).brush.rough);
+      const imgBefore = (await FM()).imagePaints.length, strokesBefore = ((await layerNow()).strokes || []).length;
+      await stroke(50);
+      await waitFn(page, (n) => (NoorForge._state().recipe.layers[NoorForge._state().selected].strokes || []).length > n, strokesBefore);
+      let st = (await layerNow()).strokes.at(-1);
+      check('…on a painting, metal and roughness are kept as a stroke on it (not in its pixels)', st.maps && st.maps.metallic === 1 && st.maps.roughness < 0.3 && st.maps.color === false && (await FM()).imagePaints.length === imgBefore);
+      check('…a painting shows only its opacity (the brush decides the rest)', !(await page.$('.fg-layeredit input[data-key="metallic"], #fg-layeredit [aria-label="Metal"]')));
+      // A paint layer: colour and height together.
+      await page.click('#fg-addpaint');
+      await page.click('#fg-brushbar .fg-mapchip[data-map="color"]');
+      await page.click('#fg-brushbar .fg-mapchip[data-map="metal"]');
+      await page.click('#fg-brushbar .fg-mapchip[data-map="rough"]');
+      await page.click('#fg-brushbar .fg-mapchip[data-map="height"]');
+      await setColour('#123456');
+      await stroke(60);
+      await waitFn(page, () => { const s2 = NoorForge._state(); return (s2.recipe.layers[s2.selected].strokes || []).length === 1; });
+      st = (await layerNow()).strokes[0];
+      check('…on a paint layer, a stroke keeps its colour and height (and not what is turned off)', st.color === '#123456' && st.maps.color === true && st.maps.height === 0.65 && st.maps.metallic === undefined && st.maps.roughness === undefined);
+      await waitFn(page, () => window.__mock.state.forge.renders.at(-1).layers.some((x) => (x.strokes || []).some((s3) => s3.maps && s3.maps.height === 0.65)));
+      check('…and the model is textured with it', true);
+      // W: the maps' values too.
+      await page.mouse.move(box.x, box.y);
+      await page.keyboard.press('w');
+      await page.waitForSelector('#fg-popup input[data-mapvalue="metal"]');
+      await page.$eval('#fg-popup input[data-mapvalue="metal"]', (i) => { i.value = '40'; i.dispatchEvent(new Event('input')); });
+      check('W: a map\'s value there turns it on', (await FS()).brush.metal === 0.4 && (await FS()).brush.paints.metal === true);
+      if (shots) await page.screenshot({ path: `${shots}/65g-paints.png` });
+      await page.keyboard.press('Escape');
+      // Turning everything off: nothing is painted, and it says so.
+      for (const k of ['color', 'metal', 'height']) await page.click(`#fg-brushbar .fg-mapchip[data-map="${k}"]`);
+      const n0 = (await layerNow()).strokes.length;
+      await stroke(70);
+      await page.waitForTimeout(300);
+      check('…with no map on, the brush paints nothing (and says why)', (await layerNow()).strokes.length === n0 && /turn on a map/i.test(await page.textContent('#fg-status')));
+      await page.click('#fg-brushbar .fg-mapchip[data-map="color"]');
+      // A material layer: painting shows or hides it (no Paints).
+      await page.click('#fg-layers .fg-layer:has-text("Moss")').catch(() => {});
       if (shots) await page.screenshot({ path: `${shots}/65g-noorforge-painting.png` });
       check('no page errors with paintings', errors.length === 0, errors);
       await page.close();

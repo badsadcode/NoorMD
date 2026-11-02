@@ -1590,6 +1590,15 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
 .fg-popup input.fg-hsv::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 16px; border-radius: 4px; background: #fff; border: 1px solid #333; box-shadow: 0 1px 3px rgba(0,0,0,.4); }
 .fg-pophint { margin: 0; font-size: 11px; color: var(--muted); }
 .fg-blendbadge { font-size: 11px; padding: 1px 6px; }
+.fg-paints { display: inline-flex; gap: 2px; align-items: center; margin-right: 4px; }
+.fg-mapchip { display: inline-flex; align-items: baseline; gap: 3px; padding: 2px 6px; font-size: 11px; line-height: 16px; border-radius: 6px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: ew-resize; user-select: none; touch-action: none; }
+.fg-mapchip[data-map="color"] { cursor: pointer; }
+.fg-mapchip[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 20%, transparent); border-color: var(--accent); color: var(--text); }
+.fg-mapchip small { font-variant-numeric: tabular-nums; opacity: .85; }
+.fg-paintsnote { font-size: 11px; margin-right: 4px; }
+.fg-popcheck { font-size: 12px; display: inline-flex; gap: 4px; align-items: center; }
+.fg-popup .fg-popmap > span { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; }
+.fg-popup .fg-popfield.fg-popmap { grid-template-columns: 84px 1fr 32px; }
 .forgebench .fg-layername { font-weight: 600; }
 .forgebench .fg-pickbig { width: calc(100% - 8px); margin: 4px; text-align: left; }
 .forgebench .fg-mine-row { display: flex; align-items: center; gap: 2px; }

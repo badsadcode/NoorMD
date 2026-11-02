@@ -197,6 +197,14 @@ painted straight onto the model in any colour, for hand-painted albedo.
   catch the light; the view's key light comes from above and left of where you look from (the relief reads from every
   side), with less flat ambient light; Mossy stone's dirt sits in its cracks and its worn edges keep the stone's height.
 
+- preview.141: **Paints** on the brush bar, as a painting program's brush: Colour, Rough, Metal and Height, each on or
+  off (a click) with its value (dragged sideways, or in W's pop-up). Each stroke keeps the maps it painted and their
+  values, so one paint layer holds bare metal here, a glossy patch there and a raised weld elsewhere; erasing takes
+  away only the maps turned on. On a painting (pixels) its colour goes into the pixels and the other maps are kept as
+  strokes on it. A material layer's brush still shows or hides the material. Paint layers and paintings show only
+  their opacity (the brush decides the rest); strokes from before keep the layer's own values. In a map's own view
+  (Metal, Roughness, Height) the stroke shows as its value in grey while it is painted.
+
 ### Next (stage 4, second part)
 
 - Blender's other brushes: soften (blur), smear, clone (Ctrl+click for the source), and blend modes (mix, multiply,
