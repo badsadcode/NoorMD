@@ -168,7 +168,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Add a mesh | Shift+A |
 | Select / add to it | Click / Shift+click; drag: box select (Shift adds, Ctrl takes away) |
 | Select all / none / invert | A / Alt+A / Ctrl+I |
-| Move / rotate / scale | G / R / S, then X, Y or Z for an axis, a number typed, Ctrl for steps; click or Enter: done; right-click or Esc: back |
+| Move / rotate / scale | G / R / S, then X, Y or Z for an axis (or hold the middle button and move towards it), a number typed, Ctrl for steps; click or Enter: done; right-click or Esc: back |
 | Clear location / rotation / scale | Alt+G / Alt+R / Alt+S |
 | Apply transforms | Ctrl+A |
 | Duplicate / delete | Shift+D / X or Delete |

@@ -244,7 +244,24 @@ window.NoorMesh = (() => {
     op.list.forEach(sync);
     // The axis it is held to, as a long line through the pivot.
     view.setGuides(op.axis !== null ? [{ from: V.add(op.pivot, V.scale(AXES[op.axis], -1000)), to: V.add(op.pivot, V.scale(AXES[op.axis], 1000)), color: AXIS_COLOURS[op.axis] }] : []);
-    hud(`${text}   ·   X Y Z: an axis · type a number · click or Enter: done · right-click or Esc: back`);
+    hud(`${text}   ·   X Y Z or middle-drag: an axis · type a number · click or Enter: done · right-click or Esc: back`);
+  }
+  /** While the middle button is held in a transform: the world axis whose direction on the screen is nearest the mouse's movement. */
+  function pickAxis() {
+    const m = op.mmb, dx = mouse.x - m.x, dy = mouse.y - m.y, d = Math.hypot(dx, dy);
+    if (d < 8) return;
+    m.moved = true;
+    const c = view.project(op.pivot);
+    const scale = Math.max(0.1, K().vec.len(K().vec.sub(view.camera().eye, op.pivot)) * 0.1);
+    let best = null, bestDot = -1;
+    AXES.forEach((a, k) => {
+      const p = view.project(K().vec.add(op.pivot, K().vec.scale(a, scale)));
+      const ax = p.x - c.x, ay = p.y - c.y, l = Math.hypot(ax, ay);
+      if (l < 2) return; // pointing at the camera: no direction on the screen
+      const dot = Math.abs((ax * dx + ay * dy) / (l * d));
+      if (dot > bestDot) { bestDot = dot; best = k; }
+    });
+    if (best !== null) op.axis = best;
   }
   const fmt = (x) => (Math.abs(x) < 1e-9 ? '0' : (Math.round(x * 1000) / 1000).toString());
   function confirmOp() {
@@ -288,13 +305,20 @@ window.NoorMesh = (() => {
   // ---------------------------------------------------------------- mouse in the view
   function onDown(e) {
     mouse = { x: e.clientX, y: e.clientY };
-    if (op) { if (e.button === 0) confirmOp(); else if (e.button === 2) cancelOp(); e.preventDefault(); return; }
+    if (op) {
+      if (e.button === 0) confirmOp();
+      else if (e.button === 2) cancelOp();
+      // The middle button (as Blender's): held and moved, the axis that runs most along the movement; clicked, free again.
+      else if (e.button === 1) { op.mmb = { x: e.clientX, y: e.clientY, moved: false }; updateOp(); }
+      e.preventDefault(); return;
+    }
     if (e.button === 0) box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, ctrl: e.ctrlKey, moved: false };
     if (e.button === 2) box = { menu: true, x0: e.clientX, y0: e.clientY };
   }
   function onMove(e) {
     mouse = { x: e.clientX, y: e.clientY };
     op && (op.ctrl = e.ctrlKey);
+    if (op && op.mmb) pickAxis();
     if (op) { updateOp(); return; }
     if (box && !box.menu) {
       box.x1 = e.clientX; box.y1 = e.clientY;
@@ -303,6 +327,10 @@ window.NoorMesh = (() => {
     }
   }
   function onUp(e) {
+    if (op && op.mmb && e.button === 1) {
+      if (!op.mmb.moved) op.axis = null;
+      op.mmb = null; updateOp(); return;
+    }
     const b = box;
     box = null; drawBox();
     if (!b) return;
@@ -504,7 +532,7 @@ window.NoorMesh = (() => {
     root.addEventListener('keydown', onKey);
     root.addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; });
     try {
-      view = NoorMeshView.create($('#nm-canvas'), { down: onDown, move: onMove, up: onUp, viewChanged: () => { if (op) updateOp(); } });
+      view = NoorMeshView.create($('#nm-canvas'), { down: onDown, move: onMove, up: onUp, takes: (e) => !!op && e.button === 1, viewChanged: () => { if (op) updateOp(); } });
     } catch (err) { console.warn('NoorMesh: no 3D view', err); view = null; setTimeout(() => setStatus(`The 3D view couldn't start (it needs WebGL 2): ${err && err.message ? err.message : err}`), 0); }
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('mesh', { name: 'NoorMesh', title: appTitle, menus: appMenus });
   }
@@ -559,7 +587,7 @@ window.NoorMesh = (() => {
 
   const SHORTCUTS = [
     ['Add a mesh', 'Shift+A'], ['Select', 'Click (Shift: add or take away)'], ['Box select', 'Drag (Shift: add, Ctrl: take away)'], ['Select all / none / invert', 'A / Alt+A / Ctrl+I'],
-    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free)'], ['…by a number', 'Type it (− turns it round), Backspace'], ['…in steps', 'Hold Ctrl'],
+    ['Move / rotate / scale', 'G / R / S'], ['…along an axis', 'X, Y or Z (again: free), or hold the middle button and move towards it (a middle click: free)'], ['…by a number', 'Type it (− turns it round), Backspace'], ['…in steps', 'Hold Ctrl'],
     ['…done / back', 'Click or Enter / right-click or Esc'], ['Clear location / rotation / scale', 'Alt+G / Alt+R / Alt+S'], ['Apply transforms', 'Ctrl+A'],
     ['Duplicate', 'Shift+D'], ['Delete', 'X or Delete'], ['Hide / show all / hide others', 'H / Alt+H / Shift+H'], ['Rename', 'F2'],
     ['Turn the view', 'Middle-drag (or Alt+drag)'], ['Move the view', 'Shift+middle-drag'], ['Zoom', 'Wheel or Ctrl+middle-drag'],

@@ -5,7 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
-- NoorMesh (preview.143): Z up as in Blender (the floor X by Y, front view from −Y); right-click menus in NoorMesh and
+- NoorMesh (preview.143): Z up as in Blender (the floor X by Y, front view from −Y); during G/R/S the middle button held
+  and moved picks the axis along the movement (a middle click frees it); right-click menus in NoorMesh and
   NoorForge no longer open the browser's own menu as well.
 - NoorMesh (preview.142), phase A1: a new bench for modelling game meshes (Ctrl+Alt+N): the scene in Object Mode with
   Blender's keys, eight primitives, move/rotate/scale with axes and typed numbers, apply, undo. See

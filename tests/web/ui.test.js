@@ -9511,6 +9511,20 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.mouse.click(at.x, at.y);
       st = await MS();
       check('clicking the cube selects it', st.selected.length === 1 && st.active === cubeId, st.selected);
+      // During G, the middle button held and moved picks the axis along the movement (as Blender's); a middle click frees it.
+      await page.mouse.move(at.x, at.y);
+      await page.keyboard.press('g');
+      await page.mouse.down({ button: 'middle' });
+      await page.mouse.move(at.x + 60, at.y + 4, { steps: 4 });
+      check('G, then the middle button held and moved sideways (front view): held to X', (await MS()).op && (await MS()).op.axis === 0 && !(await MS()).camera.ortho === false);
+      await page.mouse.move(at.x + 4, at.y - 70, { steps: 4 });
+      check('…moved up instead: held to Z (up)', (await MS()).op.axis === 2);
+      await page.mouse.up({ button: 'middle' });
+      check('…let go: it stays held to Z, still moving, the view not turned', (await MS()).op && (await MS()).op.axis === 2 && (await MS()).camera.ortho);
+      await page.mouse.down({ button: 'middle' }); await page.mouse.up({ button: 'middle' });
+      check('…a middle click: free again', (await MS()).op && (await MS()).op.axis === null);
+      await page.keyboard.press('Escape');
+      check('…Esc: back where it was', (await MS()).objects[0].t.every((x) => x === 0) && !(await MS()).op);
       await page.keyboard.press('h');
       check('H hides it', (await MS()).objects[0].hidden && (await MS()).selected.length === 0);
       await page.keyboard.press('Alt+h');

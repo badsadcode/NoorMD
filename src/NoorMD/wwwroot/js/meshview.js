@@ -304,8 +304,9 @@
     // ---- navigation
     let nav = null;
     canvas.addEventListener('pointerdown', (e) => {
-      const orbit = e.button === 1 || (e.button === 0 && e.altKey);
-      if (!orbit) { if (hooks.down) hooks.down(e); return; }
+      // The bench may take a button the view would use (the middle one while a transform is under way: an axis).
+      const orbit = (e.button === 1 || (e.button === 0 && e.altKey)) && !(hooks.takes && hooks.takes(e));
+      if (!orbit) { if (e.button === 1) { e.preventDefault(); canvas.setPointerCapture(e.pointerId); } if (hooks.down) hooks.down(e); return; }
       e.preventDefault();
       nav = { x: e.clientX, y: e.clientY, pan: e.shiftKey, zoom: e.ctrlKey };
       canvas.setPointerCapture(e.pointerId);
