@@ -29,6 +29,9 @@ window.NoorMesh = (() => {
   let editOpts = (() => { const d = { prop: false, falloff: 'smooth', radius: 1, mirror: [false, false, false], autoMerge: false, mergeDist: 0.001 }; try { return { ...d, ...JSON.parse(localStorage.getItem('noormd.mesh.editopts') || '{}') }; } catch { return d; } })();
   // The 3D cursor (where new objects go; a pivot), and the pivot point for rotating and scaling (as Blender's "."): median, cursor, individual origins, active.
   let cursor = [0, 0, 0];
+  // Edit Mode on several objects at once (as Blender's): their meshes joined into the active one's space while editing,
+  // each face knowing whose it is (`o`, the index into ids); split back into the objects when Edit Mode ends.
+  let multi = null; // { ids: [the active one first, then the others] }
   let pivotMode = (() => { try { return localStorage.getItem('noormd.mesh.pivot') || 'median'; } catch { return 'median'; } })();
   let gizmos = (() => { try { return { move: true, rotate: false, scale: false, ...JSON.parse(localStorage.getItem('noormd.mesh.gizmos') || '{}') }; } catch { return { move: true, rotate: false, scale: false }; } })();
   let gizmoHover = null, gizmoHandles = [];
@@ -68,7 +71,7 @@ window.NoorMesh = (() => {
   const sel = () => objects.filter((o) => selected.has(o.id) && !o.hidden);
 
   // ---------------------------------------------------------------- history (a scene per step; meshes by reference)
-  const snapshot = () => ({ objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel) });
+  const snapshot = () => ({ objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel), multi: multi && { ids: multi.ids.slice() } });
   function pushHistory() { history.push(snapshot()); if (history.length > 200) history.shift(); future = []; changed(); }
   /** Something changed: the title shows it, and a draft is kept a few seconds later (to bring back after a crash). */
   function changed() {
@@ -82,6 +85,7 @@ window.NoorMesh = (() => {
   function restore(s) {
     objects = s.objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })); selected = new Set(s.selected); active = s.active; nextId = Math.max(nextId, s.nextId); lastAdd = null;
     mode = s.mode || 'object'; editSel = s.editSel ? K().cloneSelection(s.editSel) : null;
+    multi = s.multi && mode === 'edit' ? { ids: s.multi.ids.slice() } : null;
     if (mode === 'edit' && !editing()) { mode = 'object'; editSel = null; }
     syncAll(); renderAll();
   }
@@ -99,7 +103,8 @@ window.NoorMesh = (() => {
   function sync(o) {
     if (!view) return;
     const inEdit = mode === 'edit' && o.id === active; // its overlay shows the selection instead of an outline
-    const look = { matrix: matrixOf(o), selected: selected.has(o.id) && !inEdit, active: active === o.id && !inEdit, hidden: o.hidden };
+    const absorbed = !!multi && mode === 'edit' && o.id !== active && multi.ids.includes(o.id);
+    const look = { matrix: matrixOf(o), selected: selected.has(o.id) && !inEdit, active: active === o.id && !inEdit, hidden: o.hidden || absorbed };
     if (uploaded.get(o.id) !== o.mesh) { view.setObject(o.id, K().buffers(o.mesh), look); uploaded.set(o.id, o.mesh); }
     else view.setLook(o.id, look);
   }
@@ -226,14 +231,56 @@ window.NoorMesh = (() => {
     if (on) {
       const o = byId(active);
       if (!o || o.hidden) { setStatus('Select an object first: Edit Mode edits the active object.'); return; }
+      const together = sel().filter((x) => x !== o);
       mode = 'edit';
-      selected = new Set([o.id]);
+      if (together.length) enterMulti(o, together);
+      else selected = new Set([o.id]);
       if (!editSel) editSel = K().emptySelection('vert');
       editSel = K().emptySelection(editSel.mode); // a fresh selection each time (simple and predictable)
-    } else mode = 'object';
+    } else { if (multi) leaveMulti(); mode = 'object'; }
     lastAdd = null;
     syncAll(); renderAll();
-    setStatus(mode === 'edit' ? 'Edit Mode: 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode' : 'Object Mode');
+    setStatus(mode === 'edit' ? (multi ? `Edit Mode: ${multi.ids.length} objects together · 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode` : 'Edit Mode: 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode') : 'Object Mode');
+  }
+  const detOf = (L) => L[0] * (L[5] * L[10] - L[6] * L[9]) - L[4] * (L[1] * L[10] - L[2] * L[9]) + L[8] * (L[1] * L[6] - L[2] * L[5]);
+  /** Several objects into Edit Mode: their meshes put into the active one's space, every face marked with its owner. */
+  function enterMulti(a, others) {
+    const Ai = invertOf(a), mesh = K().clone(a.mesh);
+    mesh.f.forEach((f) => { f.o = 0; });
+    others.forEach((o, j) => {
+      const L = K().multiply(Ai, matrixOf(o)), base = K().vertexCount(mesh), flip = detOf(L) < 0;
+      for (let i = 0; i < K().vertexCount(o.mesh); i++) mesh.v.push(...K().transformPoint(L, vOf(o.mesh, i)));
+      for (const f of o.mesh.f) { const nf = { v: f.v.map((v) => v + base), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s, o: j + 1 }; if (flip) K().flipFace(nf); mesh.f.push(nf); }
+    });
+    multi = { ids: [a.id, ...others.map((o) => o.id)] };
+    a.mesh = mesh;
+    selected = new Set(multi.ids);
+  }
+  /** The joined mesh split back: each object its own faces (new faces go with the faces beside them), in its own space. */
+  function splitMulti() {
+    const a = byId(multi.ids[0]), m = a.mesh, n = multi.ids.length;
+    const owner = m.f.map((f) => (Number.isInteger(f.o) && f.o >= 0 && f.o < n ? f.o : -1));
+    const ef = K().edgeFaces(m), queue = owner.map((o, i) => (o >= 0 ? i : -1)).filter((i) => i >= 0);
+    for (let qi = 0; qi < queue.length; qi++) {
+      const fi = queue[qi];
+      for (const k of K().faceEdgeKeys(m.f[fi])) for (const nb of ef.get(k) || []) if (owner[nb] < 0) { owner[nb] = owner[fi]; queue.push(nb); }
+    }
+    const out = new Map();
+    multi.ids.forEach((id, j) => {
+      const o = byId(id);
+      if (!o) return;
+      const part = subMesh(m, m.f.map((_, i) => i).filter((i) => (owner[i] < 0 ? 0 : owner[i]) === j));
+      const L = K().multiply(invertOf(o), matrixOf(a)), flip = detOf(L) < 0;
+      for (let i = 0; i < K().vertexCount(part); i++) { const q = K().transformPoint(L, vOf(part, i)); part.v[i * 3] = q[0]; part.v[i * 3 + 1] = q[1]; part.v[i * 3 + 2] = q[2]; }
+      if (flip) part.f.forEach((f) => K().flipFace(f));
+      out.set(id, part);
+    });
+    return out;
+  }
+  function leaveMulti() {
+    const parts = splitMulti();
+    for (const [id, mesh] of parts) { const o = byId(id); if (o) o.mesh = mesh; }
+    multi = null;
   }
   function setSelectMode(m) {
     const o = editing();
@@ -1216,7 +1263,7 @@ window.NoorMesh = (() => {
     setStatus(`Joined ${list.length} objects into ${target.name}.`);
   }
   /** Part of a mesh: the given faces and the vertices they use. */
-  function subMesh(m, faces) { return K().compact({ v: m.v.slice(), f: [...faces].map((i) => ({ ...m.f[i], v: m.f[i].v.slice(), uv: m.f[i].uv ? m.f[i].uv.slice() : null })), e: {} }).mesh; }
+  function subMesh(m, faces) { return K().compact({ v: m.v.slice(), f: [...faces].map((i) => { const { o: _owner, ...f } = m.f[i]; void _owner; return { ...f, v: f.v.slice(), uv: f.uv ? f.uv.slice() : null }; }), e: {} }).mesh; }
   function separate(how) {
     const o = editing();
     if (!o) return;
@@ -1575,8 +1622,11 @@ window.NoorMesh = (() => {
   // ---------------------------------------------------------------- files: .noormesh, GLB and OBJ (A4)
   /** The scene as the app keeps it (MeshDoc's JSON). */
   function docOut() {
+    // Several objects in Edit Mode together: saved as they will be when it ends (each its own mesh).
+    const parts = multi && mode === 'edit' ? splitMulti() : null;
+    const meshOf = (o) => (parts && parts.has(o.id) ? parts.get(o.id) : o.mesh);
     return { format: 'noormesh', version: 1, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t, r: o.r, s: o.s, hidden: !!o.hidden,
-      mesh: { v: o.mesh.v, f: o.mesh.f.map((f) => ({ v: f.v, uv: f.uv || null, m: f.m || 0, s: !!f.s })), e: o.mesh.e || {} } })) };
+      mesh: { v: meshOf(o).v, f: meshOf(o).f.map((f) => ({ v: f.v, uv: f.uv || null, m: f.m || 0, s: !!f.s })), e: meshOf(o).e || {} } })) };
   }
   /** Objects from a scene the app read: given ids of their own, meshes in the page's shape. */
   function objectsIn(doc) {
@@ -1585,7 +1635,7 @@ window.NoorMesh = (() => {
   }
   function setScene(doc, from) {
     cancelOp();
-    mode = 'object'; editSel = null; lastAdd = null;
+    mode = 'object'; editSel = null; lastAdd = null; multi = null;
     objects = []; nextId = 1;
     objects = objectsIn(doc);
     selected = new Set(objects.length ? [objects[objects.length - 1].id] : []); active = objects.length ? objects[objects.length - 1].id : null;
@@ -2035,10 +2085,12 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
     _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },
+    /** For tests: an object's vertices in the world. */
+    _worldVerts: (i) => { const o = objects[i]; if (!o) return null; const M = matrixOf(o), out = []; for (let k = 0; k < K().vertexCount(o.mesh); k++) out.push(K().transformPoint(M, vOf(o.mesh, k))); return out; },
     _editMesh: () => { const o = editing(); return o ? { v: o.mesh.v.slice(), faces: o.mesh.f.length, volume: K().volume(o.mesh), check: K().check(o.mesh) } : null; },
     /** For tests: select these faces of the edited object (as clicks would). */
     _editSelect: (faces) => { const o = editing(); if (!o) return; editSel = K().selectionFromFaces(o.mesh, faces, editSel.mode); syncEdit(); renderAll(); },

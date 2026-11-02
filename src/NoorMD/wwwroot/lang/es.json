@@ -1764,6 +1764,7 @@
  "Edit Mode / Object Mode": "Modo Edición / Objeto",
  "Edit Mode menu": "Menú del modo Edición",
  "Edit Mode options": "Opciones del modo Edición",
+ "Edit Mode: {0} objects together · 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Modo Edición: {0} objetos juntos · 1 vértices, 2 aristas, 3 caras · Tab: volver al modo Objeto",
  "Edit Mode: 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Modo Edición: 1 vértices, 2 aristas, 3 caras · Tab: volver al modo Objeto",
  "Edit Mode (soon)": "Modo Edición (pronto)",
  "Edit Mode (vertices, edges and faces) comes in the next NoorMesh preview.": "El modo Edición (vértices, aristas y caras) llega en la próxima versión preliminar de NoorMesh.",

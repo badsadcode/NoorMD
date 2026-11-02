@@ -21,7 +21,8 @@
 
   // ---------------------------------------------------------------- the mesh
   const empty = () => ({ v: [], f: [], e: {} });
-  const clone = (mesh) => ({ v: mesh.v.slice(), f: mesh.f.map((f) => ({ v: f.v.slice(), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s })), e: JSON.parse(JSON.stringify(mesh.e || {})) });
+  // A face may carry `o`: which object it belongs to while several are edited together (kept by every operation).
+  const clone = (mesh) => ({ v: mesh.v.slice(), f: mesh.f.map((f) => ({ v: f.v.slice(), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s, ...(f.o !== undefined ? { o: f.o } : {}) })), e: JSON.parse(JSON.stringify(mesh.e || {})) });
   const vertexCount = (mesh) => mesh.v.length / 3;
   const edgeKey = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
 

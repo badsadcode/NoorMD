@@ -189,6 +189,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 
 | What | Keys |
 |---|---|
+| Edit several objects together | Select them, then Tab |
 | Vertices / edges / faces | 1 / 2 / 3 |
 | Select a loop | Alt+click (Shift+Alt adds it) |
 | Select linked under the mouse / of the selection | L / Ctrl+L |

@@ -1758,6 +1758,7 @@
  "Edit Mode / Object Mode": "Bearbeitungs- / Objektmodus",
  "Edit Mode menu": "Menü des Bearbeitungsmodus",
  "Edit Mode options": "Bearbeitungsmodus-Optionen",
+ "Edit Mode: {0} objects together · 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Bearbeitungsmodus: {0} Objekte zusammen · 1 Punkte, 2 Kanten, 3 Flächen · Tab: zurück zum Objektmodus",
  "Edit Mode: 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Bearbeitungsmodus: 1 Punkte, 2 Kanten, 3 Flächen · Tab: zurück zum Objektmodus",
  "Edit Mode (soon)": "Bearbeitungsmodus (bald)",
  "Edit Mode (vertices, edges and faces) comes in the next NoorMesh preview.": "Der Bearbeitungsmodus (Punkte, Kanten, Flächen) kommt in der nächsten NoorMesh-Vorschau.",

@@ -230,6 +230,13 @@ through vertices, onto the faces beside. Enter splits every face it runs across 
 through the points inside it); ends left hanging inside a face are dropped, and edges crossed for nothing are left
 whole, so no loose edges or stray vertices are made. One undo step.
 
+**Done in preview.150: Edit Mode on several objects at once** — Tab with several meshes selected edits them together
+(as Blender's): their meshes are put into the active object's space for editing, each face knowing whose it is, so
+every Edit Mode tool reaches all of them at once (selecting, G/R/S, gizmos, extrude, bevel, loop cut, knife…); new
+faces belong to the object of the faces beside them. Undo and redo work inside it and across leaving it; saving while
+editing writes each object's own mesh; Tab splits them back into the objects, each in its own space, placement kept
+(mirrored objects turned the right way out).
+
 **Next, agreed after preview.146:**
 
 - **preview.147:** bevel (Ctrl+B: width, segments, profile; Ctrl+Shift+B for vertices), knife (K), proportional editing

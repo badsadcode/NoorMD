@@ -1764,6 +1764,7 @@
  "Edit Mode / Object Mode": "Tryb edycji / obiektowy",
  "Edit Mode menu": "Menu trybu edycji",
  "Edit Mode options": "Opcje trybu edycji",
+ "Edit Mode: {0} objects together · 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Tryb edycji: obiekty razem: {0} · 1 wierzchołki, 2 krawędzie, 3 ściany · Tab: z powrotem do trybu obiektów",
  "Edit Mode: 1 vertices, 2 edges, 3 faces · Tab: back to Object Mode": "Tryb edycji: 1 wierzchołki, 2 krawędzie, 3 ściany · Tab: powrót do trybu obiektowego",
  "Edit Mode (soon)": "Tryb edycji (wkrótce)",
  "Edit Mode (vertices, edges and faces) comes in the next NoorMesh preview.": "Tryb edycji (wierzchołki, krawędzie i ściany) pojawi się w następnej wersji NoorMesh.",

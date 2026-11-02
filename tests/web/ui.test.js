@@ -10155,6 +10155,64 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with the cursor, pivots, join and separate', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80h. NoorMesh (preview.150): Edit Mode on several objects at once (Tab with several selected): edits reach
+    // each, new faces go with their object, undo works inside, saving keeps them apart, Tab splits them back.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const EM = () => page.evaluate(() => NoorMesh._editMesh());
+      const WV = (i) => page.evaluate((k) => NoorMesh._worldVerts(k), i);
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx, box.cy);
+      // A second cube 4 m along X, turned 90° about X (its own axes differ from the world's).
+      await page.keyboard.press('Shift+d'); await page.keyboard.press('x'); await page.keyboard.type('4'); await page.keyboard.press('Enter');
+      await page.keyboard.press('r'); await page.keyboard.press('x'); await page.keyboard.type('90'); await page.keyboard.press('Enter');
+      const before0 = await WV(0), before1 = await WV(1);
+      await page.keyboard.press('a');
+      await page.keyboard.press('Tab');
+      let st = await MS();
+      check('Tab with two cubes selected: Edit Mode on both (16 vertices, both still in the scene)', st.mode === 'edit' && st.multi === 2 && st.objects.length === 2 && (await EM()).v.length / 3 === 16, [st.multi, (await EM()).v.length]);
+      // Everything up 1 m in the world.
+      await page.keyboard.press('a');
+      await page.keyboard.press('g'); await page.keyboard.press('z'); await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      // A face of the first cube extruded (the active one, the copy, comes first: its 6 faces, then the first cube's).
+      await page.keyboard.press('3');
+      await page.evaluate(() => NoorMesh._editSel({ faces: [8] }));
+      await page.keyboard.press('e'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      check('…an extrude on the first cube (inside the shared Edit Mode)', (await EM()).faces === 16, (await EM()).faces);
+      await page.keyboard.press('Control+z');
+      check('…undo inside it: the extrude gone, still both in Edit Mode', (await EM()).faces === 12 && (await MS()).multi === 2);
+      await page.keyboard.press('Control+Shift+z');
+      // Saved while editing: the two objects kept apart.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      const saved = await page.evaluate(() => window.__mock.state.mesh.saves[0]);
+      check('Ctrl+S while editing both: saved as two objects (10 faces and 6)', saved.objects === 2 && JSON.stringify(saved.faces) === '[10,6]', saved);
+      await page.keyboard.press('Tab');
+      st = await MS();
+      check('Tab: split back into the two objects (12 vertices and 8; 10 faces and 6), both sound', st.mode === 'object' && st.multi === 0 && st.objects[0].vertices === 12 && st.objects[1].vertices === 8 && st.objects[0].faces === 10 && st.objects[1].faces === 6 && st.objects.every((o) => o.check.ok && o.check.closed), st.objects.map((o) => [o.vertices, o.faces]));
+      check('…each kept its place and turn', st.objects[1].t.join() === '4,0,0' && Math.abs(st.objects[1].r[0] - 90) < 1e-6 && st.objects[0].t.join() === '0,0,0');
+      const after0 = await WV(0), after1 = await WV(1);
+      check('…the first cube moved up 1 m in the world, every vertex', before0.every((p) => after0.some((q) => Math.abs(q[0] - p[0]) < 1e-9 && Math.abs(q[1] - p[1]) < 1e-9 && Math.abs(q[2] - p[2] - 1) < 1e-9)));
+      check('…the turned cube too (up in the world, not along its own axis)', before1.every((p) => after1.some((q) => Math.abs(q[0] - p[0]) < 1e-9 && Math.abs(q[1] - p[1]) < 1e-9 && Math.abs(q[2] - p[2] - 1) < 1e-9)), after1.slice(0, 3));
+      await page.keyboard.press('Control+z');
+      check('undo back into the shared Edit Mode (both again)', (await MS()).mode === 'edit' && (await MS()).multi === 2);
+      await page.keyboard.press('Tab');
+      // One object selected: the usual Edit Mode on it alone.
+      await page.mouse.click(box.cx + 1, box.cy + 1);
+      st = await MS();
+      if (st.selected.length !== 1) { await page.keyboard.press('Alt+a'); }
+      if (shots) {
+        await page.keyboard.press('a'); await page.keyboard.press('Tab'); await page.keyboard.press('a');
+        await page.waitForTimeout(200);
+        await page.screenshot({ path: `${shots}/80h-noormesh-multiedit.png` });
+        await page.keyboard.press('Tab');
+      }
+      check('no page errors editing several objects', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

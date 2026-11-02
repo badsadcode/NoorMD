@@ -5,6 +5,7 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.150): Edit Mode on several objects at once (Tab with several selected).
 - NoorMesh (preview.149): the knife's points stay on the mesh (vertices, edges, edge middles, inside faces) whatever
   the view does; cuts run over the surface across faces.
 - NoorMesh (preview.148): the 3D cursor (Shift+right-click, Shift+S, Shift+C), the pivot point menu, join, separate,
