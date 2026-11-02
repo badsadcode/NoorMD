@@ -9686,6 +9686,65 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors in NoorMesh Edit Mode', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80c. NoorMesh files (phase A4): the draft offered back after a crash, Ctrl+S (Save as the first time, then
+    // the same file), the dirty marker and the draft kept a few seconds after a change, import (GLB/OBJ), export (GLB /
+    // OBJ), Ctrl+O asking about unsaved changes first.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, mesh: { offerDraft: true } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const MM = () => page.evaluate(() => window.__mock.state.mesh);
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen());
+      await page.waitForSelector('.modal:has-text("Bring back the scene?")');
+      check('a draft left from last time is offered back', !!(await page.$('.modal:has-text("lost.noormesh")')));
+      await page.click('.modal button:has-text("Bring it back")');
+      await waitFn(page, () => NoorMesh._state().objects.some((o) => o.name === 'Lost'));
+      let st = await MS();
+      check('…brought back: its objects, unsaved (the title says so)', st.objects.length === 1 && st.dirty && /•/.test(await page.textContent('#nm-info')));
+      // Ctrl+S the first time: Save as (the app asks where), then clean.
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      st = await MS();
+      let mm = await MM();
+      check('Ctrl+S: the scene saved (the app asked where: no path yet), the draft cleared', mm.saves[0].path === '' && mm.saves[0].format === 'noormesh' && mm.saves[0].objects === 1 && mm.clears >= 1 && !st.dirty && st.file.name === 'scene.noormesh');
+      check('…the title shows the file, no unsaved mark', (await page.textContent('#nm-info')).trim() === 'scene.noormesh');
+      // A change: marked, and a draft kept a few seconds later.
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('a');
+      await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      check('a change marks the scene unsaved', (await MS()).dirty && /•/.test(await page.textContent('#nm-info')));
+      const drafts0 = (await MM()).drafts;
+      await page.waitForTimeout(4500);
+      check('…and a draft is kept a few seconds later (to bring back after a crash)', (await MM()).drafts > drafts0 && (await MM()).lastDraft === 1);
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 2);
+      check('Ctrl+S again saves to the same file (no question)', (await MM()).saves[1].path === 'C:\\Models\\scene.noormesh' && !(await MS()).dirty);
+      // Import: added to the scene, selected.
+      await page.click('#nm-import');
+      await waitFn(page, () => NoorMesh._state().objects.length === 2);
+      st = await MS();
+      check('⤒ imports a model into the scene (added, selected, active)', st.objects[1].name === 'Rock' && st.objects[1].kind === 'imported' && st.selected.length === 1 && st.active === st.objects[1].id && st.dirty);
+      // Export: GLB.
+      await page.click('#nm-export');
+      await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("GLB")');
+      await waitFn(page, () => (window.__mock.state.mesh.exports || []).length === 1);
+      mm = await MM();
+      check('⤓ › GLB: the scene exported (named after the file)', mm.exports[0].format === 'glb' && mm.exports[0].objects === 2 && mm.exports[0].name === 'scene');
+      // Ctrl+O with unsaved changes: asked first.
+      await page.keyboard.press('Control+o');
+      await page.waitForSelector('.modal:has-text("Unsaved changes")');
+      check('Ctrl+O with unsaved changes asks first (Save, Don\'t save, Cancel)', !!(await page.$('.modal button:has-text("Don\'t save")')));
+      await page.click('.modal button:has-text("Don\'t save")');
+      await waitFn(page, () => NoorMesh._state().file.name === 'crate.noormesh');
+      st = await MS();
+      check('…Don\'t save: the chosen scene opened (its objects, clean, Object Mode)', st.objects.map((o) => o.name).join() === 'Opened,Second' && !st.dirty && st.mode === 'object' && (await page.textContent('#nm-info')).trim() === 'crate.noormesh');
+      check('…its objects keep their placement', st.objects[1].t[2] === 2);
+      if (shots) await page.screenshot({ path: `${shots}/80c-noormesh-files.png` });
+      check('no page errors with NoorMesh files', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

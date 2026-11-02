@@ -175,6 +175,16 @@ edges, hiding parts of a mesh, A3's bevel / loop cut / knife.
 save natively, export GLB, import it into an independent viewer (Godot headless in CI, Blender by hand), and confirm
 geometry and scale.
 
+**Done in preview.145: A4 (before A3, by choice)** — files. `.noormesh` (a zip holding scene.json: objects, placements,
+n-gon meshes with per-corner UVs, smoothing; versioned, checked on reading, a newer format explained), Save (Ctrl+S, Save
+as the first time), Save as (Ctrl+Shift+S), Open (Ctrl+O, asking about unsaved changes), Open recent, New; the title marks
+unsaved changes; a draft is kept a few seconds after each change and offered back after a crash. Export: GLB (one node
+per shown object with its location, rotation and scale; n-gons triangulated by ear clipping; flat and smooth normals;
+UVs) and OBJ (n-gons kept, in the world), both turned to +Y up; checked by the Khronos validator in CI and read back by
+an independent reader in the tests. Import: GLB (each node with a mesh an object, its world placement kept, vertices
+welded, smooth faces found from the normals) and OBJ (n-gons, "o"/"g" objects, smoothing groups), turned to +Z up. Not
+yet: tris-to-quads after a GLB import, materials and textures in exports (phase B), glTF (.gltf with a separate .bin).
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |

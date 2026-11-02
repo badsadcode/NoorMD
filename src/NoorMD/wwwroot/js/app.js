@@ -2145,9 +2145,9 @@
     // NoorInk keeps its Ctrl shortcuts (group, arrange, combine shapes, zoom…) while it has the keyboard.
     const toInk = e.target && ((e.target.closest && e.target.closest('#inkbench')) || (e.target === document.body && window.NoorInk && NoorInk.isOpen() && $('#inkbench') && $('#inkbench').offsetParent));
     if (ctrl && toInk && !e.altKey && key !== 'Tab' && !/^F\d+$/.test(key) && !(e.getModifierState && e.getModifierState('AltGraph'))) return;
-    // NoorMesh keeps Blender's keys while it has the keyboard: Ctrl ones (undo, apply, invert, dissolve, linked, more/less), Alt+A/H/G/R/S/N, F1, F2, Home.
+    // NoorMesh keeps Blender's keys while it has the keyboard: Ctrl ones (undo, apply, invert, dissolve, linked, more/less, save, open), Alt+A/H/G/R/S/N, F1, F2, Home.
     const toMesh = e.target && ((e.target.closest && e.target.closest('#meshbench')) || (e.target === document.body && window.NoorMesh && NoorMesh.isOpen() && $('#meshbench') && $('#meshbench').offsetParent));
-    if (toMesh && !(e.getModifierState && e.getModifierState('AltGraph')) && ((ctrl && !e.altKey && (['z', 'y', 'a', 'i', 'x', 'l'].includes(key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract')) || (e.altKey && !ctrl && ['a', 'h', 'g', 'r', 's', 'n'].includes(key)) || key === 'F1' || key === 'F2' || key === 'Home')) return;
+    if (toMesh && !(e.getModifierState && e.getModifierState('AltGraph')) && ((ctrl && !e.altKey && (['z', 'y', 'a', 'i', 'x', 'l', 's', 'o'].includes(key) || e.code === 'NumpadAdd' || e.code === 'NumpadSubtract')) || (e.altKey && !ctrl && ['a', 'h', 'g', 'r', 's', 'n'].includes(key)) || key === 'F1' || key === 'F2' || key === 'Home')) return;
     // Menus first: Alt+letter / F10 open them, and while one is open its keys belong to it.
     if (!(e.getModifierState && e.getModifierState('AltGraph')) && NoorChrome.handleKey(e)) { e.stopPropagation(); return; }
     if (e.target && e.target.closest && e.target.closest('.menu-popup, #menubar') && !ctrl) return;

@@ -102,6 +102,7 @@ public static class GlbWriter
             var node = new Dictionary<string, object> { ["name"] = n.Name };
             if (n.Translation != Vector3.Zero) node["translation"] = new[] { n.Translation.X, n.Translation.Y, n.Translation.Z };
             if (n.Rotation != Quaternion.Identity) node["rotation"] = new[] { n.Rotation.X, n.Rotation.Y, n.Rotation.Z, n.Rotation.W };
+            if (n.Scale != Vector3.One) node["scale"] = new[] { n.Scale.X, n.Scale.Y, n.Scale.Z };
             if (n.Extras is { Count: > 0 } extras) node["extras"] = extras;
             nodes.Add(node);
             var index = nodes.Count - 1;

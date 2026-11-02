@@ -160,6 +160,14 @@ public class GlbWriterTests
         Directory.CreateDirectory(dir);
         File.WriteAllBytes(Path.Combine(dir, "sample.glb"), GlbWriter.Write(Sample()));
         foreach (var (name, asset) in AssetSamples.All()) File.WriteAllBytes(Path.Combine(dir, name + ".glb"), GlbWriter.Write(asset));
+        // NoorMesh: a placed, turned and scaled crate (flat and smooth faces, UVs) and a hidden object left out.
+        var scene = new NoorMD.Media.Mesh.MeshDoc { Objects = [
+            new NoorMD.Media.Mesh.MeshObject { Id = "o1", Name = "Crate", T = [1, 2, 0.5f], R = [0, 15, 45], S = [1, 2, 1], Mesh = new NoorMD.Media.Mesh.MeshData {
+                V = [-1, -1, -1, 1, -1, -1, 1, 1, -1, -1, 1, -1, -1, -1, 1, 1, -1, 1, 1, 1, 1, -1, 1, 1],
+                F = new[] { new[] { 0, 1, 5, 4 }, new[] { 2, 3, 7, 6 }, new[] { 1, 2, 6, 5 }, new[] { 3, 0, 4, 7 }, new[] { 4, 5, 6, 7 }, new[] { 0, 3, 2, 1 } }
+                    .Select((f, i) => new NoorMD.Media.Mesh.MeshFace { V = f, Uv = [0, 0, 1, 0, 1, 1, 0, 1], S = i % 2 == 0 }).ToList() } },
+        ] };
+        File.WriteAllBytes(Path.Combine(dir, "noormesh-crate.glb"), scene.ToGlb());
     }
 }
 

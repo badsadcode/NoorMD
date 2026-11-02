@@ -178,6 +178,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Front / right / top (Ctrl: the other side), perspective | Numpad 1 / 3 / 7, Numpad 5 |
 | Frame the selection / everything | Numpad . / Home |
 | NoorMesh's shortcuts | F1 |
+| Save / save as / open (NoorMesh) | Ctrl+S / Ctrl+Shift+S / Ctrl+O |
 
 ### NoorMesh Edit Mode (Tab)
 

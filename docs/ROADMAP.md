@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.145), phase A4: .noormesh files (save, open, recent, a draft after a crash), GLB and OBJ export
+  (+Y up, for engines) and import.
 - NoorMesh (preview.144), phase A2: Edit Mode as Blender's (Tab; vertices, edges, faces; loops, linked; G/R/S, extrude,
   inset, delete, dissolve, merge, make face, normals, shading).
 - NoorMesh (preview.143): Z up as in Blender (the floor X by Y, front view from −Y); during G/R/S the middle button held

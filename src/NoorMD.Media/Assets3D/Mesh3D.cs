@@ -177,6 +177,8 @@ public sealed class Node3D
     public string Name { get; set; } = "Node";
     public Vector3 Translation { get; set; }
     public Quaternion Rotation { get; set; } = Quaternion.Identity;
+    /// <summary>Its scale along its own axes (written only when it isn't 1).</summary>
+    public Vector3 Scale { get; set; } = Vector3.One;
     public Mesh3D? Mesh { get; set; }
     public List<Node3D> Children { get; } = [];
     /// <summary>Written as the glTF node's "extras" (Godot keeps them as the node's "extras" metadata).</summary>

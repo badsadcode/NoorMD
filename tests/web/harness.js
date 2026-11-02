@@ -204,6 +204,7 @@ function mockHostScript(initial) {
           if (m.type.startsWith('asset.')) { try { return reply(m.id, true, assetMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('forge.')) { try { return reply(m.id, true, forgeMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('ink.')) { try { return reply(m.id, true, inkMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
+          if (m.type.startsWith('mesh.')) { try { return reply(m.id, true, meshMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('photo.')) { try { return reply(m.id, true, photoMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('sprite.')) { try { return reply(m.id, true, spriteMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
           if (m.type.startsWith('seq.')) { try { return reply(m.id, true, seqMock(m.type, p)); } catch (err) { return reply(m.id, false, null, err.message); } }
@@ -586,6 +587,25 @@ function mockHostScript(initial) {
       case 'ink.draft.save': INK.drafts = (INK.drafts || 0) + 1; return { ok: true };
       case 'ink.draft.load': return INK.offerDraft ? { svg: INK_SVG, name: 'lost', path: '', savedUtc: '2026-10-29T10:00:00Z' } : { none: true };
       case 'ink.draft.clear': INK.clears = (INK.clears || 0) + 1; return { ok: true };
+      default: throw new Error('Unknown command ' + type);
+    }
+  }
+  // NoorMesh: the app keeps .noormesh files and makes GLB / OBJ; here a scene to open, a model to import, and what was saved / exported.
+  const MESH = { saves: [], exports: [], drafts: 0, clears: 0, ...(initial.mesh || {}) };
+  const meshTri = (name, z) => ({ id: 'o1', name, kind: 'imported', t: [0, 0, z], r: [0, 0, 0], s: [1, 1, 1], hidden: false, mesh: { v: [0, 0, 0, 1, 0, 0, 0, 1, 0], f: [{ v: [0, 1, 2], uv: null, m: 0, s: false }], e: {} } });
+  function meshMock(type, p) {
+    if (state.mesh && state.mesh !== MESH) Object.assign(MESH, state.mesh);
+    state.mesh = MESH;
+    switch (type) {
+      case 'mesh.open': MESH.opens = (MESH.opens || 0) + 1; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Opened', 0), { ...meshTri('Second', 2), id: 'o2' }] }, path: 'C:\\Models\\crate.noormesh', name: 'crate.noormesh' };
+      case 'mesh.recent': return { files: [{ path: 'C:\\Models\\crate.noormesh', name: 'crate.noormesh' }] };
+      case 'mesh.openRecent': MESH.openedRecent = p.path; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Recent', 0)] }, path: p.path, name: 'crate.noormesh' };
+      case 'mesh.save': MESH.saves.push({ path: p.path, name: p.name, objects: p.doc.objects.length, faces: p.doc.objects.map((o) => o.mesh.f.length), format: p.doc.format }); { const path = p.path || 'C:\\Models\\scene.noormesh'; return { path, name: path.split('\\').pop() }; }
+      case 'mesh.import': MESH.imports = (MESH.imports || 0) + 1; return { doc: { format: 'noormesh', version: 1, objects: [meshTri('Rock', 3)] }, name: 'rock.glb' };
+      case 'mesh.export': MESH.exports.push({ format: p.format, name: p.name, objects: p.doc.objects.length }); return { path: `C:\\Models\\${p.name}.${p.format}`, name: `${p.name}.${p.format}` };
+      case 'mesh.draft.save': MESH.drafts++; MESH.lastDraft = p.doc.objects.length; return { ok: true };
+      case 'mesh.draft.load': return MESH.offerDraft ? { doc: { format: 'noormesh', version: 1, objects: [meshTri('Lost', 0)] }, name: 'lost.noormesh', path: '', savedUtc: '2026-11-01T10:00:00Z' } : { none: true };
+      case 'mesh.draft.clear': MESH.clears++; return { ok: true };
       default: throw new Error('Unknown command ' + type);
     }
   }

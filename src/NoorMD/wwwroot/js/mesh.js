@@ -7,6 +7,7 @@ window.NoorMesh = (() => {
   'use strict';
   const { $, el, notice } = NoorUI;
   const K = () => window.NoorMeshKernel;
+  const req = (type, payload) => NoorBridge.request(type, payload);
 
   let hooks = { showError: (e) => console.error(e) };
   let built = false, view = null;
@@ -19,6 +20,8 @@ window.NoorMesh = (() => {
   let viewName = 'User Perspective';
   // Edit Mode: the active object's mesh, its selection (NoorMeshKernel's: a mode and the set that mode keeps).
   let mode = 'object', editSel = null;
+  // The file: where it was saved (or opened from), its name, whether it has changed since.
+  let file = { path: '', name: '' }, dirty = false, draftTimer = 0, draftChecked = false;
   const editing = () => (mode === 'edit' ? byId(active) : null);
   const uploaded = new Map(); // id → the mesh object last sent to the view
 
@@ -35,8 +38,9 @@ window.NoorMesh = (() => {
     if (window.NoorDock) NoorDock.opened('mesh');
     document.body.classList.add('mesh-open');
     $('#meshbench').hidden = false;
-    if (!objects.length && !history.length) { addPrimitive('cube', null, true); history = []; future = []; }
+    if (!objects.length && !history.length) { addPrimitive('cube', null, true); history = []; future = []; dirty = false; }
     renderAll();
+    if (!draftChecked) { draftChecked = true; offerDraft(); }
     if (view) view.redraw();
     $('#meshbench').focus({ preventScroll: true });
   }
@@ -55,7 +59,16 @@ window.NoorMesh = (() => {
 
   // ---------------------------------------------------------------- history (a scene per step; meshes by reference)
   const snapshot = () => ({ objects: objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })), selected: [...selected], active, nextId, mode, editSel: editSel && K().cloneSelection(editSel) });
-  function pushHistory() { history.push(snapshot()); if (history.length > 200) history.shift(); future = []; }
+  function pushHistory() { history.push(snapshot()); if (history.length > 200) history.shift(); future = []; changed(); }
+  /** Something changed: the title shows it, and a draft is kept a few seconds later (to bring back after a crash). */
+  function changed() {
+    dirty = true;
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraft, 4000);
+    if (window.NoorChrome) NoorChrome.benchChanged();
+    const t = $('#nm-info'); if (t) t.textContent = fileLabel();
+  }
+  const fileLabel = () => `${file.name || 'Untitled scene'}${dirty ? ' •' : ''}`;
   function restore(s) {
     objects = s.objects.map((o) => ({ ...o, t: o.t.slice(), r: o.r.slice(), s: o.s.slice() })); selected = new Set(s.selected); active = s.active; nextId = Math.max(nextId, s.nextId); lastAdd = null;
     mode = s.mode || 'object'; editSel = s.editSel ? K().cloneSelection(s.editSel) : null;
@@ -68,6 +81,7 @@ window.NoorMesh = (() => {
     if (!from.length) return;
     to.push(snapshot());
     restore(from.pop());
+    changed();
     setStatus(redo ? 'Redone' : 'Undone');
   }
 
@@ -614,6 +628,7 @@ window.NoorMesh = (() => {
     view.setGuides([]);
     // One undo step: the scene as it was when the transform began (a duplicate's or extrude's step is that itself).
     if (!done.fromDuplicate && done.before) { history.push(done.before); if (history.length > 200) history.shift(); future = []; }
+    changed();
     lastAdd = null;
     if (done.edit) syncEdit();
     hud(''); renderAll();
@@ -783,9 +798,115 @@ window.NoorMesh = (() => {
     ]);
   }
 
+  // ---------------------------------------------------------------- files: .noormesh, GLB and OBJ (A4)
+  /** The scene as the app keeps it (MeshDoc's JSON). */
+  function docOut() {
+    return { format: 'noormesh', version: 1, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t, r: o.r, s: o.s, hidden: !!o.hidden,
+      mesh: { v: o.mesh.v, f: o.mesh.f.map((f) => ({ v: f.v, uv: f.uv || null, m: f.m || 0, s: !!f.s })), e: o.mesh.e || {} } })) };
+  }
+  /** Objects from a scene the app read: given ids of their own, meshes in the page's shape. */
+  function objectsIn(doc) {
+    return (doc.objects || []).map((o) => ({ id: `o${nextId++}`, name: uniqueName(o.name || 'Object'), kind: o.kind || 'mesh', t: (o.t || [0, 0, 0]).slice(), r: (o.r || [0, 0, 0]).slice(), s: (o.s || [1, 1, 1]).slice(), hidden: !!o.hidden,
+      mesh: { v: Array.from(o.mesh.v || []), f: (o.mesh.f || []).map((f) => ({ v: Array.from(f.v), uv: f.uv ? Array.from(f.uv) : null, m: f.m || 0, s: !!f.s })), e: o.mesh.e || {} } }));
+  }
+  function setScene(doc, from) {
+    cancelOp();
+    mode = 'object'; editSel = null; lastAdd = null;
+    objects = []; nextId = 1;
+    objects = objectsIn(doc);
+    selected = new Set(objects.length ? [objects[objects.length - 1].id] : []); active = objects.length ? objects[objects.length - 1].id : null;
+    history = []; future = [];
+    file = { path: from.path || '', name: from.name || '' }; dirty = !!from.dirty;
+    syncAll(); renderAll(); frameObjects(objects);
+    const t = $('#nm-info'); if (t) t.textContent = fileLabel();
+  }
+  /** Leaving unsaved changes: asked first (Save, Don't save, Cancel). */
+  async function okToLeave() {
+    if (!dirty || !objects.length) return true;
+    const v = await NoorUI.choose('Unsaved changes', `Save the changes to ${file.name || 'this scene'} first?`, [{ label: 'Save', value: 'save', primary: true }, { label: 'Don\'t save', value: 'discard' }, { label: 'Cancel', value: 'cancel' }]);
+    keepFocus();
+    if (v === 'save') return save(false);
+    return v === 'discard';
+  }
+  async function newScene() {
+    if (!(await okToLeave())) return;
+    setScene({ objects: [] }, {});
+    addPrimitive('cube', null, true); history = []; future = []; dirty = false;
+    clearDraft(); renderAll(); setStatus('A new scene');
+  }
+  async function openScene(recentPath) {
+    if (!(await okToLeave())) return;
+    try {
+      const r = await (recentPath ? req('mesh.openRecent', { path: recentPath }) : req('mesh.open'));
+      if (!r || r.cancelled) return;
+      setScene(r.doc, { path: r.path, name: r.name });
+      clearDraft();
+      setStatus(`Opened ${r.name}`);
+    } catch (err) { hooks.showError(err); } finally { keepFocus(); }
+  }
+  async function save(asNew) {
+    cancelOp();
+    try {
+      const r = await req('mesh.save', { doc: docOut(), path: asNew ? '' : file.path, name: file.name || 'scene' });
+      if (!r || r.cancelled) return false;
+      file = { path: r.path, name: r.name }; dirty = false;
+      clearTimeout(draftTimer); clearDraft();
+      renderAll();
+      const t = $('#nm-info'); if (t) t.textContent = fileLabel();
+      setStatus(`Saved ${r.name}`);
+      return true;
+    } catch (err) { hooks.showError(err); return false; } finally { keepFocus(); }
+  }
+  async function importModel() {
+    cancelOp();
+    try {
+      const r = await req('mesh.import');
+      if (!r || r.cancelled) return;
+      if (mode === 'edit') toggleEdit(false);
+      pushHistory();
+      const added = objectsIn(r.doc);
+      objects.push(...added);
+      selected = new Set(added.map((o) => o.id)); active = added.length ? added[added.length - 1].id : active; lastAdd = null;
+      syncAll(); renderAll(); frameObjects(added);
+      const tris = added.reduce((n, o) => n + o.mesh.f.length, 0);
+      setStatus(`Imported ${r.name}: ${added.length} object${added.length === 1 ? '' : 's'}, ${tris} faces (triangles from GLB; OBJ keeps its n-gons)`);
+    } catch (err) { hooks.showError(err); } finally { keepFocus(); }
+  }
+  async function exportAs(format) {
+    cancelOp();
+    try {
+      const r = await req('mesh.export', { doc: docOut(), format, name: (file.name || 'scene').replace(/\.noormesh$/i, '') });
+      if (!r || r.cancelled) return;
+      setStatus(`Exported ${r.name} (+Y up, as engines and Blender's importer expect)`);
+    } catch (err) { hooks.showError(err); } finally { keepFocus(); }
+  }
+  function exportMenu(x, y) { popup(x, y, 'Export', [{ label: 'GLB (for engines: Godot, Unity, Unreal…)', run: () => exportAs('glb') }, { label: 'OBJ (n-gons kept, no placement)', run: () => exportAs('obj') }]); }
+  async function recentMenu(x, y) {
+    let files = [];
+    try { files = (await req('mesh.recent')).files || []; } catch { files = []; }
+    popup(x, y, 'Open recent', files.length ? files.map((f) => ({ label: f.name, run: () => openScene(f.path) })) : [{ label: 'No scenes opened yet', disabled: true, run: () => {} }]);
+  }
+  function saveDraft() {
+    if (!dirty || !objects.length) return;
+    req('mesh.draft.save', { doc: docOut(), name: file.name, path: file.path }).catch(() => { /* a draft is a convenience */ });
+  }
+  function clearDraft() { req('mesh.draft.clear').catch(() => {}); }
+  /** A scene left unsaved last time (NoorMD closed or crashed): offered back once. */
+  async function offerDraft() {
+    let r;
+    try { r = await req('mesh.draft.load'); } catch { return; }
+    if (!r || r.none || !r.doc || !(r.doc.objects || []).length) return;
+    const when = r.savedUtc ? new Date(r.savedUtc).toLocaleString() : '';
+    const v = await NoorUI.choose('Bring back the scene?', `NoorMesh kept a draft of ${r.name || 'an unsaved scene'}${when ? ` (${when})` : ''}. Bring it back?`, [{ label: 'Bring it back', value: 'yes', primary: true }, { label: 'Throw it away', value: 'no' }]);
+    keepFocus();
+    if (v === 'yes') { setScene(r.doc, { path: r.path, name: r.name, dirty: true }); setStatus('The draft is back: save it to keep it (Ctrl+S).'); }
+    else if (v === 'no') clearDraft();
+  }
+
   // ---------------------------------------------------------------- the panels
   function renderAll() {
     renderOutliner(); renderProps(); hud(op ? undefined : '');
+    const info = $('#nm-info'); if (info) info.textContent = fileLabel();
     const ms = $('#nm-mode'); if (ms) ms.value = mode;
     const sm = $('#nm-selmodes');
     if (sm) { sm.hidden = mode !== 'edit'; sm.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(!!editSel && b.dataset.selmode === editSel.mode))); }
@@ -885,7 +1006,7 @@ window.NoorMesh = (() => {
     }
     parts.push(el('h3', { class: 'music-subhead', text: 'Add' }),
       el('div', { class: 'nm-prims' }, ...Object.entries(K().PRIMITIVES).map(([id, p]) => el('button', { class: 'utility-btn nm-prim', 'data-prim': id, title: `Add a ${p.name.toLowerCase()} at the origin`, onclick: () => addPrimitive(id) }, el('span', { text: PRIM_ICONS[id] || '◆' }), ` ${p.name}`))),
-      el('p', { class: 'pref-hint nm-preview', text: 'NoorMesh is a preview: Tab for Edit Mode (vertices, edges, faces). Saving and GLB export come in the next previews.' }));
+      el('p', { class: 'pref-hint nm-preview', text: 'NoorMesh is a preview: Tab for Edit Mode (vertices, edges, faces). Ctrl+S saves the scene (.noormesh); ⤓ exports GLB or OBJ for engines; ⤒ imports GLB or OBJ.' }));
     pane.replaceChildren(...parts.filter(Boolean));
   }
 
@@ -896,6 +1017,10 @@ window.NoorMesh = (() => {
       el('header', { class: 'music-head' },
         el('div', { class: 'music-title' }, el('span', { class: 'glyph', text: '🧊' }), el('strong', { text: 'NoorMesh' }), el('small', { class: 'nm-badge', text: 'preview' }), el('small', { id: 'nm-info' })),
         el('span', { class: 'panel-head-buttons' },
+          el('button', { class: 'icon-btn', id: 'nm-open', title: 'Open a scene (Ctrl+O)', 'aria-label': 'Open a scene', onclick: () => openScene() }, '📂'),
+          el('button', { class: 'icon-btn', id: 'nm-save', title: 'Save the scene (Ctrl+S; Ctrl+Shift+S: as a new file)', 'aria-label': 'Save the scene', onclick: (e) => save(e.shiftKey) }, '💾'),
+          el('button', { class: 'icon-btn', id: 'nm-import', title: 'Import a model (GLB or OBJ) into the scene', 'aria-label': 'Import a model', onclick: importModel }, '⤒'),
+          el('button', { class: 'icon-btn', id: 'nm-export', title: 'Export the scene (GLB or OBJ, +Y up)', 'aria-label': 'Export the scene', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); exportMenu(r.left, r.bottom + 4); } }, '⤓'),
           el('button', { class: 'icon-btn', title: 'Shortcuts (F1 in NoorMesh)', 'aria-label': 'NoorMesh shortcuts', onclick: shortcutsDialog }, '⌨'),
           NoorDock.fullButton('NoorMesh'),
           el('button', { class: 'icon-btn', title: 'Where this panel goes', 'aria-label': 'Move NoorMesh', onclick: (e) => NoorDock.showMenu('mesh', e.currentTarget) }, '⊞'),
@@ -956,8 +1081,10 @@ window.NoorMesh = (() => {
     if (e.key === 'Home') { take(); frameObjects(objects); return; }
     if (e.key === 'F1') { take(); shortcutsDialog(); return; }
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey) { take(); toggleEdit(); return; }
+    if (e.ctrlKey && !e.altKey && (k === 's' || k === 'o')) { take(); if (k === 's') save(e.shiftKey); else openScene(); return; }
     if (mode === 'edit' && editKey(e, k, code, take)) return;
     if (e.key === 'F2') { take(); rename(); return; }
+    if (e.ctrlKey && !e.altKey && (k === 's' || k === 'o')) { take(); if (k === 's') save(e.shiftKey); else openScene(); return; }
     if (e.ctrlKey && !e.altKey) {
       if (k === 'z') { take(); undo(e.shiftKey); return; }
       if (k === 'y') { take(); undo(true); return; }
@@ -1034,7 +1161,7 @@ window.NoorMesh = (() => {
     ['Duplicate', 'Shift+D'], ['Delete', 'X or Delete'], ['Hide / show all / hide others', 'H / Alt+H / Shift+H'], ['Rename', 'F2'],
     ['Turn the view', 'Middle-drag (or Alt+drag)'], ['Move the view', 'Shift+middle-drag'], ['Zoom', 'Wheel or Ctrl+middle-drag'],
     ['Front / right / top (Ctrl: the other side)', 'Numpad 1 / 3 / 7'], ['Perspective or orthographic', 'Numpad 5'], ['Frame the selection / everything', 'Numpad . / Home'],
-    ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y'], ['Object menu', 'Right-click'],
+    ['Undo / redo', 'Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y'], ['Object menu', 'Right-click'], ['Save / save as / open', 'Ctrl+S / Ctrl+Shift+S / Ctrl+O'],
     ['Edit Mode / Object Mode', 'Tab'], ['Vertices / edges / faces', '1 / 2 / 3'], ['Select a loop', 'Alt+click (Shift+Alt: add it)'],
     ['Select linked (under the mouse / of the selection)', 'L / Ctrl+L'], ['Select more / less', 'Ctrl+Numpad + / Ctrl+Numpad −'],
     ['Extrude (then along the normal)', 'E'], ['Inset faces', 'I'], ['Delete / dissolve', 'X / Ctrl+X'], ['Merge', 'M'], ['Make a face', 'F'],
@@ -1049,12 +1176,16 @@ window.NoorMesh = (() => {
   }
 
   // ---------------------------------------------------------------- focus mode: title and menus
-  const appTitle = () => `NoorMesh (preview) — ${objects.length} object${objects.length === 1 ? '' : 's'}${active && byId(active) ? ` · ${byId(active).name}` : ''}`;
+  const appTitle = () => `NoorMesh (preview) — ${fileLabel()} · ${objects.length} object${objects.length === 1 ? '' : 's'}${active && byId(active) ? ` · ${byId(active).name}` : ''}`;
   function appMenus() {
     const go = (label, run, keys, more = {}) => ({ label, keys, run, ...more });
     const none = () => !sel().length;
     return [
-      ['File', 'f', () => [{ id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorMesh', close, 'Ctrl+Alt+N')]],
+      ['File', 'f', () => [
+        go('New scene', newScene), go('Open…', () => openScene(), 'Ctrl+O'), go('Open recent…', () => recentMenu(innerWidth / 2, innerHeight / 4)), '-',
+        go('Save', () => save(false), 'Ctrl+S'), go('Save as…', () => save(true), 'Ctrl+Shift+S'), '-',
+        go('Import GLB or OBJ…', importModel), go('Export GLB…', () => exportAs('glb')), go('Export OBJ…', () => exportAs('obj')), '-',
+        { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorMesh', close, 'Ctrl+Alt+N')]],
       ['Edit', 'e', () => [go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length }), go('Redo', () => undo(true), 'Ctrl+Shift+Z', { disabled: () => !future.length }), '-',
         go('Select all', () => selectAll('all'), 'A'), go('Select none', () => selectAll('none'), 'Alt+A'), go('Invert the selection', () => selectAll('invert'), 'Ctrl+I')]],
       ['Add', 'a', () => addItems().map((it) => go(it.label, it.run, '', { disabled: () => mode === 'edit' }))],
@@ -1083,7 +1214,7 @@ window.NoorMesh = (() => {
   return {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
-    _state: () => ({ mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed } : null, history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed } : null, history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: where a vertex (or a face's middle) of the edited object shows on the screen. */
     _screenOf: (what, i) => { const o = editing(); if (!o) return null; const p = what === 'face' ? K().transformPoint(matrixOf(o), K().faceCentre(o.mesh, o.mesh.f[i])) : worldOf(o, i); return view.project(p); },
