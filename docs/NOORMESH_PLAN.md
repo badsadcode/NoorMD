@@ -221,6 +221,15 @@ with the same placement); origins (origin to geometry, origin to 3D cursor, geom
 unchanged). Not yet: the cursor's own rotation, the active vertex or face as a pivot in Edit Mode, the cursor kept in
 the file.
 
+**Done in preview.149: the knife, as Blender's K** — each point is kept on the mesh itself (a vertex, a place on an edge,
+an edge's middle, or a point inside a face hit by a ray from the mouse; in the object's own space), so turning, moving
+or zooming the view (middle-drag, wheel, the numpad views all work while cutting) leaves it exactly where it was put;
+the preview is drawn from those points again after every frame. Between two points the cut runs over the surface: the
+plane through both and the camera (where it was when the second was placed) is followed face by face, over edges and
+through vertices, onto the faces beside. Enter splits every face it runs across (from an edge or corner to another,
+through the points inside it); ends left hanging inside a face are dropped, and edges crossed for nothing are left
+whole, so no loose edges or stray vertices are made. One undo step.
+
 **Next, agreed after preview.146:**
 
 - **preview.147:** bevel (Ctrl+B: width, segments, profile; Ctrl+Shift+B for vertices), knife (K), proportional editing

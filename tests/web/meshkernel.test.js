@@ -393,5 +393,32 @@ const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
   check('…nothing near: nothing merged', none.merged === 0 && none.mesh === g);
 }
 
+
+{
+  // Knife over the surface: from the top's back edge, through a point inside the top, over the front edge, down to the
+  // front's bottom edge; and round three faces of a cube from one corner region to another.
+  const c = K.cube(2), n = (i) => K.faceNormal(c, c.f[i]).n;
+  const top = c.f.findIndex((_, i) => n(i)[2] > 0.9), front = c.f.findIndex((_, i) => n(i)[1] < -0.9);
+  const at = (p) => { for (let i = 0; i < 8; i++) if (K.vec.len(K.vec.sub([c.v[i * 3], c.v[i * 3 + 1], c.v[i * 3 + 2]], p)) < 1e-9) return i; return -1; };
+  const backEdge = { a: at([-1, 1, 1]), b: at([1, 1, 1]), t: 0.5 }, mid = { f: top, p: [0.2, 0, 1] }, bottom = { a: at([-1, -1, -1]), b: at([1, -1, -1]), t: 0.5 };
+  const eye = [0, -10, 8];
+  const w1 = K.knifeWalk(c, backEdge, mid, eye), w2 = K.knifeWalk(c, mid, bottom, eye);
+  check('knife walk inside one face: just the two points', w1.length === 2);
+  check('…over an edge to the next face: the front-top edge crossed on the way', w2.length === 3 && w2[1].a !== undefined && [w2[1].a, w2[1].b].sort().join() === [at([-1, -1, 1]), at([1, -1, 1])].sort().join(), w2);
+  const cut = K.knifePath(c, [...w1, ...w2.slice(1)]);
+  check('knife path: the top and the front each split (8 faces), 3 vertices on edges + 1 inside, closed and sound', cut.mesh.f.length === 8 && K.vertexCount(cut.mesh) === 12 && K.check(cut.mesh).ok && K.check(cut.mesh).closed && K.check(cut.mesh).flipped === 0, [cut.mesh.f.length, K.vertexCount(cut.mesh), K.check(cut.mesh)]);
+  check('…the volume unchanged', Math.abs(K.volume(cut.mesh) - 8) < 1e-9);
+  const hang = K.knifePath(c, [{ f: top, p: [0, 0, 1] }, ...K.knifeWalk(c, { f: top, p: [0, 0, 1] }, { f: front, p: [0, -1, 0] }, eye).slice(1)]);
+  check('…ends left hanging inside faces are dropped (nothing cut, no loose vertices)', hang.mesh.f.length === 6 && K.vertexCount(hang.mesh) === 8 && K.check(hang.mesh).ok);
+  // Round a corner: from the front's left edge across the front, over to the right side, then to the top.
+  const right = c.f.findIndex((_, i) => n(i)[0] > 0.9);
+  const A = { a: at([-1, -1, -1]), b: at([-1, -1, 1]), t: 0.5 }, B = { f: right, p: [1, 0, 0.3] }, C = { a: at([-1, 1, 1]), b: at([-1, -1, 1]), t: 0.5 };
+  const pts = [...K.knifeWalk(c, A, B, [4, -10, 3]), ...K.knifeWalk(c, B, C, [4, -6, 10]).slice(1)];
+  const r2 = K.knifePath(c, pts);
+  check('a cut over three faces (front, right, top): each split, closed and sound', r2.mesh.f.length === 9 && K.check(r2.mesh).ok && K.check(r2.mesh).closed && K.check(r2.mesh).flipped === 0, [r2.mesh.f.length, K.check(r2.mesh), pts]);
+  const vtx = K.knifePath(c, [{ v: at([-1, -1, 1]) }, { v: at([1, -1, -1]) }]);
+  check('corner to corner of one face: split by the diagonal', vtx.mesh.f.length === 7 && K.check(vtx.mesh).ok);
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

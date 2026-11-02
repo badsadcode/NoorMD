@@ -1019,74 +1019,110 @@ window.NoorMesh = (() => {
     return true;
   }
 
-  // ---------------------------------------------------------------- knife (K)
+  // ---------------------------------------------------------------- knife (K), as Blender's: points on the surface
+  // Each point is kept on the mesh itself (a vertex, a place on an edge, or inside a face, in the object's own space), so
+  // turning, moving or zooming the view leaves it where it was put; between two points the cut runs over the surface.
   function knifeStart() {
     const o = editing();
     if (!o) return;
     cancelOp();
-    op = { kind: 'knife', edit: true, obj: o, startMesh: o.mesh, verts: [], faces: new Set(), pivot: [0, 0, 0], m0: { ...mouse }, axis: null, typed: '', pts: [], sel0: K().cloneSelection(editSel), before: snapshot() };
+    op = { kind: 'knife', edit: true, obj: o, startMesh: o.mesh, verts: [], faces: new Set(), pivot: [0, 0, 0], m0: { ...mouse }, axis: null, typed: '', pts: [], walks: [], sel0: K().cloneSelection(editSel), before: snapshot() };
     updateOp();
   }
-  /** A point clicked for the knife: onto a vertex when one is near (client coordinates kept). */
-  function knifePoint(x, y) {
-    const o = op.obj, v = pickVert(o, x, y, 10);
-    if (v >= 0) { const s2 = view.project(worldOf(o, v)); return { x: s2.x, y: s2.y, v }; }
-    return { x, y };
+  /** Where the camera's eye is in the object's own space (for an orthographic view: far back along the view, from p). */
+  function knifeEye(pLocal) {
+    const o = op.obj, cam = view.camera(), Mi = invertOf(o), V = K().vec;
+    if (!cam.ortho) return K().transformPoint(Mi, cam.eye);
+    const pw = K().transformPoint(matrixOf(o), pLocal), dir = V.norm(V.sub(cam.target, cam.eye));
+    return K().transformPoint(Mi, V.sub(pw, V.scale(dir, 1000)));
   }
-  /** Where the knife's line crosses the edges that can be seen, in order along it. */
-  function knifeCrossings(pts) {
-    const o = op.obj, m = op.startMesh, M = matrixOf(o), list = [];
-    const es = K().edges(m);
-    const proj = new Map();
-    const P = (i) => { if (!proj.has(i)) { const w = K().transformPoint(M, vOf(m, i)); proj.set(i, { w, s: view.project(w) }); } return proj.get(i); };
-    for (let i = 0; i + 1 < pts.length; i++) {
-      const A = pts[i], B = pts[i + 1], seg = [];
-      if (A.v !== undefined) seg.push({ s: 0, c: { v: A.v } });
-      for (const e of es) {
-        const pa = P(e.a), pb = P(e.b);
-        if (!pa.s.front || !pb.s.front) continue;
-        const r = B.x - A.x, q = B.y - A.y, ux = pb.s.x - pa.s.x, uy = pb.s.y - pa.s.y, den = r * uy - q * ux;
-        if (Math.abs(den) < 1e-9) continue;
-        const sx = pa.s.x - A.x, sy = pa.s.y - A.y, s2 = (sx * uy - sy * ux) / den, u = (sx * q - sy * r) / den;
-        if (s2 < 0 || s2 > 1 || u < 0 || u > 1) continue;
-        // In the world: where the ray through the crossing passes nearest the edge.
-        const ray = view.ray(A.x + r * s2, A.y + q * s2), d = K().vec.sub(pb.w, pa.w), L2 = K().vec.dot(d, d) || 1;
-        const w0 = K().vec.sub(ray.origin, pa.w), b = K().vec.dot(ray.dir, d), dd = K().vec.dot(ray.dir, w0), ee = K().vec.dot(d, w0), den2 = L2 - b * b;
-        let t = Math.abs(den2) < 1e-12 ? u : (ee - b * dd) / den2;
-        t = Math.max(0, Math.min(1, t));
-        const pw = K().vec.add(pa.w, K().vec.scale(d, t));
-        if (!visible(o, pw)) continue;
-        seg.push({ s: s2, c: t < 0.01 ? { v: e.a } : t > 0.99 ? { v: e.b } : { a: e.a, b: e.b, t } });
-      }
-      if (B.v !== undefined) seg.push({ s: 1, c: { v: B.v } });
-      seg.sort((x, y) => x.s - y.s);
-      for (const x of seg) { const last = list[list.length - 1]; if (last && last.v !== undefined && x.c.v === last.v) continue; list.push(x.c); }
+  /** The point of the surface under the mouse: onto a vertex, an edge's middle or the edge when near; else on the face hit. */
+  function knifePoint(x, y) {
+    const o = op.obj, m = op.startMesh, V = K().vec, M = matrixOf(o);
+    const v = pickVert(o, x, y, 10);
+    if (v >= 0) return { c: { v }, snap: 'vertex' };
+    const ed = pickEdge(o, x, y, 8);
+    if (ed) {
+      const [a, b] = ed, pa = K().transformPoint(M, vOf(m, a)), pb = K().transformPoint(M, vOf(m, b));
+      const mid = view.project(V.scale(V.add(pa, pb), 0.5));
+      if (Math.hypot(mid.x - x, mid.y - y) <= 10) return { c: { a, b, t: 0.5 }, snap: 'middle' };
+      // Where the ray through the mouse passes nearest the edge.
+      const ray = view.ray(x, y), d = V.sub(pb, pa), L2 = V.dot(d, d) || 1, w0 = V.sub(ray.origin, pa), bb = V.dot(ray.dir, d), dd = V.dot(ray.dir, w0), ee = V.dot(d, w0), den = L2 - bb * bb;
+      const t = Math.max(0, Math.min(1, Math.abs(den) < 1e-12 ? 0.5 : (ee - bb * dd) / den));
+      if (t < 0.01) return { c: { v: a }, snap: 'vertex' };
+      if (t > 0.99) return { c: { v: b }, snap: 'vertex' };
+      return { c: { a, b, t }, snap: 'edge' };
     }
-    return list;
+    const hit = view.pick(x, y, o.id);
+    if (!hit || hit.face === undefined || hit.face < 0) return null;
+    const ray = view.ray(x, y), pw = V.add(ray.origin, V.scale(ray.dir, hit.t));
+    return { c: { f: hit.face, p: K().transformPoint(invertOf(o), pw) }, snap: 'face' };
+  }
+  const knifeWorld = (c) => K().transformPoint(matrixOf(op.obj), K().knifePos(op.startMesh, c));
+  /** The whole cut as points over the surface: the placed points with the ways between them, and on to `extra`. */
+  function knifeAll(extra) {
+    const out = [];
+    op.pts.forEach((p, i) => { if (i === 0) out.push(p.c); else out.push(...op.walks[i].slice(1)); });
+    if (extra && op.pts.length) out.push(...K().knifeWalk(op.startMesh, op.pts[op.pts.length - 1].c, extra.c, knifeEye(K().knifePos(op.startMesh, extra.c))).slice(1));
+    return out;
   }
   function updateKnife() {
-    const pts = [...op.pts, knifePoint(mouse.x, mouse.y)];
-    op.preview = pts;
-    op.cross = op.pts.length ? knifeCrossings(pts) : [];
+    op.hover = knifePoint(mouse.x, mouse.y);
+    op.path = knifeAll(op.hover);
+    op.cross = op.path.filter((c) => c.a !== undefined).length;
     view.setGuides([]);
     drawGizmo();
-    hud(`Knife: ${op.pts.length} point${op.pts.length === 1 ? '' : 's'} · ${op.cross.length} crossing${op.cross.length === 1 ? '' : 's'}   ·   click: a point (near a vertex: on it) · Enter or Space: cut · Backspace: the last point back · right-click or Esc: back`);
+    const snapName = op.hover ? { vertex: 'on a vertex', middle: 'on an edge\'s middle', edge: 'on an edge', face: 'on a face' }[op.hover.snap] : 'off the mesh';
+    hud(`Knife: ${op.pts.length} point${op.pts.length === 1 ? '' : 's'} · ${op.cross} crossing${op.cross === 1 ? '' : 's'} · ${snapName}   ·   click: a point · Enter or Space: cut · Backspace: the last point back · middle-drag, wheel: the view · right-click or Esc: back`);
+  }
+  /** The knife drawn over the view from its points on the mesh (again after every frame, wherever the camera is). */
+  function drawKnife(g, s) {
+    if (!op || op.kind !== 'knife') return;
+    const pr = (c) => { const q = view.project(knifeWorld(c)); return q.front ? [q.x - s.left, q.y - s.top] : null; };
+    const path = op.path || knifeAll(op.hover);
+    g.lineWidth = 2;
+    const placed = knifeAll(null).length;
+    for (let i = 0; i + 1 < path.length; i++) {
+      const a = pr(path[i]), b = pr(path[i + 1]);
+      if (!a || !b) continue;
+      g.strokeStyle = i + 1 < placed ? '#5cff7a' : 'rgba(92,255,122,.6)';
+      g.setLineDash(i + 1 < placed ? [] : [5, 4]);
+      g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    }
+    g.setLineDash([]);
+    for (const c of path) { const a = pr(c); if (!a || c.f !== undefined) continue; g.fillStyle = '#ffd34d'; g.fillRect(a[0] - 3, a[1] - 3, 6, 6); }
+    for (const p of op.pts) { const a = pr(p.c); if (a) { g.fillStyle = '#5cff7a'; g.beginPath(); g.arc(a[0], a[1], 4.5, 0, Math.PI * 2); g.fill(); } }
+    if (op.hover) {
+      const a = pr(op.hover.c);
+      if (a) { g.strokeStyle = { vertex: '#ffffff', middle: '#4dd6ff', edge: '#ffd34d', face: '#5cff7a' }[op.hover.snap]; g.lineWidth = 2; g.beginPath(); g.arc(a[0], a[1], 6, 0, Math.PI * 2); g.stroke(); }
+    }
   }
   function knifeDown(e) {
-    if (e.button === 0) { op.pts.push(knifePoint(e.clientX, e.clientY)); updateOp(); return; }
+    if (e.button === 0) {
+      const p = knifePoint(e.clientX, e.clientY);
+      if (!p) { setStatus('Knife: click on the mesh.'); return; }
+      const last = op.pts[op.pts.length - 1];
+      if (last && K().knifeWalk(op.startMesh, last.c, p.c, [0, 0, 0]).length < 2) return; // the same point again
+      op.walks.push(last ? K().knifeWalk(op.startMesh, last.c, p.c, knifeEye(K().knifePos(op.startMesh, p.c))) : [p.c]);
+      op.pts.push(p);
+      updateOp(); return;
+    }
     if (e.button === 2) cancelOp();
   }
   function knifeKey(e) {
     const k = e.key;
     if (k === 'Escape') { cancelOp(); return true; }
     if (k === 'Enter' || k === ' ') { finishKnife(); return true; }
-    if (k === 'Backspace') { op.pts.pop(); updateOp(); return true; }
+    if (k === 'Backspace') { op.pts.pop(); op.walks.pop(); updateOp(); return true; }
+    // The views stay at hand while cutting.
+    const views = { Numpad1: 'front', Numpad3: 'right', Numpad7: 'top', Numpad5: 'persp' };
+    if (views[e.code]) { setView(views[e.code], e.ctrlKey); updateOp(); return true; }
     return true;
   }
   function finishKnife() {
-    const crossings = op.pts.length > 1 ? knifeCrossings(op.pts) : [];
-    if (crossings.length < 2) { cancelOp(); setStatus('Knife: click points across the faces to cut, then Enter.'); return; }
-    const r = K().knifeCut(op.startMesh, crossings);
+    const path = op.pts.length > 1 ? knifeAll(null) : [];
+    const r = path.length > 1 ? K().knifePath(op.startMesh, path) : null;
+    if (!r || !r.edges.length) { cancelOp(); setStatus('Knife: nothing cut. Click points on the mesh, across faces (from an edge or vertex to another), then Enter.'); return; }
     const done = op;
     op = null;
     done.obj.mesh = r.mesh;
@@ -1359,11 +1395,7 @@ window.NoorMesh = (() => {
         g.beginPath(); g.moveTo(x - 15, y); g.lineTo(x - 5, y); g.moveTo(x + 5, y); g.lineTo(x + 15, y); g.moveTo(x, y - 15); g.lineTo(x, y - 5); g.moveTo(x, y + 5); g.lineTo(x, y + 15); g.stroke();
       }
     }
-    if (op && op.kind === 'knife' && op.preview) {
-      g.strokeStyle = '#7fff7f'; g.lineWidth = 1.5; g.setLineDash([5, 4]);
-      g.beginPath(); op.preview.forEach((p2, i) => (i ? g.lineTo(p2.x - s.left, p2.y - s.top) : g.moveTo(p2.x - s.left, p2.y - s.top))); g.stroke(); g.setLineDash([]);
-      g.fillStyle = '#7fff7f'; op.preview.forEach((p2) => { g.beginPath(); g.arc(p2.x - s.left, p2.y - s.top, 3, 0, Math.PI * 2); g.fill(); });
-    }
+    drawKnife(g, s);
     if (op && op.edit && op.prop && ['move', 'rotate', 'scale'].includes(op.kind)) {
       // The proportional radius round the pivot, as Blender's circle.
       const c = view.project(op.pivot), V = K().vec, cam = view.camera();
@@ -1820,7 +1852,7 @@ window.NoorMesh = (() => {
     root.addEventListener('pointermove', (e) => { mouse = { x: e.clientX, y: e.clientY }; });
     try {
       // The bench takes the middle button during a transform (an axis), and Alt+click in Edit Mode (a loop, as Blender's).
-      view = NoorMeshView.create($('#nm-canvas'), { drawn: () => drawGizmo(), down: onDown, move: onMove, up: onUp, takes: (e) => (!!op && op.kind !== 'loopcut' && e.button === 1) || (mode === 'edit' && !op && e.button === 0 && e.altKey), viewChanged: () => { if (!view.camera().ortho && / Orthographic$/.test(viewName)) { viewName = 'User Perspective'; hud(op ? undefined : ''); } if (op) updateOp(); } });
+      view = NoorMeshView.create($('#nm-canvas'), { drawn: () => drawGizmo(), down: onDown, move: onMove, up: onUp, takes: (e) => (!!op && op.kind !== 'loopcut' && op.kind !== 'knife' && e.button === 1) || (mode === 'edit' && !op && e.button === 0 && e.altKey), viewChanged: () => { if (!view.camera().ortho && / Orthographic$/.test(viewName)) { viewName = 'User Perspective'; hud(op ? undefined : ''); } if (op) updateOp(); } });
     } catch (err) { console.warn('NoorMesh: no 3D view', err); view = null; setTimeout(() => setStatus(`The 3D view couldn't start (it needs WebGL 2): ${err && err.message ? err.message : err}`), 0); }
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('mesh', { name: 'NoorMesh', title: appTitle, menus: appMenus });
     renderGizmoButtons(); renderSnap(); renderEditOpts();
@@ -2003,7 +2035,7 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.cross ? op.cross.length : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
     _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },

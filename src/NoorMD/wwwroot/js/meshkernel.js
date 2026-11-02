@@ -929,6 +929,138 @@
     return { mesh: out, verts: [...new Set(ids)], edges: edgesMade };
   }
 
+  /** Where a knife point is (in the mesh's own space): a vertex { v }, on an edge { a, b, t }, or inside a face { f, p }. */
+  const knifePos = (mesh, c) => (c.v !== undefined ? vert(mesh, c.v) : c.f !== undefined ? c.p.slice() : add(vert(mesh, c.a), scale(sub(vert(mesh, c.b), vert(mesh, c.a)), c.t)));
+  const knifeSame = (x, y) => x && y && ((x.v !== undefined && x.v === y.v) || (x.a !== undefined && y.a !== undefined && edgeKey(x.a, x.b) === edgeKey(y.a, y.b) && Math.abs((x.a === y.a ? x.t : 1 - x.t) - y.t) < 1e-9) || (x.f !== undefined && x.f === y.f && len(sub(x.p, y.p)) < 1e-12));
+  /**
+   * The knife's way over the surface from P to Q (as Blender's K): through the faces the plane through P, Q and the eye
+   * (where the camera was, in the mesh's space) cuts, face by face, edge by edge. Returns the points along it, P and Q
+   * included, or just [P, Q] when they share a face or no way is found.
+   */
+  function knifeWalk(mesh, P, Q, eye) {
+    const p0 = knifePos(mesh, P), q0 = knifePos(mesh, Q), d = sub(q0, p0), dd = dot(d, d);
+    if (dd < 1e-18) return [P];
+    const ef = edgeFaces(mesh);
+    const facesOf = (c) => (c.f !== undefined ? [c.f] : c.v !== undefined ? mesh.f.map((_, i) => i).filter((i) => mesh.f[i].v.includes(c.v)) : ef.get(edgeKey(c.a, c.b)) || []);
+    const targets = new Set(facesOf(Q)), starts = facesOf(P);
+    if (starts.some((f) => targets.has(f))) return [P, Q];
+    let n = cross(d, sub(eye, p0));
+    if (len(n) < 1e-12 && starts.length) n = cross(d, faceNormal(mesh, mesh.f[starts[0]]).n);
+    n = norm(n);
+    const side = (x) => dot(n, sub(x, p0)), u = (x) => dot(sub(x, p0), d) / dd;
+    const eps = 1e-9 * Math.max(1, Math.sqrt(dd));
+    // The edges of a face the plane crosses (not those through where we stand), each a point ahead of `from`.
+    const exits = (fi, standV, standE, from) => {
+      const fv = mesh.f[fi].v, out = [];
+      for (let k = 0; k < fv.length; k++) {
+        const a = fv[k], b = fv[(k + 1) % fv.length], key = edgeKey(a, b);
+        if (key === standE || a === standV || b === standV) continue;
+        const A = vert(mesh, a), B = vert(mesh, b), sa = side(A), sb = side(B);
+        let c = null, x = null;
+        if (Math.abs(sa) <= eps) { c = { v: a }; x = A; } else if (Math.abs(sb) <= eps) { c = { v: b }; x = B; } else if (sa * sb < 0) { const t = sa / (sa - sb); c = { a, b, t }; x = add(A, scale(sub(B, A), t)); }
+        if (c && u(x) > from + 1e-9) out.push({ c, x, u: u(x) });
+      }
+      return out.sort((p1, p2) => p1.u - p2.u);
+    };
+    for (const s0 of starts) {
+      const path = [P], seen = new Set();
+      let face = s0, standV = P.v !== undefined ? P.v : -1, standE = P.a !== undefined ? edgeKey(P.a, P.b) : null, at = 0, ok = false;
+      for (let step = 0; step < 5000; step++) {
+        if (step > 0 && targets.has(face)) { ok = true; break; }
+        if (seen.has(face)) break;
+        seen.add(face);
+        const ex = exits(face, standV, standE, at);
+        if (!ex.length) break;
+        const { c, x } = ex[0];
+        path.push(c); at = u(x);
+        if (c.v !== undefined) {
+          // Through a vertex: on into the face round it that still leads ahead (or one we were heading for).
+          const round = mesh.f.map((_, i) => i).filter((i) => i !== face && mesh.f[i].v.includes(c.v) && !seen.has(i));
+          const hit = round.find((i) => targets.has(i));
+          if (hit !== undefined) { face = hit; ok = true; break; }
+          let best = null;
+          for (const i of round) { const e2 = exits(i, c.v, null, at); if (e2.length && (!best || e2[0].u < best.u)) best = { i, u: e2[0].u }; }
+          if (!best) break;
+          face = best.i; standV = c.v; standE = null;
+        } else {
+          const next = (ef.get(edgeKey(c.a, c.b)) || []).find((i) => i !== face);
+          if (next === undefined) break;
+          face = next; standV = -1; standE = edgeKey(c.a, c.b);
+        }
+      }
+      if (ok) { path.push(Q); return path.filter((c, i) => i === 0 || !knifeSame(c, path[i - 1])); }
+    }
+    return [P, Q];
+  }
+  /**
+   * The knife's cut along points over the surface (each { v }, { a, b, t } or { f, p }; in order, as knifeWalk gives them):
+   * edges crossed get vertices, points inside faces become vertices, and each face the cut runs across (from one edge or
+   * corner to another, through its inside points) is split along it. Ends left hanging inside a face are dropped (no
+   * loose edges). Returns { mesh, verts: the cut's vertices, edges: the new edges }.
+   */
+  function knifePath(mesh, points) {
+    const out = clone(mesh), origin = mesh.f.map((_, i) => i), made = new Map(), onEdges = new Set();
+    const edgePoint = (c) => {
+      const k = `${edgeKey(c.a, c.b)}:${(c.a < c.b ? c.t : 1 - c.t).toFixed(9)}`;
+      if (made.has(k)) return made.get(k);
+      let [a, b, t] = [c.a, c.b, c.t];
+      const P = add(vert(mesh, c.a), scale(sub(vert(mesh, c.b), vert(mesh, c.a)), c.t));
+      const pieces = [...made.entries()].filter(([kk]) => kk.startsWith(edgeKey(c.a, c.b) + ':')).map(([, id]) => id);
+      if (pieces.length) {
+        const chain = [c.a, ...pieces.sort((p1, p2) => len(sub(vert(out, p1), vert(mesh, c.a))) - len(sub(vert(out, p2), vert(mesh, c.a)))), c.b];
+        for (let i = 0; i < chain.length - 1; i++) {
+          const pa = vert(out, chain[i]), pb = vert(out, chain[i + 1]), L = len(sub(pb, pa)) || 1, tt = dot(sub(P, pa), sub(pb, pa)) / (L * L);
+          if (tt >= -1e-9 && tt <= 1 + 1e-9) { a = chain[i]; b = chain[i + 1]; t = tt; break; }
+        }
+      }
+      const id = splitEdge(out, a, b, Math.max(1e-6, Math.min(1 - 1e-6, t)));
+      made.set(k, id); onEdges.add(id);
+      return id;
+    };
+    const seq = [];
+    for (const c of points) {
+      let item;
+      if (c.v !== undefined) item = { id: c.v, edge: true };
+      else if (c.a !== undefined) item = c.t <= 1e-6 ? { id: c.a, edge: true } : c.t >= 1 - 1e-6 ? { id: c.b, edge: true } : { id: edgePoint(c), edge: true };
+      else { const id = vertexCount(out); out.v.push(...c.p); item = { id, edge: false, face: c.f }; }
+      if (seq.length && seq[seq.length - 1].id === item.id) continue;
+      seq.push(item);
+    }
+    const edgesMade = [], used = new Set();
+    const cut = (x, inner, y) => {
+      if (x === y) return;
+      const cands = out.f.map((_, i) => i).filter((i) => out.f[i].v.includes(x) && out.f[i].v.includes(y) && (!inner.length || origin[i] === inner[0].face));
+      if (!cands.length) return;
+      const fi = cands[0], f = out.f[fi], n = f.v.length, i = f.v.indexOf(x), j = f.v.indexOf(y);
+      if (!inner.length) { const nf = splitFace(out, fi, x, y); if (nf >= 0) { origin.push(origin[fi]); edgesMade.push(edgeKey(x, y)); used.add(x).add(y); } return; }
+      const ids = inner.map((s2) => s2.id);
+      const run = (a, b) => { const v = [], uv = []; for (let k = a; ; k = (k + 1) % n) { v.push(f.v[k]); if (f.uv) uv.push(f.uv[k * 2], f.uv[k * 2 + 1]); if (k === b) break; } return { v, uv }; };
+      const avg = f.uv ? [0, 1].map((c2) => f.uv.filter((_, k) => k % 2 === c2).reduce((s2, x2) => s2 + x2, 0) / n) : null;
+      const A = run(i, j), B = run(j, i), back = ids.slice().reverse();
+      out.f[fi] = { ...f, v: [...A.v, ...back], uv: f.uv ? [...A.uv, ...back.flatMap(() => avg)] : null };
+      out.f.push({ ...f, v: [...B.v, ...ids], uv: f.uv ? [...B.uv, ...ids.flatMap(() => avg)] : null });
+      origin.push(origin[fi]);
+      const chain = [x, ...ids, y];
+      for (let k = 0; k + 1 < chain.length; k++) edgesMade.push(edgeKey(chain[k], chain[k + 1]));
+      chain.forEach((v) => used.add(v));
+    };
+    let last = null, inner = [];
+    for (const s2 of seq) {
+      if (!s2.edge) { if (last !== null) inner.push(s2); continue; }
+      if (last !== null) cut(last, inner, s2.id);
+      last = s2.id; inner = [];
+    }
+    // Vertices put on edges that no cut ended up using are taken out again.
+    for (const id of onEdges) {
+      if (used.has(id)) continue;
+      out.f = out.f.map((f) => { const k = f.v.indexOf(id); if (k < 0) return f; const v = f.v.slice(), uv = f.uv ? f.uv.slice() : null; v.splice(k, 1); if (uv) uv.splice(k * 2, 2); return { ...f, v, uv }; });
+    }
+    cleanFaces(out);
+    const { mesh: m2, map } = compact(out);
+    const mapK = (k) => { const [a, b] = k.split('_').map(Number); return edgeKey(map[a], map[b]); };
+    return { mesh: m2, verts: [...used].map((v) => map[v]).filter((v) => v >= 0), edges: edgesMade.map(mapK) };
+  }
+
   /**
    * Bevel (as Blender's Ctrl+B): selected edges between two faces become strips `width` wide (measured across the
    * faces) with `segments` rows rounded towards the old edge; corners where beveled edges meet get a patch. With
@@ -1355,7 +1487,7 @@
     identity, multiply, rotation, compose, decompose, rotationAbout, transformPoint, normalMatrix, applyMatrix, flipFace,
     cube, plane, grid, uvSphere, icoSphere, cylinder, cone, torus, PRIMITIVES, rayHit,
     emptySelection, cloneSelection, flush, convertSelection, selectionFromVerts, selectionFromFaces, faceEdgeKeys, edgeFaces, cleanFaces, compact, remapSet,
-    transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, autoMerge, slideSides, splitFace, splitEdge, knifeCut, bevel, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
+    transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, autoMerge, slideSides, splitFace, splitEdge, knifeCut, knifePos, knifeWalk, knifePath, bevel, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
     flipFaces, recalcOutside, setSmooth, duplicateFaces, linkedVerts, growVerts, shrinkVerts, edgeLoop, faceLoop,
     vec: { sub, add, scale, dot, cross, len, norm },
   };

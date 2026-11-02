@@ -9977,21 +9977,40 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       em = await EM();
       check('Ctrl+Shift+B: the corner cut off (7 faces, 10 vertices), still closed', em.faces === 7 && em.v.length / 3 === 10 && em.check.closed && em.check.ok, [em.faces, em.v.length / 3]);
       await page.keyboard.press('Control+z');
-      // Knife across the top: from beyond one edge to beyond the opposite one.
-      const p1 = await page.evaluate(() => NoorMesh._project([0, -1.4, 1])), p2 = await page.evaluate(() => NoorMesh._project([0, 1.3, 1]));
-      const q1 = await page.evaluate(() => NoorMesh._project([0, -0.9, 1]));
-      await page.mouse.move(q1.x, q1.y);
+      // Knife (points kept on the mesh): from the top's back edge (its middle, snapped), through a point inside the top, over
+      // the front edge, to the front's bottom edge; the view turned between clicks, the points staying put.
+      const P = (p) => page.evaluate((q) => NoorMesh._project(q), p);
+      let q = await P([0, 1, 1]);
+      await page.mouse.move(q.x, q.y);
       await page.keyboard.press('k');
       check('K: the knife', (await MS()).op.kind === 'knife');
-      await page.mouse.click(p1.x, p1.y);
-      await page.mouse.move(p2.x, p2.y, { steps: 3 });
-      await page.mouse.click(p2.x, p2.y);
+      await page.mouse.move(q.x + 1, q.y);
+      check('…the mouse near an edge\'s middle: snapped to it', (await MS()).op.hoverSnap === 'middle', (await MS()).op.hoverSnap);
+      await page.mouse.click(q.x + 1, q.y);
+      q = await P([0.2, 0, 1]);
+      await page.mouse.move(q.x, q.y, { steps: 3 });
+      check('…inside the top face: on the face', (await MS()).op.hoverSnap === 'face', (await MS()).op.hoverSnap);
+      await page.mouse.click(q.x, q.y);
+      const placed = (await MS()).op.knifeWorld;
+      check('…the points on the surface (in the world: the back edge\'s middle, and on the top)', Math.abs(placed[0][1] - 1) < 1e-6 && Math.abs(placed[0][2] - 1) < 1e-6 && Math.abs(placed[1][2] - 1) < 1e-6 && Math.abs(placed[1][0] - 0.2) < 0.03, placed);
+      // Turn the view (numpad 3: from the right), then back; the points stay where they were put.
+      await page.keyboard.press('Numpad3');
+      const turned = (await MS()).op.knifeWorld;
+      check('…the view turned while cutting: the points stay on the mesh (the same places)', turned.every((p, i) => p.every((x, k) => Math.abs(x - placed[i][k]) < 1e-9)) && (await MS()).op.kind === 'knife');
+      await page.keyboard.press('Numpad1');
+      await page.keyboard.press('Control+Numpad7'); await page.keyboard.press('Numpad1');
+      // From the front: the front face's bottom edge middle.
+      q = await P([0, -1, -1]);
+      await page.mouse.move(q.x, q.y + 1, { steps: 3 });
+      await page.mouse.click(q.x, q.y + 1);
       st = await MS();
-      check('…two points across the top: its two edges crossed (shown before cutting)', st.op.points === 2 && st.op.crossings >= 2, st.op);
+      check('…three points: the way over the front edge found (crossing it)', st.op.points === 3 && st.op.crossings >= 1, st.op);
       await page.keyboard.press('Enter');
       em = await EM();
-      check('…Enter: the top split in two (7 faces, 10 vertices), closed and sound', !(await MS()).op && em.faces === 7 && em.v.length / 3 === 10 && em.check.ok && em.check.closed, [em.faces, em.v.length / 3, em.check]);
+      check('…Enter: the top and the front each split (8 faces, 12 vertices: 3 on edges, 1 inside), closed and sound', !(await MS()).op && em.faces === 8 && em.v.length / 3 === 12 && em.check.ok && em.check.closed && em.check.flipped === 0, [em.faces, em.v.length / 3, em.check]);
+      check('…one undo step', (await MS()).history === 1);
       await page.keyboard.press('Control+z');
+      await page.keyboard.press('Home');
       // Proportional editing: one vertex up, its neighbours follow part of the way.
       await page.keyboard.press('o');
       check('O: proportional editing on (the button pressed, remembered)', (await MS()).editOpts.prop && (await page.getAttribute('#nm-prop', 'aria-pressed')) === 'true');

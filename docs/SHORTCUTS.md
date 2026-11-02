@@ -197,7 +197,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Loop cut and slide (wheel or + −: how many; right-click while sliding: in the middle) | Ctrl+R |
 | Edge menu (bridge edge loops, loop cut) | Ctrl+E |
 | Bevel edges / vertices (wheel or + −: segments; V: which) | Ctrl+B / Ctrl+Shift+B |
-| Knife (click points; Enter or Space: cut) | K |
+| Knife (click points on the mesh, snapping to vertices, edges and their middles; Enter or Space: cut; the view moves freely while cutting) | K |
 | Slide vertices or an edge loop (E: even, F: flip) | G G |
 | Proportional editing / its falloff (wheel or Page Up / Down while moving: size) | O / Shift+O |
 | Auto merge vertices | Alt+O |
