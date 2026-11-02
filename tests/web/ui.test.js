@@ -10213,6 +10213,69 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors editing several objects', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80i. NoorMesh UVs (preview.151): seams (Ctrl+E), U › unwrap / smart project, the UV editor (islands selected
+    // and moved there), the checker texture.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const EM = () => page.evaluate(() => NoorMesh._editMesh());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2, l: r.left }; });
+      await page.mouse.move(box.cx - 150, box.cy);
+      await page.keyboard.press('Tab'); await page.keyboard.press('3'); await page.keyboard.press('a');
+      // Smart UV project from the U menu.
+      await page.keyboard.press('u');
+      await page.waitForSelector('#nm-popup');
+      check('U: the UV menu (unwrap, projections, seams, pack)', !!(await page.$('#nm-popup .nm-menuitem:has-text("Smart UV project")')) && !!(await page.$('#nm-popup .nm-menuitem:has-text("Mark seam")')));
+      await page.click('#nm-popup .nm-menuitem:has-text("Smart UV project")');
+      check('…Smart UV project: 6 islands (said so), one undo step', /6 islands/.test(await page.textContent('#nm-status')) && (await MS()).history === 1, await page.textContent('#nm-status'));
+      // Seams: the cube cut into a cross, then unwrapped as one piece.
+      const seams = await page.evaluate(() => {
+        const K = NoorMeshKernel, c = K.cube(2), n = (i) => K.faceNormal(c, c.f[i]).n, by = (ax, sg) => c.f.findIndex((_, i) => n(i)[ax] * sg > 0.9);
+        const [top, bot, fr, bk, lf, rt] = [by(2, 1), by(2, -1), by(1, -1), by(1, 1), by(0, -1), by(0, 1)];
+        const sh = (a, b) => K.faceEdgeKeys(c.f[a]).find((k) => K.faceEdgeKeys(c.f[b]).includes(k));
+        const h = new Set([sh(top, fr), sh(top, bk), sh(top, lf), sh(top, rt), sh(fr, bot)]);
+        return K.edges(c).map((e) => K.edgeKey(e.a, e.b)).filter((k) => !h.has(k));
+      });
+      await page.keyboard.press('2');
+      await page.evaluate((e) => NoorMesh._editSel({ edges: e }), seams);
+      await page.keyboard.press('Control+e'); await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Mark seam")');
+      check('Ctrl+E › Mark seam: 7 seams on the mesh', (await EM()).seams === 7, (await EM()).seams);
+      await page.keyboard.press('3'); await page.keyboard.press('a');
+      await page.keyboard.press('u'); await page.waitForSelector('#nm-popup');
+      await page.click('#nm-popup .nm-menuitem:has-text("Unwrap")');
+      check('…U › Unwrap: one island (the cross), laid flat', /1 island/.test(await page.textContent('#nm-status')), await page.textContent('#nm-status'));
+      // The UV editor: the island clicked, moved with G.
+      await page.click('#nm-uvbtn');
+      check('the UV button opens the UV editor beside the view', (await MS()).uv.open && await page.isVisible('#nm-uv'));
+      const uvs0 = await page.evaluate(() => NoorMesh._uvs());
+      const f0 = uvs0[0], cu = [(f0[0] + f0[2] + f0[4] + f0[6]) / 4, (f0[1] + f0[3] + f0[5] + f0[7]) / 4];
+      const pt = await page.evaluate((c) => NoorMesh._uvClient(c[0], c[1]), cu);
+      await page.mouse.click(pt[0], pt[1]);
+      check('…clicking the island selects it (all 6 faces)', (await MS()).uv.sel.length === 6, (await MS()).uv.sel);
+      await page.keyboard.press('g');
+      check('…G with the mouse over it: moving the island', (await MS()).uv.op === 'move');
+      await page.mouse.move(pt[0] + 40, pt[1] - 20, { steps: 3 });
+      await page.mouse.down(); await page.mouse.up();
+      const uvs1 = await page.evaluate(() => NoorMesh._uvs());
+      const du = uvs1[0][0] - uvs0[0][0], dv = uvs1[0][1] - uvs0[0][1];
+      check('…moved right and up in UV space (every face the same), one undo step', du > 0.01 && dv > 0.01 && uvs1.every((f, i) => Math.abs(f[0] - uvs0[i][0] - du) < 1e-9) && !(await MS()).uv.op && (await MS()).history === 4, [du, dv, (await MS()).history]);
+      await page.keyboard.press('s'); await page.keyboard.type('0.5'); await page.keyboard.press('Enter');
+      const uvs2 = await page.evaluate(() => NoorMesh._uvs());
+      const w = (f) => Math.max(f[0], f[2], f[4], f[6]) - Math.min(f[0], f[2], f[4], f[6]);
+      check('…S 0.5: half the size', Math.abs(w(uvs2[0]) - w(uvs1[0]) * 0.5) < 1e-9);
+      await page.mouse.move(box.cx - 150, box.cy);
+      await page.keyboard.press('Control+z');
+      check('…undo (with the mouse back over the view): the size back', Math.abs(w((await page.evaluate(() => NoorMesh._uvs()))[0]) - w(uvs1[0])) < 1e-9);
+      // The checker.
+      await page.click('#nm-checker');
+      check('▦: the checker texture on (remembered)', (await MS()).uv.checker && (await page.evaluate(() => localStorage.getItem('noormd.mesh.checker'))) === '1');
+      if (shots) { await page.waitForTimeout(200); await page.screenshot({ path: `${shots}/80i-noormesh-uv.png` }); }
+      check('no page errors with UVs', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

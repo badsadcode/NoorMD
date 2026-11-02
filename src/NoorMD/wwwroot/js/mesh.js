@@ -32,6 +32,10 @@ window.NoorMesh = (() => {
   // Edit Mode on several objects at once (as Blender's): their meshes joined into the active one's space while editing,
   // each face knowing whose it is (`o`, the index into ids); split back into the objects when Edit Mode ends.
   let multi = null; // { ids: [the active one first, then the others] }
+  // UVs: the checker texture in the view, and the UV editor (its islands selected by faces, its own view).
+  let checkerOn = (() => { try { return localStorage.getItem('noormd.mesh.checker') === '1'; } catch { return false; } })();
+  let uvOpen = false, uvSel = new Set(), uvOp = null, uvBox = null, uvPan = null, uvHover = false;
+  const uvCam = { zoom: 1, x: 0, y: 0 };
   let pivotMode = (() => { try { return localStorage.getItem('noormd.mesh.pivot') || 'median'; } catch { return 'median'; } })();
   let gizmos = (() => { try { return { move: true, rotate: false, scale: false, ...JSON.parse(localStorage.getItem('noormd.mesh.gizmos') || '{}') }; } catch { return { move: true, rotate: false, scale: false }; } })();
   let gizmoHover = null, gizmoHandles = [];
@@ -116,7 +120,7 @@ window.NoorMesh = (() => {
   }
 
   // ---------------------------------------------------------------- Edit Mode: the overlay and picking
-  const ORANGE = [1, 0.58, 0.15, 1], DARK = [0.04, 0.04, 0.05, 0.9], FACE_TINT = [1, 0.55, 0.1, 0.22];
+  const ORANGE = [1, 0.58, 0.15, 1], DARK = [0.04, 0.04, 0.05, 0.9], FACE_TINT = [1, 0.55, 0.1, 0.22], SEAM = [0.95, 0.18, 0.15, 1];
   /** The edited mesh's vertices (dots, in vertex mode), edges, and its selected faces tinted (face mode: their centres as dots). */
   function syncEdit() {
     if (!view) return;
@@ -127,7 +131,7 @@ window.NoorMesh = (() => {
     const lines = new Float32Array(es.length * 6), lineColors = new Float32Array(es.length * 8);
     es.forEach((e, k) => {
       lines.set([m.v[e.a * 3], m.v[e.a * 3 + 1], m.v[e.a * 3 + 2], m.v[e.b * 3], m.v[e.b * 3 + 1], m.v[e.b * 3 + 2]], k * 6);
-      const c = f.edges.has(K_.edgeKey(e.a, e.b)) ? ORANGE : DARK;
+      const ek = K_.edgeKey(e.a, e.b), c = f.edges.has(ek) ? ORANGE : K_.isSeam(m, ek) ? SEAM : DARK;
       lineColors.set([...c, ...c], k * 8);
     });
     let points = null, pointColors = null;
@@ -441,7 +445,7 @@ window.NoorMesh = (() => {
     ];
     popup(x, y, { vert: 'Vertex', edge: 'Edge', face: 'Face' }[editSel.mode], [
       { label: 'Move', keys: 'G', run: () => startOp('move'), disabled: none }, { label: 'Rotate', keys: 'R', run: () => startOp('rotate'), disabled: none }, { label: 'Scale', keys: 'S', run: () => startOp('scale'), disabled: none }, '-', ...items,
-      '-', { label: 'Separate…', keys: 'P', run: () => separateMenu(x, y) }, { label: 'Select linked', keys: 'Ctrl+L', run: () => selectLinked(false), disabled: none }, { label: 'Object Mode', keys: 'Tab', run: () => toggleEdit(false) },
+      '-', { label: 'UV…', keys: 'U', run: () => uvMenu(x, y) }, { label: 'Separate…', keys: 'P', run: () => separateMenu(x, y) }, { label: 'Select linked', keys: 'Ctrl+L', run: () => selectLinked(false), disabled: none }, { label: 'Object Mode', keys: 'Tab', run: () => toggleEdit(false) },
     ]);
   }
 
@@ -954,6 +958,7 @@ window.NoorMesh = (() => {
       { label: 'Bevel edges', keys: 'Ctrl+B', run: () => bevelStart(false), disabled: none },
       { label: 'Edge slide', keys: 'G G', run: () => { startOp('move'); if (op && op.edit) startSlide(); }, disabled: none },
       { label: 'Bridge edge loops', run: bridge, disabled: none },
+      { label: 'Mark seam', run: () => seams(true), disabled: none }, { label: 'Clear seam', run: () => seams(false), disabled: none },
       { label: 'Extrude edges', keys: 'E', run: extrude, disabled: none },
       { label: 'Dissolve edges', keys: 'Ctrl+X', run: dissolveSel, disabled: none },
     ]);
@@ -1314,6 +1319,206 @@ window.NoorMesh = (() => {
     lastAdd = null;
     syncAll(); renderAll();
     setStatus({ geometry: 'Geometry moved to the origin.', cursor: 'Origin moved to the 3D cursor.', middle: 'Origin moved to the geometry.' }[how]);
+  }
+
+  // ---------------------------------------------------------------- UVs: unwrapping (U), seams, the checker, the UV editor
+  function uvFaces() { const f = flushed(); return f ? [...f.faces] : []; }
+  function uvRun(kind) {
+    const o = editing();
+    if (!o) { setStatus('UVs are made in Edit Mode (Tab), from the selected faces.'); return; }
+    const faces = uvFaces();
+    if (!faces.length) { setStatus('Select faces to unwrap (3 for faces, then A for all).'); return; }
+    const labels = { unwrap: 'Unwrapped', smart: 'Smart UV project', cube: 'Cube projection', view: 'Projected from the view', reset: 'UVs reset', pack: 'Islands packed' };
+    const r = editStep((m) => {
+      if (kind === 'unwrap') return { mesh: K().unwrap(m, faces) };
+      if (kind === 'smart') return { mesh: K().smartProject(m, faces) };
+      if (kind === 'cube') return { mesh: K().cubeProject(m, faces, 2) };
+      if (kind === 'reset') return { mesh: K().resetUV(m, faces) };
+      if (kind === 'pack') return { mesh: K().packIslands(m, faces) };
+      // From the view (bounds): the faces as they look now, fitted into the square.
+      const M = matrixOf(o), sc = new Map();
+      for (const fi of faces) for (const v of m.f[fi].v) if (!sc.has(v)) { const q = view.project(K().transformPoint(M, vOf(m, v))); sc.set(v, [q.x, q.y]); }
+      const xs = [...sc.values()].map((p2) => p2[0]), ys = [...sc.values()].map((p2) => p2[1]);
+      const x0 = Math.min(...xs), y1 = Math.max(...ys), side = Math.max(Math.max(...xs) - x0, y1 - Math.min(...ys)) || 1;
+      return { mesh: K().projectUV(m, faces, (p2, fi) => { void fi; return [0, 0]; }), post: (mm) => { faces.forEach((fi) => { const f = mm.f[fi]; mm.f[fi] = { ...f, uv: f.v.flatMap((v) => [(sc.get(v)[0] - x0) / side, (y1 - sc.get(v)[1]) / side]) }; }); } };
+    });
+    if (r && r.post) { r.post(o.mesh); sync(o); }
+    if (r) { uvSel = new Set(faces); drawUV(); const n = K().uvIslands(o.mesh, faces).length; setStatus(`${labels[kind]}: ${faces.length} face${faces.length === 1 ? '' : 's'}, ${n} island${n === 1 ? '' : 's'}.`); }
+  }
+  function seams(on) {
+    const f = flushed();
+    if (!f || !f.edges.size) { setStatus('Select edges to mark as seams.'); return; }
+    editStep((m) => ({ mesh: K().markSeams(m, [...f.edges], on) }), on ? `Seams marked: ${f.edges.size}.` : 'Seams cleared.');
+  }
+  function uvMenu(x = mouse.x, y = mouse.y) {
+    popup(x, y, 'UV', [
+      { label: 'Unwrap', run: () => uvRun('unwrap') }, { label: 'Smart UV project', run: () => uvRun('smart') }, { label: 'Cube projection', run: () => uvRun('cube') }, { label: 'Project from view', run: () => uvRun('view') }, { label: 'Reset', run: () => uvRun('reset') }, '-',
+      { label: 'Mark seam', run: () => seams(true) }, { label: 'Clear seam', run: () => seams(false) }, '-',
+      { label: 'Pack islands', run: () => uvRun('pack') }, { label: uvOpen ? 'Close the UV editor' : 'Open the UV editor', run: () => setUvOpen(!uvOpen) },
+    ]);
+  }
+  function setChecker(on) {
+    checkerOn = !!on;
+    try { localStorage.setItem('noormd.mesh.checker', checkerOn ? '1' : '0'); } catch { /* not kept */ }
+    if (view && view.setChecker) view.setChecker(checkerOn);
+    const b = $('#nm-checker'); if (b) b.setAttribute('aria-pressed', String(checkerOn));
+    const b2 = $('#nm-uv-checker'); if (b2) b2.setAttribute('aria-pressed', String(checkerOn));
+  }
+  function setUvOpen(on) {
+    uvOpen = !!on;
+    const p2 = $('#nm-uv'); if (p2) p2.hidden = !uvOpen;
+    const b = $('#nm-uvbtn'); if (b) b.setAttribute('aria-pressed', String(uvOpen));
+    if (uvOpen) { uvCam.zoom = 1; uvCam.x = 0; uvCam.y = 0; requestAnimationFrame(drawUV); }
+  }
+  /** The faces the UV editor shows: the selected ones in Edit Mode (all when none are), the active object's otherwise. */
+  function uvShown() {
+    const o = editing() || byId(active);
+    if (!o) return { o: null, faces: [] };
+    const f = mode === 'edit' ? flushed() : null;
+    const faces = f && f.faces.size ? [...f.faces] : o.mesh.f.map((_, i) => i);
+    return { o, faces: faces.filter((i) => o.mesh.f[i] && o.mesh.f[i].uv) };
+  }
+  function uvGeom() {
+    const cv = $('#nm-uvcanvas'); if (!cv) return null;
+    const r = cv.getBoundingClientRect(), S = Math.min(r.width, r.height) * 0.86 * uvCam.zoom;
+    const ox = r.left + (r.width - S) / 2 + uvCam.x, oy = r.top + (r.height - S) / 2 + uvCam.y;
+    return { r, S, toPx: (u, v) => [ox + u * S, oy + (1 - v) * S], toUv: (x, y) => [(x - ox) / S, 1 - (y - oy) / S] };
+  }
+  function drawUV() {
+    const cv = $('#nm-uvcanvas');
+    if (!cv || !uvOpen) return;
+    const G = uvGeom(), r = G.r, dpr = Math.min(window.devicePixelRatio || 1, 2);
+    if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(r.height * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(r.height * dpr); }
+    const g = cv.getContext('2d');
+    g.setTransform(dpr, 0, 0, dpr, -r.left * dpr, -r.top * dpr);
+    g.fillStyle = '#1b1b1e'; g.fillRect(r.left, r.top, r.width, r.height);
+    // The UV square: a faint checker, its border.
+    const [sx, sy] = G.toPx(0, 1), S = G.S;
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) { g.fillStyle = (i + j) % 2 ? '#2b2b30' : '#323238'; g.fillRect(sx + (i * S) / 8, sy + (j * S) / 8, S / 8 + 0.5, S / 8 + 0.5); }
+    g.strokeStyle = '#5a5a64'; g.lineWidth = 1; g.strokeRect(sx, sy, S, S);
+    const { o, faces } = uvShown();
+    if (o) {
+      for (const fi of faces) {
+        const f = o.mesh.f[fi], pts = f.v.map((_, k) => G.toPx(f.uv[k * 2], f.uv[k * 2 + 1]));
+        g.beginPath(); pts.forEach((p2, k) => (k ? g.lineTo(p2[0], p2[1]) : g.moveTo(p2[0], p2[1]))); g.closePath();
+        const on = uvSel.has(fi);
+        g.fillStyle = on ? 'rgba(255,140,40,.32)' : 'rgba(255,255,255,.07)'; g.fill();
+        g.strokeStyle = on ? '#ff9a3c' : '#a5a5ae'; g.lineWidth = on ? 1.4 : 1; g.stroke();
+      }
+    }
+    if (uvBox && uvBox.moved) { g.strokeStyle = '#fff'; g.setLineDash([4, 3]); g.strokeRect(Math.min(uvBox.x0, uvBox.x1), Math.min(uvBox.y0, uvBox.y1), Math.abs(uvBox.x1 - uvBox.x0), Math.abs(uvBox.y1 - uvBox.y0)); g.setLineDash([]); }
+    const info = $('#nm-uv-info');
+    if (info && !uvOp) {
+      const st = o && faces.length ? K().uvStats(o.mesh, faces) : null;
+      info.textContent = mode !== 'edit' ? 'Tab: Edit Mode to edit UVs' : st ? `${K().uvIslands(o.mesh, faces).length} islands · ${Math.round(st.coverage * 100)}% used · stretch ${st.stretch.toFixed(2)}` : '';
+    }
+  }
+  const inPoly = (x, y, pts) => { let inside = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside; } return inside; };
+  function uvIslandAt(x, y) {
+    const { o, faces } = uvShown(), G = uvGeom();
+    if (!o || !G) return null;
+    const [u, v] = G.toUv(x, y);
+    for (let i = faces.length - 1; i >= 0; i--) { const f = o.mesh.f[faces[i]]; if (inPoly(u, v, f.v.map((_, k) => [f.uv[k * 2], f.uv[k * 2 + 1]]))) return K().uvIslands(o.mesh, faces).find((isl) => isl.includes(faces[i])); }
+    return null;
+  }
+  function uvDown(e) {
+    e.preventDefault();
+    if (mode !== 'edit' && e.button === 0) { setStatus('Tab: Edit Mode, to select and move UVs.'); return; }
+    if (uvOp) { if (e.button === 0) uvConfirm(); else if (e.button === 2) uvCancel(); return; }
+    if (e.button === 1) { uvPan = { x: e.clientX, y: e.clientY, cx: uvCam.x, cy: uvCam.y }; return; }
+    if (e.button === 0) uvBox = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, shift: e.shiftKey, moved: false };
+  }
+  function uvMove(e) {
+    mouse = { x: e.clientX, y: e.clientY };
+    if (uvPan) { uvCam.x = uvPan.cx + e.clientX - uvPan.x; uvCam.y = uvPan.cy + e.clientY - uvPan.y; drawUV(); return; }
+    if (uvOp) { uvUpdate(); return; }
+    if (uvBox) { uvBox.x1 = e.clientX; uvBox.y1 = e.clientY; if (Math.hypot(uvBox.x1 - uvBox.x0, uvBox.y1 - uvBox.y0) > 4) uvBox.moved = true; drawUV(); }
+  }
+  function uvUp(e) {
+    if (uvPan) { uvPan = null; return; }
+    const b = uvBox; uvBox = null;
+    if (!b) return;
+    const { o, faces } = uvShown();
+    if (!o) return;
+    if (!b.moved) {
+      const isl = uvIslandAt(e.clientX, e.clientY);
+      if (!b.shift) uvSel = new Set();
+      if (isl) { const all = isl.every((fi) => uvSel.has(fi)); isl.forEach((fi) => (b.shift && all ? uvSel.delete(fi) : uvSel.add(fi))); }
+    } else {
+      const G = uvGeom(), [u0, v1] = G.toUv(Math.min(b.x0, b.x1), Math.min(b.y0, b.y1)), [u1, v0] = G.toUv(Math.max(b.x0, b.x1), Math.max(b.y0, b.y1));
+      if (!b.shift) uvSel = new Set();
+      for (const isl of K().uvIslands(o.mesh, faces)) if (isl.some((fi) => { const f = o.mesh.f[fi]; return f.v.some((_, k) => f.uv[k * 2] >= u0 && f.uv[k * 2] <= u1 && f.uv[k * 2 + 1] >= v0 && f.uv[k * 2 + 1] <= v1); })) isl.forEach((fi) => uvSel.add(fi));
+    }
+    drawUV();
+  }
+  function uvWheel(e) {
+    e.preventDefault(); e.stopPropagation();
+    const G = uvGeom(), [u, v] = G.toUv(e.clientX, e.clientY), k = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+    uvCam.zoom = Math.max(0.1, Math.min(40, uvCam.zoom * k));
+    const G2 = uvGeom(), [px, py] = G2.toPx(u, v);
+    uvCam.x += e.clientX - px; uvCam.y += e.clientY - py;
+    drawUV();
+  }
+  function uvStart(kind) {
+    const o = editing();
+    if (!o) return;
+    const faces = [...uvSel].filter((i) => o.mesh.f[i] && o.mesh.f[i].uv);
+    if (!faces.length) { setStatus('Select an island in the UV editor first (click it, or A for all).'); return; }
+    const corners = faces.flatMap((fi) => o.mesh.f[fi].uv.reduce((acc, x, k) => (k % 2 ? acc : [...acc, [x, o.mesh.f[fi].uv[k + 1]]]), []));
+    const pivot = [corners.reduce((a, c) => a + c[0], 0) / corners.length, corners.reduce((a, c) => a + c[1], 0) / corners.length];
+    uvOp = { kind, o, faces, startMesh: o.mesh, pivot, m0: uvGeom().toUv(mouse.x, mouse.y), axis: null, typed: '', before: snapshot() };
+    uvUpdate();
+  }
+  function uvUpdate() {
+    const op2 = uvOp, G = uvGeom(), m = G.toUv(mouse.x, mouse.y), typed = op2.typed !== '' && op2.typed !== '-' && op2.typed !== '.' ? Number(op2.typed) : null;
+    const step = (snapping.on ? !op2.ctrl : !!op2.ctrl);
+    const p0 = op2.pivot;
+    let fn, text;
+    if (op2.kind === 'move') {
+      let d = typed !== null ? (op2.axis === 1 ? [0, typed] : [typed, 0]) : [m[0] - op2.m0[0], m[1] - op2.m0[1]];
+      if (op2.axis === 0) d[1] = 0; if (op2.axis === 1) d[0] = 0;
+      if (step && typed === null) d = d.map((x) => Math.round(x * 32) / 32);
+      fn = (u, v) => [u + d[0], v + d[1]]; text = `Move: ${fmt(d[0])}, ${fmt(d[1])}`;
+    } else if (op2.kind === 'rotate') {
+      const a = (q) => Math.atan2(q[1] - p0[1], q[0] - p0[0]);
+      let deg = typed !== null ? typed : ((a(m) - a(op2.m0)) * 180) / Math.PI;
+      if (step && typed === null) deg = Math.round(deg / 5) * 5;
+      const c = Math.cos((deg * Math.PI) / 180), sn = Math.sin((deg * Math.PI) / 180);
+      fn = (u, v) => [p0[0] + (u - p0[0]) * c - (v - p0[1]) * sn, p0[1] + (u - p0[0]) * sn + (v - p0[1]) * c]; text = `Rotate: ${fmt(deg)}°`;
+    } else {
+      const d0 = Math.max(1e-6, Math.hypot(op2.m0[0] - p0[0], op2.m0[1] - p0[1]));
+      let k = typed !== null ? typed : Math.hypot(m[0] - p0[0], m[1] - p0[1]) / d0;
+      if (step && typed === null) k = Math.round(k * 10) / 10;
+      const kx = op2.axis === 1 ? 1 : k, ky = op2.axis === 0 ? 1 : k;
+      fn = (u, v) => [p0[0] + (u - p0[0]) * kx, p0[1] + (v - p0[1]) * ky]; text = `Scale: ${fmt(k)}`;
+    }
+    const set = new Set(op2.faces), sm = op2.startMesh;
+    op2.o.mesh = { ...sm, f: sm.f.map((f, i) => (set.has(i) ? { ...f, uv: f.uv.map((x, k) => (k % 2 ? fn(f.uv[k - 1], x)[1] : fn(x, f.uv[k + 1])[0])) } : f)) };
+    sync(op2.o); drawUV();
+    const info = $('#nm-uv-info'); if (info) info.textContent = `${text}${op2.axis !== null ? ' (' + 'UV'[op2.axis] + ')' : ''}${op2.typed !== '' ? ` [${op2.typed}]` : ''} · X / Y: an axis · click or Enter: done · right-click or Esc: back`;
+  }
+  function uvConfirm() {
+    const done = uvOp; uvOp = null;
+    history.push(done.before); if (history.length > 200) history.shift(); future = [];
+    changed(); syncEdit(); renderAll();
+  }
+  function uvCancel() { const done = uvOp; uvOp = null; done.o.mesh = done.startMesh; sync(done.o); drawUV(); }
+  /** Keys while the mouse is over the UV editor (Edit Mode): G R S, A / Alt+A; true when used. */
+  function uvKey(e) {
+    const k = e.key.toLowerCase();
+    if (uvOp) {
+      if (k === 'escape') { uvCancel(); return true; }
+      if (k === 'enter') { uvConfirm(); return true; }
+      if (k === 'x' || k === 'y') { const ax = k === 'x' ? 0 : 1; uvOp.axis = uvOp.axis === ax ? null : ax; uvUpdate(); return true; }
+      if (/^[0-9.]$/.test(k) || (k === '-' && uvOp.typed === '')) { uvOp.typed += k; uvUpdate(); return true; }
+      if (k === 'backspace') { uvOp.typed = uvOp.typed.slice(0, -1); uvUpdate(); return true; }
+      return true;
+    }
+    if (mode !== 'edit' || e.ctrlKey) return false;
+    if (k === 'g' || k === 'r' || k === 's') { if (e.shiftKey) return false; uvStart({ g: 'move', r: 'rotate', s: 'scale' }[k]); return true; }
+    if (k === 'a') { const { o, faces } = uvShown(); uvSel = e.altKey ? new Set() : new Set(o ? faces : []); drawUV(); return true; }
+    if (e.key === 'Home') { uvCam.zoom = 1; uvCam.x = 0; uvCam.y = 0; drawUV(); return true; }
+    return false;
   }
 
   function opKey(e) {
@@ -1737,6 +1942,7 @@ window.NoorMesh = (() => {
     const eo = $('#nm-editopts'); if (eo) eo.hidden = mode !== 'edit';
     if (sm) { sm.hidden = mode !== 'edit'; sm.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(!!editSel && b.dataset.selmode === editSel.mode))); }
     $('#meshbench') && $('#meshbench').classList.toggle('nm-editing', mode === 'edit');
+    if (uvOpen) { const o = editing(); if (o) uvSel = new Set([...uvSel].filter((i) => i < o.mesh.f.length)); else uvSel = new Set(); drawUV(); }
     if (window.NoorChrome) NoorChrome.benchChanged();
   }
   function renderOutliner() {
@@ -1883,6 +2089,8 @@ window.NoorMesh = (() => {
                     el('option', { value: 'increment' }, 'Steps'), el('option', { value: 'vertex' }, 'Vertex'))),
                 el('select', { id: 'nm-pivot', class: 'nm-snapmode', title: 'Pivot point for rotating and scaling (.)', 'aria-label': 'Pivot point', onchange: (e) => { setPivot(e.target.value); keepFocus(); } },
                   ...PIVOTS.map(([v, t]) => el('option', { value: v }, t))),
+                el('button', { class: 'icon-btn', id: 'nm-uvbtn', title: 'The UV editor (beside the view)', 'aria-label': 'UV editor', 'aria-pressed': 'false', onclick: () => { setUvOpen(!uvOpen); keepFocus(); } }, 'UV'),
+                el('button', { class: 'icon-btn', id: 'nm-checker', title: 'The UV checker texture on the meshes', 'aria-label': 'UV checker', 'aria-pressed': 'false', onclick: () => { setChecker(!checkerOn); keepFocus(); } }, '▦'),
                 el('button', { class: 'icon-btn', id: 'nm-edges', title: 'Show every object\'s edges', 'aria-label': 'Edges', 'aria-pressed': 'false', onclick: () => { showEdges = !showEdges; view && view.setEdges(showEdges); $('#nm-edges').setAttribute('aria-pressed', String(showEdges)); } }, '▦'),
                 el('button', { class: 'icon-btn', id: 'nm-side', title: 'The view big, the properties in a column on the right; or under it', 'aria-label': 'Properties beside the view', 'aria-pressed': 'false', onclick: () => layout.set({ side: !layout.prefs.side }) }, '◫'),
                 el('button', { class: 'icon-btn', id: 'nm-list', title: 'Show or hide the scene list', 'aria-label': 'The scene list', 'aria-pressed': 'true', onclick: () => layout.set({ list: !layout.prefs.list }) }, '☰')),
@@ -1890,7 +2098,17 @@ window.NoorMesh = (() => {
                 el('canvas', { id: 'nm-canvas', class: 'tb-canvas', tabindex: '-1', role: 'img', 'aria-label': 'The scene: click to select, middle-drag to turn the view, wheel to zoom', title: 'Click: select · drag: box select · middle-drag: turn · Shift+middle-drag: move · wheel: zoom · right-click: menu' }),
                 el('div', { class: 'nm-hud', id: 'nm-hud', 'aria-live': 'polite' }),
                 el('canvas', { class: 'nm-gizmo', id: 'nm-gizmo', 'aria-hidden': 'true' }),
-                el('div', { class: 'nm-box', id: 'nm-box', hidden: true })),
+                el('div', { class: 'nm-box', id: 'nm-box', hidden: true }),
+                el('div', { class: 'nm-uv', id: 'nm-uv', hidden: true, 'aria-label': 'UV editor' },
+                  el('div', { class: 'nm-uv-head' },
+                    el('strong', { text: 'UV' }),
+                    el('button', { class: 'utility-btn', title: 'Unwrap the selected faces (split at seams), packed', onclick: () => { uvRun('unwrap'); keepFocus(); } }, 'Unwrap'),
+                    el('button', { class: 'utility-btn', title: 'Smart UV project: grouped by facing, packed', onclick: () => { uvRun('smart'); keepFocus(); } }, 'Smart'),
+                    el('button', { class: 'utility-btn', title: 'Pack the islands into the square', onclick: () => { uvRun('pack'); keepFocus(); } }, 'Pack'),
+                    el('button', { class: 'icon-btn', id: 'nm-uv-checker', title: 'The checker texture in the view', 'aria-label': 'Checker', 'aria-pressed': 'false', onclick: () => { setChecker(!checkerOn); keepFocus(); } }, '▦'),
+                    el('span', { class: 'nm-uv-info', id: 'nm-uv-info' }),
+                    el('button', { class: 'icon-btn', title: 'Close the UV editor', 'aria-label': 'Close the UV editor', onclick: () => { setUvOpen(false); keepFocus(); } }, '✕')),
+                  el('canvas', { class: 'nm-uvcanvas', id: 'nm-uvcanvas', title: 'Click an island to select it (Shift: add) · drag: box · G R S with the mouse here · A: all · wheel: zoom · middle-drag: move' }))),
               el('p', { class: 'pref-hint sb-status', id: 'nm-status', 'aria-live': 'polite' })),
             el('div', { class: 'tb-splitter', id: 'nm-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to share the room between the view and the properties (double-click: back to normal)' }),
             el('div', { class: 'tb-edit-col', id: 'nm-edit-col' }, el('div', { class: 'sb-pane', id: 'nm-pane' }))))));
@@ -1906,6 +2124,8 @@ window.NoorMesh = (() => {
     } catch (err) { console.warn('NoorMesh: no 3D view', err); view = null; setTimeout(() => setStatus(`The 3D view couldn't start (it needs WebGL 2): ${err && err.message ? err.message : err}`), 0); }
     if (window.NoorChrome && NoorChrome.registerBench) NoorChrome.registerBench('mesh', { name: 'NoorMesh', title: appTitle, menus: appMenus });
     renderGizmoButtons(); renderSnap(); renderEditOpts();
+    setChecker(checkerOn);
+    { const uc = $('#nm-uvcanvas'); uc.addEventListener('pointerdown', (e) => { uc.setPointerCapture(e.pointerId); uvDown(e); }); uc.addEventListener('pointermove', uvMove); uc.addEventListener('pointerup', uvUp); uc.addEventListener('wheel', uvWheel, { passive: false }); uc.addEventListener('contextmenu', (e) => e.preventDefault()); uc.addEventListener('pointerenter', () => { uvHover = true; }); uc.addEventListener('pointerleave', () => { uvHover = false; }); }
     { const pv = $('#nm-pivot'); if (pv) pv.value = pivotMode; }
     // While cutting a loop the wheel sets how many cuts (before the view zooms with it).
     $('#nm-stage').addEventListener('wheel', loopCutWheel, { capture: true, passive: false });
@@ -1916,6 +2136,7 @@ window.NoorMesh = (() => {
     const typing = e.target.closest('input, select, textarea');
     if ($('#nm-popup') && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closePopup(); return; }
     if (op) { if (opKey(e)) { e.preventDefault(); e.stopPropagation(); } return; }
+    if (uvOpen && (uvHover || uvOp) && !e.target.closest('input, select, textarea') && uvKey(e)) { e.preventDefault(); e.stopPropagation(); return; }
     if (typing) return;
     const k = e.key.toLowerCase(), code = e.code;
     const take = () => { e.preventDefault(); e.stopPropagation(); };
@@ -2000,6 +2221,7 @@ window.NoorMesh = (() => {
     if (k === 'e') { take(); extrude(); return true; }
     if (k === 'k') { take(); knifeStart(); return true; }
     if (k === 'p') { take(); separateMenu(); return true; }
+    if (k === 'u') { take(); uvMenu(); return true; }
     if (k === 'o') { take(); togglePropEdit(); return true; }
     if (k === 'i') { take(); inset(); return true; }
     if (k === 'x' || e.key === 'Delete') { take(); deleteMenu(); return true; }
@@ -2027,7 +2249,7 @@ window.NoorMesh = (() => {
     ['Select linked (under the mouse / of the selection)', 'L / Ctrl+L'], ['Select more / less', 'Ctrl+Numpad + / Ctrl+Numpad −'],
     ['Extrude (then along the normal)', 'E'], ['Inset faces (as one region; I again: each face)', 'I'], ['Loop cut and slide (wheel or + −: how many)', 'Ctrl+R'], ['Edge menu (bridge edge loops)', 'Ctrl+E'], ['Bevel edges / vertices (wheel or + −: segments, V: which)', 'Ctrl+B / Ctrl+Shift+B'], ['Knife (click points, Enter: cut)', 'K'],
     ['Slide vertices or an edge loop (E: even, F: flip)', 'G G'], ['Proportional editing / its falloff (wheel while moving: size)', 'O / Shift+O'], ['Auto merge vertices', 'Alt+O'], ['Mirror editing', 'The ⇋X ⇋Y ⇋Z buttons'], ['Delete / dissolve', 'X / Ctrl+X'], ['Merge', 'M'], ['Make a face', 'F'],
-    ['Normals: menu / recalculate outside', 'Alt+N / Shift+N'], ['Duplicate faces', 'Shift+D'], ['Separate (selection, loose parts)', 'P'], ['Edit Mode menu', 'Right-click'],
+    ['Normals: menu / recalculate outside', 'Alt+N / Shift+N'], ['Duplicate faces', 'Shift+D'], ['Separate (selection, loose parts)', 'P'], ['UV menu (unwrap, projections, seams, pack)', 'U'], ['UV editor: select an island / move, rotate, scale it', 'Click / G R S (the mouse over it)'], ['Edit Mode menu', 'Right-click'],
   ];
   function shortcutsDialog() {
     NoorUI.modal({ label: 'NoorMesh shortcuts', width: 560 }, (surface, closeIt) => {
@@ -2057,6 +2279,7 @@ window.NoorMesh = (() => {
           go('Vertices', () => setSelectMode('vert'), '1', { disabled: off }), go('Edges', () => setSelectMode('edge'), '2', { disabled: off }), go('Faces', () => setSelectMode('face'), '3', { disabled: off }), '-',
           go('Extrude', extrude, 'E', { disabled: off }), go('Inset faces', inset, 'I', { disabled: off }), go('Merge…', () => mergeMenu(innerWidth / 2, innerHeight / 3), 'M', { disabled: off }), go('Make a face', makeFaceSel, 'F', { disabled: off }),
           go('Loop cut and slide', loopCutStart, 'Ctrl+R', { disabled: off }), go('Bevel', () => bevelStart(false), 'Ctrl+B', { disabled: off }), go('Bevel vertices', () => bevelStart(true), 'Ctrl+Shift+B', { disabled: off }), go('Knife', knifeStart, 'K', { disabled: off }), go('Bridge edge loops', bridge, '', { disabled: off }), go('Edge menu…', () => edgeMenu(innerWidth / 2, innerHeight / 3), 'Ctrl+E', { disabled: off }),
+          { label: 'UV', sub: () => [go('Unwrap', () => uvRun('unwrap')), go('Smart UV project', () => uvRun('smart')), go('Cube projection', () => uvRun('cube')), go('Project from view', () => uvRun('view')), go('Reset', () => uvRun('reset')), go('Mark seam', () => seams(true)), go('Clear seam', () => seams(false)), go('Pack islands', () => uvRun('pack'))], disabled: off },
           go('Duplicate faces', duplicateEdit, 'Shift+D', { disabled: off }), go('Separate…', () => separateMenu(innerWidth / 2, innerHeight / 3), 'P', { disabled: off }), go('Delete…', () => deleteMenu(innerWidth / 2, innerHeight / 3), 'X', { disabled: off }), go('Dissolve', dissolveSel, 'Ctrl+X', { disabled: off }), '-',
           { label: 'Normals', sub: () => [go('Flip', () => normals('flip')), go('Recalculate outside', () => normals('outside'), 'Shift+N'), go('Recalculate inside', () => normals('inside'))], disabled: off },
           go('Shade smooth', () => shade(true)), go('Shade flat', () => shade(false)), '-',
@@ -2077,6 +2300,7 @@ window.NoorMesh = (() => {
         { label: 'Proportional editing', checked: () => editOpts.prop, keys: 'O', run: togglePropEdit }, { label: 'Auto merge vertices', checked: () => editOpts.autoMerge, keys: 'Alt+O', run: toggleAutoMerge },
         { label: 'Mirror X', checked: () => editOpts.mirror[0], run: () => toggleMirror(0) }, { label: 'Mirror Y', checked: () => editOpts.mirror[1], run: () => toggleMirror(1) }, { label: 'Mirror Z', checked: () => editOpts.mirror[2], run: () => toggleMirror(2) }, '-',
         { label: 'Snapping', checked: () => snapping.on, keys: 'Shift+Tab', run: () => setSnapping({ on: !snapping.on }) }, { label: 'Snap in steps', checked: () => snapping.mode === 'increment', run: () => setSnapping({ mode: 'increment' }) }, { label: 'Snap to vertices', checked: () => snapping.mode === 'vertex', run: () => setSnapping({ mode: 'vertex' }) }, '-',
+        { label: 'UV editor', checked: () => uvOpen, run: () => setUvOpen(!uvOpen) }, { label: 'UV checker', checked: () => checkerOn, run: () => setChecker(!checkerOn) }, '-',
         go('Shortcuts…', shortcutsDialog, 'F1')]],
     ];
   }
@@ -2085,13 +2309,16 @@ window.NoorMesh = (() => {
     init, open, close, toggle, isOpen,
     /** For tests: the scene as it is. */
     _gizmo: () => gizmoHandles.map((h) => ({ id: h.id, kind: h.kind, axis: h.axis ?? null, plane: h.plane ?? null, at: h.shape === 'ring' ? h.pts[8] : h.shape === 'quad' ? [(h.pts[0][0] + h.pts[2][0]) / 2, (h.pts[0][1] + h.pts[2][1]) / 2] : h.pts[h.pts.length - 1] })),
-    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
+    _state: () => ({ gizmos: { ...gizmos }, file: { ...file }, dirty, mode, editSel: editSel && { mode: editSel.mode, verts: [...editSel.verts], edges: [...editSel.edges], faces: [...editSel.faces] }, editFlush: editing() ? (() => { const f = K().flush(editing().mesh, editSel); return { verts: f.verts.size, edges: f.edges.size, faces: f.faces.size }; })() : null, objects: objects.map((o) => ({ id: o.id, name: o.name, kind: o.kind, t: o.t.slice(), r: o.r.slice(), s: o.s.slice(), hidden: o.hidden, vertices: K().vertexCount(o.mesh), faces: o.mesh.f.length, check: K().check(o.mesh) })), selected: [...selected], active, op: op ? { kind: op.kind, axis: op.axis, typed: op.typed, phase: op.phase, cuts: op.cuts, factor: op.factor, individual: !!op.individual, snapped: !!op.snapAt, plane: op.plane ?? null, segments: op.segments, width: op.width, points: op.pts ? op.pts.length : undefined, crossings: op.kind === 'knife' ? op.cross : undefined, knifeWorld: op.kind === 'knife' ? op.pts.map((p) => knifeWorld(p.c)) : undefined, hoverSnap: op.kind === 'knife' && op.hover ? op.hover.snap : undefined, f: op.f, edgeSlide: op.edgeSlide, prop: op.prop ? op.prop.length : 0, even: op.even } : null, cursor: cursor.slice(), pivot: pivotMode, uv: { open: uvOpen, sel: [...uvSel], op: uvOp ? uvOp.kind : null, checker: checkerOn }, multi: multi ? multi.ids.length : 0, snapping: { ...snapping }, editOpts: JSON.parse(JSON.stringify(editOpts)), history: history.length, future: future.length, lastAdd: lastAdd && { ...lastAdd }, camera: view && view.camera() }),
     _project: (p) => view && view.project(p),
     /** For tests: set the edited object's selection ({ verts | edges | faces }, in the current mode), and read its mesh. */
     _editSel: (x) => { const o = editing(); if (!o) return; const m = editSel.mode; editSel = x.faces ? K().selectionFromFaces(o.mesh, x.faces, m) : x.verts ? K().selectionFromVerts(o.mesh, x.verts, m) : K().convertSelection(o.mesh, { mode: 'edge', verts: new Set(), edges: new Set(x.edges), faces: new Set() }, m); syncEdit(); renderAll(); },
     /** For tests: an object's vertices in the world. */
     _worldVerts: (i) => { const o = objects[i]; if (!o) return null; const M = matrixOf(o), out = []; for (let k = 0; k < K().vertexCount(o.mesh); k++) out.push(K().transformPoint(M, vOf(o.mesh, k))); return out; },
-    _editMesh: () => { const o = editing(); return o ? { v: o.mesh.v.slice(), faces: o.mesh.f.length, volume: K().volume(o.mesh), check: K().check(o.mesh) } : null; },
+    /** For tests: where a UV point shows in the UV editor (client coordinates), and the edited faces' UVs. */
+    _uvClient: (u, v) => { const G = uvGeom(); return G ? G.toPx(u, v) : null; },
+    _uvs: () => { const o = editing() || byId(active); return o ? o.mesh.f.map((f) => (f.uv ? f.uv.slice() : null)) : null; },
+    _editMesh: () => { const o = editing(); return o ? { v: o.mesh.v.slice(), faces: o.mesh.f.length, volume: K().volume(o.mesh), check: K().check(o.mesh), seams: Object.values(o.mesh.e || {}).filter((x) => x && x.seam).length } : null; },
     /** For tests: select these faces of the edited object (as clicks would). */
     _editSelect: (faces) => { const o = editing(); if (!o) return; editSel = K().selectionFromFaces(o.mesh, faces, editSel.mode); syncEdit(); renderAll(); },
     /** For tests: where a vertex (or a face's middle) of the edited object shows on the screen. */

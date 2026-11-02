@@ -1483,6 +1483,234 @@
     return out;
   }
 
+  // ---------------------------------------------------------------- UVs (phase B1): seams, unwrapping, packing
+  const isSeam = (mesh, k) => !!(mesh.e && mesh.e[k] && mesh.e[k].seam);
+  /** Seams marked or cleared on edges (kept in mesh.e, as Blender keeps them on edges). */
+  function markSeams(mesh, keys, on = true) {
+    const out = clone(mesh);
+    for (const k of keys) { if (on) out.e[k] = { ...(out.e[k] || {}), seam: true }; else if (out.e[k]) { delete out.e[k].seam; if (!Object.keys(out.e[k]).length) delete out.e[k]; } }
+    return out;
+  }
+  /** The given faces in charts: joined across edges that are not seams (nor the selection's border). */
+  function uvCharts(mesh, faces) {
+    const set = new Set(faces), ef = edgeFaces(mesh), seen = new Set(), charts = [];
+    for (const f0 of faces) {
+      if (seen.has(f0)) continue;
+      const chart = [f0]; seen.add(f0);
+      for (let i = 0; i < chart.length; i++) for (const k of faceEdgeKeys(mesh.f[chart[i]])) {
+        if (isSeam(mesh, k)) continue;
+        for (const nb of ef.get(k) || []) if (set.has(nb) && !seen.has(nb)) { seen.add(nb); chart.push(nb); }
+      }
+      charts.push(chart);
+    }
+    return charts;
+  }
+  /** Islands of the UV map: faces joined across edges whose two corners have the same UVs on both sides. */
+  function uvIslands(mesh, faces) {
+    const set = new Set(faces), seen = new Set(), out = [];
+    const cornerUV = (fi, v) => { const f = mesh.f[fi], k = f.v.indexOf(v); return f.uv ? [f.uv[k * 2], f.uv[k * 2 + 1]] : [0, 0]; };
+    const same = (p, q) => Math.abs(p[0] - q[0]) < 1e-6 && Math.abs(p[1] - q[1]) < 1e-6;
+    const ef = edgeFaces(mesh);
+    for (const f0 of faces) {
+      if (seen.has(f0)) continue;
+      const isl = [f0]; seen.add(f0);
+      for (let i = 0; i < isl.length; i++) for (const k of faceEdgeKeys(mesh.f[isl[i]])) {
+        const [a, b] = k.split('_').map(Number);
+        for (const nb of ef.get(k) || []) {
+          if (!set.has(nb) || seen.has(nb)) continue;
+          if (same(cornerUV(isl[i], a), cornerUV(nb, a)) && same(cornerUV(isl[i], b), cornerUV(nb, b))) { seen.add(nb); isl.push(nb); }
+        }
+      }
+      out.push(isl);
+    }
+    return out;
+  }
+  /** Conjugate gradients on AᵀA x = Aᵀb for a sparse A (rows of [index, value] pairs). */
+  function leastSquares(rows, rhs, n, iters = 0) {
+    const Ax = (x) => rows.map((r) => r.reduce((s2, [j, a]) => s2 + a * x[j], 0));
+    const ATy = (y) => { const out = new Float64Array(n); rows.forEach((r, i) => { for (const [j, a] of r) out[j] += a * y[i]; }); return out; };
+    const x = new Float64Array(n), b = ATy(rhs);
+    let r = Float64Array.from(b), p = Float64Array.from(r), rr = r.reduce((s2, v) => s2 + v * v, 0);
+    const limit = iters || Math.max(200, n * 4), tol = 1e-20 * Math.max(1, rr);
+    for (let it = 0; it < limit && rr > tol; it++) {
+      const Ap = ATy(Ax(p)), pAp = p.reduce((s2, v, i) => s2 + v * Ap[i], 0);
+      if (Math.abs(pAp) < 1e-300) break;
+      const alpha = rr / pAp;
+      for (let i = 0; i < n; i++) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
+      const rr2 = r.reduce((s2, v) => s2 + v * v, 0);
+      const beta = rr2 / rr; rr = rr2;
+      for (let i = 0; i < n; i++) p[i] = r[i] + beta * p[i];
+    }
+    return x;
+  }
+  /**
+   * Least squares conformal maps (as Blender's angle-preserving Unwrap, one chart): each vertex a UV keeping the angles
+   * of the triangles as they are; two far-apart vertices pinned. Returns Map vertex → [u, v].
+   */
+  function lscmChart(mesh, chart) {
+    // Chart vertices: a vertex's corners joined across the chart's edges that are not seams (cut at a seam, a vertex
+    // becomes two or more points of the flat chart).
+    const parent = new Map(), key = (fi, v) => `${fi}:${v}`;
+    const find = (x) => { while (parent.get(x) !== x) { parent.set(x, parent.get(parent.get(x))); x = parent.get(x); } return x; };
+    for (const fi of chart) for (const v of mesh.f[fi].v) parent.set(key(fi, v), key(fi, v));
+    const inChart = new Set(chart), ef = edgeFaces(mesh);
+    for (const fi of chart) for (const k of faceEdgeKeys(mesh.f[fi])) {
+      if (isSeam(mesh, k)) continue;
+      const [a, b] = k.split('_').map(Number);
+      for (const nb of ef.get(k) || []) if (nb !== fi && inChart.has(nb)) for (const v of [a, b]) { const ra = find(key(fi, v)), rb = find(key(nb, v)); if (ra !== rb) parent.set(ra, rb); }
+    }
+    const ids = new Map(), posOf = [];
+    for (const fi of chart) for (const v of mesh.f[fi].v) { const r = find(key(fi, v)); if (!ids.has(r)) { ids.set(r, ids.size); posOf.push(vert(mesh, v)); } }
+    const cid = (fi, v) => ids.get(find(key(fi, v))), n = ids.size;
+    const uvs = new Array(n);
+    const out = (fi, v) => uvs[cid(fi, v)];
+    if (n < 3) { for (let i = 0; i < n; i++) uvs[i] = [i, 0]; return out; }
+    let a = 0; for (let i = 1; i < n; i++) if (len(sub(posOf[i], posOf[0])) > len(sub(posOf[a], posOf[0]))) a = i;
+    let b = a === 0 ? 1 : 0; for (let i = 0; i < n; i++) if (i !== a && len(sub(posOf[i], posOf[a])) > len(sub(posOf[b], posOf[a]))) b = i;
+    const pins = new Map([[a, [0, 0]], [b, [1, 0]]]);
+    const free = new Map(); for (let i = 0; i < n; i++) if (!pins.has(i)) free.set(i, free.size);
+    const nf = free.size, rows = [], rhs = [];
+    for (const fi of chart) for (const t of triangulateFace(mesh, mesh.f[fi])) {
+      const vs = t.map((k) => mesh.f[fi].v[k]), p = vs.map((v) => vert(mesh, v));
+      const e1 = sub(p[1], p[0]), e2 = sub(p[2], p[0]), L1 = len(e1);
+      const nrm = cross(e1, e2), area2 = len(nrm);
+      if (L1 < 1e-12 || area2 < 1e-14) continue;
+      const ex = scale(e1, 1 / L1), ey = norm(cross(norm(nrm), ex));
+      const X = [0, L1, dot(e2, ex)], Y = [0, 0, dot(e2, ey)], w = 1 / Math.sqrt(area2);
+      const W = [0, 1, 2].map((j) => [(X[(j + 2) % 3] - X[(j + 1) % 3]) * w, (Y[(j + 2) % 3] - Y[(j + 1) % 3]) * w]);
+      const re = [], im = [];
+      let rre = 0, rim = 0;
+      vs.forEach((v, j) => {
+        const li = cid(fi, v), [wr, wi] = W[j];
+        if (pins.has(li)) { const [pu, pv] = pins.get(li); rre -= wr * pu - wi * pv; rim -= wr * pv + wi * pu; return; }
+        const fu = free.get(li) * 2, fv = fu + 1;
+        re.push([fu, wr], [fv, -wi]); im.push([fu, wi], [fv, wr]);
+      });
+      rows.push(re, im); rhs.push(rre, rim);
+    }
+    const x = nf ? leastSquares(rows, rhs, nf * 2) : new Float64Array(0);
+    for (let i = 0; i < n; i++) uvs[i] = pins.has(i) ? pins.get(i).slice() : [x[free.get(i) * 2], x[free.get(i) * 2 + 1]];
+    // Facing the right way (not mirrored).
+    let signed = 0;
+    for (const fi of chart) { const f = mesh.f[fi]; for (let k = 0; k < f.v.length; k++) { const p = out(fi, f.v[k]), q = out(fi, f.v[(k + 1) % f.v.length]); signed += p[0] * q[1] - q[0] * p[1]; } }
+    if (signed < 0) for (const uv of uvs) uv[0] = -uv[0];
+    return out;
+  }
+  /** UVs set on faces from a chart's corner map ((face, vertex) → uv). */
+  function applyChartUV(mesh, chart, uvOf) { for (const fi of chart) { const f = mesh.f[fi]; mesh.f[fi] = { ...f, uv: f.v.flatMap((v) => uvOf(fi, v)) }; } }
+  const area2D = (pts) => { let a = 0; for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; } return a / 2; };
+  /**
+   * Islands packed into the 0–1 square (as Blender's Pack Islands): each scaled to its share of the surface (the same
+   * texel density everywhere), turned to its smallest box, laid out in rows with a margin between. Returns the mesh.
+   */
+  function packIslands(mesh, faces, margin = 0.02) {
+    const out = clone(mesh), islands = uvIslands(out, faces);
+    if (!islands.length) return out;
+    const info = islands.map((isl) => {
+      let a3 = 0, a2 = 0;
+      for (const fi of isl) { const f = out.f[fi]; a3 += faceNormal(out, f).area; a2 += Math.abs(area2D(f.v.map((_, k) => [f.uv[k * 2], f.uv[k * 2 + 1]]))); }
+      const sc = a2 > 1e-14 ? Math.sqrt(a3 / a2) : 1;
+      const pts = [];
+      for (const fi of isl) { const f = out.f[fi]; for (let k = 0; k < f.v.length; k++) pts.push([f.uv[k * 2] * sc, f.uv[k * 2 + 1] * sc]); }
+      // The turn (0–90°) with the smallest box.
+      let best = null;
+      for (let d = 0; d < 90; d += 3) {
+        const c = Math.cos((d * Math.PI) / 180), sn = Math.sin((d * Math.PI) / 180);
+        let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+        for (const [x, y] of pts) { const u = x * c - y * sn, v = x * sn + y * c; x0 = Math.min(x0, u); x1 = Math.max(x1, u); y0 = Math.min(y0, v); y1 = Math.max(y1, v); }
+        const ar = (x1 - x0) * (y1 - y0);
+        if (!best || ar < best.ar - 1e-12) best = { ar, d, x0, y0, w: x1 - x0, h: y1 - y0 };
+      }
+      if (best.w < best.h) { /* keep: rows pack better wide, but tall is fine */ }
+      return { isl, sc, ...best };
+    });
+    const total = info.reduce((s2, i) => s2 + i.w * i.h, 0), unit = Math.sqrt(Math.max(total, 1e-12)), m = margin * unit;
+    // Rows: tallest first, the width tried a few ways, the smallest square kept.
+    const order = info.slice().sort((p, q) => q.h - p.h);
+    let bestLayout = null;
+    for (const f of [0.9, 1, 1.1, 1.25, 1.4, 1.6]) {
+      const W = unit * f + m;
+      let x = m, y = m, rowH = 0, maxW = 0;
+      const pos = new Map();
+      for (const i of order) {
+        if (x + i.w + m > W && x > m) { y += rowH + m; x = m; rowH = 0; }
+        pos.set(i, [x, y]); x += i.w + m; rowH = Math.max(rowH, i.h); maxW = Math.max(maxW, x);
+      }
+      const side = Math.max(maxW, y + rowH + m);
+      if (!bestLayout || side < bestLayout.side) bestLayout = { side, pos };
+    }
+    const S = 1 / bestLayout.side;
+    for (const i of info) {
+      const [px, py] = bestLayout.pos.get(i), c = Math.cos((i.d * Math.PI) / 180), sn = Math.sin((i.d * Math.PI) / 180);
+      for (const fi of i.isl) {
+        const f = out.f[fi], uv = f.uv.slice();
+        for (let k = 0; k < f.v.length; k++) { const x = f.uv[k * 2] * i.sc, y = f.uv[k * 2 + 1] * i.sc; uv[k * 2] = ((x * c - y * sn) - i.x0 + px) * S; uv[k * 2 + 1] = ((x * sn + y * c) - i.y0 + py) * S; }
+        out.f[fi] = { ...f, uv };
+      }
+    }
+    return out;
+  }
+  /** Unwrap (as Blender's U › Unwrap): each chart (split at seams) laid flat keeping its angles, then packed. */
+  function unwrap(mesh, faces, margin = 0.02) {
+    const out = clone(mesh), list = [...faces].filter((i) => out.f[i]);
+    for (const chart of uvCharts(out, list)) applyChartUV(out, chart, lscmChart(out, chart));
+    return packIslands(out, list, margin);
+  }
+  /** Each face's corners projected by a function (world-free: the mesh's own space) → [u, v]; then packed if asked. */
+  function projectUV(mesh, faces, fn) {
+    const out = clone(mesh);
+    for (const fi of faces) { const f = out.f[fi]; if (f) out.f[fi] = { ...f, uv: f.v.flatMap((v) => fn(vert(out, v), fi)) }; }
+    return out;
+  }
+  /** Smart UV project (as Blender's): faces grouped by facing (within the angle), each group projected flat, then packed. */
+  function smartProject(mesh, faces, angle = 66, margin = 0.02) {
+    const out = clone(mesh), list = [...faces].filter((i) => out.f[i]), cosLim = Math.cos((angle * Math.PI) / 180);
+    const normals = new Map(list.map((i) => [i, faceNormal(out, out.f[i])]));
+    const left = new Set(list), groups = [];
+    for (const f0 of list.slice().sort((p, q) => normals.get(q).area - normals.get(p).area)) {
+      if (!left.has(f0)) continue;
+      const n0 = normals.get(f0).n, g = [];
+      for (const fi of [...left]) if (dot(normals.get(fi).n, n0) >= cosLim) { g.push(fi); left.delete(fi); }
+      // The group's own facing (area weighted).
+      const gn = norm(g.reduce((acc, fi) => add(acc, scale(normals.get(fi).n, normals.get(fi).area || 1)), [0, 0, 0]));
+      groups.push({ g, n: len(gn) > 0 ? gn : n0 });
+    }
+    for (const { g, n } of groups) {
+      const ref = Math.abs(n[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0], ux = norm(cross(ref, n)), uy = cross(n, ux);
+      // Each connected piece of the group becomes an island of its own.
+      for (const piece of uvCharts({ ...out, e: {} }, g)) for (const fi of piece) { const f = out.f[fi]; out.f[fi] = { ...f, uv: f.v.flatMap((v) => { const p = vert(out, v); return [dot(p, ux), dot(p, uy)]; }) }; }
+    }
+    return packIslands(out, list, margin);
+  }
+  /** Cube projection (as Blender's): each face onto the side of a cube it faces most, `size` metres to the UV square. */
+  function cubeProject(mesh, faces, size = 2) {
+    return projectUV(mesh, faces, (p, fi) => {
+      const n = faceNormal(mesh, mesh.f[fi]).n, ax = [0, 1, 2].reduce((b, k) => (Math.abs(n[k]) > Math.abs(n[b]) ? k : b), 0);
+      const [i, j] = ax === 0 ? [1, 2] : ax === 1 ? [0, 2] : [0, 1], sign = n[ax] >= 0 ? 1 : -1;
+      const u = (ax === 1 ? -sign : sign) * p[i], v = p[j];
+      return [u / size + 0.5, v / size + 0.5];
+    });
+  }
+  /** Each face given the whole UV square (as Blender's Reset). */
+  function resetUV(mesh, faces) {
+    const out = clone(mesh);
+    for (const fi of faces) { const f = out.f[fi]; if (!f) continue; const n = f.v.length; out.f[fi] = { ...f, uv: f.v.flatMap((_, k) => (n === 4 ? [[0, 0], [1, 0], [1, 1], [0, 1]][k] : [0.5 + 0.5 * Math.cos((k / n) * Math.PI * 2), 0.5 + 0.5 * Math.sin((k / n) * Math.PI * 2)])) }; }
+    return out;
+  }
+  /** How much of the UV square the faces' islands cover, and how stretched they are (0: not at all). */
+  function uvStats(mesh, faces) {
+    let a2 = 0, a3 = 0, stretch = 0, count = 0;
+    const per = [];
+    for (const fi of faces) {
+      const f = mesh.f[fi]; if (!f || !f.uv) continue;
+      const u = Math.abs(area2D(f.v.map((_, k) => [f.uv[k * 2], f.uv[k * 2 + 1]]))), w = faceNormal(mesh, f).area;
+      a2 += u; a3 += w; per.push([u, w]);
+    }
+    const ratio = a3 > 0 ? a2 / a3 : 0;
+    for (const [u, w] of per) if (w > 0 && ratio > 0) { stretch += Math.abs(Math.log(Math.max(1e-9, u / w / ratio))) * w; count += w; }
+    return { coverage: a2, texelDensity: a3 > 0 ? Math.sqrt(a2 / a3) : 0, stretch: count ? stretch / count : 0 };
+  }
+
   const api = {
     empty, clone, vertexCount, edgeKey, faceNormal, faceCentre, edges, check, volume, triangulateFace, triangles, buffers, bounds,
     identity, multiply, rotation, compose, decompose, rotationAbout, transformPoint, normalMatrix, applyMatrix, flipFace,
@@ -1490,6 +1718,7 @@
     emptySelection, cloneSelection, flush, convertSelection, selectionFromVerts, selectionFromFaces, faceEdgeKeys, edgeFaces, cleanFaces, compact, remapSet,
     transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, autoMerge, slideSides, splitFace, splitEdge, knifeCut, knifePos, knifeWalk, knifePath, bevel, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
     flipFaces, recalcOutside, setSmooth, duplicateFaces, linkedVerts, growVerts, shrinkVerts, edgeLoop, faceLoop,
+    isSeam, markSeams, uvCharts, uvIslands, lscmChart, packIslands, unwrap, projectUV, smartProject, cubeProject, resetUV, uvStats, leastSquares,
     vec: { sub, add, scale, dot, cross, len, norm },
   };
   (typeof window !== 'undefined' ? window : globalThis).NoorMeshKernel = api;

@@ -8,19 +8,28 @@
   'use strict';
 
   const VS = `#version 300 es
-    in vec3 aPos; in vec3 aNorm; uniform mat4 uModel, uView, uProj; uniform mat3 uNormalMat;
-    out vec3 vPos; out vec3 vNorm;
-    void main() { vec4 w = uModel * vec4(aPos, 1.0); vPos = w.xyz; vNorm = uNormalMat * aNorm; gl_Position = uProj * uView * w; }`;
+    in vec3 aPos; in vec3 aNorm; in vec2 aUV; uniform mat4 uModel, uView, uProj; uniform mat3 uNormalMat;
+    out vec3 vPos; out vec3 vNorm; out vec2 vUV;
+    void main() { vec4 w = uModel * vec4(aPos, 1.0); vPos = w.xyz; vNorm = uNormalMat * aNorm; vUV = aUV; gl_Position = uProj * uView * w; }`;
   const FS = `#version 300 es
     precision highp float;
-    in vec3 vPos; in vec3 vNorm;
-    uniform vec3 uEye, uKey, uFill, uBase; uniform float uRough, uMetal; uniform int uOrtho; uniform vec3 uViewDir;
+    in vec3 vPos; in vec3 vNorm; in vec2 vUV;
+    uniform vec3 uEye, uKey, uFill, uBase; uniform float uRough, uMetal; uniform int uOrtho; uniform vec3 uViewDir; uniform int uChecker;
     out vec4 outColor;
     void main() {
       vec3 N = normalize(vNorm);
       vec3 V = uOrtho == 1 ? -uViewDir : normalize(uEye - vPos);
       if (!gl_FrontFacing) N = -N;
-      vec3 albedo = pow(uBase, vec3(2.2));
+      vec3 base = uBase;
+      if (uChecker == 1) {
+        // A UV checker (as Blender's UV grid): 8×8 squares, each of the 4×4 big cells its own tint, so stretching and
+        // turned islands show at a glance.
+        vec2 g = floor(vUV * 8.0), c = floor(vUV * 4.0);
+        float k = mod(g.x + g.y, 2.0);
+        vec3 tint = 0.55 + 0.45 * cos(6.2832 * (vec3(0.0, 0.33, 0.67) + (c.x * 4.0 + c.y) / 16.0));
+        base = mix(vec3(0.16), mix(vec3(0.92), tint, 0.55), k);
+      }
+      vec3 albedo = pow(base, vec3(2.2));
       float rough = uRough, metal = uMetal;
       vec3 F0 = mix(vec3(0.04), albedo, metal), diff = albedo * (1.0 - metal);
       float nv = max(dot(N, V), 1e-3);
@@ -140,7 +149,7 @@
     let cam = { target: [0, 0, 0], yaw: 0.8, pitch: 0.45, dist: 9, ortho: false };
     let objects = new Map(); // id → { vao, count, lineVao, lineCount, base, rough, metal, selected, active, hidden, buffers }
     let guides = [];
-    let showEdges = false, showGrid = true;
+    let showEdges = false, showGrid = true, checker = false;
     let dirty = true, raf = 0;
 
     function upload(attrib, data, size, prog) {
@@ -182,12 +191,12 @@
       drop(objects.get(id));
       const vao = gl.createVertexArray();
       gl.bindVertexArray(vao);
-      const b1 = upload('aPos', buf.positions, 3, main), b2 = upload('aNorm', buf.normals, 3, main);
+      const b1 = upload('aPos', buf.positions, 3, main), b2 = upload('aNorm', buf.normals, 3, main), b4 = upload('aUV', buf.uvs, 2, main);
       const lineVao = gl.createVertexArray();
       gl.bindVertexArray(lineVao);
       const b3 = upload('aPos', buf.lines, 3, lineProg);
       gl.bindVertexArray(null);
-      objects.set(id, { vao, count: buf.triangles * 3, lineVao, lineCount: buf.lines.length / 3, glBuffers: [b1, b2, b3], buffers: buf, base: [0.72, 0.72, 0.74], rough: 0.55, metal: 0, matrix: IDENTITY, ...look });
+      objects.set(id, { vao, count: buf.triangles * 3, lineVao, lineCount: buf.lines.length / 3, glBuffers: [b1, b2, b3, b4], buffers: buf, base: [0.72, 0.72, 0.74], rough: 0.55, metal: 0, matrix: IDENTITY, ...look });
       redraw();
     }
     function setLook(id, look) { const o = objects.get(id); if (o) { Object.assign(o, look); redraw(); } }
@@ -228,7 +237,7 @@
       gl.useProgram(main.p);
       gl.uniformMatrix4fv(main.u.uView, false, view); gl.uniformMatrix4fv(main.u.uProj, false, proj);
       gl.uniform3fv(main.u.uEye, eye); gl.uniform3fv(main.u.uKey, at(-0.6, 0.7, 0.45)); gl.uniform3fv(main.u.uFill, at(0.8, -0.05, 0.35));
-      gl.uniform1i(main.u.uOrtho, cam.ortho ? 1 : 0); gl.uniform3fv(main.u.uViewDir, f);
+      gl.uniform1i(main.u.uOrtho, cam.ortho ? 1 : 0); gl.uniform3fv(main.u.uViewDir, f); gl.uniform1i(main.u.uChecker, checker ? 1 : 0);
       gl.enable(gl.CULL_FACE);
       gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(1, 1);
       for (const o of objects.values()) {
@@ -409,7 +418,7 @@
     return {
       setObject, setLook, removeObject, clear, redraw, ray, project, pick, frame, viewFrom, setOrtho, setEdit,
       setGuides(g) { guides = g || []; redraw(); },
-      setEdges(on) { showEdges = !!on; redraw(); }, setGrid(on) { showGrid = !!on; redraw(); },
+      setEdges(on) { showEdges = !!on; redraw(); }, setGrid(on) { showGrid = !!on; redraw(); }, setChecker(on) { checker = !!on; redraw(); },
       camera: () => ({ ...cam, target: cam.target.slice(), eye: eyeOf() }),
       setCamera(c) { cam = { ...cam, ...c }; redraw(); },
       matrices,

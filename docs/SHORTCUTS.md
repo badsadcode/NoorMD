@@ -208,4 +208,6 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Normals menu / recalculate outside | Alt+N / Shift+N |
 | Duplicate faces | Shift+D |
 | Separate (selection, loose parts) | P |
+| UV menu (unwrap, Smart UV project, cube / view projection, seams, pack) | U |
+| UV editor: select an island (Shift adds), move / rotate / scale it, all | Click; G / R / S / A with the mouse over it |
 | The Edit Mode menu | Right-click |

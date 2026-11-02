@@ -253,6 +253,18 @@ editing writes each object's own mesh; Tab splits them back into the objects, ea
 - **preview.149:** Edit Mode on several objects at once (Tab with several meshes selected; each keeps its own mesh,
   selection, transforms and the operations above working across them).
 
+**Done in preview.151: B1 UVs, first stage** — seams (Ctrl+E or U › Mark seam / Clear seam, shown red in Edit Mode, kept
+on the mesh's edges and in the file); unwrap (U › Unwrap: each chart split at seams laid flat by least squares conformal
+maps, angles kept, a cut vertex becoming as many points as its sides need, never mirrored), Smart UV project (faces grouped
+by facing within 66°, each piece its own island), cube projection, project from view (bounds), reset; pack islands (each
+scaled to its share of the surface so the texel density is the same everywhere, turned to its smallest box, laid out in
+rows with a margin, fitted into the square); the checker texture in the view (▦: 8×8 squares, tinted 4×4 cells, so stretch
+and turned islands show); the UV editor (the UV button: beside the view, the selected faces' islands on the UV square,
+islands clicked or boxed to select them, G R S with the mouse over it, X / Y to hold to an axis, typed numbers, Ctrl
+for steps, wheel and middle-drag for its view; the islands' count, the share of the square used and the stretch shown).
+Not yet: selecting single UV vertices or edges, pinning, live unwrap, stitch / weld, UV sync selection, texel density
+set to a value, a second UV set for lightmaps.
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |

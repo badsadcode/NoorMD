@@ -420,5 +420,41 @@ const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
   check('corner to corner of one face: split by the diagonal', vtx.mesh.f.length === 7 && K.check(vtx.mesh).ok);
 }
 
+
+{
+  // UVs: a cube cut along seams into a cross unwraps flat (no stretch); Smart UV project; cube projection; packing.
+  const c = K.cube(2), n = (i) => K.faceNormal(c, c.f[i]).n, by = (ax, sg) => c.f.findIndex((_, i) => n(i)[ax] * sg > 0.9);
+  const top = by(2, 1), bot = by(2, -1), fr = by(1, -1), bk = by(1, 1), lf = by(0, -1), rt = by(0, 1);
+  const shared = (a, b) => K.faceEdgeKeys(c.f[a]).find((k) => K.faceEdgeKeys(c.f[b]).includes(k));
+  const hinges = new Set([shared(top, fr), shared(top, bk), shared(top, lf), shared(top, rt), shared(fr, bot)]);
+  const seams = K.edges(c).map((e) => K.edgeKey(e.a, e.b)).filter((k) => !hinges.has(k));
+  const cs = K.markSeams(c, seams);
+  check('seams marked on 7 edges (kept on the mesh\'s edges)', seams.length === 7 && seams.every((k) => K.isSeam(cs, k)) && !K.isSeam(cs, [...hinges][0]));
+  check('…one chart (the cross)', K.uvCharts(cs, cs.f.map((_, i) => i)).length === 1);
+  const all = cs.f.map((_, i) => i), u = K.unwrap(cs, all);
+  const st = K.uvStats(u, all);
+  const inside = u.f.every((f) => f.uv.every((x) => x >= -1e-9 && x <= 1 + 1e-9));
+  check('unwrap the cross: laid flat without stretch (every square stays square), inside the UV square', st.stretch < 0.01 && inside && K.uvIslands(u, all).length === 1, st);
+  const signed = (m, f) => { let a = 0; for (let k = 0; k < f.v.length; k++) { const k2 = (k + 1) % f.v.length; a += f.uv[k * 2] * f.uv[k2 * 2 + 1] - f.uv[k2 * 2] * f.uv[k * 2 + 1]; } return a; };
+  check('…every face the right way round (not mirrored)', u.f.every((f) => signed(u, f) > 0));
+  check('…seams kept through unwrapping (and the vertices untouched)', seams.every((k) => K.isSeam(u, k)) && u.v.join() === c.v.join());
+  const sm = K.smartProject(c, all);
+  const isl = K.uvIslands(sm, all);
+  const boxes = isl.map((fs) => { const xs = fs.flatMap((fi) => sm.f[fi].uv.filter((_, k) => k % 2 === 0)), ys = fs.flatMap((fi) => sm.f[fi].uv.filter((_, k) => k % 2 === 1)); return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]; });
+  const overlap = boxes.some((a, i) => boxes.some((b, j) => j > i && a[0] < b[2] - 1e-9 && b[0] < a[2] - 1e-9 && a[1] < b[3] - 1e-9 && b[1] < a[3] - 1e-9));
+  check('Smart UV project a cube: 6 islands, packed without overlapping, inside the square, no stretch', isl.length === 6 && !overlap && boxes.every((b) => b[0] >= -1e-9 && b[1] >= -1e-9 && b[2] <= 1 + 1e-9 && b[3] <= 1 + 1e-9) && K.uvStats(sm, all).stretch < 0.01, [isl.length, overlap, boxes]);
+  check('…the same size each (one texel density)', boxes.every((b) => Math.abs((b[2] - b[0]) - (boxes[0][2] - boxes[0][0])) < 1e-6));
+  const cp = K.cubeProject(c, all, 2);
+  check('cube projection: the top\'s corners at the UV square\'s corners', cp.f[top].uv.every((x) => Math.abs(x) < 1e-9 || Math.abs(x - 1) < 1e-9));
+  // A UV sphere with a seam down one side unwraps without flipping a face.
+  const sp = K.uvSphere(1, 16, 8), meridian = K.edges(sp).filter((e) => { const pa = [sp.v[e.a * 3], sp.v[e.a * 3 + 1]], pb = [sp.v[e.b * 3], sp.v[e.b * 3 + 1]]; const onSide = (p) => Math.abs(p[1]) < 1e-9 && p[0] >= -1e-9; return onSide(pa) && onSide(pb); }).map((e) => K.edgeKey(e.a, e.b));
+  const sps = K.markSeams(sp, meridian), spAll = sps.f.map((_, i) => i), su = K.unwrap(sps, spAll);
+  check('a UV sphere cut down one meridian unwraps: no face flipped, inside the square', meridian.length >= 6 && su.f.every((f) => signed(su, f) > -1e-12) && su.f.every((f) => f.uv.every((x) => x >= -1e-9 && x <= 1 + 1e-9)), [meridian.length, su.f.filter((f) => signed(su, f) <= -1e-12).length]);
+  const rs = K.resetUV(c, [top]);
+  check('reset: a quad gets the whole square', rs.f[top].uv.join() === '0,0,1,0,1,1,0,1');
+  const cleared = K.markSeams(cs, seams, false);
+  check('seams cleared', seams.every((k) => !K.isSeam(cleared, k)));
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);

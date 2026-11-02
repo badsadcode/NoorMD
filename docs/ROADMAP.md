@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh (preview.151), phase B1 begun: seams, unwrap (conformal), Smart UV project, cube and view projections, island
+  packing, the checker texture, a UV editor (islands selected and moved, turned, scaled).
 - NoorMesh (preview.150): Edit Mode on several objects at once (Tab with several selected).
 - NoorMesh (preview.149): the knife's points stay on the mesh (vertices, edges, edge middles, inside faces) whatever
   the view does; cuts run over the surface across faces.
