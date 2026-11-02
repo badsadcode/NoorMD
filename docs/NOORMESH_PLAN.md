@@ -198,6 +198,21 @@ the vertex nearest the mouse; Ctrl does the other). The Edit Mode overlay now hi
 lift is a share of the distance, not a fixed depth). Next (preview.147): bevel (Ctrl+B), knife (K), proportional
 editing (O), mirror editing.
 
+**Next, agreed after preview.146:**
+
+- **preview.147:** bevel (Ctrl+B: width, segments, profile; Ctrl+Shift+B for vertices), knife (K), proportional editing
+  (O: falloff shapes, the wheel for its size, connected only), mirror editing (X/Y/Z symmetry in Edit Mode); vertex and
+  edge slide (G pressed twice in Edit Mode, as Blender's: a vertex slides along one of its edges, an edge loop along the
+  faces beside it; Alt or C for even, F to flip); Shift+X/Y/Z for scaling too (scale on two axes, the third left alone),
+  not only for moving.
+- **preview.148:** the 3D cursor (Shift+right-click places it on the surface under the mouse; Shift+S: cursor to selected,
+  to world origin, selection to cursor; Shift+C: reset it and frame everything; new objects and "merge at the cursor" use
+  it); the pivot point menu (`.`: median, 3D cursor, individual origins, active element) for G/R/S, the gizmos and
+  scaling; join (Ctrl+J) and separate (P: selection, loose parts); origin tools (origin to geometry, to the 3D cursor,
+  geometry to origin).
+- **preview.149:** Edit Mode on several objects at once (Tab with several meshes selected; each keeps its own mesh,
+  selection, transforms and the operations above working across them).
+
 ### Phase B: production-friendly static assets
 
 | Milestone | Contents |
