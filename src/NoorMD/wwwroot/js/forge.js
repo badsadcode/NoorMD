@@ -105,10 +105,15 @@ window.NoorForge = (() => {
   function changed(what) {
     if (what === 'layers' || what === 'all') renderLayers();
     if (what === 'all') renderEditor();
-    clearTimeout(snapTimer); snapTimer = setTimeout(pushHistory, 600);
+    clearTimeout(snapTimer);
+    // A layer added, removed, moved or retyped is its own undo step at once; slider drags are gathered (600 ms).
+    if (what === 'layers' || what === 'all') pushHistory(); else snapTimer = setTimeout(pushHistory, 600);
     schedule();
   }
   let snapTimer = null;
+
+  /** Ends a gathered burst of slider changes as its own undo step (before a layer is added, removed, moved…). */
+  function flushHistory() { if (snapTimer) { clearTimeout(snapTimer); snapTimer = null; pushHistory(); } }
 
   function pushHistory() {
     const now = JSON.stringify(recipe);
@@ -326,6 +331,7 @@ window.NoorForge = (() => {
     const pane = $('#fg-pane');
     if (!pane || !recipe) return;
     pane.replaceChildren(...(tab === 'bake' ? bakePane() : layersPane()).filter(Boolean));
+    if (tab !== 'bake') { renderLayers(); renderLayerEditor(); } // filled at once (no frame with an empty editor)
     keepFocus();
   }
 
@@ -373,6 +379,7 @@ window.NoorForge = (() => {
 
   /** A new layer above the chosen one: a material, a plain colour, or paint (a colour shown only where painted). */
   function addLayer(material, painted) {
+    flushHistory();
     if (recipe.layers.length >= 32) return;
     const l = { id: newId(), name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
       height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
@@ -380,6 +387,7 @@ window.NoorForge = (() => {
   }
   /** A folder above the chosen layer: the layers put into it share its mask, opacity and visibility. */
   function addFolder() {
+    flushHistory();
     if (recipe.layers.length >= 32) return;
     const f = { id: newId(), name: 'Folder', visible: true, opacity: 1, isFolder: true, material: '', scale: 1, color: '#808080', roughness: 0.7, metallic: 0, height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0, filters: [] }, strokes: [] };
     // The chosen layer goes into it straight away (if it isn't a folder).
@@ -393,6 +401,7 @@ window.NoorForge = (() => {
 
   /** A painting: a layer of pixels painted straight onto the model (as Blender's texture painting), blank or from a texture. */
   async function addPainting() {
+    flushHistory();
     if (!recipe.model) { notice('Open a model first', 1800); return; }
     if (recipe.layers.length >= 32) return;
     const from = await NoorUI.choose('Add a painting (pixels)', ['Paint straight onto the model, pixel by pixel, in any colour (as Blender\'s texture painting). It goes into the colour map.', 'Start from:'],
@@ -408,8 +417,9 @@ window.NoorForge = (() => {
   }
 
   /** The chosen layer up (1) or down (−1) the stack. */
-  function moveLayer(d) { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); }
+  function moveLayer(d) { flushHistory(); const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); }
   function removeLayer() {
+    flushHistory();
     if (!recipe.layers.length) return;
     const gone = recipe.layers.splice(selected, 1)[0];
     if (gone && gone.isFolder) recipe.layers.forEach((x) => { if (x.folder === gone.id) x.folder = ''; }); // its layers stay, out of it
@@ -430,7 +440,6 @@ window.NoorForge = (() => {
         el('button', { class: 'icon-btn', id: 'fg-dellayer', title: 'Remove this layer (Ctrl+Z brings it back)', 'aria-label': 'Remove the layer', disabled: !recipe.layers.length || undefined, onclick: removeLayer }, '🗑')),
       el('div', { class: 'fg-layers', id: 'fg-layers', 'aria-label': 'Layers, top first' }),
       el('div', { id: 'fg-layeredit' })];
-    requestAnimationFrame(() => { renderLayers(); renderLayerEditor(); });
     return out;
   }
 
@@ -446,14 +455,14 @@ window.NoorForge = (() => {
     const mat = el('select', { id: 'fg-material', 'aria-label': 'Material' }, el('option', { value: '', text: '— none: a plain colour —' }),
       ...[...families].map(([f, ms]) => el('optgroup', { label: f }, ...ms.map((m) => el('option', { value: m.id, text: m.name })))));
     mat.value = l.material;
-    mat.addEventListener('change', () => { l.material = mat.value; delete l.inputs; if (/^(Material|Colour)$/.test(l.name) && mat.value) l.name = mat.selectedOptions[0].text; changed('all'); });
+    mat.addEventListener('change', () => { flushHistory(); l.material = mat.value; delete l.inputs; if (/^(Material|Colour)$/.test(l.name) && mat.value) l.name = mat.selectedOptions[0].text; changed('all'); });
     const color = el('input', { type: 'color', id: 'fg-color', value: l.color, 'aria-label': l.material ? 'Tint' : 'Colour' });
     color.addEventListener('input', () => { l.color = color.value; renderLayers(); changed(); });
     const check = (key, label) => { const c = el('input', { type: 'checkbox', checked: l[key] || undefined, 'data-use': key }); c.addEventListener('change', () => { l[key] = c.checked; changed(); }); return el('label', { class: 'sb-inline' }, c, el('span', { text: label })); };
     const m = l.mask;
     const kind = el('select', { id: 'fg-maskkind', 'aria-label': 'Where the layer shows' }, ...Object.entries(MASKS).map(([k, t]) => el('option', { value: k, text: t })));
     kind.value = m.kind;
-    kind.addEventListener('change', () => { m.kind = kind.value; changed('all'); });
+    kind.addEventListener('change', () => { flushHistory(); m.kind = kind.value; changed('all'); });
     const invert = el('input', { type: 'checkbox', id: 'fg-maskinvert', checked: m.invert || undefined });
     invert.addEventListener('change', () => { m.invert = invert.checked; changed(); });
     // A layer below to follow ("layer"), or for drips to run down from.
@@ -590,6 +599,7 @@ window.NoorForge = (() => {
     const presetPick = el('select', { id: 'fg-inputpreset', 'aria-label': 'A set of values' }, el('option', { value: '', text: '— a set of values —' }),
       ...(m.presets || []).map((p, k) => el('option', { value: String(k), text: p.name })));
     presetPick.addEventListener('change', () => {
+      flushHistory();
       const p = (m.presets || [])[Number(presetPick.value)];
       if (!p || presetPick.value === '') return;
       const v = {};
@@ -597,7 +607,7 @@ window.NoorForge = (() => {
       if (Object.keys(v).length) l.inputs = v; else delete l.inputs;
       changed('all');
     });
-    const reset = el('button', { class: 'utility-btn', id: 'fg-inputreset', title: 'Back to the material as it is', disabled: !l.inputs || undefined, onclick: () => { delete l.inputs; changed('all'); } }, '↺ As it is');
+    const reset = el('button', { class: 'utility-btn', id: 'fg-inputreset', title: 'Back to the material as it is', disabled: !l.inputs || undefined, onclick: () => { flushHistory(); delete l.inputs; changed('all'); } }, '↺ As it is');
     return el('details', { class: 'fg-more', id: 'fg-inputs', open: l.inputs ? true : undefined },
       el('summary', { text: `${m.name}: its settings` }),
       el('div', { class: 'sb-row' }, (m.presets || []).length ? presetPick : null, reset, el('span', { class: 'pref-hint', text: 'This layer only: the material itself stays as it is.' })),

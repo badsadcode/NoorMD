@@ -10452,7 +10452,9 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       st = await FS();
       check('removing a folder keeps the layers inside it (taken out)', st.recipe.layers.length === n0 - 1 && !st.recipe.layers.some((l) => l.isFolder) && !st.recipe.layers.find((l) => l.name === 'Colour').folder);
       if (shots) {
+        await page.focus('#forgebench');
         await page.keyboard.press('Control+z');
+        await waitFn(page, () => !!document.querySelector('#fg-layers .fg-layer.fg-child'));
         await page.click(`#fg-layers .fg-layer.fg-child`);
         await page.waitForTimeout(250); await page.screenshot({ path: `${shots}/80m-noorforge-folders.png` });
       }
