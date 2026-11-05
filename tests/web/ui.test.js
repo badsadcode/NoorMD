@@ -10491,6 +10491,91 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with pieces and blended materials', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80o. NoorForge (preview.156): a material layer's own settings (the material's inputs: dirt, moss…) and its
+    // named sets of values, kept on the layer and sent with the recipe; the material itself unchanged.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      await page.click('#nm-forge');
+      await waitFn(page, () => window.NoorForge && NoorForge.isOpen() && NoorForge._state().model);
+      const tab = await page.$('#forgebench [data-tab="layers"]'); if (tab) await tab.click();
+      await page.waitForSelector('#fg-addplain');
+      let st = await FS();
+      let mi = st.recipe.layers.findIndex((l) => l.material === 'stone-mossy');
+      if (mi < 0) { await page.click('#fg-addmat'); await page.selectOption('#fg-material', 'stone-mossy'); st = await FS(); mi = st.recipe.layers.findIndex((l) => l.material === 'stone-mossy'); }
+      await page.click(`#fg-layers .fg-layer[data-layer="${mi}"]`);
+      await page.waitForSelector('#fg-inputs');
+      check('a Mossy stone layer: its settings (the material\'s own sliders: dirt, moss), closed while unchanged', !!(await page.$('#fg-inputs input[data-input="moss"]')) && !!(await page.$('#fg-inputs input[data-input="dirt"]')) && !(await page.$eval('#fg-inputs', (d) => d.open)));
+      check('…each slider at the material\'s own value', (await page.$eval('#fg-inputs input[data-input="moss"]', (r) => r.value)) === '0.9');
+      await page.click('#fg-inputs summary');
+      await page.$eval('#fg-inputs input[data-input="moss"]', (r) => { r.value = '0.25'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      st = await FS();
+      check('…moss down to 0.25: kept on this layer only', st.recipe.layers[mi].inputs && st.recipe.layers[mi].inputs.moss === 0.25 && !('dirt' in st.recipe.layers[mi].inputs), st.recipe.layers[mi].inputs);
+      await waitFn(page, () => window.__mock.state.forge.renders.some((r) => r.layers.some((l) => l.inputs && l.inputs.moss === 0.25)));
+      check('…sent with the recipe (the app makes the material\'s maps with it)', true);
+      await page.selectOption('#fg-inputpreset', '1');
+      st = await FS();
+      check('a set of values (Overgrown): moss 1 and dirt 0.6 on the layer', st.recipe.layers[mi].inputs.moss === 1 && st.recipe.layers[mi].inputs.dirt === 0.6 && (await page.$eval('#fg-inputs input[data-input="dirt"]', (r) => r.value)) === '0.6', st.recipe.layers[mi].inputs);
+      await page.keyboard.press('Control+z');
+      await waitFn(page, () => NoorForge._state().recipe.layers.some((l) => l.inputs && l.inputs.moss === 0.25 && !('dirt' in l.inputs)));
+      check('Ctrl+Z: back to moss 0.25', true);
+      await page.click(`#fg-layers .fg-layer[data-layer="${mi}"]`);
+      await page.click('#fg-inputreset');
+      st = await FS();
+      check('↺ As it is: the layer\'s values gone (the material as it is)', !st.recipe.layers[mi].inputs);
+      await page.$eval('#fg-inputs input[data-input="dirt"]', (r) => { r.value = '0.8'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.selectOption('#fg-material', 'stone-rock');
+      st = await FS();
+      check('another material: the old one\'s values dropped (Rock has no settings shown)', !st.recipe.layers[mi].inputs && !(await page.$('#fg-inputs')));
+      if (shots) {
+        await page.selectOption('#fg-material', 'stone-mossy');
+        await page.click('#fg-inputs summary');
+        await page.waitForTimeout(150);
+        await (await page.$('#fg-layeredit')).screenshot({ path: `${shots}/80o-forge-inputs.png` });
+      }
+      check('no page errors with a material\'s settings', errors.length === 0, errors);
+      await page.close();
+    }
+    // ---- 80p. NoorMaterial (preview.156): a material's inputs (a name, the setting it moves, its range) and sets of
+    // their values, saved with the recipe (NoorForge shows them as sliders on a material layer).
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      const until = async (fn) => { for (let k = 0; k < 100; k++) { if (fn(await last())) return; await page.waitForTimeout(50); } throw new Error('timed out'); };
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      await page.click('#texturebench .sb-tabs button[data-tab="surface"]');
+      await page.waitForSelector('#tb-addinput');
+      check('Surface tab: inputs, the standard ones named (dirt, relief, hue…), none of its own yet', /Dirt, Colour variation, Relief/.test(await page.textContent('#tb-inputshint')) && !(await page.$('#tb-inputs .tb-input')) && !(await page.$('#tb-saveinputset')));
+      await page.click('#tb-addinput');
+      await until((r) => (r.recipe.inputs || []).length === 1);
+      let inp = (await last()).recipe.inputs[0];
+      check('＋ Input: one on a layer\'s setting (its name and range from it)', /^layer\.T1\./.test(inp.target) && inp.label.length > 0 && inp.max > inp.min, inp);
+      const options = await page.$$eval('#tb-inputs select[data-inputtarget="0"] option', (os) => os.map((o) => o.value));
+      check('…it can move any setting: the surface\'s and every layer\'s', options.includes('surface.dirt') && options.some((o) => /^layer\.T2\./.test(o)), options.slice(0, 4));
+      const t2 = options.find((o) => o === 'layer.T2.opacity') || options.find((o) => /^layer\.T2\./.test(o));
+      await page.selectOption('#tb-inputs select[data-inputtarget="0"]', t2);
+      await page.fill('#tb-inputs input[data-inputlabel="0"]', 'Grit'); await page.press('#tb-inputs input[data-inputlabel="0"]', 'Tab');
+      await until((r) => r.recipe.inputs[0].target === t2 && r.recipe.inputs[0].label === 'Grit');
+      check('…pointed at the second layer and named Grit', true);
+      await page.waitForSelector('#tb-saveinputset');
+      await page.click('#tb-saveinputset');
+      await page.waitForSelector('.modal input, dialog input, [role=dialog] input');
+      await page.keyboard.press('Control+a'); await page.keyboard.type('Gritty'); await page.keyboard.press('Enter');
+      await until((r) => (r.recipe.inputPresets || []).length === 1);
+      const set = (await last()).recipe.inputPresets[0];
+      const v = await page.evaluate((t) => { const r = NoorTexture._state().recipe; const [, id, k] = t.split('.'); return r.layers.find((l) => l.id === id)[k]; }, t2);
+      check('＋ Save the values now as a set: “Gritty” with Grit at what it is now', set.name === 'Gritty' && set.values[inp.id] === v, [set, v]);
+      check('…shown in the list of sets', /Gritty/.test(await page.textContent('#tb-inputsets')));
+      await page.click('#tb-inputs .tb-input button[aria-label="Remove this input"]');
+      await until((r) => r.recipe.inputs.length === 0);
+      check('✕ removes an input', true);
+      check('no page errors with inputs', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

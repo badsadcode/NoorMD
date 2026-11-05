@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMaterial (preview.156): a material's inputs (its own sliders and six standard ones) and sets of their values,
+  live as sliders on NoorForge's material layers.
 - NoorMaterial (preview.155): each brick, tile, hexagon or plank its own colour, hue, roughness and gradient; another
   material blended in by height; Stone pavers and Stony soil (ideas from MaterialCraft; none of its code).
 - NoorForge (preview.154): models from NoorMesh; layer folders, per-channel blending, colour adjustments and filters on

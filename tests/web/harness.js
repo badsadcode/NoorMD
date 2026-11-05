@@ -673,7 +673,7 @@ function mockHostScript(initial) {
       case 'forge.presets': return {
         smart: [{ id: 'mossy-stone', name: 'Mossy stone', description: 'Rock with moss on top.', layers: [layer('Stone', { material: 'stone-rock', scale: 1.5 }), layer('Moss', { material: 'stone-mossy', mask: { kind: 'top', amount: 0.3, softness: 0.3, invert: false, noise: 0.6, noiseScale: 0.4, index: 0 } })] },
           { id: 'clay', name: 'Plain clay', description: 'One grey layer.', layers: [layer('Clay', { color: '#9a9a9a' })] }, ...FORGE.mine],
-        materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone' }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
+        materials: [{ id: 'stone-rock', name: 'Rock', family: 'Stone' }, { id: 'stone-mossy', name: 'Mossy stone', family: 'Stone', inputs: [{ id: 'dirt', label: 'Dirt', min: 0, max: 1, value: 0.3 }, { id: 'moss', label: 'Moss', min: 0, max: 1, value: 0.9 }], presets: [{ name: 'Dry', values: { moss: 0.2, dirt: 0.4 } }, { name: 'Overgrown', values: { moss: 1, dirt: 0.6 } }] }, { id: 'metal-rusty', name: 'Rusty metal', family: 'Metal' }],
         exports: [{ id: 'godot', name: 'Godot 4', description: 'BaseColor, Normal, ORM… and a Godot material' }, { id: 'unity-urp', name: 'Unity (URP / Built-in)', description: 'BaseMap, Normal, MetallicSmoothness…' }, { id: 'unreal', name: 'Unreal Engine', description: 'BaseColor, Normal (DirectX), ORM' }],
         masks: ['all', 'none', 'edges', 'cavity', 'top', 'bottom', 'height', 'part', 'material'], sizes: [256, 512, 1024, 2048, 4096],
         tips: [{ id: 'square', name: 'Square', width: 8, height: 8, data: btoa(String.fromCharCode(...new Array(64).fill(255))) },

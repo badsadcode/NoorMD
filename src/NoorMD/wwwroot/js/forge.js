@@ -446,7 +446,7 @@ window.NoorForge = (() => {
     const mat = el('select', { id: 'fg-material', 'aria-label': 'Material' }, el('option', { value: '', text: '— none: a plain colour —' }),
       ...[...families].map(([f, ms]) => el('optgroup', { label: f }, ...ms.map((m) => el('option', { value: m.id, text: m.name })))));
     mat.value = l.material;
-    mat.addEventListener('change', () => { l.material = mat.value; if (/^(Material|Colour)$/.test(l.name) && mat.value) l.name = mat.selectedOptions[0].text; changed('all'); });
+    mat.addEventListener('change', () => { l.material = mat.value; delete l.inputs; if (/^(Material|Colour)$/.test(l.name) && mat.value) l.name = mat.selectedOptions[0].text; changed('all'); });
     const color = el('input', { type: 'color', id: 'fg-color', value: l.color, 'aria-label': l.material ? 'Tint' : 'Colour' });
     color.addEventListener('input', () => { l.color = color.value; renderLayers(); changed(); });
     const check = (key, label) => { const c = el('input', { type: 'checkbox', checked: l[key] || undefined, 'data-use': key }); c.addEventListener('change', () => { l[key] = c.checked; changed(); }); return el('label', { class: 'sb-inline' }, c, el('span', { text: label })); };
@@ -547,6 +547,7 @@ window.NoorForge = (() => {
       // A paint layer or a painting: the brush decides what each stroke paints, so only its opacity here.
       brushDecides ? el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01)) : el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01),
         ...(l.material ? [slider(l, 'scale', 'Size of one tile (m)', 0.05, 20, 0.05), slider(l, 'normalStrength', 'Relief', 0, 3, 0.05)] : [slider(l, 'roughness', 'Roughness', 0, 1, 0.01), slider(l, 'metallic', 'Metal', 0, 1, 0.01), slider(l, 'height', 'Height (mid: flat)', 0, 1, 0.01)])),
+      l.material && !brushDecides ? materialInputs(l) : null,
       brushDecides ? null : el('div', { class: 'sb-row' }, el('span', { class: 'pref-hint', text: 'Paints:' }), check('useColor', 'colour'), check('useRoughness', 'roughness'), check('useMetallic', 'metal'), ...(l.material ? [check('useNormal', 'relief')] : []), check('useHeight', 'height')),
       el('h4', { class: 'music-subhead', text: 'Where it shows (smart mask)' }),
       (l.strokes || []).length ? el('div', { class: 'sb-row', id: 'fg-strokes' },
@@ -560,6 +561,47 @@ window.NoorForge = (() => {
         slider(m, 'noiseScale', m.kind === 'chips' ? 'Chip size (m)' : m.kind === 'drips' ? 'Streak width (m)' : 'Noise size (m)', 0.005, 5, 0.005)) : null,
       filterList, blending, adjust].filter(Boolean));
     keepFocus();
+  }
+
+  /** A material layer's inputs: the material's own sliders (dirt, moss, how much the slabs differ…), kept on this layer
+   *  only (the material itself unchanged), and its named sets of them. */
+  function materialInputs(l) {
+    const m = lists.materials.find((x) => x.id === l.material);
+    const inputs = (m && m.inputs) || [];
+    if (!inputs.length) return null;
+    const valueOf = (i) => (l.inputs && Object.prototype.hasOwnProperty.call(l.inputs, i.id) ? l.inputs[i.id] : i.value);
+    const step = (i) => ((i.max - i.min) > 10 ? 1 : 0.01);
+    const rows = inputs.map((i) => {
+      const range = el('input', { type: 'range', min: String(i.min), max: String(i.max), step: String(step(i)), value: String(valueOf(i)), 'aria-label': i.label, 'data-input': i.id });
+      const box = el('input', { type: 'number', class: 'sb-num', min: String(i.min), max: String(i.max), step: String(step(i)), value: String(valueOf(i)), 'aria-label': i.label, 'data-inputnum': i.id });
+      const set = (v) => {
+        const n = Math.round(Math.max(i.min, Math.min(i.max, Number(v))) * 100) / 100;
+        if (!Number.isFinite(n)) return;
+        l.inputs = { ...(l.inputs || {}) };
+        if (Math.abs(n - i.value) < 1e-9) delete l.inputs[i.id]; else l.inputs[i.id] = n;
+        if (!Object.keys(l.inputs).length) delete l.inputs;
+        range.value = box.value = String(n); presetPick.value = '';
+        changed();
+      };
+      range.addEventListener('input', () => set(range.value));
+      box.addEventListener('change', () => set(box.value));
+      return el('label', { class: 'sb-slider' }, el('span', { text: i.label }), range, el('span', { class: 'sb-numwrap' }, box));
+    });
+    const presetPick = el('select', { id: 'fg-inputpreset', 'aria-label': 'A set of values' }, el('option', { value: '', text: '— a set of values —' }),
+      ...(m.presets || []).map((p, k) => el('option', { value: String(k), text: p.name })));
+    presetPick.addEventListener('change', () => {
+      const p = (m.presets || [])[Number(presetPick.value)];
+      if (!p || presetPick.value === '') return;
+      const v = {};
+      for (const i of inputs) if (Object.prototype.hasOwnProperty.call(p.values, i.id)) { const n = Math.max(i.min, Math.min(i.max, p.values[i.id])); if (Math.abs(n - i.value) > 1e-9) v[i.id] = n; }
+      if (Object.keys(v).length) l.inputs = v; else delete l.inputs;
+      changed('all');
+    });
+    const reset = el('button', { class: 'utility-btn', id: 'fg-inputreset', title: 'Back to the material as it is', disabled: !l.inputs || undefined, onclick: () => { delete l.inputs; changed('all'); } }, '↺ As it is');
+    return el('details', { class: 'fg-more', id: 'fg-inputs', open: l.inputs ? true : undefined },
+      el('summary', { text: `${m.name}: its settings` }),
+      el('div', { class: 'sb-row' }, (m.presets || []).length ? presetPick : null, reset, el('span', { class: 'pref-hint', text: 'This layer only: the material itself stays as it is.' })),
+      el('div', { class: 'sb-fields' }, ...rows));
   }
 
   function bakePane() {

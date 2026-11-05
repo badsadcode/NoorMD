@@ -83,6 +83,17 @@ From Thornwake's notes (engine-agnostic: any game wants these):
 * **New presets:** Stone pavers (every slab its own shade and slope) and Stony soil (cobblestones poking through
   forest soil, blended by height).
 
+## Done in preview.156 (from the ideas below)
+
+* **Exposed inputs and sets of values:** a material names the sliders that matter (Surface tab › Inputs): each input a
+  name, the setting it moves (any of the surface's or a layer's numbers) and its range. Every material also has six
+  standard ones (dirt, colour variation, relief, roughness of the high parts, hue, brightness). Sets of values ("Dry",
+  "Overgrown") are saved from the inputs as they are. The built-in Mossy stone, Stony soil and Stone pavers come with
+  their own (moss; stones poking through; slabs differ, uneven) and two sets each.
+* **Live in NoorForge:** a material layer shows its material's inputs as sliders and its sets as a list; the values are
+  kept on the layer only (the material itself unchanged), and the material is made again with them (kept in a small
+  cache, so going back is quick). Choosing another material drops them; "↺ As it is" clears them.
+
 ## Ideas from MaterialCraft (ideas only — nothing of its code is used)
 
 MaterialCraft (MIT / Apache-2.0, a Substance-Designer-like node editor) was looked at for what NoorMaterial lacks. Its
@@ -92,7 +103,7 @@ README only; ideas, never code. Ranked by what they would add here:
    brightness, turn, height or gradient — the single biggest step towards real brick, paving and plank floors.
 2. **Height blending of materials:** two or three materials mixed by their heights (stones poking through dirt, moss
    grown in the gaps, sand settling in the low places), not by a flat mask.
-3. **Exposed inputs and presets:** a material saying which of its sliders matter (wear, moss, colour, scale) and
+3. (Done in preview.156) **Exposed inputs and presets:** a material saying which of its sliders matter (wear, moss, colour, scale) and
    keeping named presets of them, so NoorForge (and NoorMesh) can show just those, and a material can be weathered or
    recoloured without opening it.
 4. **Weathering as one step:** whole-material wear (edges worn, dirt in the cavities, rust or moss) applied to any

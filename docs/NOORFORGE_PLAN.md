@@ -250,7 +250,7 @@ feature list only; we take the ideas, never its code. Ranked by what they would 
 7. **Keeping work when the model changes:** strokes are kept on the surface (in metres), so reimporting a changed mesh
    could keep them (NoorMesh → NoorForge round trips would want this).
 8. **A history panel** (any step clicked to go back to it), and saved cameras.
-9. **Live materials from NoorMaterial:** a NoorMaterial material on a fill layer keeping its main sliders editable in
+9. (Begun in preview.156: a material layer's inputs and sets of values as sliders; the baked maps feeding them is still to do) **Live materials from NoorMaterial:** a NoorMaterial material on a fill layer keeping its main sliders editable in
    NoorForge, re-made at the texture size with the model's baked maps (curvature, AO, thickness) feeding the inputs of
    the same name — the material reacting to this model.
 

@@ -767,7 +767,75 @@ el('span', { class: 'tb-zoom' },
       el('h4', { class: 'music-subhead', text: 'Surface' }),
       el('div', { class: 'sb-fields' }, ...SURFACE.map((f) => slider(s, f))),
       el('p', { class: 'pref-hint', text: 'Relief, shine, metal, occlusion and the height map are each set on their own in the Maps tab.' }),
+      ...inputsSection(),
     ];
+  }
+
+  // The settings every material shows as sliders where it is used (NoorForge's material layers), beside its own.
+  const STANDARD_INPUTS = ['Dirt', 'Colour variation', 'Relief', 'Roughness (high parts)', 'Hue (°)', 'Brightness'];
+  /** Every setting a material's input can point at: the surface's, then each layer's ([target, label, min, max]). */
+  function inputTargets() {
+    const out = SURFACE.map(([k, label, min, max]) => [`surface.${k}`, `Surface › ${label}`, min, max]);
+    for (const l of recipe.layers) {
+      const fields = [...(FIELDS[l.type] || []), ...(l.type === 'material' ? [['opacity', 'How much', 0, 1]] : [['opacity', 'Strength', 0, 1]]), ...PAINT];
+      const seen = new Set();
+      for (const [k, label, min, max] of fields) if (!seen.has(k)) { seen.add(k); out.push([`layer.${l.id}.${k}`, `${l.name || LAYER_LABEL[l.type] || l.type} › ${label}`, min, max]); }
+    }
+    return out;
+  }
+  const valueAt = (target) => {
+    const [where, a, b] = target.split('.');
+    const o = where === 'surface' ? recipe.surface : (recipe.layers.find((l) => l.id === a) || null);
+    const v = o && Number(o[where === 'surface' ? a : b]);
+    return Number.isFinite(v) ? v : null;
+  };
+  /** The material's own inputs (a name, the setting it moves, its range) and named sets of their values. */
+  function inputsSection() {
+    recipe.inputs = recipe.inputs || []; recipe.inputPresets = recipe.inputPresets || [];
+    const targets = inputTargets();
+    const rows = recipe.inputs.map((inp, k) => {
+      const label = el('input', { type: 'text', value: inp.label, maxlength: '40', 'aria-label': 'Its name', 'data-inputlabel': String(k) });
+      label.addEventListener('change', () => { inp.label = label.value.trim() || inp.id; changed(false); });
+      const known = targets.some(([t]) => t === inp.target);
+      const target = el('select', { 'aria-label': 'The setting it moves', 'data-inputtarget': String(k) },
+        ...(known ? [] : [el('option', { value: inp.target, text: `${inp.target} (not in this material)` })]), ...targets.map(([t, text]) => el('option', { value: t, text })));
+      target.value = inp.target;
+      target.addEventListener('change', () => { const t = targets.find(([x]) => x === target.value); inp.target = target.value; if (t) { inp.min = t[2]; inp.max = t[3]; } changed(true); });
+      const num = (key) => { const b = el('input', { type: 'number', class: 'sb-num', step: 'any', value: String(inp[key]), 'aria-label': key === 'min' ? 'From' : 'To', 'data-inputrange': key }); b.addEventListener('change', () => { const v = Number(b.value); if (Number.isFinite(v)) { inp[key] = v; changed(false); } else b.value = String(inp[key]); }); return b; };
+      const now = valueAt(inp.target);
+      return el('div', { class: 'sb-row tb-input', 'data-input': inp.id }, label, target,
+        el('label', { class: 'sb-inline' }, el('span', { text: 'from' }), num('min')), el('label', { class: 'sb-inline' }, el('span', { text: 'to' }), num('max')),
+        el('span', { class: 'pref-hint', text: now === null ? '' : `now ${Number(now.toFixed(3))}` }),
+        el('button', { class: 'utility-btn', title: 'Remove this input', 'aria-label': 'Remove this input', onclick: () => { recipe.inputs.splice(k, 1); changed(true); } }, '✕'));
+    });
+    const add = el('button', { class: 'utility-btn', id: 'tb-addinput', disabled: recipe.inputs.length >= 16 || !targets.length || undefined, onclick: () => {
+      const used = new Set(recipe.inputs.map((i) => i.target));
+      const [t, text, min, max] = targets.find(([x]) => x.startsWith('layer.') && !used.has(x)) || targets[0];
+      const name = text.split(' › ').pop().slice(0, 40);
+      let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'input';
+      const base = id; for (let n = 2; recipe.inputs.some((i) => i.id === id) || ['dirt', 'colorVariation', 'relief', 'shine', 'hue', 'brightness'].includes(id); n++) id = `${base}-${n}`;
+      recipe.inputs.push({ id, label: name, target: t, min, max });
+      changed(true);
+    } }, '＋ Input');
+    const sets = recipe.inputPresets.map((p, k) => el('div', { class: 'sb-row', 'data-inputset': String(k) },
+      el('span', { text: p.name }), el('span', { class: 'pref-hint', text: Object.entries(p.values).map(([i, v]) => `${i} ${Number(v.toFixed(3))}`).join(', ') }),
+      el('button', { class: 'utility-btn', title: 'Remove this set', 'aria-label': 'Remove this set', onclick: () => { recipe.inputPresets.splice(k, 1); changed(true); } }, '✕')));
+    const saveSet = el('button', { class: 'utility-btn', id: 'tb-saveinputset', disabled: !recipe.inputs.length || recipe.inputPresets.length >= 16 || undefined, onclick: async () => {
+      const name = await NoorUI.prompt('A set of values', 'Name of the set (its inputs\' values as they are now):', `Set ${recipe.inputPresets.length + 1}`, { okLabel: 'Save' });
+      if (!name || !name.trim()) { keepFocus(); return; }
+      const values = {};
+      for (const i of recipe.inputs) { const v = valueAt(i.target); if (v !== null) values[i.id] = v; }
+      recipe.inputPresets = recipe.inputPresets.filter((x) => x.name !== name.trim());
+      recipe.inputPresets.push({ name: name.trim().slice(0, 40), values });
+      changed(true); keepFocus();
+    } }, '＋ Save the values now as a set…');
+    return [
+      el('h4', { class: 'music-subhead', text: 'Inputs (sliders where it is used)' }),
+      el('p', { class: 'pref-hint', id: 'tb-inputshint', text: `Where this material is used (a material layer in NoorForge), it shows these as sliders: ${STANDARD_INPUTS.join(', ')} — and the ones you add here, each moving one of its settings.` }),
+      el('div', { id: 'tb-inputs' }, ...rows), el('div', { class: 'sb-row' }, add),
+      recipe.inputs.length ? el('h4', { class: 'music-subhead', text: 'Sets of values' }) : null,
+      ...(recipe.inputs.length ? [el('div', { id: 'tb-inputsets' }, ...sets), el('div', { class: 'sb-row' }, saveSet)] : []),
+    ].filter(Boolean);
   }
 
   // ---------------------------------------------------------------- maps
