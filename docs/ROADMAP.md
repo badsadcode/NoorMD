@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMaterial (preview.155): each brick, tile, hexagon or plank its own colour, hue, roughness and gradient; another
+  material blended in by height; Stone pavers and Stony soil (ideas from MaterialCraft; none of its code).
 - NoorForge (preview.154): models from NoorMesh; layer folders, per-channel blending, colour adjustments and filters on
   masks (ideas from TextureCraft; none of its code).
 - NoorMesh (preview.153): pictures on materials (linked, packed, relinked when missing), drawn in the view, in GLB out

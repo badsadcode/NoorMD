@@ -11,7 +11,7 @@ namespace NoorMD.Media;
 /// <summary>One step of the height stack: a generator, how it is shaped, and how it is blended onto what is below.</summary>
 public sealed class TextureLayer
 {
-    public static readonly string[] Types = ["noise", "ridged", "turbulence", "musgrave", "cells", "wave", "gradient", "checker", "magic", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "painted", "current", "curvature", "erosion"];
+    public static readonly string[] Types = ["noise", "ridged", "turbulence", "musgrave", "cells", "wave", "gradient", "checker", "magic", "wood", "bricks", "tiles", "hexagons", "planks", "spots", "weave", "scratches", "image", "painted", "current", "curvature", "erosion", "material"];
     public static readonly string[] Profiles = ["dome", "flat", "crater", "cone"];
     public static readonly string[] WaveProfiles = ["sine", "saw", "triangle"];
     public static readonly string[] ErosionModes = ["rain", "crumble", "wear"];
@@ -105,6 +105,20 @@ public sealed class TextureLayer
     public double TintAmount { get; set; }
     public double RoughnessShift { get; set; }
     public double MetallicShift { get; set; }
+
+    // Each piece its own (bricks, tiles, hexagons, planks: every piece told apart, as a flood fill would): how much its
+    // brightness, hue and roughness differ from piece to piece, and a shading gradient across each in its own direction.
+    public double PieceColor { get; set; }
+    public double PieceHue { get; set; }
+    public double PieceRough { get; set; }
+    public double PieceGradient { get; set; }
+
+    // material: another NoorMaterial material (a built-in preset's id) blended in by height: it shows where its height,
+    // raised or sunk by HeightBias (−1…1), is above the height so far, the border Softness (0.005–1) wide; Opacity is how
+    // much. Stones poking through dirt, moss filling the gaps, sand settling in the low places.
+    public string Material { get; set; } = "";
+    public double HeightBias { get; set; }
+    public double Softness { get; set; } = 0.1;
 
     // image: a picture you picked (Path, shown as ImageName), repeated ScaleX × ScaleY times across the tile.
     // painted: a painting made for this material in NoorSketch (Path to its .noorsketch, with transparency): its
@@ -296,6 +310,9 @@ public sealed class TextureRecipe
             l.SeedShift = Math.Clamp(l.SeedShift, -100000, 100000);
             l.Tint = l.Tint == null ? null : HexOrNull(l.Tint); l.TintAmount = C(l.TintAmount, 0, 1);
             l.RoughnessShift = double.IsFinite(l.RoughnessShift) ? Math.Clamp(l.RoughnessShift, -1, 1) : 0;
+            l.PieceColor = C(l.PieceColor, 0, 1); l.PieceHue = C(l.PieceHue, 0, 1); l.PieceRough = C(l.PieceRough, 0, 1); l.PieceGradient = C(l.PieceGradient, 0, 1);
+            l.Material = l.Material is { Length: <= 80 } mt && mt.All(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_') ? mt : "";
+            l.HeightBias = double.IsFinite(l.HeightBias) ? Math.Clamp(l.HeightBias, -1, 1) : 0; l.Softness = C(l.Softness, 0.005, 1);
             l.MetallicShift = double.IsFinite(l.MetallicShift) ? Math.Clamp(l.MetallicShift, -1, 1) : 0;
             if (l.Path != null && (l.Path.Length > 1000 || l.Path.Any(char.IsControl))) l.Path = null;
             if (l.ImageName != null) l.ImageName = l.ImageName.Length > 120 ? l.ImageName[..120] : l.ImageName;
@@ -432,10 +449,21 @@ public static class TextureEngine
     public const int MinSize = 64, MaxSize = 4096;
 
     /// <summary>A layer's own values (after its levels), kept when it paints the surface; an image layer's colours too.</summary>
-    private sealed record Paint(TextureLayer Layer, float[] Mask, float[]? Rgb, float[]? Alpha = null);
+    private sealed record Paint(TextureLayer Layer, float[] Mask, float[]? Rgb, float[]? Alpha = null)
+    {
+        /// <summary>Each pixel's piece (bricks, tiles…) and where it lies across it along the piece's own gradient (−0.5…0.5).</summary>
+        public uint[]? Piece { get; init; }
+        public float[]? Across { get; init; }
+        /// <summary>A material layer's own roughness and metallic (0–1), taken where it shows.</summary>
+        public float[]? Rough { get; init; }
+        public float[]? Metal { get; init; }
+    }
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string, int, int), TextureMaps> SubMaterials = new();
 
     /// <param name="images">Reads a picture an image layer uses (null when it can't or may not be used).</param>
-    public static TextureMaps Render(TextureRecipe recipe, int size, Func<string, TextureImage?>? images = null)
+    public static TextureMaps Render(TextureRecipe recipe, int size, Func<string, TextureImage?>? images = null) => Render(recipe, size, images, 0);
+
+    private static TextureMaps Render(TextureRecipe recipe, int size, Func<string, TextureImage?>? images, int depth)
     {
         if (size is < MinSize or > MaxSize) throw new ArgumentException("Texture size out of range.");
         var r = recipe.Clone().Clamped();
@@ -461,8 +489,32 @@ public static class TextureEngine
                 paints.Add(new Paint(layer, alpha, prgb, alpha));
                 continue;
             }
+            if (layer.Type == "material")
+            {
+                // Another material blended in by height (not inside one already: no materials within materials).
+                if (depth > 0 || layer.Material.Length == 0 || layer.Opacity <= 0) continue;
+                TextureRecipe sub;
+                try { sub = TexturePresets.Make(layer.Material); } catch (ArgumentException) { warnings.Add($"“{layer.Name}”: the material “{layer.Material}” isn't there"); continue; }
+                sub.Seed += layer.SeedShift;
+                if (SubMaterials.Count > 24) SubMaterials.Clear();
+                var maps = SubMaterials.GetOrAdd((layer.Material, sub.Seed, size), _ => Render(sub, size, images, depth + 1));
+                var w = new float[n]; var colours = new float[n * 3]; var sr = new float[n]; var sm = new float[n];
+                float bias = (float)layer.HeightBias, soft = (float)layer.Softness, amount = (float)layer.Opacity;
+                Parallel.For(0, n, i =>
+                {
+                    var d = maps.Height[i] + bias - h[i];
+                    var t = Math.Clamp((d + soft) / (2 * soft), 0, 1);
+                    w[i] = t * t * (3 - 2 * t) * amount;
+                    h[i] += (maps.Height[i] - h[i]) * w[i];
+                    colours[i * 3] = maps.Albedo[i * 3] / 255f; colours[i * 3 + 1] = maps.Albedo[i * 3 + 1] / 255f; colours[i * 3 + 2] = maps.Albedo[i * 3 + 2] / 255f;
+                    sr[i] = maps.Roughness[i] / 255f; sm[i] = maps.Metallic[i] / 255f;
+                });
+                paints.Add(new Paint(layer, w, colours, w) { Rough = sr, Metal = sm });
+                continue;
+            }
             var ramped = layer.Ramp is { Count: > 0 } && layer.ColorAmount > 0;
-            var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0) || ramped;
+            var pieced = layer.Type is "bricks" or "tiles" or "hexagons" or "planks" && (layer.PieceColor > 0 || layer.PieceHue > 0 || layer.PieceRough > 0 || layer.PieceGradient > 0);
+            var painting = layer.TintAmount > 0 && layer.Tint != null || layer.RoughnessShift != 0 || layer.MetallicShift != 0 || (layer.Type == "image" && layer.ColorAmount > 0) || ramped || pieced;
             if (layer.Opacity <= 0 && !painting && layer.Bump <= 0) continue;
             var seed = (uint)(r.Seed + layer.SeedShift) * 2654435761u + 0x9E3779B9u;
             float[]? rgb = null;
@@ -476,10 +528,12 @@ public static class TextureEngine
             else if (layer.Type is "current" or "curvature") values = FromStack(layer, h, size, seed);
             else if (layer.Type == "erosion") (values, rgb) = Erosion(layer, h, size, seed);
             else values = Generate(layer, size, seed);
+            var (piece, across) = pieced ? Pieces(layer, size, seed) : (null, null);
             if ((layer.ShiftX > 0 || layer.ShiftY > 0) && layer.Type is not ("current" or "curvature" or "erosion"))
             {
                 values = Roll(values, size, layer.ShiftX, layer.ShiftY, 1);
                 if (rgb != null) rgb = Roll(rgb, size, layer.ShiftX, layer.ShiftY, 3);
+                if (piece != null) { piece = Roll(piece, size, layer.ShiftX, layer.ShiftY, 1); across = Roll(across!, size, layer.ShiftX, layer.ShiftY, 1); }
             }
             // Erosion paints where it acted (where the water ran, the rubble settled or the edges wore), not by height.
             var where = layer.Type == "erosion" ? rgb : null;
@@ -506,7 +560,7 @@ public static class TextureEngine
                 });
                 paints.Add(new Paint(layer, mask!, colours, alpha));
             }
-            else if (mask != null) paints.Add(new Paint(layer, mask, rgb));
+            else if (mask != null) paints.Add(new Paint(layer, mask, rgb) { Piece = piece, Across = across });
         }
         return Finish(Surface(r, h, size, paints, warnings, detail), r.Surface.Finish);
     }
@@ -683,6 +737,76 @@ public static class TextureEngine
         });
         if (l.Type == "musgrave") Level(v);
         return v;
+    }
+
+    /// <summary>
+    /// Which piece each pixel is in (bricks, tiles, hexagons, planks: as their heights are made, warp included) and
+    /// where it lies along that piece's own direction (−0.5…0.5), for each piece's colour, roughness and gradient.
+    /// </summary>
+    private static (uint[] Piece, float[] Across) Pieces(TextureLayer l, int size, uint seed)
+    {
+        var id = new uint[size * size]; var across = new float[size * size];
+        Parallel.For(0, size, y =>
+        {
+            for (var x = 0; x < size; x++)
+            {
+                double u = (x + 0.5) / size, w = (y + 0.5) / size;
+                if (l.Warp > 0)
+                {
+                    var wu = Fbm(u, w, l.WarpScale, l.WarpScale, 3, 0.5, 2, seed ^ 0xA5A5A5A5u);
+                    var wv = Fbm(u, w, l.WarpScale, l.WarpScale, 3, 0.5, 2, seed ^ 0x5A5A5A5Au);
+                    u += l.Warp * 0.25 * wu; w += l.Warp * 0.25 * wv;
+                }
+                var (pid, lx, ly) = PieceAt(l, u, w, seed);
+                var a = Unit(pid * 2246822519u + 13u) * Math.PI * 2;
+                id[y * size + x] = pid;
+                across[y * size + x] = (float)Math.Clamp(Math.Cos(a) * lx + Math.Sin(a) * ly, -0.5, 0.5);
+            }
+        });
+        return (id, across);
+    }
+
+    /// <summary>The piece a point is in, as Bricks, Tiles, Hexagons and Planks find it, and the point within it (−0.5…0.5).</summary>
+    private static (uint Id, double Lx, double Ly) PieceAt(TextureLayer l, double u, double v, uint seed)
+    {
+        int cols = l.ScaleX, rows = l.ScaleY;
+        switch (l.Type)
+        {
+            case "bricks":
+            {
+                var ry = v * rows; var row = (int)Math.Floor(ry);
+                var shift = (Wrap(row, rows) % 2 == 1) ? l.Offset : 0;
+                var rx = u * cols + shift; var col = (int)Math.Floor(rx);
+                return (Hash(Wrap(col, cols), Wrap(row, rows), seed), rx - col - 0.5, ry - row - 0.5);
+            }
+            case "tiles":
+            {
+                double x = u * cols, y = v * rows; int col = (int)Math.Floor(x), row = (int)Math.Floor(y);
+                return (Hash(Wrap(col, cols), Wrap(row, rows), seed), x - col - 0.5, y - row - 0.5);
+            }
+            case "hexagons":
+            {
+                int r0 = (int)Math.Round(v * rows), c0 = (int)Math.Round(u * cols);
+                (double X, double Y) Centre(int c, int r) => ((c + ((r & 1) == 1 ? 0.5 : 0)) / cols, (double)r / rows);
+                double best = double.MaxValue; int bc = 0, br = 0;
+                for (var dr = -1; dr <= 1; dr++)
+                    for (var dc = -1; dc <= 1; dc++)
+                    {
+                        var (cx, cy) = Centre(c0 + dc, r0 + dr);
+                        var d = (u - cx) * (u - cx) + (v - cy) * (v - cy);
+                        if (d < best) { best = d; bc = c0 + dc; br = r0 + dr; }
+                    }
+                var (ax, ay) = Centre(bc, br);
+                return (Hash(Wrap(bc, cols), Wrap(br, rows), seed), (u - ax) * cols, (v - ay) * rows);
+            }
+            default: // planks
+            {
+                var x = u * cols; var col = (int)Math.Floor(x);
+                var stagger = l.Offset * Unit(Hash(Wrap(col, cols), 0, seed ^ 0x2545F491u));
+                var y = v * rows + stagger; var row = (int)Math.Floor(y);
+                return (Hash(Wrap(col, cols), Wrap(row, rows), seed), x - col - 0.5, y - row - 0.5);
+            }
+        }
     }
 
     private static double Sample(TextureLayer l, double u, double v, uint seed) => l.Type switch
@@ -1445,6 +1569,17 @@ public static class TextureEngine
                     }
                     ro += l.RoughnessShift * m;
                     me += l.MetallicShift * m;
+                    if (p.Rough != null) { ro += (p.Rough[i] - ro) * m; me += (p.Metal![i] - me) * m; }
+                    if (p.Piece != null && m > 0)
+                    {
+                        // Each piece its own: brighter or darker, a hue of its own, rougher or glossier, shaded across.
+                        var id = p.Piece[i];
+                        var f = 1 + (Unit(id * 1597334677u + 3u) - 0.5) * 1.2 * l.PieceColor + p.Across![i] * 1.2 * l.PieceGradient;
+                        var k2 = 1 + (f - 1) * m;
+                        cr *= k2; cg *= k2; cb *= k2;
+                        if (l.PieceHue > 0) (cr, cg, cb) = TurnHue(cr, cg, cb, (Unit(id * 3812015801u + 7u) - 0.5) * 2 * Math.PI / 3 * l.PieceHue * m);
+                        ro += (Unit(id * 2654435761u + 11u) - 0.5) * l.PieceRough * m;
+                    }
                 }
                 var dirt = 1 - s.Dirt * cavity[i] * 0.85;
                 cr *= dirt; cg *= dirt; cb *= dirt;
@@ -1488,6 +1623,13 @@ public static class TextureEngine
     /// The albedo's own adjustments: hue turned round the grey axis (keeping brightness), saturation from its
     /// brightness, contrast around the middle, then brightness.
     /// </summary>
+    /// <summary>A colour turned about the grey axis by an angle (radians): its hue moved, its brightness kept.</summary>
+    private static (double, double, double) TurnHue(double r, double g, double b, double a)
+    {
+        double c = Math.Cos(a), s2 = Math.Sin(a), k = (1 - c) / 3, q = Math.Sqrt(1.0 / 3) * s2;
+        return (Math.Clamp(r * (c + k) + g * (k - q) + b * (k + q), 0, 1), Math.Clamp(r * (k + q) + g * (c + k) + b * (k - q), 0, 1), Math.Clamp(r * (k - q) + g * (k + q) + b * (c + k), 0, 1));
+    }
+
     private static (double, double, double) AdjustColour(double r, double g, double b, TextureSurface s, double hc, double hs)
     {
         if (s.AlbedoHue != 0)

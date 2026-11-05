@@ -70,6 +70,19 @@ From Thornwake's notes (engine-agnostic: any game wants these):
 * Tests: the brightness is measured in linear light; the scale's limits; the UI (texel density, brightness, the set
   export and its flag); the self-test checks the manifest.
 
+## Done in preview.155 (from the ideas below)
+
+* **Each piece its own:** bricks, tiles, hexagons and planks are told apart piece by piece (as a flood fill would), so
+  each piece gets its own brightness (lighter or darker), hue, roughness (rougher or glossier) and a shading gradient
+  across it in its own direction — beside the height each already had (Variation) and the tilt. Only the pieces change;
+  the mortar and gaps keep their colour. The warp and the shift are followed, so it tiles as before.
+* **Another material, blended by height:** a "material" layer brings in a built-in material and shows it where its
+  height, raised or sunk (−1…1), is above the height so far, with a soft border; its colours, roughness and metal come
+  with it. Stones poking through dirt, moss filling the gaps (sunk), sand in the low places. (A material inside a
+  material doesn't bring its own material layers: no loops.)
+* **New presets:** Stone pavers (every slab its own shade and slope) and Stony soil (cobblestones poking through
+  forest soil, blended by height).
+
 ## Ideas from MaterialCraft (ideas only — nothing of its code is used)
 
 MaterialCraft (MIT / Apache-2.0, a Substance-Designer-like node editor) was looked at for what NoorMaterial lacks. Its

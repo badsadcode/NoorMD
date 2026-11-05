@@ -7,7 +7,7 @@ window.NoorTexture = (() => {
   const req = (type, payload) => NoorBridge.request(type, payload);
 
   const LAYER_LABEL = { noise: 'Noise', ridged: 'Ridged noise', turbulence: 'Turbulence', musgrave: 'Musgrave (fractal terrain)', cells: 'Cells (Voronoi: stones, cracks)',
-    wave: 'Wave (bands, rings)', gradient: 'Gradient', checker: 'Checker', magic: 'Magic', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', painted: 'Hand-painted (NoorSketch)', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)' };
+    wave: 'Wave (bands, rings)', gradient: 'Gradient', checker: 'Checker', magic: 'Magic', wood: 'Wood grain', bricks: 'Bricks', tiles: 'Tiles', hexagons: 'Hexagons', planks: 'Planks', spots: 'Spots (pebbles, rivets, craters)', weave: 'Weave', scratches: 'Scratches', image: 'Photo / picture', painted: 'Hand-painted (NoorSketch)', current: 'Height so far (mask)', curvature: 'Edges & cavities (mask)', erosion: 'Erosion (rain, crumble, wear)', material: 'Another material (blended by height)' };
   const NEW_LAYER = {
     noise: { scaleX: 4, scaleY: 4, octaves: 5 }, ridged: { scaleX: 3, scaleY: 3, octaves: 6 }, turbulence: { scaleX: 6, scaleY: 6, octaves: 4 },
     cells: { scaleX: 6, scaleY: 6, mode: 'cells', jitter: 1, variation: 0.3, metric: 'euclidean' }, wood: { scaleX: 9, scaleY: 3, octaves: 5 },
@@ -27,6 +27,7 @@ window.NoorTexture = (() => {
     curvature: { scaleX: 2, scaleY: 1, opacity: 0, low: 0.55, high: 0.65, warp: 0.3, warpScale: 12 },
     erosion: { scaleX: 1, scaleY: 1, mode: 'rain', amount: 0.6 },
     painted: { scaleX: 1, scaleY: 1, colorAmount: 1, opacity: 0, blend: 'normal' },
+    material: { scaleX: 1, scaleY: 1, material: 'stone-cobbles', opacity: 1, heightBias: 0, softness: 0.1 },
     image: { scaleX: 1, scaleY: 1, seamBlend: 0.15, seamMode: 'cut', seamEven: 0, delight: 0.5, delightRadius: 0.25, detailFine: 0.4, detailMedium: 0.7, detailLarge: 0.5, colorAmount: 1, heightColor: null, heightColorAmount: 0, heightColorTolerance: 0.15 },
   };
   // Sliders: [key, label, min, max, step, kind]; 'int' are whole numbers, 'pct' shows 0–100.
@@ -66,6 +67,10 @@ window.NoorTexture = (() => {
       ['detailFine', 'Height from fine detail', 0, 1, 0.01, 'pct'], ['detailMedium', 'Height from medium detail', 0, 1, 0.01, 'pct'], ['detailLarge', 'Height from large shapes', 0, 1, 0.01, 'pct'],
       ['colorAmount', 'Its colours on the surface', 0, 1, 0.01, 'pct']],
   };
+  // Each piece its own (bricks, tiles, hexagons, planks told apart): colour, hue, roughness and a gradient across each.
+  const PIECE = [['pieceColor', 'Each piece: lighter or darker', 0, 1, 0.01, 'pct'], ['pieceHue', 'Each piece: its own hue', 0, 1, 0.01, 'pct'], ['pieceRough', 'Each piece: rougher or glossier', 0, 1, 0.01, 'pct'], ['pieceGradient', 'Each piece: shaded across', 0, 1, 0.01, 'pct']];
+  for (const t of ['bricks', 'tiles', 'hexagons', 'planks']) FIELDS[t].push(...PIECE);
+  FIELDS.material = [['heightBias', 'Raise it (+) or sink it (−)', -1, 1, 0.01, 'spct'], ['softness', 'Soft border', 0.005, 1, 0.005, 'pct']];
   // Painting the surface, for any layer: where the layer is high.
   const PAINT = [['tintAmount', 'Tint strength', 0, 1, 0.01, 'pct'], ['roughnessShift', 'Roughness change', -1, 1, 0.01, 'spct'], ['metallicShift', 'Metallic change', -1, 1, 0.01, 'spct']];
   const SHAPE = [['opacity', 'Strength', 0, 1, 0.01, 'pct'], ['low', 'Levels: low', 0, 1, 0.01, 'pct'], ['high', 'Levels: high', 0, 1, 0.01, 'pct'], ['gamma', 'Levels: middle (gamma)', 0.1, 5, 0.01, 'num']];
@@ -586,6 +591,10 @@ el('span', { class: 'tb-zoom' },
         sel.addEventListener('change', () => { l[key] = sel.value; changed(false); });
         return el('label', { class: 'sb-inline' }, el('span', { text: label }), sel);
       };
+      if (l.type === 'material') {
+        // Another material: its height against the height so far decides where it shows.
+        choices.unshift(pickOne('material', 'Material', presets.builtIn.filter((p2) => p2.id !== (recipe.presetId || '')).map((p2) => [p2.id, `${p2.family} › ${p2.name}`]), 'stone-cobbles'));
+      }
       if (KINDS[l.type]) {
         const [label, options] = KINDS[l.type];
         if (l.type === 'cells') choices.unshift(pickOne('metric', 'Distance', [['euclidean', 'Euclidean (round)'], ['manhattan', 'Manhattan (diamond)'], ['chebyshev', 'Chebyshev (square)']], 'euclidean'));
@@ -602,10 +611,10 @@ el('span', { class: 'tb-zoom' },
           el('button', { class: 'icon-btn', title: 'Copy this layer', 'aria-label': 'Copy this layer', onclick: () => { recipe.layers.splice(i + 1, 0, { ...clone(l), id: '', name: l.name + ' copy' }); changed(true); } }, '⧉'),
           el('button', { class: 'icon-btn', title: 'Remove this layer', 'aria-label': 'Remove this layer', onclick: () => { recipe.layers.splice(i, 1); changed(true); } }, '✕')),
         el('div', { class: 'sb-choices' }, ...choices),
-        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : l.type === 'painted' ? PAINTED_SHAPE : SHAPE).map((f) => slider(l, f))),
+        el('div', { class: 'sb-fields' }, ...(FIELDS[l.type] || []).map((f) => slider(l, f)), ...(l.type === 'erosion' ? EROSION_SHAPE : l.type === 'painted' ? PAINTED_SHAPE : l.type === 'material' ? [['opacity', 'How much', 0, 1, 0.01, 'pct']] : SHAPE).map((f) => slider(l, f))),
         ...(l.type === 'image' ? [heightByColour(l)] : []),
-        ...(['painted', 'current', 'curvature', 'erosion'].includes(l.type) ? [] : [placeGroup(l)]),
-        paintGroup(l));
+        ...(['painted', 'current', 'curvature', 'erosion', 'material'].includes(l.type) ? [] : [placeGroup(l)]),
+        l.type === 'material' ? el('p', { class: 'pref-hint', text: 'Shows where its height (raised or sunk) is above the height so far: stones poking through dirt, moss filling the gaps (sink it), sand in the low places. Its colours, roughness and metal come with it.' }) : paintGroup(l));
     });
     return [
       el('p', { class: 'pref-hint', text: 'Layers build the height of the material, from the first down: each is blended onto the ones before it, and any layer can also paint the surface where it is high (tint, roughness, metal). The masks see the height made by the layers above them: tops for snow, dips for moss and puddles, edges for wear. Erosion reshapes the height made above it: rain cuts gullies, steep parts crumble, edges wear round. The Surface tab sets the base colour, relief and shine.' }),

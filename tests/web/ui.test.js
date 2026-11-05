@@ -10459,6 +10459,38 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with folders, blending and filters', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80n. NoorMaterial (preview.155): each piece its own (bricks, tiles, hexagons, planks), and another material
+    // blended in by height.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 950 });
+      const last = () => page.evaluate(() => window.__mock.state.texture.renders.at(-1));
+      const until = async (fn) => { for (let k = 0; k < 100; k++) { if (fn(await last())) return; await page.waitForTimeout(50); } throw new Error('timed out'); };
+      const slide = (sel, v) => page.$eval(sel, (n, val) => { n.value = String(val); n.dispatchEvent(new Event('input', { bubbles: true })); }, v);
+      await page.keyboard.press('Control+Alt+t');
+      await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
+      await waitFn(page, () => NoorTexture._state().render !== null);
+      const n0 = (await last()).recipe.layers.length;
+      await page.click('[data-addlayer="tiles"]');
+      await until((r) => r.recipe.layers.length === n0 + 1);
+      const sel = `.sb-layer[data-index="${n0}"]`;
+      check('a tiles layer has the per-piece sliders (lighter or darker, hue, roughness, shaded across)', !!(await page.$(`${sel} input[data-key="pieceColor"]`)) && !!(await page.$(`${sel} input[data-key="pieceGradient"]`)));
+      await slide(`${sel} input[data-key="pieceColor"]`, 0.6);
+      await until((r) => r.recipe.layers[n0].pieceColor === 0.6);
+      check('…moving one sends it with the recipe', (await last()).recipe.layers[n0].pieceColor === 0.6);
+      await page.click('[data-addlayer="material"]');
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.some((l) => l.type === 'material'));
+      const m = (await last()).recipe.layers.find((l) => l.type === 'material');
+      check('＋ Another material: a material layer (cobblestones by default, blended by height)', m.material === 'stone-cobbles' && m.heightBias === 0 && m.softness === 0.1);
+      const msel = `.sb-layer[data-index="${n0 + 1}"]`;
+      const options = await page.$$eval(`${msel} select[data-key="material"] option`, (os) => os.map((o) => o.value));
+      check('…any built-in material can be chosen', options.length >= 2 && options.includes('stone-cobbles'), options);
+      await page.selectOption(`${msel} select[data-key="material"]`, options.find((o) => o !== 'stone-cobbles'));
+      await slide(`${msel} input[data-key="heightBias"]`, -0.3);
+      await waitFn(page, () => window.__mock.state.texture.renders.at(-1).recipe.layers.some((l) => l.type === 'material' && l.heightBias === -0.3));
+      check('…chosen and sunk (−30 %): sent with the recipe', (await last()).recipe.layers.some((l) => l.type === 'material' && l.material !== 'stone-cobbles' && l.heightBias === -0.3));
+      check('no page errors with pieces and blended materials', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
