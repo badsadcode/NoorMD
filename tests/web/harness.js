@@ -699,6 +699,10 @@ function mockHostScript(initial) {
       // Paintings (pixels): each paint makes a new version; the strokes it got are kept to check.
       case 'forge.image.create': FORGE.imageCreates = (FORGE.imageCreates || []).concat([{ from: p.from, set: p.set }]); if (p.from === 'model' && FORGE.noTexture) throw new Error('This model has no colour picture of its own to paint over.'); return { image: 'img' + (FORGE.imageCreates.length), size: Math.min(2048, Math.max(256, p.recipe.size)) };
       case 'forge.image.paint': { FORGE.imagePaints = (FORGE.imagePaints || []).concat([{ layer: p.layer, image: p.recipe.layers[p.layer].image, strokes: JSON.parse(JSON.stringify(p.strokes)) }]); return { image: p.recipe.layers[p.layer].image + '.' + FORGE.imagePaints.length }; }
+      case 'forge.fromMesh': {
+        FORGE.fromMesh = { name: p.name, objects: p.doc.objects.length, materials: (p.doc.materials || []).length, textures: (p.doc.textures || []).filter((t) => t.data).length };
+        return { info: { path: `C:\\Local\\Forge\\Models\\${p.name}.glb`, name: p.name, triangles: 12 * p.doc.objects.length, parts: p.doc.objects.map((o) => o.name), size: [2, 2, 2], sets: (p.doc.materials && p.doc.materials.length ? p.doc.materials.map((m) => m.name) : ['Material']).map((n) => ({ name: n, triangles: 12, unwrapped: false })) } };
+      }
       case 'forge.fromAsset': {
         FORGE.fromAsset = p.key; FORGE.fromLevel = p.level;
         const file = p.level ? `${p.name}_LOD${p.level}` : p.name;

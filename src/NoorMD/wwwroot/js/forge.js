@@ -361,10 +361,11 @@ window.NoorForge = (() => {
     const list = $('#fg-layers');
     if (!list) return;
     // Top of the stack first, as in a painting program.
-    list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off'), 'data-layer': String(i), role: 'button', tabindex: '0',
+    const folderIds = new Set(recipe.layers.filter((x) => x.isFolder).map((x) => x.id));
+    list.replaceChildren(...recipe.layers.map((l, i) => ({ l, i })).reverse().map(({ l, i }) => el('div', { class: 'fg-layer' + (i === selected ? ' sel' : '') + (l.visible ? '' : ' off') + (l.isFolder ? ' fg-folder' : '') + (l.folder && folderIds.has(l.folder) ? ' fg-child' : ''), 'data-layer': String(i), role: 'button', tabindex: '0',
       onclick: () => selectLayer(i) }, // its mask, shown
       el('button', { class: 'icon-btn', 'aria-pressed': String(l.visible), title: l.visible ? 'Shown (click to hide)' : 'Hidden (click to show)', 'aria-label': `Show ${l.name}`, onclick: (e) => { e.stopPropagation(); l.visible = !l.visible; changed('layers'); } }, l.visible ? '👁' : '◌'),
-      el('span', { class: 'fg-swatch', style: `background:${l.image ? 'conic-gradient(#e0605a,#e8c35a,#6ac27a,#5a9ae0,#b46ae0,#e0605a)' : l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}`, title: l.image ? 'A painting (pixels)' : '' }),
+      l.isFolder ? el('span', { class: 'fg-swatch fg-foldericon', text: '📁', title: 'A folder: its mask and opacity apply to the layers inside it' }) : el('span', { class: 'fg-swatch', style: `background:${l.image ? 'conic-gradient(#e0605a,#e8c35a,#6ac27a,#5a9ae0,#b46ae0,#e0605a)' : l.material ? 'linear-gradient(135deg,#777,#bbb)' : l.color}`, title: l.image ? 'A painting (pixels)' : '' }),
       el('span', { class: 'fg-layername', text: l.name }),
       el('small', { text: l.mask.kind === 'all' ? '' : MASKS[l.mask.kind].split(' (')[0] }))));
     keepFocus();
@@ -376,6 +377,16 @@ window.NoorForge = (() => {
     const l = { id: newId(), name: material ? 'Material' : painted ? 'Paint' : 'Colour', visible: true, opacity: 1, material: material ? (lists.materials[0] || {}).id || '' : '', scale: 1, color: material ? '#808080' : '#a0a0a0', roughness: 0.7, metallic: 0,
       height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: painted ? 'none' : 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0 }, strokes: [] };
     recipe.layers.splice(selected + 1, 0, l); selected = recipe.layers.indexOf(l); changed('all');
+  }
+  /** A folder above the chosen layer: the layers put into it share its mask, opacity and visibility. */
+  function addFolder() {
+    if (recipe.layers.length >= 32) return;
+    const f = { id: newId(), name: 'Folder', visible: true, opacity: 1, isFolder: true, material: '', scale: 1, color: '#808080', roughness: 0.7, metallic: 0, height: 0.5, useColor: true, useRoughness: true, useMetallic: true, useNormal: true, useHeight: true, normalStrength: 1, mask: { kind: 'all', amount: 0.5, softness: 0.3, invert: false, noise: 0.3, noiseScale: 0.25, index: 0, filters: [] }, strokes: [] };
+    // The chosen layer goes into it straight away (if it isn't a folder).
+    const cur = recipe.layers[selected];
+    recipe.layers.splice(selected + 1, 0, f);
+    if (cur && !cur.isFolder) cur.folder = f.id;
+    selected = recipe.layers.indexOf(f); changed('all');
   }
   /** Whether a layer takes the brush's colour: a painting (pixels), or a paint layer (strokes keep their colour). */
   const takesColor = (l) => !!l && (!!l.image || (!l.material && l.mask.kind === 'none'));
@@ -398,7 +409,12 @@ window.NoorForge = (() => {
 
   /** The chosen layer up (1) or down (−1) the stack. */
   function moveLayer(d) { const j = selected + d; if (j < 0 || j >= recipe.layers.length) return; [recipe.layers[selected], recipe.layers[j]] = [recipe.layers[j], recipe.layers[selected]]; selected = j; changed('all'); }
-  function removeLayer() { if (!recipe.layers.length) return; recipe.layers.splice(selected, 1); selected = Math.max(0, selected - 1); changed('all'); }
+  function removeLayer() {
+    if (!recipe.layers.length) return;
+    const gone = recipe.layers.splice(selected, 1)[0];
+    if (gone && gone.isFolder) recipe.layers.forEach((x) => { if (x.folder === gone.id) x.folder = ''; }); // its layers stay, out of it
+    selected = Math.max(0, selected - 1); changed('all');
+  }
 
   function layersPane() {
     const add = addLayer, move = moveLayer;
@@ -407,6 +423,7 @@ window.NoorForge = (() => {
         el('button', { class: 'utility-btn', id: 'fg-addmat', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(true) }, '＋ Material layer'),
         el('button', { class: 'utility-btn', id: 'fg-addplain', disabled: recipe.layers.length >= 32 || undefined, onclick: () => add(false) }, '＋ Colour layer'),
         el('button', { class: 'utility-btn', id: 'fg-addpainting', title: 'Paint pixels straight onto the model in any colour (as Blender\'s texture painting): blank, over its own texture, or over a picture', disabled: recipe.layers.length >= 32 || undefined, onclick: addPainting }, '＋ Painting (pixels)'),
+        el('button', { class: 'utility-btn', id: 'fg-addfolder', title: 'A folder: the layers in it share its mask (worn edges, top, a part…), its opacity and its visibility', disabled: recipe.layers.length >= 32 || undefined, onclick: addFolder }, '＋ Folder'),
         el('button', { class: 'utility-btn', id: 'fg-addpaint', title: 'A colour layer shown only where you paint it, with the brush ready', disabled: recipe.layers.length >= 32 || undefined, onclick: () => { add(false, true); setTool('brush', false); } }, '＋ Paint layer'),
         el('button', { class: 'icon-btn', title: 'Up the stack', 'aria-label': 'Move up', onclick: () => move(1) }, '↑'),
         el('button', { class: 'icon-btn', title: 'Down the stack', 'aria-label': 'Move down', onclick: () => move(-1) }, '↓'),
@@ -463,12 +480,67 @@ window.NoorForge = (() => {
         return el('label', { class: 'sb-inline' }, el('span', { text: m.kind === 'part' ? 'Part' : 'Material' }), s);
       })() : null;
     const shaped = !['all', 'none', 'part', 'material'].includes(m.kind);
+    // Per-channel blending, colour adjustments, the folder it is in, the mask's filters (ideas from painting programs).
+    for (const [k, d] of [['colorBlend', 'normal'], ['roughBlend', 'normal'], ['metalBlend', 'normal'], ['heightBlend', 'normal'], ['colorOpacity', 1], ['roughOpacity', 1], ['metalOpacity', 1], ['heightOpacity', 1], ['hue', 0], ['saturation', 0], ['brightness', 0], ['contrast', 0], ['folder', '']]) if (l[k] === undefined) l[k] = d;
+    if (!m.filters) m.filters = [];
+    const CB = { normal: 'Normal', multiply: 'Multiply', screen: 'Screen', overlay: 'Overlay', softlight: 'Soft light', add: 'Add', subtract: 'Subtract', darken: 'Darken', lighten: 'Lighten', difference: 'Difference' };
+    const VB = { normal: 'Normal', add: 'Add', subtract: 'Subtract', multiply: 'Multiply', max: 'Highest', min: 'Lowest' };
+    const blendRow = (label, bk, ok, modes) => {
+      const sel = el('select', { 'aria-label': `${label} blend`, 'data-blend': bk }, ...Object.entries(modes).map(([v, t]) => el('option', { value: v, text: t })));
+      sel.value = l[bk]; sel.addEventListener('change', () => { l[bk] = sel.value; changed(); });
+      return el('div', { class: 'fg-blendrow' }, el('span', { class: 'fg-blendname', text: label }), sel, slider(l, ok, 'Opacity', 0, 1, 0.01));
+    };
+    const blending = l.isFolder ? null : el('details', { class: 'fg-more', id: 'fg-blending', open: ['colorBlend', 'roughBlend', 'metalBlend', 'heightBlend'].some((k) => l[k] !== 'normal') || ['colorOpacity', 'roughOpacity', 'metalOpacity', 'heightOpacity'].some((k) => l[k] !== 1) || undefined },
+      el('summary', { text: 'Blending (each channel its own way)' }),
+      blendRow('Colour', 'colorBlend', 'colorOpacity', CB), blendRow('Roughness', 'roughBlend', 'roughOpacity', VB), blendRow('Metal', 'metalBlend', 'metalOpacity', VB), blendRow('Height', 'heightBlend', 'heightOpacity', VB));
+    const adjust = l.isFolder ? null : el('details', { class: 'fg-more', id: 'fg-adjust', open: (l.hue || l.saturation || l.brightness || l.contrast) ? true : undefined },
+      el('summary', { text: 'Adjust its colour' }),
+      el('div', { class: 'sb-fields' }, slider(l, 'hue', 'Hue (°)', -180, 180, 1), slider(l, 'saturation', 'Saturation', -1, 1, 0.01), slider(l, 'brightness', 'Brightness', -1, 1, 0.01), slider(l, 'contrast', 'Contrast', -1, 1, 0.01)));
+    const folders = recipe.layers.filter((x) => x.isFolder && x !== l);
+    const inFolder = l.isFolder || !folders.length ? null : (() => {
+      const sel = el('select', { id: 'fg-infolder', 'aria-label': 'In folder' }, el('option', { value: '', text: '— not in a folder —' }), ...folders.map((f) => el('option', { value: f.id, text: f.name })));
+      sel.value = folders.some((f) => f.id === l.folder) ? l.folder : '';
+      sel.addEventListener('change', () => { l.folder = sel.value; changed('all'); });
+      return el('label', { class: 'sb-inline' }, el('span', { text: '📁 In' }), sel);
+    })();
+    const FK = { levels: 'Levels', blur: 'Blur', sharpen: 'Sharpen', posterize: 'Posterize', threshold: 'Threshold', invert: 'Invert', contrast: 'Contrast' };
+    const FDEF = { levels: { a: 0, b: 1, c: 1 }, blur: { a: 0.01, b: 1, c: 1 }, sharpen: { a: 1, b: 0.01, c: 1 }, posterize: { a: 4, b: 1, c: 1 }, threshold: { a: 0.5, b: 0.05, c: 1 }, invert: { a: 0, b: 1, c: 1 }, contrast: { a: 0.3, b: 1, c: 1 } };
+    const fparams = (f) => ({
+      levels: [slider(f, 'a', 'Low', 0, 1, 0.01), slider(f, 'b', 'High', 0, 1, 0.01), slider(f, 'c', 'Gamma', 0.1, 4, 0.01)],
+      blur: [slider(f, 'a', 'Radius (share of the texture)', 0.001, 0.1, 0.001)],
+      sharpen: [slider(f, 'a', 'Amount', 0, 5, 0.05), slider(f, 'b', 'Radius', 0.001, 0.05, 0.001)],
+      posterize: [slider(f, 'a', 'Steps', 2, 32, 1)],
+      threshold: [slider(f, 'a', 'Where', 0, 1, 0.01), slider(f, 'b', 'Softness', 0, 0.5, 0.01)],
+      invert: [],
+      contrast: [slider(f, 'a', 'Amount', -1, 1, 0.01)],
+    })[f.kind] || [];
+    const addFilter = el('select', { id: 'fg-addfilter', 'aria-label': 'Add a filter to the mask' }, el('option', { value: '', text: '＋ Filter on the mask…' }), ...Object.entries(FK).map(([k, t]) => el('option', { value: k, text: t })));
+    addFilter.addEventListener('change', () => { if (!addFilter.value) return; m.filters.push({ kind: addFilter.value, ...FDEF[addFilter.value] }); changed('all'); });
+    const filterList = el('div', { class: 'fg-filters', id: 'fg-filters' }, ...m.filters.map((f, k) => el('div', { class: 'fg-filter', 'data-filter': f.kind },
+      el('div', { class: 'sb-row' }, el('strong', { text: FK[f.kind] || f.kind }),
+        el('button', { class: 'icon-btn', title: 'Earlier', 'aria-label': 'Move the filter up', disabled: k === 0 || undefined, onclick: () => { [m.filters[k - 1], m.filters[k]] = [m.filters[k], m.filters[k - 1]]; changed('all'); } }, '↑'),
+        el('button', { class: 'icon-btn', title: 'Later', 'aria-label': 'Move the filter down', disabled: k === m.filters.length - 1 || undefined, onclick: () => { [m.filters[k + 1], m.filters[k]] = [m.filters[k], m.filters[k + 1]]; changed('all'); } }, '↓'),
+        el('button', { class: 'icon-btn', title: 'Remove the filter', 'aria-label': 'Remove the filter', onclick: () => { m.filters.splice(k, 1); changed('all'); } }, '✕')),
+      el('div', { class: 'sb-fields' }, ...fparams(f)))), addFilter);
     const strokesKeep = !l.image && takesColor(l);
     // The brush decides what each stroke paints (strokes from before preview.141 still use the layer's values).
     const brushDecides = !!l.image || (strokesKeep && !(l.strokes || []).some((st) => !st.maps && !st.erase));
     const recolour = el('button', { class: 'utility-btn', id: 'fg-recolour', title: 'Every stroke of this layer in the brush\'s colour', onclick: () => { l.strokes = (l.strokes || []).map((st) => (st.erase ? st : { ...st, color: brush.color })); l.color = brush.color; paintVersion++; changed('all'); } }, '🎨 Recolour all of it');
+    if (l.isFolder) {
+      box.replaceChildren(...[
+        el('h4', { class: 'music-subhead', text: 'Folder' }),
+        el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', text: `${recipe.layers.filter((x) => x.folder === l.id).length} layer(s) inside: they show only where the folder's mask is, at its opacity.` })),
+        el('div', { class: 'sb-fields' }, slider(l, 'opacity', 'Opacity', 0, 1, 0.01)),
+        el('h4', { class: 'music-subhead', text: 'Where the layers inside show (the folder\'s mask)' }),
+        el('div', { class: 'sb-row' }, kind, which, follow, el('label', { class: 'sb-inline' }, invert, el('span', { text: 'Everywhere else instead' })), ring),
+        shaped ? el('div', { class: 'sb-fields' }, slider(m, 'amount', 'Amount', 0, 1, 0.01), slider(m, 'softness', 'Softness', 0, 1, 0.01), slider(m, 'noise', 'Break up with noise', 0, 1, 0.01), slider(m, 'noiseScale', 'Noise size (m)', 0.005, 5, 0.005)) : null,
+        filterList].filter(Boolean));
+      keepFocus();
+      return;
+    }
     box.replaceChildren(...[
       el('h4', { class: 'music-subhead', text: l.image ? 'Painting' : 'Layer' }),
+      inFolder ? el('div', { class: 'sb-row' }, inFolder) : null,
       l.image ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', id: 'fg-paintinginfo', text: `🖌 Pixels painted on the model, ${l.imageSize} px a texture set. Its colour is in the pixels; roughness, metal and height are kept as strokes on it (Paints on the brush bar).` }))
         : strokesKeep ? el('div', { class: 'sb-row' }, name, el('span', { class: 'pref-hint', text: 'Each stroke keeps what the brush painted with it (Paints on the brush bar: colour, roughness, metal, height, and their values).' }), (l.strokes || []).some((st) => !st.erase) ? recolour : null)
           : el('div', { class: 'sb-row' }, name, el('label', { class: 'sb-inline' }, el('span', { text: 'Material' }), mat), el('label', { class: 'sb-inline', title: l.material ? 'A tint over the material (grey leaves it as it is)' : 'The layer\'s colour' }, el('span', { text: l.material ? 'Tint' : 'Colour' }), color)),
@@ -485,7 +557,8 @@ window.NoorForge = (() => {
         ...(m.kind === 'layer' ? [slider(m, 'spread', 'Spread (m)', 0, 0.5, 0.005)] : []),
         ...(m.kind === 'drips' ? [slider(m, 'length', 'Length (m)', 0.01, 3, 0.01)] : []),
         slider(m, 'noise', m.kind === 'chips' ? 'Chunkiness' : m.kind === 'drips' ? 'Streaks' : 'Break up with noise', 0, 1, 0.01),
-        slider(m, 'noiseScale', m.kind === 'chips' ? 'Chip size (m)' : m.kind === 'drips' ? 'Streak width (m)' : 'Noise size (m)', 0.005, 5, 0.005)) : null].filter(Boolean));
+        slider(m, 'noiseScale', m.kind === 'chips' ? 'Chip size (m)' : m.kind === 'drips' ? 'Streak width (m)' : 'Noise size (m)', 0.005, 5, 0.005)) : null,
+      filterList, blending, adjust].filter(Boolean));
     keepFocus();
   }
 
@@ -1496,6 +1569,22 @@ window.NoorForge = (() => {
     } catch (err) { hooks.showError(err); }
   }
 
+  /** A NoorMesh scene to texture (its shown objects; the app makes it a GLB, its materials becoming texture sets). */
+  async function openMesh(doc, name) {
+    await open();
+    try {
+      const r = await req('forge.fromMesh', { doc, name });
+      model = r.info;
+      recipe.model = r.info.path;
+      recipe.name = name;
+      recipe.highModel = null; highName = '';
+      fromAsset = null;
+      render = null; texels = null;
+      changed('all'); renderAll();
+      notice(`“${name}” from NoorMesh is in NoorForge: choose a smart material or build up layers`, 2600);
+    } catch (err) { hooks.showError(err); }
+  }
+
   async function openRecipe() {
     try {
       const r = await req('forge.recipe.open');
@@ -1658,7 +1747,7 @@ window.NoorForge = (() => {
   }
 
   return {
-    init, open, close, toggle, isOpen, openAsset, addPicture, _paintAt: (hits, opts) => paintHits(hits, opts),
+    init, open, close, toggle, isOpen, openAsset, openMesh, addPicture, _paintAt: (hits, opts) => paintHits(hits, opts),
     /** For tests: the stencil's u, v (as the app works them out) at the surface under a point of the canvas. */
     _textPicture: (text) => textPicture(text, FONTS.sans, true),
     _stencilUv: (x, y) => {

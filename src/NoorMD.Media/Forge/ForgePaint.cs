@@ -137,6 +137,13 @@ public static class ForgePaint
     /// </summary>
     public static float[] LayerMask(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures, Func<string, float[]?>? layers, out Vector3[]? colors)
     {
+        var v = LayerMaskRaw(bake, layer, setIndex, pictures, layers, out colors);
+        if (layer.Mask.Filters.Count > 0) ForgeFilters.Apply(bake, v, layer.Mask.Filters);
+        return v;
+    }
+
+    private static float[] LayerMaskRaw(ForgeBake bake, ForgeLayer layer, int setIndex, Func<string, ForgePicture?>? pictures, Func<string, float[]?>? layers, out Vector3[]? colors)
+    {
         var n = bake.Size * bake.Size;
         var v = new float[n];
         var span = bake.BoundsMax - bake.BoundsMin;

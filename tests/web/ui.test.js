@@ -10383,6 +10383,82 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with pictures and the cursor', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80l. NoorMesh → NoorForge (preview.154): the selected objects sent to be textured, with their materials and pictures.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      await page.click('#nm-mat-add');
+      await page.click('#nm-tex-open');
+      await waitFn(page, () => NoorMesh._state().textures.length === 1 && NoorMesh._state().textures[0].w === 8);
+      // A second object, hidden from the send by not being selected.
+      await page.mouse.move(700, 600);
+      await page.keyboard.press('Shift+d'); await page.keyboard.press('x'); await page.keyboard.type('4'); await page.keyboard.press('Enter');
+      await page.evaluate(() => NoorMesh._state()); // the copy is selected now; select the first alone
+      const first = await page.evaluate(() => NoorMesh._project([0, -1, 0]));
+      await page.mouse.click(first.x, first.y);
+      check('one of two objects selected', (await MS()).selected.length === 1 && (await MS()).objects.length === 2);
+      await page.click('#nm-forge');
+      await waitFn(page, () => window.__mock.state.forge && window.__mock.state.forge.fromMesh);
+      const sent = await page.evaluate(() => window.__mock.state.forge.fromMesh);
+      check('🔥 Texture in NoorForge: the selected object sent (its material and its picture with it)', sent.objects === 1 && sent.materials === 1 && sent.textures === 1 && sent.name === 'Cube', sent);
+      await waitFn(page, () => window.NoorForge && NoorForge.isOpen());
+      check('…NoorForge opens with it', await page.isVisible('#forgebench'));
+      check('no page errors sending to NoorForge', errors.length === 0, errors);
+      await page.close();
+    }
+    // ---- 80m. NoorForge (preview.154): folders (a mask for the layers inside), per-channel blending, colour adjustments,
+    // filters on a mask — sent to the app with the recipe.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const FS = () => page.evaluate(() => NoorForge._state());
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      await page.click('#nm-forge');
+      await waitFn(page, () => window.NoorForge && NoorForge.isOpen() && NoorForge._state().model);
+      // Find the layers pane.
+      const tab = await page.$('#forgebench [data-tab="layers"]'); if (tab) await tab.click();
+      await page.waitForSelector('#fg-addplain');
+      await page.click('#fg-addplain');
+      await page.click('#fg-addfolder');
+      let st = await FS();
+      const n0 = st.recipe.layers.length;
+      const folder = st.recipe.layers.find((l) => l.isFolder), colour = st.recipe.layers.find((l) => l.name === 'Colour');
+      check('＋ Folder: a folder, the chosen layer put into it', folder && colour && colour.folder === folder.id, st.recipe.layers.map((l) => [l.name, l.isFolder, l.folder]));
+      check('…shown indented under the folder in the list', !!(await page.$('#fg-layers .fg-layer.fg-folder')) && !!(await page.$('#fg-layers .fg-layer.fg-child')));
+      // The folder's mask: on top.
+      await page.selectOption('#fg-maskkind', 'top');
+      await page.selectOption('#fg-addfilter', 'blur');
+      st = await FS();
+      check('…the folder\'s mask (on top) with a blur filter', st.recipe.layers.find((l) => l.isFolder).mask.kind === 'top' && st.recipe.layers.find((l) => l.isFolder).mask.filters[0].kind === 'blur');
+      // The layer inside: multiply its colour, half its roughness, adjust its hue.
+      await page.click(`#fg-layers .fg-layer.fg-child`);
+      await page.click('#fg-blending summary');
+      await page.selectOption('#fg-blending select[data-blend="colorBlend"]', 'multiply');
+      await page.$eval('#fg-blending .fg-blendrow:nth-of-type(2) input[type=range]', (r) => { r.value = '0.5'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      await page.click('#fg-adjust summary');
+      await page.$eval('#fg-adjust input[data-key="hue"]', (r) => { r.value = '90'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      st = await FS();
+      const inside = st.recipe.layers.find((l) => l.name === 'Colour');
+      check('…the layer inside: colour multiplied, roughness at half opacity, hue turned 90°', inside.colorBlend === 'multiply' && inside.roughOpacity === 0.5 && inside.hue === 90, inside);
+      check('…the layer can be taken out of the folder', !!(await page.$('#fg-infolder')));
+      await waitFn(page, () => window.__mock.state.forge.renders.some((r) => r.layers.some((l) => l.colorBlend === 'multiply')));
+      const sent = await page.evaluate(() => window.__mock.state.forge.renders.slice(-1)[0]);
+      check('the app is sent all of it with the recipe (folder, blends, adjustments, filters)', sent.layers.some((l) => l.isFolder && l.mask.filters.length === 1) && sent.layers.some((l) => l.folder && l.hue === 90), sent.layers.map((l) => [l.isFolder, l.folder, l.colorBlend]));
+      // Removing the folder keeps its layers (out of it).
+      await page.click('#fg-layers .fg-layer.fg-folder');
+      await page.click('#fg-dellayer');
+      st = await FS();
+      check('removing a folder keeps the layers inside it (taken out)', st.recipe.layers.length === n0 - 1 && !st.recipe.layers.some((l) => l.isFolder) && !st.recipe.layers.find((l) => l.name === 'Colour').folder);
+      if (shots) {
+        await page.keyboard.press('Control+z');
+        await page.click(`#fg-layers .fg-layer.fg-child`);
+        await page.waitForTimeout(250); await page.screenshot({ path: `${shots}/80m-noorforge-folders.png` });
+      }
+      check('no page errors with folders, blending and filters', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

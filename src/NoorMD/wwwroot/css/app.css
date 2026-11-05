@@ -1568,6 +1568,13 @@ body.center-active[data-center="music"] .miniplayer { display: none; }
   border: 1px solid var(--border); border-radius: 8px; background: var(--surface); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
 .forgebench .fg-morepanel .sb-row { flex-wrap: wrap; gap: 6px 10px; align-items: center; }
 .forgebench .tb-stage { position: relative; }
+.forgebench .fg-layer.fg-child { margin-left: 18px; }
+.forgebench .fg-foldericon { display: inline-flex; align-items: center; justify-content: center; background: none !important; font-size: 13px; }
+.forgebench .fg-blendrow { display: grid; grid-template-columns: 80px auto 1fr; align-items: center; gap: 6px; margin: 2px 0; }
+.forgebench .fg-filters { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; }
+.forgebench .fg-filter { border: 1px solid var(--border, #333); border-radius: 6px; padding: 4px 6px; }
+.forgebench .fg-filter .sb-row strong { flex: 1; }
+
 .forgebench .fg-adjust { position: absolute; transform: translateX(-50%); z-index: 6; padding: 3px 10px; border-radius: 999px; font-size: 12px; pointer-events: none; white-space: nowrap;
   background: color-mix(in srgb, var(--surface) 88%, transparent); border: 1px solid var(--accent); }
 .forgebench .fg-adjustring { position: absolute; z-index: 5; border-radius: 50%; pointer-events: none; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1px rgba(0, 0, 0, 0.45); }

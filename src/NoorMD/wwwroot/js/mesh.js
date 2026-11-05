@@ -1827,7 +1827,7 @@ window.NoorMesh = (() => {
       { label: 'Duplicate', keys: 'Shift+D', run: duplicate, disabled: none }, { label: 'Rename', keys: 'F2', run: () => rename(), disabled: !active },
       { label: 'Apply rotation and scale', keys: 'Ctrl+A', run: () => applyTransform('rotscale'), disabled: none }, { label: 'Hide', keys: 'H', run: () => hide('selected'), disabled: none },
       { label: 'Shade smooth', run: () => shade(true), disabled: none }, { label: 'Shade flat', run: () => shade(false), disabled: none }, { label: 'Edit Mode', keys: 'Tab', run: () => toggleEdit(true), disabled: () => !active }, '-',
-      { label: 'Join', keys: 'Ctrl+J', run: join, disabled: sel().length < 2 }, { label: 'Origin to geometry', run: () => setOrigin('middle'), disabled: none }, { label: 'Origin to 3D cursor', run: () => setOrigin('cursor'), disabled: none }, { label: 'Geometry to origin', run: () => setOrigin('geometry'), disabled: none }, '-',
+      { label: 'Texture in NoorForge…', run: sendToForge, disabled: none }, { label: 'Join', keys: 'Ctrl+J', run: join, disabled: sel().length < 2 }, { label: 'Origin to geometry', run: () => setOrigin('middle'), disabled: none }, { label: 'Origin to 3D cursor', run: () => setOrigin('cursor'), disabled: none }, { label: 'Geometry to origin', run: () => setOrigin('geometry'), disabled: none }, '-',
       { label: 'Delete', keys: 'X', run: deleteSelected, disabled: none }, '-', { label: 'Add a mesh…', keys: 'Shift+A', run: () => addMenu(x, y) },
     ]);
   }
@@ -1933,6 +1933,18 @@ window.NoorMesh = (() => {
       const tris = added.reduce((n, o) => n + o.mesh.f.length, 0);
       setStatus(`Imported ${r.name}: ${added.length} object${added.length === 1 ? '' : 's'}, ${tris} faces (triangles from GLB; OBJ keeps its n-gons)`);
     } catch (err) { hooks.showError(err); } finally { keepFocus(); }
+  }
+  /** The selected objects (or every shown one) to NoorForge, to paint and texture them. */
+  function sendToForge() {
+    if (!window.NoorForge || !NoorForge.openMesh) { setStatus('NoorForge is not available here.'); return; }
+    cancelOp();
+    const doc = docOut(true);
+    const pick = sel().length ? new Set(sel().map((o) => o.id)) : null;
+    doc.objects = doc.objects.filter((o) => !o.hidden && (!pick || pick.has(o.id)));
+    if (!doc.objects.length || !doc.objects.some((o) => o.mesh.f.length)) { setStatus('Nothing to texture: select an object (or show one).'); return; }
+    const name = (doc.objects.length === 1 ? doc.objects[0].name : (file.name || 'scene').replace(/\.noormesh$/i, '')).replace(/[^\w .-]+/g, '_').slice(0, 60) || 'Mesh';
+    NoorForge.openMesh(doc, name);
+    setStatus(`${doc.objects.length} object${doc.objects.length === 1 ? '' : 's'} sent to NoorForge.`);
   }
   async function exportAs(format) {
     cancelOp();
@@ -2240,6 +2252,7 @@ window.NoorMesh = (() => {
           el('button', { class: 'icon-btn', id: 'nm-open', title: 'Open a scene (Ctrl+O)', 'aria-label': 'Open a scene', onclick: () => openScene() }, '📂'),
           el('button', { class: 'icon-btn', id: 'nm-save', title: 'Save the scene (Ctrl+S; Ctrl+Shift+S: as a new file)', 'aria-label': 'Save the scene', onclick: (e) => save(e.shiftKey) }, '💾'),
           el('button', { class: 'icon-btn', id: 'nm-import', title: 'Import a model (GLB or OBJ) into the scene', 'aria-label': 'Import a model', onclick: importModel }, '⤒'),
+          el('button', { class: 'icon-btn', id: 'nm-forge', title: 'Texture in NoorForge: the selected objects (or all shown), to paint and layer materials on', 'aria-label': 'Texture in NoorForge', onclick: sendToForge }, '🔥'),
           el('button', { class: 'icon-btn', id: 'nm-export', title: 'Export the scene (GLB or OBJ, +Y up)', 'aria-label': 'Export the scene', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); exportMenu(r.left, r.bottom + 4); } }, '⤓'),
           el('button', { class: 'icon-btn', title: 'Shortcuts (F1 in NoorMesh)', 'aria-label': 'NoorMesh shortcuts', onclick: shortcutsDialog }, '⌨'),
           NoorDock.fullButton('NoorMesh'),
@@ -2456,7 +2469,7 @@ window.NoorMesh = (() => {
       ['File', 'f', () => [
         go('New scene', newScene), go('Open…', () => openScene(), 'Ctrl+O'), go('Open recent…', () => recentMenu(innerWidth / 2, innerHeight / 4)), '-',
         go('Save', () => save(false), 'Ctrl+S'), go('Save as…', () => save(true), 'Ctrl+Shift+S'), '-',
-        go('Import GLB or OBJ…', importModel), go('Export GLB…', () => exportAs('glb')), go('Export OBJ…', () => exportAs('obj')), '-',
+        go('Import GLB or OBJ…', importModel), go('Export GLB…', () => exportAs('glb')), go('Export OBJ…', () => exportAs('obj')), go('Texture in NoorForge…', sendToForge), '-',
         { id: 'view.focus', label: 'Back to NoorMD (leave focus mode)' }, go('Close NoorMesh', close, 'Ctrl+Alt+N')]],
       ['Edit', 'e', () => [go('Undo', () => undo(false), 'Ctrl+Z', { disabled: () => !history.length }), go('Redo', () => undo(true), 'Ctrl+Shift+Z', { disabled: () => !future.length }), '-',
         go('Select all', () => selectAll('all'), 'A'), go('Select none', () => selectAll('none'), 'Alt+A'), go('Invert the selection', () => selectAll('invert'), 'Ctrl+I')]],

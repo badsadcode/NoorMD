@@ -263,6 +263,25 @@ public partial class MainWindow
                 var model = await Task.Run(() => ForgeLoad(full));
                 return ForgeModelInfo(full, model);
             }
+            case "forge.fromMesh":
+            {
+                // A NoorMesh scene (its shown objects, as the page sent them) as the model to texture: made into a GLB
+                // in the app's own folder (+Y up, its materials as texture sets), then opened as any model.
+                if (p.ValueKind != JsonValueKind.Object || !p.TryGetProperty("doc", out var d) || d.ValueKind != JsonValueKind.Object) throw new BridgeError("No scene.");
+                NoorMD.Media.Mesh.MeshDoc doc;
+                try { doc = NoorMD.Media.Mesh.MeshDoc.FromJson(d.GetRawText()); }
+                catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
+                if (!doc.Objects.Any(o => !o.Hidden && o.Mesh.F.Count > 0)) throw new BridgeError("Nothing to texture: every object is hidden or empty.");
+                var folder = Path.Combine(App.Paths.Local, "Forge", "Models");
+                Directory.CreateDirectory(folder);
+                var name = NoorMD.Core.Documents.DocumentFile.SafeFileName(req.GetString("name", 80) is { Length: > 0 } n ? n : "Mesh", "");
+                var full = Path.GetFullPath(Path.Combine(folder, name + ".glb"));
+                var glb = await Task.Run(() => doc.ToGlb());
+                await File.WriteAllBytesAsync(full, glb);
+                _forgeFiles.Add(full);
+                var model = await Task.Run(() => ForgeLoad(full));
+                return new { info = ForgeModelInfo(full, model) };
+            }
             case "forge.fromAsset":
             {
                 // NoorForm's tree or rock (a level of it, as built moments ago) as the model to texture; a lower

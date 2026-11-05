@@ -31,6 +31,8 @@ public sealed class ForgeMask
     public bool Ring { get; set; }
     /// <summary>"drips": how far they run down, in metres.</summary>
     public double Length { get; set; } = 0.3;
+    /// <summary>Filters on the mask, in order, after it is worked out (levels, blur, sharpen, posterize, threshold, invert).</summary>
+    public List<ForgeFilter> Filters { get; set; } = [];
 
     public ForgeMask Clamped()
     {
@@ -39,6 +41,7 @@ public sealed class ForgeMask
         Index = Math.Clamp(Index, 0, 4095);
         Layer = Layer is { Length: <= 40 } l && l.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? l : "";
         Spread = C(Spread, 0, 10); Length = C(Length, 0.005, 50);
+        Filters = (Filters ?? []).Where(f => f != null).Take(16).Select(f => f.Clamped()).ToList();
         return this;
     }
 
@@ -46,8 +49,39 @@ public sealed class ForgeMask
 }
 
 /// <summary>One layer: a material (NoorMaterial preset, or plain values), where it shows, and how strongly.</summary>
+/// <summary>
+/// A filter on a mask: "levels" (A low, B high, C gamma), "blur" (A: its radius, a share of the texture), "sharpen"
+/// (A amount, B radius), "posterize" (A steps), "threshold" (A where, B how soft), "invert", "contrast" (A amount, −1…1).
+/// </summary>
+public sealed class ForgeFilter
+{
+    public static readonly string[] Kinds = ["levels", "blur", "sharpen", "posterize", "threshold", "invert", "contrast"];
+    public string Kind { get; set; } = "levels";
+    public double A { get; set; }
+    public double B { get; set; } = 1;
+    public double C { get; set; } = 1;
+
+    public ForgeFilter Clamped()
+    {
+        Kind = Kinds.Contains(Kind) ? Kind : "levels";
+        (A, B, C) = Kind switch
+        {
+            "levels" => (ForgeMask.C(A, 0, 1), ForgeMask.C(B, 0, 1), ForgeMask.C(C, 0.1, 10)),
+            "blur" => (ForgeMask.C(A, 0, 0.1), 1, 1),
+            "sharpen" => (ForgeMask.C(A, 0, 5), ForgeMask.C(B, 0.001, 0.05), 1),
+            "posterize" => (ForgeMask.C(A, 2, 32), 1, 1),
+            "threshold" => (ForgeMask.C(A, 0, 1), ForgeMask.C(B, 0, 0.5), 1),
+            "contrast" => (ForgeMask.C(A, -1, 1), 1, 1),
+            _ => (0, 1, 1),
+        };
+        return this;
+    }
+}
+
 public sealed class ForgeLayer
 {
+    public static readonly string[] ColorBlends = ["normal", "multiply", "screen", "overlay", "softlight", "add", "subtract", "darken", "lighten", "difference"];
+    public static readonly string[] ValueBlends = ["normal", "add", "subtract", "multiply", "max", "min"];
     public const int MaxStrokes = 4000;
 
     /// <summary>Names the layer for others' masks to follow ("layer" and "drips" masks).</summary>
@@ -73,6 +107,24 @@ public sealed class ForgeLayer
     public bool UseHeight { get; set; } = true;
     public double NormalStrength { get; set; } = 1;
     public ForgeMask Mask { get; set; } = new();
+    /// <summary>A folder: it paints nothing itself; its mask, opacity and visibility apply to every layer inside it.</summary>
+    public bool IsFolder { get; set; }
+    /// <summary>The folder this layer is in (its id), or "".</summary>
+    public string Folder { get; set; } = "";
+    /// <summary>How each channel blends with what is below (as a painting program's per-channel blending), and how much.</summary>
+    public string ColorBlend { get; set; } = "normal";
+    public string RoughBlend { get; set; } = "normal";
+    public string MetalBlend { get; set; } = "normal";
+    public string HeightBlend { get; set; } = "normal";
+    public double ColorOpacity { get; set; } = 1;
+    public double RoughOpacity { get; set; } = 1;
+    public double MetalOpacity { get; set; } = 1;
+    public double HeightOpacity { get; set; } = 1;
+    /// <summary>The layer's colour adjusted before it blends: hue turned (degrees), saturation, brightness and contrast (−1…1).</summary>
+    public double Hue { get; set; }
+    public double Saturation { get; set; }
+    public double Brightness { get; set; }
+    public double Contrast { get; set; }
     /// <summary>Brush strokes into the mask, in order (painted on the model).</summary>
     public List<ForgeStroke> Strokes { get; set; } = [];
     /// <summary>
@@ -91,6 +143,11 @@ public sealed class ForgeLayer
         Roughness = ForgeMask.C(Roughness, 0, 1); Metallic = ForgeMask.C(Metallic, 0, 1); Height = ForgeMask.C(Height, 0, 1); NormalStrength = ForgeMask.C(NormalStrength, 0, 3);
         Material = Material is { Length: <= 200 } m && !m.Any(char.IsControl) ? m : "";
         Mask = (Mask ?? new()).Clamped();
+        Folder = Folder is { Length: <= 40 } fo && fo.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? fo : "";
+        ColorBlend = ColorBlends.Contains(ColorBlend) ? ColorBlend : "normal";
+        RoughBlend = ValueBlends.Contains(RoughBlend) ? RoughBlend : "normal"; MetalBlend = ValueBlends.Contains(MetalBlend) ? MetalBlend : "normal"; HeightBlend = ValueBlends.Contains(HeightBlend) ? HeightBlend : "normal";
+        ColorOpacity = ForgeMask.C(ColorOpacity, 0, 1); RoughOpacity = ForgeMask.C(RoughOpacity, 0, 1); MetalOpacity = ForgeMask.C(MetalOpacity, 0, 1); HeightOpacity = ForgeMask.C(HeightOpacity, 0, 1);
+        Hue = double.IsFinite(Hue) ? Math.Clamp(Hue, -180, 180) : 0; Saturation = ForgeMask.C(Saturation, -1, 1); Brightness = ForgeMask.C(Brightness, -1, 1); Contrast = ForgeMask.C(Contrast, -1, 1);
         Strokes = (Strokes ?? []).Where(st => st != null).Take(MaxStrokes).Select(st => st.Clamped()).ToList();
         Image = Image is { Length: > 1 and <= 40 } im && im.All(char.IsLetterOrDigit) ? im : null;
         ImageSize = Math.Clamp(ImageSize, 0, ForgeImageStore.MaxSize);
@@ -151,6 +208,8 @@ public sealed class ForgeRecipe
         HighDistance = ForgeMask.C(HighDistance, 0.001, 0.5);
         if (HighModel != null && (HighModel.Length > 1000 || HighModel.Any(char.IsControl) || HighModel.Length == 0)) HighModel = null;
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).Select(l => l.Clamped()).ToList();
+        var folderIds = Layers.Where(l => l.IsFolder && l.Id.Length > 0).Select(l => l.Id).ToHashSet();
+        foreach (var l in Layers) if (l.IsFolder || !folderIds.Contains(l.Folder)) l.Folder = "";
         // Every layer has an id of its own (letters, digits, '-' and '_').
         var ids = new HashSet<string>();
         for (var k = 0; k < Layers.Count; k++)

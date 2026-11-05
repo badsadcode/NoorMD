@@ -211,6 +211,21 @@ painted straight onto the model in any colour, for hand-painted albedo.
   add, lighten, darken, erase).
 - A 2D view of the picture beside the model (its UV layout), painted in either.
 
+### Done in preview.154 (from the ideas below)
+
+- **From NoorMesh:** 🔥 Texture in NoorForge (NoorMesh's header, File and Object menus) sends the selected objects
+  (or every shown one), with their materials and pictures, as a GLB the app keeps in its own folder; each material
+  becomes a texture set, and NoorForge unwraps whatever needs it.
+- **Folders:** ＋ Folder puts the chosen layer into a new folder; a layer can be put in or taken out (📁 In). A folder
+  paints nothing: its mask (any smart mask, with its filters), its opacity and its visibility apply to every layer
+  inside. Removing a folder keeps its layers.
+- **Each channel blends its own way:** colour (normal, multiply, screen, overlay, soft light, add, subtract, darken,
+  lighten, difference) and roughness, metal and height (normal, add, subtract, multiply, highest, lowest), each with
+  its own opacity (Blending, in the layer).
+- **Adjust its colour:** hue, saturation, brightness and contrast of what a layer paints, before it blends.
+- **Filters on a mask:** levels, blur, sharpen, posterize, threshold, invert and contrast, in order (↑ ↓ ✕); a blur
+  mixes texels on the model only, its radius a share of the texture, so every size looks the same.
+
 ## Ideas from TextureCraft (ideas only — nothing of its code is used)
 
 TextureCraft (MIT / Apache-2.0, a Substance-Painter-like painter) was looked at for what NoorForge lacks. Its README and

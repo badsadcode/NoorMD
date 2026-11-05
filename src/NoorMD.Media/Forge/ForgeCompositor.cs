@@ -54,9 +54,23 @@ public static class ForgeCompositor
         var span = bake.BoundsMax - bake.BoundsMin;
         // Each layer's mask as worked out, for the layers above that follow it.
         var masks = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        var folders = recipe.Layers.Where(l => l.IsFolder).ToDictionary(l => l.Id, StringComparer.Ordinal);
+        var folderMasks = new Dictionary<string, float[]>(StringComparer.Ordinal);
+        float[]? FolderMask(ForgeLayer f) { if (!folderMasks.TryGetValue(f.Id, out var fm)) folderMasks[f.Id] = fm = ForgePaint.LayerMask(bake, f, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id)); return fm; }
         foreach (var layer in recipe.Layers)
         {
+            // A folder paints nothing; the layers inside it use its mask, opacity and visibility.
+            if (layer.IsFolder) { masks[layer.Id] = FolderMask(layer)!; continue; }
             var mk = ForgePaint.LayerMask(bake, layer, setIndex, recipe.Picture, id => masks.GetValueOrDefault(id), out var painted);
+            var folder = layer.Folder.Length > 0 && folders.TryGetValue(layer.Folder, out var fl) ? fl : null;
+            if (folder != null)
+            {
+                if (!folder.Visible || folder.Opacity <= 0) { masks[layer.Id] = mk; continue; }
+                var fm = FolderMask(folder)!; var fo = (float)folder.Opacity;
+                var inside = new float[n];
+                for (var i = 0; i < n; i++) inside[i] = mk[i] * fm[i] * fo;
+                mk = inside;
+            }
             masks[layer.Id] = mk;
             // Strokes that paint their own maps (colour, roughness, metal, height: each its own coverage and value).
             var ch = ForgePaint.HasChannels(layer) ? ForgePaint.Channels(bake, layer, mk, recipe.Picture) : null;
@@ -71,14 +85,15 @@ public static class ForgeCompositor
             {
                 var o = (float)layer.Opacity;
                 var plain = layer.Image == null; // a painting's colour comes from its picture, below
+                float[]? fmask = folder != null ? FolderMask(folder) : null; var fop = folder != null ? (float)folder.Opacity : 1;
                 Parallel.For(0, n, i =>
                 {
                     if (bake.Covered[i] == 0) return;
-                    float a;
-                    if (plain && (a = ch.ColorCover[i] * o) > 0) color[i] = Vector3.Lerp(color[i], ch.Color[i], a);
-                    if ((a = ch.RoughCover[i] * o) > 0) rough[i] += (ch.Rough[i] - rough[i]) * a;
-                    if ((a = ch.MetalCover[i] * o) > 0) metal[i] += (ch.Metal[i] - metal[i]) * a;
-                    if ((a = ch.HeightCover[i] * o) > 0) height[i] += (ch.Height[i] - height[i]) * a;
+                    float a; var fo = fmask != null ? fmask[i] * fop : 1;
+                    if (plain && (a = ch.ColorCover[i] * o * fo * (float)layer.ColorOpacity) > 0) color[i] = Vector3.Lerp(color[i], ForgeFilters.BlendColor(layer.ColorBlend, color[i], AdjustOf(layer, ch.Color[i])), a);
+                    if ((a = ch.RoughCover[i] * o * fo * (float)layer.RoughOpacity) > 0) rough[i] += (ForgeFilters.BlendValue(layer.RoughBlend, rough[i], ch.Rough[i]) - rough[i]) * a;
+                    if ((a = ch.MetalCover[i] * o * fo * (float)layer.MetalOpacity) > 0) metal[i] += (ForgeFilters.BlendValue(layer.MetalBlend, metal[i], ch.Metal[i]) - metal[i]) * a;
+                    if ((a = ch.HeightCover[i] * o * fo * (float)layer.HeightOpacity) > 0) height[i] += (ForgeFilters.BlendValue(layer.HeightBlend, height[i], ch.Height[i], true) - height[i]) * a;
                 });
                 if (plain) continue;
             }
@@ -116,10 +131,10 @@ public static class ForgeCompositor
                     nw = Vector3.Normalize(ng + tn * (float)layer.NormalStrength);
                 }
                 else { c = fromImage ?? (painted != null ? painted[i] : tint); r = (float)layer.Roughness; mt = (float)layer.Metallic; h = (float)layer.Height; nw = ng; }
-                if (layer.UseColor) color[i] = Vector3.Lerp(color[i], c, m);
-                if (layer.UseRoughness) rough[i] += (r - rough[i]) * m;
-                if (layer.UseMetallic) metal[i] += (mt - metal[i]) * m;
-                if (layer.UseHeight) height[i] += (h - height[i]) * m;
+                if (layer.UseColor) color[i] = Vector3.Lerp(color[i], ForgeFilters.BlendColor(layer.ColorBlend, color[i], AdjustOf(layer, c)), m * (float)layer.ColorOpacity);
+                if (layer.UseRoughness) rough[i] += (ForgeFilters.BlendValue(layer.RoughBlend, rough[i], r) - rough[i]) * m * (float)layer.RoughOpacity;
+                if (layer.UseMetallic) metal[i] += (ForgeFilters.BlendValue(layer.MetalBlend, metal[i], mt) - metal[i]) * m * (float)layer.MetalOpacity;
+                if (layer.UseHeight) height[i] += (ForgeFilters.BlendValue(layer.HeightBlend, height[i], h, true) - height[i]) * m * (float)layer.HeightOpacity;
                 if (layer.UseNormal && maps != null) world[i] = Vector3.Normalize(Vector3.Lerp(world[i], nw, m));
             });
         }
@@ -141,6 +156,8 @@ public static class ForgeCompositor
         Bleed(bake.Covered, size, outColor, 3); Bleed(bake.Covered, size, outNormal, 3); Bleed(bake.Covered, size, outRough, 1); Bleed(bake.Covered, size, outMetal, 1); Bleed(bake.Covered, size, outAo, 1); Bleed(bake.Covered, size, outHeight, 1);
         return new ForgeTextures { Size = size, BaseColor = outColor, Normal = outNormal, Roughness = outRough, Metallic = outMetal, Ao = outAo, Height = outHeight };
     }
+
+    private static Vector3 AdjustOf(ForgeLayer l, Vector3 c) => l.Hue == 0 && l.Saturation == 0 && l.Brightness == 0 && l.Contrast == 0 ? c : ForgeFilters.Adjust(c, (float)l.Hue, (float)l.Saturation, (float)l.Brightness, (float)l.Contrast);
 
     /// <summary>
     /// The layers' height as bumps (as a painting program turns height into normal detail): its slope across the
