@@ -70,6 +70,28 @@ From Thornwake's notes (engine-agnostic: any game wants these):
 * Tests: the brightness is measured in linear light; the scale's limits; the UI (texel density, brightness, the set
   export and its flag); the self-test checks the manifest.
 
+## Ideas from MaterialCraft (ideas only — nothing of its code is used)
+
+MaterialCraft (MIT / Apache-2.0, a Substance-Designer-like node editor) was looked at for what NoorMaterial lacks. Its
+README only; ideas, never code. Ranked by what they would add here:
+
+1. **Flood fill for tiles and bricks:** each tile, brick or plank told apart, so each gets its own random colour,
+   brightness, turn, height or gradient — the single biggest step towards real brick, paving and plank floors.
+2. **Height blending of materials:** two or three materials mixed by their heights (stones poking through dirt, moss
+   grown in the gaps, sand settling in the low places), not by a flat mask.
+3. **Exposed inputs and presets:** a material saying which of its sliders matter (wear, moss, colour, scale) and
+   keeping named presets of them, so NoorForge (and NoorMesh) can show just those, and a material can be weathered or
+   recoloured without opening it.
+4. **Weathering as one step:** whole-material wear (edges worn, dirt in the cavities, rust or moss) applied to any
+   material, using its own height and curvature.
+5. **Templates to start from:** a gallery of starting materials (brick wall, stone tiles, wood planks, painted metal
+   plates, rusty metal, lava rock, marble, wicker, fabric, mossy ground), each a recipe to change.
+6. **A levels editor over a histogram** of its input, and an alpha / opacity map (cut-outs: leaves, fences, lace).
+7. **Tileable everywhere:** noises and patterns on whole-number lattices so every map tiles at every size (check
+   ours: the warps and erosion especially), and tileable 3D noises.
+8. **A node view** (already "later"): every layer a node with a live thumbnail, wires between them — only if the layer
+   stack stops being enough.
+
 ## Later (only if real use asks)
 
 - A node view of the material, animated noise, and imported meshes for the preview.

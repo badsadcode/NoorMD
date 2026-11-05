@@ -211,6 +211,34 @@ painted straight onto the model in any colour, for hand-painted albedo.
   add, lighten, darken, erase).
 - A 2D view of the picture beside the model (its UV layout), painted in either.
 
+## Ideas from TextureCraft (ideas only — nothing of its code is used)
+
+TextureCraft (MIT / Apache-2.0, a Substance-Painter-like painter) was looked at for what NoorForge lacks. Its README and
+feature list only; we take the ideas, never its code. Ranked by what they would add here:
+
+1. **Layer folders and per-channel blending:** folders (a mask on a folder masks everything in it), each layer
+   blending each channel its own way (normal, multiply, overlay, screen, height max / min, normal-map detail…) with its
+   own opacity per channel, and an instance layer (one stack shown in another texture set).
+2. **Filters on layers and masks:** an effect stack — levels over a histogram of what it reads, HSL, blur, sharpen,
+   high pass, warp, gradient map, posterize, threshold, edge detect, bevel — so a mask is "worn edges, blurred,
+   levelled" without a new generator for each case.
+3. **More fill projections:** planar, spherical, cylindrical and decal beside UV and tri-planar, with scale, turn and
+   offset; a picture per channel (its own normal, roughness or height map on a fill).
+4. **Painting tools:** quick mask (Y: a temporary mask protecting what is outside it), polygon fill (a triangle, a UV
+   island, the whole mesh), lasso fill, smudge and clone (already next), a particle brush (drips, splashes thrown at
+   the surface); brush jitter (size, angle, flow, position), lazy mouse, radial symmetry, Ctrl+drag for size and
+   hardness on the model, and a shelf of brush presets and alphas.
+5. **Mesh maps:** thickness and bent normals beside AO and curvature, an ID map from materials or parts, a cage for
+   high-poly bakes, and your own pictures used as mesh maps.
+6. **Export:** an output template editor (your own presets: which map goes into which channel of which file),
+   UV padding (dilation) set by the user, 16-bit maps.
+7. **Keeping work when the model changes:** strokes are kept on the surface (in metres), so reimporting a changed mesh
+   could keep them (NoorMesh → NoorForge round trips would want this).
+8. **A history panel** (any step clicked to go back to it), and saved cameras.
+9. **Live materials from NoorMaterial:** a NoorMaterial material on a fill layer keeping its main sliders editable in
+   NoorForge, re-made at the texture size with the model's baked maps (curvature, AO, thickness) feeding the inputs of
+   the same name — the material reacting to this model.
+
 ## Non-goals
 
 - A modeller or sculpting tool (Blender is for that), or animated textures.
