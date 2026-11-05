@@ -111,14 +111,24 @@ public partial class MainWindow
         catch (InvalidDataException ex) { throw new BridgeError(ex.Message); }
     }
 
-    private TextureMaps? ForgeMaterial(string id)
+    /// <summary>A material's maps by its key: a preset's id, then (after "?") its inputs' values, "dirt=0.5&amp;hue=20".</summary>
+    private TextureMaps? ForgeMaterial(string key)
     {
         lock (_forgeMaterials)
         {
-            if (_forgeMaterials.TryGetValue(id, out var hit)) return hit;
+            if (_forgeMaterials.TryGetValue(key, out var hit)) return hit;
+            var q = key.IndexOf('?');
+            var id = q < 0 ? key : key[..q];
             if (!TexturePresets.All.Any(p => p.Id == id)) return null;
+            var values = new Dictionary<string, double>(StringComparer.Ordinal);
+            if (q >= 0)
+                foreach (var pair in key[(q + 1)..].Split('&'))
+                {
+                    var eq = pair.IndexOf('=');
+                    if (eq > 0 && double.TryParse(pair[(eq + 1)..], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var v)) values[pair[..eq]] = v;
+                }
             if (_forgeMaterials.Count >= 24) _forgeMaterials.Remove(_forgeMaterials.Keys.First());
-            return _forgeMaterials[id] = TextureEngine.Render(TexturePresets.Make(id), ForgeMaterialSize);
+            return _forgeMaterials[key] = TextureEngine.Render(TextureInputs.Apply(TexturePresets.Make(id), values), ForgeMaterialSize);
         }
     }
 
@@ -198,7 +208,9 @@ public partial class MainWindow
                 return new
                 {
                     smart = await Task.Run(ForgeSmartList),
-                    materials = TexturePresets.All.Select(m => new { id = m.Id, name = m.Name, family = m.Family }),
+                    materials = TexturePresets.All.Select(m => { var r = TexturePresets.Make(m.Id); return new { id = m.Id, name = m.Name, family = m.Family,
+                        inputs = TextureInputs.All(r).Select(i => new { id = i.Id, label = i.Label, min = i.Min, max = i.Max, value = TextureInputs.Get(r, i.Target) ?? i.Min }),
+                        presets = r.InputPresets.Select(pr => new { name = pr.Name, values = pr.Values }) }; }),
                     masks = ForgeMask.Kinds, sizes = ForgeRecipe.Sizes,
                     exports = ForgeExport.Presets.Select(p => new { id = p.Id, name = p.Name, description = p.Description }),
                     tips = ForgeTips.All.Select(t => ForgeTips.Get(t.Id)!).Select(t => new { id = t.Id, name = t.Name, width = t.Width, height = t.Height, data = t.Data }),

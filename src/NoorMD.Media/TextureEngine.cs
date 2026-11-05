@@ -159,6 +159,99 @@ public sealed class TextureLayer
     public TextureLayer Clone() => (TextureLayer)MemberwiseClone();
 }
 
+/// <summary>An input a material exposes: one of its sliders (Target: "surface.dirt" or "layer.<id>.<property>"), labelled, within a range.</summary>
+public sealed class TextureInput
+{
+    public string Id { get; set; } = "input";
+    public string Label { get; set; } = "Input";
+    public string Target { get; set; } = "";
+    public double Min { get; set; }
+    public double Max { get; set; } = 1;
+    public TextureInput Clamped()
+    {
+        Id = new string((Id ?? "").Where(c => char.IsLetterOrDigit(c) || c is '-' or '_').Take(40).ToArray()) is { Length: > 0 } id ? id : "input";
+        Label = string.IsNullOrWhiteSpace(Label) ? Id : Label.Trim()[..Math.Min(Label.Trim().Length, 40)];
+        if (!double.IsFinite(Min)) Min = 0;
+        if (!double.IsFinite(Max) || Max <= Min) Max = Min + 1;
+        return this;
+    }
+}
+
+/// <summary>A named set of a material's input values.</summary>
+public sealed class TextureInputPreset
+{
+    public string Name { get; set; } = "Preset";
+    public Dictionary<string, double> Values { get; set; } = [];
+    public TextureInputPreset Clamped()
+    {
+        Name = string.IsNullOrWhiteSpace(Name) ? "Preset" : Name.Trim()[..Math.Min(Name.Trim().Length, 40)];
+        Values = (Values ?? []).Where(kv => kv.Key is { Length: > 0 and <= 40 } && double.IsFinite(kv.Value)).Take(16).ToDictionary(kv => kv.Key, kv => kv.Value);
+        return this;
+    }
+}
+
+/// <summary>
+/// A material's inputs: the standard ones every material has (dirt, colour variation, relief, shine, hue, brightness),
+/// then its own; values put into the recipe (each a number property of the surface or a layer, held in its range).
+/// </summary>
+public static class TextureInputs
+{
+    public static readonly IReadOnlyList<TextureInput> Standard =
+    [
+        new() { Id = "dirt", Label = "Dirt", Target = "surface.dirt", Min = 0, Max = 1 },
+        new() { Id = "colorVariation", Label = "Colour variation", Target = "surface.colorVariation", Min = 0, Max = 1 },
+        new() { Id = "relief", Label = "Relief", Target = "surface.normalStrength", Min = 0, Max = 20 },
+        new() { Id = "shine", Label = "Roughness (high parts)", Target = "surface.roughnessHigh", Min = 0, Max = 1 },
+        new() { Id = "hue", Label = "Hue (°)", Target = "surface.albedoHue", Min = -180, Max = 180 },
+        new() { Id = "brightness", Label = "Brightness", Target = "surface.albedoBrightness", Min = -1, Max = 1 },
+    ];
+
+    /// <summary>Every input of a recipe: the standard ones, then its own (its own win on the same id).</summary>
+    public static List<TextureInput> All(TextureRecipe r) => [.. Standard.Where(s => r.Inputs.All(o => o.Id != s.Id)), .. r.Inputs];
+
+    private static System.Reflection.PropertyInfo? Prop(Type t, string name) =>
+        t.GetProperties().FirstOrDefault(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase) && (p.PropertyType == typeof(double) || p.PropertyType == typeof(int)) && p.CanWrite);
+
+    public static bool Valid(string? target)
+    {
+        if (string.IsNullOrEmpty(target) || target.Length > 120) return false;
+        var parts = target.Split('.');
+        return parts switch
+        {
+            ["surface", var p] => Prop(typeof(TextureSurface), p) != null,
+            ["layer", { Length: > 0 }, var p] => Prop(typeof(TextureLayer), p) != null,
+            _ => false,
+        };
+    }
+
+    /// <summary>The value an input's target has now (null when its layer isn't there).</summary>
+    public static double? Get(TextureRecipe r, string target)
+    {
+        var parts = target.Split('.');
+        object? obj = parts[0] == "surface" ? r.Surface : parts.Length == 3 ? r.Layers.FirstOrDefault(l => l.Id == parts[1]) : null;
+        var prop = obj == null ? null : Prop(obj.GetType(), parts[^1]);
+        return prop == null ? null : Convert.ToDouble(prop.GetValue(obj));
+    }
+
+    /// <summary>Values (by input id) put into a copy of the recipe, each held within its input's range.</summary>
+    public static TextureRecipe Apply(TextureRecipe recipe, IReadOnlyDictionary<string, double>? values)
+    {
+        var r = recipe.Clone();
+        if (values == null || values.Count == 0) return r;
+        foreach (var input in All(r))
+        {
+            if (!values.TryGetValue(input.Id, out var v) || !double.IsFinite(v)) continue;
+            v = Math.Clamp(v, input.Min, input.Max);
+            var parts = input.Target.Split('.');
+            object? obj = parts[0] == "surface" ? r.Surface : parts.Length == 3 ? r.Layers.FirstOrDefault(l => l.Id == parts[1]) : null;
+            var prop = obj == null ? null : Prop(obj.GetType(), parts[^1]);
+            if (prop == null) continue;
+            prop.SetValue(obj, prop.PropertyType == typeof(int) ? (object)(int)Math.Round(v) : v);
+        }
+        return r.Clamped();
+    }
+}
+
 public sealed class RampStop
 {
     public double Pos { get; set; }
@@ -263,6 +356,10 @@ public sealed class TextureRecipe
     public double TileMetres { get; set; } = 2;
     /// <summary>What the height map's full range (black to white) stands for, in centimetres.</summary>
     public double HeightCm { get; set; } = 4;
+    /// <summary>The sliders this material says matter (wear, moss, colour…): shown on their own here, and in NoorForge.</summary>
+    public List<TextureInput> Inputs { get; set; } = [];
+    /// <summary>Named sets of those inputs' values (e.g. "Dry", "Wet", "Overgrown").</summary>
+    public List<TextureInputPreset> InputPresets { get; set; } = [];
 
     private static readonly JsonSerializerOptions Options = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, WriteIndented = true, DefaultIgnoreCondition = JsonIgnoreCondition.Never };
     public string ToJson() => JsonSerializer.Serialize(this, Options);
@@ -280,6 +377,8 @@ public sealed class TextureRecipe
         TileMetres = double.IsFinite(TileMetres) && TileMetres > 0 ? Math.Clamp(TileMetres, 0.05, 100) : 2;
         HeightCm = double.IsFinite(HeightCm) && HeightCm > 0 ? Math.Clamp(HeightCm, 0.1, 500) : 4;
         Layers = (Layers ?? []).Where(l => l != null).Take(MaxLayers).ToList();
+        Inputs = (Inputs ?? []).Where(x => x != null && TextureInputs.Valid(x.Target)).Take(16).Select(x => x.Clamped()).GroupBy(x => x.Id).Select(g => g.First()).ToList();
+        InputPresets = (InputPresets ?? []).Where(x => x != null).Take(16).Select(x => x.Clamped()).ToList();
         foreach (var l in Layers)
         {
             l.Type = TextureLayer.Types.Contains(l.Type) ? l.Type : "noise";

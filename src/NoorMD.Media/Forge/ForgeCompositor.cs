@@ -97,7 +97,7 @@ public static class ForgeCompositor
                 });
                 if (plain) continue;
             }
-            var maps = layer.Material.Length > 0 ? materials(layer.Material) : null;
+            var maps = layer.Material.Length > 0 ? materials(layer.MaterialKey) : null;
             var tint = Hex(layer.Color);
             // A tint over a material: mid grey leaves it as it is, a colour shifts it that way (darker, or brighter).
             var tinting = maps != null && layer.Color != "#808080";

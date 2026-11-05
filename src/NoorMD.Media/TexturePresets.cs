@@ -149,6 +149,18 @@ public static class TexturePresets
         var p = All.FirstOrDefault(x => x.Id == id) ?? throw new ArgumentException("Unknown preset.");
         var r = p.Make();
         r.Name = p.Name;
+        r.Clamped();
+        // The sliders a few materials say matter most (beside every material's standard ones), and named sets of them.
+        if (OwnInputs.TryGetValue(id, out var own)) { r.Inputs = [.. own.Inputs.Select(i => new TextureInput { Id = i.Id, Label = i.Label, Target = i.Target, Min = i.Min, Max = i.Max })]; r.InputPresets = [.. own.Presets.Select(x => new TextureInputPreset { Name = x.Name, Values = new(x.Values) })]; }
         return r.Clamped();
     }
+
+    private static TextureInput In(string id, string label, string target, double min, double max) => new() { Id = id, Label = label, Target = target, Min = min, Max = max };
+    private static TextureInputPreset Set(string name, params (string Id, double Value)[] values) => new() { Name = name, Values = values.ToDictionary(v => v.Id, v => v.Value) };
+    private static readonly Dictionary<string, (TextureInput[] Inputs, TextureInputPreset[] Presets)> OwnInputs = new()
+    {
+        ["stone-mossy"] = ([In("moss", "Moss", "layer.T3.tintAmount", 0, 1)], [Set("Dry", ("moss", 0.2), ("dirt", 0.4)), Set("Overgrown", ("moss", 1), ("dirt", 0.6))]),
+        ["ground-stony"] = ([In("stones", "Stones poke through", "layer.T2.heightBias", -0.8, 0.4)], [Set("A few stones", ("stones", -0.5)), Set("Mostly stones", ("stones", 0))]),
+        ["stone-pavers"] = ([In("differ", "Slabs differ", "layer.T1.pieceColor", 0, 1), In("uneven", "Uneven", "layer.T1.tilt", 0, 1)], [Set("New", ("differ", 0.1), ("uneven", 0.05), ("dirt", 0.2)), Set("Old", ("differ", 0.6), ("uneven", 0.6), ("dirt", 0.8))]),
+    };
 }

@@ -125,6 +125,10 @@ public sealed class ForgeLayer
     public double Saturation { get; set; }
     public double Brightness { get; set; }
     public double Contrast { get; set; }
+    /// <summary>The material's input values (its exposed sliders: dirt, wear, moss…), by input id; the material is made with them.</summary>
+    public Dictionary<string, double>? Inputs { get; set; }
+    /// <summary>The key a material layer's maps are made by: its material, and its inputs' values (sorted, so the same values give the same key).</summary>
+    public string MaterialKey => Inputs is { Count: > 0 } ? Material + "?" + string.Join("&", Inputs.OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value.ToString("R", System.Globalization.CultureInfo.InvariantCulture)}")) : Material;
     /// <summary>Brush strokes into the mask, in order (painted on the model).</summary>
     public List<ForgeStroke> Strokes { get; set; } = [];
     /// <summary>
@@ -143,6 +147,8 @@ public sealed class ForgeLayer
         Roughness = ForgeMask.C(Roughness, 0, 1); Metallic = ForgeMask.C(Metallic, 0, 1); Height = ForgeMask.C(Height, 0, 1); NormalStrength = ForgeMask.C(NormalStrength, 0, 3);
         Material = Material is { Length: <= 200 } m && !m.Any(char.IsControl) ? m : "";
         Mask = (Mask ?? new()).Clamped();
+        Inputs = Inputs?.Where(kv => kv.Key is { Length: > 0 and <= 40 } && kv.Key.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') && double.IsFinite(kv.Value)).Take(16).ToDictionary(kv => kv.Key, kv => kv.Value);
+        if (Inputs is { Count: 0 }) Inputs = null;
         Folder = Folder is { Length: <= 40 } fo && fo.All(c => char.IsLetterOrDigit(c) || c is '-' or '_') ? fo : "";
         ColorBlend = ColorBlends.Contains(ColorBlend) ? ColorBlend : "normal";
         RoughBlend = ValueBlends.Contains(RoughBlend) ? RoughBlend : "normal"; MetalBlend = ValueBlends.Contains(MetalBlend) ? MetalBlend : "normal"; HeightBlend = ValueBlends.Contains(HeightBlend) ? HeightBlend : "normal";
