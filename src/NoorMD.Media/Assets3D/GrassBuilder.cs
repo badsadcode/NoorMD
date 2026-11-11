@@ -155,7 +155,7 @@ public static class GrassBuilder
             var half = cell != null ? b.Width * widen * 0.5f : b.Width * widen * 0.5f * MathF.Pow(1 - s, 0.6f) * (k == 0 ? 0.8f : 1);
             var face = Vector3.Normalize(Vector3.Cross(across, heading));
             var n = Vector3.Normalize(face * 0.35f + Vector3.UnitY * 0.65f);
-            var col = new Vector4(0, MathF.Pow(s, 1.5f) * b.Height / MathF.Max(0.2f, (float)r.Height), 0.25f * s, b.Phase);
+            var col = new Vector4(0, MathF.Min(1, MathF.Pow(s, 1.5f) * b.Height / MathF.Max(0.2f, (float)r.Height)), 0.25f * s, b.Phase);   // wind data stays within 0–1
             var v = 1 - s;
             if (cell is { } c4)
             {
@@ -268,7 +268,7 @@ public static class GrassBuilder
             var top = m.Positions[^1];
             var below = m.Positions[^2];
             var axis = Vector3.Normalize(top - (below + m.Positions[^3]) * 0.5f);
-            var wind = new Vector4(0, h / MathF.Max(0.2f, (float)r.Height), 0.35f, phase);
+            var wind = new Vector4(0, MathF.Min(1, h / MathF.Max(0.2f, (float)r.Height)), 0.35f, phase);
             var size = (float)r.HeadSize * (0.8f + 0.4f * (float)rng.NextDouble());
             switch (r.Heads)
             {
