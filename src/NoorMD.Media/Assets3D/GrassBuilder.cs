@@ -42,14 +42,16 @@ public static class GrassBuilder
         else if (cards)
         {
             grass.Alpha = "mask"; grass.AlphaCutoff = 0.5f;
-            var px = CardPixels(recipe, tex > 0 ? Math.Min(1024, tex) : 128);
+            var size = tex > 0 ? Math.Min(1024, tex) : 128;
+            var px = recipe.CardArt switch { "bush" => BushPixels(recipe, size), "fronds" => FrondPixels(recipe, size), _ => CardPixels(recipe, size) };
             if (tex > 0) { Use(grass, px); (grass.NormalPng, grass.OcclusionRoughnessMetallicPng) = LeafAtlas.Maps(px); grass.Roughness = 1; }
             else grass.BaseColor = Linear(recipe.LeafColor);
         }
         else if (tex > 0) Use(grass, BladePixels(recipe));
         else grass.BaseColor = Linear(recipe.LeafColor);
         if (glow > 0) grass.Emissive = Lin3(recipe.LeafColor2) * glow * 0.5f;
-        var heads = recipe.Heads != "none" && recipe.HeadCount > 0;
+        // Cards are about few triangles: their heads (seeds, flowers…) are painted on the picture, not modelled.
+        var heads = recipe.Heads != "none" && recipe.HeadCount > 0 && !cards;
         var headMat = new Material3D { Name = "Heads", BaseColor = Linear(recipe.HeadColor), Roughness = recipe.Heads == "flowers" ? 0.55f : 0.85f, DoubleSided = true, Emissive = Lin3(recipe.HeadColor) * glow * 0.7f };
         var centreMat = new Material3D { Name = "Head centres", DoubleSided = true, BaseColor = Linear(recipe.HeadColor2), Roughness = 0.7f, Emissive = Lin3(recipe.HeadColor2) * glow * 0.5f };
         var flowers = heads && recipe.Heads == "flowers";
@@ -69,7 +71,7 @@ public static class GrassBuilder
             var rng = new Random(recipe.Seed * 9973 + 17);   // the same tuft on every level: the same blades, fewer kept
             var made = cards ? AddCards(m, recipe, lod, rng) : AddBlades(m, recipe, lod, rng, Budget(recipe, lod), stylized);
             if (heads) AddHeads(m, recipe, lod, new Random(recipe.Seed * 31 + 5), headIndex, centreIndex, stylized);
-            if (lod == 0) build.Notes.Add(cards ? $"{made} grass cards." : $"{made} blades{(heads ? $", {recipe.HeadCount} {recipe.Heads}" : "")}.");
+            if (lod == 0) build.Notes.Add(cards ? $"{made} crossed cards ({m.TriangleCount} triangles{(recipe.Heads != "none" && recipe.HeadCount > 0 ? $", the {recipe.Heads} painted on" : "")})." : $"{made} blades{(heads ? $", {recipe.HeadCount} {recipe.Heads}" : "")}.");
             WindToUv(m, recipe);
             Shade(m, recipe);
             if (grass.NormalPng != null && m.VertexCount > 0) m.ComputeTangents();
@@ -185,61 +187,149 @@ public static class GrassBuilder
 
     // ---- Cards ----
 
+    /// <summary>One card to place: where its base is, its width direction, which way is up along it, its size, its picture cell.</summary>
+    private sealed record Plane(Vector3 Base, Vector3 Across, Vector3 Up, float Width, float Height, int Cell, float Phase);
+
     private static int AddCards(Mesh3D m, TreeRecipe r, int lod, Random rng)
     {
-        // A card shows about a dozen blades; at least three crossed cards, so it looks full from every side.
-        var count = Math.Max(3, (int)Math.Round(r.Blades / 12.0));
-        var share = lod == 0 ? 1f : lod == 1 ? 0.6f : 0.4f;
-        var kept = Math.Max(lod == 0 ? 3 : 2, (int)Math.Round(count * share));
-        var widen = MathF.Sqrt(count / (float)kept);
-        var rows = lod == 0 ? 3 : lod == 1 ? 2 : 1;
-        var sub = m.Sub(0);
-        for (var i = 0; i < count; i++)
+        var planes = Planes(r, rng);
+        // Farther levels: fewer bends, then the outer planes go (the core stays), each kept one a little wider.
+        var rows = r.CardLayout == "random" ? (lod == 0 ? 3 : lod == 1 ? 2 : 1) : (lod == 0 ? 2 : 1);
+        var keep = r.CardLayout == "random"
+            ? Math.Max(lod == 0 ? 3 : 2, (int)Math.Round(planes.Count * (lod == 0 ? 1 : lod == 1 ? 0.6 : 0.4)))
+            : lod <= 1 ? planes.Count : Math.Max(2, (int)Math.Ceiling(planes.Count * 0.5));
+        var widen = MathF.Sqrt(planes.Count / (float)keep);
+        var bush = r.CardArt == "bush";
+        var middle = new Vector3(0, (float)r.Height * 0.45f, 0);
+        foreach (var p in planes.Take(keep))
+            AddPlane(m, p, rows, widen, r, bush ? middle : null);
+        return keep;
+    }
+
+    /// <summary>The planes of a layout, the core ones first (what farther levels keep).</summary>
+    private static List<Plane> Planes(TreeRecipe r, Random rng)
+    {
+        var h = (float)r.Height;
+        var bush = r.CardArt == "bush";
+        var w = r.CardWidth > 0 ? (float)r.CardWidth : bush ? h * 1.15f : MathF.Max((float)r.Spread * 2.2f, h * 0.8f);
+        var splay = (float)(r.Splay * Math.PI / 180);
+        var turn = (float)(rng.NextDouble() * Math.PI);
+        var list = new List<Plane>();
+        Vector3 Dir(float a) => new(MathF.Cos(a), 0, MathF.Sin(a));
+        Vector3 Lean(Vector3 outward, float tilt) => Vector3.Normalize(Vector3.UnitY * MathF.Cos(tilt) + outward * MathF.Sin(tilt));
+        void Upright(int n, float height, float width, float offset = 0)
         {
-            var a = (float)(i * Math.PI / count + rng.NextDouble() * 0.4);
-            var off = (float)(rng.NextDouble() * r.Spread * 0.6);
-            var oa = (float)(rng.NextDouble() * Math.PI * 2);
-            var h = (float)(r.Height * (1 - r.HeightSpread * 0.5 * rng.NextDouble()));
-            var w = (float)(Math.Max(r.Spread * 2.2, r.Height * 0.8) * (0.8 + 0.4 * rng.NextDouble()));
-            var cell = LeafAtlas.Cell(rng.Next(4));
-            var phase = (float)rng.NextDouble();
-            var tilt = (float)(r.Splay * Math.PI / 180 * 0.3 * (rng.NextDouble() - 0.5));
-            if (i >= kept) continue;
-            var across = new Vector3(MathF.Cos(a), 0, MathF.Sin(a));
-            var facing = new Vector3(-across.Z, 0, across.X);
-            var basePos = new Vector3(MathF.Cos(oa) * off, 0, MathF.Sin(oa) * off);
-            var up = Vector3.Normalize(Vector3.UnitY + facing * MathF.Sin(tilt) + Vector3.UnitX * (float)r.Windswept * 0.4f);
-            var half = w * widen * 0.5f;
-            var first = -1;
-            for (var k = 0; k <= rows; k++)
+            for (var i = 0; i < n; i++)
             {
-                var s = k / (float)rows;
-                // Bent back a little towards the top, as the blades on it are.
-                var bend = (float)r.Droop * 0.25f * s * s * h;
-                var centre = basePos + up * (h * s) + facing * bend;
-                var n = Vector3.Normalize(facing * 0.3f + Vector3.UnitY * 0.7f);
-                var col = new Vector4(0, MathF.Pow(s, 1.5f), 0.2f * s, phase);
-                var v = cell.W + (cell.Y - cell.W) * s;
-                var l = m.AddVertex(centre - across * half, n, new Vector2(cell.X, v), col);
-                var rr = m.AddVertex(centre + across * half, n, new Vector2(cell.Z, v), col);
-                if (k == 0) { first = l; continue; }
-                sub.Indices.AddRange([l - 2, l - 1, rr, l - 2, rr, l]);
-            }
-            // The back: its own vertices, normals mirrored (no double-sided material: the back isn't dark).
-            var count0 = m.VertexCount;
-            for (var k = first; k < count0; k++)
-            {
-                var n = m.Normals[k];
-                m.AddVertex(m.Positions[k], new Vector3(-n.X, n.Y, -n.Z), m.UV0[k], m.Colors[k]);
-            }
-            var shift = count0 - first;
-            for (var k = 1; k <= rows; k++)
-            {
-                var l = first + shift + k * 2;
-                sub.Indices.AddRange([l - 2, l, l - 1, l - 1, l, l + 1]);
+                var a = turn + i * MathF.PI / n + (float)(rng.NextDouble() - 0.5) * 0.15f;
+                var tilt = (float)(rng.NextDouble() - 0.5) * 0.12f;
+                list.Add(new Plane(Dir(a + MathF.PI / 2) * offset, Dir(a), Lean(Dir(a + MathF.PI / 2), tilt), width, height * (1 - (float)r.HeightSpread * 0.3f * (float)rng.NextDouble()), rng.Next(4), (float)rng.NextDouble()));
             }
         }
-        return kept;
+        // Planes round the middle, each across its tangent, leaning out by the tilt.
+        void Around(int n, float radius, float tilt, float height, float width)
+        {
+            for (var i = 0; i < n; i++)
+            {
+                var a = turn + i * MathF.Tau / n + (float)(rng.NextDouble() - 0.5) * 0.4f;
+                var outward = Dir(a);
+                list.Add(new Plane(outward * radius, Dir(a + MathF.PI / 2), Lean(outward, tilt * (0.8f + 0.4f * (float)rng.NextDouble())), width, height * (0.85f + 0.3f * (float)rng.NextDouble()), rng.Next(4), (float)rng.NextDouble()));
+            }
+        }
+        switch (r.CardLayout)
+        {
+            case "cross": Upright(r.Cards > 0 ? r.Cards : 2, h, w); break;
+            case "star": Upright(r.Cards > 0 ? r.Cards : 3, h, w); break;
+            case "hash":
+            {
+                // Two planes each way, side by side: a # from above, a patch of ground covered.
+                var d = w * 0.22f;
+                var n = Math.Max(1, (r.Cards > 0 ? r.Cards : 4) / 2);
+                for (var axis = 0; axis < 2; axis++)
+                    for (var i = 0; i < n; i++)
+                    {
+                        var along = Dir(turn + axis * MathF.PI / 2);
+                        var side = Dir(turn + axis * MathF.PI / 2 + MathF.PI / 2);
+                        var off = n == 1 ? 0 : (i / (float)(n - 1) - 0.5f) * 2 * d;
+                        list.Add(new Plane(side * off, along, Lean(side, (float)(rng.NextDouble() - 0.5) * 0.15f), w, h * (1 - (float)r.HeightSpread * 0.3f * (float)rng.NextDouble()), rng.Next(4), (float)rng.NextDouble()));
+                    }
+                break;
+            }
+            case "fan": Around(r.Cards > 0 ? r.Cards : 6, (float)r.Spread * 0.4f, MathF.Max(0.25f, splay), h, w * 0.6f); break;
+            case "dome":
+                // A crossed core, then planes leaning out all round: from any side a full, rounded bush.
+                Upright(2, h, w * 0.9f);
+                Around(r.Cards > 0 ? Math.Max(0, r.Cards - 2) : 6, w * 0.22f, MathF.Max(0.35f, splay), h * 0.8f, w * 0.7f);
+                break;
+            case "ring":
+                Upright(3, h, w * 0.8f);
+                Around(r.Cards > 0 ? Math.Max(0, r.Cards - 3) : 5, w * 0.3f, MathF.Max(0.45f, splay * 1.2f), h * 0.6f, w * 0.55f);
+                break;
+            default:
+            {
+                // At random (the first cards): about a dozen blades on each, at least three crossed.
+                var count = r.Cards > 0 ? r.Cards : Math.Max(3, (int)Math.Round(r.Blades / 12.0));
+                for (var i = 0; i < count; i++)
+                {
+                    var a = (float)(i * Math.PI / count + rng.NextDouble() * 0.4);
+                    var off = (float)(rng.NextDouble() * r.Spread * 0.6);
+                    var oa = (float)(rng.NextDouble() * Math.PI * 2);
+                    var hh = (float)(r.Height * (1 - r.HeightSpread * 0.5 * rng.NextDouble()));
+                    var ww = r.CardWidth > 0 ? (float)r.CardWidth : (float)(Math.Max(r.Spread * 2.2, r.Height * 0.8) * (0.8 + 0.4 * rng.NextDouble()));
+                    var cell = rng.Next(4);
+                    var phase = (float)rng.NextDouble();
+                    var tilt = (float)(r.Splay * Math.PI / 180 * 0.3 * (rng.NextDouble() - 0.5));
+                    list.Add(new Plane(Dir(oa) * off, Dir(a), Lean(Dir(a + MathF.PI / 2), tilt), ww, hh, cell, phase));
+                }
+                break;
+            }
+        }
+        return list;
+    }
+
+    /// <summary>
+    /// A card: rows of quads up its height (bending back towards the top for the wind), front and back with their own
+    /// normals (no double-sided material: the back isn't dark). Grass normals lean up (lit like the ground); a bush's
+    /// point out from its middle (lit like a rounded mass, not like flat cards).
+    /// </summary>
+    private static void AddPlane(Mesh3D m, Plane p, int rows, float widen, TreeRecipe r, Vector3? middle)
+    {
+        var sub = m.Sub(0);
+        var cell = LeafAtlas.Cell(p.Cell);
+        cell = new Vector4(cell.X + 0.004f, cell.Y + 0.004f, cell.Z - 0.004f, cell.W - 0.004f);
+        var facing = Vector3.Normalize(Vector3.Cross(p.Across, p.Up));
+        var up = Vector3.Normalize(p.Up + Vector3.UnitX * (float)r.Windswept * 0.4f);
+        var half = p.Width * widen * 0.5f;
+        var first = m.VertexCount;
+        for (var k = 0; k <= rows; k++)
+        {
+            var s = k / (float)rows;
+            var bend = (float)r.Droop * 0.25f * s * s * p.Height;
+            var centre = p.Base + up * (p.Height * s) + facing * bend;
+            var col = new Vector4(0, MathF.Pow(s, 1.5f), 0.2f * s, p.Phase);
+            var v = cell.W + (cell.Y - cell.W) * s;
+            foreach (var (x, u) in new[] { (-1f, cell.X), (1f, cell.Z) })
+            {
+                var pos = centre + p.Across * half * x;
+                var n = middle is { } c ? Vector3.Normalize(Vector3.Normalize(pos - c) * 0.7f + facing * 0.3f + Vector3.UnitY * 0.2f) : Vector3.Normalize(facing * 0.3f + Vector3.UnitY * 0.7f);
+                m.AddVertex(pos, n, new Vector2(u, v), col);
+            }
+            if (k > 0) { var l = first + k * 2; sub.Indices.AddRange([l - 2, l - 1, l + 1, l - 2, l + 1, l]); }
+        }
+        var count0 = m.VertexCount;
+        for (var k = first; k < count0; k++)
+        {
+            var n = m.Normals[k];
+            // The back: mirrored through the card's plane.
+            var back = n - 2 * Vector3.Dot(n, facing) * facing;
+            m.AddVertex(m.Positions[k], middle != null ? n : Vector3.Normalize(back), m.UV0[k], m.Colors[k]);
+        }
+        var shift = count0 - first;
+        for (var k = 1; k <= rows; k++)
+        {
+            var l = first + shift + k * 2;
+            sub.Indices.AddRange([l - 2, l, l - 1, l - 1, l, l + 1]);
+        }
     }
 
     // ---- Heads ----
@@ -465,6 +555,70 @@ public static class GrassBuilder
                     }
                 }
             }
+        }
+        var bytes = new byte[size * size * 4];
+        for (var i = 0; i < px.Length; i++) bytes[i] = B(px[i]);
+        return new RawImage(size, size, bytes);
+    }
+
+    /// <summary>
+    /// A bush card's picture: a 2 × 2 atlas, each cell a rounded, leafy clump standing on the bottom middle — hundreds of
+    /// small leaves, darker deep inside and at the bottom, lighter towards the top and the edge, a broken outline (no
+    /// clean circle), flowers or berries painted on when the recipe has them. Transparent pixels keep the leaf colour.
+    /// </summary>
+    internal static RawImage BushPixels(TreeRecipe r, int size)
+    {
+        var px = new float[size * size * 4];
+        var c1 = LeafAtlas.Hex(r.LeafColor);
+        var c2 = Vector3.Lerp(LeafAtlas.Hex(r.LeafColor2), LeafAtlas.Hex(Straw), (float)r.DryTips);
+        var stylized = r.Style == "stylized";
+        for (var i = 0; i < size * size; i++) { px[i * 4] = c1.X; px[i * 4 + 1] = c1.Y; px[i * 4 + 2] = c1.Z; }
+        var half = size / 2;
+        var flowers = r.Heads != "none" && r.HeadCount > 0;
+        var fc = LeafAtlas.Hex(r.HeadColor); var fc2 = LeafAtlas.Hex(r.HeadColor2);
+        for (var cell = 0; cell < 4; cell++)
+        {
+            var rng = new Random(r.Seed * 97 + cell);
+            int ox = (cell & 1) * half, oy = (cell >> 1) * half;
+            // The clump's outline: a dome on the bottom middle, its edge pushed in and out by a few lobes.
+            var lobes = Enumerable.Range(0, 7).Select(_ => (A: (float)(rng.NextDouble() * Math.Tau), S: 0.06f + 0.08f * (float)rng.NextDouble())).ToArray();
+            float Edge(float ang) => 0.38f + lobes.Sum(l => l.S * MathF.Max(0, MathF.Cos(ang - l.A)) * 0.6f);   // stays inside the cell (no flat top)
+            bool Inside(float x, float y, out float depth)
+            {
+                var dx = x - 0.5f; var dy = (y - 0.47f) * 1.08f;
+                var d = MathF.Sqrt(dx * dx + dy * dy);
+                var e = Edge(MathF.Atan2(dy, dx));
+                depth = 1 - d / e;
+                return d < e && y > 0.02f;
+            }
+            // A few stems at the bottom, then the leaves back to front (back ones darker).
+            for (var st = 0; st < 5; st++)
+            {
+                var a = (st - 2) * 0.35f;
+                for (var k = 0; k < 30; k++) { var t = k / 30f; Disc(px, size, ox, oy, half, 0.5f + MathF.Sin(a) * t * 0.25f, 0.02f + t * 0.25f, 0.008f, new Vector3(0.3f, 0.24f, 0.16f)); }
+            }
+            var leaves = stylized ? 220 : 520;
+            for (var layer = 0; layer < 3; layer++)
+                for (var k = 0; k < leaves / 3; k++)
+                {
+                    var x = (float)rng.NextDouble(); var y = (float)rng.NextDouble();
+                    if (!Inside(x, y, out var depth)) { k--; continue; }
+                    var height = y;
+                    var light = (0.55f + (stylized ? 0.18f : 0.25f) * layer) * (0.75f + (stylized ? 0.3f : 0.45f) * height) * (0.8f + 0.35f * (1 - depth)) * (0.85f + 0.3f * (float)rng.NextDouble());
+                    var col = Vector3.Lerp(c1, c2, Math.Clamp(height * 0.9f + (layer - 1) * 0.15f + (float)(rng.NextDouble() - 0.5) * 0.3f, 0, 1)) * light;
+                    var rad = stylized ? 0.026f + 0.016f * (float)rng.NextDouble() : 0.016f + 0.012f * (float)rng.NextDouble();
+                    if (stylized) Disc(px, size, ox, oy, half, x, y - 0.006f, rad + 0.006f, col * 0.55f);   // a painted dark edge under each
+                    Disc(px, size, ox, oy, half, x, y, rad, col);
+                }
+            if (flowers)
+                for (var k = 0; k < r.HeadCount * 3; k++)
+                {
+                    var x = (float)rng.NextDouble(); var y = (float)rng.NextDouble();
+                    if (!Inside(x, y, out var depth) || depth < 0.05f) { if (k < 600) k--; continue; }
+                    var fr = MathF.Max(0.012f, (float)(r.HeadSize / Math.Max(0.2, r.Height)) * 0.5f);
+                    Disc(px, size, ox, oy, half, x, y, fr, fc * (0.85f + 0.3f * y));
+                    if (r.Heads == "flowers") Disc(px, size, ox, oy, half, x, y, fr * 0.35f, fc2);
+                }
         }
         var bytes = new byte[size * size * 4];
         for (var i = 0; i < px.Length; i++) bytes[i] = B(px[i]);

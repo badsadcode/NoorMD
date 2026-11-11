@@ -37,6 +37,8 @@ public sealed class TreeRecipe
     public static readonly string[] Archetypes = ["broadleaf", "conifer", "birch", "dead", "cactus", "grass"];
     public static readonly string[] GrassModes = ["blades", "cards", "leaves"];
     public static readonly string[] HeadKinds = ["none", "seeds", "flowers", "plumes", "cattails"];
+    public static readonly string[] CardLayouts = ["random", "cross", "star", "hash", "fan", "dome", "ring"];
+    public static readonly string[] CardArts = ["blades", "bush", "fronds"];
     public static readonly string[] Styles = ["realistic", "stylized"];
     public static readonly string[] Shapes = ["spherical", "hemispherical", "conical", "cylindrical", "flame", "inverse", "tapered", "umbrella"];
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
@@ -225,6 +227,19 @@ public sealed class TreeRecipe
     public string HeadColor { get; set; } = "#d8c27a";
     public string HeadColor2 { get; set; } = "#f1d24a";
 
+    /// <summary>
+    /// Cards: how the planes are set — "random" (crossed at random angles), "cross" (two upright, 90° apart), "star"
+    /// (three, 60° apart), "hash" (two pairs of parallel planes, a # seen from above: a patch), "fan" (planes round the
+    /// middle leaning out: a fountain), "dome" (a crossed core and planes leaning out all round: a bush) or "ring" (a
+    /// star in the middle, a lower ring leaning out round it).
+    /// </summary>
+    public string CardLayout { get; set; } = "random";
+    /// <summary>What the cards show: "blades" (grass, with its heads painted on), "bush" (a leafy clump, flowers painted on) or "fronds" (fern fronds).</summary>
+    public string CardArt { get; set; } = "blades";
+    /// <summary>How many planes (0: the layout's own number) and how wide each is (metres; 0: from the height).</summary>
+    public int Cards { get; set; }
+    public double CardWidth { get; set; }
+
     /// <summary>The game this tree is made for (GameProfiles: its manifest names and hand-off note), or empty for any.</summary>
     public string Profile { get; set; } = "";
 
@@ -373,6 +388,10 @@ public sealed class TreeRecipe
         Profile = GameProfiles.Find(Profile) != null ? Profile : "";
         if (Archetype == "grass") Billboard = false;       // a tuft's farthest level is already a few triangles
         GrassMode = Pick(GrassMode, GrassModes);
+        CardLayout = Pick(CardLayout, CardLayouts);
+        CardArt = Pick(CardArt, CardArts);
+        Cards = Math.Clamp(Cards, 0, 24);
+        CardWidth = C(CardWidth, 0, 10, 0);
         Blades = Math.Clamp(Blades, 1, 2000);
         BladeWidth = C(BladeWidth, 0.001, 0.5, 0.012);
         Spread = C(Spread, 0, 5, 0.1);
@@ -736,6 +755,27 @@ public static class TreePresets
         new("hosta", "Broad-leaved plant (hosta)", "A low mound of broad leaves for shady ground.", () => Grass("Hosta", 0.4, 14, 0.22, 0.05, 55, 0.4, "#2f5a2a", "#8ab84a", r => { r.GrassMode = "leaves"; r.LeafShape = "broad"; r.LeafCluster = "twig"; r.HeightSpread = 0.4; }), "Grass & tufts"),
         new("lily-leaves", "Lily leaves", "Slender, arching leaves, with a few white flowers.", () => Grass("Lily leaves", 0.6, 20, 0.12, 0.06, 30, 0.45, "#2f6a2a", "#7ab048", r => { r.GrassMode = "leaves"; r.LeafShape = "slender"; r.LeafCluster = "twig"; r.Heads = "flowers"; r.HeadCount = 3; r.HeadSize = 0.06; r.HeadColor = "#f6f2ea"; r.HeadColor2 = "#e8c040"; }), "Grass & tufts"),
         new("stylized-fern", "Stylized fern", "Chunky, painted fern fronds.", () => Grass("Stylized fern", 0.7, 8, 0.25, 0.06, 45, 0.5, "#2f7a2a", "#b0d850", r => { r.GrassMode = "leaves"; r.LeafShape = "frond"; }, "stylized"), "Grass & tufts"),
+        new("cards-cross-grass", "Cross grass (2 planes)", "Two crossed planes of painted grass: 8 triangles far away.", () => Cards("Cross grass", "cross", "blades", 0.45, "#3f6a26", "#8fb048"), "Low-poly cards"),
+        new("cards-star-grass", "Star grass (3 planes)", "Three planes at 60°: full from every side.", () => Cards("Star grass", "star", "blades", 0.5, "#3f6a26", "#8fb048"), "Low-poly cards"),
+        new("cards-grass-patch", "Grass patch (# planes)", "Two pairs of side-by-side planes covering a patch of ground.", () => Cards("Grass patch", "hash", "blades", 0.35, "#3a6a24", "#86b044", r => { r.CardWidth = 0.9; }), "Low-poly cards"),
+        new("cards-fountain-grass", "Fountain grass (fan)", "Planes leaning out all round the middle: a fountain of blades.", () => Cards("Fountain grass", "fan", "blades", 0.6, "#4a6a2a", "#a8b45a", r => { r.Splay = 35; r.Droop = 0.5; }), "Low-poly cards"),
+        new("cards-tall-grass", "Tall grass with seeds (cards)", "Three tall planes, seed heads painted on.", () => Cards("Tall grass cards", "star", "blades", 0.9, "#4a6a2a", "#b0b460", r => { r.Heads = "seeds"; r.HeadCount = 6; r.HeadColor = "#c8b878"; }), "Low-poly cards"),
+        new("cards-dry-grass", "Dry grass (cards)", "Two crossed planes of straw-coloured grass.", () => Cards("Dry grass cards", "cross", "blades", 0.5, "#8a8a4a", "#d8c890", r => r.DryTips = 0.8), "Low-poly cards"),
+        new("cards-flowers", "Meadow flowers (cards)", "Grass and flowers painted on three crossed planes.", () => Cards("Meadow flower cards", "star", "blades", 0.45, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 8; r.HeadColor = "#f4f0ec"; r.HeadColor2 = "#f1c232"; }), "Low-poly cards"),
+        new("cards-poppies", "Poppies (cards)", "Red poppies in grass, on crossed planes.", () => Cards("Poppy cards", "cross", "blades", 0.5, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 6; r.HeadColor = "#c8281e"; r.HeadColor2 = "#2a2420"; }), "Low-poly cards"),
+        new("cards-fern", "Fern (cards)", "Fern fronds on planes leaning out from the middle.", () => Cards("Fern cards", "fan", "fronds", 0.7, "#2f5a22", "#7ea83a", r => { r.Splay = 45; r.CardWidth = 0.4; }), "Low-poly cards"),
+        new("cards-reeds", "Reeds (cards)", "Tall reeds with brown heads, on three planes.", () => Cards("Reed cards", "star", "blades", 1.5, "#4f6a30", "#9aa860", r => { r.Splay = 8; r.Heads = "seeds"; r.HeadCount = 6; r.HeadColor = "#5a3a22"; r.CardWidth = 0.6; }), "Low-poly cards"),
+        new("cards-round-bush", "Round bush (cards)", "A crossed core and planes leaning out all round: a full bush for a few dozen triangles.", () => Cards("Round bush cards", "dome", "bush", 1.2, "#3d6a26", "#8fb040"), "Low-poly cards"),
+        new("cards-small-bush", "Small bush (2 planes)", "Two crossed planes of a leafy clump: the cheapest bush.", () => Cards("Small bush cards", "cross", "bush", 0.7, "#3d6a26", "#8fb040"), "Low-poly cards"),
+        new("cards-star-bush", "Bush (3 planes)", "Three crossed planes of a leafy clump.", () => Cards("Star bush cards", "star", "bush", 1, "#355e24", "#7fa63a"), "Low-poly cards"),
+        new("cards-hedge", "Hedge piece (# planes)", "Side-by-side planes of leaves: a stretch of hedge.", () => Cards("Hedge cards", "hash", "bush", 1.4, "#2f5a24", "#6a9234", r => { r.CardWidth = 1.8; }), "Low-poly cards"),
+        new("cards-flower-bush", "Flowering bush (cards)", "A dome of leafy planes dotted with pink flowers.", () => Cards("Flowering bush cards", "dome", "bush", 1.2, "#3f6a2a", "#86a83a", r => { r.Heads = "flowers"; r.HeadCount = 40; r.HeadSize = 0.06; r.HeadColor = "#e88ab8"; r.HeadColor2 = "#f8e0a0"; }), "Low-poly cards"),
+        new("cards-berry-bush", "Berry bush (cards)", "A dark bush dotted with red berries.", () => Cards("Berry bush cards", "dome", "bush", 1, "#2a4a22", "#5a7a34", r => { r.Heads = "seeds"; r.HeadCount = 50; r.HeadSize = 0.035; r.HeadColor = "#c0201e"; }), "Low-poly cards"),
+        new("cards-autumn-bush", "Autumn bush (cards)", "A dome of leafy planes in reds and oranges.", () => Cards("Autumn bush cards", "dome", "bush", 1.1, "#a8321e", "#e8902a"), "Low-poly cards"),
+        new("cards-dry-shrub", "Dry shrub (cards)", "A sparse grey-olive shrub: a star with a low ring round it.", () => Cards("Dry shrub cards", "ring", "bush", 0.9, "#6a6a46", "#a8a070"), "Low-poly cards"),
+        new("stylized-cards-grass", "Stylized grass (cards)", "Three planes of chunky, painted blades.", () => Cards("Stylized grass cards", "star", "blades", 0.5, "#3e8a2a", "#c4e05a", style: "stylized"), "Low-poly cards"),
+        new("stylized-cards-bush", "Stylized bush (cards)", "A dome of planes painted with big, bright leaves.", () => Cards("Stylized bush cards", "dome", "bush", 1.1, "#3e7d2a", "#b7d14a", style: "stylized"), "Low-poly cards"),
+        new("stylized-cards-flower-bush", "Stylized flowering bush (cards)", "Painted leaves and big pink flowers on a dome of planes.", () => Cards("Stylized flowering bush cards", "dome", "bush", 1.1, "#3e7d2a", "#b7d14a", r => { r.Heads = "flowers"; r.HeadCount = 25; r.HeadSize = 0.09; r.HeadColor = "#f080b0"; r.HeadColor2 = "#ffe060"; }, "stylized"), "Low-poly cards"),
         new("meadow-grass", "Meadow grass tuft", "A loose tuft of green blades, bending over at the tips.", () => Grass("Meadow grass", 0.45, 45, 0.01, 0.08, 28, 0.4, "#3f6a26", "#8fb048"), "Grass & tufts"),
         new("short-grass", "Short grass tuft", "A low, dense tuft for lawns and grazed ground.", () => Grass("Short grass", 0.15, 60, 0.006, 0.06, 22, 0.2, "#3a6a24", "#7aa83e"), "Grass & tufts"),
         new("tall-grass", "Tall grass", "Knee-high blades, heavy at the tips.", () => Grass("Tall grass", 1, 70, 0.012, 0.12, 18, 0.55, "#3f6a26", "#9ab450"), "Grass & tufts"),
@@ -775,6 +815,15 @@ public static class TreePresets
             CanopyFullness = 0.85, Billboard = false, TriangleTarget = stylized ? 0 : 4000,
         };
         if (stylized) { r.Budget = 1500; r.Quality = "low"; r.Twist = 0.3; }
+        change?.Invoke(r);
+        return r;
+    }
+
+    /// <summary>Crossed cards (few triangles): a layout of planes showing painted grass, a leafy clump or fern fronds.</summary>
+    private static TreeRecipe Cards(string name, string layout, string art, double height, string color, string color2, Action<TreeRecipe>? change = null, string style = "realistic")
+    {
+        var r = Grass(name, height, 40, 0.01, 0.1, 15, 0.25, color, color2, null, style);
+        r.GrassMode = "cards"; r.CardLayout = layout; r.CardArt = art; r.Lods = 2; r.Shading = 0.5;
         change?.Invoke(r);
         return r;
     }

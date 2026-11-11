@@ -10612,6 +10612,32 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with bushes and grass', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80r. NoorForm (preview.158): low-poly card plants — a few crossed planes in a layout (cross, star, # grid,
+    // fan, dome, ring) showing grass, a leafy bush or fern fronds; heads painted on.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject', 'noormd.assets.look'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      const heads = await page.$$eval('#ab-presets .gnav-head', (n) => n.map((x) => x.textContent));
+      check('the list has the low-poly cards', heads.includes('Low-poly cards'), heads);
+      await page.click('#ab-presets [data-preset="cards-round-bush"]');
+      await waitFn(page, () => NoorAssets._state().recipe && NoorAssets._state().recipe.cardLayout === 'dome');
+      check('a card bush: layout (dome) and picture (a leafy bush) shown, with planes and their width', (await page.$eval('#ab-cards select[data-key="cardLayout"]', (x) => x.value)) === 'dome' && (await page.$eval('#ab-cards select[data-key="cardArt"]', (x) => x.value)) === 'bush' && !!(await page.$('#ab-pane input[data-key="cards"]')) && !!(await page.$('#ab-pane input[data-key="cardWidth"]')));
+      const layouts = await page.$$eval('#ab-cards select[data-key="cardLayout"] option', (o) => o.map((x) => x.value));
+      check('…every layout offered (random, cross, star, #, fan, dome, ring)', layouts.join() === 'random,cross,star,hash,fan,dome,ring', layouts);
+      await page.selectOption('#ab-cards select[data-key="cardLayout"]', 'hash');
+      await page.selectOption('#ab-pane select[data-key="heads"]', 'flowers');
+      await page.waitForSelector('#ab-heads-painted');
+      check('heads on cards: said to be painted on (no extra triangles)', /painted/.test(await page.textContent('#ab-heads-painted')));
+      await waitFn(page, () => { const b = window.__mock.state.assets.builds; const r = b[b.length - 1]; return r && r.cardLayout === 'hash' && r.cardArt === 'bush' && r.heads === 'flowers'; });
+      check('…sent to the app with the recipe', true);
+      await page.selectOption('#ab-pane select[data-key="grassMode"]', 'blades');
+      await waitFn(page, () => !document.querySelector('#ab-cards'));
+      check('made of blades again: the card settings hidden', !(await page.$('#ab-pane input[data-key="cardWidth"]')));
+      check('no page errors with card plants', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

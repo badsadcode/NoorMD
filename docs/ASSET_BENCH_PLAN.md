@@ -415,6 +415,17 @@ Still open: the biome catalogue (and rocks, stage 2).
   phase), so the same shaders and the Godot plugin move it. No billboard (the far level is already a few triangles).
 * The bench: a grass tuft has its own tabs (Grass, Mesh, Export) and pane (blades, shape, colour, heads).
 
+### Low-poly card plants (preview.158)
+
+* **Low-poly cards** (21 presets): grass and bushes as a few crossed planes with a painted picture, for scenes with
+  thousands of them. A layout sets the planes: cross (2), star (3), # grid (two pairs side by side: a patch), fan
+  (leaning out round the middle: fountain grass, ferns), dome (a crossed core with planes leaning out all round: a
+  bush) or ring (a star with a low ring round it). The picture: grass blades, a leafy bush (hundreds of small leaves
+  in a rounded clump, darker inside and below, a broken outline; painted larger and outlined in the stylized look) or
+  fern fronds. Heads are painted on (seeds, flowers, berries): no extra triangles.
+* A cross is 16 triangles up close (two rows, so it bends in the wind) and 8 farther away; a dome bush about 64 and 32.
+  A bush's normals point out from its middle, so it is lit as a rounded mass, not as flat cards.
+
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to

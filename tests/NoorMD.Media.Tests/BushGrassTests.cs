@@ -54,19 +54,46 @@ public class BushGrassTests
             var r = TreePresets.Make(p.Id);
             var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 256 });
             Shot(b, p.Id);
-            Assert.Equal(3, b.Lods.Count);
+            Assert.Equal(r.Lods, b.Lods.Count);
             var tris = b.Lods.Select(l => l.TriangleCount).ToList();
-            Assert.True(tris[0] > tris[1] && tris[1] > tris[2], $"{p.Id}: {string.Join(",", tris)}");
+            for (var i = 1; i < tris.Count; i++) Assert.True(tris[i] < tris[i - 1], $"{p.Id}: {string.Join(",", tris)}");
             var (lo, hi) = TreeExport.Bounds(b.Lods[0]);
             Assert.InRange(hi.Y, r.Height * 0.4, r.Height * 1.5);
             Assert.True(lo.Y >= -1e-4f, p.Id);           // nothing under the ground
             var mesh = b.Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
             Assert.Equal(mesh.VertexCount, mesh.UV1.Count); // the wind data, where the shaders read it
             Assert.All(mesh.Positions, v => Assert.True(float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z)));
-            if (r.Heads != "none") Assert.Contains(b.Lods[0].Materials, m => m.Name == "Heads");
+            if (r.Heads != "none" && r.GrassMode != "cards") Assert.Contains(b.Lods[0].Materials, m => m.Name == "Heads");
             // Writes as a GLB.
             Assert.True(GlbWriter.Write(b.Lods[0]).Length > 200);
         }
+    }
+
+    [Fact]
+    public void Card_plants_are_a_few_planes_in_each_layout()
+    {
+        var cards = TreePresets.All.Where(p => p.Group == "Low-poly cards").ToList();
+        Assert.True(cards.Count >= 18);
+        foreach (var layout in TreeRecipe.CardLayouts) Assert.Contains(cards, p => p.Make().CardLayout == layout || layout == "random");
+        foreach (var p in cards)
+        {
+            var r = TreePresets.Make(p.Id);
+            var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 256 });
+            Shot(b, p.Id);
+            // Cheap: a cross is 16 triangles up close, 8 far away; a dome a few dozen.
+            Assert.True(b.Lods[0].TriangleCount <= 80, $"{p.Id}: {b.Lods[0].TriangleCount}");
+            Assert.True(b.Lods[^1].TriangleCount <= 40, $"{p.Id}: {b.Lods[^1].TriangleCount}");
+            Assert.DoesNotContain(b.Lods[0].Materials, m => m.Name == "Heads");   // heads painted, not modelled
+            var (lo, hi) = TreeExport.Bounds(b.Lods[0]);
+            Assert.True(lo.Y >= -1e-4f && hi.Y <= r.Height * 1.3, p.Id);
+        }
+        var cross = TreeBuilder.Build(TreePresets.Make("cards-cross-grass"), new TreeBuilder.Options { TextureSize = 0 });
+        Assert.Equal(16, cross.Lods[0].TriangleCount);
+        Assert.Equal(8, cross.Lods[1].TriangleCount);
+        // A bush's picture is a leafy clump with transparent corners.
+        var px = GrassBuilder.BushPixels(TreePresets.Make("cards-round-bush"), 128);
+        Assert.Equal(0, px.Rgba[3]);                                    // the top-left corner: see-through
+        Assert.Equal(255, px.Rgba[((32 * 128) + 32) * 4 + 3]);          // the middle of a cell: leaves
     }
 
     [Fact]

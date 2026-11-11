@@ -514,8 +514,10 @@ window.NoorAssets = (() => {
 
   const section = (title, ...children) => el('fieldset', { class: 'sb-group' }, el('legend', { text: title }), ...children);
 
-  const GRASS_MODES = [['blades', 'Blades (each a curving strip)'], ['cards', 'Cards (crossed, painted blades: cheapest)'], ['leaves', 'Leaves (each blade a whole leaf: ferns, broad leaves)']];
+  const GRASS_MODES = [['blades', 'Blades (each a curving strip)'], ['cards', 'Cards (a few crossed planes: cheapest)'], ['leaves', 'Leaves (each blade a whole leaf: ferns, broad leaves)']];
   const HEADS = [['none', 'None'], ['seeds', 'Seed heads (wheat, foxtail, lavender spikes)'], ['flowers', 'Flowers'], ['plumes', 'Plumes (pampas)'], ['cattails', 'Cattails (reeds)']];
+  const CARD_LAYOUTS = [['random', 'At random'], ['cross', 'Cross (2 planes)'], ['star', 'Star (3 planes)'], ['hash', '# grid (2 pairs side by side: a patch)'], ['fan', 'Fan (leaning out round the middle)'], ['dome', 'Dome (a crossed core, planes leaning out all round: a bush)'], ['ring', 'Ring (a star, a low ring round it)']];
+  const CARD_ARTS = [['blades', 'Grass blades'], ['bush', 'A leafy bush'], ['fronds', 'Fern fronds']];
   const GRASS_LEAVES = [['frond', 'Fern fronds'], ['broad', 'Broad leaves'], ['round', 'Round leaves'], ['slender', 'Slender leaves'], ['maple', 'Maple-like']];
 
   /** A grass tuft: blades from a patch of ground, their shape, colours and what the stalks carry. */
@@ -525,7 +527,12 @@ window.NoorAssets = (() => {
       section('Kind',
         el('div', { class: 'sb-row' }, choice(recipe, 'style', 'Look', STYLES, 'Realistic: many thin blades. Stylized: a few chunky, painted ones'), choice(recipe, 'archetype', 'Tree', ARCHETYPES, 'Grass has no trunk: blades rise from the ground', true)),
         el('div', { class: 'sb-row' }, choice(recipe, 'grassMode', 'Made of', GRASS_MODES, 'Blades: real strips that bend over, best close up. Cards: a few crossed cards with blades painted on them, for covering whole fields. Leaves: each blade shows a whole leaf picture (ferns, hostas, lilies)', true),
-          leafy ? choice(recipe, 'leafShape', 'Leaf', GRASS_LEAVES, 'What each leaf looks like') : null)),
+          leafy ? choice(recipe, 'leafShape', 'Leaf', GRASS_LEAVES, 'What each leaf looks like') : null),
+        recipe.grassMode === 'cards' ? el('div', { class: 'sb-row', id: 'ab-cards' },
+          choice(recipe, 'cardLayout', 'Layout', CARD_LAYOUTS, 'How the planes are set: crossed, a # patch, a fan leaning out, or a dome for a bush. Each plane is two triangles a side (four up close, so it can bend in the wind)', true),
+          choice(recipe, 'cardArt', 'Picture', CARD_ARTS, 'What the planes show: grass blades (heads painted on), a leafy clump (flowers or berries painted on) or fern fronds', true)) : null,
+        recipe.grassMode === 'cards' ? slider(recipe, ['cards', 'Planes', 0, 24, 1, 'int', 'How many planes (0: the layout’s own number)']) : null,
+        recipe.grassMode === 'cards' ? slider(recipe, ['cardWidth', 'Plane width', 0, 10, 0.05, 'm', 'How wide each plane is (0: from the height)']) : null),
       section('Blades',
         slider(recipe, ['height', 'Height', 0.05, 5, 0.01, 'm', 'The tallest blade (stalks with heads stand a little above)']),
         slider(recipe, ['blades', leafy ? 'Leaves' : 'Blades', 1, 400, 1, 'int', recipe.grassMode === 'cards' ? 'Blades in the tuft: a card shows about a dozen' : 'How many in the tuft']),
@@ -544,6 +551,7 @@ window.NoorAssets = (() => {
         slider(recipe, ['glow', 'Glow', 0, 1, 0.01, 'pct', 'Fantasy: the blades and heads glow in their colours'])),
       section('Heads',
         el('div', { class: 'sb-row' }, choice(recipe, 'heads', 'Stalks carry', HEADS, 'Seed heads, flowers, plumes or cattails on stalks rising from the tuft', true)),
+        recipe.grassMode === 'cards' && recipe.heads !== 'none' ? el('small', { class: 'pref-hint', id: 'ab-heads-painted', text: 'On cards they are painted on the picture (seeds, flowers, berries on a bush): no extra triangles.' }) : null,
         recipe.heads !== 'none' ? slider(recipe, ['headCount', 'How many', 0, 200, 1, 'int']) : null,
         recipe.heads !== 'none' ? slider(recipe, ['headSize', 'Size', 0.005, 1, 0.005, 'm']) : null,
         recipe.heads !== 'none' ? el('div', { class: 'sb-row' }, colour(recipe, 'headColor', recipe.heads === 'flowers' ? 'Petals' : 'Colour'), recipe.heads === 'flowers' ? colour(recipe, 'headColor2', 'Centre') : null) : null),
