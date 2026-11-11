@@ -717,6 +717,8 @@ function mockHostScript(initial) {
     if (type.startsWith('asset.rock.')) return rockMock(type, p);
     const builtIn = [{ id: 'oak', name: 'Oak (realistic)', description: 'A broad crown.', style: 'realistic', archetype: 'broadleaf', group: 'Forest' }, { id: 'stylized-oak', name: 'Stylized oak', description: 'Chunky and puffy.', style: 'stylized', archetype: 'broadleaf', group: 'Forest' },
       { id: 'willow', name: 'Weeping willow (realistic)', description: 'Curtains.', style: 'realistic', archetype: 'broadleaf', group: 'Swamp & marsh' },
+      { id: 'round-bush', name: 'Round bush (realistic)', description: 'A rounded bush.', style: 'realistic', archetype: 'broadleaf', group: 'Bushes & shrubs' },
+      { id: 'meadow-grass', name: 'Meadow grass tuft', description: 'Green blades.', style: 'realistic', archetype: 'grass', group: 'Grass & tufts' },
       { id: 'thornwake-pine', name: 'Pine', description: 'Tiers.', style: 'realistic', archetype: 'conifer', group: 'Thornwake', profile: 'thornwake' }];
     const profiles = [{ id: 'thornwake', name: 'Thornwake', description: 'Pixel-art woodland.', group: 'Thornwake', engine: 'other', lodFiles: 'separate', helpers: false }];
     const mine = () => ASSET.mine.map((x) => ({ id: x.id, name: x.recipe.name, style: x.recipe.style, archetype: x.recipe.archetype, description: 'Your preset' }));
@@ -725,6 +727,9 @@ function mockHostScript(initial) {
       case 'asset.preset': {
         const own = ASSET.mine.find((x) => x.id === p.id);
         if (own) return JSON.parse(JSON.stringify(own.recipe));
+        const grass = { grassMode: 'blades', blades: 45, bladeWidth: 0.01, spread: 0.08, splay: 28, droop: 0.4, heightSpread: 0.35, curl: 0, dryTips: 0, heads: 'none', headCount: 0, headSize: 0.04, headColor: '#d8c27a', headColor2: '#f1d24a' };
+        if (p.id === 'meadow-grass') return JSON.parse(JSON.stringify({ ...ASSET.recipes.oak, ...grass, name: 'Meadow grass', archetype: 'grass', height: 0.45, levels: [], billboard: false, foliage: 'none' }));
+        if (p.id === 'round-bush') return JSON.parse(JSON.stringify({ ...ASSET.recipes.oak, ...grass, name: 'Round bush', height: 1.4, crownStart: 0.05, billboard: false }));
         const r = p.id === 'thornwake-pine' ? { ...ASSET.recipes.oak, name: 'Pine', archetype: 'conifer', profile: 'thornwake', pixels: 64, lodTriangles: [2800, 1100, 220], triangleTarget: 0, billboard: false } : p.id === 'willow' ? { ...ASSET.recipes.oak, name: 'Weeping willow', arrangement: 'hanging', leafShape: 'slender', hangLength: 7, rootStyle: 'surface' } : ASSET.recipes[p.id === 'stylized-oak' ? 'stylized' : p.id];
         if (!r) throw new Error('Unknown preset.');
         return JSON.parse(JSON.stringify(r));

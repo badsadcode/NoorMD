@@ -45,7 +45,7 @@ window.NoorAssets = (() => {
 
   const isOpen = () => document.body.classList.contains('assets-open');
 
-  const ARCHETYPES = [['broadleaf', 'Broadleaf (oak, maple…)'], ['conifer', 'Conifer (pine, spruce…)'], ['birch', 'Birch-like (slender, drooping)'], ['dead', 'Dead or twisted (bare)'], ['cactus', 'Cactus (ribbed, no leaves)']];
+  const ARCHETYPES = [['broadleaf', 'Broadleaf (oak, maple…)'], ['conifer', 'Conifer (pine, spruce…)'], ['birch', 'Birch-like (slender, drooping)'], ['dead', 'Dead or twisted (bare)'], ['cactus', 'Cactus (ribbed, no leaves)'], ['grass', 'Grass, ferns or flowers (a tuft, no trunk)']];
   const STYLES = [['realistic', 'Realistic'], ['stylized', 'Stylized (painted fantasy)']];
   const SHAPES = [['spherical', 'Round'], ['hemispherical', 'Dome'], ['conical', 'Cone'], ['cylindrical', 'Column'], ['flame', 'Flame'], ['inverse', 'Upside-down cone (vase)'], ['tapered', 'Tapered column'], ['umbrella', 'Umbrella (flat top)']];
   const ROOTS = [['flare', 'Flared base (buttresses)'], ['surface', 'Surface roots (long, forking, sinking in)'], ['prop', 'Stilt roots (mangrove)'], ['compact', 'Compact (a collar only)']];
@@ -63,6 +63,9 @@ window.NoorAssets = (() => {
   const FORMATIONS = ['angular', 'cracked', 'layered', 'cluster', 'outcrop', 'stacked', 'pillar', 'arch'];
   const ROCK_STYLES = [['realistic', 'Realistic (rough, smooth shading)'], ['stylized', 'Stylized (soft painted planes)'], ['faceted', 'Faceted (crisp planes, a line of light on every edge)']];
   const ROCK_BUDGET = { stone: 150, rock: 400, boulder: 1200, angular: 1200, cracked: 1800, layered: 1600, cluster: 1800, outcrop: 2500, stacked: 1400, pillar: 1500, arch: 2500, scree: 1500 };
+  const isGrass = () => !isRock() && recipe && recipe.archetype === 'grass';
+  /** The tabs of what is on the bench (a grass tuft has no branches or bark: its blades are on its own tab). */
+  const tabsNow = () => (isGrass() ? [['tree', 'Grass'], ['mesh', 'Mesh'], ['export', 'Export']] : TABS[subject]);
   const TABS = { tree: [['tree', 'Tree'], ['branches', 'Branches'], ['leaves', 'Leaves & bark'], ['mesh', 'Mesh'], ['export', 'Export']], rock: [['rock', 'Rock'], ['surface', 'Surface'], ['rmesh', 'Mesh'], ['export', 'Export']] };
 
   function init(h) {
@@ -172,8 +175,8 @@ window.NoorAssets = (() => {
   function renderTabs() {
     const bar = $('#ab-tabs');
     if (!bar) return;
-    if (!TABS[subject].some(([id]) => id === tab)) tab = TABS[subject][0][0];
-    bar.replaceChildren(...TABS[subject].map(([id, label]) => el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label)));
+    if (!tabsNow().some(([id]) => id === tab)) tab = tabsNow()[0][0];
+    bar.replaceChildren(...tabsNow().map(([id, label]) => el('button', { role: 'tab', 'data-tab': id, class: id === tab ? 'active' : '', onclick: () => { tab = id; renderEditor(); } }, label)));
     // Rocks have no wind.
     const w = $('#ab-wind');
     if (w) w.hidden = isRock();
@@ -437,6 +440,7 @@ window.NoorAssets = (() => {
 
   function renderPane() {
     renderHeader();
+    renderTabs();
     document.querySelectorAll('#assetbench .sb-tabs [data-tab]').forEach((b) => { b.classList.toggle('active', b.dataset.tab === tab); b.setAttribute('aria-selected', String(b.dataset.tab === tab)); });
     const pane = $('#ab-pane');
     const keep = pane.scrollTop;
@@ -510,10 +514,47 @@ window.NoorAssets = (() => {
 
   const section = (title, ...children) => el('fieldset', { class: 'sb-group' }, el('legend', { text: title }), ...children);
 
-  function treePane() {
+  const GRASS_MODES = [['blades', 'Blades (each a curving strip)'], ['cards', 'Cards (crossed, painted blades: cheapest)'], ['leaves', 'Leaves (each blade a whole leaf: ferns, broad leaves)']];
+  const HEADS = [['none', 'None'], ['seeds', 'Seed heads (wheat, foxtail, lavender spikes)'], ['flowers', 'Flowers'], ['plumes', 'Plumes (pampas)'], ['cattails', 'Cattails (reeds)']];
+  const GRASS_LEAVES = [['frond', 'Fern fronds'], ['broad', 'Broad leaves'], ['round', 'Round leaves'], ['slender', 'Slender leaves'], ['maple', 'Maple-like']];
+
+  /** A grass tuft: blades from a patch of ground, their shape, colours and what the stalks carry. */
+  function grassPane() {
+    const leafy = recipe.grassMode === 'leaves';
     return [
       section('Kind',
-        el('div', { class: 'sb-row' }, choice(recipe, 'style', 'Look', STYLES, 'Realistic: natural proportions, leaf cards, bark textures. Stylized: chunky, twisted, puffy clumps with painted gradients'), choice(recipe, 'archetype', 'Tree', ARCHETYPES, 'How the tree grows: its crown and branching'))),
+        el('div', { class: 'sb-row' }, choice(recipe, 'style', 'Look', STYLES, 'Realistic: many thin blades. Stylized: a few chunky, painted ones'), choice(recipe, 'archetype', 'Tree', ARCHETYPES, 'Grass has no trunk: blades rise from the ground', true)),
+        el('div', { class: 'sb-row' }, choice(recipe, 'grassMode', 'Made of', GRASS_MODES, 'Blades: real strips that bend over, best close up. Cards: a few crossed cards with blades painted on them, for covering whole fields. Leaves: each blade shows a whole leaf picture (ferns, hostas, lilies)', true),
+          leafy ? choice(recipe, 'leafShape', 'Leaf', GRASS_LEAVES, 'What each leaf looks like') : null)),
+      section('Blades',
+        slider(recipe, ['height', 'Height', 0.05, 5, 0.01, 'm', 'The tallest blade (stalks with heads stand a little above)']),
+        slider(recipe, ['blades', leafy ? 'Leaves' : 'Blades', 1, 400, 1, 'int', recipe.grassMode === 'cards' ? 'Blades in the tuft: a card shows about a dozen' : 'How many in the tuft']),
+        slider(recipe, ['bladeWidth', 'Width', 0.001, 0.5, 0.001, 'm', 'Each blade’s width at its root']),
+        slider(recipe, ['spread', 'Spread', 0, 2, 0.01, 'm', 'The patch of ground they rise from (radius)']),
+        slider(recipe, ['heightSpread', 'Height differs', 0, 0.9, 0.01, 'pct', 'Some blades shorter than others'])),
+      section('Shape',
+        slider(recipe, ['splay', 'Fanning out', 0, 85, 1, 'deg', 'How far the outer blades lean out: a tight upright clump, or a fountain']),
+        slider(recipe, ['droop', 'Bending over', 0, 1, 0.01, 'pct', 'How much the tips bend over']),
+        slider(recipe, ['curl', 'Curl', 0, 1, 0.01, 'pct', 'A twist along each blade (dune grass)']),
+        slider(recipe, ['windswept', 'Windswept', 0, 1, 0.01, 'pct', 'Every blade pulled the same way'])),
+      section('Colour',
+        el('div', { class: 'sb-row' }, colour(recipe, 'leafColor', 'Root colour'), colour(recipe, 'leafColor2', 'Tip colour')),
+        slider(recipe, ['dryTips', 'Dry tips', 0, 1, 0.01, 'pct', 'The tips turning to straw']),
+        slider(recipe, ['shading', 'Shading', 0, 1, 0.01, 'pct', 'Darker down in the tuft, where the blades shade each other']),
+        slider(recipe, ['glow', 'Glow', 0, 1, 0.01, 'pct', 'Fantasy: the blades and heads glow in their colours'])),
+      section('Heads',
+        el('div', { class: 'sb-row' }, choice(recipe, 'heads', 'Stalks carry', HEADS, 'Seed heads, flowers, plumes or cattails on stalks rising from the tuft', true)),
+        recipe.heads !== 'none' ? slider(recipe, ['headCount', 'How many', 0, 200, 1, 'int']) : null,
+        recipe.heads !== 'none' ? slider(recipe, ['headSize', 'Size', 0.005, 1, 0.005, 'm']) : null,
+        recipe.heads !== 'none' ? el('div', { class: 'sb-row' }, colour(recipe, 'headColor', recipe.heads === 'flowers' ? 'Petals' : 'Colour'), recipe.heads === 'flowers' ? colour(recipe, 'headColor2', 'Centre') : null) : null),
+    ];
+  }
+
+  function treePane() {
+    if (isGrass()) return grassPane();
+    return [
+      section('Kind',
+        el('div', { class: 'sb-row' }, choice(recipe, 'style', 'Look', STYLES, 'Realistic: natural proportions, leaf cards, bark textures. Stylized: chunky, twisted, puffy clumps with painted gradients'), choice(recipe, 'archetype', 'Tree', ARCHETYPES, 'How the tree grows: its crown and branching', true))),
       section('Trunk',
         slider(recipe, ['height', 'Height', 0.3, 120, 0.1, 'm', 'The whole tree, ground to top: it is exactly this tall']),
         slider(recipe, ['trunkRadius', 'Trunk radius', 0.01, 6, 0.01, 'm']),
@@ -725,6 +766,18 @@ window.NoorAssets = (() => {
   }
 
   function meshPane() {
+    if (isGrass()) {
+      return [
+        section('Detail',
+          ...(recipe.lodTriangles?.length ? [perLevel()] : [targetChoice()]),
+          slider(recipe, ['lods', 'Levels of detail', 1, 6, 1, 'int', 'Farther levels keep fewer, wider blades with fewer bends (a far blade is one triangle)'])),
+        section('Texture pixels',
+          check(recipe, 'sharpPixels', 'Sharp pixels (nearest-neighbour sampling)', 'Textures drawn as crisp square pixels instead of smoothed between them')),
+        section('Wind',
+          check(recipe, 'wind', 'Wind data in the mesh', 'Each blade bends more towards its tip, with a little flutter and its own phase: the same wind shaders as the trees', true),
+          recipe.wind ? choice(recipe, 'windData', 'Stored in', [['uv', 'UV2 and UV3 (colours stay true)'], ['color', 'Vertex colours (RGBA)']], 'UV channels: TEXCOORD_1 = bend, flutter; TEXCOORD_2 = phase, sway. Vertex colours: R sway, G bend, B flutter, A phase') : null),
+      ];
+    }
     return [
       section('Branches',
         choice(recipe, 'branches', 'Mesh', BRANCH_MODES, 'Merged: one organic welded mesh. Separate: each limb a mesh of its own, with its pivot where it leaves the trunk (to animate or break off). Mixed: thick limbs welded, thinner ones separate', true),
@@ -933,7 +986,7 @@ window.NoorAssets = (() => {
       ]],
       ['Generate', 'g', () => [
         { label: '🌳 Trees', checked: () => subject === 'tree', run: () => setSubject('tree') }, { label: '🪨 Rocks', checked: () => subject === 'rock', run: () => setSubject('rock') }, '-',
-        ...TABS[subject].map(([id, label]) => ({ label: id === 'mesh' || id === 'rmesh' ? 'Mesh: levels of detail, triangles' + (isRock() ? ', collision' : ', wind') : { tree: 'Tree: kind, trunk, roots, crown', branches: 'Branches: the levels', leaves: 'Leaves & bark (foliage, fantasy, swamp)', rock: 'Rock: kind, shape, blocks, ground', surface: 'Surface: material, moss, snow', export: 'Export settings' }[id] || label, checked: () => tab === id, disabled: none, run: () => showTab(id) })), '-',
+        ...tabsNow().map(([id, label]) => ({ label: id === 'mesh' || id === 'rmesh' ? 'Mesh: levels of detail, triangles' + (isRock() ? ', collision' : ', wind') : { tree: 'Tree: kind, trunk, roots, crown', branches: 'Branches: the levels', leaves: 'Leaves & bark (foliage, fantasy, swamp)', rock: 'Rock: kind, shape, blocks, ground', surface: 'Surface: material, moss, snow', export: 'Export settings' }[id] || label, checked: () => tab === id, disabled: none, run: () => showTab(id) })), '-',
         ...(isRock()
           ? [flag('flatBase', 'Flat underside')]
           : [go('Add a level of branches', () => { tab = 'branches'; renderEditor(); $('#ab-add-level')?.click(); }, '', { disabled: () => !recipe || recipe.levels.length >= 3 }),

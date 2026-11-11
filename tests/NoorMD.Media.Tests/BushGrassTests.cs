@@ -1,0 +1,105 @@
+using System.Numerics;
+using NoorMD.Media.Assets3D;
+using Xunit;
+
+namespace NoorMD.Media.Tests;
+
+/// <summary>NoorForm's bushes (low, many-stemmed tree presets) and grass tufts (the grass archetype).</summary>
+public class BushGrassTests
+{
+    private static IEnumerable<TreePresets.Preset> Group(string g) => TreePresets.All.Where(p => p.Group == g);
+
+    /// <summary>With NOORMD_SHOTS set, each preset's side view is saved there (to look at them).</summary>
+    private static void Shot(TreeBuild b, string id)
+    {
+        var dir = Environment.GetEnvironmentVariable("NOORMD_SHOTS");
+        if (string.IsNullOrEmpty(dir)) return;
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, id + ".png"), Billboard.Render(b.Lods[0], 2, 256).Atlas.Png());
+    }
+
+    [Fact]
+    public void There_are_many_bushes_and_grass_tufts_in_both_looks()
+    {
+        Assert.True(Group("Bushes & shrubs").Count() >= 15);
+        Assert.True(Group("Grass & tufts").Count() >= 18);
+        foreach (var g in new[] { "Bushes & shrubs", "Grass & tufts" })
+        {
+            Assert.Contains(Group(g), p => p.Make().Style == "stylized");
+            Assert.Contains(Group(g), p => p.Make().Style == "realistic");
+        }
+        Assert.All(Group("Grass & tufts"), p => Assert.Equal("grass", p.Make().Archetype));
+    }
+
+    [Fact]
+    public void Every_bush_is_a_low_plant_with_leaves_from_near_the_ground()
+    {
+        foreach (var p in Group("Bushes & shrubs"))
+        {
+            var b = TreeBuilder.Build(TreePresets.Make(p.Id), new TreeBuilder.Options { TextureSize = 256, MaxLods = 1 });
+            Shot(b, p.Id);
+            var (lo, hi) = TreeExport.Bounds(b.Lods[0]);
+            Assert.True(hi.Y < 3.2f && hi.Y > 0.3f, $"{p.Id}: {hi.Y} m tall");
+            // Wider than a tree for its height: a bush, not a sapling.
+            Assert.True(MathF.Max(hi.X - lo.X, hi.Z - lo.Z) > hi.Y * 0.45f, $"{p.Id}: {hi - lo}");
+            Assert.True(b.Lods[0].TriangleCount > 50, p.Id);
+        }
+    }
+
+    [Fact]
+    public void Every_grass_tuft_builds_its_levels_each_lighter_with_wind_and_heads()
+    {
+        foreach (var p in Group("Grass & tufts"))
+        {
+            var r = TreePresets.Make(p.Id);
+            var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 256 });
+            Shot(b, p.Id);
+            Assert.Equal(3, b.Lods.Count);
+            var tris = b.Lods.Select(l => l.TriangleCount).ToList();
+            Assert.True(tris[0] > tris[1] && tris[1] > tris[2], $"{p.Id}: {string.Join(",", tris)}");
+            var (lo, hi) = TreeExport.Bounds(b.Lods[0]);
+            Assert.InRange(hi.Y, r.Height * 0.4, r.Height * 1.5);
+            Assert.True(lo.Y >= -1e-4f, p.Id);           // nothing under the ground
+            var mesh = b.Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
+            Assert.Equal(mesh.VertexCount, mesh.UV1.Count); // the wind data, where the shaders read it
+            Assert.All(mesh.Positions, v => Assert.True(float.IsFinite(v.X) && float.IsFinite(v.Y) && float.IsFinite(v.Z)));
+            if (r.Heads != "none") Assert.Contains(b.Lods[0].Materials, m => m.Name == "Heads");
+            // Writes as a GLB.
+            Assert.True(GlbWriter.Write(b.Lods[0]).Length > 200);
+        }
+    }
+
+    [Fact]
+    public void The_wind_bends_blades_more_towards_their_tips_and_not_at_the_root()
+    {
+        var b = TreeBuilder.Build(TreePresets.Make("meadow-grass"), new TreeBuilder.Options { TextureSize = 0, MaxLods = 1 });
+        var m = b.Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
+        for (var i = 0; i < m.VertexCount; i++)
+        {
+            if (m.Positions[i].Y < 1e-4f) Assert.True(m.UV1[i].X < 1e-3f);
+            if (m.Positions[i].Y > 0.3f) Assert.True(m.UV1[i].X > 0.3f);
+        }
+    }
+
+    [Fact]
+    public void A_grass_recipe_is_kept_and_checked_and_the_same_seed_gives_the_same_tuft()
+    {
+        var r = TreePresets.Make("pampas");
+        var back = TreeRecipe.FromJson(r.ToJson());
+        Assert.Equal("plumes", back.Heads); Assert.Equal(r.Blades, back.Blades);
+        var bad = TreeRecipe.FromJson("{\"archetype\":\"grass\",\"blades\":-5,\"heads\":\"rockets\",\"splay\":500,\"grassMode\":\"x\"}");
+        Assert.Equal(1, bad.Blades); Assert.Equal("none", bad.Heads); Assert.Equal(85, bad.Splay); Assert.Equal("blades", bad.GrassMode);
+        var a1 = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 0, MaxLods = 1 }).Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
+        var a2 = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 0, MaxLods = 1 }).Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
+        Assert.Equal(a1.Positions, a2.Positions);
+        r.Seed = 2;
+        var a3 = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 0, MaxLods = 1 }).Lods[0].Root.All().First(n => n.Mesh != null).Mesh!;
+        Assert.NotEqual(a1.Positions, a3.Positions);
+        // A triangle limit is kept to.
+        var limited = TreePresets.Make("tall-grass"); limited.LodTriangles = [300, 120, 60];
+        var lb = TreeBuilder.Build(limited, new TreeBuilder.Options { TextureSize = 0 });
+        Assert.True(lb.Lods[0].TriangleCount <= 320, lb.Lods[0].TriangleCount.ToString());
+        // Variety packs work for grass too.
+        Assert.Equal(5, TreeVariants.Make(TreePresets.Make("meadow-grass"), 5, 0.2).Select(x => x.Seed).Distinct().Count());
+    }
+}

@@ -51,6 +51,8 @@ public static class TreeBuilder
     public static TreeBuild Build(TreeRecipe recipe, Options? options = null, CancellationToken ct = default)
     {
         options ??= new Options();
+        // Grass tufts have no trunk: blades from the ground (GrassBuilder).
+        if (recipe.Archetype == "grass") return GrassBuilder.Build(recipe, options, ct);
         var watch = Stopwatch.StartNew();
         recipe = recipe.Clone();
         // A triangle target sets both budgets.

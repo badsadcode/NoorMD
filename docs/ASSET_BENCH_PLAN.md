@@ -397,6 +397,24 @@ convention (-convcolonly), several for arches and the like.
 
 Still open: the biome catalogue (and rocks, stage 2).
 
+### Bushes and grass tufts (preview.157)
+
+* **Bushes & shrubs** (20 presets, realistic and stylized): low plants grown like trees, but on many stems leaving
+  the ground at a wide angle and arching up, so the leaves reach down nearly to it: round bush, boxwood ball, hedge,
+  holly, flowering bush, lilac, autumn bush, bramble, creeping juniper, mountain pine, sagebrush, marsh shrub,
+  tropical bush, and stylized round, hedge, flowering, autumn, pine, dry bushes and a glowing one. Everything a tree
+  has works on them (levels of detail, variety packs, game profiles, wind).
+* **Grass & tufts** (28 presets): a new kind, "Grass, ferns or flowers" — no trunk, blades rising from a patch of
+  ground. Each blade is a tapered strip that leans out (more at the edge: a fountain) and bends over towards its tip;
+  or the tuft is a few crossed cards of painted blades (cheapest, for whole fields); or each blade shows a whole leaf
+  (fern fronds drawn for this, broad, round or slender leaves: ferns, bracken, hostas, lilies). Stalks can carry seed
+  heads (wheat, foxtail, lavender), flowers (petals round a centre of a second colour), plumes (pampas) or cattails
+  (reeds). Height, how many, width, spread, fanning out, bending over, curl (dune grass), dry tips, glow.
+* Farther levels keep the same blades, fewer of them and wider, with fewer bends (a far blade is one triangle); a
+  triangle limit per level is kept to. Wind as on trees (no trunk sway; each blade bends more towards its tip, its own
+  phase), so the same shaders and the Godot plugin move it. No billboard (the far level is already a few triangles).
+* The bench: a grass tuft has its own tabs (Grass, Mesh, Export) and pane (blades, shape, colour, heads).
+
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to

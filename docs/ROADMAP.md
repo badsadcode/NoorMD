@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForm (preview.157): bushes and shrubs (20 presets) and grass tufts, ferns and flowers (a new kind, 28 presets:
+  blades, cards or leaves; seed heads, flowers, plumes, cattails; levels of detail and wind).
 - NoorMaterial (preview.156): a material's inputs (its own sliders and six standard ones) and sets of their values,
   live as sliders on NoorForge's material layers.
 - NoorMaterial (preview.155): each brick, tile, hexagon or plank its own colour, hue, roughness and gradient; another

@@ -34,7 +34,9 @@ public sealed class TreeLevel
 /// </summary>
 public sealed class TreeRecipe
 {
-    public static readonly string[] Archetypes = ["broadleaf", "conifer", "birch", "dead", "cactus"];
+    public static readonly string[] Archetypes = ["broadleaf", "conifer", "birch", "dead", "cactus", "grass"];
+    public static readonly string[] GrassModes = ["blades", "cards", "leaves"];
+    public static readonly string[] HeadKinds = ["none", "seeds", "flowers", "plumes", "cattails"];
     public static readonly string[] Styles = ["realistic", "stylized"];
     public static readonly string[] Shapes = ["spherical", "hemispherical", "conical", "cylindrical", "flame", "inverse", "tapered", "umbrella"];
     public static readonly string[] RootStyles = ["flare", "surface", "prop", "compact"];
@@ -197,6 +199,32 @@ public sealed class TreeRecipe
     /// <summary>Sharp pixels: every texture sampled nearest (no blur between pixels), whatever its size. Pixel art always is.</summary>
     public bool SharpPixels { get; set; }
 
+    // Grass tufts (archetype "grass"): the height is the tallest blade's; the leaf colours are the blades' (root to tip).
+    /// <summary>"blades" (each blade a curving strip: the stylized look, and close-up grass), "cards" (crossed cards of painted blades: cheap, realistic far away) or "leaves" (each blade a whole leaf of the leaf shape: fern fronds, broad hosta leaves, slender lily leaves).</summary>
+    public string GrassMode { get; set; } = "blades";
+    /// <summary>Blades in the tuft (cards show about a dozen each).</summary>
+    public int Blades { get; set; } = 40;
+    /// <summary>A blade's width at its root (metres).</summary>
+    public double BladeWidth { get; set; } = 0.012;
+    /// <summary>The patch of ground the blades rise from (radius, metres).</summary>
+    public double Spread { get; set; } = 0.1;
+    /// <summary>How far the outer blades lean out (degrees): a fountain of blades, or a tight upright clump.</summary>
+    public double Splay { get; set; } = 25;
+    /// <summary>How much the blades bend over towards their tips (0 straight … 1 flopping over).</summary>
+    public double Droop { get; set; } = 0.35;
+    /// <summary>How much shorter some blades are (0 all the same … 0.9).</summary>
+    public double HeightSpread { get; set; } = 0.35;
+    /// <summary>A twist along each blade (0 flat … 1 half a turn): dune grass curls.</summary>
+    public double Curl { get; set; }
+    /// <summary>Tips turning to straw (0 green … 1 dry).</summary>
+    public double DryTips { get; set; }
+    /// <summary>What the stalks carry: none, seeds (wheat, foxtail), flowers, plumes (pampas) or cattails (reeds); how many, how big (metres), their colour and a second colour (a flower's centre).</summary>
+    public string Heads { get; set; } = "none";
+    public int HeadCount { get; set; }
+    public double HeadSize { get; set; } = 0.04;
+    public string HeadColor { get; set; } = "#d8c27a";
+    public string HeadColor2 { get; set; } = "#f1d24a";
+
     /// <summary>The game this tree is made for (GameProfiles: its manifest names and hand-off note), or empty for any.</summary>
     public string Profile { get; set; } = "";
 
@@ -343,6 +371,20 @@ public sealed class TreeRecipe
         Pixels = PixelSizes.Contains(Pixels) ? Pixels : 0;
         PixelColours = PixelColours <= 0 ? 0 : Math.Clamp(PixelColours, 4, 64);
         Profile = GameProfiles.Find(Profile) != null ? Profile : "";
+        if (Archetype == "grass") Billboard = false;       // a tuft's farthest level is already a few triangles
+        GrassMode = Pick(GrassMode, GrassModes);
+        Blades = Math.Clamp(Blades, 1, 2000);
+        BladeWidth = C(BladeWidth, 0.001, 0.5, 0.012);
+        Spread = C(Spread, 0, 5, 0.1);
+        Splay = C(Splay, 0, 85, 25);
+        Droop = C(Droop, 0, 1, 0.35);
+        HeightSpread = C(HeightSpread, 0, 0.9, 0.35);
+        Curl = C(Curl, 0, 1, 0);
+        DryTips = C(DryTips, 0, 1, 0);
+        Heads = Pick(Heads, HeadKinds);
+        HeadCount = Math.Clamp(HeadCount, 0, 200);
+        HeadSize = C(HeadSize, 0.005, 1, 0.04);
+        HeadColor = Hex(HeadColor, "#d8c27a"); HeadColor2 = Hex(HeadColor2, "#f1d24a");
         BarkColor = Hex(BarkColor, "#5a4636");
         BarkMaterial = BarkMaterial is { Length: <= 60 } && BarkMaterial.All(c => char.IsAsciiLetterOrDigit(c) || c == '-') ? BarkMaterial : "";
         BarkTile = C(BarkTile, 0.05, 20, 1);
@@ -665,7 +707,90 @@ public static class TreePresets
             Foliage = "crystals", LeafSize = 0.8, LeafDensity = 0.8, LeafColor = "#7a3ad8", LeafColor2 = "#d8a8ff", Glow = 0.55,
             BarkColor = "#3a2e4a", BarkMaterial = "painted", Budget = 3000, Quality = "low",
         }, "Fantasy"),
+
+        // ---- Bushes and shrubs: many stems from the ground, the crown starting just above it.
+        new("round-bush", "Round bush (realistic)", "A rounded green bush of broad leaves on many stems.", () => Bush("Round bush", 1.4, "spherical", 11, 0.45, 0.7, "#3d6a26", "#7fa63a"), "Bushes & shrubs"),
+        new("boxwood", "Boxwood ball (realistic)", "A dense, clipped ball of tiny leaves, for gardens and courtyards.", () => Bush("Boxwood", 0.9, "spherical", 14, 0.25, 0.95, "#2f5422", "#5f8a32", "round", r => { r.CanopyFullness = 0.95; r.Wobble = 2; }), "Bushes & shrubs"),
+        new("hedge", "Hedge (realistic)", "A tall, upright block of small leaves: a garden hedge or a field boundary.", () => Bush("Hedge", 1.8, "cylindrical", 16, 0.3, 0.9, "#2f5a24", "#6a9234", "round", r => { r.CanopyFullness = 0.95; r.Levels[0].Angle = 35; }), "Bushes & shrubs"),
+        new("holly", "Holly bush (realistic)", "A dark, glossy, cone-shaped evergreen.", () => Bush("Holly", 2.2, "conical", 12, 0.35, 0.8, "#1f3d1c", "#3f6a2c"), "Bushes & shrubs"),
+        new("hydrangea", "Flowering bush (realistic)", "A round bush covered in pink flower heads.", () => Bush("Flowering bush", 1.3, "spherical", 12, 0.45, 0.75, "#3f6a2a", "#e08ab8"), "Bushes & shrubs"),
+        new("lilac", "Lilac bush (realistic)", "A tall, loose bush hung with violet blossom.", () => Bush("Lilac", 2, "flame", 10, 0.5, 0.65, "#3f6a2a", "#a07ad0"), "Bushes & shrubs"),
+        new("autumn-bush", "Autumn bush (realistic)", "A round bush turned red and orange.", () => Bush("Autumn bush", 1.3, "spherical", 11, 0.4, 0.7, "#a8321e", "#e8902a", "maple"), "Bushes & shrubs"),
+        new("creeping-juniper", "Creeping juniper (realistic)", "A low, spreading mat of blue-green needles.", () => Bush("Creeping juniper", 0.6, "umbrella", 12, 0.4, 0.8, "#2f4a3a", "#6a8a6a", "needle", r => { r.LeafCluster = "spray"; r.Arrangement = "fan"; r.Levels[0].Angle = 75; r.Levels[0].Bend = -15; }), "Bushes & shrubs"),
+        new("mugo-pine", "Mountain pine shrub (realistic)", "A knee-high mountain pine: a cushion of dark needles.", () => Bush("Mountain pine", 1.4, "hemispherical", 10, 0.5, 0.8, "#24402a", "#4f6a36", "needle", r => { r.LeafCluster = "spray"; r.Arrangement = "fan"; r.BarkColor = "#5a4636"; }), "Bushes & shrubs"),
+        new("sagebrush", "Sagebrush (realistic)", "A silvery grey-blue shrub of dry plains and deserts.", () => Bush("Sagebrush", 1.1, "hemispherical", 12, 0.25, 0.55, "#7a8a7a", "#b8c4b0", "slender", r => { r.Wobble = 10; r.CanopyFullness = 0.6; }), "Bushes & shrubs"),
+        new("bramble", "Bramble (realistic)", "A low, tangled thicket of dark leaves on arching stems.", () => Bush("Bramble", 1, "hemispherical", 14, 0.3, 0.7, "#2a4a22", "#5a7a34", "round", r => { r.Wobble = 18; r.Levels[0].Bend = 60; r.Levels[0].Angle = 75; }), "Bushes & shrubs"),
+        new("marsh-shrub", "Marsh shrub (realistic)", "A tangled wetland shrub, a little moss hanging from it.", () => Bush("Marsh shrub", 2, "hemispherical", 10, 0.5, 0.6, "#3a5a2a", "#6f8a3a", "broad", r => { r.Moss = 0.25; r.MossColor = "#7d8a6a"; r.Wobble = 10; }), "Bushes & shrubs"),
+        new("tropical-bush", "Tropical bush (realistic)", "Big, glossy leaves on a few stems: the jungle understorey.", () => Bush("Tropical bush", 1.4, "hemispherical", 7, 0.55, 0.7, "#2a5a24", "#6aa03a", "broad", r => { r.LeafCluster = "spray"; r.Arrangement = "dome"; }), "Bushes & shrubs"),
+        new("stylized-bush", "Stylized round bush", "A puffy, painted ball of a bush.", () => Bush("Stylized bush", 1.2, "spherical", 7, 0.5, 0.75, "#3e7d2a", "#b7d14a", "round", style: "stylized"), "Bushes & shrubs"),
+        new("stylized-hedge", "Stylized hedge", "A chunky, painted hedge block.", () => Bush("Stylized hedge", 1.6, "cylindrical", 9, 0.5, 0.85, "#2f6a2a", "#9fc84a", "round", r => { r.Levels[0].Angle = 35; }, "stylized"), "Bushes & shrubs"),
+        new("stylized-flower-bush", "Stylized flowering bush", "A puffy bush in bright pink blossom.", () => Bush("Stylized flowering bush", 1.2, "spherical", 7, 0.5, 0.75, "#3e7d2a", "#f08ac0", "round", style: "stylized"), "Bushes & shrubs"),
+        new("stylized-autumn-bush", "Stylized autumn bush", "A puffy bush in painted oranges and reds.", () => Bush("Stylized autumn bush", 1.2, "spherical", 7, 0.5, 0.75, "#c0401e", "#f8b040", "round", style: "stylized"), "Bushes & shrubs"),
+        new("stylized-pine-shrub", "Stylized pine shrub", "A small, chunky cushion of painted needles.", () => Bush("Stylized pine shrub", 1, "hemispherical", 7, 0.45, 0.8, "#245a3a", "#6fae4f", "needle", style: "stylized"), "Bushes & shrubs"),
+        new("stylized-dry-bush", "Stylized dry bush", "A sparse, twiggy bush of olive tufts for dry ground.", () => Bush("Stylized dry bush", 1, "hemispherical", 9, 0.4, 0.45, "#7a7a3a", "#d0c870", "round", r => { r.Wobble = 12; }, "stylized"), "Bushes & shrubs"),
+        new("glowbush", "Glowbush", "A fantasy bush whose teal leaves glow at night.", () => Bush("Glowbush", 1.2, "spherical", 7, 0.5, 0.75, "#1f6a6a", "#8ff0e0", "round", r => { r.Glow = 0.6; r.BarkColor = "#4a4a5a"; }, "stylized"), "Bushes & shrubs"),
+
+        // ---- Grass and tufts: blades from a patch of ground (no trunk), the heads on stalks above them.
+        new("fern", "Fern", "Arching fern fronds rising from the forest floor.", () => Grass("Fern", 0.7, 12, 0.2, 0.06, 45, 0.55, "#2f5a22", "#7ea83a", r => { r.GrassMode = "leaves"; r.LeafShape = "frond"; r.HeightSpread = 0.3; }), "Grass & tufts"),
+        new("bracken", "Bracken", "A tall, dense clump of fronds, bronze at the tips.", () => Grass("Bracken", 1.1, 16, 0.3, 0.12, 35, 0.5, "#3a5a22", "#a8902e", r => { r.GrassMode = "leaves"; r.LeafShape = "frond"; }), "Grass & tufts"),
+        new("hosta", "Broad-leaved plant (hosta)", "A low mound of broad leaves for shady ground.", () => Grass("Hosta", 0.4, 14, 0.22, 0.05, 55, 0.4, "#2f5a2a", "#8ab84a", r => { r.GrassMode = "leaves"; r.LeafShape = "broad"; r.LeafCluster = "twig"; r.HeightSpread = 0.4; }), "Grass & tufts"),
+        new("lily-leaves", "Lily leaves", "Slender, arching leaves, with a few white flowers.", () => Grass("Lily leaves", 0.6, 20, 0.12, 0.06, 30, 0.45, "#2f6a2a", "#7ab048", r => { r.GrassMode = "leaves"; r.LeafShape = "slender"; r.LeafCluster = "twig"; r.Heads = "flowers"; r.HeadCount = 3; r.HeadSize = 0.06; r.HeadColor = "#f6f2ea"; r.HeadColor2 = "#e8c040"; }), "Grass & tufts"),
+        new("stylized-fern", "Stylized fern", "Chunky, painted fern fronds.", () => Grass("Stylized fern", 0.7, 8, 0.25, 0.06, 45, 0.5, "#2f7a2a", "#b0d850", r => { r.GrassMode = "leaves"; r.LeafShape = "frond"; }, "stylized"), "Grass & tufts"),
+        new("meadow-grass", "Meadow grass tuft", "A loose tuft of green blades, bending over at the tips.", () => Grass("Meadow grass", 0.45, 45, 0.01, 0.08, 28, 0.4, "#3f6a26", "#8fb048"), "Grass & tufts"),
+        new("short-grass", "Short grass tuft", "A low, dense tuft for lawns and grazed ground.", () => Grass("Short grass", 0.15, 60, 0.006, 0.06, 22, 0.2, "#3a6a24", "#7aa83e"), "Grass & tufts"),
+        new("tall-grass", "Tall grass", "Knee-high blades, heavy at the tips.", () => Grass("Tall grass", 1, 70, 0.012, 0.12, 18, 0.55, "#3f6a26", "#9ab450"), "Grass & tufts"),
+        new("dry-grass", "Dry grass", "Straw-coloured blades of late summer.", () => Grass("Dry grass", 0.5, 50, 0.008, 0.09, 30, 0.45, "#8a8a4a", "#d8c890", r => r.DryTips = 0.8), "Grass & tufts"),
+        new("frosted-grass", "Frosted grass", "Blades white with frost towards their tips.", () => Grass("Frosted grass", 0.35, 50, 0.008, 0.08, 26, 0.35, "#4a6a50", "#e4eeee"), "Grass & tufts"),
+        new("sedge", "Swamp sedge", "A fountain of long, arching blades for wet ground.", () => Grass("Swamp sedge", 0.6, 80, 0.008, 0.07, 40, 0.7, "#4a6030", "#90a050"), "Grass & tufts"),
+        new("dune-grass", "Dune grass", "Stiff, curling blue-green blades of the sand dunes.", () => Grass("Dune grass", 0.7, 50, 0.007, 0.1, 32, 0.5, "#6a8a6a", "#b8c8a0", r => { r.Curl = 0.6; r.DryTips = 0.3; r.Windswept = 0.3; }), "Grass & tufts"),
+        new("wild-wheat", "Wild wheat", "Straw-gold stalks with seed heads.", () => Grass("Wild wheat", 0.8, 30, 0.008, 0.08, 15, 0.3, "#6a7a3a", "#c8b870", r => { r.Heads = "seeds"; r.HeadCount = 12; r.HeadSize = 0.05; r.HeadColor = "#d8b860"; r.DryTips = 0.5; }), "Grass & tufts"),
+        new("foxtail", "Foxtail grass", "Nodding, bristly seed heads above a green tuft.", () => Grass("Foxtail grass", 0.6, 40, 0.008, 0.08, 25, 0.4, "#3f6a26", "#8fb048", r => { r.Heads = "seeds"; r.HeadCount = 10; r.HeadSize = 0.06; r.HeadColor = "#b8b070"; r.Droop = 0.5; }), "Grass & tufts"),
+        new("pampas", "Pampas grass", "A big fountain of blades under tall, feathery plumes.", () => Grass("Pampas grass", 2, 120, 0.015, 0.25, 35, 0.6, "#5a7040", "#a8b080", r => { r.Heads = "plumes"; r.HeadCount = 14; r.HeadSize = 0.12; r.HeadColor = "#efe6d0"; r.DryTips = 0.3; }), "Grass & tufts"),
+        new("reeds", "Reeds and cattails", "Upright reeds with brown cattails, for pond edges.", () => Grass("Reeds", 1.6, 40, 0.014, 0.12, 10, 0.15, "#4f6a30", "#9aa860", r => { r.Heads = "cattails"; r.HeadCount = 6; r.HeadSize = 0.08; r.HeadColor = "#5a3a22"; }), "Grass & tufts"),
+        new("lavender", "Lavender", "Grey-green tufts under spikes of purple flowers.", () => Grass("Lavender", 0.5, 60, 0.005, 0.12, 30, 0.2, "#5a6a50", "#9aaa88", r => { r.Heads = "seeds"; r.HeadCount = 18; r.HeadSize = 0.05; r.HeadColor = "#7a5aa8"; }), "Grass & tufts"),
+        new("wildflowers", "Wildflower tuft (daisies)", "Grass with white daisies standing out of it.", () => Grass("Wildflowers", 0.4, 40, 0.008, 0.1, 25, 0.35, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 8; r.HeadSize = 0.035; r.HeadColor = "#f4f0ec"; r.HeadColor2 = "#f1c232"; }), "Grass & tufts"),
+        new("poppies", "Poppies", "Grass with red poppies.", () => Grass("Poppies", 0.5, 35, 0.008, 0.1, 22, 0.35, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 6; r.HeadSize = 0.05; r.HeadColor = "#c8281e"; r.HeadColor2 = "#2a2420"; }), "Grass & tufts"),
+        new("blue-flowers", "Blue flowers", "Grass dotted with small blue flowers.", () => Grass("Blue flowers", 0.3, 40, 0.007, 0.09, 25, 0.3, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 10; r.HeadSize = 0.025; r.HeadColor = "#5a7ad8"; r.HeadColor2 = "#f0e8a0"; }), "Grass & tufts"),
+        new("yellow-flowers", "Yellow flowers", "Grass with buttercup-yellow flowers.", () => Grass("Yellow flowers", 0.35, 40, 0.007, 0.09, 25, 0.3, "#3f6a26", "#8fb048", r => { r.Heads = "flowers"; r.HeadCount = 10; r.HeadSize = 0.03; r.HeadColor = "#f2c81e"; r.HeadColor2 = "#d88a1a"; }), "Grass & tufts"),
+        new("meadow-grass-cards", "Meadow grass (cards)", "The meadow tuft as a few crossed cards: very cheap, for covering whole fields.", () => Grass("Meadow grass cards", 0.45, 48, 0.01, 0.08, 28, 0.4, "#3f6a26", "#8fb048", r => r.GrassMode = "cards"), "Grass & tufts"),
+        new("tall-grass-cards", "Tall grass (cards)", "Tall grass as crossed cards, seed heads painted on.", () => Grass("Tall grass cards", 0.9, 60, 0.012, 0.12, 18, 0.5, "#4a6a2a", "#b0b460", r => { r.GrassMode = "cards"; r.Heads = "seeds"; r.HeadCount = 6; r.HeadColor = "#c8b878"; }), "Grass & tufts"),
+        new("stylized-grass", "Stylized grass tuft", "A few chunky, painted blades: the hand-painted game look.", () => Grass("Stylized grass", 0.5, 14, 0.05, 0.1, 30, 0.35, "#3e8a2a", "#c4e05a", style: "stylized"), "Grass & tufts"),
+        new("stylized-tall-grass", "Stylized tall grass", "Tall, chunky blades swaying in painted greens.", () => Grass("Stylized tall grass", 0.9, 18, 0.06, 0.14, 25, 0.45, "#2f7a2a", "#b0d850", style: "stylized"), "Grass & tufts"),
+        new("stylized-dry-grass", "Stylized dry grass", "Chunky straw-yellow blades.", () => Grass("Stylized dry grass", 0.5, 14, 0.05, 0.1, 32, 0.4, "#a89a4a", "#f0dc8a", style: "stylized"), "Grass & tufts"),
+        new("stylized-flowers", "Stylized flower tuft", "Chunky blades with bright pink flowers.", () => Grass("Stylized flowers", 0.45, 12, 0.05, 0.12, 30, 0.35, "#3e8a2a", "#c4e05a", r => { r.Heads = "flowers"; r.HeadCount = 5; r.HeadSize = 0.08; r.HeadColor = "#f080b0"; r.HeadColor2 = "#ffe060"; }, "stylized"), "Grass & tufts"),
+        new("glowgrass", "Glowgrass", "Fantasy grass whose blades and seed tips glow teal.", () => Grass("Glowgrass", 0.6, 30, 0.02, 0.1, 30, 0.4, "#1f5a5a", "#7ff0e0", r => { r.Heads = "seeds"; r.HeadCount = 8; r.HeadSize = 0.05; r.HeadColor = "#9ff0ff"; r.Glow = 0.6; }, "stylized"), "Grass & tufts"),
     ];
+
+    /// <summary>A bush: many stems from the ground, the crown starting just above it, leaves sized for a small plant.</summary>
+    private static TreeRecipe Bush(string name, double height, string shape, int stems, double leafSize, double density, string color, string color2, string leaf = "broad", Action<TreeRecipe>? change = null, string style = "realistic")
+    {
+        var stylized = style == "stylized";
+        var r = new TreeRecipe
+        {
+            Name = name, Archetype = "broadleaf", Style = style, Height = height, TrunkRadius = Math.Max(0.02, height * 0.035), Taper = 0.8, CrownStart = 0.05, Shape = shape,
+            RootStyle = "compact", Roots = 0, Flare = 0, Lean = 3, Wobble = 8, Collar = 0.4,
+            Levels = [L(stems, 0, 68, 0.8, 0.6, 40, 14, 12), L(6, 0.05, 45, 0.55, 0.5, 10, 16, 15)],
+            Foliage = stylized ? "tufts" : "masses", LeafCluster = "cluster", LeafShape = leaf, LeafSize = leafSize, LeafDensity = density,
+            LeafColor = color, LeafColor2 = color2, BarkColor = "#5a4a3a", BarkMaterial = stylized ? "painted" : "bark", BarkTile = 0.5,
+            CanopyFullness = 0.85, Billboard = false, TriangleTarget = stylized ? 0 : 4000,
+        };
+        if (stylized) { r.Budget = 1500; r.Quality = "low"; r.Twist = 0.3; }
+        change?.Invoke(r);
+        return r;
+    }
+
+    /// <summary>A grass tuft: blades from a patch of ground (no trunk, no branches), three levels of detail, swaying in the wind.</summary>
+    private static TreeRecipe Grass(string name, double height, int blades, double width, double spread, double splay, double droop, string color, string color2, Action<TreeRecipe>? change = null, string style = "realistic")
+    {
+        var r = new TreeRecipe
+        {
+            Name = name, Archetype = "grass", Style = style, Height = height, TrunkRadius = 0.01, Levels = [], Foliage = "none", BarkMaterial = "",
+            Blades = blades, BladeWidth = width, Spread = spread, Splay = splay, Droop = droop, LeafColor = color, LeafColor2 = color2,
+            Lods = 3, Billboard = false, Shading = 0.6, Lean = 0, Wobble = 0,
+        };
+        change?.Invoke(r);
+        return r;
+    }
 
     public static TreeRecipe Make(string id) => (All.Concat(Thornwake).FirstOrDefault(p => p.Id == id) ?? All[0]).Make().Clamped();
 

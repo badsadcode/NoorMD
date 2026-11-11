@@ -10578,6 +10578,40 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with inputs', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80q. NoorForm (preview.157): bushes and grass tufts in the list; a grass tuft has its own pane (blades,
+    // shape, colour, heads) and tabs, sent to the app with the recipe.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const AS = () => page.evaluate(() => NoorAssets._state());
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject', 'noormd.assets.look'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      const heads = await page.$$eval('#ab-presets .gnav-head', (n) => n.map((x) => x.textContent));
+      check('the list has Bushes & shrubs and Grass & tufts', heads.includes('Bushes & shrubs') && heads.includes('Grass & tufts'), heads);
+      await page.click('#ab-presets [data-preset="meadow-grass"]');
+      await waitFn(page, () => NoorAssets._state().recipe && NoorAssets._state().recipe.archetype === 'grass');
+      const tabs = await page.$$eval('#ab-tabs [data-tab]', (n) => n.map((x) => x.textContent));
+      check('a grass tuft: its own tabs (Grass, Mesh, Export: no branches or bark)', tabs.join() === 'Grass,Mesh,Export', tabs);
+      check('…the Grass pane: blades, spread, fanning out, bending over, the stalks\' heads', !!(await page.$('#ab-pane input[data-key="blades"]')) && !!(await page.$('#ab-pane input[data-key="splay"]')) && !!(await page.$('#ab-pane input[data-key="droop"]')) && !!(await page.$('#ab-pane select[data-key="heads"]')));
+      check('…no trunk sliders', !(await page.$('#ab-pane input[data-key="trunkRadius"]')));
+      await page.selectOption('#ab-pane select[data-key="heads"]', 'flowers');
+      await page.waitForSelector('#ab-pane input[data-key="headCount"]');
+      check('Stalks carry › Flowers: how many, size, petals and centre colours shown', !!(await page.$('#ab-pane input[data-key="headSize"]')) && !!(await page.$('#ab-pane input[data-key="headColor2"]')));
+      await page.$eval('#ab-pane input[data-key="headCount"]', (r) => { r.value = '7'; r.dispatchEvent(new Event('input', { bubbles: true })); r.dispatchEvent(new Event('change', { bubbles: true })); });
+      await page.selectOption('#ab-pane select[data-key="grassMode"]', 'leaves');
+      await page.waitForSelector('#ab-pane select[data-key="leafShape"]');
+      check('Made of › Leaves: the leaf shape can be chosen (fern fronds…)', (await page.$$eval('#ab-pane select[data-key="leafShape"] option', (o) => o.map((x) => x.value))).includes('frond'));
+      await waitFn(page, () => { const b = window.__mock.state.assets.builds; const r = b[b.length - 1]; return r && r.archetype === 'grass' && r.heads === 'flowers' && r.headCount === 7 && r.grassMode === 'leaves'; });
+      check('…all of it sent to the app with the recipe', true);
+      await page.click('#ab-tabs [data-tab="mesh"]');
+      check('Mesh for grass: levels and triangles, wind; no trunk or billboard settings', !!(await page.$('#ab-pane input[data-key="lods"]')) && !(await page.$('#ab-pane input[data-key="trunkSides"]')) && !(await page.$('#ab-pane input[data-key="billboard"]')));
+      await page.click('#ab-presets [data-preset="round-bush"]');
+      await waitFn(page, () => NoorAssets._state().recipe && NoorAssets._state().recipe.name === 'Round bush');
+      const tabs2 = await page.$$eval('#ab-tabs [data-tab]', (n) => n.map((x) => x.textContent));
+      check('a bush: the tree\'s tabs back (it grows like a tree, on many stems)', tabs2.includes('Branches') && tabs2.includes('Leaves & bark'), tabs2);
+      check('no page errors with bushes and grass', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
