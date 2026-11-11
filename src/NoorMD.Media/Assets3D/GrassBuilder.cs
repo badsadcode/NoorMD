@@ -35,7 +35,7 @@ public static class GrassBuilder
             // Each blade shows one leaf sprite (a frond, a broad leaf…), drawn as the trees' leaves are.
             grass.Alpha = "mask"; grass.AlphaCutoff = 0.5f;
             var size = tex > 0 ? Math.Min(1024, tex) : 128;
-            var px = recipe.LeafShape == "frond" ? FrondPixels(recipe, size) : LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, size, recipe.Seed, "twig");
+            var px = Pixelate(recipe, recipe.LeafShape == "frond" ? FrondPixels(recipe, size) : LeafAtlas.Pixels(recipe.LeafShape, recipe.LeafColor, recipe.LeafColor2, stylized, size, recipe.Seed, "twig"), 2);
             if (tex > 0) { Use(grass, px); (grass.NormalPng, grass.OcclusionRoughnessMetallicPng) = LeafAtlas.Maps(px); grass.Roughness = 1; }
             else grass.BaseColor = Linear(recipe.LeafColor);
         }
@@ -43,11 +43,11 @@ public static class GrassBuilder
         {
             grass.Alpha = "mask"; grass.AlphaCutoff = 0.5f;
             var size = tex > 0 ? Math.Min(1024, tex) : 128;
-            var px = recipe.CardArt switch { "bush" => BushPixels(recipe, size), "fronds" => FrondPixels(recipe, size), _ => CardPixels(recipe, size) };
+            var px = Pixelate(recipe, recipe.CardArt switch { "bush" => BushPixels(recipe, size), "fronds" => FrondPixels(recipe, size), _ => CardPixels(recipe, size) }, 2);
             if (tex > 0) { Use(grass, px); (grass.NormalPng, grass.OcclusionRoughnessMetallicPng) = LeafAtlas.Maps(px); grass.Roughness = 1; }
             else grass.BaseColor = Linear(recipe.LeafColor);
         }
-        else if (tex > 0) Use(grass, BladePixels(recipe));
+        else if (tex > 0) Use(grass, recipe.Pixels > 0 ? PixelBlades(recipe) : BladePixels(recipe));
         else grass.BaseColor = Linear(recipe.LeafColor);
         if (glow > 0) grass.Emissive = Lin3(recipe.LeafColor2) * glow * 0.5f;
         // Cards are about few triangles: their heads (seeds, flowers…) are painted on the picture, not modelled.
@@ -480,13 +480,15 @@ public static class GrassBuilder
         {
             var rng = new Random(r.Seed * 53 + cell);
             int ox = (cell & 1) * half, oy = (cell >> 1) * half;
-            var blades = 14 + rng.Next(6);
+            // Pixel art: fewer, wider blades, each at least about two pixels wide, so they survive the shrinking.
+            var pixelWidth = r.Pixels > 0 ? 2.2f / r.Pixels : 0f;
+            var blades = r.Pixels > 0 ? 7 + rng.Next(3) : 14 + rng.Next(6);
             for (var b = 0; b < blades; b++)
             {
-                var x0 = 0.5f + (float)(rng.NextDouble() - 0.5) * 0.3f;
+                var x0 = 0.5f + (float)(rng.NextDouble() - 0.5) * (r.Pixels > 0 ? 0.6f : 0.3f);   // pixel art: roots apart, not one block
                 var lean = (float)(rng.NextDouble() - 0.5) * 1.1f * (float)(0.4 + r.Splay / 60);
                 var len = 0.6f + 0.38f * (float)rng.NextDouble();
-                var width = (float)(0.018 + 0.02 * rng.NextDouble()) * (float)Math.Clamp(r.BladeWidth / 0.012, 0.6, 2.5);
+                var width = MathF.Max(pixelWidth, (float)(0.018 + 0.02 * rng.NextDouble()) * (float)Math.Clamp(r.BladeWidth / 0.012, 0.6, 2.5));
                 var droop = (float)r.Droop * (0.4f + 0.8f * (float)rng.NextDouble()) * MathF.Sign(lean == 0 ? 1 : lean);
                 var shade = 0.8f + 0.35f * (float)rng.NextDouble();
                 const int steps = 60;
@@ -607,6 +609,7 @@ public static class GrassBuilder
                     var light = (0.55f + (stylized ? 0.18f : 0.25f) * layer) * (0.75f + (stylized ? 0.3f : 0.45f) * height) * (0.8f + 0.35f * (1 - depth)) * (0.85f + 0.3f * (float)rng.NextDouble());
                     var col = Vector3.Lerp(c1, c2, Math.Clamp(height * 0.9f + (layer - 1) * 0.15f + (float)(rng.NextDouble() - 0.5) * 0.3f, 0, 1)) * light;
                     var rad = stylized ? 0.026f + 0.016f * (float)rng.NextDouble() : 0.016f + 0.012f * (float)rng.NextDouble();
+                    if (r.Pixels > 0) rad = MathF.Max(rad, (1.3f + (float)rng.NextDouble()) / r.Pixels);     // a leaf a few pixels across
                     if (stylized) Disc(px, size, ox, oy, half, x, y - 0.006f, rad + 0.006f, col * 0.55f);   // a painted dark edge under each
                     Disc(px, size, ox, oy, half, x, y, rad, col);
                 }
@@ -640,6 +643,56 @@ public static class GrassBuilder
                 px[i] = px[i] * (1 - a) + c.X * a; px[i + 1] = px[i + 1] * (1 - a) + c.Y * a; px[i + 2] = px[i + 2] * (1 - a) + c.Z * a;
                 px[i + 3] = MathF.Max(px[i + 3], a);
             }
+    }
+
+    // ---- Pixel art ----
+
+    /// <summary>
+    /// The picture as pixel art (small textures on): an atlas of <paramref name="cells"/> × <paramref name="cells"/> pictures,
+    /// each shrunk to the recipe's pixel size (so a card's picture is that many pixels across), cut out hard, the
+    /// colours reduced to its palette when one is set, and with a dark one-pixel outline when asked.
+    /// </summary>
+    internal static RawImage Pixelate(TreeRecipe r, RawImage px, int cells)
+    {
+        if (r.Pixels <= 0) return px;
+        var small = PixelArt.Make(px, r.Pixels * cells, r.PixelColours);
+        return r.PixelOutline ? Outline(small, LeafAtlas.Hex(r.LeafColor) * 0.35f) : small;
+    }
+
+    /// <summary>Opaque pixels next to a see-through one turn dark: the hand-drawn outline of pixel-art sprites.</summary>
+    internal static RawImage Outline(RawImage img, Vector3 ink)
+    {
+        var w = img.Width; var h = img.Height; var src = img.Rgba; var dst = (byte[])src.Clone();
+        bool Clear(int x, int y) => x < 0 || y < 0 || x >= w || y >= h || src[(y * w + x) * 4 + 3] < 128;
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = (y * w + x) * 4;
+                if (src[i + 3] < 128 || !(Clear(x - 1, y) || Clear(x + 1, y) || Clear(x, y - 1) || Clear(x, y + 1))) continue;
+                dst[i] = B(ink.X); dst[i + 1] = B(ink.Y); dst[i + 2] = B(ink.Z);
+            }
+        return img with { Rgba = dst };
+    }
+
+    /// <summary>Blades in pixel art: the colour up each blade in a few hard bands (the palette's steps), not a smooth gradient.</summary>
+    internal static RawImage PixelBlades(TreeRecipe r)
+    {
+        var steps = r.PixelColours > 0 ? Math.Clamp(r.PixelColours / 2, 3, 8) : 5;
+        var smooth = BladePixels(r);
+        var h = Math.Clamp(r.Pixels, 8, 64);
+        var px = new byte[4 * h * 4];
+        for (var y = 0; y < h; y++)
+        {
+            // The band this row falls in, sampled from the smooth gradient at the band's middle.
+            var band = Math.Min(steps - 1, y * steps / h);
+            var sy = (int)((band + 0.5f) / steps * (smooth.Height - 1));
+            for (var x = 0; x < 4; x++)
+            {
+                var i = (y * 4 + x) * 4; var j = (sy * smooth.Width + 3) * 4;
+                px[i] = smooth.Rgba[j]; px[i + 1] = smooth.Rgba[j + 1]; px[i + 2] = smooth.Rgba[j + 2]; px[i + 3] = 255;
+            }
+        }
+        return new RawImage(4, h, px);
     }
 
     // ---- Finishing ----

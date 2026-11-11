@@ -198,6 +198,8 @@ public sealed class TreeRecipe
     /// <summary>With small textures: the colours reduced to this many (a pixel-art palette), or 0 to keep them all.</summary>
     public int PixelColours { get; set; }
     public static readonly int[] PixelSizes = [0, 32, 64, 128];
+    /// <summary>With small textures on grass and card plants: a dark one-pixel outline round each picture (the pixel-art look).</summary>
+    public bool PixelOutline { get; set; }
     /// <summary>Sharp pixels: every texture sampled nearest (no blur between pixels), whatever its size. Pixel art always is.</summary>
     public bool SharpPixels { get; set; }
 
@@ -776,6 +778,19 @@ public static class TreePresets
         new("stylized-cards-grass", "Stylized grass (cards)", "Three planes of chunky, painted blades.", () => Cards("Stylized grass cards", "star", "blades", 0.5, "#3e8a2a", "#c4e05a", style: "stylized"), "Low-poly cards"),
         new("stylized-cards-bush", "Stylized bush (cards)", "A dome of planes painted with big, bright leaves.", () => Cards("Stylized bush cards", "dome", "bush", 1.1, "#3e7d2a", "#b7d14a", style: "stylized"), "Low-poly cards"),
         new("stylized-cards-flower-bush", "Stylized flowering bush (cards)", "Painted leaves and big pink flowers on a dome of planes.", () => Cards("Stylized flowering bush cards", "dome", "bush", 1.1, "#3e7d2a", "#b7d14a", r => { r.Heads = "flowers"; r.HeadCount = 25; r.HeadSize = 0.09; r.HeadColor = "#f080b0"; r.HeadColor2 = "#ffe060"; }, "stylized"), "Low-poly cards"),
+        new("pixel-grass-cross", "Pixel grass (cross)", "Two crossed planes of 32-pixel grass in 8 colours, outlined.", () => Pixel("Pixel grass", "cross", "blades", 0.45, "#3f7a2a", "#9ccc4a", 32, 8), "Pixel art"),
+        new("pixel-grass-star", "Pixel grass (star)", "Three planes of 32-pixel grass.", () => Pixel("Pixel grass star", "star", "blades", 0.5, "#3f7a2a", "#9ccc4a", 32, 8), "Pixel art"),
+        new("pixel-tall-grass", "Pixel tall grass", "Tall 32-pixel grass with seed heads.", () => Pixel("Pixel tall grass", "star", "blades", 0.9, "#4a7a2a", "#c0c060", 32, 8, r => { r.Heads = "seeds"; r.HeadCount = 6; r.HeadColor = "#e0c870"; }), "Pixel art"),
+        new("pixel-flowers", "Pixel flowers", "Grass with white and yellow pixel flowers.", () => Pixel("Pixel flowers", "star", "blades", 0.45, "#3f7a2a", "#9ccc4a", 32, 10, r => { r.Heads = "flowers"; r.HeadCount = 8; r.HeadColor = "#f8f4f0"; r.HeadColor2 = "#f2c232"; }), "Pixel art"),
+        new("pixel-dry-grass", "Pixel dry grass", "Straw-coloured 32-pixel grass.", () => Pixel("Pixel dry grass", "cross", "blades", 0.5, "#8a8a4a", "#e0d090", 32, 6, r => r.DryTips = 0.8), "Pixel art"),
+        new("pixel-fern", "Pixel fern", "Fern fronds in 32 pixels, leaning out.", () => Pixel("Pixel fern", "fan", "fronds", 0.7, "#2f6a2a", "#8ac04a", 32, 8, r => { r.Splay = 45; r.CardWidth = 0.4; }), "Pixel art"),
+        new("pixel-bush", "Pixel bush", "A dome of 64-pixel leafy planes in 10 colours, outlined.", () => Pixel("Pixel bush", "dome", "bush", 1.1, "#2f6a2a", "#9ccc4a", 64, 10), "Pixel art"),
+        new("pixel-small-bush", "Pixel small bush", "Two crossed planes of a 32-pixel bush.", () => Pixel("Pixel small bush", "cross", "bush", 0.7, "#2f6a2a", "#9ccc4a", 32, 8), "Pixel art"),
+        new("pixel-berry-bush", "Pixel berry bush", "A dark pixel bush dotted with red berries.", () => Pixel("Pixel berry bush", "dome", "bush", 1, "#24502a", "#6a9a3a", 64, 10, r => { r.Heads = "seeds"; r.HeadCount = 40; r.HeadSize = 0.05; r.HeadColor = "#e0302a"; }), "Pixel art"),
+        new("pixel-flower-bush", "Pixel flowering bush", "A pixel bush covered in pink flowers.", () => Pixel("Pixel flowering bush", "dome", "bush", 1.1, "#2f6a2a", "#8ac04a", 64, 12, r => { r.Heads = "flowers"; r.HeadCount = 30; r.HeadSize = 0.08; r.HeadColor = "#f08ab8"; r.HeadColor2 = "#ffe070"; }), "Pixel art"),
+        new("pixel-autumn-bush", "Pixel autumn bush", "A pixel bush in oranges and reds.", () => Pixel("Pixel autumn bush", "dome", "bush", 1, "#b03a1e", "#f0a030", 64, 8), "Pixel art"),
+        new("pixel-hedge", "Pixel hedge", "Side-by-side planes of a 64-pixel hedge.", () => Pixel("Pixel hedge", "hash", "bush", 1.4, "#2a5a2a", "#7aaa40", 64, 8, r => r.CardWidth = 1.8), "Pixel art"),
+        new("pixel-blade-grass", "Pixel blade grass", "A few chunky blades coloured in hard pixel bands.", () => Pixel("Pixel blade grass", "random", "blades", 0.5, "#3f7a2a", "#b0dc50", 32, 8, r => { r.GrassMode = "blades"; r.Style = "stylized"; r.Blades = 12; r.BladeWidth = 0.05; r.Splay = 30; r.Lods = 3; }), "Pixel art"),
         new("meadow-grass", "Meadow grass tuft", "A loose tuft of green blades, bending over at the tips.", () => Grass("Meadow grass", 0.45, 45, 0.01, 0.08, 28, 0.4, "#3f6a26", "#8fb048"), "Grass & tufts"),
         new("short-grass", "Short grass tuft", "A low, dense tuft for lawns and grazed ground.", () => Grass("Short grass", 0.15, 60, 0.006, 0.06, 22, 0.2, "#3a6a24", "#7aa83e"), "Grass & tufts"),
         new("tall-grass", "Tall grass", "Knee-high blades, heavy at the tips.", () => Grass("Tall grass", 1, 70, 0.012, 0.12, 18, 0.55, "#3f6a26", "#9ab450"), "Grass & tufts"),
@@ -824,6 +839,15 @@ public static class TreePresets
     {
         var r = Grass(name, height, 40, 0.01, 0.1, 15, 0.25, color, color2, null, style);
         r.GrassMode = "cards"; r.CardLayout = layout; r.CardArt = art; r.Lods = 2; r.Shading = 0.5;
+        change?.Invoke(r);
+        return r;
+    }
+
+    /// <summary>Card plants in pixel art: small textures, a palette, an outline, sampled sharp.</summary>
+    private static TreeRecipe Pixel(string name, string layout, string art, double height, string color, string color2, int pixels, int colours, Action<TreeRecipe>? change = null)
+    {
+        var r = Cards(name, layout, art, height, color, color2, null, "stylized");
+        r.Pixels = pixels; r.PixelColours = colours; r.PixelOutline = art != "blades";   // outlined leaves and fronds; grass blades stay clean
         change?.Invoke(r);
         return r;
     }

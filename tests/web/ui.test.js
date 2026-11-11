@@ -10638,6 +10638,30 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with card plants', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80s. NoorForm (preview.159): pixel-art grass and bushes — small textures, a palette and an outline on the
+    // grass Mesh tab.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      await page.evaluate(() => { try { ['noormd.assets.view', 'noormd.assets.export', 'noormd.assets.layout', 'noormd.assets.subject', 'noormd.assets.look'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+m');
+      await waitFn(page, () => NoorAssets.isOpen() && NoorAssets._state().build);
+      const heads = await page.$$eval('#ab-presets .gnav-head', (n) => n.map((x) => x.textContent));
+      check('the list has Pixel art', heads.includes('Pixel art'), heads);
+      await page.click('#ab-presets [data-preset="pixel-bush"]');
+      await waitFn(page, () => NoorAssets._state().recipe && NoorAssets._state().recipe.pixels === 64);
+      await page.click('#ab-tabs [data-tab="mesh"]');
+      await page.waitForSelector('#ab-pane select[data-key="pixels"]');
+      check('Mesh for a pixel bush: 64 px, 10 colours, the outline on', (await page.$eval('#ab-pane select[data-key="pixels"]', (x) => x.value)) === '64' && (await page.$eval('#ab-pane select[data-key="pixelColours"]', (x) => x.value)) === '10' && (await page.$eval('#ab-pane input[data-key="pixelOutline"]', (x) => x.checked)));
+      await page.click('#ab-pane input[data-key="pixelOutline"]');
+      await page.selectOption('#ab-pane select[data-key="pixels"]', '32');
+      await waitFn(page, () => { const b = window.__mock.state.assets.builds; const r = b[b.length - 1]; return r && r.pixels === 32 && r.pixelOutline === false; });
+      check('…32 px and no outline: sent with the recipe', true);
+      await page.selectOption('#ab-pane select[data-key="pixels"]', '0');
+      await waitFn(page, () => !document.querySelector('#ab-pane select[data-key="pixelColours"]'));
+      check('small textures off: the palette and outline hidden, sharp pixels offered instead', !(await page.$('#ab-pane input[data-key="pixelOutline"]')) && !!(await page.$('#ab-pane input[data-key="sharpPixels"]')));
+      check('no page errors with pixel-art plants', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();

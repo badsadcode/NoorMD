@@ -5,6 +5,7 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorForm (preview.159): pixel-art grass, flowers, ferns and bushes (32/64 px pictures, a palette, an outline; 13 presets).
 - NoorForm (preview.158): low-poly card plants — grass and bushes as a few crossed planes (cross, star, # grid,
   fan, dome, ring) showing painted grass, leafy bushes or fern fronds; 21 presets.
 - NoorForm (preview.157): bushes and shrubs (20 presets) and grass tufts, ferns and flowers (a new kind, 28 presets:

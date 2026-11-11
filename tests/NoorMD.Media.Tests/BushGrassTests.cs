@@ -97,6 +97,34 @@ public class BushGrassTests
     }
 
     [Fact]
+    public void Pixel_art_plants_have_small_sharp_outlined_textures_in_few_colours()
+    {
+        var pixel = TreePresets.All.Where(p => p.Group == "Pixel art").ToList();
+        Assert.True(pixel.Count >= 10);
+        foreach (var p in pixel)
+        {
+            var r = TreePresets.Make(p.Id);
+            var b = TreeBuilder.Build(r, new TreeBuilder.Options { TextureSize = 512 });
+            Shot(b, p.Id);
+            var mat = b.Lods[0].Materials[0];
+            var img = mat.BaseColorPixels!;
+            Assert.True(mat.Nearest, p.Id);
+            Assert.True(img.Width <= r.Pixels * 2 && img.Height <= r.Pixels * 2, $"{p.Id}: {img.Width}×{img.Height}");
+            // Few colours: the palette (and the outline's ink) and nothing else among the opaque pixels.
+            var colours = new HashSet<int>();
+            for (var i = 0; i < img.Rgba.Length; i += 4) if (img.Rgba[i + 3] >= 128) colours.Add(img.Rgba[i] << 16 | img.Rgba[i + 1] << 8 | img.Rgba[i + 2]);
+            Assert.True(colours.Count <= r.PixelColours + 1, $"{p.Id}: {colours.Count} colours");
+            // Hard alpha: each pixel see-through or not.
+            for (var i = 3; i < img.Rgba.Length; i += 4) Assert.True(img.Rgba[i] is 0 or 255, p.Id);
+        }
+        // The outline: an opaque pixel next to a see-through one is the dark ink.
+        var plain = TreePresets.Make("pixel-bush"); plain.PixelOutline = false;
+        var a = TreeBuilder.Build(plain, new TreeBuilder.Options { TextureSize = 512, MaxLods = 1 }).Lods[0].Materials[0].BaseColorPixels!;
+        var o = TreeBuilder.Build(TreePresets.Make("pixel-bush"), new TreeBuilder.Options { TextureSize = 512, MaxLods = 1 }).Lods[0].Materials[0].BaseColorPixels!;
+        Assert.NotEqual(a.Rgba, o.Rgba);
+    }
+
+    [Fact]
     public void The_wind_bends_blades_more_towards_their_tips_and_not_at_the_root()
     {
         var b = TreeBuilder.Build(TreePresets.Make("meadow-grass"), new TreeBuilder.Options { TextureSize = 0, MaxLods = 1 });

@@ -426,6 +426,15 @@ Still open: the biome catalogue (and rocks, stage 2).
 * A cross is 16 triangles up close (two rows, so it bends in the wind) and 8 farther away; a dome bush about 64 and 32.
   A bush's normals point out from its middle, so it is lit as a rounded mass, not as flat cards.
 
+### Pixel-art plants (preview.159)
+
+* **Pixel art** (13 presets): grass, flowers, ferns and bushes with small textures — each card's picture 32 or 64
+  pixels across, cut out hard, drawn sharp (nearest), its colours reduced to a palette (6–16), with a dark one-pixel
+  outline round leaves and fronds (grass blades stay clean). Pixel art draws its pictures for the size: fewer, wider
+  blades with their roots apart, leaves a few pixels across, so nothing turns to mush when shrunk. Blades (the
+  non-card grass) are coloured in hard bands up each blade instead of a smooth gradient.
+* The grass Mesh tab has the small textures, the palette and the outline (sharp pixels when small textures are off).
+
 ## Stage 2 — rocks
 
 - **Realistic to hyper-realistic:** a dense implicit rock (layered noise, fractures, strata, erosion), simplified to
