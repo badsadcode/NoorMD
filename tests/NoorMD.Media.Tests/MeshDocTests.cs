@@ -38,7 +38,7 @@ public class MeshDocTests
         var doc = Scene();
         doc.Cursor = [1.5f, -2, 0.25f];
         Assert.Equal([1.5f, -2, 0.25f], MeshDoc.FromFile(doc.ToFile()).Cursor);
-        doc.Cursor = [float.NaN, 0, 0];
+        doc.Cursor = [1e7f, 0, 0];   // far out of any scene
         Assert.Null(MeshDoc.FromFile(doc.ToFile()).Cursor);
         doc.Cursor = [1, 2];
         Assert.Null(MeshDoc.FromFile(doc.ToFile()).Cursor);
