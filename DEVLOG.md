@@ -142,6 +142,20 @@ generator) and a still-unnamed **procedural spaceship generator**, both waiting 
 
 ---
 
+## Day 19, later — Groundwork ✅
+
+Before polishing anything, we swept the workshop floor:
+
+- **The CI script that never reported back** turned out to have been knocking on a door it wasn't allowed through
+  (the session's network can't call GitHub's API directly). CI itself had been happily green all along, except
+  for one run where Ubuntu's package mirror took a nap; the browser install now tries three times.
+- **The README** caught up with three weeks of benches (NoorMesh was still "planned"!).
+- **A bench audit** now opens every bench and counts controls with no name or tooltip. The result: zero, across
+  seventeen benches and about 900 controls, apart from one shy filter chip in NoorMusic. Three benches are
+  missing a Help menu. Noted.
+
+Next up: **NoorMesh**, the first real polish pass.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
