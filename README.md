@@ -13,7 +13,7 @@ polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
 ## Download and run
 
-1. Get `NoorMD-2.0.0-preview.52-win-x64-portable.zip`. Use the build attached to the GitHub Actions
+1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.160 at the time of writing). Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -43,7 +43,7 @@ Every part of NoorMD is named Noor-something (since preview.116); the older name
 | **NoorSprite** | Pixel art, sprites and 2D animation |
 | **NoorPhoto** | Photo editing, digital painting and layered pictures (layers, masks, filters, PSD) |
 | **NoorInk** | Vector graphics: SVG drawing, illustration and design (shapes, pen, pencil, combine shapes, clip and mask) |
-| **NoorMesh** (planned) | Low-poly 3D modelling, mesh editing, UV mapping and simple animation |
+| **NoorMesh** | Low-poly 3D modelling, mesh editing, UV mapping and materials (Blender's keys) |
 | **NoorForm** (Asset Bench) | Procedural 3D assets: trees, rocks and more, with levels of detail |
 | **NoorForge** | Texturing 3D models: painting, smart materials and baking |
 | **NoorMaterial** (Texture Bench) | Procedural PBR materials and textures |
@@ -241,6 +241,28 @@ For developers: the list of English texts (`src/NoorMD/wwwroot/lang/en.json`) is
   picture (a 2 × 2 atlas or a single twig) if you like. Crowns look full for few triangles: each card can
   show a spray or a dense cluster of leaves, cards can be made bigger without adding more, a leaf budget caps the
   leaves' triangles (bigger cards instead), and outer leaves put the cover where it is seen. Rocks come next.
+- **NoorForge** (Ctrl+Alt+F): texture a 3D model (GLB/OBJ, or straight from NoorMesh and NoorForm) the way
+  painters do it in game studios: layers of materials and colours, each shown where a smart mask says (edges,
+  cavities, top, a part, a material, chips, drips, another layer), folders, per-channel blending, colour
+  adjustments, filters on masks; paint on the model with brushes, stencils and pixel paintings; bake ambient
+  occlusion, curvature and high-poly detail; export PBR texture sets per engine (Godot, Unity, Unreal) and a
+  textured GLB. NoorMaterial materials keep their own sliders on a layer.
+- **NoorMesh** (Ctrl+Alt+N): low-poly modelling for games, "Blender stripped down to its modelling" with
+  Blender's keys and Z up. Object and Edit Mode (vertices, edges, faces), gizmos, snapping, extrude, inset, loop
+  cut and slide, bevel, a surface-anchored knife, bridge, proportional and mirror editing, auto merge, the 3D
+  cursor and pivots, join and separate, several objects in Edit Mode at once; UV seams, unwrap (LSCM), Smart UV
+  Project and a UV editor; materials with pictures (linked or packed). Saves `.noormesh`, exports and imports GLB
+  and OBJ, and sends a model to NoorForge to texture.
+- **NoorSprite** (Ctrl+Alt+P): pixel art and 2D animation: layers and frames, onion skin, indexed colour and
+  palettes (Lospec), shading and dithering brushes, symmetry, tiled view, tilemaps and Godot TileSets, slices and
+  sprite sheets, in-betweens, bones for cutout animation, normal maps with a lit view, hitboxes and collision
+  shapes, sharing as GIF or video. Sprites play inside your notes: `![hero](hero.noorsprite)`.
+- **NoorPhoto** (Ctrl+Alt+J): photo editing and digital painting: layers with masks, blend modes and layer
+  styles, adjustments and filters, selections (including select subject), shape layers and a pen, text on the
+  picture, and painting after Krita's ideas (colour mixing, bristle brushes, wet edges, assistants, a pop-up
+  palette). Opens and saves PSD.
+- **NoorInk** (Ctrl+Alt+U): vector drawing in SVG: shapes, pen and pencil, combine shapes, clipping and masks,
+  snapping and guides, gradients and effects, tracing a picture into paths, stroke to path, grow and shrink.
 - **NoorRadio** (Ctrl+Alt+I): your internet radio stations, with favourites, tags, recent ones and a sleep
   timer. The song title comes from the stream and can feed NoorStream's Now Playing. Add a station
   by its address, import .m3u/.pls lists, or search the free Radio Browser directory (online, only when
@@ -296,8 +318,8 @@ Release packages:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
-# -> artifacts\NoorMD-2.0.0-preview.36-win-x64-portable.zip  (self-contained, ~70 MB)
-#    artifacts\NoorMD-2.0.0-preview.36-win-x64-small.zip     (needs .NET 10 Desktop Runtime)
+# -> artifacts\NoorMD-<version>-win-x64-portable.zip  (self-contained, ~70 MB)
+#    artifacts\NoorMD-<version>-win-x64-small.zip     (needs .NET 10 Desktop Runtime, ~6 MB)
 ```
 
 `scripts/publish-win-x64.sh` produces the same zips when cross-building from Linux.
@@ -308,7 +330,9 @@ powershell -ExecutionPolicy Bypass -File scripts\publish-win-x64.ps1
 |---|---|---|
 | `tests/NoorMD.Media.Tests` (xUnit) | tag reading and writing on real MP3/FLAC/OGG/WAV files (checked with ffprobe), safe renames, collisions, read-only and missing files, the index and relinking, a 20,000-track query benchmark, M3U, HTTP ranges | `dotnet test tests/NoorMD.Media.Tests` |
 | `tests/NoorMD.Core.Tests` (xUnit) | encodings and line endings, atomic writes, recovery locking, snapshots, path traversal, the link policy, HTML export, bridge protocol, settings | `dotnet test tests/NoorMD.Core.Tests` |
-| `tests/web` (Playwright) | the real editor UI against a mock host: modes, split divider, focus mode, themes, outline, find/replace, palette, XSS, offline loading, the round-trip guard | `cd tests/web && npm i && npx playwright install chromium && node ui.test.js` |
+| `tests/web` (Playwright) | the real UI of the editor and every bench against a mock host (over 2,200 checks): modes, tabs, Vaults, themes, XSS, offline loading, the round-trip guard, and each bench's tools, menus and exports | `cd tests/web && npm i && npx playwright install chromium && node ui.test.js` |
+| `tests/web/*.test.js` (Node) | NoorMesh's geometry kernel (every modelling operation, UVs), NoorPhoto's filters, NoorInk's geometry and tracing | `node tests/web/meshkernel.test.js` (and `photofx`, `inkgeom`, `inktrace`) |
+| `tests/glb`, `tests/godot` | exported GLB files checked by the Khronos glTF validator, and trees imported into headless Godot | run in CI |
 | `NoorMD.exe --self-test <dir>` | the packaged app end to end on Windows: open → edit → recovery draft → save (CRLF and diacritics kept) → split → focus → theme → PDF, with screenshots | runs in CI ([.github/workflows/build.yml](.github/workflows/build.yml)) |
 
 ## How it works

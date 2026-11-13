@@ -21,7 +21,8 @@ jobs:
         working-directory: tests/web
         run: |
           npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          # The browser's system packages come from Ubuntu's mirrors, which sometimes don't answer: try three times.
+          for i in 1 2 3; do npx playwright install --with-deps chromium && break; [ $i = 3 ] && exit 1; echo "Retrying the browser install ($i)…"; sudo apt-get update -q || true; sleep 20; done
       - name: NoorPhoto filters (Node)
         working-directory: tests/web
         run: node photofx.test.js
