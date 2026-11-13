@@ -7,7 +7,8 @@ web services.
 
 ![NoorMD](src/NoorMD/Assets/NoorMD-256.png)
 
-📓 **[Read the devlog](DEVLOG.md)**: how a Markdown editor grew twenty benches in nineteen days. What's being
+📓 **[Read the devlog](https://badsadcode.github.io/NoorMD/)** ([also here as Markdown](DEVLOG.md)): how a Markdown editor
+grew twenty benches in nineteen days. What's being
 polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
 ## Download and run
