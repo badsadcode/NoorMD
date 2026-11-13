@@ -6,3 +6,7 @@ node_modules/
 *.user
 TestResults/
 selftest-out/
+
+# Bench audit (tests/web/audit.js) working files
+tests/web/.audit.run.js
+tests/web/.audit-report.md

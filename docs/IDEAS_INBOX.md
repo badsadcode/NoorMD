@@ -20,6 +20,7 @@ A line per idea is enough. Add a date if you like, and 🔥 if it really can't w
 ## NoorMesh
 
 - Right-click select ("Select with: left / right"), after the right-click menus are designed for it.
+- A Help menu in focus mode, like the other big benches (audit, 13 Nov).
 
 ## NoorMD
 
@@ -31,11 +32,11 @@ A line per idea is enough. Add a date if you like, and 🔥 if it really can't w
 
 ## NoorPhoto
 
--
+- A Help menu in focus mode, like the other big benches (audit, 13 Nov).
 
 ## NoorInk
 
--
+- A Help menu in focus mode, like the other big benches (audit, 13 Nov).
 
 ## NoorForm
 
@@ -59,7 +60,8 @@ A line per idea is enough. Add a date if you like, and 🔥 if it really can't w
 
 ## NoorMusic, NoorRadio
 
--
+- The rating filter chip "○ — 6" has no name or tooltip (audit, 13 Nov).
+- Players have no menus of their own in focus mode (also NoorVideo, NoorGallery): decide whether they should.
 
 ## NoorGallery
 

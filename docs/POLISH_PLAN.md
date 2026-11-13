@@ -12,6 +12,9 @@ Every bench goes through the same steps, so "finished" means the same thing ever
 1. **Walk through it as a new user.** Open it fresh, make something real with it from start to export, and write
    down everything that is confusing, hidden, slow, ugly or broken. (Rescan hiding in a dialog is the kind of thing
    this finds.)
+   Run the **bench audit** first: `node tests/web/audit.js <Bench> --out docs/audit/<Bench>.md` opens the bench
+   against the mock host and lists controls with no name or tooltip, symbol-only buttons and its focus-mode menus
+   ([the baseline for every bench](audit/BASELINE.md)).
 2. **Read its inbox.** Your notes for this bench from [IDEAS_INBOX.md](IDEAS_INBOX.md), plus the "not yet" and
    "later" items in its plan document.
 3. **Agree on the list.** You pick what's in. Everything else stays in the inbox for a later pass. No new big
@@ -61,8 +64,8 @@ hit monthly.
 
 | Bench | Status |
 | --- | --- |
-| Groundwork | ⏳ next |
-| NoorMesh | — |
+| Groundwork | ✅ 13 Nov: README up to date, CI checked (it was green apart from one mirror outage, now retried), the bench audit tool and its baseline |
+| NoorMesh | ⏳ next |
 | NoorForge | — |
 | NoorMaterial | — |
 | NoorForm | — |
