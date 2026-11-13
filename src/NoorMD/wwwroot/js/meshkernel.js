@@ -5,7 +5,8 @@
    { v: [vertex indices, counter-clockwise seen from outside], uv: [u, v per corner] | null, m: material slot,
    s: smooth (true) or flat }. Faces have 3 or more corners (n-gons are kept for modelling and triangulated only to draw
    and export). UVs belong to the corners, so a seam is two corners of one vertex with different UVs. Edges are not
-   stored: they come from the faces (their flags are kept by the pair of vertex indices, smaller first). */
+   stored: they come from the faces (their flags are kept by the pair of vertex indices, smaller first).
+   A face may also carry h: hidden in Edit Mode (H); it is kept by clone and shown everywhere else. */
 (() => {
   'use strict';
 
@@ -22,7 +23,7 @@
   // ---------------------------------------------------------------- the mesh
   const empty = () => ({ v: [], f: [], e: {} });
   // A face may carry `o`: which object it belongs to while several are edited together (kept by every operation).
-  const clone = (mesh) => ({ v: mesh.v.slice(), f: mesh.f.map((f) => ({ v: f.v.slice(), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s, ...(f.o !== undefined ? { o: f.o } : {}) })), e: JSON.parse(JSON.stringify(mesh.e || {})) });
+  const clone = (mesh) => ({ v: mesh.v.slice(), f: mesh.f.map((f) => ({ v: f.v.slice(), uv: f.uv ? f.uv.slice() : null, m: f.m || 0, s: !!f.s, ...(f.o !== undefined ? { o: f.o } : {}), ...(f.h ? { h: true } : {}) })), e: JSON.parse(JSON.stringify(mesh.e || {})) });
   const vertexCount = (mesh) => mesh.v.length / 3;
   const edgeKey = (a, b) => (a < b ? `${a}_${b}` : `${b}_${a}`);
 
@@ -159,7 +160,8 @@
    * Smooth faces share a normal at each vertex (averaged over the smooth faces round it, weighted by area); flat faces
    * use their own. A matrix (column-major 4×4) moves it into the world.
    */
-  function buffers(mesh, matrix) {
+  function buffers(mesh, matrix, opts) {
+    const skip = !!(opts && opts.skipHidden);
     const tris = [];
     const faceN = mesh.f.map((f) => faceNormal(mesh, f));
     const vn = new Float64Array(mesh.v.length);
@@ -168,7 +170,7 @@
       const { n, area } = faceN[fi];
       for (const i of f.v) { vn[i * 3] += n[0] * area; vn[i * 3 + 1] += n[1] * area; vn[i * 3 + 2] += n[2] * area; }
     });
-    mesh.f.forEach((f, fi) => { for (const t of triangulateFace(mesh, f)) tris.push([fi, t]); });
+    mesh.f.forEach((f, fi) => { if (skip && f.h) return; for (const t of triangulateFace(mesh, f)) tris.push([fi, t]); });
     // Grouped by material slot (each group drawn with its own material and picture).
     tris.sort((p, q) => (mesh.f[p[0]].m || 0) - (mesh.f[q[0]].m || 0));
     const count = tris.length * 3;
@@ -192,7 +194,7 @@
         o++;
       }
     });
-    const es = edges(mesh);
+    const es = skip && mesh.f.some((f) => f.h) ? edges({ ...mesh, f: mesh.f.filter((f) => !f.h) }) : edges(mesh);
     const lines = new Float32Array(es.length * 6);
     es.forEach((e, k) => { lines.set(tp(vert(mesh, e.a)), k * 6); lines.set(tp(vert(mesh, e.b)), k * 6 + 3); });
     const groups = [];
@@ -1740,6 +1742,118 @@
     for (const fi of faces) { const f = out.f[fi]; if (!f) continue; const n = f.v.length; out.f[fi] = { ...f, uv: f.v.flatMap((_, k) => (n === 4 ? [[0, 0], [1, 0], [1, 1], [0, 1]][k] : [0.5 + 0.5 * Math.cos((k / n) * Math.PI * 2), 0.5 + 0.5 * Math.sin((k / n) * Math.PI * 2)])) }; }
     return out;
   }
+  /** Subdivide faces (as Blender's): every edge of them cut `cuts` times, quads into a grid, triangles into
+      triangles, n-gons into quads round a middle (one cut) or a fan of triangles. A face next to them gets the new
+      edge vertices in its outline, so the mesh stays closed. `smooth` (0–1) bends the new vertices out along the
+      vertex normals (Phong-style), rounding a cube towards a ball. UVs and seams follow. Returns the mesh and the
+      new faces. */
+  function subdivide(mesh, faceSet, cuts = 1, smooth = 0) {
+    cuts = Math.max(1, Math.min(10, Math.round(cuts)));
+    const sel = new Set(faceSet);
+    const out = clone(mesh), vs = out.v, N = cuts + 1;
+    const addV = (p) => { vs.push(p[0], p[1], p[2]); return vs.length / 3 - 1; };
+    // Vertex normals (area-weighted) for the smoothing.
+    const vn = new Float64Array(mesh.v.length);
+    for (const f of mesh.f) { const { n, area } = faceNormal(mesh, f); for (const i of f.v) { vn[i * 3] += n[0] * area; vn[i * 3 + 1] += n[1] * area; vn[i * 3 + 2] += n[2] * area; } }
+    const nrm = (i) => norm([vn[i * 3], vn[i * 3 + 1], vn[i * 3 + 2]]);
+    // A point from corners with weights: the plain blend, pulled towards each corner's tangent plane (Phong tessellation).
+    const blend = (ids, w) => {
+      let p = [0, 0, 0];
+      ids.forEach((i, k) => { p = add(p, scale(vert(mesh, i), w[k])); });
+      if (!smooth) return p;
+      let q = [0, 0, 0];
+      ids.forEach((i, k) => { const a = vert(mesh, i), n = nrm(i); q = add(q, scale(sub(p, scale(n, dot(sub(p, a), n))), w[k])); });
+      const a = smooth * 0.75;   // Phong tessellation's usual 3/4: a ball stays a ball instead of bulging past it
+      return add(scale(p, 1 - a), scale(q, a));
+    };
+    // The cut points of every edge of the selected faces: edge key -> vertex ids from the smaller index to the larger.
+    const cutsOf = new Map();
+    const edgePts = (a, b) => {
+      const k = edgeKey(a, b);
+      if (!cutsOf.has(k)) {
+        const lo = Math.min(a, b), hi = Math.max(a, b), ids = [];
+        for (let j = 1; j < N; j++) { const t = j / N; ids.push(addV(blend([lo, hi], [1 - t, t]))); }
+        cutsOf.set(k, ids);
+      }
+      const ids = cutsOf.get(k);
+      return a < b ? ids : ids.slice().reverse();
+    };
+    for (const fi of sel) { const f = mesh.f[fi]; if (f) for (let k = 0; k < f.v.length; k++) edgePts(f.v[k], f.v[(k + 1) % f.v.length]); }
+    const uvAt = (f, w) => { if (!f.uv) return null; let u = 0, v = 0; w.forEach((x, k) => { u += f.uv[k * 2] * x; v += f.uv[k * 2 + 1] * x; }); return [u, v]; };
+    const faces = [], made = [];
+    const put = (src, ids, uvs) => { const nf = { v: ids, uv: src.uv ? uvs.flat() : null, m: src.m || 0, s: !!src.s, ...(src.o !== undefined ? { o: src.o } : {}) }; made.push(faces.length); faces.push(nf); };
+    mesh.f.forEach((f, fi) => {
+      const n = f.v.length;
+      if (!sel.has(fi)) {
+        // A neighbour: the cut points put into its outline (UVs along its edges).
+        const ids = [], uvs = [];
+        for (let k = 0; k < n; k++) {
+          const a = f.v[k], b = f.v[(k + 1) % n];
+          ids.push(a); if (f.uv) uvs.push([f.uv[k * 2], f.uv[k * 2 + 1]]);
+          if (cutsOf.has(edgeKey(a, b))) edgePts(a, b).forEach((id, j) => { ids.push(id); if (f.uv) { const t = (j + 1) / N, k2 = (k + 1) % n; uvs.push([f.uv[k * 2] * (1 - t) + f.uv[k2 * 2] * t, f.uv[k * 2 + 1] * (1 - t) + f.uv[k2 * 2 + 1] * t]); } });
+        }
+        faces.push({ ...f, v: ids, uv: f.uv ? uvs.flat() : null });
+        return;
+      }
+      if (n === 4) {
+        // A grid: point (i, j) is bilinear in the corners 0 1 2 3; its outline reuses the edge cuts.
+        const grid = [];
+        for (let j = 0; j <= N; j++) {
+          grid.push([]);
+          for (let i = 0; i <= N; i++) {
+            const u = i / N, v = j / N, w = [(1 - u) * (1 - v), u * (1 - v), u * v, (1 - u) * v];
+            let id;
+            if (j === 0) id = i === 0 ? f.v[0] : i === N ? f.v[1] : edgePts(f.v[0], f.v[1])[i - 1];
+            else if (j === N) id = i === 0 ? f.v[3] : i === N ? f.v[2] : edgePts(f.v[3], f.v[2])[i - 1];
+            else if (i === 0) id = edgePts(f.v[0], f.v[3])[j - 1];
+            else if (i === N) id = edgePts(f.v[1], f.v[2])[j - 1];
+            else id = addV(blend(f.v, w));
+            grid[j].push({ id, uv: uvAt(f, w) });
+          }
+        }
+        for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) { const c = [grid[j][i], grid[j][i + 1], grid[j + 1][i + 1], grid[j + 1][i]]; put(f, c.map((x) => x.id), c.map((x) => x.uv)); }
+      } else if (n === 3) {
+        // Triangles: point (i, j) with weights (1 - (i + j) / N, i / N, j / N).
+        const at = new Map(), key = (i, j) => `${i},${j}`;
+        for (let j = 0; j <= N; j++) for (let i = 0; i + j <= N; i++) {
+          const w = [1 - (i + j) / N, i / N, j / N];
+          let id;
+          if (i === 0 && j === 0) id = f.v[0]; else if (i === N) id = f.v[1]; else if (j === N) id = f.v[2];
+          else if (j === 0) id = edgePts(f.v[0], f.v[1])[i - 1];
+          else if (i === 0) id = edgePts(f.v[0], f.v[2])[j - 1];
+          else if (i + j === N) id = edgePts(f.v[1], f.v[2])[j - 1];
+          else id = addV(blend(f.v, w));
+          at.set(key(i, j), { id, uv: uvAt(f, w) });
+        }
+        for (let j = 0; j < N; j++) for (let i = 0; i + j < N; i++) {
+          const a = at.get(key(i, j)), b = at.get(key(i + 1, j)), c = at.get(key(i, j + 1));
+          put(f, [a.id, b.id, c.id], [a.uv, b.uv, c.uv]);
+          if (i + j + 1 < N) { const d = at.get(key(i + 1, j + 1)); put(f, [b.id, d.id, c.id], [b.uv, d.uv, c.uv]); }
+        }
+      } else {
+        // An n-gon: a middle point; one cut makes quads (corner, next cut, middle, previous cut), more make a fan.
+        const w = f.v.map(() => 1 / n), mid = { id: addV(blend(f.v, w)), uv: uvAt(f, w) };
+        const ring = [];
+        for (let k = 0; k < n; k++) {
+          const k2 = (k + 1) % n, wk = f.v.map((_, q) => (q === k ? 1 : 0));
+          ring.push({ id: f.v[k], uv: uvAt(f, wk), corner: true });
+          edgePts(f.v[k], f.v[k2]).forEach((id, j) => { const t = (j + 1) / N; ring.push({ id, uv: uvAt(f, f.v.map((_, q) => (q === k ? 1 - t : q === k2 ? t : 0))) }); });
+        }
+        if (cuts === 1) {
+          for (let r = 0; r < ring.length; r += 2) { const c = [ring[r], ring[(r + 1) % ring.length], mid, ring[(r - 1 + ring.length) % ring.length]]; put(f, c.map((x) => x.id), c.map((x) => x.uv)); }
+        } else for (let r = 0; r < ring.length; r++) { const c = [ring[r], ring[(r + 1) % ring.length], mid]; put(f, c.map((x) => x.id), c.map((x) => x.uv)); }
+      }
+    });
+    out.f = faces;
+    // Seams and sharp edges carry over to the pieces of a cut edge.
+    for (const [k, ids] of cutsOf) {
+      const flags = out.e[k]; if (!flags) continue;
+      delete out.e[k];
+      const [lo, hi] = k.split('_').map(Number), chain = [lo, ...ids, hi];
+      for (let j = 0; j + 1 < chain.length; j++) out.e[edgeKey(chain[j], chain[j + 1])] = { ...flags };
+    }
+    return { mesh: out, faces: made };
+  }
   /** How much of the UV square the faces' islands cover, and how stretched they are (0: not at all). */
   function uvStats(mesh, faces) {
     let a2 = 0, a3 = 0, stretch = 0, count = 0;
@@ -1761,7 +1875,7 @@
     emptySelection, cloneSelection, flush, convertSelection, selectionFromVerts, selectionFromFaces, faceEdgeKeys, edgeFaces, cleanFaces, compact, remapSet,
     transformVerts, extrudeFaces, extrudeEdges, insetFaces, insetRegion, loopRing, loopCut, edgeChains, bridgeLoops, autoMerge, slideSides, splitFace, splitEdge, knifeCut, knifePos, knifeWalk, knifePath, bevel, deleteElements, mergeFaceGroup, dissolve, mergeVerts, mergeByDistance, makeFace,
     flipFaces, recalcOutside, setSmooth, duplicateFaces, linkedVerts, growVerts, shrinkVerts, edgeLoop, faceLoop,
-    isSeam, markSeams, uvCharts, uvIslands, lscmChart, packIslands, unwrap, projectUV, smartProject, cubeProject, resetUV, uvStats, leastSquares,
+    subdivide, isSeam, markSeams, uvCharts, uvIslands, lscmChart, packIslands, unwrap, projectUV, smartProject, cubeProject, resetUV, uvStats, leastSquares,
     vec: { sub, add, scale, dot, cross, len, norm },
   };
   (typeof window !== 'undefined' ? window : globalThis).NoorMeshKernel = api;

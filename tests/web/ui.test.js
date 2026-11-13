@@ -9427,7 +9427,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+n');
       await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
       let st = await MS();
-      check('Ctrl+Alt+N opens NoorMesh (a preview) with a cube, selected and active', st.objects[0].kind === 'cube' && st.selected.length === 1 && st.active === st.objects[0].id && /preview/i.test(await page.textContent('#meshbench .nm-badge')));
+      check('Ctrl+Alt+N opens NoorMesh (no longer a preview) with a cube, selected and active', st.objects[0].kind === 'cube' && st.selected.length === 1 && st.active === st.objects[0].id && !(await page.$('#meshbench .nm-badge')));
       check('…the cube is a closed, valid mesh (8 vertices, 6 faces), as the properties say', st.objects[0].check.ok && st.objects[0].check.closed && st.objects[0].vertices === 8 && /8 vertices · 12 edges · 6 faces · 12 triangles · closed/.test(await page.textContent('#nm-stats')));
       const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
       await page.mouse.move(box.cx, box.cy);
@@ -10052,15 +10052,22 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
       await page.keyboard.press('1');
       // Auto merge: a vertex moved onto its neighbour is merged.
-      await page.keyboard.press('Alt+o');
-      check('Alt+O: auto merge on', (await MS()).editOpts.autoMerge && (await page.getAttribute('#nm-automerge', 'aria-pressed')) === 'true');
+      await page.click('#nm-automerge');
+      check('The ⊕ button: auto merge on', (await MS()).editOpts.autoMerge && (await page.getAttribute('#nm-automerge', 'aria-pressed')) === 'true');
       await page.evaluate((v) => NoorMesh._editSel({ verts: [v] }), a);
       await page.keyboard.press('g'); await page.keyboard.press('x'); await page.keyboard.type('2'); await page.keyboard.press('Enter');
       em = await EM();
       check('…a corner moved onto the next one: merged (7 vertices), the mesh still sound', em.v.length / 3 === 7 && em.check.ok, [em.v.length / 3, em.check]);
       await page.keyboard.press('Control+z');
       check('…undone in one step (8 vertices)', (await EM()).v.length / 3 === 8);
+      await page.click('#nm-automerge');
+      check('…and off again (auto merge has no key now, as in Blender)', !(await MS()).editOpts.autoMerge);
       await page.keyboard.press('Alt+o');
+      st = await MS();
+      check('Alt+O: proportional editing, connected only (it turns proportional on too)', st.editOpts.propConnected && st.editOpts.prop && (await page.getAttribute('#nm-propconn', 'aria-pressed')) === 'true' && await page.isVisible('#nm-propconn') && await page.isVisible('#nm-falloff'));
+      await page.keyboard.press('Alt+o'); await page.keyboard.press('o');
+      st = await MS();
+      check('…Alt+O again: off; O: proportional off, its falloff and ⛓ hidden', !st.editOpts.propConnected && !st.editOpts.prop && !(await page.isVisible('#nm-falloff')) && !(await page.isVisible('#nm-propconn')), [st.editOpts, await page.isVisible('#nm-falloff'), await page.isVisible('#nm-propconn')]);
       if (shots) {
         await page.keyboard.press('a');
         await page.keyboard.press('Control+b'); await page.keyboard.type('0.25');
@@ -10720,6 +10727,147 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await pick(['Sleep timer', 'At the end of this video']);
       check('Sleep timer › at the end of this video', (await vs()).sleep === 'end');
       check('no page errors with the player menu', errors.length === 0, errors);
+      await page.close();
+    }
+    // ---- 80n. NoorMesh polish pass (preview.161): the Help menu and its guides, the Select menu, hiding parts in Edit
+    // Mode (H, Shift+H, Alt+H), Subdivide, proportional "connected only" (Alt+O), the 3D cursor kept in the file, a
+    // "Working…" note before a big unwrap.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# x\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' } }, { width: 1500, height: 1000 });
+      const MS = () => page.evaluate(() => NoorMesh._state());
+      const EM = () => page.evaluate(() => NoorMesh._editMesh());
+      const status = () => page.textContent('#nm-status');
+      const menu = async (title, ...items) => {
+        await page.click(`#menubar .menu-title:has-text("${title}")`);
+        for (let i = 0; i < items.length - 1; i++) await page.hover(`.menu-popup[data-depth="${i}"] .menu-item:has-text("${items[i]}")`);
+        const last = `.menu-popup[data-depth="${items.length - 1}"]`;
+        await page.click(`${last} .menu-item:text-is("${items[items.length - 1]}"), ${last} .menu-item:has(.menu-label:text-is("${items[items.length - 1]}"))`);
+        await page.evaluate(() => document.querySelector('#meshbench').focus({ preventScroll: true }));
+      };
+      await page.keyboard.press('Control+Alt+n');
+      await waitFn(page, () => NoorMesh.isOpen() && NoorMesh._state().objects.length === 1);
+      check('no "preview" left on NoorMesh (badge, title, hint)', !(await page.$('#meshbench .nm-badge')) && !/preview/i.test(await page.textContent('#meshbench')));
+      await page.keyboard.press('F11');
+      await waitFn(page, () => document.body.classList.contains('bench-app'));
+      const titles = await page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
+      check('focus mode: File, Edit, Select, Add, Mesh, Object, View and Help menus', ['File', 'Edit', 'Select', 'Add', 'Mesh', 'Object', 'View', 'Help'].every((t) => titles.includes(t)), titles);
+      await page.click('#menubar .menu-title:has-text("Help")');
+      const help = await page.$$eval('.menu-popup .menu-item', (n) => n.map((x) => x.textContent));
+      check('Help: Shortcuts, the first five minutes, for Blender users', help.some((t) => /Shortcuts/.test(t)) && help.some((t) => /first five minutes/.test(t)) && help.some((t) => /Blender users/.test(t)), help);
+      await page.click('.menu-popup .menu-item:has-text("Blender users")');
+      await page.waitForSelector('.modal .nm-guide');
+      check('…the Blender guide: what is the same, what differs (Alt+O, auto merge, H)', /Alt\+O: connected only/.test(await page.textContent('.modal .nm-guide')) && /Auto merge has no key/.test(await page.textContent('.modal .nm-guide')));
+      await page.keyboard.press('Escape');
+      await page.click('#menubar .menu-title:has-text("Help")');
+      await page.click('.menu-popup .menu-item:has-text("first five minutes")');
+      await page.waitForSelector('.modal .nm-guide');
+      check('…the first five minutes: looking around, adding, shaping, UVs, saving', (await page.$$('.modal .nm-guide h4')).length === 5);
+      await page.keyboard.press('Escape');
+      // Select menu in Object Mode: None, All, Invert work on objects.
+      await menu('Select', 'None');
+      check('Select › None (Object Mode): nothing selected', (await MS()).selected.length === 0);
+      await menu('Select', 'All');
+      check('Select › All: the cube selected again', (await MS()).selected.length === 1);
+      // Edit Mode: the status says how to work; the Edit menu no longer holds the selection items.
+      const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('Tab');
+      await waitFn(page, () => NoorMesh._state().mode === 'edit');
+      check('Edit Mode status: how to select, how to leave (no "preview")', /select vertices, edges or faces with 1, 2, 3/.test(await status()) && /Tab: back to Object Mode/.test(await status()), await status());
+      await page.keyboard.press('3');
+      await menu('Select', 'None');
+      check('Select › None (Edit Mode): no faces', (await MS()).editSel.faces.length === 0);
+      await menu('Select', 'Invert');
+      check('Select › Invert: all six faces', (await MS()).editSel.faces.length === 6);
+      // Hide in Edit Mode.
+      await page.evaluate(() => NoorMesh._editSelect([0]));
+      await page.keyboard.press('h');
+      let st = await MS();
+      check('H in Edit Mode hides the selected face (deselected; the status says how to bring it back)', /Hidden: 1 face/.test(await status()) && /Alt\+H/.test(await status()) && st.editSel.faces.length === 0, await status());
+      await page.keyboard.press('a');
+      check('…A selects only what is shown (5 faces)', (await MS()).editSel.faces.length === 5);
+      await page.keyboard.press('Alt+a');
+      await page.evaluate(() => NoorMesh._editSelect([1]));
+      await page.keyboard.press('Shift+h');
+      await page.keyboard.press('a');
+      check('Shift+H hides everything else (only face 1 left to select)', (await MS()).editSel.faces.length === 1 && (await MS()).editSel.faces[0] === 1);
+      await page.keyboard.press('Alt+h');
+      st = await MS();
+      check('Alt+H shows it all again, the shown faces selected (six)', st.editSel.faces.length === 6 && /Shown again/.test(await status()), [st.editSel.faces, await status()]);
+      await page.keyboard.press('Control+z'); await page.keyboard.press('Control+z');
+      await page.keyboard.press('a');
+      check('…undo: hidden again, one step at a time (5 selectable after one undo of Shift+H… two undos: face 0 hidden)', (await MS()).editSel.faces.length === 5, (await MS()).editSel.faces);
+      // Hidden faces are not saved (everything shows when the scene comes back).
+      await page.keyboard.press('Control+s');
+      await waitFn(page, () => (window.__mock.state.mesh.saves || []).length === 1);
+      let saved = await page.evaluate(() => window.__mock.state.mesh.saves[0]);
+      check('saving: nothing saved as hidden; the 3D cursor saved with the scene', saved.hiddenFaces === 0 && Array.isArray(saved.cursor) && saved.cursor.length === 3, saved);
+      await page.keyboard.press('Alt+h');
+      // Subdivide from the Mesh menu.
+      await page.keyboard.press('a');
+      await menu('Mesh', 'Subdivide', 'Subdivide');
+      let em = await EM();
+      check('Mesh › Subdivide › Subdivide: a cube of 24 faces, closed, the same volume, the new faces selected', em.faces === 24 && em.check.ok && Math.abs(em.volume - 8) < 1e-6 && (await MS()).editSel.faces.length === 24 && /Subdivided 6 faces/.test(await status()), [em.faces, em.check, await status()]);
+      await page.keyboard.press('Control+z');
+      await menu('Mesh', 'Subdivide', 'Subdivide smooth');
+      em = await EM();
+      check('…smooth: rounder (more volume), still closed', em.faces === 24 && em.check.ok && em.volume > 8.5, em.volume);
+      await page.keyboard.press('Control+z');
+      check('…undone in one step', (await EM()).faces === 6);
+      // The right-click menu offers Subdivide and Hide too.
+      await page.mouse.click(box.cx, box.cy, { button: 'right' });
+      await page.waitForSelector('#nm-popup');
+      const ctx = await page.textContent('#nm-popup');
+      check('right-click in Edit Mode: Subdivide, Hide, Show hidden', /Subdivide/.test(ctx) && /Hide/.test(ctx) && /Show hidden/.test(ctx), ctx);
+      await page.keyboard.press('Escape');
+      check('…Esc closes that menu and stays in focus mode', !(await page.$('#nm-popup')) && await page.evaluate(() => document.body.classList.contains('bench-app')));
+      // Connected only: two loose pieces; moving one with proportional editing moves the other only when it isn't on.
+      await page.mouse.move(box.cx, box.cy);
+      await page.keyboard.press('a');
+      await page.keyboard.press('Shift+d'); await page.keyboard.press('x'); await page.keyboard.type('3'); await page.keyboard.press('Enter');
+      em = await EM();
+      check('a second loose cube in the same mesh (16 vertices)', em.v.length / 3 === 16, em.v.length / 3);
+      const v0 = await page.evaluate(() => NoorMesh._editMesh().v.slice());
+      const top = []; for (let i = 0; i < 8; i++) if (v0[i * 3 + 2] > 0) top.push(i);
+      await page.keyboard.press('1');
+      await page.evaluate((vs) => NoorMesh._editSel({ verts: vs }), [top[0]]);
+      await page.keyboard.press('o');
+      await page.keyboard.press('g'); await page.keyboard.press('z');
+      for (let i = 0; i < 10; i++) await page.keyboard.press('PageUp');   // a big radius (Page Up, as Blender's)
+      await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      const moved = (vs) => { let n = 0; for (let i = 8; i < 16; i++) if (Math.abs(vs[i * 3 + 2] - v0[i * 3 + 2]) > 1e-6) n++; return n; };
+      const near = moved((await EM()).v);
+      await page.keyboard.press('Control+z');
+      await page.keyboard.press('Alt+o');
+      await page.evaluate((vs) => NoorMesh._editSel({ verts: vs }), [top[0]]);
+      await page.keyboard.press('g'); await page.keyboard.press('z');
+      await page.keyboard.type('1'); await page.keyboard.press('Enter');
+      const conn = moved((await EM()).v);
+      check('proportional editing reaches the loose copy nearby; connected only (Alt+O) leaves it be', near > 0 && conn === 0, [near, conn, (await MS()).editOpts]);
+      await page.keyboard.press('Alt+o'); await page.keyboard.press('o');
+      // A big unwrap says "Working…" first, then what it did.
+      await page.keyboard.press('Control+z');
+      await page.keyboard.press('3'); await page.keyboard.press('a');
+      await menu('Mesh', 'Subdivide', 'Subdivide: 3 cuts');
+      await page.keyboard.press('a');
+      await menu('Mesh', 'Subdivide', 'Subdivide: 3 cuts');
+      await page.keyboard.press('a');
+      await menu('Mesh', 'Subdivide', 'Subdivide');
+      check('subdivided up to a dense mesh (over 6000 faces)', (await EM()).faces > 6000, (await EM()).faces);
+      await page.keyboard.press('a');
+      await page.evaluate(() => { window.__nmStatus = []; const s = document.querySelector('#nm-status'); new MutationObserver(() => window.__nmStatus.push(s.textContent)).observe(s, { childList: true, characterData: true, subtree: true }); });
+      await page.keyboard.press('u');
+      await page.click('#nm-popup .nm-menuitem:has-text("Smart UV project")');
+      await waitFn(page, () => /Smart UV project: \d+ faces/.test(document.querySelector('#nm-status').textContent), null, { timeout: 60000 });
+      const seen = await page.evaluate(() => window.__nmStatus);
+      check('…Smart UV project on it: "Working…" shown first, then the result', /^Working…/.test(seen[0] || '') && /Smart UV project: \d+ faces/.test(seen[seen.length - 1]), seen);
+      // The 3D cursor comes back from a file.
+      await page.keyboard.press('Tab');
+      await page.keyboard.press('Control+o');
+      const dont = await page.$('.modal button:has-text("Don\'t save")'); if (dont) await dont.click();
+      await waitFn(page, () => NoorMesh._state().objects.some((o) => o.name === 'Opened'));
+      check('opening a scene puts the 3D cursor where it was saved', JSON.stringify((await MS()).cursor) === '[1,2,0.5]', (await MS()).cursor);
+      check('no page errors in the NoorMesh polish pass', errors.length === 0, errors);
       await page.close();
     }
   } finally {

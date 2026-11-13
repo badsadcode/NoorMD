@@ -84,6 +84,8 @@ public sealed class MeshDoc
     public List<MeshObject> Objects { get; set; } = [];
     public List<MeshMaterial>? Materials { get; set; }
     public List<MeshTexture>? Textures { get; set; }
+    /// <summary>Where the 3D cursor was (Blender keeps it in the file too); null in older scenes.</summary>
+    public float[]? Cursor { get; set; }
     public const long MaxTextureBytes = 64L * 1024 * 1024;
 
     private static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true, DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull };
@@ -105,6 +107,7 @@ public sealed class MeshDoc
         if (Format != "noormesh") throw new InvalidDataException("That isn't a NoorMesh scene.");
         if (Version > CurrentVersion) throw new InvalidDataException($"That scene was saved by a newer NoorMD (format {Version}); update NoorMD to open it.");
         if (Objects.Count > MaxObjects) throw new InvalidDataException($"Too many objects (more than {MaxObjects}).");
+        if (Cursor is not { Length: 3 } || !Cursor.All(float.IsFinite) || Cursor.Any(x => Math.Abs(x) > 1e6f)) Cursor = null;
         long verts = 0, faces = 0;
         // Materials: ids unique, numbers in range; slots pointing at none are dropped.
         var matIds = new HashSet<string>(StringComparer.Ordinal);

@@ -33,6 +33,20 @@ public class MeshDocTests
     }
 
     [Fact]
+    public void The_3d_cursor_is_kept_in_the_file_and_nonsense_dropped()
+    {
+        var doc = Scene();
+        doc.Cursor = [1.5f, -2, 0.25f];
+        Assert.Equal([1.5f, -2, 0.25f], MeshDoc.FromFile(doc.ToFile()).Cursor);
+        doc.Cursor = [float.NaN, 0, 0];
+        Assert.Null(MeshDoc.FromFile(doc.ToFile()).Cursor);
+        doc.Cursor = [1, 2];
+        Assert.Null(MeshDoc.FromFile(doc.ToFile()).Cursor);
+        doc.Cursor = null;
+        Assert.Null(MeshDoc.FromFile(doc.ToFile()).Cursor);   // older scenes: none
+    }
+
+    [Fact]
     public void Materials_go_into_the_file_and_the_glb_and_come_back()
     {
         var doc = Scene();

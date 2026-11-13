@@ -1407,7 +1407,7 @@
     ['sprite.toggle', 'NoorSprite (pixel art and animation)', 'Tools', 'Ctrl+Alt+P', () => NoorSprite.toggle()],
     ['photo.toggle', 'NoorPhoto (photos and painting: layers, masks, filters)', 'Tools', 'Ctrl+Alt+J', () => NoorPhoto.toggle()],
     ['ink.toggle', 'NoorInk (vector drawing: SVG)', 'Tools', 'Ctrl+Alt+U', () => NoorInk.toggle()],
-    ['mesh.toggle', 'NoorMesh (model meshes for games — preview)', 'Tools', 'Ctrl+Alt+N', () => NoorMesh.toggle()],
+    ['mesh.toggle', 'NoorMesh (model meshes for games)', 'Tools', 'Ctrl+Alt+N', () => NoorMesh.toggle()],
     ['radio.find', 'NoorRadio: find stations online…', 'Tools', '', () => { NoorRadio.open(); NoorRadio.findOnline(); }],
     ['voice.toggle', 'NoorVoice (recorder)', 'Tools', '', () => NoorVoice.toggle()],
     ['gallery.toggle', 'NoorGallery (your pictures)', 'Tools', 'Ctrl+Alt+G', () => NoorGallery.toggle()],
@@ -2154,6 +2154,9 @@
     if (key === 'Escape') {
       if (closeTabMenu()) { e.preventDefault(); return; }
       if (closeFind()) { e.preventDefault(); return; }
+      // A bench's own menu at the cursor (NoorMesh's right-click, NoorForge's brush) takes Esc first: it closes, focus mode stays.
+      const pop = document.querySelector('#nm-popup, #fg-popup');
+      if (pop) { if (pop.id === 'nm-popup' && !pop.contains(e.target)) pop.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); return; }
       // Leaving Focus mode takes the key: a bench in the middle must not also close on it.
       if (document.body.classList.contains('zen')) { e.preventDefault(); e.stopPropagation(); toggleZen(false); }
       return;

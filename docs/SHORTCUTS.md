@@ -96,7 +96,7 @@ Press **F1** in the app to see this list, or **Ctrl+K** to search every command.
 | NoorSprite (pixel art) | Ctrl+Alt+P |
 | NoorPhoto (photos and painting) | Ctrl+Alt+J |
 | NoorInk (vector drawing, SVG) | Ctrl+Alt+U |
-| NoorMesh (model meshes for games, preview) | Ctrl+Alt+N |
+| NoorMesh (model meshes for games) | Ctrl+Alt+N |
 | NoorInk tools: select · edit points · pen · pencil · rectangle · ellipse · line · text · gradient · eyedropper · hand (or hold Space) · zoom | V · A · P · N · M · L · \ · T · G · I · H · Z |
 | NoorInk: text to outlines · snap to objects on / off (hold Ctrl while dragging: not this time) | Ctrl+Shift+O · Ctrl+; |
 | NoorInk: group / ungroup · duplicate · bring forward / back (Shift: to the front / back) · unite · subtract · intersect · exclude · simplify · flip · nudge (Shift: 10) · to the layer above / below · snap to the grid · fit / actual size | Ctrl+G / Ctrl+Shift+G · Ctrl+D · Ctrl+] / Ctrl+[ · Ctrl++ · Ctrl+- · Ctrl+* · Ctrl+Shift+^ · Ctrl+L · Shift+H / Shift+V · arrows · Shift+PgUp / PgDn · Ctrl+' · Ctrl+0 / Ctrl+1 |
@@ -161,7 +161,7 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Pick a colour from the picture (and, painting for a material, from the material under it) | Alt+click |
 | Painting for a material: apply it to the material | Ctrl+S |
 
-## NoorMesh (preview): Blender's keys
+## NoorMesh: Blender's keys
 
 | What | Keys |
 |---|---|
@@ -201,7 +201,8 @@ All shortcuts are handled in one place (the editor page), and the browser's own 
 | Knife (click points on the mesh, snapping to vertices, edges and their middles; Enter or Space: cut; the view moves freely while cutting) | K |
 | Slide vertices or an edge loop (E: even, F: flip) | G G |
 | Proportional editing / its falloff (wheel or Page Up / Down while moving: size) | O / Shift+O |
-| Auto merge vertices | Alt+O |
+| Proportional editing, connected only | Alt+O |
+| Auto merge vertices | the ⊕ button (no key, as in Blender) |
 | Mirror editing | The ⇋X ⇋Y ⇋Z buttons |
 | Delete menu / dissolve | X or Delete / Ctrl+X |
 | Merge / make a face | M / F |

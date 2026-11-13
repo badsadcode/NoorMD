@@ -456,5 +456,33 @@ const topFace = (m) => m.f.findIndex((f) => K.faceNormal(m, f).n[2] > 0.99);
   check('seams cleared', seams.every((k) => !K.isSeam(cleared, k)));
 }
 
+{
+  console.log('\n-- subdivide, hidden faces');
+  const c = K.cube(2), all = c.f.map((_, i) => i);
+  let r = K.subdivide(c, all, 1, 0);
+  check('subdivide a cube once: 24 quads, 26 vertices, closed, the same shape', r.mesh.f.length === 24 && K.vertexCount(r.mesh) === 26 && K.check(r.mesh).ok && Math.abs(K.volume(r.mesh) - 8) < 1e-9 && r.faces.length === 24, K.check(r.mesh));
+  r = K.subdivide(c, all, 3, 0);
+  check('…3 cuts: 16 quads a side (96)', r.mesh.f.length === 96 && K.check(r.mesh).ok);
+  const sm = K.subdivide(c, all, 2, 1);
+  const rad = []; for (let i = 0; i < K.vertexCount(sm.mesh); i++) rad.push(Math.hypot(sm.mesh.v[i * 3], sm.mesh.v[i * 3 + 1], sm.mesh.v[i * 3 + 2]));
+  check('…smooth: rounder (the face middles pushed out near the corners\' distance), still closed', K.check(sm.mesh).ok && Math.min(...rad) > 1.15 && Math.max(...rad) < 1.8 && Math.max(...rad) - Math.min(...rad) < 0.25, [Math.min(...rad), Math.max(...rad)]);
+  const one = K.subdivide(c, [0], 2, 0);
+  check('one face of a cube: 9 quads; its neighbours get the new edge points (closed, no T-junction holes)', one.mesh.f.length === 14 && one.faces.length === 9 && K.check(one.mesh).ok && Math.abs(K.volume(one.mesh) - 8) < 1e-9, K.check(one.mesh));
+  const ico = K.icoSphere(1, 1), tri = K.subdivide(ico, ico.f.map((_, i) => i), 2, 0);
+  check('triangles: 9 triangles each, closed', tri.mesh.f.length === ico.f.length * 9 && tri.mesh.f.every((f) => f.v.length === 3) && K.check(tri.mesh).ok);
+  const cy = K.cylinder(1, 2, 8), cyR = K.subdivide(cy, cy.f.map((_, i) => i), 1, 0);
+  check('n-gons (a cylinder\'s caps): quads round a middle, closed, the same volume', K.check(cyR.mesh).ok && Math.abs(K.volume(cyR.mesh) - K.volume(cy)) < 1e-9 && cyR.mesh.f.every((f) => f.v.length === 4));
+  check('…two cuts: a fan of triangles, closed', K.check(K.subdivide(cy, cy.f.map((_, i) => i), 2, 0).mesh).ok);
+  const uvc = K.resetUV(c, all), uvR = K.subdivide(uvc, [0], 1, 0);
+  const uvs = uvR.faces.flatMap((fi) => uvR.mesh.f[fi].uv);
+  check('UVs follow: the quarters of the square (0, ½, 1 only)', uvs.every((x) => [0, 0.5, 1].some((y) => Math.abs(x - y) < 1e-9)) && uvs.some((x) => Math.abs(x - 0.5) < 1e-9));
+  const seamy = K.markSeams(c, [K.edgeKey(c.f[0].v[0], c.f[0].v[1])]), sR = K.subdivide(seamy, [0], 2, 0);
+  check('a seam on a cut edge carries over to its three pieces', Object.values(sR.mesh.e).filter((x) => x && x.seam).length === 3);
+  check('materials and smoothing kept', K.subdivide({ ...c, f: c.f.map((f) => ({ ...f, m: 2, s: true })) }, [0], 1, 0).mesh.f.every((f) => f.m === 2 && f.s));
+  const hid = K.clone({ ...c, f: c.f.map((f, i) => (i === 0 ? { ...f, h: true } : f)) });
+  check('a hidden face (h) is kept by clone', hid.f[0].h === true && !hid.f[1].h);
+  check('…buffers leave it out when asked (and keep face numbers), not otherwise', K.buffers(hid, null, { skipHidden: true }).triangles === 10 && !Array.from(K.buffers(hid, null, { skipHidden: true }).faceOfTriangle).includes(0) && K.buffers(hid).triangles === 12);
+}
+
 console.log(failed ? `\n${failed} FAILED` : '\nall passed');
 process.exit(failed ? 1 : 0);
