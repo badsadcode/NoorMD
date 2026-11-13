@@ -1,0 +1,45 @@
+# The devlog as a web page on GitHub Pages (https://badsadcode.github.io/NoorMD/), rebuilt whenever it changes.
+name: Devlog page
+
+on:
+  push:
+    paths:
+      - DEVLOG.md
+      - site/**
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the page
+        run: |
+          mkdir -p _site
+          python3 site/build.py DEVLOG.md _site/index.html site/template.html
+          cp -r site/img _site/img
+          touch _site/.nojekyll
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoorMD Devlog</title>
+<meta name="description" content="How a Markdown editor grew twenty benches in nineteen days — the NoorMD devlog.">
+<link rel="icon" href="img/noormd.png">
+<style>
+  :root {
+    --bg: #0f0d17; --panel: #171425; --ink: #ece9f6; --muted: #a9a3c2; --line: #2a2540;
+    --accent: #b9a4ff; --accent2: #7ee0c3; --code: #221d36; --shadow: 0 10px 40px rgba(0,0,0,.45);
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f7f5fd; --panel: #ffffff; --ink: #1d1a2b; --muted: #5d5878; --line: #e2ddf2; --accent: #6b4fd8; --accent2: #0f8f6c; --code: #efebfb; --shadow: 0 10px 30px rgba(60,40,120,.10); }
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.65 "Inter", system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header.hero { padding: 72px 20px 48px; text-align: center; background:
+      radial-gradient(1200px 400px at 50% -80px, color-mix(in srgb, var(--accent) 28%, transparent), transparent),
+      radial-gradient(600px 300px at 85% 40%, color-mix(in srgb, var(--accent2) 14%, transparent), transparent); }
+  header.hero img { width: 88px; height: 88px; border-radius: 22px; box-shadow: var(--shadow); }
+  header.hero h1 { font-size: clamp(2rem, 5vw, 3.2rem); margin: 18px 0 8px; letter-spacing: -0.02em; }
+  header.hero p { color: var(--muted); max-width: 680px; margin: 0 auto; font-size: 1.08rem; }
+  nav.days { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px; justify-content: safe center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); }
+  nav.days a { flex: none; color: var(--muted); text-decoration: none; font-size: .86rem; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  nav.days a:hover { color: var(--ink); border-color: var(--accent); }
+  main { max-width: 820px; margin: 0 auto; padding: 24px 20px 80px; }
+  h2 { font-size: 1.55rem; margin: 2.4em 0 .6em; letter-spacing: -0.01em; scroll-margin-top: 64px; }
+  h2::before { content: "◆ "; color: var(--accent); font-size: .8em; }
+  h3 { margin: 1.8em 0 .4em; }
+  a { color: var(--accent); }
+  p, li { color: var(--ink); }
+  ul { padding-left: 1.3em; }
+  li { margin: .35em 0; }
+  li::marker { color: var(--accent); }
+  strong { color: var(--ink); }
+  em { color: var(--muted); }
+  code { background: var(--code); padding: .1em .4em; border-radius: 6px; font-size: .9em; font-family: "JetBrains Mono", ui-monospace, monospace; }
+  blockquote { margin: 1.4em 0; padding: 14px 20px; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--accent2); border-radius: 12px; box-shadow: var(--shadow); }
+  blockquote p { margin: 0; }
+  hr { border: 0; border-top: 1px dashed var(--line); margin: 2.4em 0; }
+  .table { overflow-x: auto; margin: 1.2em 0; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: .95rem; }
+  td, th { padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; text-align: left; }
+  tr:last-child td { border-bottom: 0; }
+  td:first-child { color: var(--muted); white-space: nowrap; }
+  figure { margin: 1.6em 0; }
+  figure img { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); box-shadow: var(--shadow); background: #c8d2dc; }
+  figcaption { color: var(--muted); font-size: .88rem; text-align: center; margin-top: 8px; }
+  footer { text-align: center; color: var(--muted); font-size: .9rem; padding: 30px 20px 60px; border-top: 1px solid var(--line); }
+  @media (max-width: 600px) { body { font-size: 16px; } header.hero { padding: 48px 16px 32px; } }
+</style>
+</head>
+<body>
+<header class="hero">
+  <img src="img/noormd.png" alt="NoorMD">
+  <h1>📓 The NoorMD Devlog</h1>
+  <p>How a Markdown editor became a studio with twenty benches in nineteen days — told by one human with an endless
+  supply of “oh, and also…”, and one AI that kept saying “sure!”.</p>
+</header>
+<nav class="days" aria-label="Days">{{NAV}}</nav>
+<main>
+{{BODY}}
+</main>
+<footer>NoorMD is made with WPF, WebView2 and far too many ideas. · <a href="https://github.com/badsadcode/NoorMD">The code on GitHub</a></footer>
+</body>
+</html>
