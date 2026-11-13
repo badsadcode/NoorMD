@@ -10713,7 +10713,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await pick(['Subtitles', 'Timing', 'Later by 0.5 s']);
       check('…timing: 0.5 s later', (await vs()).fx.sub.delay === 0.5);
       await pick(['Subtitles', 'Load a subtitle file']);
-      await waitFn(page, () => window.NoorVideo._state().current && window.NoorVideo._state().current.subtitles >= 1 && document.querySelectorAll('#vb-video track').length >= 1);
+      await waitFn(page, () => window.__mock.state.video.subPicks === 1 && [...document.querySelectorAll('#vb-subs option')].some((o) => o.textContent === 'My subtitles'));
       check('…Load a subtitle file: the chosen file added and shown', (await V()).subPicks === 1 && (await page.$$eval('#vb-subs option', (o) => o.map((x) => x.textContent))).includes('My subtitles'));
       await pick(['Loop', 'Loop this video']);
       check('Loop › Loop this video', (await vs()).loop === true);
