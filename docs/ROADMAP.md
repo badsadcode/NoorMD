@@ -5,6 +5,10 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorVideo (preview.160): a right-click menu on the video (and a ⋯ button): picture effects and adjustments, flips
+  and quarter turns, fit and zoom; sound boost, night mode, mono, keeping the pitch at other speeds; subtitle size,
+  colour, background, position and timing, and loading a subtitle file; loop and A–B loop, frame steps, a sleep
+  timer, saving the frame as a picture.
 - NoorForm (preview.159): pixel-art grass, flowers, ferns and bushes (32/64 px pictures, a palette, an outline; 13 presets).
 - NoorForm (preview.158): low-poly card plants — grass and bushes as a few crossed planes (cross, star, # grid,
   fan, dome, ring) showing painted grass, leafy bushes or fern fronds; 21 presets.
@@ -204,6 +208,22 @@ first, and anything that conflicts with it waits.
   snapshots, shared palettes: preview.113. See
   [NOORSPRITE_PLAN.md](NOORSPRITE_PLAN.md). NoorPhoto (a layered photo and painting editor) came in preview.119
   ([NOORPHOTO_PLAN.md](NOORPHOTO_PLAN.md)); NoorSketch stays the small sketchpad it is.
+
+## NoorVideo: written down for later
+
+- **Rescan where it can be seen:** Rescan lives only in the 📁 Folders window, easy to miss (asked about it after
+  deleting a video). A ⟳ next to 📁 Folders, or the library noticing new and deleted files by itself when the bench
+  opens (or watching the folders while it is open).
+- **A subtitle editor:** create and edit subtitles beside the playing video — a list of cues (start, end, text)
+  with the cue under the playhead highlighted; set start/end from the playhead with a key, nudge them, split and
+  join cues, shift or stretch the whole file (two points: "this line is here, that one there"); the waveform of
+  the sound under the timeline to find where speech starts; spell check; reading speed warnings (characters per
+  second, lines too long, cues too short or overlapping); styles for ASS (font, colour, position). Open and save
+  SRT, WebVTT and ASS/SSA (convert between them), saved next to the video so the library picks it up. Starting a
+  new file from the video's own notes is a possible shortcut.
+- **More for the player:** embedded subtitle and audio tracks from MKV need decoding the app doesn't do yet;
+  chapters (from the file, or from notes); a bookmark list; screenshots straight into NoorGallery; the pop-out
+  player sharing the picture and sound settings.
 
 ## Indie developer benches (concept)
 

@@ -47,6 +47,8 @@ window.NoorVideo = (() => {
     video.addEventListener('pause', () => { savePosition(true); renderTransport(); });
     video.addEventListener('play', () => { hideCountdown(); hooks.onPlay(); renderTransport(); });
     video.addEventListener('ended', onEnded);
+    video.addEventListener('load', applyCues, true);     // a subtitle track loaded: its cues moved and placed as set
+    video.addEventListener('play', () => { if (audio.ctx && audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {}); });
     video.addEventListener('loadedmetadata', onLoaded);
     video.addEventListener('volumechange', () => { const v = $('#vb-volume'); if (v) v.value = String(Math.round(video.volume * 100)); });
     video.addEventListener('error', () => {
@@ -107,7 +109,7 @@ window.NoorVideo = (() => {
           el('button', { class: 'icon-btn', id: 'vb-wide', title: 'Wide / narrow panel', 'aria-label': 'Wide or narrow panel', 'aria-pressed': 'false', onclick: () => setWide(!(window.NoorDock ? NoorDock.isWide('video') : document.body.classList.contains('video-wide'))) }, '⤢'),
           el('button', { class: 'icon-btn', title: 'Close (Esc)', 'aria-label': 'Close NoorVideo', onclick: close }, '✕'))),
       el('section', { class: 'nowplaying vb-player', 'aria-label': 'Now playing' },
-        el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); } },
+        el('div', { class: 'vb-stage', id: 'vb-stage', ondblclick: toggleFullscreen, onclick: (e) => { if (e.target === video) playPause(); }, oncontextmenu: (e) => { e.preventDefault(); showPlayerMenu(e.clientX, e.clientY); } },
           video, el('div', { class: 'vb-note-pop', id: 'vb-note-pop', hidden: true, 'aria-live': 'polite' }), el('div', { class: 'vb-message', id: 'vb-message', hidden: true }), el('div', { class: 'vb-countdown', id: 'vb-countdown', hidden: true })),
         el('div', { class: 'np-text vb-text' },
           el('div', { class: 'np-title', id: 'vb-title', text: 'Nothing playing', title: 'Show in the list', onclick: () => revealPlaying() }),
@@ -574,6 +576,8 @@ window.NoorVideo = (() => {
     // Keep the language chosen for the previous video when this one has it too.
     const at2 = audioTracks();
     if (audioLang && at2.length > 1) { const i = at2.findIndex((t) => t.language === audioLang); if (i >= 0) setAudio(i, false); }
+    ab = { a: null, b: null };
+    applyPicture(); applyAudio(); applyCueStyle();
     renderExtras();
     renderTime();
   }
@@ -583,6 +587,7 @@ window.NoorVideo = (() => {
   }
 
   function onTime() {
+    checkAb();
     if (!video.paused && Date.now() - lastSaved > 5000) savePosition(false);
     renderTime();
     const ts = $('#vb-note-time');
@@ -614,6 +619,7 @@ window.NoorVideo = (() => {
 
   async function onEnded() {
     if (!current) return;
+    if (sleep && sleep.kind === 'end') { sleep = null; await req('video.position', { id: current.video.id, position: video.duration, duration: video.duration }).catch(() => {}); notice('Sleep timer: stopped at the end 💤', 3000); return; }
     await req('video.position', { id: current.video.id, position: video.duration, duration: video.duration }).catch(() => {});
     if (q.repeat === 'one') { video.currentTime = 0; video.play().catch(() => {}); return; }
     await refresh(true);
@@ -700,6 +706,7 @@ window.NoorVideo = (() => {
     box.replaceChildren(speed, subs, ...(audio ? [audio] : []),
       el('span', { class: 'sd-spacer' }),
       el('button', { class: 'icon-btn' + (notesOnVideo ? ' on' : ''), id: 'vb-notes-on-video', title: notesOnVideo ? 'Notes show on the video at their moment (click to hide them)' : 'Show notes on the video at their moment', 'aria-label': 'Notes on the video', 'aria-pressed': String(notesOnVideo), onclick: () => setNotesOnVideo(!notesOnVideo) }, '💬'),
+      el('button', { class: 'icon-btn', id: 'vb-more', title: 'More: picture, sound, subtitles, loops, sleep timer… (or right-click the video)', 'aria-label': 'More player options', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); showPlayerMenu(r.left, r.bottom + 2); } }, '⋯'),
       ic('⧉', 'Pop out: a small window that stays on top', popOut, 'vb-popout'),
       ic('⛶', 'Full screen (F)', toggleFullscreen),
       ic(current && current.video.watched ? '↺' : '✓', current && current.video.watched ? 'Mark as not watched' : 'Mark as watched', () => current && markWatched([current.video.id], !current.video.watched)));
@@ -967,6 +974,221 @@ window.NoorVideo = (() => {
     else await select(p.id, { autoplay: isOpen(), at: p.time });
   }
 
+  // ------------------------------------------------------------------ the player's right-click menu: picture, sound, subtitles
+
+  // Kept between sessions (this computer only): the picture, the sound and how subtitles look.
+  const PLAYER_KEY = 'noormd.video.player';
+  const PLAYER_DEFAULTS = { effect: 'none', adj: { brightness: 1, contrast: 1, saturate: 1, hue: 0 }, flipH: false, flipV: false, rotate: 0, fit: 'contain', zoom: 1,
+    boost: 1, night: false, mono: false, keepPitch: true, sub: { size: 'normal', color: 'white', bg: 'shadow', pos: 'bottom', delay: 0 } };
+  let fx = (() => { try { const v = JSON.parse(localStorage.getItem(PLAYER_KEY) || 'null'); return v ? { ...clone(PLAYER_DEFAULTS), ...v, adj: { ...PLAYER_DEFAULTS.adj, ...(v.adj || {}) }, sub: { ...PLAYER_DEFAULTS.sub, ...(v.sub || {}), delay: 0 } } : clone(PLAYER_DEFAULTS); } catch { return clone(PLAYER_DEFAULTS); } })();
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function savePlayer() { try { localStorage.setItem(PLAYER_KEY, JSON.stringify({ ...fx, sub: { ...fx.sub, delay: 0 } })); } catch { /* private storage off */ } }
+  // This video only: loops, the A–B section, the sleep timer.
+  let ab = { a: null, b: null };
+  let sleep = null;          // { kind: 'end' } or { kind: 'time', until, timer }
+
+  const EFFECTS = [['none', 'None'], ['brighter', 'Brighter', 'brightness(1.2)'], ['vivid', 'Vivid', 'saturate(1.5) contrast(1.1)'], ['cinematic', 'Cinematic', 'contrast(1.15) saturate(0.85)'],
+    ['soft', 'Soft', 'contrast(0.9) saturate(0.85) brightness(1.05)'], ['warm', 'Warm', 'sepia(0.25) saturate(1.2) hue-rotate(-8deg)'], ['cool', 'Cool', 'hue-rotate(12deg) saturate(1.1) brightness(1.02)'],
+    ['bw', 'Black & white', 'grayscale(1)'], ['sepia', 'Sepia (old film)', 'sepia(0.9) contrast(1.05)'], ['dim', 'Dim (night)', 'brightness(0.7) sepia(0.15)'], ['negative', 'Negative', 'invert(1) hue-rotate(180deg)']];
+
+  /** The picture: the effect, the adjustments, flips, turn and zoom (CSS on the video: nothing is re-encoded). */
+  function applyPicture() {
+    const e = EFFECTS.find(([k]) => k === fx.effect);
+    const a = fx.adj;
+    const adj = [a.brightness !== 1 ? `brightness(${a.brightness})` : '', a.contrast !== 1 ? `contrast(${a.contrast})` : '', a.saturate !== 1 ? `saturate(${a.saturate})` : '', a.hue ? `hue-rotate(${a.hue}deg)` : ''].filter(Boolean).join(' ');
+    video.style.filter = [e && e[2] ? e[2] : '', adj].filter(Boolean).join(' ');
+    // Turned a quarter, the picture is scaled down to stay inside the frame.
+    const quarter = fx.rotate % 180 !== 0;
+    const fit = quarter && video.videoWidth && video.videoHeight ? Math.min(video.videoWidth / video.videoHeight, video.videoHeight / video.videoWidth) : 1;
+    const parts = [fx.rotate ? `rotate(${fx.rotate}deg)` : '', fx.flipH || fx.flipV ? `scale(${fx.flipH ? -1 : 1}, ${fx.flipV ? -1 : 1})` : '', fx.zoom * fit !== 1 ? `scale(${fx.zoom * fit})` : ''].filter(Boolean);
+    video.style.transform = parts.join(' ');
+    video.style.objectFit = fx.fit;
+  }
+
+  /** How subtitles look (size, colour, background) and sit (higher up, earlier or later). */
+  function applyCueStyle() {
+    let st = document.getElementById('vb-cue-style');
+    if (!st) { st = el('style', { id: 'vb-cue-style' }); document.head.append(st); }
+    const size = { small: '80%', normal: '100%', large: '130%', huge: '165%' }[fx.sub.size] || '100%';
+    const color = { white: '#ffffff', yellow: '#ffe14a', cyan: '#7fe9ff', green: '#9dff9d' }[fx.sub.color] || '#ffffff';
+    const bg = fx.sub.bg === 'box' ? 'background: rgba(0,0,0,0.75); text-shadow: none;' : fx.sub.bg === 'none' ? 'background: transparent; text-shadow: none;' : 'background: transparent; text-shadow: 0 0 4px #000, 0 2px 3px #000;';
+    st.textContent = `#vb-video::cue { font-size: ${size}; color: ${color}; ${bg} }`;
+  }
+  const cueOrig = new WeakMap();
+  /** Every loaded cue moved by the delay and raised when asked (the originals are kept, so it can be undone). */
+  function applyCues() {
+    for (const t of [...video.textTracks]) {
+      if (!t.cues) continue;
+      for (const c of [...t.cues]) {
+        if (!cueOrig.has(c)) cueOrig.set(c, [c.startTime, c.endTime]);
+        const [s0, e0] = cueOrig.get(c);
+        c.startTime = Math.max(0, s0 + fx.sub.delay); c.endTime = Math.max(0.05, e0 + fx.sub.delay);
+        try { c.snapToLines = true; c.line = fx.sub.pos === 'higher' ? -4 : 'auto'; } catch { /* not a VTTCue */ }
+      }
+    }
+  }
+  function subDelay(d) { fx.sub.delay = d === 0 ? 0 : Math.round((fx.sub.delay + d) * 10) / 10; applyCues(); notice(`Subtitles ${fx.sub.delay === 0 ? 'in time' : fx.sub.delay > 0 ? `${fx.sub.delay} s later` : `${-fx.sub.delay} s earlier`}`, 1200); }
+
+  // The sound through Web Audio, built the first time it is needed (boost, night mode, mono).
+  const audio = { ctx: null, src: null, mono: null, comp: null, gain: null };
+  function applyAudio() {
+    video.preservesPitch = fx.keepPitch;
+    const needed = fx.boost !== 1 || fx.night || fx.mono;
+    if (!audio.ctx && !needed) return;
+    if (!audio.ctx) {
+      try {
+        audio.ctx = new AudioContext();
+        audio.src = audio.ctx.createMediaElementSource(video);
+        audio.mono = audio.ctx.createGain(); audio.comp = audio.ctx.createDynamicsCompressor(); audio.gain = audio.ctx.createGain();
+        audio.comp.threshold.value = -30; audio.comp.knee.value = 20; audio.comp.ratio.value = 6; audio.comp.attack.value = 0.005; audio.comp.release.value = 0.25;
+        audio.mono.channelCountMode = 'explicit'; audio.mono.channelInterpretation = 'speakers';
+      } catch (err) { notice('The sound can’t be changed here.', 2000); audio.ctx = null; return; }
+    }
+    audio.mono.channelCount = fx.mono ? 1 : 2;     // mixed down to one channel, played on both
+    try { audio.src.disconnect(); audio.mono.disconnect(); audio.comp.disconnect(); audio.gain.disconnect(); } catch { /* not connected yet */ }
+    audio.src.connect(audio.mono);
+    if (fx.night) { audio.mono.connect(audio.comp); audio.comp.connect(audio.gain); } else audio.mono.connect(audio.gain);
+    // Night mode lifts the quiet parts after squeezing the loud ones.
+    audio.gain.gain.value = fx.boost * (fx.night ? 1.6 : 1);
+    audio.gain.connect(audio.ctx.destination);
+    if (audio.ctx.state === 'suspended') audio.ctx.resume().catch(() => {});
+  }
+
+  function setFx(change, what) { change(); savePlayer(); if (what === 'picture') applyPicture(); else if (what === 'audio') applyAudio(); else if (what === 'cues') { applyCueStyle(); applyCues(); } }
+
+  function checkAb() {
+    if (ab.a != null && ab.b != null && video.currentTime >= ab.b) video.currentTime = ab.a;
+  }
+  function setSleep(kind, minutes) {
+    if (sleep && sleep.timer) clearTimeout(sleep.timer);
+    sleep = null;
+    if (kind === 'end') { sleep = { kind }; notice('Sleep timer: stops at the end of this video', 1800); }
+    else if (kind === 'time') {
+      sleep = { kind, until: Date.now() + minutes * 60000, timer: setTimeout(() => { video.pause(); sleep = null; notice('Sleep timer: paused 💤', 3000); }, minutes * 60000) };
+      notice(`Sleep timer: pauses in ${minutes} min`, 1800);
+    } else notice('Sleep timer off', 1200);
+  }
+  function stepFrame(d) { if (!current) return; video.pause(); video.currentTime = Math.max(0, Math.min(video.duration || 0, video.currentTime + d / 30)); }
+
+  async function loadSubtitleFile() {
+    if (!current) return;
+    let r;
+    try { r = await req('video.subtitle.pick'); } catch (err) { hooks.showError(err); return; }
+    if (!r || r.cancelled) return;
+    const url = URL.createObjectURL(new Blob([r.vtt], { type: 'text/vtt' }));
+    const index = video.textTracks.length;
+    const tr = el('track', { kind: 'subtitles', label: r.label, srclang: 'en', src: url });
+    video.append(tr);
+    current.subtitles = [...current.subtitles, { index, label: r.label, lang: 'und' }];
+    setSubtitle(index);
+    tr.addEventListener('load', applyCues);
+    renderExtras();
+    notice(`Subtitles: ${r.label}`, 1500);
+  }
+
+  async function saveFrame() {
+    if (!current || !video.videoWidth) { notice('Nothing to save yet.', 1200); return; }
+    const c = document.createElement('canvas');
+    c.width = video.videoWidth; c.height = video.videoHeight;
+    const g = c.getContext('2d');
+    g.filter = video.style.filter || 'none';        // the picture as you see it (effect and adjustments)
+    if (fx.flipH || fx.flipV) { g.translate(fx.flipH ? c.width : 0, fx.flipV ? c.height : 0); g.scale(fx.flipH ? -1 : 1, fx.flipV ? -1 : 1); }
+    g.drawImage(video, 0, 0);
+    const t = video.currentTime;
+    try {
+      const r = await req('video.snapshot', { data: c.toDataURL('image/png'), name: `${current.video.title} ${fmt(t).replace(/:/g, '-')}` });
+      if (r && r.path) notice('Frame saved', 1500);
+    } catch (err) { hooks.showError(err); }
+  }
+
+  /** Picture adjustments, live: brightness, contrast, saturation, hue. */
+  function adjustDialog() {
+    NoorUI.modal({ label: 'Picture adjustments', width: 420 }, (s, closeModal) => {
+      const row = (key, label, min, max, step) => {
+        const r = el('input', { type: 'range', min: String(min), max: String(max), step: String(step), value: String(fx.adj[key]), 'data-adj': key, 'aria-label': label });
+        r.addEventListener('input', () => setFx(() => { fx.adj[key] = Number(r.value); }, 'picture'));
+        return el('label', { class: 'sb-slider' }, el('span', { text: label }), r);
+      };
+      s.append(NoorUI.head('🎨 Picture adjustments', closeModal),
+        el('div', { class: 'modal-body sb-fields', id: 'vb-adjust' }, row('brightness', 'Brightness', 0.3, 2, 0.01), row('contrast', 'Contrast', 0.3, 2, 0.01), row('saturate', 'Saturation', 0, 3, 0.01), row('hue', 'Hue', -180, 180, 1)),
+        el('div', { class: 'modal-foot' }, el('div', { class: 'modal-buttons' },
+          el('button', { class: 'action', onclick: () => { setFx(() => { fx.adj = clone(PLAYER_DEFAULTS.adj); }, 'picture'); s.querySelectorAll('[data-adj]').forEach((r) => { r.value = String(fx.adj[r.dataset.adj]); }); } }, 'Reset'),
+          el('button', { class: 'action primary', onclick: closeModal }, 'Done'))));
+    });
+  }
+
+  function showPlayerMenu(x, y) {
+    const has = !!current;
+    const radio = (list, now, set) => list.map(([v, l]) => ({ label: l, checked: () => now() === v, run: () => set(v) }));
+    const tracks = audioTracks();
+    const subs = [...video.textTracks];
+    const items = [
+      { label: video.paused ? '▶ Play' : '⏸ Pause', keys: 'Space', disabled: !has, run: playPause },
+      { label: 'Back 10 s', keys: 'J', disabled: !has, run: () => { video.currentTime = Math.max(0, video.currentTime - 10); } },
+      { label: 'Forward 10 s', keys: 'L', disabled: !has, run: () => { video.currentTime = Math.min(video.duration || 0, video.currentTime + 10); } },
+      { label: 'One frame back', disabled: !has, run: () => stepFrame(-1) },
+      { label: 'One frame forward', disabled: !has, run: () => stepFrame(1) },
+      '-',
+      { label: 'Speed', sub: () => [...SPEEDS.map((v) => ({ label: v === 1 ? 'Normal' : `${v}×`, checked: () => video.playbackRate === v, run: () => { video.playbackRate = v; scheduleSave(); renderExtras(); } })), '-',
+        { label: 'Keep the voices’ pitch', checked: () => fx.keepPitch, run: () => setFx(() => { fx.keepPitch = !fx.keepPitch; }, 'audio') }] },
+      { label: 'Loop', sub: () => [
+        { label: 'Loop this video', checked: () => video.loop, run: () => { video.loop = !video.loop; notice(video.loop ? 'Looping this video' : 'Loop off', 1200); } },
+        '-',
+        { label: ab.a != null ? `A: ${fmt(ab.a)} (set it here again)` : 'Set A here (loop from)', disabled: !has, run: () => { ab.a = video.currentTime; if (ab.b != null && ab.b <= ab.a) ab.b = null; notice(`A at ${fmt(ab.a)}`, 1200); } },
+        { label: ab.b != null ? `B: ${fmt(ab.b)} (set it here again)` : 'Set B here (loop to)', disabled: !has || ab.a == null, run: () => { if (video.currentTime > ab.a) { ab.b = video.currentTime; notice(`Looping ${fmt(ab.a)}–${fmt(ab.b)}`, 1500); } } },
+        { label: 'Clear A–B', disabled: ab.a == null, run: () => { ab = { a: null, b: null }; notice('A–B loop off', 1200); } }] },
+      '-',
+      { label: 'Audio track', disabled: tracks.length < 2, sub: () => tracks.map((t, i) => ({ label: t.label || t.language || `Track ${i + 1}`, checked: () => !!t.enabled, run: () => setAudio(i) })) },
+      { label: 'Sound', sub: () => [
+        ...[[1, 'Normal volume'], [1.5, 'Boost 150%'], [2, 'Boost 200%'], [3, 'Boost 300%']].map(([v, l]) => ({ label: l, checked: () => fx.boost === v, run: () => setFx(() => { fx.boost = v; }, 'audio') })),
+        '-',
+        { label: 'Night mode (quiet the loud parts, lift the quiet ones)', checked: () => fx.night, run: () => setFx(() => { fx.night = !fx.night; }, 'audio') },
+        { label: 'Mono (both ears the same)', checked: () => fx.mono, run: () => setFx(() => { fx.mono = !fx.mono; }, 'audio') }] },
+      '-',
+      { label: 'Subtitles', sub: () => [
+        { label: 'Off', checked: () => !subs.some((t) => t.mode === 'showing'), run: () => setSubtitle(-1) },
+        ...subs.map((t, i) => ({ label: t.label || `Track ${i + 1}`, checked: () => t.mode === 'showing', run: () => setSubtitle(i) })),
+        '-',
+        { label: 'Load a subtitle file…', disabled: !has, run: loadSubtitleFile },
+        '-',
+        { label: 'Size', sub: () => radio([['small', 'Small'], ['normal', 'Normal'], ['large', 'Large'], ['huge', 'Huge']], () => fx.sub.size, (v) => setFx(() => { fx.sub.size = v; }, 'cues')) },
+        { label: 'Colour', sub: () => radio([['white', 'White'], ['yellow', 'Yellow'], ['cyan', 'Cyan'], ['green', 'Green']], () => fx.sub.color, (v) => setFx(() => { fx.sub.color = v; }, 'cues')) },
+        { label: 'Background', sub: () => radio([['shadow', 'Shadow'], ['box', 'Dark box'], ['none', 'None']], () => fx.sub.bg, (v) => setFx(() => { fx.sub.bg = v; }, 'cues')) },
+        { label: 'Position', sub: () => radio([['bottom', 'At the bottom'], ['higher', 'Higher up']], () => fx.sub.pos, (v) => setFx(() => { fx.sub.pos = v; }, 'cues')) },
+        { label: `Timing${fx.sub.delay ? ` (${fx.sub.delay > 0 ? '+' : ''}${fx.sub.delay} s)` : ''}`, sub: () => [
+          { label: 'Earlier by 0.5 s', run: () => subDelay(-0.5) }, { label: 'Later by 0.5 s', run: () => subDelay(0.5) },
+          { label: 'Earlier by 0.1 s', run: () => subDelay(-0.1) }, { label: 'Later by 0.1 s', run: () => subDelay(0.1) },
+          '-', { label: 'Back in time (as the file says)', disabled: !fx.sub.delay, run: () => subDelay(0) }] }] },
+      { label: 'Picture', sub: () => [
+        ...EFFECTS.map(([k, l]) => ({ label: l, checked: () => fx.effect === k, run: () => setFx(() => { fx.effect = k; }, 'picture') })),
+        '-',
+        { label: 'Adjust brightness, contrast, colour…', run: adjustDialog },
+        '-',
+        { label: 'Flip left to right (mirror)', checked: () => fx.flipH, run: () => setFx(() => { fx.flipH = !fx.flipH; }, 'picture') },
+        { label: 'Flip upside down', checked: () => fx.flipV, run: () => setFx(() => { fx.flipV = !fx.flipV; }, 'picture') },
+        { label: 'Turn a quarter right', run: () => setFx(() => { fx.rotate = (fx.rotate + 90) % 360; }, 'picture') },
+        { label: 'Turn a quarter left', run: () => setFx(() => { fx.rotate = (fx.rotate + 270) % 360; }, 'picture') },
+        '-',
+        { label: 'Fit', sub: () => radio([['contain', 'Whole picture'], ['cover', 'Fill (crop the edges)'], ['fill', 'Stretch']], () => fx.fit, (v) => setFx(() => { fx.fit = v; }, 'picture')) },
+        { label: 'Zoom', sub: () => radio([[1, '100%'], [1.25, '125%'], [1.5, '150%'], [2, '200%']], () => fx.zoom, (v) => setFx(() => { fx.zoom = v; }, 'picture')) },
+        '-',
+        { label: 'Reset the picture', run: () => setFx(() => { Object.assign(fx, { effect: 'none', adj: clone(PLAYER_DEFAULTS.adj), flipH: false, flipV: false, rotate: 0, fit: 'contain', zoom: 1 }); }, 'picture') }] },
+      '-',
+      { label: 'Save this frame as a picture…', disabled: !has, run: saveFrame },
+      { label: 'Sleep timer', sub: () => [
+        { label: 'Off', checked: () => !sleep, run: () => setSleep(null) },
+        { label: 'At the end of this video', checked: () => !!sleep && sleep.kind === 'end', run: () => setSleep('end') },
+        ...[15, 30, 45, 60, 90].map((m) => ({ label: `In ${m} minutes`, run: () => setSleep('time', m) })),
+        ...(sleep && sleep.kind === 'time' ? [{ label: `(pauses in ${Math.max(1, Math.round((sleep.until - Date.now()) / 60000))} min)`, disabled: true }] : [])] },
+      '-',
+      { label: 'Add a note here…', keys: 'N', disabled: !has, run: () => { setTab('notes'); const i = $('#vb-note-input'); if (i) { i.focus(); i.dispatchEvent(new Event('input')); noteStarted(); } } },
+      { label: 'Notes on the video', checked: () => notesOnVideo, run: () => setNotesOnVideo(!notesOnVideo) },
+      { label: 'Pop out', disabled: !has, run: popOut },
+      { label: 'Full screen', keys: 'F', disabled: !has, run: toggleFullscreen },
+    ];
+    NoorChrome.openMenu(null, items, { x, y });
+  }
+
   // ------------------------------------------------------------------ folders, keys, session
 
   async function addFolder() {
@@ -1061,6 +1283,7 @@ window.NoorVideo = (() => {
     /** The radio started: the video pauses (one sound at a time). */
     pause: () => { if (!video.paused) video.pause(); },
     _state: () => ({
+      fx: clone(fx), ab: { ...ab }, sleep: sleep ? sleep.kind : null, filter: video.style.filter, transform: video.style.transform, fit: video.style.objectFit, loop: video.loop, audioGraph: !!audio.ctx, cueStyle: (document.getElementById('vb-cue-style') || {}).textContent || '',
       open: isOpen(), current: current ? { id: current.video.id, title: current.video.title, notes: current.notes.length, subtitles: current.subtitles.length } : null,
       rows: rows.map((r) => r.id), sel: [...sel].sort((a, b) => a - b), view: { ...view }, q: { ...q, current: currentId() },
       time: video.currentTime, paused: video.paused, rate: video.playbackRate, poppedOut, tracks: [...video.textTracks].map((t) => t.mode),

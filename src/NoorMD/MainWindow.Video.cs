@@ -162,6 +162,33 @@ public partial class MainWindow
                     _videoWindow.Activate();
                     return null;
                 }
+                case "video.subtitle.pick":
+                {
+                    // A subtitle file you choose for the playing video (any name, anywhere): converted to WebVTT, only read.
+                    var dlg = new OpenFileDialog { Title = Tr.T("Load subtitles"), Filter = Tr.T("Subtitles (*.srt;*.vtt;*.ass;*.ssa)|*.srt;*.vtt;*.ass;*.ssa"), Multiselect = false };
+                    Ui.NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    var info = new FileInfo(dlg.FileName);
+                    if (info.Length > SubtitleConverter.MaxBytes) throw new BridgeError("That subtitle file is too big.");
+                    var vtt = SubtitleConverter.ToVtt(await File.ReadAllTextAsync(dlg.FileName), info.Extension);
+                    return new { label = Path.GetFileNameWithoutExtension(dlg.FileName), vtt };
+                }
+                case "video.snapshot":
+                {
+                    // The frame on screen, drawn by the page; saved where you choose.
+                    var data = req.GetString("data", 60_000_000) ?? throw new BridgeError("Missing the picture.");
+                    var comma = data.IndexOf(',');
+                    byte[] png;
+                    try { png = Convert.FromBase64String(comma >= 0 ? data[(comma + 1)..] : data); }
+                    catch (FormatException) { throw new BridgeError("The picture can't be read."); }
+                    if (png.Length < 8 || png[0] != 0x89 || png[1] != (byte)'P') throw new BridgeError("That is not a PNG picture.");
+                    var name = req.GetString("name", 120) is { Length: > 0 } n ? n : "Frame";
+                    var dlg = new SaveFileDialog { Title = Tr.T("Save this frame as a picture"), Filter = Tr.T("PNG picture (*.png)|*.png"), DefaultExt = ".png", FileName = NoorMD.Core.Documents.DocumentFile.SafeFileName(name, ".png"), OverwritePrompt = true };
+                    Ui.NativeCursor.Restore();
+                    if (dlg.ShowDialog(this) != true) return new { cancelled = true };
+                    await File.WriteAllBytesAsync(dlg.FileName, png);
+                    return new { path = dlg.FileName };
+                }
                 case "video.popout.close":
                     _videoWindow?.Close();
                     return null;

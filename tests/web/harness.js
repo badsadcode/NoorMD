@@ -1352,6 +1352,8 @@ function mockHostScript(initial) {
       case 'video.playlist.items': return [...VID.playlists.find((x) => x.id === p.id).ids];
       case 'video.playlist.setItems': VID.playlists.find((x) => x.id === p.id).ids = [...p.ids]; return playlists();
       case 'video.playlist.add': VID.playlists.find((x) => x.id === p.id).ids.push(...p.ids); return playlists();
+      case 'video.subtitle.pick': VID.subPicks = (VID.subPicks || 0) + 1; return { label: 'My subtitles', vtt: 'WEBVTT\n\n00:00:00.500 --> 00:00:03.000\nHello there\n' };
+      case 'video.snapshot': VID.snapshots = (VID.snapshots || []).concat([{ name: p.name, png: String(p.data).startsWith('data:image/png;base64,') }]); return { path: 'C:\\Pictures\\' + p.name + '.png' };
       case 'video.episodes': return eps(p.key).map(row);
       case 'video.search': return VID.videos.filter((v) => (v.title + ' ' + v.series).toLowerCase().includes(String(p.text).toLowerCase())).map(row);
       case 'video.get': { const v = get(p.id); return { video: row(v), subtitles: v.id === 1 ? [{ index: 0, label: 'en (SRT)', lang: 'en' }] : [], notes: notes(v.id), next: next(v.id) && row(next(v.id)), exists: true }; }

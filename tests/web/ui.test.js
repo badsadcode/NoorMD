@@ -10662,6 +10662,66 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('no page errors with pixel-art plants', errors.length === 0, errors);
       await page.close();
     }
+    // ---- 80t. NoorVideo (preview.160): the player's right-click menu — picture effects and adjustments, flips and
+    // turns, sound boost, night mode and mono, subtitle size/colour/timing and loading a file, loops, sleep timer, a frame.
+    {
+      const { page, errors } = await open(browser, url, { document: { markdown: '# Notes\n', path: 'C:\\x.md', fileName: 'x.md', title: 'x' }, videos: true }, { width: 1600, height: 1000 });
+      const vs = () => page.evaluate(() => window.NoorVideo._state());
+      const V = () => page.evaluate(() => window.__mock.state.video);
+      await page.evaluate(() => { try { localStorage.removeItem('noormd.video.player'); } catch { /* */ } });
+      await page.keyboard.press('Control+Alt+v');
+      await page.waitForSelector('#videobench:not([hidden])');
+      await page.waitForSelector('.vtrack[data-id="1"]');
+      if (!(await vs()).current) await page.dblclick('.vtrack[data-id="1"]');
+      await waitFn(page, () => window.NoorVideo._state().current != null);
+      const menuAt = async () => { await page.click('#vb-stage', { button: 'right', position: { x: 60, y: 40 } }); await page.waitForSelector('.menu-popup'); };
+      const pick = async (path) => {
+        await menuAt();
+        for (let i = 0; i < path.length - 1; i++) await page.hover(`.menu-popup[data-depth="${i}"] .menu-item:has-text("${path[i]}")`);
+        await page.click(`.menu-popup[data-depth="${path.length - 1}"] .menu-item:has-text("${path[path.length - 1]}")`);
+      };
+      await menuAt();
+      const menu = await page.textContent('.menu-popup');
+      check('right-click on the video: a player menu (speed, loop, audio track, sound, subtitles, picture, frame, sleep timer)', ['Speed', 'Loop', 'Audio track', 'Sound', 'Subtitles', 'Picture', 'Save this frame as a picture', 'Sleep timer', 'Full screen'].every((w) => menu.includes(w)), menu);
+      await page.keyboard.press('Escape');
+      check('…the ⋯ button beside the player opens the same menu', !!(await page.$('#vb-more')));
+      await pick(['Picture', 'Black & white']);
+      let st = await vs();
+      check('Picture › Black & white: the video drawn in grey (nothing re-encoded)', /grayscale\(1\)/.test(st.filter) && st.fx.effect === 'bw', st.filter);
+      await pick(['Picture', 'Flip left to right']);
+      await pick(['Picture', 'Turn a quarter right']);
+      st = await vs();
+      check('…mirrored and turned a quarter', /rotate\(90deg\)/.test(st.transform) && /scale\(-1, 1\)/.test(st.transform), st.transform);
+      await pick(['Picture', 'Adjust brightness']);
+      await page.waitForSelector('#vb-adjust');
+      await page.$eval('#vb-adjust input[data-adj="brightness"]', (r) => { r.value = '1.4'; r.dispatchEvent(new Event('input', { bubbles: true })); });
+      check('…adjustments live: brightness 1.4', /brightness\(1\.4\)/.test((await vs()).filter), (await vs()).filter);
+      await page.click('.modal .action.primary');
+      check('…kept for next time', JSON.parse(await page.evaluate(() => localStorage.getItem('noormd.video.player'))).effect === 'bw');
+      await pick(['Picture', 'Reset the picture']);
+      st = await vs();
+      check('Reset the picture: back to as it is', st.filter === '' && st.transform === '', [st.filter, st.transform]);
+      await pick(['Sound', 'Night mode']);
+      st = await vs();
+      check('Sound › Night mode: the sound goes through a compressor (Web Audio)', st.fx.night && st.audioGraph);
+      await pick(['Sound', 'Boost 200%']);
+      check('…boost 200%', (await vs()).fx.boost === 2);
+      await pick(['Subtitles', 'Size', 'Large']);
+      await pick(['Subtitles', 'Colour', 'Yellow']);
+      st = await vs();
+      check('Subtitles › Large, Yellow: the cue style follows', /font-size: 130%/.test(st.cueStyle) && /#ffe14a/.test(st.cueStyle), st.cueStyle);
+      await pick(['Subtitles', 'Timing', 'Later by 0.5 s']);
+      check('…timing: 0.5 s later', (await vs()).fx.sub.delay === 0.5);
+      await pick(['Subtitles', 'Load a subtitle file']);
+      await waitFn(page, () => window.NoorVideo._state().current && window.NoorVideo._state().current.subtitles >= 1 && document.querySelectorAll('#vb-video track').length >= 1);
+      check('…Load a subtitle file: the chosen file added and shown', (await V()).subPicks === 1 && (await page.$$eval('#vb-subs option', (o) => o.map((x) => x.textContent))).includes('My subtitles'));
+      await pick(['Loop', 'Loop this video']);
+      check('Loop › Loop this video', (await vs()).loop === true);
+      await pick(['Sleep timer', 'At the end of this video']);
+      check('Sleep timer › at the end of this video', (await vs()).sleep === 'end');
+      check('no page errors with the player menu', errors.length === 0, errors);
+      await page.close();
+    }
   } finally {
     await browser.close();
     server.close();
