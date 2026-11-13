@@ -1530,20 +1530,42 @@
     return out;
   }
   /** Conjugate gradients on AᵀA x = Aᵀb for a sparse A (rows of [index, value] pairs). */
-  function leastSquares(rows, rhs, n, iters = 0) {
-    const Ax = (x) => rows.map((r) => r.reduce((s2, [j, a]) => s2 + a * x[j], 0));
-    const ATy = (y) => { const out = new Float64Array(n); rows.forEach((r, i) => { for (const [j, a] of r) out[j] += a * y[i]; }); return out; };
-    const x = new Float64Array(n), b = ATy(rhs);
-    let r = Float64Array.from(b), p = Float64Array.from(r), rr = r.reduce((s2, v) => s2 + v * v, 0);
-    const limit = iters || Math.max(200, n * 4), tol = 1e-20 * Math.max(1, rr);
-    for (let it = 0; it < limit && rr > tol; it++) {
-      const Ap = ATy(Ax(p)), pAp = p.reduce((s2, v, i) => s2 + v * Ap[i], 0);
+  function leastSquares(rows, rhs, n, iters = 0, guess = null) {
+    // Conjugate gradients on the normal equations (AᵀA x = Aᵀb), with A packed into flat arrays (compressed rows) and
+    // a Jacobi preconditioner (AᵀA's diagonal): the same answer as before, many times faster on big charts.
+    const m = rows.length;
+    let nnz = 0; for (const r of rows) nnz += r.length;
+    const start = new Int32Array(m + 1), col = new Int32Array(nnz), val = new Float64Array(nnz);
+    for (let i = 0, k = 0; i < m; i++) { start[i] = k; for (const [j, a] of rows[i]) { col[k] = j; val[k] = a; k++; } start[m] = k; }
+    const diag = new Float64Array(n);
+    for (let k = 0; k < nnz; k++) diag[col[k]] += val[k] * val[k];
+    for (let j = 0; j < n; j++) diag[j] = diag[j] > 1e-300 ? 1 / diag[j] : 1;
+    const t = new Float64Array(m);
+    // out = AᵀA x
+    const normal = (x, out) => {
+      for (let i = 0; i < m; i++) { let s2 = 0; for (let k = start[i]; k < start[i + 1]; k++) s2 += val[k] * x[col[k]]; t[i] = s2; }
+      out.fill(0);
+      for (let i = 0; i < m; i++) { const ti = t[i]; if (ti) for (let k = start[i]; k < start[i + 1]; k++) out[col[k]] += val[k] * ti; }
+    };
+    const b = new Float64Array(n);
+    for (let i = 0; i < m; i++) { const yi = rhs[i]; if (yi) for (let k = start[i]; k < start[i + 1]; k++) b[col[k]] += val[k] * yi; }
+    const x = guess ? Float64Array.from(guess) : new Float64Array(n), r = Float64Array.from(b), z = new Float64Array(n), p = new Float64Array(n), Ap = new Float64Array(n);
+    // Starting from a guess: the residual is what the guess leaves over.
+    if (guess) { normal(x, Ap); for (let j = 0; j < n; j++) r[j] -= Ap[j]; }
+    for (let j = 0; j < n; j++) { z[j] = r[j] * diag[j]; p[j] = z[j]; }
+    let rz = 0, bb = 0; for (let j = 0; j < n; j++) { rz += r[j] * z[j]; bb += b[j] * b[j]; }
+    const limit = iters || Math.max(200, n * 4), tol = 1e-20 * Math.max(1, bb);
+    for (let it = 0; it < limit; it++) {
+      normal(p, Ap);
+      let pAp = 0; for (let j = 0; j < n; j++) pAp += p[j] * Ap[j];
       if (Math.abs(pAp) < 1e-300) break;
-      const alpha = rr / pAp;
-      for (let i = 0; i < n; i++) { x[i] += alpha * p[i]; r[i] -= alpha * Ap[i]; }
-      const rr2 = r.reduce((s2, v) => s2 + v * v, 0);
-      const beta = rr2 / rr; rr = rr2;
-      for (let i = 0; i < n; i++) p[i] = r[i] + beta * p[i];
+      const alpha = rz / pAp;
+      let rr = 0;
+      for (let j = 0; j < n; j++) { x[j] += alpha * p[j]; r[j] -= alpha * Ap[j]; rr += r[j] * r[j]; }
+      if (rr <= tol) break;
+      let rz2 = 0; for (let j = 0; j < n; j++) { z[j] = r[j] * diag[j]; rz2 += r[j] * z[j]; }
+      const beta = rz2 / rz; rz = rz2;
+      for (let j = 0; j < n; j++) p[j] = z[j] + beta * p[j];
     }
     return x;
   }
@@ -1592,7 +1614,24 @@
       });
       rows.push(re, im); rhs.push(rre, rim);
     }
-    const x = nf ? leastSquares(rows, rhs, nf * 2) : new Float64Array(0);
+    // A good place to start: the chart laid flat on its average plane, A at (0, 0) and B at (1, 0) as pinned. A flat or
+    // gently curved chart is nearly solved by it, so the solver needs a handful of steps instead of thousands.
+    let guess = null;
+    {
+      let nx = 0, ny = 0, nz = 0;
+      for (const fi of chart) { const fn = faceNormal(mesh, mesh.f[fi]); const w = fn.area || 1; nx += fn.n[0] * w; ny += fn.n[1] * w; nz += fn.n[2] * w; }
+      const nl = Math.hypot(nx, ny, nz);
+      if (nl > 1e-12) {
+        const nrm = [nx / nl, ny / nl, nz / nl], pa = posOf[a], ab = sub(posOf[b], pa);
+        const inPlane = sub(ab, scale(nrm, dot(ab, nrm))), L = len(inPlane);
+        if (L > 1e-12) {
+          const e1 = scale(inPlane, 1 / L), e2 = cross(nrm, e1);
+          guess = new Float64Array(nf * 2);
+          for (const [i, fi2] of free) { const d = sub(posOf[i], pa); guess[fi2 * 2] = dot(d, e1) / L; guess[fi2 * 2 + 1] = dot(d, e2) / L; }
+        }
+      }
+    }
+    const x = nf ? leastSquares(rows, rhs, nf * 2, 0, guess) : new Float64Array(0);
     for (let i = 0; i < n; i++) uvs[i] = pins.has(i) ? pins.get(i).slice() : [x[free.get(i) * 2], x[free.get(i) * 2 + 1]];
     // Facing the right way (not mirrored).
     let signed = 0;
