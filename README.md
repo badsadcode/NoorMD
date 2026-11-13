@@ -7,6 +7,9 @@ web services.
 
 ![NoorMD](src/NoorMD/Assets/NoorMD-256.png)
 
+📓 **[Read the devlog](DEVLOG.md)**: how a Markdown editor grew twenty benches in nineteen days. What's being
+polished next is in the [polish plan](docs/POLISH_PLAN.md).
+
 ## Download and run
 
 1. Get `NoorMD-2.0.0-preview.52-win-x64-portable.zip`. Use the build attached to the GitHub Actions
