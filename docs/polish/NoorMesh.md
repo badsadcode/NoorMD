@@ -15,31 +15,53 @@ milliseconds on 10,000 faces).
 
 1. ✅ **Unwrap was very slow on bigger meshes** — 15 s for 10,000 faces, with the bench frozen. Now 0.4 s (packed
    solver, a preconditioner and a flat starting guess; the same UVs). *Done in this pass.*
-2. **A Help menu** in focus mode, like the other big benches: Shortcuts (F1), a short "first five minutes" guide, and
+2. ✅ **A Help menu** in focus mode, like the other big benches: Shortcuts (F1), a short "first five minutes" guide, and
    "for Blender users" (what's the same, what's different).
-3. **Drop the "preview" label** (the badge, "NoorMesh is a preview…" in the side panel, the command name): it is a
+3. ✅ **Drop the "preview" label** (the badge, "NoorMesh is a preview…" in the side panel, the command name): it is a
    full modelling bench now.
-4. **The Edit Mode status line** reads "1 vertices, 2 edges, 3 faces" (it means the keys). Show the selection instead,
+4. ✅ **The Edit Mode status line** reads "1 vertices, 2 edges, 3 faces" (it means the keys). Show the selection instead,
    as Blender does — "Vertices 2/8 · Edges 1/12 · Faces 0/6" — and the keys in the hint.
-5. **The falloff drop-down** ("Smooth") shows in Edit Mode even when proportional editing is off; show it only while
+5. ✅ **The falloff drop-down** ("Smooth") shows in Edit Mode even when proportional editing is off; show it only while
    it is on.
-6. **A Select menu** (Blender has one): all, none, invert, box, linked, more/less, loops, by material slot — now spread
+6. ✅ **A Select menu** (Blender has one): all, none, invert, box, linked, more/less, loops, by material slot — now spread
    over Edit and Mesh.
-7. **Hide parts of a mesh in Edit Mode** (H, Shift+H, Alt+H): it says "comes later" today; Blender modellers use it
+7. ✅ **Hide parts of a mesh in Edit Mode** (H, Shift+H, Alt+H): it says "comes later" today; Blender modellers use it
    all the time.
-8. **The 3D cursor kept in the scene file.**
-9. A "working…" note before long jobs (a big unwrap or Smart UV Project), so the bench never looks stuck.
+8. ✅ **The 3D cursor kept in the scene file.**
+9. ✅ A "working…" note before long jobs (a big unwrap or Smart UV Project), so the bench never looks stuck.
 
 ### Small features (your call)
 
-10. **Subdivide** (Mesh › Subdivide, cuts and smoothing): one of the most used modelling tools, missing today.
+10. ✅ **Subdivide** (Mesh › Subdivide, cuts and smoothing): one of the most used modelling tools, missing today.
 11. **Right-click select** (from the inbox): first a W key for the menu that right-click opens now, then the
     "Select with: left / right" setting.
-12. **Proportional "connected only"** — and a question: Blender puts that on **Alt+O**, where NoorMesh has auto merge.
+12. ✅ **Proportional "connected only"** — and a question: Blender puts that on **Alt+O**, where NoorMesh has auto merge.
     Move auto merge (Blender has no key for it) and give Alt+O to "connected only"?
 13. The active vertex/face as a pivot in Edit Mode; the 3D cursor's own rotation.
 14. UV editor: pin, stitch, live unwrap.
 
+Items 11, 13 and 14 were left for a later pass (they wait in the [ideas inbox](../IDEAS_INBOX.md)).
+
 ## Done
 
 - 13 Nov: unwrap 15× to 37× faster (item 1).
+- 13 Nov (preview.161), the rest of the agreed list:
+  - **Help menu** with Shortcuts (F1), "The first five minutes" and "For Blender users".
+  - **"Preview" gone** from the badge, the side panel, the command name and the shortcuts.
+  - **Edit Mode status** says what the keys do ("select vertices, edges or faces with 1, 2, 3 · Tab: back to Object
+    Mode"); the live selection counts stay in the properties panel, where they already were.
+  - **Falloff** (and the new ⛓ connected-only button) only show while proportional editing is on.
+  - **Select menu**: all, none, invert, box and loop (how to), linked, linked under the mouse, more, less, by material.
+    The Edit menu keeps undo and redo.
+  - **H / Shift+H / Alt+H in Edit Mode** hide the selection, hide everything else, and show it all again (selected).
+    Hidden faces drop out of the view, picking, box select, select all and proportional editing. In Object Mode
+    everything shows, and hiding isn't saved in the file.
+  - **3D cursor** saved in `.noormesh` scenes and put back on open.
+  - **"Working…"** shows before an unwrap or Smart UV Project of more than 3,000 faces.
+  - **Subdivide** (Mesh › Subdivide: 1–3 cuts, smooth; and in the right-click menu): quads become grids, triangles
+    become triangles, n-gons become quads around a middle point. Neighbouring faces get the new edge points so the mesh
+    stays closed. UVs, seams, materials and smoothing carry over.
+  - **Alt+O = proportional "connected only"** (along the mesh's edges, so loose parts nearby stay put), as in Blender;
+    auto merge has no key now (⊕ button, View menu).
+  - Found on the way: Esc on a right-click menu in focus mode closed the menu *and* left focus mode (NoorForge's
+    brush pop-up too); Select › All after Select › None left nothing for Tab to edit.

@@ -281,6 +281,25 @@ the view draws each material slot with its own picture (mipmapped, repeating); G
 picture sent as PNG), GLB import reads them back as packed pictures. The 3D cursor slides over the surface with
 Shift+right-drag, and its place can be typed (the properties panel's 3D cursor row).
 
+**Done in preview.161: the polish pass** ([the list](polish/NoorMesh.md)):
+- **Unwrap and Smart UV Project are 15–37× faster.** The least-squares solve now uses packed sparse rows, a Jacobi
+  preconditioner and a flat best-fit-plane starting guess: 10,000 faces take 0.4 s instead of 15 s, with the same UVs.
+  "Working…" shows before a big one.
+- A **Help menu** (Shortcuts, the first five minutes, for Blender users) and a **Select menu** (all, none, invert, box
+  and loop hints, linked, more, less, by material slot).
+- **Hiding in Edit Mode** (H, Shift+H, Alt+H): faces carry an `h` flag. A vertex or edge is hidden when every face
+  around it is. Hidden parts are left out of the drawn buffers (keeping face numbers, so picking still works), the
+  overlay, picking, box select, select all, the flushed selection operations work on, and proportional editing.
+  Object Mode shows everything, and the flag isn't saved.
+- **Subdivide** (`subdivide(mesh, faces, cuts, smooth)` in the kernel). Quads become grids, triangles become triangle
+  grids, n-gons become quads around a middle point (one cut) or a fan. Neighbours get the cut points in their outline, so
+  the mesh stays closed. Smoothing is Phong-style, towards each corner's tangent plane. UVs, seams, materials and
+  smoothing follow.
+- **Alt+O = proportional editing, connected only** (Dijkstra along the edges from the selection), as in Blender. Auto
+  merge has no key.
+- The **3D cursor** is saved in the scene file (`cursor` in scene.json, checked on load).
+- "Preview" is gone from the bench.
+
 **Later (asked for, waiting for a design):** a "Select with: Left / Right" setting for old-school Blender users. With
 right: right-click selects (Shift adds), right-drag box-selects, left-click (and drag) places the 3D cursor, W opens the
 menu right-click opens now (as Blender 2.7x); during G/R/S left still confirms and right / Esc still cancels. It changes

@@ -65,8 +65,8 @@ hit monthly.
 | Bench | Status |
 | --- | --- |
 | Groundwork | ✅ 13 Nov: README up to date, CI checked (it was green apart from one mirror outage, now retried), the bench audit tool and its baseline |
-| NoorMesh | ⏳ next |
-| NoorForge | — |
+| NoorMesh | ✅ 13 Nov (preview.161): unwrap 15–37× faster, Help menu and guides, Select menu, hide in Edit Mode, Subdivide, Alt+O connected only, the 3D cursor in the file — [the list](polish/NoorMesh.md) |
+| NoorForge | ⏳ next |
 | NoorMaterial | — |
 | NoorForm | — |
 | NoorSprite | — |

@@ -3,7 +3,7 @@
 *How a Markdown editor became a studio with twenty benches in nineteen days, told by the ones who were there:
 one human with an endless supply of "oh, and also…", and one AI that kept saying "sure!".*
 
-> **TL;DR** — 274 commits, 160 preview releases, ~90,000 lines of C# and JavaScript, ~27,000 lines of tests,
+> **TL;DR** — 274 commits, 161 preview releases, ~90,000 lines of C# and JavaScript, ~27,000 lines of tests,
 > 2,251 checks in the UI suite alone, five languages, and exactly one tree that was accidentally a bush.
 
 ---
@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | 2.0.0-preview.160 (13 November 2026) |
+| Latest release | 2.0.0-preview.161 (13 November 2026) |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -155,6 +155,28 @@ Before polishing anything, we swept the workshop floor:
   missing a Help menu. Noted.
 
 Next up: **NoorMesh**, the first real polish pass.
+
+## Day 19, even later — NoorMesh, polished ✅
+
+The first real polish pass. We walked through NoorMesh as a newcomer and timed everything on meshes up to 40,000
+faces. Almost everything was quick, except **unwrapping**: 15 seconds for 10,000 faces, with the whole bench frozen.
+A packed solver, a smarter starting guess and a preconditioner (a word that sounds like hair care but isn't) brought it
+down to **0.4 seconds**, with exactly the same UVs. The human called it *"a humongous upgrade"*. We'll take it.
+
+The rest of the list:
+
+- A **Help menu**, with a "first five minutes" guide and a "for Blender users" page.
+- A **Select menu**, because Blender has one and Blender people look for it.
+- **H, Shift+H and Alt+H** now hide parts of a mesh in Edit Mode (it used to say "comes later").
+- **Subdivide**, with a smooth version that turns a cube into something that would like to be a ball.
+- **Alt+O** does what it does in Blender (proportional editing, connected only), so auto merge gave up its key.
+- The **3D cursor** is saved with the scene.
+- The word **"preview"** is gone. NoorMesh has grown up.
+
+Writing the tests found a real bug: pressing Esc to close a right-click menu in focus mode also threw you out of
+focus mode. It's fixed. That's what tests are for.
+
+Next up: **NoorForge**.
 
 ## Things we learned along the way
 

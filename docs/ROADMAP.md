@@ -5,6 +5,8 @@ first, and anything that conflicts with it waits.
 
 ## Done since this list was written
 
+- NoorMesh polish pass (preview.161): unwrap 15–37× faster, Help and Select menus, hiding in Edit Mode, Subdivide,
+  Alt+O connected only, the 3D cursor in the file ([the list](polish/NoorMesh.md)).
 - NoorVideo (preview.160): a right-click menu on the video (and a ⋯ button): picture effects and adjustments, flips
   and quarter turns, fit and zoom; sound boost, night mode, mono, keeping the pitch at other speeds; subtitle size,
   colour, background, position and timing, and loading a subtitle file; loop and A–B loop, frame steps, a sleep

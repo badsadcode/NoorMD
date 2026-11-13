@@ -13,7 +13,7 @@ polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
 ## Download and run
 
-1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.160 at the time of writing). Use the build attached to the GitHub Actions
+1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.161 at the time of writing). Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
@@ -249,10 +249,11 @@ For developers: the list of English texts (`src/NoorMD/wwwroot/lang/en.json`) is
   textured GLB. NoorMaterial materials keep their own sliders on a layer.
 - **NoorMesh** (Ctrl+Alt+N): low-poly modelling for games, "Blender stripped down to its modelling" with
   Blender's keys and Z up. Object and Edit Mode (vertices, edges, faces), gizmos, snapping, extrude, inset, loop
-  cut and slide, bevel, a surface-anchored knife, bridge, proportional and mirror editing, auto merge, the 3D
-  cursor and pivots, join and separate, several objects in Edit Mode at once; UV seams, unwrap (LSCM), Smart UV
-  Project and a UV editor; materials with pictures (linked or packed). Saves `.noormesh`, exports and imports GLB
-  and OBJ, and sends a model to NoorForge to texture.
+  cut and slide, bevel, subdivide, a surface-anchored knife, bridge, proportional editing (connected only too) and
+  mirror editing, auto merge, hiding parts in Edit Mode, the 3D cursor and pivots, join and separate, several objects
+  in Edit Mode at once; UV seams, fast unwrap (LSCM), Smart UV Project and a UV editor; materials with pictures
+  (linked or packed). Saves `.noormesh`, exports and imports GLB and OBJ, and sends a model to NoorForge to texture.
+  Help › "The first five minutes" and "For Blender users" get you started.
 - **NoorSprite** (Ctrl+Alt+P): pixel art and 2D animation: layers and frames, onion skin, indexed colour and
   palettes (Lospec), shading and dithering brushes, symmetry, tiled view, tilemaps and Godot TileSets, slices and
   sprite sheets, in-betweens, bones for cutout animation, normal maps with a lit view, hitboxes and collision

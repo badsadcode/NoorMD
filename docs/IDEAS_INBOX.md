@@ -19,8 +19,11 @@ A line per idea is enough. Add a date if you like, and 🔥 if it really can't w
 
 ## NoorMesh
 
-- Right-click select ("Select with: left / right"), after the right-click menus are designed for it.
-- A Help menu in focus mode, like the other big benches (audit, 13 Nov).
+- Right-click select ("Select with: left / right"), after the right-click menus are designed for it (W for the
+  menu right-click opens now).
+- The active vertex or face as a pivot in Edit Mode; the 3D cursor's own rotation.
+- UV editor: pin, stitch, live unwrap.
+- Subdivide with its settings adjustable afterwards (Blender's "adjust last operation" panel).
 
 ## NoorMD
 
