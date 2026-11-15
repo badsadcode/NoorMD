@@ -3,7 +3,7 @@
 *How a Markdown editor became a studio with twenty benches in nineteen days, told by the ones who were there:
 one human with an endless supply of "oh, and also…", and one AI that kept saying "sure!".*
 
-> **TL;DR** — 274 commits, 161 preview releases, ~90,000 lines of C# and JavaScript, ~27,000 lines of tests,
+> **TL;DR** — 274 commits, 162 preview releases, ~90,000 lines of C# and JavaScript, ~27,000 lines of tests,
 > 2,251 checks in the UI suite alone, five languages, and exactly one tree that was accidentally a bush.
 
 ---
@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | 2.0.0-preview.161 (13 November 2026) |
+| Latest release | 2.0.0-preview.162 (15 November 2026) |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -177,6 +177,10 @@ Writing the tests found a real bug: pressing Esc to close a right-click menu in 
 focus mode. It's fixed. That's what tests are for.
 
 Next up: **NoorForge**.
+
+*Encore, two days later:* the human said a status bar with Blender's counts "would be awesome 😃", so NoorMesh's
+status bar now keeps count — "4/8 vertices · 4/12 edges · 1/6 faces" — in five languages. Adding it found that about
+240 texts across the app never got translated, because they end in a number. That one went into the inbox.
 
 ## Things we learned along the way
 

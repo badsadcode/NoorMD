@@ -228,6 +228,7 @@ window.NoorMesh = (() => {
     const tris = new Float32Array(triList), triColors = new Float32Array((triList.length / 3) * 4);
     for (let k = 0; k < triList.length / 3; k++) triColors.set(FACE_TINT, k * 4);
     view.setEdit({ id: o.id, matrix: matrixOf(o), points, pointColors, lines, lineColors, tris, triColors });
+    updateStats();
   }
   const worldOf = (o, i) => K().transformPoint(matrixOf(o), [o.mesh.v[i * 3], o.mesh.v[i * 3 + 1], o.mesh.v[i * 3 + 2]]);
   /** Whether a point of the edited object can be seen (nothing of it in front), as Blender selects with X-ray off. */
@@ -2289,7 +2290,30 @@ window.NoorMesh = (() => {
     return parts;
   }
 
+  /** The status bar's counts, as Blender's: in Edit Mode what is selected out of how many, in Object Mode the scene. */
+  const meshCounts = new WeakMap();
+  function countsOf(m) {
+    if (!meshCounts.has(m)) { const K_ = K(); meshCounts.set(m, { v: K_.vertexCount(m), e: K_.edges(m).length, f: m.f.length, t: m.f.reduce((n, f) => n + f.v.length - 2, 0) }); }
+    return meshCounts.get(m);
+  }
+  function updateStats() {
+    const out = $('#nm-counts');
+    if (!out) return;
+    // Each count its own piece of text, so each is translated on its own.
+    const put = (items) => { const now = items.filter(Boolean).join(' · '); if (out.dataset.en === now) return; out.dataset.en = now; out.replaceChildren(...items.filter(Boolean).flatMap((x, i) => (i ? [' · ', el('span', { text: x })] : [el('span', { text: x })]))); };
+    const o = editing(), n = (x) => String(x).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    if (o && editSel) {
+      const c = countsOf(o.mesh), f = flushSel(o.mesh, editSel), H = hiddenIn(o.mesh);
+      const hid = H ? H.faces.size : 0;
+      put([`${n(f.verts.size)}/${n(c.v)} vertices`, `${n(f.edges.size)}/${n(c.e)} edges`, `${n(f.faces.size)}/${n(c.f)} faces`, `${n(c.t)} triangles`, hid ? `${n(hid)} face${hid === 1 ? '' : 's'} hidden` : null]);
+    } else {
+      let v = 0, f = 0, t = 0;
+      for (const ob of objects) { if (ob.hidden) continue; const c = countsOf(ob.mesh); v += c.v; f += c.f; t += c.t; }
+      put([`${n(sel().length)}/${n(objects.length)} objects`, `${n(v)} vertices`, `${n(f)} faces`, `${n(t)} triangles`]);
+    }
+  }
   function renderProps() {
+    updateStats();
     const pane = $('#nm-pane');
     if (!pane) return;
     const o = byId(active);
@@ -2435,7 +2459,9 @@ window.NoorMesh = (() => {
                     el('span', { class: 'nm-uv-info', id: 'nm-uv-info' }),
                     el('button', { class: 'icon-btn', title: 'Close the UV editor', 'aria-label': 'Close the UV editor', onclick: () => { setUvOpen(false); keepFocus(); } }, '✕')),
                   el('canvas', { class: 'nm-uvcanvas', id: 'nm-uvcanvas', title: 'Click an island to select it (Shift: add) · drag: box · G R S with the mouse here · A: all · wheel: zoom · middle-drag: move' }))),
-              el('p', { class: 'pref-hint sb-status', id: 'nm-status', 'aria-live': 'polite' })),
+              el('div', { class: 'nm-statusbar' },
+                el('p', { class: 'pref-hint sb-status', id: 'nm-status', 'aria-live': 'polite' }),
+                el('span', { class: 'pref-hint nm-counts', id: 'nm-counts', title: 'What is selected, out of how many (as Blender\'s status bar)' }))),
             el('div', { class: 'tb-splitter', id: 'nm-splitter', role: 'separator', tabindex: '0', 'aria-label': 'Drag to share the room between the view and the properties (double-click: back to normal)' }),
             el('div', { class: 'tb-edit-col', id: 'nm-edit-col' }, el('div', { class: 'sb-pane', id: 'nm-pane' }))))));
     ($('#app') || document.body).append(root);

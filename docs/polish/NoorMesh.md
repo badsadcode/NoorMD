@@ -49,7 +49,9 @@ Items 11, 13 and 14 were left for a later pass (they wait in the [ideas inbox](.
   - **Help menu** with Shortcuts (F1), "The first five minutes" and "For Blender users".
   - **"Preview" gone** from the badge, the side panel, the command name and the shortcuts.
   - **Edit Mode status** says what the keys do ("select vertices, edges or faces with 1, 2, 3 · Tab: back to Object
-    Mode"); the live selection counts stay in the properties panel, where they already were.
+    Mode"). In preview.162 the status bar also got Blender's live counts on its right: "2/8 vertices · 1/12 edges ·
+    0/6 faces · 12 triangles" in Edit Mode (with hidden faces when there are some), and objects, vertices, faces and
+    triangles in Object Mode.
   - **Falloff** (and the new ⛓ connected-only button) only show while proportional editing is on.
   - **Select menu**: all, none, invert, box and loop (how to), linked, linked under the mouse, more, less, by material.
     The Edit menu keeps undo and redo.

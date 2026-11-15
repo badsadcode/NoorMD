@@ -27,7 +27,9 @@ A line per idea is enough. Add a date if you like, and 🔥 if it really can't w
 
 ## NoorMD
 
--
+- Translations: texts that *end* in a number or a plural ending ("{0} files", "Added {0}", "{0} note{|s}") are left
+  out by `scripts/i18n-extract.js`, about 240 of them across the benches, so they always show in English. Teach the
+  extractor that a trailing placeholder is words, then translate them (found 15 Nov).
 
 ## NoorSprite
 

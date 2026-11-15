@@ -10768,6 +10768,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       check('Select › None (Object Mode): nothing selected', (await MS()).selected.length === 0);
       await menu('Select', 'All');
       check('Select › All: the cube selected again', (await MS()).selected.length === 1);
+      check('Object Mode status bar: objects selected, the scene\'s size', (await page.textContent('#nm-counts')) === '1/1 objects · 8 vertices · 6 faces · 12 triangles', await page.textContent('#nm-counts'));
       // Edit Mode: the status says how to work; the Edit menu no longer holds the selection items.
       const box = await page.$eval('#nm-canvas', (c) => { const r = c.getBoundingClientRect(); return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 }; });
       await page.mouse.move(box.cx, box.cy);
@@ -10777,6 +10778,13 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('3');
       await menu('Select', 'None');
       check('Select › None (Edit Mode): no faces', (await MS()).editSel.faces.length === 0);
+      check('the status bar counts, as Blender\'s: nothing of the cube selected', (await page.textContent('#nm-counts')) === '0/8 vertices · 0/12 edges · 0/6 faces · 12 triangles', await page.textContent('#nm-counts'));
+      await page.evaluate(() => NoorMesh._editSelect([0]));
+      check('…one face selected: 4 vertices, 4 edges, 1 face', (await page.textContent('#nm-counts')) === '4/8 vertices · 4/12 edges · 1/6 faces · 12 triangles', await page.textContent('#nm-counts'));
+      await page.keyboard.press('h');
+      check('…hidden faces counted there too', /· 1 face hidden$/.test(await page.textContent('#nm-counts')), await page.textContent('#nm-counts'));
+      await page.keyboard.press('Control+z');
+      await menu('Select', 'None');
       await menu('Select', 'Invert');
       check('Select › Invert: all six faces', (await MS()).editSel.faces.length === 6);
       // Hide in Edit Mode.

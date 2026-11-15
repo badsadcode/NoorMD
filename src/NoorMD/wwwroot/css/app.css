@@ -2132,7 +2132,6 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.ben
 .tb-finish .utility-btn { margin-top: 4px; }
 
 /* ---- NoorMesh (preview): the scene list, the view's readout and box, properties */
-.meshbench .nm-badge { margin-left: 6px; padding: 0 6px; border-radius: 8px; font-size: 10.5px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 50%, transparent); }
 .meshbench .nm-stage { position: relative; min-height: 260px; }
 .meshbench .nm-hud { position: absolute; left: 8px; top: 6px; right: 8px; font-size: 12px; color: #e8e8ea; text-shadow: 0 1px 2px rgba(0,0,0,.8); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .meshbench .nm-box { position: absolute; border: 1px dashed #fff; background: rgba(255,255,255,.06); pointer-events: none; }
@@ -2185,3 +2184,8 @@ body.zen.bench-app[data-bench-app="photo"] .photobench .ph-menubar, body.zen.ben
 .meshbench .nm-selmodes { display: inline-flex; gap: 2px; margin-left: 4px; }
 .meshbench .nm-selmodes[hidden] { display: none; }
 .meshbench .nm-selmode[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 22%, transparent); border-color: var(--accent); }
+
+/* NoorMesh's status bar: messages on the left, the selection counts on the right (as Blender's). */
+.meshbench .nm-statusbar { display: flex; align-items: baseline; gap: 12px; }
+.meshbench .nm-statusbar .sb-status { flex: 1; min-width: 0; }
+.meshbench .nm-counts { margin: 4px 2px 8px; white-space: nowrap; font-variant-numeric: tabular-nums; opacity: .85; }

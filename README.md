@@ -13,7 +13,7 @@ polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
 ## Download and run
 
-1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.161 at the time of writing). Use the build attached to the GitHub Actions
+1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.162 at the time of writing). Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
