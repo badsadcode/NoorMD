@@ -8298,7 +8298,6 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Paragraph text: drag a box, type; the words wrap in it.
       await page.click('#ph-tools [data-tool="text"]');
       await dragOn([[5, 5], [60, 30]]);
-      await page.waitForSelector('#ph-typing');
       await page.keyboard.type('one two three four five six');
       await page.keyboard.press('Escape');
       await waitFn(page, () => !document.querySelector('#ph-typing'));

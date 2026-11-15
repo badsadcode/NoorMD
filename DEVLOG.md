@@ -180,7 +180,8 @@ Next up: **NoorForge**.
 
 *Encore, two days later:* the human said a status bar with Blender's counts "would be awesome 😃", so NoorMesh's
 status bar now keeps count — "4/8 vertices · 4/12 edges · 1/6 faces" — in five languages. Adding it found that about
-240 texts across the app never got translated, because they end in a number. That one went into the inbox.
+240 texts across the app never got translated, because they end in a number. That one went into the inbox. The full test run also kept tripping over NoorPhoto's text box: typing straight after
+dragging one could miss it, because it only took the keyboard a moment later. It takes it at once now.
 
 ## Things we learned along the way
 

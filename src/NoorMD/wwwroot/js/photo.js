@@ -1480,8 +1480,12 @@ window.NoorPhoto = (() => {
     });
     $('#ph-stage').append(box);
     placeTyping();
+    // The keyboard goes to it at once (keys typed right after the drag must not land elsewhere), and again after the
+    // panels below re-render, in case they took it.
+    box.focus({ preventScroll: true }); box.setSelectionRange(box.value.length, box.value.length);
     renderOptions(); renderLayers(); draw();
-    setTimeout(() => { box.focus(); box.setSelectionRange(box.value.length, box.value.length); }, 0);
+    if (document.activeElement !== box && typing && typing.box === box) { box.focus({ preventScroll: true }); box.setSelectionRange(box.value.length, box.value.length); }
+    setTimeout(() => { if (typing && typing.box === box && document.activeElement !== box) { box.focus(); box.setSelectionRange(box.value.length, box.value.length); } }, 0);
   }
   function placeTyping() {
     if (!typing) return;
