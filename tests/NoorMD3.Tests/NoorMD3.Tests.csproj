@@ -17,5 +17,6 @@
     <ProjectReference Include="..\..\src\Benches\Clock\Clock.Bench\Clock.Bench.csproj" />
     <ProjectReference Include="..\..\src\Benches\Markdown\Markdown.Bench\Markdown.Bench.csproj" />
     <ProjectReference Include="..\..\src\Benches\Vault\Vault.Bench\Vault.Bench.csproj" />
+    <ProjectReference Include="..\..\src\Benches\Music\Music.Bench\Music.Bench.csproj" />
   </ItemGroup>
 </Project>

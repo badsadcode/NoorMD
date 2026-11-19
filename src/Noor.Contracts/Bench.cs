@@ -77,6 +77,16 @@ public interface IBenchHost
 /// <summary>A line in a file dialog's type list: <c>new("Markdown", [".md", ".markdown"])</c>.</summary>
 public sealed record FileFilter(string Name, IReadOnlyList<string> Extensions);
 
+/// <summary>A bench that streams media to its own page (the player's audio, artwork): the page asks for
+/// /media/&lt;bench id&gt;/&lt;path&gt;, with an HTTP Range header when it seeks. The bench decides what a path means
+/// (a library id, never a file path from the page).</summary>
+public interface IBenchMedia
+{
+    BenchMediaReply? ServeMedia(string path, string? range);
+}
+/// <summary>What a bench answers for a media request: the status, the body (or none), and the headers ("Name: value" lines).</summary>
+public sealed record BenchMediaReply(int Status, string Reason, Stream? Body, string Headers);
+
 /// <summary>A failure to show the user as it is ("That file is not a NoorMD note").</summary>
 public sealed class BenchException(string message) : Exception(message);
 

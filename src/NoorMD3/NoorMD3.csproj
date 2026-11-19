@@ -27,6 +27,7 @@
     <ProjectReference Include="..\Benches\Clock\Clock.Bench\Clock.Bench.csproj" />
     <ProjectReference Include="..\Benches\Markdown\Markdown.Bench\Markdown.Bench.csproj" />
     <ProjectReference Include="..\Benches\Vault\Vault.Bench\Vault.Bench.csproj" />
+    <ProjectReference Include="..\Benches\Music\Music.Bench\Music.Bench.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

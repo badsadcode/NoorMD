@@ -1,0 +1,96 @@
+/* The Music bench. Colours from the shell's theme tokens. */
+.mu-bench { display: grid; grid-template-columns: 220px minmax(0, 1fr); height: 100%; min-height: 0; }
+.mu-side { border-right: 1px solid var(--border); overflow: auto; padding: 10px 8px; display: flex; flex-direction: column; gap: 1px; }
+.mu-side-h { display: flex; align-items: center; justify-content: space-between; font-size: 11.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 12px 8px 4px; }
+.mu-side-h:first-child { padding-top: 2px; }
+.mu-sec { display: grid; grid-template-columns: 20px 1fr auto; gap: 6px; align-items: center; text-align: left; padding: 5px 8px; border-radius: var(--r2); color: var(--text); }
+.mu-sec:hover { background: var(--hover); }
+.mu-sec.on { background: var(--sel); }
+.mu-sec.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }
+.mu-sec .ic { text-align: center; color: var(--muted); }
+.mu-sec .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-sec .c { color: var(--muted); font-size: 12px; }
+.mu-scan { font-size: 12px; color: var(--accent); padding: 8px; }
+.mu-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.mu-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex-wrap: wrap; }
+.mu-heading { display: flex; align-items: baseline; gap: 10px; flex: 1 1 200px; min-width: 0; }
+.mu-heading h1 { margin: 0; font-size: 22px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mu-search { flex: 0 1 320px; min-width: 160px; }
+.mu-cols, .mu-row { display: grid; grid-template-columns: 28px minmax(0, 2.2fr) minmax(0, 1.4fr) minmax(0, 1.4fr) 64px 28px; gap: 10px; align-items: center; padding: 0 16px; }
+.mu-cols { height: 30px; border-bottom: 1px solid var(--border); flex: none; }
+.mu-cols .h { text-align: left; color: var(--muted); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; }
+.mu-cols .h.on { color: var(--text); }
+.mu-cols .h.d, .mu-row .d { text-align: right; }
+.mu-list { position: relative; flex: 1; overflow: auto; outline: none; }
+.mu-list[hidden], .mu-cols[hidden], .mu-empty[hidden] { display: none; }
+.mu-spacer { position: relative; }
+.mu-row { position: absolute; left: 0; right: 0; height: 32px; cursor: default; user-select: none; color: var(--text); }
+.mu-row > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mu-row .a, .mu-row .al, .mu-row .d { color: var(--muted); font-size: 13px; }
+.mu-row:hover { background: var(--hover); }
+.mu-row.sel { background: var(--sel); }
+.mu-row.focus { box-shadow: inset 2px 0 0 var(--accent); }
+.mu-row.now .t, .mu-row.now .ic { color: var(--accent); font-weight: 600; }
+.mu-row.missing .t { text-decoration: line-through; color: var(--muted); }
+.mu-row .ic { font-size: 11px; text-align: center; }
+.mu-row .tr { text-align: center; color: var(--accent); }
+.mu-empty { flex: 1; display: grid; place-items: center; padding: 24px; text-align: center; }
+.mu-welcome { max-width: 460px; display: grid; gap: 12px; justify-items: center; }
+.mu-welcome .big { font-size: 56px; color: var(--accent); }
+.mu-welcome h2 { margin: 0; }
+.mu-field { display: grid; gap: 8px; min-width: min(380px, 76vw); }
+.mu-folders-wrap { display: grid; gap: 8px; min-width: min(560px, 80vw); }
+.mu-folders { display: grid; gap: 4px; }
+.mu-folder { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: var(--r2); }
+.mu-folder .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Now playing */
+.mu-np { display: grid; gap: 8px; padding: 12px; justify-items: center; text-align: center; }
+.mu-art { width: 44px; height: 44px; border-radius: var(--r2); background: var(--sel); display: grid; place-items: center; overflow: hidden; position: relative; color: var(--muted); }
+.mu-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.mu-art.big { width: min(220px, 70%); aspect-ratio: 1; height: auto; font-size: 54px; border-radius: var(--r3); }
+.mu-np-cover { width: 100%; display: grid; justify-items: center; }
+.mu-np-title { font-weight: 650; font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-np-sub { font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-seekrow, .mu-volrow { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; width: 100%; font-size: 12px; }
+.mu-volrow { grid-template-columns: auto 1fr; max-width: 200px; }
+.mu-seek, .mu-vol { width: 100%; accent-color: var(--accent); }
+.mu-tps { display: flex; gap: 6px; align-items: center; justify-content: center; }
+.mu-tp { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--text); font-size: 15px; }
+.mu-tp:hover { background: var(--hover); }
+.mu-tp.big { width: 44px; height: 44px; background: var(--accent); color: var(--accent-text, #fff); font-size: 18px; }
+.mu-tp.small { opacity: .55; font-size: 13px; }
+.mu-tp.small.on { opacity: 1; background: var(--sel); }
+.mu-marks { display: flex; gap: 4px; }
+.mu-mark { width: 28px; height: 28px; border-radius: var(--r2); color: var(--muted); }
+.mu-mark:hover { background: var(--hover); }
+.mu-mark.on { color: var(--accent); background: var(--sel); }
+
+/* Up next */
+.mu-queue { padding: 6px; display: grid; gap: 1px; align-content: start; overflow: auto; height: 100%; box-sizing: border-box; }
+.mu-q-h { display: flex; justify-content: space-between; align-items: center; font-size: 11.5px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; padding: 8px 6px 4px; }
+.mu-q { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 6px; padding: 5px 6px; border-radius: var(--r2); }
+.mu-q:hover { background: var(--hover); }
+.mu-q.now .t { color: var(--accent); font-weight: 600; }
+.mu-q .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-q .a { grid-column: 1; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mu-q .acts { grid-column: 2; grid-row: 1 / span 2; display: none; }
+.mu-q:hover .acts, .mu-q:focus-within .acts { display: flex; }
+.mu-none { color: var(--muted); padding: 10px 8px; font-size: 12.5px; }
+
+/* Sound */
+.mu-sound { padding: 10px; display: grid; gap: 8px; align-content: start; overflow: auto; height: 100%; box-sizing: border-box; }
+.mu-check { display: flex; gap: 8px; align-items: center; }
+.mu-bands { display: grid; grid-template-columns: repeat(10, 1fr); gap: 2px; height: 140px; }
+.mu-band { display: grid; grid-template-rows: 1fr auto; justify-items: center; font-size: 10px; color: var(--muted); }
+.mu-band input { writing-mode: vertical-lr; direction: rtl; width: 18px; height: 110px; accent-color: var(--accent); }
+.mu-hint { font-size: 12px; margin: 0; }
+.mu-sound hr { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+
+/* The mini player in the status bar */
+.mu-mini { display: inline-flex; align-items: center; gap: 2px; max-width: 46vw; }
+.mu-mini[hidden] { display: none; }
+.mu-mini-btn { width: 22px; height: 20px; border-radius: var(--r1); color: var(--text); font-size: 11px; }
+.mu-mini-btn:hover { background: var(--hover); }
+.mu-mini-title { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 36vw; padding: 0 4px; font-size: 12px; }
+.mu-mini-title:hover { color: var(--accent); }

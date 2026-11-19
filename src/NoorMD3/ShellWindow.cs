@@ -238,6 +238,21 @@ public sealed class ShellWindow : Window
     void OnResource(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
         var uri = new Uri(e.Request.Uri);
+        // A bench's media (the player's audio, with ranges for seeking; artwork): /media/<bench id>/<path>.
+        if (uri.AbsolutePath.StartsWith("/media/", StringComparison.Ordinal))
+        {
+            var rest = uri.AbsolutePath["/media/".Length..];
+            var slash = rest.IndexOf('/');
+            var bench = slash > 0 ? ShellApp.Registry.Find(rest[..slash]) as IBenchMedia : null;
+            string? range = null;
+            try { if (e.Request.Headers.Contains("Range")) range = e.Request.Headers.GetHeader("Range"); } catch (ArgumentException) { }
+            BenchMediaReply? reply = null;
+            try { reply = bench?.ServeMedia(Uri.UnescapeDataString(rest[(slash + 1)..]), range); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+            e.Response = reply != null
+                ? _web.CoreWebView2.Environment.CreateWebResourceResponse(reply.Body, reply.Status, reply.Reason, reply.Headers)
+                : _web.CoreWebView2.Environment.CreateWebResourceResponse(null, 404, "Not Found", "");
+            return;
+        }
         var found = ShellApp.Assets?.Open(uri.AbsolutePath);
         e.Response = found is { } f
             ? _web.CoreWebView2.Environment.CreateWebResourceResponse(f.Body, 200, "OK", $"Content-Type: {f.ContentType}\r\nCache-Control: no-cache")

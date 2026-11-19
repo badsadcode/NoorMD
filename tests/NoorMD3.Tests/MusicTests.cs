@@ -1,0 +1,128 @@
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Music.Bench;
+using Noor.Contracts;
+using Xunit;
+
+namespace NoorMD3.Tests;
+
+public sealed class MusicTests : IDisposable
+{
+    readonly string _dir = Path.Combine(Path.GetTempPath(), "noormd3-music-" + Guid.NewGuid().ToString("N"));
+    public MusicTests() => Directory.CreateDirectory(_dir);
+    public void Dispose() { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); try { Directory.Delete(_dir, true); } catch (IOException) { } }
+
+    sealed class Host(string data) : IBenchHost
+    {
+        public readonly Queue<string?> Folders = new();
+        public readonly List<string> Posted = [];
+        public void Post(string name, object? payload = null) { lock (Posted) Posted.Add(name); }
+        public string DataFolder { get { Directory.CreateDirectory(data); return data; } }
+        public void Log(string message) { }
+        public Task<string?> PickFolderAsync(string title) => Task.FromResult(Folders.Count > 0 ? Folders.Dequeue() : null);
+    }
+
+    static JsonElement J(object o) => JsonSerializer.SerializeToElement(o);
+
+    /// <summary>A short, real WAV file (silence; 8 kHz mono, 16-bit).</summary>
+    static void Wav(string path, double seconds)
+    {
+        int rate = 8000, n = (int)(rate * seconds);
+        using var w = new BinaryWriter(File.Create(path));
+        w.Write(Encoding.ASCII.GetBytes("RIFF")); w.Write(36 + n * 2); w.Write(Encoding.ASCII.GetBytes("WAVEfmt "));
+        w.Write(16); w.Write((short)1); w.Write((short)1); w.Write(rate); w.Write(rate * 2); w.Write((short)2); w.Write((short)16);
+        w.Write(Encoding.ASCII.GetBytes("data")); w.Write(n * 2);
+        for (int i = 0; i < n; i++) w.Write((short)0);
+    }
+
+    async Task<(MusicBench Bench, Host Host)> Library()
+    {
+        var music = Path.Combine(_dir, "Music", "Ada");
+        Directory.CreateDirectory(music);
+        Wav(Path.Combine(music, "Engines.wav"), 1.5);
+        Wav(Path.Combine(music, "Poetry.wav"), 2);
+        Wav(Path.Combine(_dir, "Music", "Waltz.wav"), 1);
+        File.WriteAllText(Path.Combine(_dir, "Music", "notes.txt"), "not music");
+        var host = new Host(Path.Combine(_dir, "data"));
+        var bench = new MusicBench();
+        host.Folders.Enqueue(Path.Combine(_dir, "Music"));
+        var added = await bench.HandleAsync("music.addFolder", J(new { }), host, default);
+        Assert.NotNull(added);
+        for (int i = 0; i < 200; i++)
+        {
+            var s = await bench.HandleAsync("music.status", J(new { }), host, default);
+            if (!(bool)s!["scanning"]! && (int)s["stats"]!["total"]! == 3) break;
+            await Task.Delay(50);
+        }
+        return (bench, host);
+    }
+
+    [Fact]
+    public async Task A_folder_becomes_a_library_to_search_sort_and_mark()
+    {
+        var (bench, host) = await Library();
+        var status = await bench.HandleAsync("music.status", J(new { }), host, default);
+        Assert.Equal(3, (int)status!["stats"]!["total"]!);
+        Assert.Single(status["folders"]!.AsArray());
+        Assert.Contains("changed", host.Posted);
+
+        var all = await bench.HandleAsync("music.query", J(new { sort = "title", offset = 0, limit = 50 }), host, default);
+        Assert.Equal(["Engines", "Poetry", "Waltz"], all!["rows"]!.AsArray().Select(r => (string)r!["displayTitle"]!));
+        Assert.True((double)all["rows"]![0]!["duration"]! > 1.4);
+        var found = await bench.HandleAsync("music.query", J(new { search = "poet", offset = 0, limit = 50 }), host, default);
+        Assert.Equal("Poetry", (string)found!["rows"]![0]!["displayTitle"]!);
+
+        var id = (long)all["rows"]![1]!["id"]!;
+        var stats = await bench.HandleAsync("music.setTriage", J(new { ids = new[] { id }, value = 1 }), host, default);
+        Assert.Equal(1, (int)stats!["favorite"]!);
+        var favs = await bench.HandleAsync("music.query", J(new { triage = 1, offset = 0, limit = 50 }), host, default);
+        Assert.Equal(id, (long)favs!["rows"]![0]!["id"]!);
+        var ids = await bench.HandleAsync("music.ids", J(new { sort = "duration", desc = true }), host, default);
+        Assert.Equal(id, (long)ids!.AsArray()[0]!);   // the longest first
+    }
+
+    [Fact]
+    public async Task Playlists_the_session_and_loudness_are_kept()
+    {
+        var (bench, host) = await Library();
+        var ids = (await bench.HandleAsync("music.ids", J(new { sort = "title" }), host, default))!.AsArray().Select(x => (long)x!).ToList();
+        var pl = await bench.HandleAsync("music.playlist.create", J(new { name = "Evening", ids = new[] { ids[2], ids[0] } }), host, default);
+        var plId = (long)pl!["id"]!;
+        await bench.HandleAsync("music.playlist.add", J(new { id = plId, ids = new[] { ids[1] } }), host, default);
+        var inOrder = await bench.HandleAsync("music.ids", J(new { playlistId = plId, sort = "playlist" }), host, default);
+        Assert.Equal([ids[2], ids[0], ids[1]], inOrder!.AsArray().Select(x => (long)x!));
+        await bench.HandleAsync("music.playlist.rename", J(new { id = plId, name = "Late evening" }), host, default);
+        Assert.Equal("Late evening", (string)(await bench.HandleAsync("music.playlists", J(new { }), host, default))!.AsArray()[0]!["name"]!);
+        await Assert.ThrowsAsync<BenchException>(() => bench.HandleAsync("music.playlist.rename", J(new { id = plId, name = " " }), host, default));
+
+        await bench.HandleAsync("music.session.save", J(new { session = new { v = 1, ids, order = new[] { 0, 1, 2 }, pos = 1, volume = 0.5 } }), host, default);
+        var session = await bench.HandleAsync("music.session.get", J(new { }), host, default);
+        Assert.Equal(1, (int)session!["pos"]!);
+        Assert.Equal(0.5, (double)session["volume"]!);
+
+        Assert.Equal(3, (await bench.HandleAsync("music.loudness.unmeasured", J(new { }), host, default))!.AsArray().Count);
+        await bench.HandleAsync("music.loudness.set", J(new { id = ids[0], lufs = -12.5, peak = 0.9 }), host, default);
+        Assert.Equal(2, (await bench.HandleAsync("music.loudness.unmeasured", J(new { }), host, default))!.AsArray().Count);
+        var row = (await bench.HandleAsync("music.tracks", J(new { ids = new[] { ids[0] } }), host, default))!.AsArray()[0]!;
+        Assert.Equal(-12.5, (double)row["loudness"]!);
+    }
+
+    [Fact]
+    public async Task The_player_gets_the_audio_with_ranges_and_nothing_else()
+    {
+        var (bench, host) = await Library();
+        var id = (long)(await bench.HandleAsync("music.ids", J(new { sort = "title" }), host, default))!.AsArray()[0]!;
+        var whole = bench.ServeMedia($"track/{id}", null)!;
+        Assert.Equal(200, whole.Status);
+        Assert.Contains("Content-Type: audio/", whole.Headers);
+        Assert.Contains("Accept-Ranges: bytes", whole.Headers);
+        var part = bench.ServeMedia($"track/{id}", "bytes=0-99")!;
+        Assert.Equal(206, part.Status);
+        Assert.Equal(100, ((MemoryStream)part.Body!).Length);
+        Assert.Contains("Content-Range: bytes 0-99/", part.Headers);
+        Assert.Null(bench.ServeMedia("track/999999", null));          // not in the library
+        Assert.Null(bench.ServeMedia("track/../../secret", null));    // never a path
+        Assert.Null(bench.ServeMedia($"art/{id}", null));             // no artwork: nothing
+    }
+}

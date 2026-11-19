@@ -119,6 +119,8 @@ async function openBench(id, { activate = true, quiet = false, ghost = false, aw
     inst.ctx.justMoved = justMoved;   // it arrives from another window: it knows not to greet you as if NoorMD just started
     try {
       inst.module = (await import(`/benches/${id}/${m.entry}`)).default;
+      // The module may start things that run without a view (the music player): once per bench, in every window.
+      if (inst.module && inst.module.start) { try { inst.module.start(inst.ctx); } catch (e) { console.error(e); } }
     } catch (e) {
       inst.loadError = e;
       console.error(e);
@@ -169,6 +171,8 @@ async function closeBench(id, { force = false } = {}) {
   for (const p of inst.placed.values()) try { p.result && p.result.unmount && p.result.unmount(); } catch (e) { console.error(e); }
   inst.root.remove();
   open.delete(id);
+  try { inst.module && inst.module.closed && inst.module.closed(inst.ctx); } catch (e) { console.error(e); }
+  setStatusWidget(id, null);
   if (windowed.has(id)) { windowed.delete(id); windowCall('bench.close', { bench: id }); }
   // Its panels docked in other benches go with it (they need it running).
   let left = 0;
@@ -291,6 +295,14 @@ function subscribeTopic(topic, fn) {
   return () => topicSubs.set(topic, (topicSubs.get(topic) || []).filter((f) => f !== fn));
 }
 
+/** The benches' pieces of the status bar (one each), in a steady order. */
+const statusWidgets = new Map();
+function setStatusWidget(id, node) {
+  if (node) statusWidgets.set(id, node); else statusWidgets.delete(id);
+  const box = document.getElementById('status-widgets');
+  if (box) box.replaceChildren(...[...statusWidgets.keys()].sort().map((k) => statusWidgets.get(k)));
+}
+
 /** The print area: when the page prints (or becomes a PDF), only this shows. */
 function setPrintContent(html) {
   let root = document.getElementById('print-root');
@@ -322,6 +334,10 @@ function makeContext(id, inst) {
     keep(key, value) { inst.layout.state[key] = value; if (floatId || inst.ghost || inst.away) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
+    /** True in the main window (not in a bench's own window or a floating panel's). */
+    isMainWindow: !floatId && !benchWinId,
+    /** A small piece of the status bar, shown whichever bench is in front (the mini player); null takes it away. */
+    setStatusWidget: (node) => setStatusWidget(id, node),
     /** Docks one of this bench's panels in another bench, once (if the user hides it there, it stays hidden). */
     async offerPanel(target, pid) {
       if (floatId) return;

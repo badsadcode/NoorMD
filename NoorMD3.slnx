@@ -12,6 +12,10 @@
     <Project Path="src/Benches/Markdown/Markdown.Core/Markdown.Core.csproj" />
     <Project Path="src/Benches/Markdown/Markdown.Bench/Markdown.Bench.csproj" />
   </Folder>
+  <Folder Name="/src/Benches/Music/">
+    <Project Path="src/Benches/Music/Music.Core/Music.Core.csproj" />
+    <Project Path="src/Benches/Music/Music.Bench/Music.Bench.csproj" />
+  </Folder>
   <Folder Name="/src/Benches/Vault/">
     <Project Path="src/Benches/Vault/Vault.Core/Vault.Core.csproj" />
     <Project Path="src/Benches/Vault/Vault.Bench/Vault.Bench.csproj" />
