@@ -16,7 +16,7 @@ public sealed class MusicBench : BenchBase, IBenchMedia
         Name = "Music",
         Icon = "♫",
         Description = "Your music library and a player that keeps playing beside your work: queue, playlists, favourites, equalizer.",
-        Version = "3.0.12",
+        Version = "3.0.13",
         Density = "roomy",
         Menus =
         [

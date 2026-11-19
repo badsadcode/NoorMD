@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.4 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 3.0.13 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -439,6 +439,23 @@ Your queue, volume and sound settings are still there next time.
 There was one bug of my own too: copying the equalizer over, I left out the one function that connects it to the
 sound. Everything looked right and nothing happened. The test caught it. 🎚️
 
+## Day 28, night — 3.0.13: the old player comes home 🏠
+
+The new Music bench worked, but it didn't feel right. "In 2.0 it was nicer," came the verdict. "Cozier. The player
+was right next to the editor." Fair. So instead of improving the new one, we brought the old one back: the 2.0
+player, copied over and taught to talk to 3.0's engine. The big cover on the left, Up next underneath, the library
+as a proper table on the right, and the little mini player along the bottom of the window, where it used to be.
+Start a song and the player pops up beside your writing, just like before.
+
+Then came a mystery: "I'm pretty sure I have over 9,000 songs." The library had found 2,237. Same folder, same
+files. It turned out one odd file somewhere in the middle made the scanner give up, quietly, every single time, and
+always at the same spot. Now a file like that gets counted, the scan keeps going, and you're told which one it was
+and why. There's a progress bar too ("Reading your music… 3,120 of 9,298"), because "is it doing anything, or did it
+crash?" is not a question anyone should have to ask.
+
+Along the way: the View menu, which had grown into a long, wobbly list, got proper submenus. And the tag editor
+learned that a song can have two artists, and that undo should give both of them back. 🎶
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -452,9 +469,7 @@ sound. Everything looked right and nothing happened. The test caught it. 🎚️
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Music bench's second part next (editing tags and names with undo, the Batch
-Organizer, smart collections, playlists in and out),
-then the mini player, Send to and the command palette.
+**NoorMD 3.0**, piece by piece: the bigger player window, Send to between benches and the command palette next.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

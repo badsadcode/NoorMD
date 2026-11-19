@@ -175,9 +175,16 @@ inspiration from its concept art, but NoorMD has its own face).
        normalisation, measuring) · ✓ the mini player in the status bar · ✓ marks (keys 0–4), playlists (make, add,
        drag tracks onto one, rename, delete) · ✓ media keys and Windows' media overlay · ✓ the session (queue,
        volume, sound) kept · ✓ audio streamed with ranges through the bench contract (IBenchMedia).
-     - **3.0.13, part two:** editing tags and renaming with undo (and the review's three tag-editing bugs: a
-       half-saved edit journaled as failed, an undo marked done when restoring tags failed, multi-value tags cut to
-       one on undo), the Batch Organizer, smart collections, M3U import and export, artwork (show, save).
+     - **3.0.13 (done), part two, and 2.0's look:** ✓ the page is 2.0's NoorMusic (ui.js): with room, the player
+       card and Up next on the left and the library as a table on the right; beside the editor, the compact player
+       with Library / Up next / Playlists / Sound; one Music panel (dock "none": not in its own bench, offered to
+       Markdown at the first play) · ✓ the mini player along the bottom (setBottomBar) · ✓ editing tags and renaming
+       with undo; the player lets go of the file meanwhile (release / reload) · ✓ the review's three tag-editing
+       bugs fixed (a saved-but-unverified edit journaled as failed, an undo marked done when restoring tags failed,
+       several artists or genres cut to one on undo) · ✓ the Batch Organizer · ✓ smart collections · ✓ M3U import
+       and export · ✓ artwork (show, save) · ✓ loudness measured as tracks play · ✓ scans: one bad file no longer
+       stops a scan (counted, with the first reason), progress shown (finding, then reading N of M, Stop), and
+       looked through again at each start · ✓ menus with submenus (View › Panels, View › Density).
    - Then the mini player's big brother (a bigger player window), Send to between benches, the command palette.
    - **3.0.11 (done): a whole bench in a window of its own.** Drag its tab down out of the tab row (or right-click ›
      Move to a new window, or Window › Move … to a new window). The bench's view and docked panels go there, with its

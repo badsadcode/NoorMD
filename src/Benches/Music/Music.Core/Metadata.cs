@@ -82,7 +82,11 @@ public sealed record TagEdit
         && a.Genre == b.Genre && a.Year == b.Year && a.TrackNumber == b.TrackNumber && a.Comment == b.Comment;
 }
 
-public sealed class MetadataException(string message, Exception? inner = null) : Exception(message, inner);
+public sealed class MetadataException(string message, Exception? inner = null, bool written = false) : Exception(message, inner)
+{
+    /// <summary>The file was changed (saved) but the result couldn't be verified: it must be journaled as changed, so it can be undone.</summary>
+    public bool Written { get; } = written;
+}
 
 /// <summary>Reads and writes tags with TagLib#. Writes are verified by reading the file back.</summary>
 public static class TagIO
@@ -105,8 +109,8 @@ public static class TagIO
             var t = f.Tag;
             return new TrackTags
             {
-                Title = Clean(t.Title), Artist = Clean(t.FirstPerformer), Album = Clean(t.Album), AlbumArtist = Clean(t.FirstAlbumArtist),
-                Genre = Clean(t.FirstGenre), Year = t.Year == 0 ? null : t.Year, TrackNumber = t.Track == 0 ? null : t.Track,
+                Title = Clean(t.Title), Artist = Joined(t.Performers), Album = Clean(t.Album), AlbumArtist = Joined(t.AlbumArtists),
+                Genre = Joined(t.Genres), Year = t.Year == 0 ? null : t.Year, TrackNumber = t.Track == 0 ? null : t.Track,
                 Comment = Clean(t.Comment), DurationSeconds = f.Properties?.Duration.TotalSeconds ?? 0, HasArtwork = t.Pictures.Length > 0,
                 ReplayGainDb = Finite(t.ReplayGainTrackGain, -60, 60), ReplayGainPeak = Finite(t.ReplayGainTrackPeak, 0.000001, 10),
             };
@@ -143,10 +147,10 @@ public static class TagIO
             {
                 var t = f.Tag;
                 if (edit.Title != null) t.Title = Clean(edit.Title);
-                if (edit.Artist != null) t.Performers = Clean(edit.Artist) is { } a ? [a] : [];
+                if (edit.Artist != null) t.Performers = Values(edit.Artist);
                 if (edit.Album != null) t.Album = Clean(edit.Album);
-                if (edit.AlbumArtist != null) t.AlbumArtists = Clean(edit.AlbumArtist) is { } aa ? [aa] : [];
-                if (edit.Genre != null) t.Genres = Clean(edit.Genre) is { } g ? [g] : [];
+                if (edit.AlbumArtist != null) t.AlbumArtists = Values(edit.AlbumArtist);
+                if (edit.Genre != null) t.Genres = Values(edit.Genre);
                 if (edit.Year != null) t.Year = edit.Year.Value;
                 if (edit.TrackNumber != null) t.Track = edit.TrackNumber.Value;
                 if (edit.Comment != null) t.Comment = Clean(edit.Comment);
@@ -172,10 +176,15 @@ public static class TagIO
         }
 
         var after = Read(path);
-        if (after.ReadError != null) throw new MetadataException("The tags were written but could not be read back: " + after.ReadError);
-        if (edit.Title != null && after.Title != Clean(edit.Title)) throw new MetadataException("The title could not be verified after saving.");
+        if (after.ReadError != null) throw new MetadataException("The tags were written but could not be read back: " + after.ReadError, written: true);
+        if (edit.Title != null && after.Title != Clean(edit.Title)) throw new MetadataException("The title could not be verified after saving.", written: true);
         return after;
     }
+
+    /// <summary>"A; B" for several values (as most players show them); null for none.</summary>
+    static string? Joined(string[]? values) => values is { Length: > 0 } ? Clean(string.Join("; ", values.Select(v => v?.Trim()).Where(v => !string.IsNullOrEmpty(v)))) : null;
+    /// <summary>"A; B" back into its values (an empty text clears the field).</summary>
+    static string[] Values(string text) => text.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Select(Clean).OfType<string>().ToArray();
 }
 
 /// <summary>

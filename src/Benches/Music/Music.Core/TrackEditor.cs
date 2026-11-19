@@ -58,13 +58,18 @@ public sealed class TrackEditor(MusicLibrary library)
         if (wantsTags)
         {
             try { TagIO.Write(path, tags!); tagsSaved = true; }
+            catch (MetadataException ex) when (ex.Written)
+            {
+                tagsSaved = true;
+                problems.Add(ex.Message + (plan != null ? " The file was not renamed." : "") + " (The change can be undone.)");
+            }
             catch (Exception ex) when (ex is MetadataException or IOException or UnauthorizedAccessException)
             {
                 library.JournalFinish(journal, "failed", path, null, null, ex.Message);   // nothing changed: never left half-open
                 return new EditResult(false, false, path, track, [ex.Message + (plan != null ? " The file was not renamed either." : "")], journal);
             }
         }
-        if (plan != null)
+        if (plan != null && problems.Count == 0)
         {
             try { path = SafeRename.Execute(plan); renamed = true; }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
@@ -119,8 +124,10 @@ public sealed class TrackEditor(MusicLibrary library)
         {
             var restore = TagEdit.RestoreTo(entry.OldTags, entry.NewTags);
             try { if (!restore.IsEmpty) TagIO.Write(path, restore); tagsSaved = true; }
+            catch (MetadataException ex) when (ex.Written) { tagsSaved = true; problems.Add("The old tags were written back but couldn't be checked: " + ex.Message); }
             catch (Exception ex) when (ex is MetadataException or IOException or UnauthorizedAccessException) { problems.Add((renamed ? "The name was restored but the old tags" : "The old tags") + " could not be written back: " + ex.Message); }
         }
+        if (!renamed && !tagsSaved) return new EditResult(false, false, path, library.Get(entry.TrackId), problems, journalId);   // nothing changed: try again later
         // The journal first (the file is already back): a library hiccup must not leave this change "undoable" twice.
         library.JournalFinish(journalId, "undone", entry.NewPath, entry.NewFingerprint, null, problems.Count == 0 ? null : string.Join(" ", problems));
         TrackRow? row;

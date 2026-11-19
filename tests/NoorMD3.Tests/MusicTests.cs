@@ -1,3 +1,4 @@
+using Music.Core;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -185,6 +186,28 @@ public sealed class MusicTests : IDisposable
         Assert.Equal(0, (int)im["missing"]!);
         Assert.True((bool)(await H("music.playlist.import", new { }))!["cancelled"]!);   // the dialog was closed
         await Assert.ThrowsAsync<BenchException>(() => H("music.art.save", new { id = waltz }));
+    }
+
+    [Fact]
+    public async Task Several_artists_survive_an_edit_and_its_undo()
+    {
+        var (bench, host) = await Library();
+        async Task<JsonNode?> H(string cmd, object args) => await bench.HandleAsync(cmd, J(args), host, default);
+        var rows = (await H("music.query", new { sort = "title", offset = 0, limit = 50 }))!["rows"]!.AsArray();
+        var id = (long)rows.First(r => (string)r!["displayTitle"]! == "Engines")!["id"]!;
+        var file = Path.Combine(_dir, "Music", "Ada", "Engines.wav");
+        TagIO.Write(file, new TagEdit { Artist = "Ada Lovelace; Charles Babbage", Genre = "Ambient; Industrial" });
+        var read = TagIO.Read(file);
+        Assert.Equal("Ada Lovelace; Charles Babbage", read.Artist);   // both, not just the first
+        Assert.Equal("Ambient; Industrial", read.Genre);
+
+        var ed = await H("music.edit.apply", new { id, updateTags = true, tags = new { artist = "Somebody Else" } });
+        Assert.True((bool)ed!["ok"]!, ed.ToJsonString());
+        Assert.Equal("Somebody Else", TagIO.Read(file).Artist);
+        var un = await H("music.undo", new { });
+        Assert.True((bool)un!["ok"]!, un.ToJsonString());
+        Assert.Equal("Ada Lovelace; Charles Babbage", TagIO.Read(file).Artist);   // the undo puts back both
+        Assert.Equal("Ambient; Industrial", TagIO.Read(file).Genre);
     }
 
     [Fact]
