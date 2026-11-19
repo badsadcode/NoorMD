@@ -254,3 +254,13 @@
 .md-hover-title { font-weight: 650; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .md-hover-body { font-size: 13.5px; }
 .md-hover-body h1 { font-size: 1.3em; } .md-hover-body h2 { font-size: 1.15em; }
+
+/* Properties panel */
+.md-props { padding: 8px; display: grid; gap: 6px; align-content: start; overflow: auto; height: 100%; box-sizing: border-box; }
+.md-props .doc { font-weight: 650; padding: 2px 2px 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-props .none, .md-prop-hint { color: var(--muted); font-size: 12.5px; margin: 0; }
+.md-prop { display: grid; grid-template-columns: minmax(60px, 34%) 1fr auto; gap: 6px; align-items: center; }
+.md-prop .k { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-prop.list input { font-style: normal; }
+.md-prop .nui-field { min-width: 0; width: 100%; box-sizing: border-box; }
+.md-prop.add { grid-template-columns: minmax(60px, 34%) 1fr auto; margin-top: 6px; padding-top: 8px; border-top: 1px solid var(--border); }

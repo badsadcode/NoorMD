@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Markdown.Bench</RootNamespace>
     <AssemblyName>Markdown.Bench</AssemblyName>
-    <Version>3.0.9</Version>
+    <Version>3.0.10</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />

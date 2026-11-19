@@ -91,3 +91,35 @@
 .vt-depth button[aria-pressed=true] { color: var(--text); }
 .vt-form { display: grid; gap: var(--space-3); }
 .vt-none[hidden] { display: none; }
+
+/* 3.0.10: search hints, bookmarks, backlinks sections, Pack & Share */
+.vt-hint { font-size: 12px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: calc(-1 * var(--space-2)); }
+.vt-op { font: 12px var(--font-code); padding: 1px 7px; border-radius: var(--r1); border: 1px solid var(--border); color: var(--text); }
+.vt-op:hover { background: var(--hover); }
+.vt-marks-head { cursor: default; user-select: none; }
+.vt-item.gone .nm { text-decoration: line-through; color: var(--muted); }
+.vt-bl-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 4px 8px; }
+.vt-bl-head b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-star { font-size: 16px; color: var(--muted); }
+.vt-star.on { color: var(--accent); }
+.vt-sechead { display: flex; justify-content: space-between; width: 100%; padding: 6px 8px 4px; margin-top: 4px; font-size: 11.5px; font-weight: 650; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border-radius: var(--r1); }
+.vt-sechead:hover { background: var(--hover); }
+.vt-empty { margin: 2px 10px 6px; font-size: 12.5px; }
+.vt-mention { grid-template-columns: 1fr auto; }
+.vt-mention .vt-link { text-align: left; color: var(--text); padding: 0; }
+.vt-mention .vt-link:hover { text-decoration: underline; }
+.vt-mention .m { grid-column: 1 / span 2; }
+.vt-linkit { height: 22px; padding: 0 8px; font-size: 12px; }
+.vt-hit.missing .n { color: var(--muted); font-style: italic; }
+.nui-dialog:has(.vt-pack) { width: min(640px, calc(100vw - 32px)); }
+.vt-pack { display: grid; gap: var(--space-3); }
+.vt-pack-opts { display: grid; gap: 6px; }
+.vt-pack-opts .vt-check { color: var(--text); font-size: 13px; }
+.vt-pack-note { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; padding: 6px 8px; height: auto; }
+.vt-pack-sum { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r2); background: var(--surface); }
+.vt-pack-details { display: grid; gap: 4px; max-height: 30vh; overflow: auto; font-size: 12.5px; }
+.vt-pack-details summary { cursor: default; color: var(--muted); }
+.vt-pack-row { font: 12px/1.6 var(--font-code); color: var(--muted); padding-left: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vt-pack-row.dep { color: var(--text); }
+.vt-warn { color: var(--danger, #e5484d); font-size: 12.5px; }
+.vt-field[hidden] { display: none; }

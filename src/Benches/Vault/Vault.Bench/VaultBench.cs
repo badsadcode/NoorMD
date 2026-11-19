@@ -17,7 +17,7 @@ public sealed class VaultBench : BenchBase
         Name = "Vault",
         Icon = "🗄",
         Description = "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
-        Version = "3.0.9",
+        Version = "3.0.10",
         Density = "roomy",
         Menus =
         [
@@ -29,8 +29,10 @@ public sealed class VaultBench : BenchBase
                 new MenuItemSpec("New note", "vault.newNote"),
                 new MenuItemSpec("New note from a template…", "vault.fromTemplate"),
                 new MenuItemSpec("Today's note", "vault.today"),
+                new MenuItemSpec("A random note", "vault.random"),
                 new MenuItemSpec("New folder", "vault.newFolder"),
                 MenuItemSpec.Separator,
+                new MenuItemSpec("Pack & Share…", "vault.pack"),
                 new MenuItemSpec("Show the vault in Explorer", "vault.reveal"),
                 new MenuItemSpec("Close the vault", "vault.close"),
             ]),

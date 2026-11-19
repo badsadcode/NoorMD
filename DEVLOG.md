@@ -368,6 +368,35 @@ Two bugs got squashed on the way. The map was counting example links in the Home
 how you type ń. Imagine trying to write "koń" and getting three new notes. NoorMD now never treats Ctrl+Alt as a
 shortcut, anywhere.
 
+## Day 28 — 3.0.10: the Vault learns to notice things 🔍
+
+The human said 2.0 was really good and asked for all of it, *"but while you port it look for bugs please."* So
+before writing anything new, a reviewer went through every file the vault had brought over from 2.0, and came
+back with fifteen bugs. Some were small. Some were the kind you'd only ever meet once, on a very bad day:
+
+- A single odd file (a note saved in a strange text format) stopped the whole vault from being indexed. Search,
+  backlinks, links updating on rename: all quietly off, forever. Now the odd file is just skipped.
+- A folder *link* inside a vault (a shortcut to somewhere else on the disk) let notes be written outside the vault.
+  Now links lead nowhere they shouldn't.
+- Renaming one note "tidied up" links to *other* notes, and broke tables that had a `|` in them.
+- A heading called `# C#` was read as `# C`. Sorry, C# fans.
+- Colours like `#a1b2c3` turned up in the tag list.
+
+All fixed, each with a test so it stays fixed.
+
+Then the fun part. The vault now **notices**: when another note says "Grace Hopper" without linking to her, the
+Backlinks panel shows it, with a **Link it** button. It shows where the note links *out* to, as well. There are
+**bookmarks** (a star), a **🎲 random note** for rediscovering old ideas, and **Extract to a new note**: select a
+paragraph that's grown too big, give it a name, and it moves into a note of its own with a link left behind.
+
+**Properties** are a little form now. No more remembering where the dashes go in front matter: type `status`,
+type `draft`, done. And search understands them: `status:draft`, `tag:idea`, `path:Projects`, `"exact words"`,
+`-skip`.
+
+Last, **Pack & Share** came over from 2.0: a ZIP of some notes and everything they link to, so nothing's missing
+at the other end. One tick makes it a package for an AI assistant, with a short guide to how the notes connect
+and a box for what you'd like it to do. Hidden files like passwords stay out, and nothing is ever uploaded.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -381,8 +410,8 @@ shortcut, anywhere.
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Vault's last part next (properties, unlinked mentions, Pack & Share, search
-operators, bookmarks), then Music, then the mini player, Send to and the command palette.
+**NoorMD 3.0**, piece by piece: the Music bench next (the library and the player, as a panel you can dock anywhere),
+then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

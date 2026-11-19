@@ -19,7 +19,7 @@ public sealed class MarkdownBench : BenchBase
         Name = "Markdown",
         Icon = "✎",
         Description = "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-        Version = "3.0.9",
+        Version = "3.0.10",
         Density = "roomy",
         Menus =
         [
@@ -50,6 +50,8 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Find…", "md.find", "Ctrl+F"),
                 new MenuItemSpec("Replace…", "md.replace", "Ctrl+H"),
                 new MenuItemSpec("Go to a document or note…", "md.switcher", "Ctrl+P"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Extract to a new note…", "md.extract"),
             ]),
             new MenuSpec("View", [
                 new MenuItemSpec("Visual", "md.mode.visual"),
@@ -106,7 +108,7 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Today's date", "md.ins.date"),
             ]),
         ],
-        Panels = [new PanelSpec("outline", "Outline", "☰", "left"), new PanelSpec("stats", "Statistics", "∑", "right"), new PanelSpec("history", "History", "⟲", "right")],
+        Panels = [new PanelSpec("outline", "Outline", "☰", "left"), new PanelSpec("stats", "Statistics", "∑", "right"), new PanelSpec("history", "History", "⟲", "right"), new PanelSpec("props", "Properties", "≔", "right")],
         FileTypes = DocumentFile.OpenableExtensions,
     };
 

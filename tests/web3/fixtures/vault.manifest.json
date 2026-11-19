@@ -3,7 +3,7 @@
   "name": "Vault",
   "icon": "\uD83D\uDDC4",
   "description": "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",
@@ -47,6 +47,11 @@
           "keys": null
         },
         {
+          "label": "A random note",
+          "command": "vault.random",
+          "keys": null
+        },
+        {
           "label": "New folder",
           "command": "vault.newFolder",
           "keys": null
@@ -54,6 +59,11 @@
         {
           "label": null,
           "command": null,
+          "keys": null
+        },
+        {
+          "label": "Pack \u0026 Share\u2026",
+          "command": "vault.pack",
           "keys": null
         },
         {

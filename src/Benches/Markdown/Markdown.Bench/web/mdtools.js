@@ -206,4 +206,69 @@ function unescapeWikiLinks(text) {
   return out;
 }
 
-export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml, renderSafe, decorateCallouts, calloutType };
+// ---------------------------------------------------------------- properties (the front matter at the top of a note)
+const LIST_KEYS = ['tags', 'aliases', 'cssclasses'];
+const unquote = (v) => { const t = v.trim(); return (t.length > 1 && ((t[0] === '"' && t.at(-1) === '"') || (t[0] === "'" && t.at(-1) === "'"))) ? t.slice(1, -1).replace(/\\"/g, '"') : t; };
+/** Where the front matter is: { lines, start (first line after ---), end (the closing --- line) }, or null. */
+function frontMatterSpan(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  if (lines[0] !== '---') return null;
+  const end = lines.findIndex((l, i) => i > 0 && (l.trim() === '---' || l.trim() === '...'));
+  return end > 0 ? { lines, start: 1, end } : null;
+}
+/** The note's properties: [{ key, value, list }] (a list's value is an array). Lines it doesn't understand are kept as they are. */
+function properties(text) {
+  const span = frontMatterSpan(text);
+  if (!span) return [];
+  const out = [];
+  for (let i = span.start; i < span.end; i++) {
+    const m = /^([A-Za-z0-9_][\w \-]*?)\s*:\s*(.*)$/.exec(span.lines[i]);
+    if (!m) continue;
+    const key = m[1], v = m[2].trim();
+    if (v === '') {
+      const items = [];
+      while (i + 1 < span.end && /^\s*-\s+/.test(span.lines[i + 1])) items.push(unquote(span.lines[++i].replace(/^\s*-\s+/, '')));
+      out.push({ key, value: items, list: items.length > 0 || LIST_KEYS.includes(key.toLowerCase()) });
+    } else if (v.startsWith('[') && v.endsWith(']')) out.push({ key, value: v.slice(1, -1).split(',').map(unquote).filter((x) => x), list: true });
+    else out.push({ key, value: unquote(v), list: false });
+  }
+  return out;
+}
+function yamlScalar(v) {
+  const s = String(v);
+  return s === '' || /^[\s#&*!|>'"%@`{}[\],?:-]|: | #|\s$/.test(s) || /^(true|false|null|yes|no|~)$/i.test(s) ? `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : s;
+}
+/** The text with one property set (value: a string, or an array for a list), or taken out (value null). Everything else
+ * in the front matter stays exactly as written; a note without front matter gets some. */
+function setProperty(text, key, value) {
+  const nl = text.includes('\r\n') ? '\r\n' : '\n';
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  let span = frontMatterSpan(text);
+  if (!span) {
+    if (value === null) return text;
+    lines.unshift('---', '---');
+    span = { lines, start: 1, end: 1 };
+  }
+  let at = -1, len = 0, dashStyle = true;
+  for (let i = span.start; i < span.end; i++) {
+    const m = /^([A-Za-z0-9_][\w \-]*?)\s*:\s*(.*)$/.exec(lines[i]);
+    if (!m || m[1].toLowerCase() !== key.toLowerCase()) continue;
+    at = i; len = 1;
+    if (m[2].trim() === '') while (i + len < span.end && /^\s*-\s+/.test(lines[i + len])) len++;
+    else if (m[2].trim().startsWith('[')) dashStyle = false;
+    break;
+  }
+  const name = at >= 0 ? /^([A-Za-z0-9_][\w \-]*?)\s*:/.exec(lines[at])[1] : key;
+  let block = [];
+  if (value !== null) {
+    if (Array.isArray(value)) block = !dashStyle ? [`${name}: [${value.map(yamlScalar).join(', ')}]`] : value.length ? [`${name}:`, ...value.map((v) => `  - ${yamlScalar(v)}`)] : [`${name}: []`];
+    else block = [`${name}: ${yamlScalar(value)}`];
+  }
+  if (at >= 0) lines.splice(at, len, ...block);
+  else lines.splice(span.end, 0, ...block);
+  // An empty front matter goes away entirely.
+  if (lines[0] === '---' && lines[1] === '---') lines.splice(0, 2);
+  return lines.join(nl);
+}
+
+export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml, renderSafe, decorateCallouts, calloutType, properties, setProperty };

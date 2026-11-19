@@ -122,7 +122,31 @@ const MOCK = (manifests) => {
       case 'vault.search': { const vv = need(); const q = (a.q || '').toLowerCase(); const out = []; for (const n of notesOf(vv)) { if (base(n).toLowerCase().includes(q)) out.push({ path: n, name: base(n), line: 0, snippet: '', nameMatch: true }); const lines = disk()[full(vv, n)].text.split('\n'); lines.forEach((l, i) => { if (l.toLowerCase().includes(q)) out.push({ path: n, name: base(n), line: i + 1, snippet: l, nameMatch: false }); }); } return out; }
       case 'vault.tags': { const vv = need(); const counts = {}; for (const n of notesOf(vv)) for (const t of disk()[full(vv, n)].text.match(/(^|\s)#([a-z][\w-]*)/gi) || []) { const k = t.trim().slice(1).toLowerCase(); counts[k] = (counts[k] || 0) + 1; } return Object.entries(counts).map(([tag, count]) => ({ tag, count })); }
       case 'vault.tagged': { const vv = need(); return notesOf(vv).filter((n) => new RegExp('(^|\\s)#' + a.tag + '\\b', 'i').test(disk()[full(vv, n)].text)).map((p) => ({ path: p, name: base(p) })); }
-      case 'vault.backlinks': { if (!v || !a.path || !a.path.startsWith(v.root + S)) return { inVault: false }; const r = rel(v, a.path); const refs = []; for (const n of notesOf(v)) { if (n === r) continue; disk()[full(v, n)].text.split('\n').forEach((l, i) => { if (linksTo(l, base(r))) refs.push({ source: n, name: base(n), line: i + 1, snippet: l }); }); } return { inVault: true, path: r, refs, tags: (disk()[a.path].text.match(/#([a-z][\w-]*)/gi) || []).map((t) => t.slice(1)) }; }
+      case 'vault.backlinks': {
+        if (!v || !a.path || !a.path.startsWith(v.root + S)) return { inVault: false };
+        const r = rel(v, a.path), nm = base(r); const refs = [], mentions = [];
+        for (const n of notesOf(v)) {
+          if (n === r) continue;
+          disk()[full(v, n)].text.split('\n').forEach((l, i) => {
+            if (linksTo(l, nm)) refs.push({ source: n, name: base(n), line: i + 1, snippet: l });
+            else if (!l.includes('[[') && l.includes(nm)) mentions.push({ source: n, name: base(n), line: i + 1, column: l.indexOf(nm), text: nm, snippet: l });
+          });
+        }
+        const outgoing = (disk()[a.path].text.match(/\[\[[^\]|#]+/g) || []).map((x) => { const t = x.slice(2); const hit = notesOf(v).find((n) => base(n) === t); return { target: t, path: hit || null, name: t, line: 1 }; });
+        return { inVault: true, path: r, refs, mentions, outgoing, properties: {}, bookmarked: get('mock.marks', []).includes(r), tags: (disk()[a.path].text.match(/#([a-z][\w-]*)/gi) || []).map((t) => t.slice(1)) };
+      }
+      case 'vault.linkMention': {
+        const vv = need(); const f = full(vv, a.source); const lines = disk()[f].text.split('\n'); const l = lines[a.line - 1] || '';
+        if (l.substr(a.column, a.text.length) !== a.text) throw new Error('That note changed since: look again.');
+        lines[a.line - 1] = l.slice(0, a.column) + '[[' + base(a.target) + ']]' + l.slice(a.column + a.text.length);
+        write(f, lines.join('\n')); changed(); return { updated: f };
+      }
+      case 'vault.bookmarks': return get('mock.marks', []).map((p) => ({ path: p, name: base(p), folder: false, exists: true }));
+      case 'vault.bookmark': { const mk = get('mock.marks', []).filter((x) => x !== a.path); if (a.on) mk.unshift(a.path); put('mock.marks', mk); send({ event: 'bench', bench: 'noor.vault', name: 'bookmarks', payload: {} }); return null; }
+      case 'vault.random': { const vv = need(); const ns = notesOf(vv).sort(); const p = ns[0]; window.__random = p; handOver([full(vv, p)]); return { path: p }; }
+      case 'vault.packPlan': { const vv = need(); window.__packPlan = a; const ns = a.selection && a.selection.length ? notesOf(vv).filter((n) => a.selection.some((x) => n === x || n.startsWith(x + '/'))) : notesOf(vv); return { files: ns.map((n) => ({ entry: n, size: 100, dependency: false })), fileCount: ns.length, bytes: ns.length * 100, excludedCount: 1, dependencies: [], unresolved: [{ from: 'Home.md', target: 'Nowhere', problem: 'no such note' }], warnings: [], suggestedName: vv.name + '.zip' }; }
+      case 'vault.packCreate': { window.__packed = a; return { path: 'C:\\Out\\pack.zip', entries: notesOf(need()).length, bytes: 1000, failures: [] }; }
+      case 'vault.extract': { const vv = need(); const fromRel = a.from ? rel(vv, a.from) : ''; const folder = fromRel.includes('/') ? fromRel.slice(0, fromRel.lastIndexOf('/') + 1) : ''; const r = folder + a.name + '.md'; if (disk()[full(vv, r)]) throw new Error(`“${a.name}.md” already exists there.`); write(full(vv, r), a.markdown); changed(); return { path: r, name: a.name }; }
       case 'vault.openNote': handOver([full(need(), a.path)]); return null;
       case 'vault.openLink': {
         if (!v) return { noVault: true };
@@ -220,8 +244,9 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     check('…with the note on screen marked (its folder opened to show it)', (await page.textContent('section.bench[data-bench="noor.markdown"] .vt-item.current .nm')) === 'One idea per note');
     await clickMenu('View', 'Backlinks (Vault)');
     await page.waitForSelector('section.bench[data-bench="noor.markdown"] .vt-list .vt-hit');
-    const bl = await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-list .vt-sub', (xs) => xs.map((x) => x.textContent));
-    check('Backlinks: what links to the note on screen', bl.some((t) => t.startsWith('2 links to “One idea per note”')), bl);
+    const bl = await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-list .vt-sechead', (xs) => xs.map((x) => x.textContent));
+    check('Backlinks: what links to the note on screen', bl[0] === '▾ Links to this note2', bl);
+    check('…with sections for mentions without a link, and links from the note', bl.length === 3 && bl[1].includes('Mentioned without a link') && bl[2].includes('Links from this note'), bl);
     await page.click('section.bench[data-bench="noor.markdown"] .vt-item .nm:text-is("Index")').catch(() => {});
     await page.waitForTimeout(150);
     await page.click('section.bench[data-bench="noor.markdown"] .vt-item .nm:text-is("Start here")');
@@ -415,8 +440,103 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await page.waitForTimeout(500);
     check('the Local map docks beside your writing, showing the note on screen and its neighbours', await page.evaluate(() => { const c = document.querySelector('section.bench[data-bench="noor.markdown"] .vt-map-canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4 * 53) if (d[i]) n++; return n > 5; }));
 
+    // ---------------------------------------------------------------- 3.0.10: mentions, links out, bookmarks, properties, extract, random, Pack & Share
+    await page.evaluate((root) => {
+      const d = JSON.parse(localStorage.getItem('mock.disk') || '{}');
+      d[root + '\\Grace Hopper.md'] = { text: '# Grace Hopper\n\nShe met [[Engine]] and [[Nowhere]].\n', stamp: 1 };
+      d[root + '\\Engine.md'] = { text: '# Engine\n\nGrace Hopper saw it first.\n', stamp: 1 };
+      localStorage.setItem('mock.disk', JSON.stringify(d));
+      window.__mockSend({ event: 'bench', bench: 'noor.vault', name: 'changed', payload: {} });
+      window.__mockSend({ event: 'open', bench: 'noor.markdown', paths: [root + '\\Grace Hopper.md'] });
+    }, R);
+    await waitFn(page, () => { const t = document.querySelector('.md-tab[aria-selected=true] .name'); return t && t.textContent === 'Grace Hopper.md'; });
+    const panel = 'section.bench[data-bench="noor.markdown"]';
+    await page.waitForSelector(`${panel} .vt-linkit`);
+    check('Backlinks: a note naming this one without a link is listed, with "Link it"', (await page.textContent(`${panel} .vt-mention`)).includes('Engine'));
+    const outs = await page.$$eval(`${panel} .vt-hit:not(.vt-mention) .n`, (xs) => xs.map((x) => x.textContent));
+    check('…and the links going out of it (one not made yet, in its own style)', outs.includes('Engine') && outs.includes('Nowhere') && !!(await page.$(`${panel} .vt-hit.missing`)), outs);
+    await page.click(`${panel} .vt-linkit`);
+    await waitFn(page, () => !document.querySelector('.vt-linkit'));
+    check('Link it: the mention becomes a [[link]] in that note', (await disk())[R + '\\Engine.md'].text.includes('[[Grace Hopper]] saw it first.'));
+    check('…and it moves up to the links', (await page.$$eval(`${panel} .vt-sechead`, (xs) => xs.map((x) => x.textContent)))[0] === '▾ Links to this note1');
+    await page.click(`${panel} .vt-star`);
+    await waitFn(page, () => { const b = document.querySelector('.vt-star'); return b && b.classList.contains('on'); });
+    check('the star bookmarks the note on screen', JSON.stringify(await page.evaluate(() => JSON.parse(localStorage.getItem('mock.marks')))) === '["Grace Hopper.md"]');
+    await page.waitForSelector(`${panel} .vt-marks-head`);
+    check('…and the Explorer shows it under Bookmarks', (await page.$$eval(`${panel} .vt-tree .vt-item .nm`, (xs) => xs.map((x) => x.textContent)))[0] === 'Grace Hopper');
+
+    // Properties: a small form for the front matter
+    await page.click('.md-modes button[data-mode="markdown"]');
+    await page.waitForTimeout(150);
+    // (Properties is shown from the start, under Statistics and History: those make room.)
+    await clickMenu('View', 'Statistics');
+    await clickMenu('View', 'History');
+    await clickMenu('View', 'Local map (Vault)');
+    await page.waitForSelector(`${panel} .md-props .md-prop.add`);
+    check('Properties: a note without any says what they are', (await page.textContent(`${panel} .md-props`)).includes('No properties yet'));
+    await page.fill(`${panel} .md-prop.add input >> nth=0`, 'status');
+    await page.fill(`${panel} .md-prop.add input >> nth=1`, 'draft');
+    await page.click(`${panel} .md-prop.add .nui-btn`);
+    const adaText = async () => (await mdState()).docs.find((d) => d.name === 'Grace Hopper.md').text;
+    await waitFn(page, () => !!document.querySelector('.md-props .md-prop:not(.add)'));
+    check('adding one writes front matter at the top of the note', (await adaText()).startsWith('---\nstatus: draft\n---\n# Grace Hopper'), await adaText());
+    await page.fill(`${panel} .md-prop:not(.add) input`, 'done');
+    await page.press(`${panel} .md-prop:not(.add) input`, 'Enter');
+    await page.waitForTimeout(400);
+    await page.fill(`${panel} .md-prop.add input >> nth=0`, 'tags');
+    await page.fill(`${panel} .md-prop.add input >> nth=1`, 'people, history');
+    await page.click(`${panel} .md-prop.add .nui-btn`);
+    await page.waitForTimeout(400);
+    check('changing one rewrites just that line; tags become a list', (await adaText()).startsWith('---\nstatus: done\ntags:\n  - people\n  - history\n---\n'), await adaText());
+    await page.click(`${panel} .md-prop:not(.add) .nui-icon >> nth=0`);
+    await page.waitForTimeout(400);
+    check('removing one takes its line out', (await adaText()).startsWith('---\ntags:'), await adaText());
+    await page.click('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(200);
+    check('…and Ctrl+Z brings it back (Markdown view)', (await adaText()).includes('status: done'), await adaText());
+    await clickMenu('View', 'Properties');
+
+    // Extract to a new note
+    await page.evaluate(() => { const ed = window.__noor.open.get('noor.markdown').mounted._editor(); const ls = ed.getMarkdown().split('\n'); const i = ls.findIndex((l) => l.startsWith('She met')); ed.setSelection([i + 1, 1], [i + 1, ls[i].length + 1]); });
+    await page.evaluate(() => window.__noor.open.get('noor.markdown').mounted.commands['md.extract']());
+    await page.waitForSelector('.nui-dialog .md-linkfield input');
+    check('Extract: the name is guessed from the selection', (await page.inputValue('.nui-dialog .md-linkfield input')) === 'She met [[Engine]] and [[Nowhere]]'.replace(/[[\]]/g, ' ').replace(/\s+/g, ' ').trim());
+    await page.fill('.nui-dialog .md-linkfield input', 'Meeting');
+    await dialogButton('Extract');
+    await waitFn(page, () => { const i = window.__noor.open.get('noor.markdown').mounted._state().docs.find((d) => d.name === 'Grace Hopper.md'); return i && i.text.includes('[[Meeting]]'); });
+    check('…the selection moves into a new note, next to this one', ((await disk())[R + '\\Meeting.md'] || {}).text === 'She met [[Engine]] and [[Nowhere]].\n');
+    check('…and a link to it takes its place', (await adaText()).includes('[[Meeting]]') && !(await adaText()).includes('She met'));
+
+    // The vault's home: bookmarks, search hints, a random note, Pack & Share
+    await page.click('.btab[data-bench="noor.vault"]');
+    await page.waitForSelector('.vt-card h2:text-is("Bookmarks")');
+    check('the home shows your bookmarks', (await page.textContent('.vt-card:has(h2:text-is("Bookmarks"))')).includes('Grace Hopper'));
+    await page.click('.vt-op:text-is("tag:idea")');
+    check('search hints add an operator to the search', (await page.inputValue('.vt-search')) === 'tag:idea');
+    await page.fill('.vt-search', '');
+    await page.click('.vt-acts .nui-btn:text-is("🎲")');
+    await waitFn(page, () => window.__noor.active() === 'noor.markdown' && !!window.__random);
+    check('🎲 opens a random note', (await page.textContent('.md-tab[aria-selected=true] .name')) === (await page.evaluate(() => window.__random.split('/').pop())));
+    await page.click('.btab[data-bench="noor.vault"]');
+    await page.waitForTimeout(150);
+    await page.evaluate(() => { window.__noor.open.get('noor.vault').mounted.commands['vault.pack'](); });
+    await page.waitForSelector('.nui-dialog .vt-pack-sum b');
+    check('Pack & Share: what goes in, how big, and links that lead nowhere', (await page.textContent('.vt-pack-sum')).includes('files') && (await page.textContent('.vt-pack-details')).includes('lead nowhere'));
+    await page.click('.vt-pack-opts label:has-text("AI assistant") input');
+    await page.waitForSelector('.vt-pack-note');
+    await page.fill('.vt-pack-note', 'Summarise my trains notes.');
+    if (SHOTS) { fs.mkdirSync(SHOTS, { recursive: true }); await page.screenshot({ path: path.join(SHOTS, 'noormd3-vault-pack.png') }); }
+    await dialogButton('Save the ZIP…');
+    await waitFn(page, () => !!window.__packed);
+    const packed = await page.evaluate(() => window.__packed);
+    check('…the ZIP is made with the options chosen (for an AI assistant, with a note)', packed.handoff === true && packed.note === 'Summarise my trains notes.' && packed.dependencies === true, packed);
+
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
+      await page.click('.md-tab .name:text-is("Grace Hopper.md")').catch(() => {});
+      await page.waitForTimeout(300);
+      await page.screenshot({ path: path.join(SHOTS, 'noormd3-vault-backlinks.png') });
       await page.click('.md-tab .name:text-is("Start here.md")');
       await page.click('.md-modes button[data-mode="wysiwyg"]');
       await page.waitForTimeout(400);

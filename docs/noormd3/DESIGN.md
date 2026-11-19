@@ -159,9 +159,11 @@ inspiration from its concept art, but NoorMD has its own face).
        wizard's Templates folder; {{title}}, {{date}}) · **hover preview** (Ctrl over a [[link]]) · **links to
        headings** ([[Note#Heading]], suggested after #) · **aliases** (aliases: in a note's properties) · **callouts**
        (> [!tip], > [!warning] drawn as coloured boxes).
-     - **3.0.10, the Vault, part three:** properties (front matter as a small form) · unlinked mentions · Pack &
-       Share · search operators (tag:, path:, "exact", -skip) · bookmarks · outgoing links beside backlinks ·
-       extract a selection to a new note · random note.
+     - **3.0.10 (done), the Vault, part three:** ✓ properties (front matter as a small form, a Markdown panel) ·
+       ✓ unlinked mentions ("Link it") · ✓ Pack & Share (also for an AI assistant) · ✓ search operators (tag:,
+       path:, file:, "exact", -skip, key:value) · ✓ bookmarks · ✓ outgoing links beside backlinks · ✓ extract a
+       selection to a new note · ✓ random note. Also: a careful look through the vault code that came from 2.0,
+       and 15 bugs fixed (see the devlog).
      - Ideas borrowed from Obsidian are ideas only (its code isn't open, and we don't take code anyway). Not taken:
        publishing and syncing to anyone's server (a vault is a plain folder: sync it with whatever you like).
    - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status

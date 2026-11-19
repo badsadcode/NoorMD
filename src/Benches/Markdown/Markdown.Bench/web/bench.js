@@ -3,7 +3,7 @@
 // one itself, it asks (md.pick, md.load, md.write, md.writeAs, md.draft…).
 import { el, menu, quickPick } from '/ui/js/noor-ui.js';
 import { createFind } from './find.js';
-import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, renderSafe, escapeHtml, decorateCallouts, calloutType } from './mdtools.js';
+import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, renderSafe, escapeHtml, decorateCallouts, calloutType, properties, setProperty } from './mdtools.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
 const MODES = [['wysiwyg', 'Visual'], ['markdown', 'Markdown'], ['split', 'Side by side']];
@@ -11,6 +11,7 @@ const modeName = (m) => (MODES.find((x) => x[0] === m) || MODES[0])[1];
 
 // The outline as last sent, so an Outline panel shown later (or in a floating window) starts with it.
 let lastOutline = { title: '', items: [] };
+let lastProps = null;   // the properties of the document on screen (for the Properties panel)
 
 let toastLoading = null;
 /** TOAST UI is a classic script (window.toastui); it's loaded once, from the bench's own files. */
@@ -489,6 +490,39 @@ export default {
         };
       } else lastStats = null;
       ctx.emit('stats', lastStats);
+      lastProps = cur ? { doc: cur.id, title: nameOf(cur), items: properties(text) } : null;
+      ctx.emit('props', lastProps);
+    }
+    /** A property changed in the Properties panel: the front matter is rewritten (Ctrl+Z undoes it in the Markdown view). */
+    function applyProperty(p) {
+      if (!p || !cur || cur.id !== p.doc || !cur.editor) return;
+      const d = cur, ed = d.editor;
+      const before = md(d), after = setProperty(before, p.key, p.value);
+      if (after === before) return;
+      if (ed.isWysiwygMode()) { ed.setMarkdown(joinInlineBreaks(after), false); d.sourceBeforeVisual = null; }
+      else { const ls = ed.getMarkdown().split('\n'); ed.replaceSelection(after, [1, 1], [ls.length, ls[ls.length - 1].length + 1]); }
+      sendOutline();
+    }
+    /** Extract to a new note: the selection becomes a note of its own (next to this one, in the vault), and a [[link]] to it. */
+    async function extractSelection() {
+      if (!cur || !cur.editor) return;
+      if (!ctx.hasBench || !ctx.hasBench('noor.vault')) { ctx.toast('Extracting to a new note needs the Vault bench.'); return; }
+      const ed = cur.editor;
+      const selected = ed.getSelectedText ? ed.getSelectedText() : '';
+      if (!selected.trim()) { ctx.toast('Select the text to move into a new note first.'); return; }
+      const first = selected.split('\n').find((l) => l.trim()) || 'New note';
+      const guess = first.replace(/^[#>\-*+\s\d.]+/, '').replace(/[<>:"/\\|?*#^[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 60).replace(/[. ]+$/, '') || 'New note';
+      let input;
+      const name = await ctx.dialog('Extract to a new note', el('label', { class: 'md-linkfield' }, el('span', { text: 'The new note\'s name (the selection moves into it, and a [[link]] to it stays here)' }),
+        input = el('input', { class: 'nui-field', type: 'text', value: guess, onkeydown: (e) => { if (e.key === 'Enter') e.target.closest('.nui-dialog').querySelector('.nui-btn.primary').click(); } })),
+        [{ label: 'Cancel', value: null }, { label: 'Extract', value: 'ok', primary: true }]).then((v) => (v ? input.value.trim() : ''));
+      if (!name) { ed.focus(); return; }
+      const markdown = selected.endsWith('\n') ? selected : selected + '\n';
+      let r;
+      try { r = await ctx.callBench('noor.vault', 'vault.extract', { from: cur.path || '', name, markdown }); } catch (e) { ctx.toast(e.message, { error: true }); ed.focus(); return; }
+      ed.focus();
+      ed.replaceSelection(`[[${r.name}]]`);
+      ctx.toast(`Moved into “${r.name}”.`);
     }
 
     async function renderEmpty() {
@@ -1100,6 +1134,8 @@ export default {
         if (kept) ctx.toast(`${kept === 1 ? 'A document' : kept + ' documents'} with unsaved changes stayed open; saving writes ${kept === 1 ? 'it' : 'them'} again.`);
       }),
       ctx.on('outline.ask', () => ctx.emit('outline', lastOutline)),
+      ctx.on('props.ask', () => ctx.emit('props', lastProps)),
+      ctx.on('props.set', (p) => applyProperty(p)),
       ctx.on('outline.go', (p) => goToHeading(p && p.index)),
       // Another bench asks to show a place: { path, heading }.
       ctx.subscribe('doc.goto', (p) => { if (p && p.path) { pendingGoto = { path: p.path, heading: p.heading }; maybeGoto(); } }),
@@ -1163,6 +1199,7 @@ export default {
       'md.mode.split': () => cur && setMode(cur, 'split'),
       'md.mode.next': nextMode,
       'md.find': () => find.show(false),
+      'md.extract': () => extractSelection(),
       'md.switcher': switcher,
       'md.ins.callout': () => { if (!cur || !cur.editor) return; cur.editor.focus(); insertText('\n> [!tip] Title\n> Your text\n'); },
       'md.exportHtml': exportHtml, 'md.exportPdf': exportPdf, 'md.print': printDoc, 'md.copy': copyMarkdown,
@@ -1276,6 +1313,46 @@ export default {
         render();
         ctx.emit('stats.ask');
         return { unmount: () => offs.forEach((f) => f()) };
+      },
+    },
+    props: {
+      mount(root, ctx) {
+        ctx.useStyle(here('bench.css'));
+        const box = el('div', { class: 'md-props' });
+        root.replaceChildren(box);
+        const LISTS = ['tags', 'aliases', 'cssclasses'];
+        const toValue = (raw, list) => (list ? raw.split(',').map((x) => x.trim().replace(/^#/, '')).filter(Boolean) : raw);
+        const show = (p) => {
+          lastProps = p;
+          if (!p) { box.replaceChildren(el('div', { class: 'none', text: 'Open a document to see its properties.' })); return; }
+          const set = (key, value) => ctx.emit('props.set', { doc: p.doc, key, value });
+          const rows = p.items.map((it) => {
+            const text = it.list ? it.value.join(', ') : it.value;
+            const input = el('input', { class: 'nui-field', type: 'text', value: text, 'aria-label': it.key, title: it.list ? 'A list: separate items with commas' : '',
+              onchange: (e) => set(it.key, toValue(e.target.value, it.list)), onkeydown: (e) => { if (e.key === 'Enter') e.target.blur(); } });
+            return el('div', { class: 'md-prop' + (it.list ? ' list' : '') }, el('span', { class: 'k', text: it.key, title: it.key }), input,
+              el('button', { class: 'nui-icon', title: `Remove “${it.key}”`, 'aria-label': `Remove ${it.key}`, onclick: () => set(it.key, null) }, '✕'));
+          });
+          const keyIn = el('input', { class: 'nui-field', type: 'text', placeholder: 'name (e.g. status)', 'aria-label': 'New property name', list: 'md-prop-keys' });
+          const valIn = el('input', { class: 'nui-field', type: 'text', placeholder: 'value', 'aria-label': 'New property value' });
+          const add = () => {
+            const key = keyIn.value.trim().replace(/:+$/, '');
+            if (!/^[A-Za-z0-9_][\w \-]*$/.test(key)) { ctx.toast('A property name is letters, digits, spaces, - and _.', { error: true }); return; }
+            const list = LISTS.includes(key.toLowerCase()) || valIn.value.includes(',');
+            set(key, toValue(valIn.value, list));
+          };
+          keyIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') valIn.focus(); });
+          valIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') add(); });
+          box.replaceChildren(
+            el('div', { class: 'doc', text: p.title }),
+            ...(rows.length ? rows : [el('p', { class: 'nui-muted md-prop-hint', text: 'No properties yet. Properties are a small form at the top of a note (front matter): its status, tags, other names (aliases)… The Vault can search them, e.g. status:done.' })]),
+            el('div', { class: 'md-prop add' }, keyIn, valIn, el('button', { class: 'nui-btn small', onclick: add }, 'Add')),
+            el('datalist', { id: 'md-prop-keys' }, ...['tags', 'aliases', 'status', 'created', 'due', 'author', 'source', 'type'].map((k) => el('option', { value: k }))));
+        };
+        show(lastProps);
+        const off = ctx.on('props', show);
+        ctx.emit('props.ask');
+        return { unmount: off };
       },
     },
     outline: {

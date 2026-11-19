@@ -3,7 +3,7 @@
   "name": "Markdown",
   "icon": "\u270E",
   "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-  "version": "3.0.9",
+  "version": "3.0.10",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",
@@ -130,6 +130,16 @@
           "label": "Go to a document or note\u2026",
           "command": "md.switcher",
           "keys": "Ctrl\u002BP"
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Extract to a new note\u2026",
+          "command": "md.extract",
+          "keys": null
         }
       ]
     },
@@ -396,6 +406,12 @@
       "id": "history",
       "title": "History",
       "icon": "\u27F2",
+      "dock": "right"
+    },
+    {
+      "id": "props",
+      "title": "Properties",
+      "icon": "\u2254",
       "dock": "right"
     }
   ],

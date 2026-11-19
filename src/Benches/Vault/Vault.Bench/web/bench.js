@@ -94,10 +94,72 @@ async function deleteItems(ctx, paths) {
     if (r && r.paths && r.paths.length) ctx.publish('files.deleted', { paths: r.paths });
   } catch (e) { fail(ctx)(e); }
 }
+// ---------------------------------------------------------------- bookmarks, Pack & Share, a random note
+let marked = new Set();   // the open vault's bookmarks (kept fresh by whoever loads them)
+async function loadBookmarks(ctx) {
+  const list = await ctx.call('vault.bookmarks').catch(() => []);
+  marked = new Set(list.map((b) => b.path));
+  return list;
+}
+async function setBookmark(ctx, path, on) {
+  try { await ctx.call('vault.bookmark', { path, on }); ctx.toast(on ? `Bookmarked “${baseName(path) || path}”.` : 'Bookmark removed.'); } catch (e) { fail(ctx)(e); }
+}
+async function randomNote(ctx) { try { await ctx.call('vault.random', {}); } catch (e) { fail(ctx)(e); } }
+const hitLabel = (h) => (h.nameMatch || !h.line ? folderOf(h.path) || 'in the vault' : `line ${h.line}: ${h.snippet}`);
+const kb = (n) => (n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1048576).toFixed(1)} MB`);
+
+/** Pack & Share: notes (and what they link to) into one ZIP to send someone, or to hand to an AI assistant. */
+async function packDialog(ctx, selection = []) {
+  const opts = { selection, attachments: true, dependencies: true, preserve: true, manifest: false, handoff: false, note: '' };
+  let plan = null, timer = 0;
+  const summary = el('div', { class: 'vt-pack-sum' }, el('span', { class: 'nui-muted', text: 'Looking…' }));
+  const details = el('div', { class: 'vt-pack-details' });
+  async function refresh() {
+    plan = await ctx.call('vault.packPlan', opts).catch((e) => { summary.replaceChildren(el('span', { class: 'vt-warn', text: e.message })); return null; });
+    if (!plan) return;
+    const deps = plan.dependencies.filter((d) => d.included);
+    summary.replaceChildren(el('b', { text: `${plan.fileCount} file${plan.fileCount === 1 ? '' : 's'} · ${kb(plan.bytes)}` }),
+      el('span', { class: 'nui-muted', text: [deps.length ? `${deps.length} linked from outside the selection` : '', plan.excludedCount ? `${plan.excludedCount} left out (private or hidden)` : ''].filter(Boolean).join(' · ') }));
+    details.replaceChildren(
+      ...plan.warnings.map((w) => el('div', { class: 'vt-warn', text: '⚠ ' + w })),
+      plan.unresolved.length ? el('details', {}, el('summary', { text: `${plan.unresolved.length} link${plan.unresolved.length === 1 ? '' : 's'} lead nowhere` }),
+        ...plan.unresolved.slice(0, 40).map((u) => el('div', { class: 'vt-pack-row', text: `${u.from}: ${u.target} (${u.problem})` }))) : '',
+      el('details', {}, el('summary', { text: 'What goes in' }), ...plan.files.slice(0, 300).map((f) => el('div', { class: 'vt-pack-row' + (f.dependency ? ' dep' : ''), text: `${f.entry}${f.dependency ? ' (linked)' : ''} · ${kb(f.size)}` }))));
+  }
+  const later = () => { clearTimeout(timer); timer = setTimeout(refresh, 200); };
+  const check = (key, label, hint) => el('label', { class: 'vt-check', title: hint || '' }, el('input', { type: 'checkbox', checked: opts[key] || undefined, onchange: (e) => { opts[key] = e.target.checked; noteBox.hidden = !opts.handoff; later(); } }), label);
+  const noteBox = el('label', { class: 'vt-field', hidden: true }, el('span', { text: 'A note for the assistant (what you want it to do)' }),
+    el('textarea', { class: 'nui-field vt-pack-note', rows: '3', oninput: (e) => { opts.note = e.target.value; } }));
+  const what = selection.length ? selection.map((s) => baseName(s) || s.split('/').pop()).join(', ') : 'the whole vault';
+  refresh();
+  const go = await ctx.dialog('Pack & Share', () => el('div', { class: 'vt-pack' },
+    el('p', { class: 'vt-wiz-lead', text: `Packs ${what} into one ZIP file, to send to someone or keep. Nothing is uploaded anywhere.` }),
+    el('div', { class: 'vt-pack-opts' },
+      check('dependencies', 'Notes and pictures they link to', 'Adds what the chosen notes link to, so nothing is missing at the other end'),
+      check('attachments', 'Pictures and other files', 'Not only notes'),
+      check('preserve', 'Keep the folders', 'Off: every file in one folder'),
+      check('manifest', 'A list of the contents (manifest)', ''),
+      check('handoff', 'For an AI assistant (adds a guide to the vault)', 'Adds a short README explaining how the notes link together')),
+    noteBox, summary, details), [{ label: 'Cancel', value: false }, { label: 'Save the ZIP…', value: true, primary: true }]);
+  clearTimeout(timer);
+  if (!go) return;
+  const dirty = await dirtyPaths(ctx);
+  if (dirty.length) ctx.toast(`${dirty.length} document${dirty.length === 1 ? ' has' : 's have'} unsaved changes: the ZIP gets what's saved on disk.`);
+  try {
+    const r = await ctx.call('vault.packCreate', opts);
+    if (!r) return;
+    ctx.toast(r.failures.length ? `Saved with ${r.failures.length} file${r.failures.length === 1 ? '' : 's'} missing: ${r.path}` : `Packed ${r.entries} file${r.entries === 1 ? '' : 's'} into ${r.path}`, { error: r.failures.length > 0 });
+  } catch (e) { fail(ctx)(e); }
+}
+
 function itemMenu(ctx, x, y, entry, anchor) {
   const folder = entry.folder ? entry.path : folderOf(entry.path);
+  const isMarked = marked.has(entry.path);
   menu(x, y, [
     ...(entry.note ? [{ label: 'Open', run: () => openNote(ctx, entry.path) }, '-'] : []),
+    ...(entry.path ? [{ label: isMarked ? 'Remove the bookmark' : 'Bookmark ☆', run: () => setBookmark(ctx, entry.path, !isMarked) }] : []),
+    { label: 'Pack & Share…', run: () => packDialog(ctx, entry.path ? [entry.path] : []) },
+    '-',
     { label: 'New note here', run: () => newNote(ctx, folder) },
     { label: 'New folder here', run: () => newFolder(ctx, folder) },
     { label: 'New note from a template…', run: () => fromTemplate(ctx, folder) },
@@ -197,7 +259,7 @@ export default {
       if (!state.open) { if (map) { map.destroy(); map = null; } renderWelcome(); return; }
       if (view === 'map') { await renderMap(); return; }
       if (map) { map.destroy(); map = null; }
-      const [recent, tags] = await Promise.all([ctx.call('vault.recentNotes').catch(() => []), ctx.call('vault.tags').catch(() => [])]);
+      const [recent, tags, marks] = await Promise.all([ctx.call('vault.recentNotes').catch(() => []), ctx.call('vault.tags').catch(() => []), loadBookmarks(ctx)]);
       const results = el('div', { class: 'vt-results' });
       searchInput = el('input', { class: 'nui-field vt-search', type: 'search', placeholder: `Search ${state.name} (Ctrl+Shift+F)`, 'aria-label': 'Search the vault',
         oninput: () => { clearTimeout(searchTimer); searchTimer = setTimeout(() => runSearch(searchInput.value, results), 150); },
@@ -208,10 +270,17 @@ export default {
           el('div', { class: 'vt-acts' }, viewSwitch(),
             el('button', { class: 'nui-btn primary', onclick: () => newNote(ctx) }, 'New note'),
             el('button', { class: 'nui-btn', title: 'Today\'s note', onclick: () => today(ctx) }, 'Today'),
+            el('button', { class: 'nui-btn', title: 'Open a random note (rediscover something)', onclick: () => randomNote(ctx) }, '🎲'),
             el('button', { class: 'nui-btn', onclick: () => newFolder(ctx) }, 'New folder'),
             el('button', { class: 'nui-btn quiet', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); vaultMenu(r.left, r.bottom + 2); } }, 'More ▾'))),
-        searchInput, results,
+        searchInput,
+        el('div', { class: 'vt-hint nui-muted' }, 'Try ', ...['tag:idea', 'path:Projects', '"exact words"', '-skip', 'status:done'].map((t) => el('button', { class: 'vt-op', title: 'Add to the search', onclick: () => { searchInput.value = (searchInput.value.trim() + ' ' + t).trim(); searchInput.focus(); runSearch(searchInput.value, results); } }, t))),
+        results,
         el('div', { class: 'vt-cols' },
+          ...(marks.length ? [el('section', { class: 'vt-card' }, el('h2', { text: 'Bookmarks' }),
+            ...marks.map((b) => el('button', { class: 'vt-row' + (b.exists ? '' : ' gone'), title: b.path, onclick: () => (b.folder ? null : openNote(ctx, b.path)),
+              oncontextmenu: (e) => { e.preventDefault(); itemMenu(ctx, e.clientX, e.clientY, { path: b.path, folder: b.folder, note: !b.folder }, box); } },
+            el('span', { class: 'n', text: (b.folder ? '📁 ' : '☆ ') + b.name }), el('span', { class: 'm', text: folderOf(b.path) || 'in the vault' }))))] : []),
           el('section', { class: 'vt-card' }, el('h2', { text: 'Recently changed' }),
             ...(recent.length ? recent.map((n) => el('button', { class: 'vt-row', title: n.path, onclick: () => openNote(ctx, n.path) }, el('span', { class: 'n', text: n.name }), el('span', { class: 'm', text: `${folderOf(n.path) ? folderOf(n.path) + ' · ' : ''}${ago(n.modified)}` })))
               : [el('p', { class: 'nui-muted', text: 'No notes yet. Make one!' })])),
@@ -251,6 +320,9 @@ export default {
         { label: 'Open another folder as a vault…', run: () => ctx.call('vault.openFolder').catch(fail(ctx)) },
         { label: 'Recent vaults…', run: () => recentDialog() },
         '-',
+        { label: 'Pack & Share the vault…', run: () => packDialog(ctx, []) },
+        { label: 'A random note', run: () => randomNote(ctx) },
+        '-',
         { label: 'Close the vault', run: () => ctx.call('vault.close').catch(fail(ctx)) },
       ], { anchor: box });
     }
@@ -277,7 +349,7 @@ export default {
       if (!q.trim()) { out.replaceChildren(); return; }
       const hits = await ctx.call('vault.search', { q }).catch(() => []);
       out.replaceChildren(...(hits.length ? hits.slice(0, 50).map((h) => el('button', { class: 'vt-hit', title: h.path, onclick: () => openNote(ctx, h.path) },
-        el('span', { class: 'n', text: h.name }), el('span', { class: 'm', text: h.nameMatch ? folderOf(h.path) || 'in the vault' : `line ${h.line}: ${h.snippet}` })))
+        el('span', { class: 'n', text: h.name }), el('span', { class: 'm', text: hitLabel(h) })))
         : [el('p', { class: 'nui-muted', text: `Nothing found for “${q}”.` })]));
     }
     async function showTagged(tag, out) {
@@ -289,6 +361,7 @@ export default {
     let refreshTimer = 0;
     const offs = [
       ctx.on('opened', () => render()),
+      ctx.on('bookmarks', () => { if (view === 'home' && !(searchInput && document.activeElement === searchInput)) render(); }),
       ctx.on('changed', () => {
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(async () => {
@@ -317,6 +390,8 @@ export default {
         'vault.today': () => today(ctx),
         'vault.fromTemplate': () => fromTemplate(ctx),
         'vault.showHome': () => setView('home'),
+        'vault.random': () => randomNote(ctx),
+        'vault.pack': () => packDialog(ctx, []),
         'vault.showMap': () => setView('map'),
       },
       checked: (cmd) => (cmd === 'vault.showHome' ? view === 'home' : cmd === 'vault.showMap' ? view === 'map' : undefined),
@@ -331,7 +406,7 @@ export default {
       mount(root, ctx) {
         ctx.useStyle(here('bench.css'));
         const open = new Set(ctx.restore('explorer.open', []));
-        let current = null, data = null, filter = '', onScreen = null, revealed = null;
+        let current = null, data = null, filter = '', onScreen = null, revealed = null, marks = [], marksOpen = ctx.restore('explorer.marks', true);
         const list = el('div', { class: 'vt-tree', role: 'tree' });
         const filterInput = el('input', { class: 'nui-field vt-filter', type: 'search', placeholder: 'Filter', 'aria-label': 'Filter notes', oninput: (e) => { filter = e.target.value.toLowerCase(); draw(); } });
         const head = el('div', { class: 'vt-panel-head' }, filterInput,
@@ -340,6 +415,7 @@ export default {
         root.replaceChildren(el('div', { class: 'vt-panel' }, head, list));
         async function load() {
           try { data = await ctx.call('vault.tree'); } catch { data = null; }
+          marks = data ? await loadBookmarks(ctx) : [];
           draw();
         }
         /** The note on screen (in the Markdown bench), as a vault path; its folders open to show it (once). */
@@ -365,7 +441,14 @@ export default {
             const walk = (folder, depth) => { for (const e of kids.get(folder) || []) { if (!e.folder && !e.note) continue; rows.push(row(e, depth)); if (e.folder && open.has(e.path)) walk(e.path, depth + 1); } };
             walk('', 0);
           }
-          list.replaceChildren(el('div', { class: 'vt-tree-root', title: data.root, oncontextmenu: (ev) => { ev.preventDefault(); itemMenu(ctx, ev.clientX, ev.clientY, { path: '', folder: true }, list); } }, `🗄 ${data.name}`), ...rows);
+          const markRows = !filter && marks.length ? [
+            el('div', { class: 'vt-tree-root vt-marks-head', role: 'button', onclick: () => { marksOpen = !marksOpen; ctx.keep('explorer.marks', marksOpen); draw(); } }, `${marksOpen ? '▾' : '▸'} ☆ Bookmarks`),
+            ...(marksOpen ? marks.map((b) => el('div', { class: 'vt-item' + (b.exists ? '' : ' gone') + (current === b.path ? ' current' : ''), title: b.path, style: { paddingLeft: '22px' },
+              onclick: () => { if (!b.folder) openNote(ctx, b.path); else { for (let f = b.path; f; f = folderOf(f)) open.add(f); ctx.keep('explorer.open', [...open]); draw(); } },
+              oncontextmenu: (ev) => { ev.preventDefault(); itemMenu(ctx, ev.clientX, ev.clientY, { path: b.path, folder: b.folder, note: !b.folder }, list); } },
+            el('span', { class: 'ic', text: b.folder ? '📁' : '☆' }), el('span', { class: 'nm', text: b.name }))) : []),
+          ] : [];
+          list.replaceChildren(...markRows, el('div', { class: 'vt-tree-root', title: data.root, oncontextmenu: (ev) => { ev.preventDefault(); itemMenu(ctx, ev.clientX, ev.clientY, { path: '', folder: true }, list); } }, `🗄 ${data.name}`), ...rows);
           if (!rows.length) list.append(el('div', { class: 'vt-none', text: filter ? 'No note matches.' : 'This vault is empty.' }));
         }
         function row(e, depth, flat = false) {
@@ -383,7 +466,7 @@ export default {
           return r;
         }
         const offs = [
-          ctx.on('changed', () => load()), ctx.on('opened', () => load()),
+          ctx.on('changed', () => load()), ctx.on('opened', () => load()), ctx.on('bookmarks', () => load()),
           ctx.subscribe('doc.current', (d) => { onScreen = d; draw(); }),
         ];
         load();
@@ -398,17 +481,48 @@ export default {
         const box = el('div', { class: 'vt-panel vt-list' });
         root.replaceChildren(box);
         let doc = null;
+        const closed = new Set(ctx.restore('backlinks.closed', []));
+        async function linkIt(m, target) {
+          const skip = await dirtyPaths(ctx);
+          try {
+            // A note open with unsaved changes is refused by the vault (with a clear message).
+            const r = await ctx.call('vault.linkMention', { source: m.source, target, line: m.line, column: m.column, text: m.text, skip });
+            if (r && r.updated) ctx.publish('files.rewritten', { paths: [r.updated] });
+            ctx.toast(`Linked in “${m.name}”.`);
+          } catch (e) { fail(ctx)(e); }
+          draw();
+        }
         async function draw() {
           if (!doc || !doc.path) { box.replaceChildren(el('div', { class: 'vt-none', text: 'Open a note from the vault to see what links to it.' })); return; }
           const r = await ctx.call('vault.backlinks', { path: doc.path }).catch(() => ({ inVault: false }));
           if (!r.inVault) { box.replaceChildren(el('div', { class: 'vt-none', text: `“${doc.title}” isn't in the open vault.` })); return; }
+          const section = (key, title, count, rows, empty) => {
+            const isOpen = !closed.has(key);
+            return [el('button', { class: 'vt-sechead', 'aria-expanded': String(isOpen), onclick: () => { if (isOpen) closed.add(key); else closed.delete(key); ctx.keep('backlinks.closed', [...closed]); draw(); } },
+              el('span', { text: `${isOpen ? '▾' : '▸'} ${title}` }), el('span', { class: 'nui-muted', text: String(count) })),
+            ...(isOpen ? (count ? rows : [el('p', { class: 'nui-muted vt-empty', text: empty })]) : [])];
+          };
+          const name = baseName(r.path);
           box.replaceChildren(
-            el('div', { class: 'vt-sub', text: `${r.refs.length} link${r.refs.length === 1 ? '' : 's'} to “${baseName(r.path)}”` }),
-            ...(r.refs.length ? r.refs.map((x) => el('button', { class: 'vt-hit', title: x.source, onclick: () => openNote(ctx, x.source) }, el('span', { class: 'n', text: x.name }), el('span', { class: 'm', text: `line ${x.line}: ${x.snippet}` })))
-              : [el('p', { class: 'nui-muted', text: 'Nothing links here yet. Link to it with [[' + baseName(r.path) + ']].' })]),
+            el('div', { class: 'vt-bl-head' }, el('b', { text: name }),
+              el('button', { class: 'nui-icon vt-star' + (r.bookmarked ? ' on' : ''), title: r.bookmarked ? 'Remove the bookmark' : 'Bookmark this note', 'aria-pressed': String(!!r.bookmarked), onclick: () => setBookmark(ctx, r.path, !r.bookmarked) }, r.bookmarked ? '★' : '☆')),
+            ...section('links', 'Links to this note', r.refs.length,
+              r.refs.map((x) => el('button', { class: 'vt-hit', title: x.source, onclick: () => openNote(ctx, x.source) }, el('span', { class: 'n', text: x.name }), el('span', { class: 'm', text: `line ${x.line}: ${x.snippet}` }))),
+              `Nothing links here yet. Link to it with [[${name}]].`),
+            ...section('mentions', 'Mentioned without a link', r.mentions.length,
+              r.mentions.map((x) => el('div', { class: 'vt-hit vt-mention', title: x.source },
+                el('button', { class: 'n vt-link', onclick: () => openNote(ctx, x.source) }, x.name),
+                el('button', { class: 'nui-btn small vt-linkit', title: `Turn “${x.text}” into [[${name}]]`, onclick: () => linkIt(x, r.path) }, 'Link it'),
+                el('span', { class: 'm', text: `line ${x.line}: ${x.snippet}` }))),
+              'No other note names it without a link.'),
+            ...section('outgoing', 'Links from this note', r.outgoing.length,
+              r.outgoing.map((x) => el('button', { class: 'vt-hit' + (x.path ? '' : ' missing'), title: x.path || `${x.name} (not made yet: click to make it)`,
+                onclick: () => (x.path ? openNote(ctx, x.path) : ctx.call('vault.createLink', { from: doc.path, target: x.target }).catch(fail(ctx))) },
+              el('span', { class: 'n', text: x.name }), el('span', { class: 'm', text: x.path ? folderOf(x.path) || 'in the vault' : 'not made yet' }))),
+              'This note doesn\'t link anywhere yet.'),
             r.tags.length ? el('div', { class: 'vt-tags small' }, ...r.tags.map((t) => el('span', { class: 'vt-tag', text: '#' + t }))) : '');
         }
-        const offs = [ctx.subscribe('doc.current', (d) => { doc = d; draw(); }), ctx.on('changed', () => draw()), ctx.on('opened', () => draw())];
+        const offs = [ctx.subscribe('doc.current', (d) => { doc = d; draw(); }), ctx.on('changed', () => draw()), ctx.on('opened', () => draw()), ctx.on('bookmarks', () => draw())];
         draw();
         return { unmount: () => offs.forEach((f) => f()) };
       },
@@ -473,7 +587,7 @@ export default {
         ctx.useStyle(here('bench.css'));
         const out = el('div', { class: 'vt-list' });
         let timer = 0;
-        const input = el('input', { class: 'nui-field vt-filter', type: 'search', placeholder: 'Search the vault', 'aria-label': 'Search the vault', value: ctx.restore('search.q', ''),
+        const input = el('input', { class: 'nui-field vt-filter', type: 'search', placeholder: 'Search (tag:x path:x "exact" -skip)', 'aria-label': 'Search the vault', value: ctx.restore('search.q', ''),
           oninput: () => { clearTimeout(timer); timer = setTimeout(run, 150); } });
         root.replaceChildren(el('div', { class: 'vt-panel' }, el('div', { class: 'vt-panel-head' }, input), out));
         async function run() {
@@ -482,7 +596,7 @@ export default {
           const hits = await ctx.call('vault.search', { q }).catch((e) => { out.replaceChildren(el('div', { class: 'vt-none', text: e.message })); return null; });
           if (!hits) return;
           out.replaceChildren(...(hits.length ? hits.slice(0, 100).map((h) => el('button', { class: 'vt-hit', title: h.path, onclick: () => openNote(ctx, h.path) },
-            el('span', { class: 'n', text: h.name }), el('span', { class: 'm', text: h.nameMatch ? folderOf(h.path) || 'in the vault' : `line ${h.line}: ${h.snippet}` })))
+            el('span', { class: 'n', text: h.name }), el('span', { class: 'm', text: hitLabel(h) })))
             : [el('div', { class: 'vt-none', text: `Nothing found for “${q}”.` })]));
         }
         const off = ctx.on('changed', () => { if (input.value) run(); });
