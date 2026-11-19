@@ -388,6 +388,21 @@ public sealed class ShellWindow : Window
     {
         switch (msg)
         {
+            case 0x0024: // WM_GETMINMAXINFO: maximised, the window fills its screen's work area (the taskbar stays in view)
+            {
+                var mon = MonitorFromWindow(hwnd, 2 /* MONITOR_DEFAULTTONEAREST */);
+                var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+                if (mon == IntPtr.Zero || !GetMonitorInfo(mon, ref info)) break;
+                var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+                // A frameless window still overhangs by its resize border when maximised (Overhang pulls the page in).
+                int bx = GetSystemMetrics(32 /* SM_CXSIZEFRAME */) + GetSystemMetrics(92 /* SM_CXPADDEDBORDER */);
+                int by = GetSystemMetrics(33 /* SM_CYSIZEFRAME */) + GetSystemMetrics(92);
+                RECT w = info.rcWork, m = info.rcMonitor;
+                mmi.ptMaxPosition = new POINT { X = w.Left - m.Left - bx, Y = w.Top - m.Top - by };
+                mmi.ptMaxSize = new POINT { X = w.Right - w.Left + 2 * bx, Y = w.Bottom - w.Top + 2 * by };
+                Marshal.StructureToPtr(mmi, lParam, false);
+                break;   // WindowChrome adds its minimum size on top
+            }
             case 0x0084: // WM_NCHITTEST
             {
                 var hit = HitButton(lParam);
@@ -464,6 +479,12 @@ public sealed class ShellWindow : Window
     // ------------------------------------------------------------------ Win32
     [StructLayout(LayoutKind.Sequential)] struct TRACKMOUSEEVENT { public uint cbSize; public uint dwFlags; public IntPtr hwndTrack; public uint dwHoverTime; }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
+    [StructLayout(LayoutKind.Sequential)] struct RECT { public int Left, Top, Right, Bottom; }
+    [StructLayout(LayoutKind.Sequential)] struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
+    [StructLayout(LayoutKind.Sequential)] struct MINMAXINFO { public POINT ptReserved, ptMaxSize, ptMaxPosition, ptMinTrackSize, ptMaxTrackSize; }
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfo(IntPtr monitor, ref MONITORINFO info);
+    [DllImport("user32.dll")] static extern int GetSystemMetrics(int index);
     [DllImport("user32.dll")] static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT e);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
     [DllImport("user32.dll")] static extern bool ReleaseCapture();

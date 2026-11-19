@@ -1,8 +1,9 @@
 /* The Vault bench. Colours from the shell's theme tokens. */
 .vt-home { height: 100%; overflow: auto; padding: var(--space-6) clamp(16px, 4vw, 48px); box-sizing: border-box; display: flex; flex-direction: column; gap: var(--space-4); }
 .vt-head { display: flex; align-items: center; gap: var(--space-4); flex-wrap: wrap; }
-.vt-name { display: flex; align-items: center; gap: var(--space-3); flex: 1; min-width: 0; }
-.vt-name h1 { margin: 0; font-size: 24px; font-weight: 650; }
+.vt-name { display: flex; align-items: center; gap: var(--space-3); flex: 1 1 240px; min-width: 0; }
+.vt-name > div { min-width: 0; }
+.vt-name h1 { margin: 0; font-size: 24px; font-weight: 650; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .vt-path { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vt-logo { font-size: 30px; }
 .vt-logo.big { font-size: 54px; }

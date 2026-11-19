@@ -21,7 +21,11 @@ const fail = (ctx) => (e) => ctx.toast(e.message, { error: true });
 function dirtyPaths(ctx) { return new Promise((resolve) => { const off = ctx.subscribe('docs.dirty', (p) => { setTimeout(() => off(), 0); resolve((p && p.paths) || []); }); setTimeout(() => resolve([]), 60); }); }
 
 // ---------------------------------------------------------------- actions shared by the view and the panels
-async function openNote(ctx, path) { try { await ctx.call('vault.openNote', { path }); } catch (e) { fail(ctx)(e); } }
+async function openNote(ctx, path) {
+  try { await ctx.call('vault.openNote', { path }); } catch (e) { fail(ctx)(e); return; }
+  // Reading a note, the vault stays at hand: its Explorer docks beside the writing (once; hide it and it stays hidden).
+  if (ctx.offerPanel) ctx.offerPanel('noor.markdown', 'explorer');
+}
 
 async function askName(ctx, title, label, value = '', okLabel = 'OK') {
   let input;

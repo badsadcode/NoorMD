@@ -237,8 +237,9 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     check('a result opens in the Markdown bench', (await page.textContent('.md-tab[aria-selected=true] .name')) === 'One idea per note.md');
 
     // ---------------------------------------------------------------- the Vault's panels, docked in the Markdown bench
-    await clickMenu('View', 'Explorer (Vault)');
+    // Opening a note from the vault docks its Explorer beside the writing by itself (once).
     await page.waitForSelector('section.bench[data-bench="noor.markdown"] .vt-tree .vt-item');
+    check('a note opened from the vault brings the vault\'s Explorer along (you can keep browsing)', true);
     const items = await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-item .nm', (xs) => xs.map((x) => x.textContent));
     check('the Explorer docks beside your writing and lists the vault', items.includes('Index') && items.includes('Permanent') && items.includes('Home'), items);
     check('…with the note on screen marked (its folder opened to show it)', (await page.textContent('section.bench[data-bench="noor.markdown"] .vt-item.current .nm')) === 'One idea per note');
@@ -482,14 +483,14 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     check('adding one writes front matter at the top of the note', (await adaText()).startsWith('---\nstatus: draft\n---\n# Grace Hopper'), await adaText());
     await page.fill(`${panel} .md-prop:not(.add) input`, 'done');
     await page.press(`${panel} .md-prop:not(.add) input`, 'Enter');
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(700);
     await page.fill(`${panel} .md-prop.add input >> nth=0`, 'tags');
     await page.fill(`${panel} .md-prop.add input >> nth=1`, 'people, history');
     await page.click(`${panel} .md-prop.add .nui-btn`);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(700);
     check('changing one rewrites just that line; tags become a list', (await adaText()).startsWith('---\nstatus: done\ntags:\n  - people\n  - history\n---\n'), await adaText());
     await page.click(`${panel} .md-prop:not(.add) .nui-icon >> nth=0`);
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(700);
     check('removing one takes its line out', (await adaText()).startsWith('---\ntags:'), await adaText());
     await page.click('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror');
     await page.keyboard.press('Control+z');

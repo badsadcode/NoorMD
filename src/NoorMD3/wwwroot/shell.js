@@ -221,6 +221,18 @@ function makeContext(id, inst) {
     keep(key, value) { inst.layout.state[key] = value; if (floatId) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
+    /** Docks one of this bench's panels in another bench, once (if the user hides it there, it stays hidden). */
+    async offerPanel(target, pid) {
+      if (floatId) return;
+      const ref = refOf(id, pid), key = 'shell.offered:' + ref;
+      for (let i = 0; i < 20 && !open.has(target); i++) await new Promise((r) => setTimeout(r, 100));
+      const t = open.get(target);
+      if (!t || t.layout.state[key]) return;
+      t.layout.state[key] = true;
+      if (whereIs(t, ref) || isFloating(ref)) { save(); return; }
+      await showPanel(t, ref);
+      save();
+    },
     /** Tells every bench's page (in every window) something: publish('doc.current', { path }). */
     publish: (topic, payload) => publishTopic(topic, payload),
     /** Hears a topic (its last value at once, if there is one); returns a function that stops listening. */
