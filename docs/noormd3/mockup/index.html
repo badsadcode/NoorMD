@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NoorMD 3.0 mock-up</title>
+<style>
+/* ---------- the nine themes (colours from NoorMD 2.0's themes.css) ---------- */
+:root, [data-theme=dark] { --bg:#0b0d12; --panel:#11151d; --surface:#181e29; --surface2:#212837; --border:#2a3240; --text:#e9edf5; --muted:#8996aa; --accent:#b19aff; --accent2:#7f66db; --on-accent:#211835; }
+[data-theme=light] { --bg:#f3f5f9; --panel:#ffffff; --surface:#f7f8fb; --surface2:#e9edf4; --border:#dae0e9; --text:#202838; --muted:#5f6b80; --accent:#6a4ed0; --accent2:#6145c1; --on-accent:#ffffff; }
+[data-theme=nocturne] { --bg:#070b14; --panel:#0c1220; --surface:#121a2c; --surface2:#1a2438; --border:#223049; --text:#e4ecf7; --muted:#8a9bb5; --accent:#5fd4e6; --accent2:#2fa8bd; --on-accent:#04161b; }
+[data-theme=ember] { --bg:#0f0c0a; --panel:#16120f; --surface:#201a15; --surface2:#2a221b; --border:#3a2f25; --text:#f2e9e1; --muted:#a8978a; --accent:#f2a65a; --accent2:#d17f2f; --on-accent:#241404; }
+[data-theme=evergreen] { --bg:#080f0c; --panel:#0d1612; --surface:#14201a; --surface2:#1b2a22; --border:#26382e; --text:#e3efe8; --muted:#8ea89a; --accent:#6fd6a0; --accent2:#3fae78; --on-accent:#05180e; }
+[data-theme=rosewood] { --bg:#120a0f; --panel:#191017; --surface:#23171f; --surface2:#2e1f29; --border:#3d2a37; --text:#f3e6ee; --muted:#ae94a5; --accent:#f08bb4; --accent2:#c95f8c; --on-accent:#2a0b19; }
+[data-theme=parchment] { --bg:#f1eadd; --panel:#fbf7ef; --surface:#f5efe3; --surface2:#ebe2d1; --border:#ddd1bc; --text:#2c241b; --muted:#6b5d4c; --accent:#9a4a1c; --accent2:#7d3a12; --on-accent:#ffffff; }
+[data-theme=glacier] { --bg:#eef3f8; --panel:#ffffff; --surface:#f5f8fb; --surface2:#e4ecf4; --border:#d3dee9; --text:#15233a; --muted:#526581; --accent:#1f63c6; --accent2:#1752a8; --on-accent:#ffffff; }
+[data-theme=contrast] { --bg:#000000; --panel:#000000; --surface:#0d0d0d; --surface2:#1a1a1a; --border:#8c8c8c; --text:#ffffff; --muted:#d0d0d0; --accent:#ffd84a; --accent2:#ffc400; --on-accent:#000000; }
+
+/* ---------- tokens: the same for every direction; directions change shape, not colour ---------- */
+:root { --sel: color-mix(in srgb, var(--accent) 22%, transparent); --hover: color-mix(in srgb, var(--text) 7%, transparent);
+  --r1: 4px; --r2: 8px; --r3: 12px; --gap: 6px; --ctl: 28px; --pad: 10px; --font: 13px; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: var(--font)/1.45 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; overflow: hidden; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.app { display: grid; grid-template-rows: 38px auto 1fr 26px; height: 100vh; }
+
+/* title bar */
+.titlebar { display: flex; align-items: center; gap: 4px; padding-left: 10px; background: var(--bg); user-select: none; }
+.logo { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: grid; place-items: center; color: var(--on-accent); font-weight: 800; font-size: 12px; margin-right: 6px; }
+.mainmenu button { padding: 4px 9px; border-radius: var(--r1); color: var(--text); opacity: .85; }
+.mainmenu button:hover, .mainmenu button.open { background: var(--hover); opacity: 1; }
+.wintitle { flex: 1; text-align: center; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wintitle b { color: var(--text); font-weight: 600; }
+.nowplaying { display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--surface); color: var(--muted); font-size: 12px; margin-right: 8px; }
+.nowplaying i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.winbtns { display: flex; align-self: stretch; }
+.winbtns button { width: 46px; font-size: 13px; color: var(--muted); }
+.winbtns button:hover { background: var(--hover); color: var(--text); }
+.winbtns button.close:hover { background: #c42b1c; color: #fff; }
+
+/* bench tabs */
+.benchtabs { display: flex; align-items: flex-end; gap: 2px; padding: 0 8px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.btab { display: flex; align-items: center; gap: 7px; padding: 7px 14px; border-radius: var(--r2) var(--r2) 0 0; color: var(--muted); position: relative; }
+.btab:hover { color: var(--text); background: var(--hover); }
+.btab.active { color: var(--text); background: var(--panel); box-shadow: inset 0 2px 0 var(--accent); }
+.btab .ic { font-size: 14px; }
+.btab .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.btab .x { opacity: 0; font-size: 11px; margin-left: 2px; }
+.btab:hover .x, .btab.active .x { opacity: .6; }
+.btab.add { padding: 7px 11px; }
+
+/* the bench area */
+.bench { display: grid; grid-template-columns: var(--lw, 240px) 1fr var(--rw, 260px); grid-template-rows: 1fr var(--bh, 0px); gap: var(--gap); padding: var(--gap); background: var(--bg); min-height: 0; }
+.dock { display: flex; flex-direction: column; gap: var(--gap); min-height: 0; min-width: 0; border-radius: var(--r3); }
+.dock.left { grid-row: 1 / 3; } .dock.right { grid-row: 1 / 3; grid-column: 3; } .dock.bottom { grid-column: 2; grid-row: 2; }
+.dock.drop { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--sel); }
+.dock:empty { border: 1px dashed transparent; }
+.center { grid-column: 2; grid-row: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--panel); border-radius: var(--r3); border: 1px solid var(--border); overflow: hidden; }
+.panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); display: flex; flex-direction: column; min-height: 0; flex: 1; overflow: hidden; }
+.phead { display: flex; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid var(--border); }
+.ptab { display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: var(--r2); color: var(--muted); cursor: grab; font-size: 12px; }
+.ptab.active { background: var(--sel); color: var(--text); }
+.ptab:hover { color: var(--text); }
+.phead .sp { flex: 1; }
+.iconbtn { width: var(--ctl); height: var(--ctl); border-radius: var(--r2); color: var(--muted); display: grid; place-items: center; }
+.iconbtn:hover { background: var(--hover); color: var(--text); }
+.pbody { padding: var(--pad); overflow: auto; flex: 1; min-height: 0; }
+.doctabs { display: flex; gap: 2px; padding: 4px 6px 0; border-bottom: 1px solid var(--border); background: var(--surface); }
+.dtab { padding: 6px 12px; border-radius: var(--r2) var(--r2) 0 0; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.dtab.active { background: var(--panel); color: var(--text); }
+.dtab .dirty { color: var(--accent); }
+.content { flex: 1; overflow: auto; min-height: 0; }
+
+/* status bar */
+.statusbar { display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--bg); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+.statusbar .sp { flex: 1; }
+.statusbar button { color: var(--muted); display: flex; align-items: center; gap: 6px; }
+.statusbar button:hover { color: var(--text); }
+.job { display: flex; align-items: center; gap: 6px; }
+.job span { width: 60px; height: 4px; border-radius: 2px; background: var(--surface2); overflow: hidden; }
+.job span::after { content: ""; display: block; width: 62%; height: 100%; background: var(--accent); }
+
+/* lists, rows, fields */
+.row { display: flex; align-items: center; gap: 8px; padding: 4px 8px; border-radius: var(--r1); color: var(--text); cursor: default; }
+.row:hover { background: var(--hover); }
+.row.sel { background: var(--sel); }
+.row .m { color: var(--muted); margin-left: auto; font-size: 12px; }
+.indent1 { padding-left: 22px; } .indent2 { padding-left: 36px; }
+.h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 8px 4px; }
+.h:first-child { margin-top: 2px; }
+.field { display: flex; align-items: center; height: var(--ctl); padding: 0 10px; border-radius: var(--r2); background: var(--surface); border: 1px solid var(--border); color: var(--muted); gap: 8px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 99px; background: var(--surface2); color: var(--muted); font-size: 12px; margin: 2px; }
+.btn { height: var(--ctl); padding: 0 12px; border-radius: var(--r2); background: var(--surface2); border: 1px solid var(--border); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+
+/* bench contents */
+.doc { max-width: 760px; margin: 0 auto; padding: 32px 40px 80px; }
+.doc h1 { font-size: 28px; margin: 0 0 6px; } .doc h2 { font-size: 19px; margin: 26px 0 8px; } .doc p, .doc li { color: color-mix(in srgb, var(--text) 88%, var(--muted)); }
+.doc .meta { color: var(--muted); font-size: 12px; } .doc a { color: var(--accent); text-decoration: none; border-bottom: 1px dotted var(--accent); }
+.doc code { background: var(--surface2); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+table.lib { width: 100%; border-collapse: collapse; }
+table.lib th { text-align: left; font-weight: 500; color: var(--muted); font-size: 12px; padding: 8px 12px; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+table.lib td { padding: 7px 12px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+table.lib tr:hover td { background: var(--hover); } table.lib tr.playing td { color: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; padding: 16px; }
+.thumb { aspect-ratio: 4/3; border-radius: var(--r2); border: 2px solid transparent; position: relative; overflow: hidden; }
+.thumb.sel { border-color: var(--accent); }
+.thumb small { position: absolute; left: 8px; bottom: 6px; color: #fff; text-shadow: 0 1px 3px #000; font-size: 11px; }
+.code { font: 13px/1.6 "Cascadia Code", Consolas, monospace; padding: 12px 0; counter-reset: ln; white-space: pre; }
+.code div { padding-left: 64px; position: relative; } .code div::before { counter-increment: ln; content: counter(ln); position: absolute; left: 0; width: 44px; text-align: right; color: var(--muted); opacity: .6; }
+.k { color: var(--accent); } .s { color: #9ece6a; } .c { color: var(--muted); font-style: italic; } .n { color: #e0af68; } .f { color: #7aa2f7; }
+[data-theme=light] .s, [data-theme=glacier] .s, [data-theme=parchment] .s { color: #2e7d32; } [data-theme=light] .n, [data-theme=glacier] .n, [data-theme=parchment] .n { color: #b26a00; } [data-theme=light] .f, [data-theme=glacier] .f, [data-theme=parchment] .f { color: #1f5fbf; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; background: var(--border); border-top: 1px solid var(--border); }
+.cal div { background: var(--panel); min-height: 92px; padding: 6px 8px; font-size: 12px; color: var(--muted); }
+.cal div.day b { color: var(--text); font-weight: 500; } .cal div.today b { background: var(--accent); color: var(--on-accent); border-radius: 99px; padding: 0 6px; }
+.ev { display: block; margin-top: 4px; padding: 2px 6px; border-radius: 4px; background: var(--sel); color: var(--text); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.player { display: flex; gap: 14px; align-items: center; padding: 14px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+.cover { width: 48px; height: 48px; border-radius: var(--r2); background: linear-gradient(135deg, var(--accent2), #ff7eb3); }
+.bar { flex: 1; height: 4px; border-radius: 2px; background: var(--surface2); } .bar::after { content: ""; display: block; width: 38%; height: 100%; border-radius: 2px; background: var(--accent); }
+.video { margin: 16px; aspect-ratio: 16/9; border-radius: var(--r3); background: radial-gradient(circle at 30% 40%, #3a6ea5, #0b1a2c 70%); display: grid; place-items: center; color: #fff; font-size: 48px; }
+.station { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border-radius: var(--r2); }
+.station:hover { background: var(--hover); } .station.on { background: var(--sel); }
+.station i { width: 40px; height: 40px; border-radius: var(--r2); display: block; }
+
+/* menus, palette, floating */
+.menu { position: fixed; z-index: 50; min-width: 240px; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: 0 12px 32px rgba(0,0,0,.35); }
+.menu .mi { display: flex; gap: 10px; align-items: center; padding: 6px 10px; border-radius: var(--r1); }
+.menu .mi:hover { background: var(--sel); } .menu .mi kbd { margin-left: auto; color: var(--muted); font: 11px inherit; }
+.menu .mi.off { color: var(--muted); opacity: .6; } .menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+.menu .mh { padding: 4px 10px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.palette { position: fixed; z-index: 60; left: 50%; top: 70px; transform: translateX(-50%); width: 560px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); box-shadow: 0 20px 50px rgba(0,0,0,.45); overflow: hidden; }
+.palette input { width: 100%; padding: 12px 14px; border: 0; border-bottom: 1px solid var(--border); background: transparent; color: var(--text); font: 15px inherit; outline: none; }
+.palette .list { max-height: 320px; overflow: auto; padding: 4px; }
+.float { position: fixed; z-index: 40; width: 320px; height: 300px; background: var(--panel); border: 1px solid var(--accent); border-radius: var(--r3); box-shadow: 0 18px 40px rgba(0,0,0,.45); display: flex; flex-direction: column; overflow: hidden; }
+.float .fbar { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 12px; background: var(--surface); cursor: move; font-size: 12px; color: var(--muted); }
+.float .fbar b { color: var(--text); font-weight: 600; flex: 1; }
+.toast { position: fixed; z-index: 70; right: 16px; bottom: 40px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r2); box-shadow: 0 10px 30px rgba(0,0,0,.35); max-width: 360px; }
+
+/* mock-up controls */
+.mockctl { position: fixed; z-index: 80; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 99px; background: color-mix(in srgb, var(--surface2) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12px; color: var(--muted); backdrop-filter: blur(6px); }
+.mockctl select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 99px; padding: 3px 8px; font: inherit; }
+.mockctl button { padding: 3px 9px; border-radius: 99px; } .mockctl button:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- direction A: cards (inspired by the NoorEditor concept art) ---------- */
+body.dirA { --gap: 6px; --r3: 12px; }
+/* ---------- direction B: flat and dense (pro-tool) ---------- */
+body.dirB { --gap: 0px; --r3: 0px; --r2: 4px; --pad: 8px; --ctl: 24px; --font: 12.5px; }
+body.dirB .bench { padding: 0; } body.dirB .panel, body.dirB .center { border: 0; border-right: 1px solid var(--border); }
+body.dirB .dock.right .panel { border-right: 0; border-left: 1px solid var(--border); }
+body.dirB .dock .panel + .panel { border-top: 1px solid var(--border); }
+body.dirB .btab { border-radius: 0; padding: 6px 12px; } body.dirB .btab.active { box-shadow: inset 0 -2px 0 var(--accent); background: var(--panel); }
+body.dirB .phead { background: var(--surface); padding: 2px; }
+body.dirB .dock.left { background: var(--panel); }
+/* ---------- direction C: roomy, writing-first ---------- */
+body.dirC { --gap: 14px; --r3: 16px; --pad: 16px; --ctl: 32px; --font: 14px; }
+body.dirC .app { grid-template-rows: 44px auto 1fr 28px; }
+body.dirC .bench { padding: 4px 14px 14px; }
+body.dirC .benchtabs { border-bottom: 0; padding: 4px 14px 6px; gap: 6px; }
+body.dirC .btab { border-radius: 99px; padding: 6px 16px; } body.dirC .btab.active { box-shadow: none; background: var(--sel); }
+body.dirC .panel, body.dirC .center { border: 0; box-shadow: 0 1px 0 var(--border), 0 8px 24px rgba(0,0,0,.12); }
+body.dirC .phead { border-bottom: 0; padding: 8px 8px 0; }
+body.dirC .doctabs { background: var(--panel); padding: 8px 10px 0; }
+</style>
+</head>
+<body class="dirA" data-theme="dark">
+<div class="app">
+  <header class="titlebar">
+    <div class="logo">N</div>
+    <nav class="mainmenu" id="mainmenu"></nav>
+    <div class="wintitle" id="wintitle"></div>
+    <div class="nowplaying" id="nowplaying" title="Playing in Music: click for the mini player"><i></i><span>Nordic Pines — Lumen</span></div>
+    <div class="winbtns"><button title="Minimise">—</button><button title="Maximise (hover: snap layouts)">▢</button><button class="close" title="Close">✕</button></div>
+  </header>
+  <nav class="benchtabs" id="benchtabs"></nav>
+  <main class="bench" id="bench">
+    <section class="dock left" data-dock="left"></section>
+    <section class="center" id="center"></section>
+    <section class="dock right" data-dock="right"></section>
+    <section class="dock bottom" data-dock="bottom"></section>
+  </main>
+  <footer class="statusbar">
+    <span id="benchstatus"></span><span class="sp"></span>
+    <span class="job" title="A background job (with progress and Cancel)">⟳ Indexing Music <span></span></span>
+    <button id="mini" title="The mini player: keeps playing whichever bench you're in">▶︎ <span>Nordic Pines · 1:12 / 3:40</span></button>
+    <button title="Notifications">🔔 2</button>
+  </footer>
+</div>
+
+<div class="mockctl">
+  <span>Mock-up</span>
+  <select id="dir" title="Layout direction">
+    <option value="dirA">A · Cards (concept-art inspired)</option>
+    <option value="dirB">B · Flat and dense</option>
+    <option value="dirC">C · Roomy, writing first</option>
+  </select>
+  <select id="theme" title="Theme">
+    <option>dark</option><option>light</option><option>nocturne</option><option>ember</option><option>evergreen</option><option>rosewood</option><option>parchment</option><option>glacier</option><option>contrast</option>
+  </select>
+  <button id="palbtn" title="Ctrl+Shift+P">⌘ Commands</button>
+  <button id="help" title="What to try">?</button>
+</div>
+
+<script>
+'use strict';
+const $ = (s, r = document) => r.querySelector(s);
+const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag); for (const [k, v] of Object.entries(attrs)) { if (k === 'class') e.className = v; else if (k === 'html') e.innerHTML = v; else if (k.startsWith('on')) e.addEventListener(k.slice(2), v); else e.setAttribute(k, v); } for (const k of kids.flat()) if (k != null) e.append(k.nodeType ? k : document.createTextNode(k)); return e; };
+
+// ---------------------------------------------------------------- the benches (stage 1)
+const SWATCH = ['linear-gradient(135deg,#2c5364,#203a43)', 'linear-gradient(135deg,#7f5a83,#0d324d)', 'linear-gradient(135deg,#f6d365,#fda085)', 'linear-gradient(135deg,#5ee7df,#b490ca)', 'linear-gradient(135deg,#355c3a,#a8c66c)', 'linear-gradient(135deg,#232526,#414345)', 'linear-gradient(135deg,#ee9ca7,#ffdde1)', 'linear-gradient(135deg,#43cea2,#185a9d)', 'linear-gradient(135deg,#c79081,#dfa579)', 'linear-gradient(135deg,#4b6cb7,#182848)', 'linear-gradient(135deg,#ffafbd,#ffc3a0)', 'linear-gradient(135deg,#0f2027,#2c5364)'];
+const rows = (list) => list.map(([t, m, cls]) => el('div', { class: 'row ' + (cls || '') }, t, m ? el('span', { class: 'm' }, m) : null));
+const BENCHES = {
+  markdown: { name: 'Markdown', icon: '✎', menus: ['Format', 'Insert'], status: 'Visual · 412 words · Saved',
+    docs: [['NoorRoads.md', true], ['Mechs ideas.md'], ['Untitled']], title: 'NoorRoads.md',
+    panels: { left: [['outline', '☰', 'Outline', () => rows([['NoorRoads'], ['Splines', null, 'indent1 sel'], ['Bridges', null, 'indent1'], ['Export to the engine', null, 'indent1'], ['Open questions', null, 'indent1']])]], right: [['props', 'ⓘ', 'Properties', () => [el('div', { class: 'h' }, 'Document'), ...rows([['Words', '412'], ['Read time', '2 min'], ['Created', '12 Nov']]), el('div', { class: 'h' }, 'Tags'), el('div', { style: 'padding:0 6px' }, ['noorroads', 'generator', 'stage-2'].map((t) => el('span', { class: 'chip' }, '#' + t)))]], ['find', '⌕', 'Find', () => [el('div', { class: 'field' }, '⌕ Find in document…')]]] },
+    content: () => el('div', { class: 'doc', html: '<div class="meta">Vault · Ideas · edited 2 min ago</div><h1>NoorRoads</h1><p>Roads that follow the land: a spline drawn over the terrain, with the ground cut and filled under it, kerbs, lines and wear.</p><h2>Splines</h2><ul><li>Control points snap to the terrain; the road keeps a maximum slope.</li><li>Junctions as their own pieces, joined with <a>[[NoorBridges]]</a> where a road crosses water.</li></ul><h2>Export to the engine</h2><p>One <code>road</code> asset per segment, in Noor Interchange, with its recipe and seed, so NoorEngine can regenerate it.</p>' }) },
+  vault: { name: 'Vault', icon: '◫', menus: ['Vault'], status: 'Ideas · 214 notes · 38 tags',
+    docs: [['NoorRoads.md', true], ['Index.md']], title: 'Ideas/NoorRoads.md',
+    panels: { left: [['files', '▤', 'Files', () => [el('div', { class: 'field', style: 'margin:2px 2px 8px' }, '⌕ Search the vault'), ...rows([['▾ 📁 Ideas'], ['📄 NoorRoads.md', null, 'indent1 sel'], ['📄 NoorMechs.md', null, 'indent1'], ['📄 NoorShipyard.md', null, 'indent1'], ['▸ 📁 Journal'], ['▸ 📁 Engine'], ['📄 Index.md']])]], ['tags', '#', 'Tags', () => rows([['#generator', '18'], ['#engine', '42'], ['#music', '9']])]], right: [['links', '⇄', 'Backlinks', () => [el('div', { class: 'h' }, 'Linked from 3 notes'), ...rows([['NoorBridges.md'], ['Engine/Terrain.md'], ['Index.md']]), el('div', { class: 'h' }, 'Mentions'), ...rows([['Journal/2026-11-18.md']])]]] },
+    content: () => BENCHES.markdown.content() },
+  music: { name: 'Music', icon: '♪', menus: ['Playback', 'Library'], status: '2,418 tracks · 164 h', title: 'Library · All tracks',
+    panels: { left: [['lists', '≡', 'Playlists', () => [el('div', { class: 'h' }, 'Library'), ...rows([['All tracks', '2,418', 'sel'], ['Albums'], ['Artists'], ['Recently added']]), el('div', { class: 'h' }, 'Playlists'), ...rows([['Coding focus', '64'], ['Stream: chill', '120'], ['Forest ambience', '31']])]]], right: [['queue', '⋮≡', 'Up next', () => rows([['Nordic Pines', '3:40', 'sel'], ['Lantern Road', '4:12'], ['Cinder Bloom', '2:58'], ['Glass Harbour', '5:01']])], ['eq', '⫶', 'Equaliser', () => [el('div', { style: 'display:flex;gap:10px;align-items:flex-end;height:120px;padding:10px' }, [40, 62, 75, 58, 44, 50, 66, 70].map((h) => el('div', { style: `flex:1;height:${h}%;background:var(--sel);border-top:3px solid var(--accent);border-radius:4px` })))]]] },
+    content: () => { const t = el('table', { class: 'lib' }, el('tr', {}, ['#', 'Title', 'Artist', 'Album', 'Time'].map((h) => el('th', {}, h)))); [['Nordic Pines', 'Lumen', 'Northlight', '3:40', 1], ['Lantern Road', 'Kaito Mori', 'Paper Towns', '4:12'], ['Cinder Bloom', 'Ash & Ivy', 'Embers', '2:58'], ['Glass Harbour', 'Lumen', 'Northlight', '5:01'], ['Slow Orbit', 'Vela', 'Satellites', '6:20'], ['Moss and Stone', 'Fjord', 'Hollow Hills', '3:33'], ['Rain on Tin', 'Kaito Mori', 'Paper Towns', '2:47']].forEach((r, i) => t.append(el('tr', { class: r[4] ? 'playing' : '' }, el('td', {}, r[4] ? '▶' : String(i + 1)), ...r.slice(0, 4).map((c) => el('td', {}, c))))); return [el('div', { class: 'content' }, t), el('div', { class: 'player' }, el('div', { class: 'cover' }), el('div', {}, el('b', {}, 'Nordic Pines'), el('div', { style: 'color:var(--muted);font-size:12px' }, 'Lumen · Northlight')), el('button', { class: 'iconbtn' }, '⏮'), el('button', { class: 'btn primary' }, '❚❚'), el('button', { class: 'iconbtn' }, '⏭'), el('div', { class: 'bar' }), el('span', { style: 'color:var(--muted);font-size:12px' }, '1:12 / 3:40'))]; } },
+  video: { name: 'Video', icon: '▶', menus: ['Playback', 'Subtitles'], status: '146 videos · 3 folders', docs: [['Terrain talk.mp4'], ['Devlog 12.mkv']], title: 'Terrain talk.mp4',
+    panels: { left: [['vlib', '▤', 'Videos', () => [el('div', { style: 'display:flex;justify-content:space-between;align-items:center' }, el('div', { class: 'h' }, 'Folders'), el('button', { class: 'iconbtn', title: 'Rescan, in sight' }, '⟳')), ...rows([['Talks', '24', 'sel'], ['Devlogs', '61'], ['Films', '61']])]]], right: [['notes', '✎', 'Notes', () => rows([['0:42 — sculpt brush idea'], ['3:10 — erosion pass'], ['7:55 — LOD seams']])]] },
+    content: () => el('div', { class: 'video' }, '▶') },
+  radio: { name: 'Radio', icon: '◉', menus: ['Stations'], status: 'Playing: SomaFM Groove Salad', title: 'Stations',
+    panels: { left: [], right: [] },
+    content: () => el('div', { style: 'padding:16px;max-width:640px' }, [['Groove Salad', 'SomaFM · ambient', 1, 0], ['Deep Space One', 'SomaFM · space', 0, 1], ['Radio Paradise', 'eclectic', 0, 2], ['Lofi Hip Hop', 'beats', 0, 3]].map(([n, d, on, k]) => el('div', { class: 'station' + (on ? ' on' : '') }, el('i', { style: 'background:' + SWATCH[k] }), el('div', {}, el('b', {}, n), el('div', { style: 'color:var(--muted);font-size:12px' }, d)), on ? el('span', { class: 'm', style: 'margin-left:auto;color:var(--accent)' }, '● Live') : null))) },
+  gallery: { name: 'Gallery', icon: '▦', menus: ['Pictures', 'Slideshow'], status: 'Textures · 48 pictures · right-click a picture: Send to…', title: 'Albums/Textures',
+    panels: { left: [['albums', '▤', 'Albums', () => rows([['▾ All pictures', '3,120'], ['Textures', '48', 'indent1 sel'], ['References', '212', 'indent1'], ['Screenshots', '860', 'indent1']])]], right: [['details', 'ⓘ', 'Details', () => [el('div', { style: `aspect-ratio:4/3;border-radius:var(--r2);background:${SWATCH[4]};margin-bottom:8px` }), ...rows([['leafy_grass.png', ''], ['Size', '2048 × 2048'], ['Rating', '★★★★☆']]), el('div', { style: 'padding:8px' }, el('button', { class: 'btn', onclick: (e) => sendMenu(e.clientX, e.clientY) }, 'Send to… ▾'))]]] },
+    content: () => el('div', { class: 'grid' }, ['moss_rock', 'bark_oak', 'sand_dune', 'river_pebbles', 'leafy_grass', 'slate', 'rose_petal', 'sea_glass', 'clay', 'night_sky', 'peach', 'deep_water'].map((n, i) => el('div', { class: 'thumb' + (i === 4 ? ' sel' : ''), style: 'background:' + SWATCH[i], oncontextmenu: (e) => { e.preventDefault(); sendMenu(e.clientX, e.clientY); } }, el('small', {}, n + '.png')))) },
+  calendar: { name: 'Calendar', icon: '▣', menus: ['Calendar'], status: 'November 2026 · 3 reminders', title: 'November 2026',
+    panels: { left: [], right: [['agenda', '☷', 'Agenda', () => [el('div', { class: 'h' }, 'Today'), ...rows([['19:00 Stream: devlog', '', 'sel']]), el('div', { class: 'h' }, 'This week'), ...rows([['Fri: NoorEngine M8 review'], ['Sat: Mum\'s birthday 🎂']])]]] },
+    content: () => { const c = el('div', { class: 'cal' }); for (let i = 0; i < 35; i++) { const d = i - 5; const day = el('div', { class: d >= 1 && d <= 30 ? 'day' + (d === 19 ? ' today' : '') : '' }, d >= 1 && d <= 30 ? el('b', {}, String(d)) : ''); if (d === 19) day.append(el('span', { class: 'ev' }, '19:00 Stream')); if (d === 21) day.append(el('span', { class: 'ev' }, 'M8 review')); if (d === 22) day.append(el('span', { class: 'ev' }, '🎂 Birthday')); if (d === 26) day.append(el('span', { class: 'ev' }, 'Release 3.0 design')); c.append(day); } return [el('div', { style: 'display:flex;align-items:center;gap:8px;padding:12px 16px' }, el('b', { style: 'font-size:18px;flex:1' }, 'November 2026'), el('button', { class: 'btn' }, 'Today'), el('button', { class: 'btn' }, 'Month ▾')), c]; } },
+  code: { name: 'NoorCode', icon: '</>', menus: ['Selection', 'Go', 'Run'], status: 'Luau · Ln 14, Col 9 · Spaces: 2 · UTF-8 · main ⎇', docs: [['player.luau', true], ['Weapon.cs'], ['spawn.gd']], title: 'NoorFPS-lite/Scripts/player.luau',
+    panels: { left: [['tree', '▤', 'Explorer', () => [el('div', { class: 'h' }, 'NoorFPS-lite'), ...rows([['▾ 📁 Scripts'], ['📄 player.luau', 'M', 'indent1 sel'], ['📄 Weapon.cs', null, 'indent1'], ['📄 hud.luau', 'U', 'indent1'], ['▸ 📁 Scenes'], ['▸ 📁 Assets'], ['📄 project.noorproj']])]], ['search', '⌕', 'Search', () => [el('div', { class: 'field' }, '⌕ Search in folder…')]], ['git', '⎇', 'Git', () => rows([['M player.luau'], ['U hud.luau']])]], right: [], bottom: [['problems', '⚠', 'Problems', () => rows([['⚠ player.luau:22 — unused local "dt"'], ['ⓘ Weapon.cs:8 — can be readonly']])], ['term', '>_', 'Terminal', () => el('div', { class: 'code', style: 'padding:4px 8px' }, '> noor_cli validate .\n✓ 12 scenes, 48 assets, 0 errors')]] },
+    content: () => { const lines = ['<span class="c">-- player.luau: a first-person player (NoorEngine)</span>', '<span class="k">local</span> speed: <span class="f">number</span> = <span class="n">5.5</span>', '<span class="k">local</span> jump = <span class="n">4.2</span>', '', '<span class="k">function</span> <span class="f">on_update</span>(self, dt: <span class="f">number</span>)', '  <span class="k">local</span> move = noor.input.<span class="f">axis2</span>(<span class="s">"move"</span>)', '  <span class="k">local</span> t = self.transform', '  t.position += t:<span class="f">forward</span>() * move.y * speed * dt', '  t.position += t:<span class="f">right</span>() * move.x * speed * dt', '', '  <span class="k">if</span> noor.input.<span class="f">pressed</span>(<span class="s">"jump"</span>) <span class="k">and</span> self.character.grounded <span class="k">then</span>', '    self.character:<span class="f">jump</span>(jump)', '  <span class="k">end</span>', '<span class="k">end</span>']; const c = el('div', { class: 'code' }); lines.forEach((l) => c.append(el('div', { html: l || ' ' }))); return c; } },
+};
+const MORE_BENCHES = [['NoorForm', 'Trees, rocks, plants'], ['NoorMesh', 'Modelling'], ['NoorForge', 'Texturing'], ['NoorMaterial', 'PBR materials'], ['NoorSprite', 'Pixel art'], ['NoorPhoto', 'Photo and painting'], ['NoorSound', 'Sound design']];
+
+// ---------------------------------------------------------------- state
+let open = ['markdown', 'vault', 'music', 'gallery', 'code', 'calendar'];
+let active = 'vault';
+const layout = {}; // bench → { left: [[panelId…]], right: [...], bottom: [...] } (groups of tabbed panels)
+let floats = [];
+function layoutOf(id) {
+  if (!layout[id]) { const p = BENCHES[id].panels; layout[id] = { left: (p.left || []).length ? [p.left.map((x) => x[0])] : [], right: (p.right || []).map((x) => [x[0]]), bottom: (p.bottom || []).length ? [p.bottom.map((x) => x[0])] : [] }; }
+  return layout[id];
+}
+const panelDef = (bench, pid) => { for (const side of ['left', 'right', 'bottom']) for (const p of BENCHES[bench].panels[side] || []) if (p[0] === pid) return p; return null; };
+const activeTab = {};
+
+// ---------------------------------------------------------------- rendering
+function render() {
+  const b = BENCHES[active];
+  // main menu: the app's items, then the bench's own menus, then Help
+  const mm = $('#mainmenu'); mm.replaceChildren(...['File', 'Edit', 'View', ...b.menus, 'Help'].map((m) => el('button', { onclick: (e) => mainMenu(m, e.currentTarget) }, m)));
+  $('#wintitle').innerHTML = `<b>${b.name}</b> · ${b.title} — NoorMD`;
+  // bench tabs
+  $('#benchtabs').replaceChildren(...open.map((id) => el('button', { class: 'btab' + (id === active ? ' active' : ''), title: `${BENCHES[id].name} (Ctrl+${open.indexOf(id) + 1})`, onclick: () => { active = id; render(); } }, el('span', { class: 'ic' }, BENCHES[id].icon), BENCHES[id].name, (BENCHES[id].docs || []).some((d) => d[1]) ? el('span', { class: 'dot', title: 'Unsaved changes' }) : null, el('span', { class: 'x', title: 'Close the bench', onclick: (e) => { e.stopPropagation(); open = open.filter((x) => x !== id); if (active === id) active = open[0]; render(); toast(`${BENCHES[id].name} closed. Its documents and layout are kept for next time.`); } }, '✕'))), el('button', { class: 'btab add', title: 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
+  // center: document tabs + content
+  const center = $('#center');
+  center.replaceChildren();
+  if (b.docs) center.append(el('div', { class: 'doctabs' }, ...b.docs.map(([n, dirty], i) => el('div', { class: 'dtab' + (i === 0 ? ' active' : '') }, n, dirty ? el('span', { class: 'dirty', title: 'Unsaved' }, '●') : null, el('span', { style: 'opacity:.5;font-size:11px' }, '✕'))), el('div', { class: 'dtab', title: 'New document' }, '＋')));
+  const c = b.content(); center.append(...(Array.isArray(c) ? c : [el('div', { class: 'content' }, c)]));
+  // docks
+  const L = layoutOf(active);
+  for (const side of ['left', 'right', 'bottom']) {
+    const dock = $(`.dock.${side}`);
+    dock.replaceChildren(...L[side].map((group) => panelGroup(group, side)));
+  }
+  const bench = $('#bench');
+  bench.style.setProperty('--lw', L.left.length ? '240px' : '0px');
+  bench.style.setProperty('--rw', L.right.length ? '260px' : '0px');
+  bench.style.setProperty('--bh', L.bottom.length ? '150px' : '0px');
+  $('#benchstatus').textContent = b.status;
+  renderFloats();
+}
+function panelGroup(group, side) {
+  const key = group.join('+');
+  const cur = group.includes(activeTab[key]) ? activeTab[key] : group[0];
+  const def = panelDef(active, cur);
+  const head = el('div', { class: 'phead' }, ...group.map((pid) => { const d = panelDef(active, pid); return el('div', { class: 'ptab' + (pid === cur ? ' active' : ''), draggable: 'true', title: `${d[2]}: drag to another side, or onto another panel to tab them together`, onclick: () => { activeTab[key] = pid; render(); }, ondragstart: (e) => { e.dataTransfer.setData('text/plain', pid); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') }, el('span', {}, d[1]), d[2]); }),
+    el('span', { class: 'sp' }),
+    el('button', { class: 'iconbtn', title: 'Float this panel in its own window (put it on your second monitor)', onclick: () => floatPanel(cur) }, '⧉'),
+    el('button', { class: 'iconbtn', title: 'Close the panel (View menu brings it back)', onclick: () => { removePanel(cur); render(); } }, '✕'));
+  return el('div', { class: 'panel' }, head, el('div', { class: 'pbody' }, def[3]()));
+}
+function removePanel(pid) {
+  const L = layoutOf(active);
+  for (const side of ['left', 'right', 'bottom']) L[side] = L[side].map((g) => g.filter((x) => x !== pid)).filter((g) => g.length);
+}
+// drag and drop onto the docks
+document.querySelectorAll('.dock').forEach((dock) => {
+  dock.addEventListener('dragover', (e) => { e.preventDefault(); dock.classList.add('drop'); });
+  dock.addEventListener('dragleave', () => dock.classList.remove('drop'));
+  dock.addEventListener('drop', (e) => {
+    e.preventDefault(); dock.classList.remove('drop');
+    const pid = e.dataTransfer.getData('text/plain'); if (!pid) return;
+    const overPanel = e.target.closest('.panel');
+    removePanel(pid); floats = floats.filter((f) => f.pid !== pid);
+    const L = layoutOf(active), side = dock.dataset.dock;
+    const idx = overPanel ? [...dock.children].indexOf(overPanel) : -1;
+    if (idx >= 0 && L[side][idx]) L[side][idx].push(pid); else L[side].push([pid]);
+    render(); toast(overPanel ? 'Tabbed together with the panel you dropped it on.' : `Docked on the ${side}.`);
+  });
+});
+// the bench area gets wider docks when something is dragged over an empty side
+const style = document.createElement('style');
+style.textContent = 'body.dragging .bench { --lw: 240px !important; --rw: 260px !important; --bh: 150px !important; } body.dragging .dock:empty { border: 2px dashed var(--border); }';
+document.head.append(style);
+
+// ---------------------------------------------------------------- floating windows (a second window, simulated)
+function floatPanel(pid) {
+  removePanel(pid);
+  floats.push({ bench: active, pid, x: innerWidth - 380, y: 120 + floats.length * 30 });
+  render();
+  toast('In the real app this is its own window: drag it to your second monitor. Drag its tab back onto a side to dock it again.');
+}
+function renderFloats() {
+  document.querySelectorAll('.float').forEach((f) => f.remove());
+  for (const f of floats) {
+    const d = panelDef(f.bench, f.pid);
+    const w = el('div', { class: 'float', style: `left:${f.x}px;top:${f.y}px` },
+      el('div', { class: 'fbar', draggable: 'false' }, el('b', {}, `${d[1]} ${d[2]}`), el('span', {}, BENCHES[f.bench].name), el('button', { class: 'iconbtn', title: 'Dock it again', onclick: () => { floats = floats.filter((x) => x !== f); const L = layoutOf(f.bench); L.right.push([f.pid]); render(); } }, '⇲')),
+      el('div', { class: 'pbody' }, d[3]()));
+    const bar = w.firstChild;
+    bar.addEventListener('pointerdown', (e) => { if (e.target.closest('button')) return; const sx = e.clientX - f.x, sy = e.clientY - f.y; bar.setPointerCapture(e.pointerId); bar.onpointermove = (m) => { f.x = m.clientX - sx; f.y = m.clientY - sy; w.style.left = f.x + 'px'; w.style.top = f.y + 'px'; }; bar.onpointerup = () => { bar.onpointermove = null; }; });
+    document.body.append(w);
+  }
+}
+
+// ---------------------------------------------------------------- menus
+function closeMenus() { document.querySelectorAll('.menu').forEach((m) => m.remove()); document.querySelectorAll('.mainmenu button').forEach((b) => b.classList.remove('open')); }
+function menu(x, y, items) {
+  closeMenus();
+  const m = el('div', { class: 'menu', style: `left:${x}px;top:${y}px` }, ...items.map((it) => it === '-' ? el('hr') : it.h ? el('div', { class: 'mh' }, it.h) : el('div', { class: 'mi' + (it.off ? ' off' : ''), onclick: () => { closeMenus(); if (it.run) it.run(); else if (!it.off) toast(`${it.t}: runs the same command as its shortcut and the command palette.`); } }, it.t, it.k ? el('kbd', {}, it.k) : null)));
+  document.body.append(m);
+  const r = m.getBoundingClientRect(); if (r.right > innerWidth - 8) m.style.left = innerWidth - r.width - 8 + 'px';
+  setTimeout(() => document.addEventListener('pointerdown', (e) => { if (!m.contains(e.target)) closeMenus(); }, { once: true }), 0);
+}
+const MENUS = {
+  File: () => [{ t: 'New', k: 'Ctrl+N' }, { t: 'Open…', k: 'Ctrl+O' }, { t: 'Open recent ▸' }, '-', { t: 'Save', k: 'Ctrl+S' }, { t: 'Save as…', k: 'Ctrl+Shift+S' }, '-', { t: 'Send to… ▸', run: () => sendMenu(80, 60) }, { t: 'Export…', k: 'Ctrl+E' }, '-', { t: 'Settings', k: 'Ctrl+,' }, { t: 'Exit', k: 'Alt+F4' }],
+  Edit: () => [{ t: 'Undo', k: 'Ctrl+Z' }, { t: 'Redo', k: 'Ctrl+Y' }, '-', { t: 'Cut', k: 'Ctrl+X' }, { t: 'Copy', k: 'Ctrl+C' }, { t: 'Paste', k: 'Ctrl+V' }, '-', { t: 'Find', k: 'Ctrl+F' }, { t: 'Command palette…', k: 'Ctrl+Shift+P', run: palette }],
+  View: () => [{ h: 'Panels of ' + BENCHES[active].name }, ...['left', 'right', 'bottom'].flatMap((s) => (BENCHES[active].panels[s] || []).map((p) => ({ t: (layoutOf(active)[s].flat().includes(p[0]) || layoutOf(active).left.flat().includes(p[0]) || layoutOf(active).right.flat().includes(p[0]) || layoutOf(active).bottom.flat().includes(p[0]) ? '✓ ' : '   ') + p[2], run: () => { if (![...layoutOf(active).left, ...layoutOf(active).right, ...layoutOf(active).bottom].flat().includes(p[0])) { layoutOf(active)[s].push([p[0]]); render(); } } }))), '-', { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, { t: 'Focus mode', k: 'F11' }, { t: 'Theme ▸' }, { t: 'Zoom in', k: 'Ctrl+=' }],
+  Help: () => [{ t: 'Welcome' }, { t: 'Shortcuts', k: 'F1' }, { t: 'What\'s new in 3.0' }, '-', { t: 'About NoorMD' }],
+};
+function mainMenu(name, btn) {
+  const r = btn.getBoundingClientRect();
+  const items = MENUS[name] ? MENUS[name]() : [{ h: `${BENCHES[active].name}'s own menu` }, { t: `${name} items of ${BENCHES[active].name}` }, { t: 'Each bench adds its own menus here' }, { t: '…and they change when you switch bench' }];
+  menu(r.left, r.bottom + 2, items); btn.classList.add('open');
+}
+function sendMenu(x, y) {
+  menu(x, y, [{ h: 'Send "leafy_grass.png" to…' }, { t: '▦ NoorPhoto (edit or paint it)' }, { t: '▚ NoorSprite (as pixels)' }, { t: '◈ NoorMaterial (as a texture)' }, { t: '✎ Markdown (insert the picture)' }, '-', { h: 'In NoorMD 2.0 for now' }, { t: 'NoorForge', off: true }, { t: 'NoorMesh', off: true }]);
+}
+function benchPicker(btn) {
+  const r = btn.getBoundingClientRect();
+  const closed = Object.keys(BENCHES).filter((id) => !open.includes(id));
+  menu(r.left, r.bottom + 2, [{ h: 'Open a bench' }, ...closed.map((id) => ({ t: `${BENCHES[id].icon}  ${BENCHES[id].name}`, run: () => { open.push(id); active = id; render(); } })), ...(closed.length ? [] : [{ t: 'All 3.0 benches are open', off: true }]), '-', { h: 'Still in NoorMD 2.0' }, ...MORE_BENCHES.map(([n, d]) => ({ t: `${n} — ${d}`, off: true }))]);
+}
+
+// ---------------------------------------------------------------- command palette
+function palette() {
+  closeMenus();
+  const cmds = [...Object.entries(BENCHES).map(([id, b]) => ({ t: `Go to ${b.name}`, k: open.includes(id) ? `Ctrl+${open.indexOf(id) + 1}` : '', run: () => { if (!open.includes(id)) open.push(id); active = id; render(); } })), { t: 'Vault: search notes', k: 'Ctrl+Shift+F' }, { t: 'Music: play / pause', k: 'Ctrl+Alt+Space' }, { t: 'Music: next track', k: 'Ctrl+Alt+→' }, { t: 'Markdown: new note', k: 'Ctrl+N' }, { t: 'NoorCode: open folder…' }, { t: 'Calendar: add an entry…' }, { t: 'View: reset layout' }, { t: 'Theme: switch…' }, { t: 'Gallery: send the picture to…' }];
+  const box = el('div', { class: 'palette' }), input = el('input', { placeholder: 'Type a command, a bench or a file…' }), list = el('div', { class: 'list' });
+  const draw = () => { const q = input.value.toLowerCase(); list.replaceChildren(...cmds.filter((c) => c.t.toLowerCase().includes(q)).map((c, i) => el('div', { class: 'row' + (i === 0 ? ' sel' : ''), onclick: () => { box.remove(); if (c.run) c.run(); else toast(c.t); } }, c.t, c.k ? el('span', { class: 'm' }, c.k) : null))); };
+  input.addEventListener('input', draw);
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape') box.remove(); if (e.key === 'Enter') { const f = list.querySelector('.row'); if (f) f.click(); } });
+  box.append(input, list); document.body.append(box); draw(); input.focus();
+  setTimeout(() => document.addEventListener('pointerdown', (e) => { if (!box.contains(e.target)) box.remove(); }, { once: true }), 0);
+}
+let toastTimer;
+function toast(text) { document.querySelectorAll('.toast').forEach((t) => t.remove()); const t = el('div', { class: 'toast' }, text); document.body.append(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 4200); }
+
+// ---------------------------------------------------------------- controls
+$('#dir').addEventListener('change', (e) => { document.body.className = e.target.value; });
+$('#theme').addEventListener('change', (e) => { document.body.dataset.theme = e.target.value; });
+$('#palbtn').addEventListener('click', palette);
+$('#help').addEventListener('click', () => toast('Try: switch benches with the tabs (Ctrl+1…9), drag a panel\'s tab to another side or onto another panel, ⧉ floats a panel, ＋ opens a bench, the menus change with the bench, right-click a Gallery picture for Send to…, Ctrl+Shift+P for commands.'));
+$('#mini').addEventListener('click', (e) => { const s = e.currentTarget.firstChild; s.textContent = s.textContent.includes('▶') ? '❚❚ ' : '▶︎ '; });
+document.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); palette(); }
+  else if (e.ctrlKey && /^[1-9]$/.test(e.key) && open[Number(e.key) - 1]) { e.preventDefault(); active = open[Number(e.key) - 1]; render(); }
+});
+render();
+setTimeout(() => toast('A mock-up: nothing here is wired to real files. Switch the direction and the theme at the bottom; ? says what to try.'), 400);
+</script>
+</body>
+</html>
