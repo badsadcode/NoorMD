@@ -100,3 +100,15 @@ kbd { font: 11px var(--font-ui); color: var(--muted); }
 .nui-toast.error { border-left-color: var(--danger); }
 @keyframes nui-in { from { transform: translateY(8px); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------------------------------------------------------------- the quick picker (Ctrl+P) */
+.nui-pick-scrim { align-items: flex-start; padding-top: 12vh; }
+.nui-pick { width: min(620px, calc(100vw - 32px)); background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); box-shadow: var(--shadow); padding: 8px; display: grid; gap: 6px; }
+.nui-pick-input { height: calc(var(--ctl) + 8px); font-size: 15px; }
+.nui-pick-list { display: grid; gap: 1px; max-height: 56vh; overflow: auto; }
+.nui-pick-item { display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 10px; padding: 6px 10px; border-radius: var(--r2); cursor: default; }
+.nui-pick-item[aria-selected=true] { background: var(--sel); }
+.nui-pick-item .ic { grid-row: span 2; font-size: 15px; width: 18px; text-align: center; }
+.nui-pick-item .l { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nui-pick-item .d { grid-column: 2; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nui-pick-empty { color: var(--muted); padding: 10px; }

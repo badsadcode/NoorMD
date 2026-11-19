@@ -1,9 +1,9 @@
 // The Markdown bench's web module (contract v1). NoorMD 2.0's editor (TOAST UI: Visual, Markdown, side by side),
 // documents as tabs inside the bench, an outline panel. The C# side owns the files: this page never reads or writes
 // one itself, it asks (md.pick, md.load, md.write, md.writeAs, md.draft…).
-import { el, menu } from '/ui/js/noor-ui.js';
+import { el, menu, quickPick } from '/ui/js/noor-ui.js';
 import { createFind } from './find.js';
-import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, renderSafe, escapeHtml } from './mdtools.js';
+import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, renderSafe, escapeHtml, decorateCallouts, calloutType } from './mdtools.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
 const MODES = [['wysiwyg', 'Visual'], ['markdown', 'Markdown'], ['split', 'Side by side']];
@@ -116,6 +116,20 @@ const PREF_DEFAULTS = { font: 'system', goal: 750, zoom: 0, width: 'comfortable'
 const MEASURES = { comfortable: '780px', wide: '1100px', full: '100000px' };
 const WIDTHS = [['comfortable', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']];
 
+/** TOAST UI plugin: in Visual view, a quote starting with [!tip] (note, warning…) is drawn as a callout. */
+function calloutPlugin() {
+  return {
+    wysiwygNodeViews: {
+      blockQuote(node) {
+        const dom = document.createElement('blockquote');
+        const paint = (n) => { const t = calloutType(n.textContent); dom.className = t ? `callout callout-${t} editing` : ''; };
+        paint(node);
+        return { dom, contentDOM: dom, update(n) { if (n.type !== node.type) return false; paint(n); return true; } };
+      },
+    },
+  };
+}
+
 const newId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const normalizeText = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
 const isDark = () => getComputedStyle(document.documentElement).colorScheme.includes('dark');
@@ -210,6 +224,7 @@ export default {
         previewStyle: mode === 'split' ? 'vertical' : 'tab',
         initialValue: text, usageStatistics: false, hideModeSwitch: true, frontMatter: true, autofocus: false,
         theme: isDark() ? 'dark' : 'light', toolbarItems: [],
+        plugins: [calloutPlugin],
         events: { change: () => changed(d) },
       });
       // Visual mode writes a typed [[wiki link]] as \[\[…\]\]; keep it a real link in the saved Markdown.
@@ -693,6 +708,17 @@ export default {
     function closeWiki() { if (wiki.box) { wiki.box.remove(); wiki.box = null; } wiki.items = []; }
     async function suggestWiki() {
       const before = caretText();
+      // [[Note#… : the note's headings.
+      const hm = before && /\[\[([^[\]\n|#]{1,80})#([^[\]\n|]{0,80})$/.exec(before);
+      if (hm) {
+        const seq = ++wiki.seq;
+        const hs = ctx.hasBench && ctx.hasBench('noor.vault') ? await ctx.callBench('noor.vault', 'vault.headings', { from: cur && cur.path ? cur.path : '', target: hm[1] }).catch(() => []) : [];
+        if (seq !== wiki.seq) return;
+        const lq = hm[2].toLowerCase();
+        const found = hs.filter((h) => h.text.toLowerCase().includes(lq)).slice(0, 10).map((h) => ({ name: '#'.repeat(h.level) + ' ' + h.text, path: `in ${hm[1]}`, insert: h.text }));
+        showWiki(found, hm[2]);
+        return;
+      }
       const m = before && /\[\[([^[\]\n|#]{0,80})$/.exec(before);
       if (!m) { closeWiki(); return; }
       const seq = ++wiki.seq, q = m[1];
@@ -704,6 +730,11 @@ export default {
       const found = notes.filter((n) => n.name.toLowerCase().includes(lq) || n.path.toLowerCase().includes(lq))
         .sort((a, b) => (b.name.toLowerCase().startsWith(lq) - a.name.toLowerCase().startsWith(lq)) || a.name.localeCompare(b.name)).slice(0, 8)
         .map((n) => ({ ...n, insert: names.get(n.name.toLowerCase()) > 1 ? n.path.replace(/\.(md|markdown|mdown|mkd)$/i, '') : n.name }));
+      // Aliases: [[Ada]] → [[Ada Lovelace|Ada]].
+      if (lq) for (const n of notes) for (const a of n.aliases || []) if (a.toLowerCase().includes(lq) && found.length < 10) found.push({ name: a, path: `→ ${n.name}`, insert: `${n.name}|${a}` });
+      showWiki(found, q);
+    }
+    function showWiki(found, q) {
       if (!found.length) { closeWiki(); return; }
       wiki.items = found; wiki.index = 0; wiki.query = q;
       const sel = window.getSelection();
@@ -736,7 +767,7 @@ export default {
       if (!range || range.startContainer.nodeType !== 3) return null;
       const text = range.startContainer.textContent, at = range.startOffset;
       for (const m of text.matchAll(/!?\[\[([^[\]\n]+?)\]\]/g)) {
-        if (at >= m.index && at <= m.index + m[0].length) return m[1].split('|')[0].split('#')[0].trim();
+        if (at >= m.index && at <= m.index + m[0].length) return m[1].split('|')[0].trim();
       }
       return null;
     }
@@ -744,6 +775,12 @@ export default {
       if (!ctx.hasBench || !ctx.hasBench('noor.vault')) { ctx.toast('Wiki links need the Vault bench.'); return; }
       let r;
       try { r = await ctx.callBench('noor.vault', 'vault.openLink', { from: cur && cur.path ? cur.path : '', target }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      if (r.opened && r.heading) {
+        // The note may be on screen already (its "opened" can arrive before this answer): go there now, or once it opens.
+        pendingGoto = { path: r.full, heading: r.heading };
+        const open = docs.find((d) => samePath(d.path, r.full));
+        if (open) { if (open !== cur) showDoc(open); setTimeout(maybeGoto, 50); }
+      }
       if (r.noVault) { ctx.toast('Open a vault (the Vault bench) to follow [[links]].'); return; }
       if (r.outside) { ctx.toast('This document isn\'t in the open vault, so its [[links]] lead nowhere.'); return; }
       if (r.missing) {
@@ -752,6 +789,51 @@ export default {
         if (ok) ctx.callBench('noor.vault', 'vault.createLink', { from: cur && cur.path ? cur.path : '', target }).catch((e) => ctx.toast(e.message, { error: true }));
       }
     }
+    // ------------------------------------------------------------ going to a heading (a [[Note#Heading]] followed)
+    let pendingGoto = null;
+    function goToHeadingText(text) {
+      if (!cur) return false;
+      const i = headings(md(cur)).findIndex((h) => h.text.toLowerCase() === String(text).toLowerCase());
+      if (i < 0) return false;
+      setTimeout(() => goToHeading(i), 60);
+      return true;
+    }
+    function maybeGoto() {
+      if (!pendingGoto || !cur || !samePath(cur.path, pendingGoto.path)) return;
+      const h = pendingGoto.heading; pendingGoto = null;
+      goToHeadingText(h);
+    }
+
+    // ------------------------------------------------------------ hover preview: Ctrl over a [[link]]
+    let hoverBox = null, hoverTarget = '', hoverTimer = 0, hoverSeq = 0;
+    function hideHover() { clearTimeout(hoverTimer); hoverTarget = ''; if (hoverBox) { hoverBox.remove(); hoverBox = null; } }
+    docsEl.addEventListener('mousemove', (e) => {
+      if (!(e.ctrlKey || e.metaKey) || !ctx.hasBench || !ctx.hasBench('noor.vault')) { if (hoverBox && !e.ctrlKey) hideHover(); return; }
+      const target = linkAt(e.clientX, e.clientY);
+      if (!target) { if (hoverTarget) hideHover(); return; }
+      if (target === hoverTarget) return;
+      hideHover(); hoverTarget = target;
+      const x = e.clientX, y = e.clientY, seq = ++hoverSeq;
+      hoverTimer = setTimeout(async () => {
+        const r = await ctx.callBench('noor.vault', 'vault.preview', { from: cur && cur.path ? cur.path : '', target }).catch(() => null);
+        if (!r || seq !== hoverSeq || hoverTarget !== target) return;
+        await loadPurify();
+        hoverBox = el('div', { class: 'md-hover', role: 'tooltip' });
+        if (r.missing) hoverBox.append(el('div', { class: 'md-hover-title', text: `${r.name}` }), el('p', { class: 'nui-muted', text: 'There\'s no note by that name yet. Ctrl+click to make it.' }));
+        else {
+          const body = el('div', { class: 'md-hover-body toastui-editor-contents' });
+          body.innerHTML = renderSafe(r.markdown);
+          hoverBox.append(el('div', { class: 'md-hover-title', text: r.heading ? `${r.name} › ${r.heading}` : r.name }), body);
+        }
+        document.body.append(hoverBox);
+        const b = hoverBox.getBoundingClientRect();
+        hoverBox.style.left = Math.max(8, Math.min(x + 12, innerWidth - b.width - 8)) + 'px';
+        hoverBox.style.top = (y + 18 + b.height > innerHeight ? Math.max(8, y - b.height - 12) : y + 18) + 'px';
+      }, 220);
+    });
+    docsEl.addEventListener('mouseleave', hideHover);
+    window.addEventListener('keyup', (e) => { if (e.key === 'Control' || e.key === 'Meta') hideHover(); });
+
     docsEl.addEventListener('keyup', (e) => { if (!['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key) || !wiki.box) suggestWiki(); });
     docsEl.addEventListener('click', (e) => {
       if (!(e.ctrlKey || e.metaKey)) { closeWiki(); return; }
@@ -853,6 +935,21 @@ export default {
       const goal = el('input', { class: 'nui-field', type: 'number', min: '1', step: '50', value: String(prefs.goal || 750) });
       const ok = await ctx.dialog('Writing goal', el('label', { class: 'md-linkfield' }, el('span', { text: 'How many words are you aiming for in a document?' }), goal), [{ label: 'Cancel', value: false }, { label: 'Set the goal', value: true, primary: true }]);
       if (ok) { setPrefs({ goal: Math.max(1, Math.round(Number(goal.value) || 750)) }); sendOutline(); }
+    }
+
+    async function switcher() {
+      wiki.notesAt = 0;   // fresh: the vault may have changed
+      const [notes, recent] = await Promise.all([vaultNotes(), ctx.call('md.recentList').catch(() => [])]);
+      const items = [], seen = new Set();
+      for (const d of docs) { items.push({ label: nameOf(d), detail: d.path || 'Not saved yet', icon: '📄', doc: d }); if (d.path) seen.add(d.path.toLowerCase()); }
+      for (const n of notes) items.push({ label: n.name, detail: n.path, icon: '📝', keywords: (n.aliases || []).join(' '), note: n.path });
+      for (const r of recent) if (r.exists && !seen.has(r.path.toLowerCase())) items.push({ label: r.name, detail: r.path, icon: '🕘', file: r.path });
+      if (!items.length) { ctx.toast('Nothing to go to yet.'); return; }
+      const pick = await quickPick(items, { placeholder: 'Go to a document or note (type part of its name)' });
+      if (!pick) { focusEditor(); return; }
+      if (pick.doc) showDoc(pick.doc);
+      else if (pick.note) ctx.callBench('noor.vault', 'vault.openNote', { path: pick.note }).catch((e) => ctx.toast(e.message, { error: true }));
+      else if (pick.file) openPath(pick.file);
     }
 
     async function recentDialog() {
@@ -976,7 +1073,7 @@ export default {
       ctx.on('snap.take', () => takeSnapshot()),
       ctx.on('snap.view', (p) => p && viewSnapshot(p.id)),
       ctx.on('snap.restore', (p) => p && restoreSnapshot(p.id)),
-      ctx.on('shell.open', (p) => ready.then(async () => { for (const path of (p && p.paths) || []) await openPath(path); })),
+      ctx.on('shell.open', (p) => ready.then(async () => { for (const path of (p && p.paths) || []) await openPath(path); maybeGoto(); })),
       ctx.on('shell.moved', (p) => {
         for (const m of (p && p.moves) || []) {
           for (const d of docs) {
@@ -1004,16 +1101,21 @@ export default {
       }),
       ctx.on('outline.ask', () => ctx.emit('outline', lastOutline)),
       ctx.on('outline.go', (p) => goToHeading(p && p.index)),
+      // Another bench asks to show a place: { path, heading }.
+      ctx.subscribe('doc.goto', (p) => { if (p && p.path) { pendingGoto = { path: p.path, heading: p.heading }; maybeGoto(); } }),
     ];
 
     // ------------------------------------------------------------ the theme: TOAST UI's dark look follows the shell's
     function applyTheme() { const dark = isDark(); docsEl.querySelectorAll('.toastui-editor-defaultUI').forEach((n) => n.classList.toggle('toastui-editor-dark', dark)); }
+    let calloutTimer = 0;
+    const previewWatch = new MutationObserver(() => { clearTimeout(calloutTimer); calloutTimer = setTimeout(() => docsEl.querySelectorAll('.toastui-editor-md-preview .toastui-editor-contents').forEach(decorateCallouts), 60); });
+    previewWatch.observe(docsEl, { childList: true, subtree: true });
     const themeWatch = new MutationObserver(applyTheme);
     themeWatch.observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
     // ------------------------------------------------------------ keys the bench's commands win over the editor
     // TOAST UI binds Ctrl+S (strikethrough), Ctrl+O (numbered list) and others; in this bench those are Save and Open.
-    const OWN_KEYS = { 'ctrl+s': 'md.save', 'ctrl+shift+s': 'md.saveAs', 'ctrl+o': 'md.open', 'ctrl+shift+o': 'md.recent', 'ctrl+n': 'md.new', 'ctrl+w': 'md.close', 'ctrl+e': 'md.mode.next',
+    const OWN_KEYS = { 'ctrl+s': 'md.save', 'ctrl+shift+s': 'md.saveAs', 'ctrl+o': 'md.open', 'ctrl+shift+o': 'md.recent', 'ctrl+n': 'md.new', 'ctrl+w': 'md.close', 'ctrl+e': 'md.mode.next', 'ctrl+p': 'md.switcher',
       'ctrl+f': 'md.find', 'ctrl+h': 'md.replace', 'ctrl+=': 'md.zoom.in', 'ctrl++': 'md.zoom.in', 'ctrl+shift++': 'md.zoom.in', 'ctrl+-': 'md.zoom.out', 'ctrl+0': 'md.zoom.reset' };
     let commands = null;
     const ownKey = (e) => {
@@ -1061,6 +1163,8 @@ export default {
       'md.mode.split': () => cur && setMode(cur, 'split'),
       'md.mode.next': nextMode,
       'md.find': () => find.show(false),
+      'md.switcher': switcher,
+      'md.ins.callout': () => { if (!cur || !cur.editor) return; cur.editor.focus(); insertText('\n> [!tip] Title\n> Your text\n'); },
       'md.exportHtml': exportHtml, 'md.exportPdf': exportPdf, 'md.print': printDoc, 'md.copy': copyMarkdown,
       'md.snap': () => takeSnapshot(),
       'md.settings': settingsDialog, 'md.goal': goalDialog,
@@ -1110,7 +1214,7 @@ export default {
       },
       unmount() {
         // Documents stay as they are (drafts and the kept session bring them back): only the editors go.
-        themeWatch.disconnect(); offs.forEach((f) => f()); closeWiki(); window.removeEventListener('focus', onWindowFocus); find.close(); box.removeEventListener('keydown', ownKey, true);
+        themeWatch.disconnect(); previewWatch.disconnect(); offs.forEach((f) => f()); closeWiki(); hideHover(); window.removeEventListener('focus', onWindowFocus); find.close(); box.removeEventListener('keydown', ownKey, true);
         for (const d of docs) { clearTimeout(d.draftTimer); try { d.editor && d.editor.destroy(); } catch { /* gone */ } }
         clearTimeout(statusTimer); clearTimeout(outlineTimer);
       },

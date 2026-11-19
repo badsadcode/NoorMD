@@ -60,6 +60,60 @@ export function menu(x, y, items, { onClose, anchor } = {}) {
 }
 export const menuIsOpen = () => !!openMenu;
 
+/** How well a query matches a text (letters in order; whole-word and early matches score higher), or -1. */
+export function fuzzyScore(query, text) {
+  const q = query.toLowerCase().trim(), t = text.toLowerCase();
+  if (!q) return 0;
+  const at = t.indexOf(q);
+  if (at >= 0) return 1000 - at * 2 - t.length * 0.1 + (at === 0 || /[\s/_\-.]/.test(t[at - 1]) ? 200 : 0);
+  let score = 0, ti = 0, run = 0;
+  for (const c of q) {
+    if (c === ' ') continue;
+    const i = t.indexOf(c, ti);
+    if (i < 0) return -1;
+    run = i === ti ? run + 1 : 0;
+    score += 10 + run * 5 - (i - ti);
+    ti = i + 1;
+  }
+  return score - t.length * 0.1;
+}
+
+/**
+ * A quick picker (Ctrl+P and friends): a box at the top with a filter and a list. Items: { label, detail, keywords,
+ * icon }. Resolves with the chosen item, or null (Esc, a click outside).
+ */
+export function quickPick(items, { placeholder = 'Type to search', empty = 'Nothing matches.', limit = 14 } = {}) {
+  return new Promise((resolve) => {
+    let shown = [], index = 0;
+    const input = el('input', { class: 'nui-field nui-pick-input', type: 'text', placeholder, 'aria-label': placeholder, spellcheck: 'false' });
+    const list = el('div', { class: 'nui-pick-list', role: 'listbox' });
+    const scrim = el('div', { class: 'nui-scrim nui-pick-scrim', onpointerdown: (e) => { if (e.target === scrim) finish(null); } },
+      el('div', { class: 'nui-pick', role: 'dialog', 'aria-label': placeholder }, input, list));
+    const finish = (v) => { scrim.remove(); resolve(v); };
+    const draw = () => {
+      const q = input.value;
+      shown = q.trim()
+        ? items.map((it) => ({ it, s: Math.max(fuzzyScore(q, it.label), it.keywords ? fuzzyScore(q, it.keywords) - 50 : -1, it.detail ? fuzzyScore(q, it.detail) - 300 : -1) })).filter((x) => x.s >= 0).sort((a, b) => b.s - a.s).slice(0, limit).map((x) => x.it)
+        : items.slice(0, limit);
+      index = Math.min(index, Math.max(0, shown.length - 1));
+      list.replaceChildren(...(shown.length ? shown.map((it, i) => el('div', { class: 'nui-pick-item', role: 'option', 'aria-selected': String(i === index),
+        onmousedown: (e) => { e.preventDefault(); finish(it); }, onmousemove: () => { if (index !== i) { index = i; draw(); } } },
+        it.icon ? el('span', { class: 'ic', text: it.icon }) : null, el('span', { class: 'l', text: it.label }), it.detail ? el('span', { class: 'd', text: it.detail }) : null))
+        : [el('div', { class: 'nui-pick-empty', text: empty })]));
+    };
+    input.addEventListener('input', () => { index = 0; draw(); });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown') { e.preventDefault(); index = (index + 1) % Math.max(1, shown.length); draw(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); index = (index - 1 + shown.length) % Math.max(1, shown.length); draw(); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (shown[index]) finish(shown[index]); }
+      else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(null); }
+    });
+    document.body.append(scrim);
+    draw();
+    input.focus();
+  });
+}
+
 /** A dialog with a title, a body (element or builder) and buttons; resolves with the button's value (or null on Esc). */
 export function dialog(title, body, buttons = [{ label: 'Close', value: null, primary: true }]) {
   return new Promise((resolve) => {

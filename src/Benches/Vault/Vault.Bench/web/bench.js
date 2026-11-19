@@ -1,7 +1,8 @@
 // The Vault bench's web module (contract v1). Its tab is the vault's home: search, recent notes, tags, and the wizard
 // that starts a vault. Its panels (Explorer, Backlinks, Tags, Search) dock beside your writing in any bench. Notes open
 // in the Markdown bench (the C# side hands them over); renames keep links working.
-import { el, menu } from '/ui/js/noor-ui.js';
+import { el, menu, quickPick } from '/ui/js/noor-ui.js';
+import { createMap } from './map.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
 const baseName = (p) => (p || '').split('/').pop().replace(/\.(md|markdown|mdown|mkd)$/i, '');
@@ -99,6 +100,7 @@ function itemMenu(ctx, x, y, entry, anchor) {
     ...(entry.note ? [{ label: 'Open', run: () => openNote(ctx, entry.path) }, '-'] : []),
     { label: 'New note here', run: () => newNote(ctx, folder) },
     { label: 'New folder here', run: () => newFolder(ctx, folder) },
+    { label: 'New note from a template…', run: () => fromTemplate(ctx, folder) },
     '-',
     { label: 'Rename…', disabled: !entry.path, run: () => renameItem(ctx, entry.path, entry.folder) },
     { label: 'Move to…', disabled: !entry.path, run: () => moveDialog(ctx, entry.path) },
@@ -106,6 +108,36 @@ function itemMenu(ctx, x, y, entry, anchor) {
     '-',
     { label: 'Delete…', disabled: !entry.path, run: () => deleteItems(ctx, [entry.path]) },
   ], { anchor });
+}
+
+// ---------------------------------------------------------------- go to a note (Ctrl+P), today's note, templates
+async function switcher(ctx) {
+  const notes = await ctx.call('vault.notes').catch(() => []);
+  if (!notes.length) { ctx.toast('No vault open, or it has no notes yet.'); return; }
+  const items = [];
+  for (const n of notes) {
+    items.push({ label: n.name, detail: n.path, icon: '📝', keywords: (n.aliases || []).join(' '), path: n.path });
+    for (const a of n.aliases || []) items.push({ label: a, detail: `→ ${n.name} · ${n.path}`, icon: '↪', path: n.path });
+  }
+  const pick = await quickPick(items, { placeholder: 'Go to a note (type part of its name)', empty: 'No note matches.' });
+  if (pick) openNote(ctx, pick.path);
+}
+async function today(ctx) { try { await ctx.call('vault.daily', {}); } catch (e) { fail(ctx)(e); } }
+async function fromTemplate(ctx, folder = '') {
+  const [templates, tree] = await Promise.all([ctx.call('vault.templates').catch(() => []), ctx.call('vault.tree').catch(() => null)]);
+  if (!templates.length) { ctx.toast('This vault has no templates yet: notes in a folder called Templates become templates.'); return; }
+  const tpl = el('select', { class: 'nui-select' }, ...templates.map((t) => el('option', { value: t.path, text: t.name })));
+  const folders = ['', ...(tree ? tree.entries.filter((e) => e.folder && !e.path.startsWith('Templates')).map((e) => e.path) : [])];
+  const where = el('select', { class: 'nui-select' }, ...folders.map((f) => el('option', { value: f, text: f || '(the top of the vault)' })));
+  where.value = folder;
+  const name = el('input', { class: 'nui-field', type: 'text', placeholder: 'Its name' });
+  const ok = await ctx.dialog('New note from a template', el('div', { class: 'vt-form' },
+    el('label', { class: 'vt-field' }, el('span', { text: 'Template' }), tpl),
+    el('label', { class: 'vt-field' }, el('span', { text: 'Name' }), name),
+    el('label', { class: 'vt-field' }, el('span', { text: 'Folder' }), where)),
+  [{ label: 'Cancel', value: false }, { label: 'Make it', value: true, primary: true }]);
+  if (!ok || !name.value.trim()) return;
+  try { await ctx.call('vault.newFromTemplate', { template: tpl.value, folder: where.value, name: name.value.trim() }); } catch (e) { fail(ctx)(e); }
 }
 
 // ---------------------------------------------------------------- the wizard
@@ -153,13 +185,18 @@ export default {
     ctx.useStyle(here('bench.css'));
     const box = el('div', { class: 'vt-home' });
     root.replaceChildren(box);
-    let state = null, searchTimer = 0, searchInput = null;
+    let state = null, searchTimer = 0, searchInput = null, view = ctx.restore('view', 'home'), map = null;
+    const viewSwitch = () => el('div', { class: 'nui-seg vt-views', role: 'group', 'aria-label': 'View' },
+      ...[['home', 'Home'], ['map', 'Map']].map(([v, l]) => el('button', { 'data-view': v, 'aria-pressed': String(view === v), onclick: () => setView(v) }, l)));
+    function setView(v) { if (view === v) return; view = v; ctx.keep('view', v); render(); }
 
     async function render() {
       try { state = await ctx.call('vault.state'); } catch (e) { box.replaceChildren(el('p', { text: e.message })); return; }
       ctx.setTitle(state.open ? state.name : '');
       ctx.setStatus(state.open ? `${state.notes.toLocaleString()} note${state.notes === 1 ? '' : 's'} · ${state.root}` : 'No vault open');
-      if (!state.open) { renderWelcome(); return; }
+      if (!state.open) { if (map) { map.destroy(); map = null; } renderWelcome(); return; }
+      if (view === 'map') { await renderMap(); return; }
+      if (map) { map.destroy(); map = null; }
       const [recent, tags] = await Promise.all([ctx.call('vault.recentNotes').catch(() => []), ctx.call('vault.tags').catch(() => [])]);
       const results = el('div', { class: 'vt-results' });
       searchInput = el('input', { class: 'nui-field vt-search', type: 'search', placeholder: `Search ${state.name} (Ctrl+Shift+F)`, 'aria-label': 'Search the vault',
@@ -168,8 +205,9 @@ export default {
       box.replaceChildren(
         el('header', { class: 'vt-head' },
           el('div', { class: 'vt-name' }, el('span', { class: 'vt-logo', text: '🗄' }), el('div', {}, el('h1', { text: state.name }), el('div', { class: 'nui-muted vt-path', text: state.root }))),
-          el('div', { class: 'vt-acts' },
+          el('div', { class: 'vt-acts' }, viewSwitch(),
             el('button', { class: 'nui-btn primary', onclick: () => newNote(ctx) }, 'New note'),
+            el('button', { class: 'nui-btn', title: 'Today\'s note', onclick: () => today(ctx) }, 'Today'),
             el('button', { class: 'nui-btn', onclick: () => newFolder(ctx) }, 'New folder'),
             el('button', { class: 'nui-btn quiet', onclick: (e) => { const r = e.currentTarget.getBoundingClientRect(); vaultMenu(r.left, r.bottom + 2); } }, 'More ▾'))),
         searchInput, results,
@@ -180,6 +218,31 @@ export default {
           el('section', { class: 'vt-card' }, el('h2', { text: 'Tags' }),
             tags.length ? el('div', { class: 'vt-tags' }, ...tags.slice(0, 60).map((t) => el('button', { class: 'vt-tag', onclick: () => { searchInput.value = '#' + t.tag; showTagged(t.tag, results); } }, `#${t.tag}`, el('span', { text: String(t.count) }))))
               : el('p', { class: 'nui-muted', text: 'No tags yet. Write #idea in a note, or tags: [idea] at its top.' }))));
+    }
+    /** The map of the whole vault. */
+    async function renderMap() {
+      const graph = await ctx.call('vault.graph').catch((e) => { fail(ctx)(e); return null; });
+      if (!graph) return;
+      const canvas = el('canvas', { class: 'vt-map-canvas', 'aria-label': 'Map of the vault' });
+      const info = el('div', { class: 'vt-map-info nui-muted' });
+      const filter = el('input', { class: 'nui-field vt-map-filter', type: 'search', placeholder: 'Find on the map (name, folder, #tag)', oninput: (e) => map && map.setHighlight(e.target.value) });
+      const missing = el('input', { type: 'checkbox', checked: ctx.restore('map.missing', true) || undefined, onchange: (e) => { ctx.keep('map.missing', e.target.checked); map && map.setShowMissing(e.target.checked); } });
+      const folders = [...new Set(graph.nodes.filter((n) => !n.missing).map((n) => n.folder))].sort();
+      box.replaceChildren(
+        el('header', { class: 'vt-head' },
+          el('div', { class: 'vt-name' }, el('span', { class: 'vt-logo', text: '🗄' }), el('div', {}, el('h1', { text: state.name }), el('div', { class: 'nui-muted vt-path', text: `${graph.nodes.filter((n) => !n.missing).length} notes · ${graph.edges.length} links` }))),
+          el('div', { class: 'vt-acts' }, viewSwitch(), el('button', { class: 'nui-btn', onclick: () => map && map.fit() }, 'Fit'))),
+        el('div', { class: 'vt-map-bar' }, filter, el('label', { class: 'vt-check' }, missing, 'Notes still to make'),
+          el('div', { class: 'vt-legend' }, ...folders.slice(0, 10).map((f, i) => el('span', { class: 'vt-legend-item' }, el('i', { style: { background: `hsl(${Math.round((i * 137.5 + 260) % 360)} 62% 62%)` } }), f || 'top')))),
+        el('div', { class: 'vt-map-wrap' }, canvas, info));
+      if (map) map.destroy();
+      map = createMap(canvas, {
+        onOpen: (n) => { if (n.missing) ctx.call('vault.createLink', { from: '', target: n.path.slice(1) }).catch(fail(ctx)); else openNote(ctx, n.path); },
+        onHover: (n) => { info.textContent = n ? (n.missing ? `${n.name}: not made yet (click to make it)` : `${n.path} · ${n.links} link${n.links === 1 ? '' : 's'}`) : 'Drag to move around, wheel to zoom, click a note to open it.'; },
+      });
+      info.textContent = 'Drag to move around, wheel to zoom, click a note to open it.';
+      map.setShowMissing(missing.checked);
+      map.setData(graph);
     }
     function vaultMenu(x, y) {
       menu(x, y, [
@@ -230,6 +293,7 @@ export default {
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(async () => {
           // Typing in the search box isn't interrupted: the results refresh, then the rest.
+          if (view === 'map' && map) { const g = await ctx.call('vault.graph').catch(() => null); if (g) map.setData(g); return; }
           if (searchInput && searchInput.value && document.activeElement === searchInput) { runSearch(searchInput.value, box.querySelector('.vt-results')); return; }
           const q = searchInput ? searchInput.value : '';
           await render();
@@ -248,10 +312,16 @@ export default {
         'vault.newFolder': () => newFolder(ctx),
         'vault.reveal': () => ctx.call('vault.reveal', {}).catch(fail(ctx)),
         'vault.close': () => ctx.call('vault.close').catch(fail(ctx)),
-        'vault.focusSearch': () => { if (searchInput) { searchInput.focus(); searchInput.select(); } },
+        'vault.focusSearch': () => { if (view !== 'home') setView('home'); setTimeout(() => { if (searchInput) { searchInput.focus(); searchInput.select(); } }, 50); },
+        'vault.switcher': () => switcher(ctx),
+        'vault.today': () => today(ctx),
+        'vault.fromTemplate': () => fromTemplate(ctx),
+        'vault.showHome': () => setView('home'),
+        'vault.showMap': () => setView('map'),
       },
-      unmount() { offs.forEach((f) => f()); clearTimeout(refreshTimer); clearTimeout(searchTimer); },
-      _state: () => state,
+      checked: (cmd) => (cmd === 'vault.showHome' ? view === 'home' : cmd === 'vault.showMap' ? view === 'map' : undefined),
+      unmount() { offs.forEach((f) => f()); clearTimeout(refreshTimer); clearTimeout(searchTimer); if (map) map.destroy(); },
+      _state: () => ({ ...state, view, mapNodes: map ? map._nodes().length : 0 }),
     };
   },
 
@@ -370,6 +440,30 @@ export default {
         const offs = [ctx.on('changed', () => draw()), ctx.on('opened', () => draw())];
         draw();
         return { unmount: () => offs.forEach((f) => f()) };
+      },
+    },
+
+    // ------------------------------------------------------------ Local map: the note on screen and its neighbours
+    localmap: {
+      mount(root, ctx) {
+        ctx.useStyle(here('bench.css'));
+        let depth = ctx.restore('local.depth', 1), doc = null;
+        const canvas = el('canvas', { class: 'vt-map-canvas', 'aria-label': 'Map around the note on screen' });
+        const note = el('div', { class: 'vt-none', hidden: true });
+        const seg = el('div', { class: 'nui-seg vt-depth', role: 'group', 'aria-label': 'How far' },
+          ...[1, 2].map((d) => el('button', { 'data-depth': String(d), 'aria-pressed': String(depth === d), title: d === 1 ? 'Linked notes' : 'And the notes linked to those', onclick: () => { depth = d; ctx.keep('local.depth', d); seg.querySelectorAll('button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.depth) === d))); load(); } }, d === 1 ? '1 step' : '2 steps')));
+        root.replaceChildren(el('div', { class: 'vt-panel' }, el('div', { class: 'vt-panel-head' }, seg), el('div', { class: 'vt-map-wrap small' }, canvas, note)));
+        const map = createMap(canvas, { onOpen: (n) => { if (!n.missing) openNote(ctx, n.path); } });
+        async function load() {
+          if (!doc || !doc.path) { note.hidden = false; note.textContent = 'Open a note from the vault to see what it links to.'; map.setData({ nodes: [], edges: [] }); return; }
+          const g = await ctx.call('vault.graph', { center: doc.path, depth }).catch(() => null);
+          if (!g || !g.inVault) { note.hidden = false; note.textContent = `“${doc.title}” isn't in the open vault.`; map.setData({ nodes: [], edges: [] }); return; }
+          note.hidden = true;
+          map.setData(g, { centerPath: g.center, keepPositions: false });
+        }
+        const offs = [ctx.subscribe('doc.current', (d) => { doc = d; load(); }), ctx.on('changed', () => load()), ctx.on('opened', () => load())];
+        load();
+        return { unmount: () => { offs.forEach((f) => f()); map.destroy(); } };
       },
     },
 

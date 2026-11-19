@@ -17,7 +17,10 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.8** (the newest): the Vault bench. A wizard starts a vault in a popular structure (PARA, Zettelkasten,
+- **3.0.9** (the newest): the Vault grows up: a map of your notes (and a local map beside your writing), Ctrl+P to
+  jump to any note, today's note, notes from templates, a preview when you hold Ctrl over a [[link]], links to
+  headings ([[Note#Heading]]), aliases, and callouts (> [!tip]).
+- **3.0.8**: the Vault bench. A wizard starts a vault in a popular structure (PARA, Zettelkasten,
   Johnny.Decimal, a journal, a game design vault…); its Explorer, Backlinks, Tags and Search panels dock beside your
   writing; [[wiki links]] are suggested as you type and followed with Ctrl+click; renaming a note updates its links.
   Files dropped on the window (or on NoorMD's icon) open.

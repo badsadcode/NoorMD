@@ -3,7 +3,7 @@
   "name": "Vault",
   "icon": "\uD83D\uDDC4",
   "description": "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
-  "version": "3.0.8",
+  "version": "3.0.9",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",

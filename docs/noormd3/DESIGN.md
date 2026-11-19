@@ -152,7 +152,9 @@ inspiration from its concept art, but NoorMD has its own face).
        and close when deleted. The shell learned: benches pick folders, hand files to the bench that opens them,
        announce moved files; pages share topics (the document on screen, unsaved ones); one NoorMD at a time (a
        second start hands its files over); files dropped anywhere on the window open.
-     - **3.0.9, the Vault, part two (a nice, convenient tool):** the visual map of the vault and a **local map**
+     - **3.0.9 (done), the Vault, part two (a nice, convenient tool):** ✓ all of the list below. Also: a shared quick
+       picker in Noor.UI (the command palette will use it too), Ctrl+P in the Markdown bench (open documents, vault
+       notes, recent files), links inside code examples no longer count. The visual map of the vault and a **local map**
        panel (the note on screen and its neighbours) · the quick switcher (Ctrl+P) · daily notes · templates (the
        wizard's Templates folder; {{title}}, {{date}}) · **hover preview** (Ctrl over a [[link]]) · **links to
        headings** ([[Note#Heading]], suggested after #) · **aliases** (aliases: in a note's properties) · **callouts**

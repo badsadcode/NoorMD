@@ -100,11 +100,39 @@ const SANITIZE = {
   ALLOW_DATA_ATTR: false,
 };
 
-/** HTML for export and print, sanitised: Markdown-embedded HTML is never trusted. */
+/** HTML for export and print, sanitised: Markdown-embedded HTML is never trusted. Callouts are drawn as callouts. */
 function renderSafe(md) {
   const raw = renderRaw(md);
   if (!window.DOMPurify) return '<pre>' + escapeHtml(md) + '</pre>';
-  return window.DOMPurify.sanitize(raw, SANITIZE);
+  const tpl = document.createElement('template');
+  tpl.innerHTML = window.DOMPurify.sanitize(raw, SANITIZE);
+  decorateCallouts(tpl.content);
+  return tpl.innerHTML;
+}
+
+// Callouts: a quote whose first line is [!tip] (or note, warning, danger…) becomes a coloured box with a title.
+const CALLOUT_ICONS = { note: '✎', info: 'ℹ', tip: '💡', hint: '💡', important: '❗', success: '✔', check: '✔', done: '✔', question: '?', help: '?', faq: '?',
+  warning: '⚠', caution: '⚠', attention: '⚠', danger: '⛔', error: '⛔', bug: '🐞', example: '◆', quote: '❝', cite: '❝', abstract: '☰', summary: '☰', tldr: '☰', todo: '☐' };
+const CALLOUT_LINE = /^\s*\[!([A-Za-z]+)\][+-]?[ \t]*([^\n]*)\n?/;
+/** The callout type of a quote's text ("[!tip] Title…"), or null. */
+function calloutType(text) { const m = CALLOUT_LINE.exec(text || ''); return m ? m[1].toLowerCase() : null; }
+/** Turns [!type] quotes under root into callouts: a class, a title with an icon, the marker line taken out. */
+function decorateCallouts(root) {
+  for (const bq of root.querySelectorAll('blockquote:not(.callout)')) {
+    const p = bq.firstElementChild;
+    if (!p || p.tagName !== 'P' || !p.firstChild || p.firstChild.nodeType !== 3) continue;
+    const t = p.firstChild, mm = CALLOUT_LINE.exec(t.data);
+    if (!mm) continue;
+    const type = mm[1].toLowerCase();
+    t.data = t.data.slice(mm[0].length);
+    if (p.firstChild === t && /^\s*$/.test(t.data)) { t.remove(); if (p.firstChild && p.firstChild.nodeName === 'BR') p.firstChild.remove(); }
+    if (!p.textContent.trim() && !p.querySelector('img')) p.remove();
+    bq.classList.add('callout', 'callout-' + type);
+    const title = document.createElement('div');
+    title.className = 'callout-title';
+    title.textContent = `${CALLOUT_ICONS[type] || '✎'}  ${mm[2].trim() || type.charAt(0).toUpperCase() + type.slice(1)}`;
+    bq.prepend(title);
+  }
 }
 
 function escapeHtml(s) {
@@ -178,4 +206,4 @@ function unescapeWikiLinks(text) {
   return out;
 }
 
-export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml, renderSafe };
+export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml, renderSafe, decorateCallouts, calloutType };

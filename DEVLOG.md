@@ -348,6 +348,26 @@ The bug of the day: on Windows, a string's "hash" changes every time you start t
 NoorMD would have tried to find each other by two different names, like two friends meeting "at the usual
 place" without ever agreeing which place that is. They now agree on a name.
 
+## Day 27, later — 3.0.9: a map, and other conveniences 🗺️
+
+The human asked what we could borrow from Obsidian. The answer was "ideas, plenty; code, none". Then came the
+best brief of the project so far: *"I just want a nice, convenient tool."*
+
+So the vault has a **map** now. Your notes are dots, links are lines, and the whole thing jiggles into place like a
+nervous constellation. Drag it, zoom it, click a dot to open the note. Notes that are linked but don't exist yet
+show up as dotted circles: click one and it gets made. There's also a **local map** that docks beside your writing
+and shows just the note you're in and its neighbours.
+
+Hold **Ctrl** over a `[[link]]` and a little preview pops up, so you can peek without leaving. **Ctrl+P** jumps to
+any note by typing a bit of its name, or one of its other names (aliases: "Ada" finds "Ada Lovelace"). Links can
+point at a heading (`[[Ada Lovelace#Engines]]`) and land you right there. **Today's note** is one click away, and
+templates fill in their own title and date. A quote that starts with `> [!warning]` turns into a proper coloured box.
+
+Two bugs got squashed on the way. The map was counting example links in the Home note's tips (the ones written
+`like this`, in code) as real links. And the shortcuts for "new note" used Ctrl+Alt, which on a Polish keyboard is
+how you type ń. Imagine trying to write "koń" and getting three new notes. NoorMD now never treats Ctrl+Alt as a
+shortcut, anywhere.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -361,8 +381,8 @@ place" without ever agreeing which place that is. They now agree on a name.
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Vault's second half next (the map of your notes, a quick switcher, daily notes,
-templates), then Music, then the mini player, Send to and the command palette.
+**NoorMD 3.0**, piece by piece: the Vault's last part next (properties, unlinked mentions, Pack & Share, search
+operators, bookmarks), then Music, then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

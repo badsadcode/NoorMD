@@ -3,7 +3,7 @@
   "name": "Markdown",
   "icon": "\u270E",
   "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-  "version": "3.0.8",
+  "version": "3.0.9",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",
@@ -125,6 +125,11 @@
           "label": "Replace\u2026",
           "command": "md.replace",
           "keys": "Ctrl\u002BH"
+        },
+        {
+          "label": "Go to a document or note\u2026",
+          "command": "md.switcher",
+          "keys": "Ctrl\u002BP"
         }
       ]
     },
@@ -354,6 +359,11 @@
         {
           "label": "Code block",
           "command": "md.ins.codeblock",
+          "keys": null
+        },
+        {
+          "label": "Callout (\u003E [!tip])",
+          "command": "md.ins.callout",
           "keys": null
         },
         {

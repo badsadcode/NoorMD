@@ -235,3 +235,22 @@
 .md-wiki-item .n { font-weight: 600; }
 .md-wiki-item .p { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nui-dialog:has(.md-snap-preview), .nui-dialog:has(.md-recent-list) { width: min(760px, calc(100vw - 32px)); }
+
+/* Callouts: > [!tip] … (in the preview, export and print; while writing in Visual view the box only) */
+.callout { --c: #5b9cf6; border-left: 3px solid var(--c) !important; background: color-mix(in srgb, var(--c) 10%, transparent) !important; border-radius: var(--r2); padding: 10px 14px !important; margin: 1em 0 !important; }
+.callout .callout-title { font-weight: 650; color: var(--c); margin-bottom: 4px; }
+.callout p { color: var(--text) !important; margin: .3em 0 !important; }
+.callout-tip, .callout-hint, .callout-success, .callout-check, .callout-done { --c: #3fb98a; }
+.callout-important, .callout-question, .callout-help, .callout-faq { --c: #d6a33a; }
+.callout-warning, .callout-caution, .callout-attention { --c: #e8883a; }
+.callout-danger, .callout-error, .callout-bug { --c: #e5484d; }
+.callout-example { --c: #9b7ae8; }
+.callout-quote, .callout-cite { --c: #8b95a7; }
+.callout-abstract, .callout-summary, .callout-tldr { --c: #3fb4c9; }
+#print-root .callout p { color: #232737 !important; }
+
+/* Hover preview of a [[link]] */
+.md-hover { position: fixed; z-index: 3100; width: min(440px, 80vw); max-height: 52vh; overflow: auto; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); box-shadow: var(--shadow); }
+.md-hover-title { font-weight: 650; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+.md-hover-body { font-size: 13.5px; }
+.md-hover-body h1 { font-size: 1.3em; } .md-hover-body h2 { font-size: 1.15em; }

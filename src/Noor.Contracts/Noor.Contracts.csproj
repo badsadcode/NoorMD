@@ -6,6 +6,6 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Noor.Contracts</RootNamespace>
-    <Version>3.0.8</Version>
+    <Version>3.0.9</Version>
   </PropertyGroup>
 </Project>

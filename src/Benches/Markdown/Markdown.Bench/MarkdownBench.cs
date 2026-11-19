@@ -19,7 +19,7 @@ public sealed class MarkdownBench : BenchBase
         Name = "Markdown",
         Icon = "✎",
         Description = "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-        Version = "3.0.8",
+        Version = "3.0.9",
         Density = "roomy",
         Menus =
         [
@@ -49,6 +49,7 @@ public sealed class MarkdownBench : BenchBase
             new MenuSpec("Edit", [
                 new MenuItemSpec("Find…", "md.find", "Ctrl+F"),
                 new MenuItemSpec("Replace…", "md.replace", "Ctrl+H"),
+                new MenuItemSpec("Go to a document or note…", "md.switcher", "Ctrl+P"),
             ]),
             new MenuSpec("View", [
                 new MenuItemSpec("Visual", "md.mode.visual"),
@@ -100,6 +101,7 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Table", "md.ins.table"),
                 new MenuItemSpec("Image…", "md.ins.image"),
                 new MenuItemSpec("Code block", "md.ins.codeblock"),
+                new MenuItemSpec("Callout (> [!tip])", "md.ins.callout"),
                 new MenuItemSpec("Horizontal line", "md.ins.hr"),
                 new MenuItemSpec("Today's date", "md.ins.date"),
             ]),

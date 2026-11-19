@@ -105,7 +105,19 @@ const MOCK = (manifests) => {
         for (const n of ns) { const parts = n.split('/'); for (let i = 1; i < parts.length; i++) folders.add(parts.slice(0, i).join('/')); }
         return { root: vv.root, name: vv.name, entries: [...[...folders].map((f) => ({ path: f, folder: true, note: false })), ...ns.map((n) => ({ path: n, folder: false, note: true, modified: new Date().toISOString() }))] };
       }
-      case 'vault.notes': return v ? notesOf(v).map((p) => ({ path: p, name: base(p) })) : [];
+      case 'vault.notes': return v ? notesOf(v).map((p) => { const m = /aliases:\s*\[([^\]]*)\]/.exec(disk()[full(v, p)].text); return { path: p, name: base(p), aliases: m ? m[1].split(',').map((s) => s.trim()).filter(Boolean) : [] }; }) : [];
+      case 'vault.graph': {
+        const vv = need(); const ns = notesOf(vv); const edges = [];
+        for (const n of ns) for (const o of ns) if (n < o && (linksTo(disk()[full(vv, n)].text, base(o)) || linksTo(disk()[full(vv, o)].text, base(n)))) edges.push([n, o]);
+        let nodes = ns.map((p) => ({ path: p, name: base(p), links: edges.filter((e) => e.includes(p)).length, missing: false, folder: p.includes('/') ? p.split('/')[0] : '', tags: [] }));
+        if (a.center) { const c = rel(vv, a.center); if (!ns.includes(c)) return { inVault: false }; const keep = new Set([c, ...edges.filter((e) => e.includes(c)).flat()]); return { inVault: true, center: c, nodes: nodes.filter((n) => keep.has(n.path)), edges: edges.filter((e) => keep.has(e[0]) && keep.has(e[1])) }; }
+        return { inVault: true, center: null, nodes, edges };
+      }
+      case 'vault.preview': { const vv = need(); const [name, heading] = a.target.split('#'); const hit = notesOf(vv).find((n) => base(n).toLowerCase() === name.toLowerCase()); if (!hit) return { missing: true, name }; return { path: hit, name: base(hit), markdown: disk()[full(vv, hit)].text, heading: heading || '' }; }
+      case 'vault.headings': { const vv = need(); const hit = notesOf(vv).find((n) => base(n).toLowerCase() === a.target.toLowerCase()); if (!hit) return []; return disk()[full(vv, hit)].text.split('\n').map((l, i) => /^(#{1,6})\s+(.+)$/.exec(l) && { level: RegExp.$1.length, text: RegExp.$2, line: i + 1 }).filter(Boolean); }
+      case 'vault.daily': { const vv = need(); const r = 'Daily/2026-11-19.md'; const made = !disk()[full(vv, r)]; if (made) write(full(vv, r), '# Thursday, 19 November 2026\n\n'); changed(); handOver([full(vv, r)]); return { path: r, made }; }
+      case 'vault.templates': return notesOf(need()).filter((n) => n.startsWith('Templates/')).map((p) => ({ path: p, name: base(p) }));
+      case 'vault.newFromTemplate': { const vv = need(); const r = (a.folder ? a.folder + '/' : '') + a.name + '.md'; write(full(vv, r), disk()[full(vv, a.template)].text.replace('{{title}}', a.name)); changed(); handOver([full(vv, r)]); return { path: r }; }
       case 'vault.recentNotes': return notesOf(need()).slice(0, 12).map((p) => ({ path: p, name: base(p), modified: new Date().toISOString() }));
       case 'vault.search': { const vv = need(); const q = (a.q || '').toLowerCase(); const out = []; for (const n of notesOf(vv)) { if (base(n).toLowerCase().includes(q)) out.push({ path: n, name: base(n), line: 0, snippet: '', nameMatch: true }); const lines = disk()[full(vv, n)].text.split('\n'); lines.forEach((l, i) => { if (l.toLowerCase().includes(q)) out.push({ path: n, name: base(n), line: i + 1, snippet: l, nameMatch: false }); }); } return out; }
       case 'vault.tags': { const vv = need(); const counts = {}; for (const n of notesOf(vv)) for (const t of disk()[full(vv, n)].text.match(/(^|\s)#([a-z][\w-]*)/gi) || []) { const k = t.trim().slice(1).toLowerCase(); counts[k] = (counts[k] || 0) + 1; } return Object.entries(counts).map(([tag, count]) => ({ tag, count })); }
@@ -115,8 +127,8 @@ const MOCK = (manifests) => {
       case 'vault.openLink': {
         if (!v) return { noVault: true };
         if (a.from && !a.from.startsWith(v.root + S)) return { outside: true };
-        const hit = notesOf(v).find((n) => base(n).toLowerCase() === a.target.toLowerCase());
-        if (hit) { handOver([full(v, hit)]); return { opened: hit }; }
+        const hit = notesOf(v).find((n) => base(n).toLowerCase() === a.target.split('#')[0].toLowerCase());
+        if (hit) { handOver([full(v, hit)]); return { opened: hit, full: full(v, hit), heading: a.target.includes('#') ? a.target.split('#')[1] : '' }; }
         const fromRel = a.from ? rel(v, a.from) : '';
         return { missing: true, folder: fromRel.includes('/') ? fromRel.slice(0, fromRel.lastIndexOf('/')) : '', name: a.target + '.md' };
       }
@@ -297,6 +309,112 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     check('the Explorer\'s filter narrows the list', (await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-item .nm', (xs) => xs.map((x) => x.textContent))).join() === 'Permanent/Atomic notes');
     await page.fill('section.bench[data-bench="noor.markdown"] .vt-filter', '');
 
+    // ---------------------------------------------------------------- 3.0.9: the map, Ctrl+P, headings, hover previews, callouts
+    // A note with a second name, and sections.
+    await page.evaluate((root) => { const d = JSON.parse(localStorage.getItem('mock.disk')); d[root + '\\Permanent\\Ada Lovelace.md'] = { text: '---\naliases: [Ada, The Countess]\n---\n# Ada Lovelace\n\n## Engines\n\nThe Analytical Engine.\n\n## Poetry\n\nPoetical science.\n', stamp: 1, format: 'UTF-8 · LF' }; localStorage.setItem('mock.disk', JSON.stringify(d)); }, R);
+    await page.click('.btab[data-bench="noor.vault"]');
+    await page.waitForSelector('.vt-views');
+    await page.click('.vt-views button[data-view="map"]');
+    await page.waitForSelector('.vt-map-canvas');
+    await page.waitForTimeout(500);
+    let vs = await page.evaluate(() => window.__noor.open.get('noor.vault').mounted._state());
+    check('the Vault\'s map: every note on it', vs.view === 'map' && vs.mapNodes >= 5, vs);
+    check('…with folders told apart by colour', (await page.$$('.vt-legend-item')).length >= 2);
+    const drawn = await page.evaluate(() => { const c = document.querySelector('.vt-map-canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4 * 97) if (d[i]) n++; return n; });
+    check('…drawn on the canvas', drawn > 10, drawn);
+    await page.click('.vt-views button[data-view="home"]');
+    await page.waitForSelector('.vt-search');
+    // Ctrl+P from the Markdown bench
+    await page.click('.btab[data-bench="noor.markdown"]');
+    await page.waitForTimeout(200);
+    await page.keyboard.press('Control+p');
+    await page.waitForSelector('.nui-pick');
+    await page.keyboard.type('countess');
+    await page.waitForTimeout(100);
+    check('Ctrl+P: go to a note, found by its alias too', (await page.textContent('.nui-pick-item[aria-selected=true]')).includes('Ada Lovelace'), await page.textContent('.nui-pick-list'));
+    await page.keyboard.press('Enter');
+    await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'Ada Lovelace.md'));
+    check('…and Enter opens it', (await page.textContent('.md-tab[aria-selected=true] .name')) === 'Ada Lovelace.md');
+    // [[Note#…: the headings; aliases offered as they are
+    await page.click('.md-tab .name:text-is("Start here.md")');
+    await page.click('.md-modes button[data-mode="markdown"]');
+    await page.waitForTimeout(150);
+    await page.click('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div:last-child');
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Control+End');
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('Read [[Ada Lovelace#En');
+    await waitFn(page, () => { const b = document.querySelector('.md-wiki'); return b && b.textContent.includes('## Engines'); }).catch(() => {});
+    check('[[Note# suggests the note\'s headings', (await page.$$eval('.md-wiki .md-wiki-item .n', (xs) => xs.map((x) => x.textContent))).join() === '## Engines');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(100);
+    let st2 = await mdState();
+    check('…and finishes [[Ada Lovelace#Engines]]', st2.docs.find((d) => d.name === 'Start here.md').text.includes('Read [[Ada Lovelace#Engines]]'));
+    await page.keyboard.type(' and [[The Co');
+    await waitFn(page, () => { const b = document.querySelector('.md-wiki'); return b && b.textContent.includes('The Countess'); }).catch(() => {});
+    check('an alias is suggested, pointing at its note', (await page.textContent('.md-wiki .md-wiki-item .p')).includes('Ada Lovelace'));
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(100);
+    st2 = await mdState();
+    check('…and written as [[Note|alias]]', st2.docs.find((d) => d.name === 'Start here.md').text.includes('[[Ada Lovelace|The Countess]]'));
+    // Hover preview: Ctrl over a link
+    const at = async (needle) => page.evaluate((nd) => {
+      const lines = [...document.querySelectorAll('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div')];
+      const line = lines.find((l) => l.textContent.includes(nd));
+      const w = document.createTreeWalker(line, NodeFilter.SHOW_TEXT); let node;
+      while ((node = w.nextNode())) { const i = node.textContent.indexOf(nd); if (i >= 0) { const r = document.createRange(); r.setStart(node, i + 3); r.setEnd(node, i + 4); const b = r.getBoundingClientRect(); return { x: b.left + 1, y: b.top + b.height / 2 }; } }
+      return null;
+    }, needle);
+    const hp = await at('Ada Lovelace#Engines');
+    await page.keyboard.down('Control');
+    await page.mouse.move(hp.x, hp.y);
+    await page.mouse.move(hp.x + 1, hp.y);
+    await page.waitForSelector('.md-hover');
+    check('Ctrl over a [[link]]: a preview of that note (its section)', (await page.textContent('.md-hover-title')).includes('Engines') && (await page.textContent('.md-hover-body')).includes('Analytical'));
+    await page.keyboard.up('Control');
+    await page.waitForTimeout(100);
+    check('…gone when Ctrl is let go', !(await page.$('.md-hover')));
+    // Ctrl+click [[Note#Heading]]: opens the note and goes to the heading
+    await page.keyboard.down('Control');
+    await page.mouse.click(hp.x, hp.y);
+    await page.keyboard.up('Control');
+    await waitFn(page, () => document.querySelector('.md-tab[aria-selected=true] .name').textContent === 'Ada Lovelace.md');
+    await page.waitForTimeout(400);
+    check('Ctrl+click [[Note#Heading]] opens the note at that heading', await page.evaluate(() => { const s = getSelection(); const n = s.anchorNode && (s.anchorNode.nodeType === 3 ? s.anchorNode.parentElement : s.anchorNode); const h = n && n.closest('h1,h2,h3,h4,h5,h6, .toastui-editor-md-container .ProseMirror > div'); return !!h && h.textContent.includes('Engines') && !!h.closest('.md-pane:not([hidden])'); }));
+    // Callouts
+    await page.click('.md-tab .name:text-is("Start here.md")');
+    await page.waitForTimeout(150);
+    await page.click('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div:last-child');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type('\n> [!warning] Mind the gap\n> Trains are fast.\n');
+    await page.click('.md-modes button[data-mode="split"]');
+    await page.waitForSelector('.md-pane:not([hidden]) .toastui-editor-md-preview blockquote.callout');
+    check('a > [!warning] quote is drawn as a callout (with its title) in the preview', (await page.textContent('.md-pane:not([hidden]) .toastui-editor-md-preview .callout-warning .callout-title')).includes('Mind the gap'));
+    await page.click('.md-modes button[data-mode="wysiwyg"]');
+    await page.waitForTimeout(250);
+    check('…and in Visual view while you write', !!(await page.$('.md-pane:not([hidden]) .toastui-editor-ww-container blockquote.callout-warning')));
+    check('…the Markdown stays plain Markdown', (await mdState()).docs.find((d) => d.name === 'Start here.md').text.includes('> [!warning] Mind the gap'));
+    // Today's note and a note from a template
+    await page.click('.btab[data-bench="noor.vault"]');
+    await page.waitForSelector('.vt-acts .nui-btn:text-is("Today")');
+    await page.click('.vt-acts .nui-btn:text-is("Today")');
+    await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === '2026-11-19.md'));
+    check('Today: today\'s note, made and opened', !!(await disk())[R + '\\Daily\\2026-11-19.md']);
+    await page.click('.btab[data-bench="noor.vault"]');
+    await page.waitForTimeout(150);
+    await page.evaluate(() => { window.__noor.open.get('noor.vault').mounted.commands['vault.fromTemplate'](); });
+    await page.waitForSelector('.nui-dialog .vt-form');
+    await page.fill('.nui-dialog .vt-form input', 'Ideas about trains');
+    await dialogButton('Make it');
+    await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'Ideas about trains.md'));
+    check('a new note from a template, its title filled in', ((await disk())[R + '\\Ideas about trains.md'] || {}).text === '# Ideas about trains\n');
+    // The local map follows the note on screen
+    await clickMenu('View', 'Local map (Vault)');
+    await page.waitForSelector('section.bench[data-bench="noor.markdown"] .vt-map-canvas');
+    await page.click('.md-tab .name:text-is("Start here.md")');
+    await page.waitForTimeout(500);
+    check('the Local map docks beside your writing, showing the note on screen and its neighbours', await page.evaluate(() => { const c = document.querySelector('section.bench[data-bench="noor.markdown"] .vt-map-canvas'); const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < d.length; i += 4 * 53) if (d[i]) n++; return n > 5; }));
+
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
       await page.click('.md-tab .name:text-is("Start here.md")');
@@ -306,6 +424,11 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
       await page.click('.btab[data-bench="noor.vault"]');
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, 'noormd3-vault-home.png') });
+      await page.click('.vt-views button[data-view="map"]');
+      await page.waitForTimeout(1500);
+      await page.screenshot({ path: path.join(SHOTS, 'noormd3-vault-map.png') });
+      await page.click('.vt-views button[data-view="home"]');
+      await page.waitForTimeout(200);
       await page.evaluate(() => { window.__noor.open.get('noor.vault').mounted.commands['vault.wizard'](); });
       await page.waitForSelector('.vt-wiz');
       await page.click('.vt-wiz-card[data-preset="para"]');

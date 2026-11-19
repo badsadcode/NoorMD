@@ -32,6 +32,10 @@ public static class HtmlExport
         code{padding:.1em .35em;font-size:.92em}pre{padding:16px 18px;overflow:auto}pre code{padding:0;background:none}
         blockquote{border-left:4px solid #917adf;margin-left:0;padding:.2em 0 .2em 18px;color:#555}
         table{border-collapse:collapse;width:100%;margin:1em 0}td,th{border:1px solid #dde0e8;padding:7px 10px;text-align:left}th{background:#f6f7fa}
+        .callout{--c:#5b9cf6;border-left:4px solid var(--c);background:color-mix(in srgb,var(--c) 10%,transparent);border-radius:6px;padding:10px 16px;margin:1em 0;color:inherit}
+        .callout-title{font-weight:650;color:var(--c);margin-bottom:4px}
+        .callout-tip,.callout-hint,.callout-success,.callout-check,.callout-done{--c:#2f9e74}.callout-important,.callout-question,.callout-help,.callout-faq{--c:#c58f1f}
+        .callout-warning,.callout-caution,.callout-attention{--c:#d97326}.callout-danger,.callout-error,.callout-bug{--c:#d93a3f}.callout-example{--c:#8a63e0}.callout-quote,.callout-cite{--c:#7b8597}
         li.task-list-item{list-style:none}li.task-list-item::before{content:"☐ ";margin-left:-1.4em}li.task-list-item.checked::before{content:"☑ "}
         @media (prefers-color-scheme:dark){body{background:#12151c;color:#e6e9f0}a{color:#b8a3ff}pre,code{background:#1d2230}th{background:#1d2230}td,th{border-color:#2b3242}blockquote{color:#aab}h1,h2{border-color:#2b3242}}
         </style>
