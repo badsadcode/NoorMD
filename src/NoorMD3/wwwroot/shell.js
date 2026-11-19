@@ -173,6 +173,7 @@ async function closeBench(id, { force = false } = {}) {
   open.delete(id);
   try { inst.module && inst.module.closed && inst.module.closed(inst.ctx); } catch (e) { console.error(e); }
   setStatusWidget(id, null);
+  setBottomBar(id, null);
   if (windowed.has(id)) { windowed.delete(id); windowCall('bench.close', { bench: id }); }
   // Its panels docked in other benches go with it (they need it running).
   let left = 0;
@@ -303,6 +304,15 @@ function setStatusWidget(id, node) {
   if (box) box.replaceChildren(...[...statusWidgets.keys()].sort().map((k) => statusWidgets.get(k)));
 }
 
+const bottomBars = new Map();
+function setBottomBar(id, node) {
+  if (node) bottomBars.set(id, node); else bottomBars.delete(id);
+  const box = document.getElementById('bottombar');
+  if (!box) return;
+  box.replaceChildren(...[...bottomBars.keys()].sort().map((k) => bottomBars.get(k)));
+  box.hidden = bottomBars.size === 0;
+}
+
 /** The print area: when the page prints (or becomes a PDF), only this shows. */
 function setPrintContent(html) {
   let root = document.getElementById('print-root');
@@ -338,6 +348,9 @@ function makeContext(id, inst) {
     isMainWindow: !floatId && !benchWinId,
     /** A small piece of the status bar, shown whichever bench is in front (the mini player); null takes it away. */
     setStatusWidget: (node) => setStatusWidget(id, node),
+    /** A bar along the bottom of the window, above the status bar, whichever bench is in front (the mini player);
+        null takes it away. */
+    setBottomBar: (node) => setBottomBar(id, node),
     /** Docks one of this bench's panels in another bench, once (if the user hides it there, it stays hidden). */
     async offerPanel(target, pid) {
       if (floatId) return;
