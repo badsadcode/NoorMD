@@ -74,6 +74,12 @@ inspiration from its concept art, but NoorMD has its own face).
 1. **The title bar spike.** A small WPF window with no Windows frame, a page drawing the title bar, dragging,
    Aero Snap, double-click to maximise, and Windows 11's snap layouts on the maximise button. It's the one
    risky part, so it's proven first, on its own. You try it on your PC.
+   **Done (19 Nov): all 14 checks passed** on Windows 11 (build 26300), with two monitors: dragging (WebView2's
+   `app-region`), snapping to edges, double-click, the window menu, **snap layouts on maximise**, the buttons
+   and their hover colours, Win+arrows, resizing from every edge, maximising without spilling over, moving
+   between monitors, theme colours on the buttons, the taskbar, shadow and rounded corners
+   ([`spikes/NoorMD3.TitleBar`](../../spikes/NoorMD3.TitleBar)). One note: the page's scrollbars stayed the
+   default ones; the design system themes them (section 6.2).
 2. **The shell,** proven with two benches, **Markdown and Music**: bench tabs, the main menu following the
    bench, docking (any panel anywhere), floating windows on two monitors, the status bar with the mini
    player, the command palette, Home, settings and themes, the bench contract and the exchange.
@@ -306,6 +312,8 @@ engine is described one way. A new kind is added to the Interchange spec first.
   check), plus our own for the benches.
 - **Words:** one vocabulary list (Export…, Send to…, Open…, Save as…, Settings, Reset to default…), and
   the same menu order everywhere (File, Edit, View, then the bench's menus, then Help).
+- **Scrollbars:** themed and slim everywhere (`scrollbar-color`, and the scrollbar styling WebView2 supports),
+  following the theme, light and dark (`color-scheme`). Found in the title bar test.
 - **Motion:** short and purposeful (a panel sliding in, a drop zone appearing); nothing that slows work.
 
 ## 7. Stage 1 benches
