@@ -39,7 +39,8 @@ button { background: none; border: 0; cursor: default; padding: 0; }
 ::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
 
 /* themed scrollbars (found in the title bar test: the default ones ignored the theme) */
-* { scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent; scrollbar-width: thin; }
+/* Only the ::-webkit-scrollbar rules: WebView2 is Chromium, and setting scrollbar-color or scrollbar-width there switches
+   these off in favour of the standard scrollbar with arrow buttons (seen in 3.0.2). */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 20%, transparent); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }

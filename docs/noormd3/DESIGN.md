@@ -90,6 +90,9 @@ inspiration from its concept art, but NoorMD has its own face).
      move it from the keyboard; resizable edges between groups; any panel of any bench docks anywhere (its bench
      opens quietly to run it, and closing that bench takes its panels with it); layouts kept per bench. A second
      demo bench, the Clock, gives panels worth borrowing.
+   - **3.0.3 (done):** your first round of notes: bench tabs reorder by dragging (and Ctrl+Shift+PageUp /
+     PageDown), focus mode gives the page the whole window, the slim themed scrollbars everywhere, no "Clock ·
+     Clock".
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 

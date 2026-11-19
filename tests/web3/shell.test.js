@@ -41,7 +41,7 @@ const MOCK = (manifests) => {
   const words = (t) => (t.match(/[\p{L}\p{N}](?:[\p{L}\p{N}'’-]|\.(?=\p{N}))*/gu) || []).length;
   const send = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 5);
   const answer = (m) => {
-    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.2', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
+    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.3', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { localStorage.setItem('mock.settings', JSON.stringify(m.args)); return m.args; }
     if (m.target === 'window') return null;
     if (m.target === 'bench:noor.clock' && m.cmd === 'clock.zones') return [{ id: 'UTC', name: 'UTC', offset: 0 }, { id: 'Europe/Warsaw', name: 'Warsaw', offset: 60 }, { id: 'Asia/Tokyo', name: 'Tokyo', offset: 540 }];
@@ -78,7 +78,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.goto(url);
     await waitFn(page, () => window.__noor && window.__noor.active() === 'home');
     check('first start: Home is open and in front', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home' && /Good (morning|afternoon|evening|night)/.test(await page.textContent('.home h1')));
-    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.2');
+    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.3');
     check('…the window got the theme\'s colours for its native buttons', (await calls()).some((c) => c.target === 'window' && c.cmd === 'theme' && c.args.bg === '#0b0d12'));
     check('…the main menu: File, Edit, View, Tools, Window, Help', (await menuTitles()).join() === 'File,Edit,View,Tools,Window,Help', await menuTitles());
     check('…Home offers the Sandbox and the Clock', await page.isVisible('.home .card:has-text("Sandbox")') && await page.isVisible('.home .card:has-text("Clock")'));
@@ -219,6 +219,25 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.click('.btab[data-bench="noor.sandbox"]');
     await page.click(`${sb} .pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]`);   // About hidden again, as before
 
+
+    // ---- reordering the bench tabs (3.0.3)
+    const tabOrder = () => page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench));
+    const before = await tabOrder();
+    const ts = await (await page.$('.btab[data-bench="noor.sandbox"]')).boundingBox();
+    const last = await (await page.$(`.btab[data-bench="${before[before.length - 1]}"]`)).boundingBox();
+    await page.mouse.move(ts.x + ts.width / 2, ts.y + ts.height / 2); await page.mouse.down();
+    await page.mouse.move(last.x + last.width + 20, ts.y + ts.height / 2, { steps: 8 }); await page.mouse.up();
+    let after = await tabOrder();
+    check('dragging the Sandbox tab to the end of the row moves it there (and the Sandbox stays in front)', after[after.length - 1] === 'noor.sandbox' && after.length === before.length && await page.evaluate(() => window.__noor.active()) === 'noor.sandbox', [before, after]);
+    await page.keyboard.press('Control+Shift+PageUp');
+    after = await tabOrder();
+    check('Ctrl+Shift+PageUp moves it one place left', after[after.length - 2] === 'noor.sandbox', after);
+    await page.keyboard.press('Control+Shift+PageDown');
+    await page.waitForTimeout(400);
+    check('…Ctrl+Shift+PageDown back, and the order is kept', (await tabOrder())[after.length - 1] === 'noor.sandbox' && JSON.parse(await page.evaluate(() => localStorage.getItem('mock.settings'))).openBenches.slice(-1)[0] === 'noor.sandbox');
+    while ((await tabOrder()).join() !== before.join() && (await tabOrder()).indexOf('noor.sandbox') > before.indexOf('noor.sandbox')) await page.keyboard.press('Control+Shift+PageUp');   // the old order back for the checks below
+    check('scrollbars: the themed slim ones (no standard scrollbar-color switching them off)', await page.evaluate(() => getComputedStyle(document.querySelector('.pgroup .pbody')).scrollbarColor === 'auto' && getComputedStyle(document.querySelector('.pgroup .pbody')).scrollbarWidth === 'auto'));
+
     // ---- the main menu from the keyboard
     await page.click('.sb-text');
     await page.keyboard.press('F10');
@@ -261,6 +280,8 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     check('…picking one switches to it (a menu opened after F10 and → no longer swallows the click)', await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
     await page.keyboard.press('F11');
     check('F11: focus mode hides the tabs, the panels and the status bar', !(await page.isVisible('#benchtabs')) && !(await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]')) && !(await page.isVisible('#statusbar')));
+    const fm = await page.evaluate(() => { const b = document.querySelector('section.bench[data-bench="noor.sandbox"]').getBoundingClientRect(), m = document.querySelector('section.bench[data-bench="noor.sandbox"] .main').getBoundingClientRect(); return { bw: b.width, mw: m.width, bh: b.height, mh: m.height }; });
+    check('…and the page gets the whole window (no room kept for the hidden panels)', fm.mw > fm.bw - 40 && fm.mh > fm.bh - 30, fm);
     await page.keyboard.press('Escape');
     check('…Esc leaves it', await page.isVisible('#benchtabs'));
 
@@ -303,6 +324,9 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
       await page.click('section.bench[data-bench="noor.sandbox"] [data-ref="noor.clock:stopwatch"] .ck-go');
       await page.waitForTimeout(1300);
       await page.screenshot({ path: path.join(dir, 'noormd3-docking.png') });
+      await page.keyboard.press('F11'); await page.waitForTimeout(150);
+      await page.screenshot({ path: path.join(dir, 'noormd3-focus.png') });
+      await page.keyboard.press('F11');
       const t = await (await page.$('section.bench[data-bench="noor.sandbox"] .ptab[data-ref="noor.sandbox:stats"]')).boundingBox();
       const a = await (await page.$('section.bench[data-bench="noor.sandbox"] .pgroup:has(.ptab[data-ref="noor.sandbox:about"])')).boundingBox();
       await page.mouse.move(t.x + 20, t.y + 10); await page.mouse.down();

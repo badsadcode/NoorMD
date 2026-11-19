@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.2 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 3.0.3 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -248,6 +248,11 @@ one bench, and it's running in the other.
 The tests found a real bug on the way. Open one menu and then flick to the next with the arrow keys quickly enough,
 and the first menu left a little "close on click" helper behind. Later it would close the next menu just before
 your click landed, like a waiter whisking your plate away mid-bite. It's been spoken to.
+
+*The next morning:* the human tried it, wrote "Hello Mr. Sage! Thank you for your work! You're awesome!" into the
+Sandbox (which counted it: ten words, one minute's read), and then found three things: bench tabs that wouldn't move,
+a focus mode that hid the panels but kept their chairs warm, and a scrollbar wearing last season's arrows. 3.0.3 fixed
+all three.
 
 ## Things we learned along the way
 

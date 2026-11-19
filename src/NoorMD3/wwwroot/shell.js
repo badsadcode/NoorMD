@@ -253,7 +253,7 @@ function groupEl(inst, side, gi, g) {
     const s = specOf(ref); if (!s) return null;
     const foreign = s.owner !== inst.manifest.id;
     const t = el('button', { class: 'ptab', role: 'tab', 'aria-selected': String(ref === g.active), 'data-ref': ref, title: `${s.spec.title}${foreign ? ` (from ${s.bench.name})` : ''}: drag to move it · right-click: more` },
-      el('span', { text: s.spec.icon }), s.spec.title, foreign ? el('small', { class: 'pfrom', text: s.bench.name }) : null);
+      el('span', { text: s.spec.icon }), s.spec.title, foreign && s.bench.name !== s.spec.title ? el('small', { class: 'pfrom', text: s.bench.name }) : null);
     t.addEventListener('click', () => { if (dragJustEnded) return; g.active = ref; renderDocks(inst); save(); });
     t.addEventListener('pointerdown', (e) => startPanelDrag(e, inst, ref, t));
     t.addEventListener('contextmenu', (e) => { e.preventDefault(); panelMenu(inst, ref, e.clientX, e.clientY); });
@@ -298,7 +298,7 @@ async function showPanel(inst, ref, side) {
   const s = specOf(ref); if (!s) return;
   if (!open.has(s.owner)) await openBench(s.owner, { activate: false, quiet: true });
   movePanel(inst, ref, { side: side || s.spec.dock });
-  if (s.owner !== inst.manifest.id) toast(`${s.spec.title} from ${s.bench.name} is docked here now, and keeps working.`);
+  if (s.owner !== inst.manifest.id) toast(`${s.spec.title}${s.bench.name !== s.spec.title ? ` from ${s.bench.name}` : ''} is docked here now, and keeps working.`);
 }
 function hidePanel(inst, ref) { removeRef(inst, ref); renderDocks(inst); save(); }
 function panelMenu(inst, ref, x, y) {
@@ -437,7 +437,7 @@ function appMenus() {
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
     ...(m.menus || []).map((mm) => [mm.title, () => mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-'))]),
     ['Tools', () => [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
-    ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }]],
+    ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
     ['Help', () => [{ label: 'About NoorMD', run: aboutDialog }]],
   ];
 }
@@ -472,11 +472,44 @@ function toggleMainMenu(i, button) {
 function renderTabs() {
   const tabs = order.map((id, i) => {
     const m = manifestOf(id);
-    return el('button', { class: 'btab', role: 'tab', 'aria-selected': String(id === active), 'data-bench': id, title: `${m.name}${i < 9 ? ` (Ctrl+${i + 1})` : ''}`, onclick: () => activate_(id), onauxclick: (e) => { if (e.button === 1) closeBench(id); } },
+    return el('button', { class: 'btab', role: 'tab', 'aria-selected': String(id === active), 'data-bench': id, title: `${m.name}${i < 9 ? ` (Ctrl+${i + 1})` : ''}`, onclick: () => { if (!tabDragEnded) activate_(id); }, onauxclick: (e) => { if (e.button === 1) closeBench(id); } },
       el('span', { class: 'ic', text: m.icon }), m.name,
       el('span', { class: 'x', role: 'button', title: `Close ${m.name} (Ctrl+W)`, 'aria-label': `Close ${m.name}`, onclick: (e) => { e.stopPropagation(); closeBench(id); } }, '✕'));
   });
+  tabs.forEach((t) => t.addEventListener('pointerdown', (e) => startTabDrag(e, t.dataset.bench)));
   $('#benchtabs').replaceChildren(el('div', { role: 'tablist', style: { display: 'contents' } }, ...tabs), el('button', { class: 'btab add', title: 'Open a bench', 'aria-label': 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
+}
+/** Drag a bench tab left or right to put it elsewhere in the row (the order is kept). */
+let tabDragEnded = false;
+function startTabDrag(e, id) {
+  if (e.button !== 0 || e.target.closest('.x')) return;
+  const x0 = e.clientX;
+  let dragging = false;
+  const move = (m) => {
+    if (!dragging) { if (Math.abs(m.clientX - x0) < 8) return; dragging = true; document.body.classList.add('tab-dragging'); }
+    // Where the mouse is among the other tabs' middles decides the new place.
+    const others = [...document.querySelectorAll('#benchtabs .btab[data-bench]')].filter((t) => t.dataset.bench !== id);
+    let at = others.findIndex((t) => { const r = t.getBoundingClientRect(); return m.clientX < r.left + r.width / 2; });
+    if (at < 0) at = others.length;
+    const next = others.map((t) => t.dataset.bench); next.splice(at, 0, id);
+    if (next.join() !== order.join()) { order = next; renderTabs(); }
+    const me = document.querySelector(`#benchtabs .btab[data-bench="${CSS.escape(id)}"]`); if (me) me.classList.add('moving');
+  };
+  const up = () => {
+    document.removeEventListener('pointermove', move, true); document.removeEventListener('pointerup', up, true);
+    if (!dragging) return;
+    document.body.classList.remove('tab-dragging');
+    tabDragEnded = true; setTimeout(() => { tabDragEnded = false; }, 0);
+    renderTabs(); renderMenus(); save();
+  };
+  document.addEventListener('pointermove', move, true); document.addEventListener('pointerup', up, true);
+}
+/** Moves the bench in front one place left (-1) or right (+1) in the row. */
+function moveTab(d) {
+  const i = order.indexOf(active), j = i + d;
+  if (i < 0 || j < 0 || j >= order.length) return;
+  [order[i], order[j]] = [order[j], order[i]];
+  renderTabs(); renderMenus(); save();
 }
 function renderTitle() {
   const inst = open.get(active), m = manifestOf(active) || HOME;
@@ -555,6 +588,8 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'f10') { e.preventDefault(); const b = document.querySelector('[data-menu="0"]'); if (b) toggleMainMenu(0, b); }
   else if (k === 'ctrl+tab') { e.preventDefault(); cycle(1); }
   else if (k === 'ctrl+shift+tab') { e.preventDefault(); cycle(-1); }
+  else if (k === 'ctrl+shift+pageup') { e.preventDefault(); moveTab(-1); }
+  else if (k === 'ctrl+shift+pagedown') { e.preventDefault(); moveTab(1); }
   else if (/^ctrl\+[1-9]$/.test(k) && order[Number(k.slice(5)) - 1]) { e.preventDefault(); activate_(order[Number(k.slice(5)) - 1]); }
   else if (k === 'escape' && focusMode && !menuIsOpen()) { e.preventDefault(); toggleFocus(); }
   else { const run = SHORTCUTS().get(k); if (run) { e.preventDefault(); run(); } }
