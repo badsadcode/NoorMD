@@ -171,6 +171,25 @@ window.addEventListener('drop', (e) => {
   else toast('Use File › Open to open files.');
 }, true);
 
+// ---------------------------------------------------------------- topics: what benches' pages tell each other
+// A bench publishes ("doc.current": the document on screen); any bench subscribes, in any window. The last value of
+// each topic is kept, so a panel that turns up later knows where things stand.
+const topicSubs = new Map(), topicLast = new Map();
+function deliverTopic(topic, payload) {
+  topicLast.set(topic, payload);
+  for (const fn of topicSubs.get(topic) || []) { try { fn(payload); } catch (e) { console.error(e); } }
+}
+function publishTopic(topic, payload) {
+  deliverTopic(topic, payload);
+  windowCall('broadcast', { name: 'topic', payload: { topic, payload: payload === undefined ? null : payload } });
+}
+function subscribeTopic(topic, fn) {
+  if (!topicSubs.has(topic)) topicSubs.set(topic, []);
+  topicSubs.get(topic).push(fn);
+  if (topicLast.has(topic)) setTimeout(() => { if ((topicSubs.get(topic) || []).includes(fn)) fn(topicLast.get(topic)); }, 0);
+  return () => topicSubs.set(topic, (topicSubs.get(topic) || []).filter((f) => f !== fn));
+}
+
 /** The print area: when the page prints (or becomes a PDF), only this shows. */
 function setPrintContent(html) {
   let root = document.getElementById('print-root');
@@ -202,6 +221,14 @@ function makeContext(id, inst) {
     keep(key, value) { inst.layout.state[key] = value; if (floatId) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
+    /** Tells every bench's page (in every window) something: publish('doc.current', { path }). */
+    publish: (topic, payload) => publishTopic(topic, payload),
+    /** Hears a topic (its last value at once, if there is one); returns a function that stops listening. */
+    subscribe: (topic, fn) => subscribeTopic(topic, fn),
+    /** Is that bench there (installed)? */
+    hasBench: (bid) => benches.has(bid),
+    /** Runs a command on another bench's C# side (one that offers it to others, like the Vault's links). */
+    callBench: (bid, cmd, args) => call('bench:' + bid, cmd, args),
     /** What the page prints (and a PDF shows): this HTML instead of the window. */
     setPrintContent(html) { setPrintContent(html); },
     /** Prints this HTML (the system's print dialog). */
@@ -211,7 +238,9 @@ function makeContext(id, inst) {
   };
 }
 hostListeners.push((m) => {
-  if (m.event === 'open' && !floatId) openFilesIn(m.bench, m.paths || []);
+  if (m.event === 'topic' && m.payload) deliverTopic(m.payload.topic, m.payload.payload);
+  else if (m.event === 'moved') for (const inst of open.values()) { if (inst.emit) inst.emit('shell.moved', { moves: m.moves || [] }); }
+  else if (m.event === 'open' && !floatId) openFilesIn(m.bench, m.paths || []);
   else if (m.event === 'open.none' && !floatId) toast(`No bench opens ${(m.names || []).slice(0, 3).join(', ')}${(m.names || []).length > 3 ? '…' : ''}.`, { error: true });
   else if (m.event === 'bench' && open.has(m.bench)) open.get(m.bench).emit(m.name, m.payload);
   else if (m.event === 'shell.keep' && !floatId && m.payload && open.has(m.payload.bench)) { open.get(m.payload.bench).layout.state[m.payload.key] = m.payload.value; save(); }

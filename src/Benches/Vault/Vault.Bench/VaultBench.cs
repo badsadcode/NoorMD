@@ -1,0 +1,341 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Markdown.Core;
+using Noor.Contracts;
+using Vault.Core;
+
+namespace Vault.Bench;
+
+/// <summary>The Vault: a folder of notes, linked together. Its tab is the vault's home (search, recent notes, tags);
+/// its panels (Explorer, Backlinks, Tags, Search) dock beside your writing; notes open in the Markdown bench. A vault
+/// is a folder the user picked (or made with the wizard); nothing outside it is read.</summary>
+public sealed class VaultBench : BenchBase
+{
+    public override BenchManifest Manifest { get; } = new()
+    {
+        Id = "noor.vault",
+        Name = "Vault",
+        Icon = "🗄",
+        Description = "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
+        Version = "3.0.8",
+        Density = "roomy",
+        Menus =
+        [
+            new MenuSpec("File", [
+                new MenuItemSpec("New vault (wizard)…", "vault.wizard"),
+                new MenuItemSpec("Open a folder as a vault…", "vault.openFolder"),
+                new MenuItemSpec("Recent vaults…", "vault.recentDialog"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("New note", "vault.newNote", "Ctrl+Alt+N"),
+                new MenuItemSpec("New folder", "vault.newFolder"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Show the vault in Explorer", "vault.reveal"),
+                new MenuItemSpec("Close the vault", "vault.close"),
+            ]),
+            new MenuSpec("Edit", [
+                new MenuItemSpec("Search the vault", "vault.focusSearch", "Ctrl+Shift+F"),
+            ]),
+        ],
+        Panels =
+        [
+            new PanelSpec("explorer", "Explorer", "🗂", "left"),
+            new PanelSpec("backlinks", "Backlinks", "↩", "right"),
+            new PanelSpec("tags", "Tags", "#", "right"),
+            new PanelSpec("search", "Search", "⌕", "right"),
+        ],
+    };
+
+    VaultSession? _vault;
+    VaultList? _list;
+    IBenchHost? _host;
+    VaultList List(IBenchHost host) => _list ??= new VaultList(Path.Combine(host.DataFolder, "vaults.json"));
+
+    /// <summary>The open vault; the one open last time comes back on first use.</summary>
+    VaultSession? Session(IBenchHost host)
+    {
+        _host = host;
+        if (_vault != null) return _vault;
+        var last = List(host).Last;
+        if (last != null && Directory.Exists(last)) { try { Open(host, last); } catch (VaultOperationException) { } }
+        return _vault;
+    }
+    VaultSession V(IBenchHost host) => Session(host) ?? throw new BenchException("No vault is open. Make one with the wizard, or open a folder as a vault.");
+
+    void Open(IBenchHost host, string path)
+    {
+        var root = VaultSession.CheckRoot(path);
+        if (_vault != null && string.Equals(_vault.Root, root, StringComparison.OrdinalIgnoreCase)) return;
+        _vault?.Dispose();
+        _vault = new VaultSession(root);
+        _vault.Changed += () => host.Post("changed", new { root });
+        List(host).Opened(root);
+        host.Post("opened", new { root });
+    }
+
+    public VaultBench()
+    {
+        Command("vault.state", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v != null) await v.Ready;
+            return new JsonObject
+            {
+                ["open"] = v != null, ["root"] = v?.Root, ["name"] = v?.Name, ["notes"] = v?.Index.Count ?? 0,
+                ["recent"] = new JsonArray(List(host).Recent.Select(p => (JsonNode?)new JsonObject { ["path"] = p, ["name"] = Path.GetFileName(p), ["exists"] = Directory.Exists(p) }).ToArray()),
+            };
+        });
+        Command("vault.presets", a => new JsonArray(VaultPresets.All.Select(p => (JsonNode?)new JsonObject
+        {
+            ["id"] = p.Id, ["name"] = p.Name, ["icon"] = p.Icon, ["description"] = p.Description, ["goodFor"] = p.GoodFor, ["group"] = p.Group,
+            ["folders"] = new JsonArray(p.Folders.Where(f => f != "attachments").Select(f => (JsonNode?)f).ToArray()),
+            ["notes"] = new JsonArray(p.Notes.Keys.Select(n => (JsonNode?)n).ToArray()),
+        }).ToArray()));
+        // The wizard's last step: where the new vault goes (the user picks the folder it's made in).
+        Command("vault.create", async (a, host, _) =>
+        {
+            var name = Str(a, "name").Trim();
+            if (VaultPaths.NameProblem(name) is { } problem) throw new BenchException(problem);
+            var parent = await host.PickFolderAsync($"Where should the vault “{name}” go?");
+            if (parent == null) return null;
+            var root = Path.Combine(parent, name);
+            if (File.Exists(root) || (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any()))
+                throw new BenchException($"“{name}” is already in that folder. Choose another name, or open it as a vault.");
+            Directory.CreateDirectory(root);
+            var home = VaultPresets.Apply(root, Str(a, "preset"), name);
+            Open(host, root);
+            await _vault!.Ready;
+            await host.OpenFilesAsync([home]);
+            return new JsonObject { ["root"] = root };
+        });
+        Command("vault.openFolder", async (a, host, _) =>
+        {
+            var path = await host.PickFolderAsync("Open a folder as a vault");
+            if (path == null) return null;
+            return Run(() => { Open(host, path); return new JsonObject { ["root"] = _vault!.Root }; });
+        });
+        // A vault from the recent list (the user picked it before).
+        Command("vault.openRecent", (a, host, _) => Task.FromResult(Run(() =>
+        {
+            var path = Str(a, "path");
+            if (!List(host).Recent.Contains(path, StringComparer.OrdinalIgnoreCase)) throw new BenchException("Open that folder with File › Open a folder as a vault first.");
+            Open(host, path);
+            return (JsonNode?)new JsonObject { ["root"] = _vault!.Root };
+        })));
+        Command("vault.forget", a => { if (_host != null) List(_host).Forget(Str(a, "path")); return null; });
+        Command("vault.close", (a, host, _) =>
+        {
+            _vault?.Dispose(); _vault = null;
+            List(host).Closed();
+            host.Post("opened", new { root = (string?)null });
+            return Task.FromResult<JsonNode?>(null);
+        });
+        Command("vault.tree", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonObject
+            {
+                ["root"] = v.Root, ["name"] = v.Name,
+                ["entries"] = new JsonArray(v.Entries.Take(20_000).Select(e => (JsonNode?)new JsonObject
+                {
+                    ["path"] = e.Path, ["folder"] = e.IsFolder, ["note"] = !e.IsFolder && VaultPaths.IsNote(e.Path), ["modified"] = e.ModifiedUtc,
+                }).ToArray()),
+            };
+        });
+        Command("vault.notes", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v == null) return new JsonArray();
+            await v.Ready;
+            return new JsonArray(v.Index.NotePaths().OrderBy(p => p, StringComparer.OrdinalIgnoreCase).Select(p => (JsonNode?)new JsonObject { ["path"] = p, ["name"] = Path.GetFileNameWithoutExtension(p) }).ToArray());
+        });
+        Command("vault.recentNotes", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(v.Entries.Where(e => !e.IsFolder && VaultPaths.IsNote(e.Path)).OrderByDescending(e => e.ModifiedUtc).Take(12)
+                .Select(e => (JsonNode?)new JsonObject { ["path"] = e.Path, ["name"] = Path.GetFileNameWithoutExtension(e.Path), ["modified"] = e.ModifiedUtc }).ToArray());
+        });
+        Command("vault.search", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(v.Index.Search(Str(a, "q"), 200).Select(h => (JsonNode?)new JsonObject
+            {
+                ["path"] = h.Path, ["name"] = h.Name, ["line"] = h.Line, ["snippet"] = h.Snippet, ["nameMatch"] = h.NameMatch,
+            }).ToArray());
+        });
+        // Notes linking to a file (given by its full path, as the Markdown bench knows it).
+        Command("vault.backlinks", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v == null) return new JsonObject { ["inVault"] = false };
+            await v.Ready;
+            var rel = v.Rel(Str(a, "path"));
+            if (string.IsNullOrEmpty(rel)) return new JsonObject { ["inVault"] = false };
+            return new JsonObject
+            {
+                ["inVault"] = true, ["path"] = rel,
+                ["refs"] = new JsonArray(v.Index.Backlinks(rel).Select(r => (JsonNode?)new JsonObject { ["source"] = r.Source, ["name"] = Path.GetFileNameWithoutExtension(r.Source), ["line"] = r.Line, ["snippet"] = r.Snippet }).ToArray()),
+                ["tags"] = new JsonArray(v.Index.TagsOf(rel).Select(t => (JsonNode?)t).ToArray()),
+            };
+        });
+        Command("vault.tags", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(v.Index.Tags().Select(t => (JsonNode?)new JsonObject { ["tag"] = t.Tag, ["count"] = t.Count }).ToArray());
+        });
+        Command("vault.tagged", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(v.Index.Tagged(Str(a, "tag")).Select(p => (JsonNode?)new JsonObject { ["path"] = p, ["name"] = Path.GetFileNameWithoutExtension(p) }).ToArray());
+        });
+        // Opening a note: the Markdown bench (whichever bench opens .md) gets it.
+        Command("vault.openNote", async (a, host, _) =>
+        {
+            var v = V(host);
+            var full = v.Full(Str(a, "path"));
+            if (full == null || !File.Exists(full)) throw new BenchException("That note isn't there any more.");
+            await host.OpenFilesAsync([full]);
+            return null;
+        });
+        // A [[link]] followed from a note (its full path): opens the note it leads to, or says where a new one would go.
+        Command("vault.openLink", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v == null) return new JsonObject { ["noVault"] = true };
+            await v.Ready;
+            var fromFull = Str(a, "from");
+            var fromRel = fromFull.Length > 0 ? v.Rel(fromFull) : "";
+            if (fromRel == null) return new JsonObject { ["outside"] = true };
+            var target = Str(a, "target");
+            var rel = v.ResolveWiki(fromRel, target);
+            if (rel != null) { await host.OpenFilesAsync([v.Full(rel)!]); return new JsonObject { ["opened"] = rel }; }
+            return Run(() => { var (folder, name) = v.PlaceForNewLink(fromRel, target); return new JsonObject { ["missing"] = true, ["folder"] = folder, ["name"] = name }; });
+        });
+        Command("vault.createLink", async (a, host, _) =>
+        {
+            var v = V(host);
+            var fromRel = Str(a, "from").Length > 0 ? v.Rel(Str(a, "from")) ?? "" : "";
+            var rel = Run(() => v.CreateNoteForLink(fromRel, Str(a, "target")));
+            await v.RescanAsync();
+            await host.OpenFilesAsync([v.Full(rel)!]);
+            return new JsonObject { ["path"] = rel };
+        });
+        Command("vault.newNote", async (a, host, _) =>
+        {
+            var v = V(host);
+            var name = Str(a, "name");
+            var rel = Run(() => v.Ops.CreateNote(Str(a, "folder"), name.Length > 0 ? name : null, name.Length > 0 ? $"# {Path.GetFileNameWithoutExtension(name)}\n\n" : ""));
+            await v.RescanAsync();
+            await host.OpenFilesAsync([v.Full(rel)!]);
+            return new JsonObject { ["path"] = rel };
+        });
+        Command("vault.newFolder", async (a, host, _) =>
+        {
+            var v = V(host);
+            var rel = Run(() => v.Ops.CreateFolder(Str(a, "parent"), Str(a, "name")));
+            await v.RescanAsync();
+            return new JsonObject { ["path"] = rel };
+        });
+        Command("vault.renamePlan", (a, host, _) => Task.FromResult(Run(() =>
+        {
+            var v = V(host); var rel = Str(a, "path"); var name = Str(a, "name");
+            var parent = rel.Contains('/') ? rel[..rel.LastIndexOf('/')] + "/" : "";
+            var ext = VaultPaths.IsNote(rel) && !Path.HasExtension(name) ? Path.GetExtension(rel) : "";
+            var plan = v.PlanLinks([(rel, parent + name + ext)]);
+            return (JsonNode?)new JsonObject { ["links"] = plan.Links, ["notes"] = new JsonArray(plan.Notes.Select(n => (JsonNode?)n).ToArray()) };
+        })));
+        Command("vault.rename", async (a, host, _) =>
+        {
+            var v = V(host);
+            var (moves, links) = Run(() => v.Rename(Str(a, "path"), Str(a, "name"), Bool(a, "updateLinks"), Skip(a)));
+            return await Moved(host, v, moves, links);
+        });
+        Command("vault.movePlan", (a, host, _) => Task.FromResult(Run(() =>
+        {
+            var v = V(host); var folder = Str(a, "folder");
+            var plan = v.PlanLinks(Strs(a, "paths").Select(p => (p, (folder.Length > 0 ? folder + "/" : "") + p[(p.LastIndexOf('/') + 1)..])).ToList());
+            return (JsonNode?)new JsonObject { ["links"] = plan.Links, ["notes"] = new JsonArray(plan.Notes.Select(n => (JsonNode?)n).ToArray()) };
+        })));
+        Command("vault.move", async (a, host, _) =>
+        {
+            var v = V(host);
+            var (moves, links) = Run(() => v.Move(Strs(a, "paths"), Str(a, "folder"), Bool(a, "updateLinks"), Skip(a)));
+            return await Moved(host, v, moves, links);
+        });
+        Command("vault.delete", async (a, host, _) =>
+        {
+            var v = V(host);
+            var n = Run(() => v.Delete(Strs(a, "paths")));
+            await v.RescanAsync();
+            return new JsonObject { ["deleted"] = n };
+        });
+        Command("vault.reveal", (a, host, _) => Task.FromResult(Run(() =>
+        {
+            var v = V(host);
+            var full = Str(a, "path").Length > 0 ? v.Full(Str(a, "path")) : v.Root;
+            if (full != null && OperatingSystem.IsWindows())
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", File.Exists(full) ? $"/select,\"{full}\"" : $"\"{full}\"") { UseShellExecute = false });
+            return (JsonNode?)null;
+        })));
+        Command("vault.fullPath", (a, host, _) => Task.FromResult<JsonNode?>(V(host).Full(Str(a, "path"))));
+    }
+
+    /// <summary>After a rename or move: every bench hears about it (open documents follow), and the page learns which
+    /// notes had their links rewritten.</summary>
+    static async Task<JsonNode?> Moved(IBenchHost host, VaultSession v, IReadOnlyList<VaultMove> moves, LinkResult links)
+    {
+        await v.RescanAsync();
+        await host.FilesMovedAsync(moves.Select(m => new FileMove(m.OldFull, m.NewFull)).ToList());
+        return new JsonObject
+        {
+            ["moves"] = new JsonArray(moves.Select(m => (JsonNode?)new JsonObject { ["from"] = v.Rel(m.OldFull), ["to"] = v.Rel(m.NewFull), ["fromFull"] = m.OldFull, ["toFull"] = m.NewFull }).ToArray()),
+            ["links"] = links.Links, ["notes"] = links.Notes,
+            ["skipped"] = new JsonArray(links.Skipped.Select(s => (JsonNode?)s).ToArray()),
+            ["updated"] = new JsonArray(links.Updated.Select(s => (JsonNode?)s).ToArray()),
+        };
+    }
+
+    static string Str(JsonElement a, string name) =>
+        a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+    static bool Bool(JsonElement a, string name) => a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.True;
+    static List<string> Strs(JsonElement a, string name) =>
+        a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!).ToList() : [];
+    /// <summary>Files the Markdown bench has open with unsaved changes: their links aren't rewritten under them.</summary>
+    static HashSet<string> Skip(JsonElement a) => Strs(a, "skip").Where(Path.IsPathFullyQualified).Select(Path.GetFullPath).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+    static T Run<T>(Func<T> fn)
+    {
+        try { return fn(); }
+        catch (Exception ex) when (ex is VaultOperationException or VaultPartialMoveException or IOException or UnauthorizedAccessException or ArgumentException)
+        { throw new BenchException(ex.Message); }
+    }
+}
+
+/// <summary>The vaults opened lately (newest first), and the one open when NoorMD closed.</summary>
+sealed class VaultList(string file)
+{
+    sealed class Data { public string? Last { get; set; } public List<string> Recent { get; set; } = []; }
+    readonly Data _d = Load(file);
+
+    public string? Last => _d.Last;
+    public IReadOnlyList<string> Recent => _d.Recent;
+
+    public void Opened(string root)
+    {
+        _d.Recent.RemoveAll(p => string.Equals(p, root, StringComparison.OrdinalIgnoreCase));
+        _d.Recent.Insert(0, root);
+        if (_d.Recent.Count > 12) _d.Recent.RemoveRange(12, _d.Recent.Count - 12);
+        _d.Last = root; Save();
+    }
+    public void Closed() { _d.Last = null; Save(); }
+    public void Forget(string root) { _d.Recent.RemoveAll(p => string.Equals(p, root, StringComparison.OrdinalIgnoreCase)); if (string.Equals(_d.Last, root, StringComparison.OrdinalIgnoreCase)) _d.Last = null; Save(); }
+
+    static Data Load(string file)
+    {
+        try { return JsonSerializer.Deserialize<Data>(File.ReadAllText(file)) ?? new Data(); }
+        catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException) { return new Data(); }
+    }
+    void Save()
+    {
+        try { AtomicFile.WriteAllText(file, JsonSerializer.Serialize(_d)); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+    }
+}

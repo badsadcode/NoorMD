@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the Vault's logic, no interface (an index of a folder of notes: links, tags, search; renames that
+       keep links working; vault presets). From NoorMD 2.0's NoorMD.Core/Vaults, copied so 2.0 stays untouched. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Vault.Core</RootNamespace>
+    <AssemblyName>Vault.Core</AssemblyName>
+    <Version>3.0.7</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Markdown\Markdown.Core\Markdown.Core.csproj" />
+  </ItemGroup>
+</Project>

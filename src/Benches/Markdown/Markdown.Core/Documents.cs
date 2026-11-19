@@ -99,6 +99,33 @@ public sealed class Documents
         });
     }
 
+    /// <summary>Files moved or were renamed (by the Vault, for the user): documents open on them follow, and so do the
+    /// recent list and their snapshots. Returns the documents that moved, with their new paths.</summary>
+    public List<(string Id, string Path)> Moved(IEnumerable<(string From, string To)> moves)
+    {
+        var result = new List<(string, string)>();
+        foreach (var (fromRaw, toRaw) in moves)
+        {
+            if (!System.IO.Path.IsPathFullyQualified(fromRaw) || !System.IO.Path.IsPathFullyQualified(toRaw)) continue;
+            var from = System.IO.Path.GetFullPath(fromRaw); var to = System.IO.Path.GetFullPath(toRaw);
+            foreach (var (id, d) in _docs)
+            {
+                if (d.Path == null) continue;
+                string? now = null;
+                if (string.Equals(d.Path, from, StringComparison.OrdinalIgnoreCase)) now = to;
+                else if (d.Path.StartsWith(from + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) now = to + d.Path[from.Length..];   // inside a moved folder
+                if (now == null) continue;
+                var oldKey = SnapshotKey(id);
+                d.Path = now; d.Stamp = FileStamp.Read(now);
+                Snapshots.Merge(oldKey, SnapshotKey(id), now);
+                _picked.Add(now);
+                Recent.Remove(from); Recent.Add(now);
+                result.Add((id, now));
+            }
+        }
+        return result;
+    }
+
     /// <summary>The document is gone (closed): its draft goes with it.</summary>
     public void Close(string id)
     {

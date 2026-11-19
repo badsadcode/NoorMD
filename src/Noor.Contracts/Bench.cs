@@ -16,7 +16,14 @@ public static class Contract
     /// commands starting with <c>shell.</c>: a page can't, so a bench can trust these paths as the user's choice.
     /// The bench's page then hears the event <c>shell.open</c> with the same paths.</summary>
     public const string OpenCommand = "shell.open";
+
+    /// <summary>The shell tells every bench that files moved or were renamed (<c>{ "moves": [{ "from", "to" }] }</c>),
+    /// so documents open on the old path follow. Only the shell sends it; pages hear the event <c>shell.moved</c>.</summary>
+    public const string MovedCommand = "shell.moved";
 }
+
+/// <summary>A file (or folder) that moved: its full path before and after.</summary>
+public sealed record FileMove(string From, string To);
 
 /// <summary>A bench: its manifest, its web interface (files packed inside its DLL) and its commands (the C# side).</summary>
 public interface IBench
@@ -50,6 +57,17 @@ public interface IBenchHost
     /// <summary>Saves the bench's window page as a PDF, as it prints: the page shows only what it put in the shell's print
     /// area (<c>ctx.setPrintContent</c>). Asks where to save; returns the path, or null when cancelled.</summary>
     Task<string?> SavePageAsPdfAsync(string suggestedName) => Task.FromResult<string?>(null);
+
+    /// <summary>Asks the user to pick a folder; null means they cancelled.</summary>
+    Task<string?> PickFolderAsync(string title) => Task.FromResult<string?>(null);
+
+    /// <summary>Hands files to the benches that open them, as if the user had dropped them on the window (the Vault
+    /// opens a note in the Markdown bench this way). Use it only for files the user chose (or that live in a folder
+    /// they chose).</summary>
+    Task OpenFilesAsync(IReadOnlyList<string> paths) => Task.CompletedTask;
+
+    /// <summary>Tells every bench these files moved or were renamed (see <see cref="Contract.MovedCommand"/>).</summary>
+    Task FilesMovedAsync(IReadOnlyList<FileMove> moves) => Task.CompletedTask;
 
     /// <summary>Asks the user where to save; null means they cancelled.</summary>
     Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<FileFilter> filters) =>

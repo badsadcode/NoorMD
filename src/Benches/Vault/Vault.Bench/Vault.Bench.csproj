@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the Vault bench (its interface: web files packed in the DLL; its logic: Vault.Core). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Vault.Bench</RootNamespace>
+    <AssemblyName>Vault.Bench</AssemblyName>
+    <Version>3.0.7</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />
+    <ProjectReference Include="..\Vault.Core\Vault.Core.csproj" />
+    <EmbeddedResource Include="web\**" />
+  </ItemGroup>
+</Project>

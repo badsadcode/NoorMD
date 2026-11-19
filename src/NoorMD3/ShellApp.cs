@@ -80,6 +80,22 @@ public static class ShellApp
                 return d.ShowDialog(Owner()) == true ? d.FileNames : [];
             }).Task;
 
+        public Task<string?> PickFolderAsync(string title) =>
+            Application.Current.Dispatcher.InvokeAsync<string?>(() =>
+            {
+                var d = new Microsoft.Win32.OpenFolderDialog { Title = title, Multiselect = false };
+                return d.ShowDialog(Owner()) == true ? d.FolderName : null;
+            }).Task;
+
+        public Task OpenFilesAsync(IReadOnlyList<string> paths) =>
+            Application.Current.Dispatcher.InvokeAsync(() => Main == null ? Task.CompletedTask : ShellApp.OpenFilesAsync(paths.ToList(), Main)).Task.Unwrap();
+
+        public async Task FilesMovedAsync(IReadOnlyList<Noor.Contracts.FileMove> moves)
+        {
+            await Router.FilesMovedAsync(moves);
+            await Application.Current.Dispatcher.InvokeAsync(() => Broadcast(new { @event = "moved", moves = moves.Select(m => new { from = m.From, to = m.To }) }));
+        }
+
         public async Task<string?> SavePageAsPdfAsync(string suggestedName)
         {
             var path = await PickSaveFileAsync("Export PDF", suggestedName, [new("PDF document", [".pdf"])]);

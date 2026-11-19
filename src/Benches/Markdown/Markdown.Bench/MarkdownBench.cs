@@ -126,6 +126,14 @@ public sealed class MarkdownBench : BenchBase
             Docs(host).Picked(paths);
             return Task.FromResult<JsonNode?>(null);
         });
+        // The shell says files moved (the Vault renamed a note): documents on them follow.
+        Command(Contract.MovedCommand, (a, host, _) =>
+        {
+            var moves = a.TryGetProperty("moves", out var m) && m.ValueKind == JsonValueKind.Array
+                ? m.EnumerateArray().Select(x => (Str(x, "from"), Str(x, "to"))).Where(x => x.Item1.Length > 0 && x.Item2.Length > 0).ToList() : [];
+            var moved = Docs(host).Moved(moves);
+            return Task.FromResult<JsonNode?>(new JsonArray(moved.Select(x => (JsonNode?)new JsonObject { ["doc"] = x.Id, ["path"] = x.Path }).ToArray()));
+        });
         // Show in Explorer: the folder of a file the user has open, with the file selected.
         Command("md.reveal", (a, host, _) => Run(() =>
         {

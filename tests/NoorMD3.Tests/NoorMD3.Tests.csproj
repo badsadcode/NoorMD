@@ -16,5 +16,6 @@
     <ProjectReference Include="..\..\src\Benches\Sandbox\Sandbox.Bench\Sandbox.Bench.csproj" />
     <ProjectReference Include="..\..\src\Benches\Clock\Clock.Bench\Clock.Bench.csproj" />
     <ProjectReference Include="..\..\src\Benches\Markdown\Markdown.Bench\Markdown.Bench.csproj" />
+    <ProjectReference Include="..\..\src\Benches\Vault\Vault.Bench\Vault.Bench.csproj" />
   </ItemGroup>
 </Project>

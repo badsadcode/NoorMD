@@ -49,6 +49,19 @@ public sealed class ShellRouter
         return (opened, unknown);
     }
 
+    /// <summary>Files moved or renamed (by a bench, for the user): every bench hears it, so documents open on the old
+    /// path follow. A bench without the command just doesn't care.</summary>
+    public async Task FilesMovedAsync(IReadOnlyList<FileMove> moves, CancellationToken cancel = default)
+    {
+        if (moves.Count == 0) return;
+        var args = JsonSerializer.SerializeToElement(new { moves = moves.Select(m => new { from = m.From, to = m.To }) });
+        foreach (var bench in _benches.Benches)
+        {
+            try { await bench.HandleAsync(Contract.MovedCommand, args, _hostFor(bench.Manifest.Id), cancel); }
+            catch (BenchException) { }
+        }
+    }
+
     public async Task<JsonObject> HandleAsync(JsonElement request, Func<string, JsonElement, JsonNode?>? window = null, CancellationToken cancel = default)
     {
         window ??= Window;
