@@ -156,14 +156,20 @@ async function openFilesIn(id, paths) {
   const inst = await openBench(id);
   if (inst && inst.emit) inst.emit('shell.open', { paths });
 }
-// Files dropped anywhere on the window: WebView2 hands them to the window with their paths.
-document.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
-document.addEventListener('drop', (e) => {
-  if (!e.dataTransfer || !e.dataTransfer.files.length) return;
-  e.preventDefault();
+// Files dropped anywhere on the window: WebView2 hands them to the window with their paths. Caught first (capturing, on
+// the window), so an editor under the pointer doesn't take them, and the page never navigates to the file.
+const draggingFiles = (e) => !!e.dataTransfer && [...e.dataTransfer.types].includes('Files');
+window.addEventListener('dragenter', (e) => { if (draggingFiles(e)) { e.preventDefault(); document.body.classList.add('dropping'); } }, true);
+window.addEventListener('dragover', (e) => { if (draggingFiles(e)) { e.preventDefault(); e.stopPropagation(); e.dataTransfer.dropEffect = 'copy'; document.body.classList.add('dropping'); } }, true);
+window.addEventListener('dragleave', (e) => { if (draggingFiles(e) && (e.clientX <= 0 || e.clientY <= 0 || e.clientX >= innerWidth || e.clientY >= innerHeight)) document.body.classList.remove('dropping'); }, true);
+window.addEventListener('drop', (e) => {
+  document.body.classList.remove('dropping');
+  if (!draggingFiles(e) || !e.dataTransfer.files.length) return;
+  e.preventDefault(); e.stopPropagation();
   const host = window.chrome && window.chrome.webview;
   if (host && typeof host.postMessageWithAdditionalObjects === 'function') host.postMessageWithAdditionalObjects({ target: 'window', cmd: 'files.dropped' }, e.dataTransfer.files);
-});
+  else toast('Use File › Open to open files.');
+}, true);
 
 /** The print area: when the page prints (or becomes a PDF), only this shows. */
 function setPrintContent(html) {

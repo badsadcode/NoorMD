@@ -158,3 +158,7 @@ body.floating .wintitle { justify-content: flex-start; }
   #print-root td, #print-root th { border: 1px solid #dde0e8; padding: 6px 9px; text-align: left; }
   #print-root th { background: #f6f7fa; }
 }
+
+/* Files dragged over the window: a quiet frame says "drop here" */
+body.dropping::after { content: 'Drop to open'; position: fixed; inset: 8px; border: 2px dashed var(--accent); border-radius: var(--r3); background: color-mix(in srgb, var(--accent) 8%, transparent);
+  display: grid; place-items: center; font-size: 18px; font-weight: 600; color: var(--text); pointer-events: none; z-index: 9999; }

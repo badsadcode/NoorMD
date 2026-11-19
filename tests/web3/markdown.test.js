@@ -93,6 +93,7 @@ const MOCK = (manifests) => {
   window.chrome = { webview: {
     postMessage(m) { log.push(m); let reply; try { reply = { id: m.id, ok: true, result: answer(m) }; } catch (e) { reply = { id: m.id, ok: false, error: e.message }; } send(reply); },
     addEventListener(type, fn) { if (type === 'message') listeners.push(fn); },
+    postMessageWithAdditionalObjects(m, files) { (window.__dropped = window.__dropped || []).push({ m, names: [...files].map((f) => f.name) }); },
   } };
 };
 
@@ -476,6 +477,21 @@ const state = (page) => page.evaluate(ST);
     await page.click('.nui-menu .mi:has-text("Close the others")');
     await page.waitForTimeout(200);
     check('Close the others', (await state(page)).docs.length === 1);
+
+    // ---------------------------------------------------------------- a file dragged over the editor and dropped there
+    const before2 = (await state(page)).docs.map((d) => d.text).join('|');
+    const dropOn = async (sel) => page.evaluate((s) => {
+      const target = document.querySelector(s), dt = new DataTransfer();
+      dt.items.add(new File(['# Hello'], 'notes.md', { type: 'text/markdown' }));
+      for (const type of ['dragenter', 'dragover']) target.dispatchEvent(new DragEvent(type, { dataTransfer: dt, bubbles: true, cancelable: true }));
+      const framed = document.body.classList.contains('dropping');
+      target.dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+      return framed;
+    }, sel);
+    const framed = await dropOn('.md-pane:not([hidden]) .ProseMirror');
+    check('dragging a file over the window shows "Drop to open"', framed);
+    check('dropping it on the editor hands it to the window (with its path), not to the editor', (await page.evaluate(() => (window.__dropped || []).map((d) => d.m.cmd + ':' + d.names.join(',')))).join() === 'files.dropped:notes.md');
+    check('…the frame goes away, and nothing landed in the text', !(await page.evaluate(() => document.body.classList.contains('dropping'))) && (await state(page)).docs.map((d) => d.text).join('|') === before2);
 
     // ---------------------------------------------------------------- files dropped on the window (handed over by the C# side)
     await setDisk({ ...(await disk()), 'C:\\Drop\\dropped.md': { text: '# Dropped in\n', format: 'UTF-8 · LF', stamp: 1 } });

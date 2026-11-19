@@ -70,8 +70,6 @@ starting it (asked for on 19 Nov).
 
 - Pictures from disk shown inside the editor (relative paths beside the document). 2.0 didn't do it either; it
   needs the document's folder served to the page.
-- A second NoorMD started with a file ("Open with") should hand it to the one already running instead of opening a
-  second window.
 
 ## NoorMusic, NoorRadio
 
