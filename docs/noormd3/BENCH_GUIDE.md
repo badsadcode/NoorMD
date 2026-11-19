@@ -79,7 +79,7 @@ public sealed class LevelsBench : BenchBase
         Name = "Levels",
         Icon = "🗺",
         Description = "Generate maps for Doom, Quake and Unreal in many styles.",
-        Version = "3.0.13",
+        Version = "3.0.14",
         Density = "roomy",             // or "compact" for dense tool benches
         Menus =
         [

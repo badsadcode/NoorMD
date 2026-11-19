@@ -17,7 +17,9 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.13** (the newest): the Music bench looks and works like 2.0's NoorMusic again. With room, the player card
+- **3.0.14** (the newest): 3.0.13 with the Music bench loading again (it was turned away over its panel's new
+  "not docked at first" setting).
+- **3.0.13**: the Music bench looks and works like 2.0's NoorMusic again. With room, the player card
   and Up next on the left and the library as a table on the right; beside your writing, the compact player (it docks
   in Markdown the first time you play something); the mini player along the bottom. Edit track (F2), the Batch
   Organizer, smart collections, artwork and playlists in and out are back. Scanning a big folder shows its progress,

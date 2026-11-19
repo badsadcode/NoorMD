@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.13 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 3.0.14 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -455,6 +455,13 @@ crash?" is not a question anyone should have to ask.
 
 Along the way: the View menu, which had grown into a long, wobbly list, got proper submenus. And the tag editor
 learned that a song can have two artists, and that undo should give both of them back. 🎶
+
+## Day 28, a few minutes later — 3.0.14: where did Music go? 🙈
+
+3.0.13 shipped, and the Music bench simply wasn't there. "Not loaded, because a panel docks somewhere other than
+left, right or bottom." The new player panel was told to stay out of the Music bench's own sides until you play
+something, and the page understood that, but the part of NoorMD that checks every bench at start didn't. All the
+tests had checked the page; none had asked that gatekeeper about the real benches. Now one does, every time.
 
 ## Things we learned along the way
 

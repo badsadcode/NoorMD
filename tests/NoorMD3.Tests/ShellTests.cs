@@ -48,6 +48,17 @@ public sealed class ShellTests : IDisposable
     }
 
     [Fact]
+    public void Every_bench_that_ships_passes_the_registrys_checks()
+    {
+        // The registry is what the app runs: a bench it turns away never shows up (3.0.13's Music did, over a panel's dock).
+        var reg = new BenchRegistry();
+        IBench[] all = [new SandboxBench(), new Clock.Bench.ClockBench(), new Markdown.Bench.MarkdownBench(), new Vault.Bench.VaultBench(), new Music.Bench.MusicBench()];
+        foreach (var b in all) Assert.True(reg.Add(b), $"{b.Manifest.Id}: {string.Join(" ", reg.Problems)}");
+        Assert.Empty(reg.Problems);
+        Assert.True(reg.Add(new OddBench(new BenchManifest { Id = "noor.hidden", Name = "Hidden panel", Panels = [new PanelSpec("x", "X", Dock: "none")] })));
+    }
+
+    [Fact]
     public void Benches_that_dont_hold_up_are_left_out_and_say_why()
     {
         var reg = new BenchRegistry();

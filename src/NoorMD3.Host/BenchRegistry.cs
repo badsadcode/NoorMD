@@ -42,7 +42,7 @@ public sealed class BenchRegistry
         else if (!Contract.Supported.Contains(m.ContractVersion)) why = $"it was made for contract version {m.ContractVersion}; this NoorMD knows {string.Join(", ", Contract.Supported)}";
         else if (string.IsNullOrWhiteSpace(m.Name)) why = "it has no name";
         else if (m.Density is not ("roomy" or "compact")) why = $"its density \"{m.Density}\" isn't roomy or compact";
-        else if (m.Panels.Any(p => p.Dock is not ("left" or "right" or "bottom"))) why = "a panel docks somewhere other than left, right or bottom";
+        else if (m.Panels.Any(p => p.Dock is not ("left" or "right" or "bottom" or "none"))) why = "a panel docks somewhere other than left, right, bottom or none";
         else if (m.Panels.GroupBy(p => p.Id).Any(g => g.Count() > 1)) why = "two of its panels share an id";
         else
         {

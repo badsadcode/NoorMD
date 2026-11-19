@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Music.Bench</RootNamespace>
     <AssemblyName>Music.Bench</AssemblyName>
-    <Version>3.0.13</Version>
+    <Version>3.0.14</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />
