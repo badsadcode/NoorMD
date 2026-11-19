@@ -46,6 +46,12 @@ home, one look and one way of working.
   menu, Window › Home or Ctrl+Shift+H.
 - **Where the main menu goes is a setting:** in the title bar (the default, saving a row) or on its own row
   under it. Easy to switch in Settings › Appearance, so you can try both.
+- **Two copies of a bench are allowed** (two Vaults side by side, two NoorCode projects). They share one main
+  menu: the menu belongs to the bench, and its commands act on the copy you're working in (the focused one).
+  Their tabs say which is which ("Vault · Ideas", "Vault · Engine").
+- **Home also shows** today's calendar, what's playing, and your NoorEngine projects.
+- **Stage 1 order** (section 2.1).
+- **Ideas that can wait go to the inbox**, not into the current stage (Sage says so when it happens).
 - **The generators live in this repository**, each as core + command-line tool + bench (section 3.2).
 - Your concept pictures are in `references/` as mood boards (they are AI-drawn, so their details are
   illustrations, not specs).
@@ -62,6 +68,19 @@ inspiration from its concept art, but NoorMD has its own face).
 | **1. The new home** | The shell (window, title bar, menus, bench tabs, docking, floating windows, status bar, command palette, settings, themes, languages), the bench contract and the exchange; the benches **Markdown, Vault, Music, Video, Radio, Gallery, Calendar**, and the new **NoorCode** | You use 3.0 for writing, notes, media and code every day instead of 2.0 |
 | **2. The generators** | The heavy asset benches, reworked one at a time (trees, rocks and plants first; then NoorBuildings, NoorShipyard, NoorMechs, NoorRoads, NoorVegetation…), each as core + command-line tool + bench; **one export pipeline** with NoorEngine (Noor Interchange) first | A bench's export imports into NoorEngine with no conversion |
 | **3. The rest** | The editing benches (Mesh, Forge, Material, Sprite, Photo, Ink, Sound, Sequencer, Voice…), as needed | — |
+
+### 2.1 Stage 1, step by step
+
+1. **The title bar spike.** A small WPF window with no Windows frame, a page drawing the title bar, dragging,
+   Aero Snap, double-click to maximise, and Windows 11's snap layouts on the maximise button. It's the one
+   risky part, so it's proven first, on its own. You try it on your PC.
+2. **The shell,** proven with two benches, **Markdown and Music**: bench tabs, the main menu following the
+   bench, docking (any panel anywhere), floating windows on two monitors, the status bar with the mini
+   player, the command palette, Home, settings and themes, the bench contract and the exchange.
+3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
+4. **NoorCode.**
+
+Each step is released as a preview of 3.0 for you to try, like the 2.0 previews.
 
 Until a bench moves to 3.0, you use it in 2.0. Both apps can be installed side by side.
 
@@ -338,10 +357,4 @@ engine is described one way. A new kind is added to the Interchange spec first.
 
 ## 10. Open questions
 
-1. **Two copies of one bench** (two Vaults side by side): allowed, or through floating panels only? (Proposal:
-   one copy per bench; its panels can be floated and docked anywhere, which covers most of it.)
-2. **The Home screen's contents:** recent files, vaults and folders, pinned items, open a bench, what's new.
-   Anything else you'd want there (today's calendar, what's playing, NoorEngine projects)?
-3. **What comes first in stage 1:** proposal: (a) a spike for the title bar and snap layouts, (b) the shell
-   with docking and floating windows, using two simple benches (Markdown and Music) to prove the contract,
-   (c) the rest of the stage 1 benches, (d) NoorCode.
+None right now. New ones go here as they come up.

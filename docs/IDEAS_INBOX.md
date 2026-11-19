@@ -5,6 +5,9 @@ that bench's polish pass in the [polish plan](POLISH_PLAN.md) — or until you s
 
 A line per idea is enough. Add a date if you like, and 🔥 if it really can't wait.
 
+When an idea comes up in the middle of other work and it can wait, Sage says so and writes it here instead of
+starting it (asked for on 19 Nov).
+
 ## New benches (handoffs coming)
 
 - **NoorArchitect** — a procedural map generator for games like Quake 1, exporting GLB for other engines too.
