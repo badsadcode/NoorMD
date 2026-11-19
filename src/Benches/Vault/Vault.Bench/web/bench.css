@@ -13,7 +13,7 @@
 .vt-results:empty { display: none; }
 .vt-results { display: grid; gap: 2px; max-height: 40vh; overflow: auto; border: 1px solid var(--border); border-radius: var(--r2); padding: 4px; background: var(--surface); }
 .vt-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--space-4); }
-.vt-card { border: 1px solid var(--border); border-radius: var(--r3); background: var(--surface); padding: var(--space-3); display: grid; gap: 2px; align-content: start; }
+.vt-card { align-self: start; border: 1px solid var(--border); border-radius: var(--r3); background: var(--surface); padding: var(--space-3); display: grid; gap: 2px; align-content: start; }
 .vt-card h2, .vt-recent h2 { margin: 0 0 6px; font-size: 13px; font-weight: 650; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .vt-row, .vt-hit { display: grid; grid-template-columns: 1fr auto; align-items: center; text-align: left; padding: 6px 10px; border-radius: var(--r2); gap: 2px 10px; width: 100%; box-sizing: border-box; color: var(--text); }
 .vt-row:hover, .vt-hit:hover { background: var(--hover); }

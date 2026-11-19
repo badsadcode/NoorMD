@@ -126,7 +126,7 @@ async function packDialog(ctx, selection = []) {
       el('span', { class: 'nui-muted', text: [deps.length ? `${deps.length} linked from outside the selection` : '', plan.excludedCount ? `${plan.excludedCount} left out (private or hidden)` : ''].filter(Boolean).join(' · ') }));
     details.replaceChildren(
       ...plan.warnings.map((w) => el('div', { class: 'vt-warn', text: '⚠ ' + w })),
-      plan.unresolved.length ? el('details', {}, el('summary', { text: `${plan.unresolved.length} link${plan.unresolved.length === 1 ? '' : 's'} lead nowhere` }),
+      plan.unresolved.length ? el('details', {}, el('summary', { text: `${plan.unresolved.length} link${plan.unresolved.length === 1 ? ' leads' : 's lead'} nowhere` }),
         ...plan.unresolved.slice(0, 40).map((u) => el('div', { class: 'vt-pack-row', text: `${u.from}: ${u.target} (${u.problem})` }))) : '',
       el('details', {}, el('summary', { text: 'What goes in' }), ...plan.files.slice(0, 300).map((f) => el('div', { class: 'vt-pack-row' + (f.dependency ? ' dep' : ''), text: `${f.entry}${f.dependency ? ' (linked)' : ''} · ${kb(f.size)}` }))));
   }

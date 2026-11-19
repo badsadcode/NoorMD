@@ -535,6 +535,8 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
 
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
+      await page.click('.btab[data-bench="noor.markdown"]');
+      await page.waitForTimeout(200);
       await page.click('.md-tab .name:text-is("Grace Hopper.md")').catch(() => {});
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, 'noormd3-vault-backlinks.png') });
