@@ -100,6 +100,9 @@ inspiration from its concept art, but NoorMD has its own face).
      it came from. Floating windows come back after a restart, and onto a monitor that's there if theirs isn't.
      Window › **Get over here!** (Ctrl+Shift+G) pulls every floating panel back at once, with ropes and grappling
      hooks (an easter egg; skipped when the system asks for less motion).
+   - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place
+     (bench windows, settings patched per window so they don't overwrite each other); the page side waits until
+     after part 4.
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 

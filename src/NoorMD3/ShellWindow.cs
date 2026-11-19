@@ -39,17 +39,27 @@ public sealed class ShellWindow : Window
     bool _trackingLeave;
     bool _webReady;
     const string Origin = "https://noormd3.app";
-    /// <summary>Set when this window holds one floating panel (null: the main window).</summary>
+    /// <summary>Set when this window holds one floating panel.</summary>
     public string? FloatId { get; }
+    /// <summary>Set when this window holds one bench of its own (dragged out of the main window).</summary>
+    public string? BenchId { get; }
+    bool IsMain => FloatId == null && BenchId == null;
     readonly JsonNode? _floatSpec;
     bool _closingQuietly;            // closed by the main window (it knows already): don't report it back
     readonly System.Windows.Threading.DispatcherTimer _moved = new() { Interval = TimeSpan.FromMilliseconds(400) };
 
-    public ShellWindow(string? floatId = null, JsonNode? floatSpec = null)
+    public ShellWindow(string? floatId = null, JsonNode? floatSpec = null, string? benchId = null)
     {
-        FloatId = floatId; _floatSpec = floatSpec;
+        FloatId = floatId; _floatSpec = floatSpec; BenchId = benchId;
         Title = "NoorMD";
-        if (floatId == null)
+        if (benchId != null)
+        {
+            MinWidth = 520; MinHeight = 320;
+            _moved.Tick += (_, _) => { _moved.Stop(); ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "benchwindow.moved", bench = BenchId, x = Left, y = Top, w = Width, h = Height })); };
+            LocationChanged += (_, _) => { _moved.Stop(); _moved.Start(); };
+            SizeChanged += (_, _) => { _moved.Stop(); _moved.Start(); };
+        }
+        else if (floatId == null)
         {
             Width = 1200; Height = 760; MinWidth = 520; MinHeight = 320;
             WindowStartupLocation = WindowStartupLocation.CenterScreen;
@@ -67,8 +77,10 @@ public sealed class ShellWindow : Window
         Closed += (_, _) => ShellApp.Windows.Remove(this);
         Closing += (_, _) =>
         {
-            if (FloatId == null) { foreach (var f in ShellApp.Windows.Where(w => w.FloatId != null).ToArray()) { f._closingQuietly = true; f.Close(); } }
-            else if (!_closingQuietly) ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "float.closed", id = FloatId }));
+            if (IsMain) { foreach (var f in ShellApp.Windows.Where(w => !w.IsMain).ToArray()) { f._closingQuietly = true; f.Close(); } }
+            else if (_closingQuietly) { }
+            else if (FloatId != null) ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "float.closed", id = FloatId }));
+            else ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "benchwindow.closed", bench = BenchId }));
         };
         Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x0D, 0x12));
         WindowStyle = WindowStyle.None;
@@ -177,7 +189,7 @@ public sealed class ShellWindow : Window
             core.NewWindowRequested += (_, e) => e.Handled = true;  // no stray browser windows
             core.WebMessageReceived += OnMessage;
             core.NavigationCompleted += (_, _) => { _webReady = true; ApplyHole(); };
-            core.Navigate(Origin + "/index.html" + (FloatId != null ? "?float=" + Uri.EscapeDataString(FloatId) : ""));
+            core.Navigate(Origin + "/index.html" + (FloatId != null ? "?float=" + Uri.EscapeDataString(FloatId) : BenchId != null ? "?bench=" + Uri.EscapeDataString(BenchId) : ""));
         }
         catch (Exception ex)
         {
@@ -230,7 +242,7 @@ public sealed class ShellWindow : Window
             // for what it holds, and docks it back.
             case "float.open":
             {
-                if (FloatId != null) throw new BenchException("Only the main window opens floating panels.");
+                if (!IsMain) throw new BenchException("Only the main window opens floating panels.");
                 var id = m.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("N");
                 var w = new ShellWindow(id, JsonNode.Parse(m.GetRawText())) { Owner = this, WindowStartupLocation = WindowStartupLocation.Manual };
                 w.Width = Math.Clamp(Num(m, "w", 320), 220, 2400); w.Height = Math.Clamp(Num(m, "h", 300), 140, 1600);
@@ -246,6 +258,35 @@ public sealed class ShellWindow : Window
             {
                 var id = m.GetProperty("id").GetString();
                 foreach (var f in ShellApp.Windows.Where(x => x.FloatId == id).ToArray()) { f._closingQuietly = true; f.Close(); }
+                break;
+            }
+            // Benches in windows of their own: the main window opens and closes them; one asks to go back.
+            case "bench.open":
+            {
+                if (!IsMain) throw new BenchException("Only the main window moves benches into windows.");
+                var bench = m.GetProperty("bench").GetString()!;
+                var existing = ShellApp.Windows.FirstOrDefault(x => x.BenchId == bench);
+                if (existing != null) { existing.Activate(); break; }
+                var w = new ShellWindow(benchId: bench) { WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Width = Math.Clamp(Num(m, "w", Width * 0.8), 520, 4000); w.Height = Math.Clamp(Num(m, "h", Height * 0.8), 320, 3000);
+                w.Left = Num(m, "x", Left + 60); w.Top = Num(m, "y", Top + 60);
+                w.Background = Background;
+                w.Show();
+                w.KeepOnScreen();
+                break;
+            }
+            case "bench.back": Close(); break;   // reported to the main window: the bench goes back there as a tab
+            case "bench.close":
+            {
+                var bench = m.GetProperty("bench").GetString();
+                foreach (var b in ShellApp.Windows.Where(x => x.BenchId == bench).ToArray()) { b._closingQuietly = true; b.Close(); }
+                break;
+            }
+            case "bench.focus":
+            {
+                var bench = m.GetProperty("bench").GetString();
+                var b = ShellApp.Windows.FirstOrDefault(x => x.BenchId == bench);
+                if (b != null) { if (b.WindowState == WindowState.Minimized) b.WindowState = WindowState.Normal; b.Activate(); }
                 break;
             }
             case "bus.emit":

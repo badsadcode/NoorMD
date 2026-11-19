@@ -142,6 +142,22 @@ public sealed class ShellTests : IDisposable
     }
 
     [Fact]
+    public async Task Settings_patches_replace_their_keys_and_merge_layouts_per_bench()
+    {
+        var reg = BenchRegistry.FromAssemblies([typeof(SandboxBench).Assembly]);
+        var path = Path.Combine(_dir, "p.json");
+        var router = new ShellRouter(reg, path, _ => new Host());
+        await router.HandleAsync(J("""{"id":1,"target":"shell","cmd":"settings.patch","args":{"theme":"ember","layouts":{"noor.sandbox":{"lw":300}}}}"""));
+        await router.HandleAsync(J("""{"id":2,"target":"shell","cmd":"settings.patch","args":{"layouts":{"noor.clock":{"rw":200}},"windows":[{"bench":"noor.clock","x":10,"y":20},{"bench":"Bad"}]}}"""));
+        var got = await router.HandleAsync(J("""{"id":3,"target":"shell","cmd":"settings.get"}"""));
+        Assert.Equal("ember", (string)got["result"]!["theme"]!);
+        Assert.Equal(300, (int)got["result"]!["layouts"]!["noor.sandbox"]!["lw"]!);   // kept: another window's patch only added its own
+        Assert.Equal(200, (int)got["result"]!["layouts"]!["noor.clock"]!["rw"]!);
+        Assert.Equal("noor.clock", (string)Assert.Single(got["result"]!["windows"]!.AsArray())!["bench"]!);
+        Assert.Equal("ember", ShellSettings.Load(path).Theme);
+    }
+
+    [Fact]
     public void Files_are_served_from_the_shell_folder_and_the_benches_and_nowhere_else()
     {
         var root = Path.Combine(_dir, "www");

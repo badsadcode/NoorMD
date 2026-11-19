@@ -64,6 +64,27 @@ public sealed class ShellRouter
                     ["benches"] = JsonSerializer.SerializeToNode(_benches.Benches.Select(b => b.Manifest).OrderBy(m => m.Name), Json),
                     ["problems"] = JsonSerializer.SerializeToNode(_benches.Problems),
                 };
+            case "settings.get":
+                return JsonNode.Parse(Settings.ToJson().GetRawText());
+            case "settings.patch":
+            {
+                // Each window writes its own part: the given keys replace the saved ones, and "layouts" is merged per
+                // bench (a bench in a window of its own keeps its layout without the main window overwriting it).
+                var now = JsonNode.Parse(Settings.ToJson().GetRawText())!.AsObject();
+                foreach (var kv in args.EnumerateObject())
+                {
+                    if (kv.Name == "layouts" && kv.Value.ValueKind == JsonValueKind.Object)
+                    {
+                        var layouts = now["layouts"] as JsonObject ?? new JsonObject();
+                        foreach (var l in kv.Value.EnumerateObject()) layouts[l.Name] = JsonNode.Parse(l.Value.GetRawText());
+                        now["layouts"] = layouts;
+                    }
+                    else now[kv.Name] = JsonNode.Parse(kv.Value.GetRawText());
+                }
+                Settings = ShellSettings.FromJson(JsonDocument.Parse(now.ToJsonString()).RootElement);
+                Settings.Save(_settingsPath);
+                return JsonNode.Parse(Settings.ToJson().GetRawText());
+            }
             case "settings.save":
                 Settings = ShellSettings.FromJson(args);
                 Settings.Save(_settingsPath);

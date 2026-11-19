@@ -21,6 +21,8 @@ public sealed class ShellSettings
     /// <summary>The panels floating in windows of their own (each: its panel, where it was docked, the window's place),
     /// kept as the page wrote them; they open again at the next start.</summary>
     public List<JsonElement> Floats { get; set; } = [];
+    /// <summary>Benches in windows of their own (each: the bench and the window's place); they open again at the next start.</summary>
+    public List<JsonElement> Windows { get; set; } = [];
     /// <summary>True once Home has been shown at the first start.</summary>
     public bool Welcomed { get; set; }
 
@@ -35,6 +37,8 @@ public sealed class ShellSettings
         OpenBenches = (OpenBenches ?? []).Where(BenchIds.IsValid).Distinct().Take(64).ToList();
         if (ActiveBench != null && !BenchIds.IsValid(ActiveBench) && ActiveBench != "home") ActiveBench = null;
         Floats = (Floats ?? []).Where(f => f.ValueKind == JsonValueKind.Object && f.TryGetProperty("ref", out var r) && r.ValueKind == JsonValueKind.String && f.GetRawText().Length < 4000).Take(24).Select(f => f.Clone()).ToList();
+        Windows = (Windows ?? []).Where(w => w.ValueKind == JsonValueKind.Object && w.TryGetProperty("bench", out var b) && b.ValueKind == JsonValueKind.String && BenchIds.IsValid(b.GetString()) && w.GetRawText().Length < 1000)
+            .GroupBy(w => w.GetProperty("bench").GetString()).Select(g => g.First().Clone()).Take(16).ToList();
         Layouts = (Layouts ?? []).Where(kv => BenchIds.IsValid(kv.Key) && kv.Value.ValueKind == JsonValueKind.Object && kv.Value.GetRawText().Length < 64_000).ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
         return this;
     }
