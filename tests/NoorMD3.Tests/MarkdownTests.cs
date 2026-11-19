@@ -171,6 +171,34 @@ public sealed class MarkdownTests : IDisposable
     }
 
     [Fact]
+    public async Task Files_dropped_on_the_window_go_to_the_bench_that_opens_them_and_count_as_picked()
+    {
+        var md = Path.Combine(_dir, "dropped.md"); File.WriteAllText(md, "# Dropped\n");
+        var odd = Path.Combine(_dir, "song.xyz"); File.WriteAllText(odd, "?");
+        var bench = new MarkdownBench();
+        var reg = NoorMD3.Host.BenchRegistry.FromAssemblies([typeof(MarkdownBench).Assembly]);
+        var host = new Host(Path.Combine(_dir, "data"));
+        var router = new NoorMD3.Host.ShellRouter(reg, Path.Combine(_dir, "s.json"), _ => host);
+        var (opened, unknown) = await router.OpenFilesAsync([md, odd, Path.Combine(_dir, "missing.md"), "relative.md"]);
+        var (benchId, paths) = Assert.Single(opened);
+        Assert.Equal("noor.markdown", benchId);
+        Assert.Equal([md], paths);
+        Assert.Equal(["song.xyz"], unknown);
+        // The registry's own instance was told: it opens the file without a dialog.
+        var loaded = await reg.Find("noor.markdown")!.HandleAsync("md.load", J(new { doc = A, path = md }), host, default);
+        Assert.Equal("# Dropped\n", (string)loaded!["markdown"]!);
+    }
+
+    [Fact]
+    public async Task A_page_cannot_hand_a_bench_files_itself()
+    {
+        var reg = NoorMD3.Host.BenchRegistry.FromAssemblies([typeof(MarkdownBench).Assembly]);
+        var router = new NoorMD3.Host.ShellRouter(reg, Path.Combine(_dir, "s.json"), _ => new Host(Path.Combine(_dir, "data")));
+        var reply = await router.HandleAsync(JsonDocument.Parse("""{"id":1,"target":"bench:noor.markdown","cmd":"shell.open","args":{"paths":["C:\\secret.md"]}}""").RootElement);
+        Assert.False((bool)reply["ok"]!);
+    }
+
+    [Fact]
     public void Only_markdown_and_text_files_open()
     {
         var docs = new Documents(Path.Combine(_dir, "data"));

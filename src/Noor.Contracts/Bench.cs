@@ -10,6 +10,12 @@ public static class Contract
 {
     public const int Version = 1;
     public static readonly IReadOnlySet<int> Supported = new HashSet<int> { 1 };
+
+    /// <summary>The shell hands a bench files the user dropped on the window or opened NoorMD with
+    /// (<c>{ "paths": [...] }</c>), matched by the bench's <see cref="BenchManifest.FileTypes"/>. Only the shell sends
+    /// commands starting with <c>shell.</c>: a page can't, so a bench can trust these paths as the user's choice.
+    /// The bench's page then hears the event <c>shell.open</c> with the same paths.</summary>
+    public const string OpenCommand = "shell.open";
 }
 
 /// <summary>A bench: its manifest, its web interface (files packed inside its DLL) and its commands (the C# side).</summary>
@@ -71,6 +77,9 @@ public sealed record BenchManifest
     public IReadOnlyList<MenuSpec> Menus { get; init; } = [];
     /// <summary>The panels it can show, and where they go by default.</summary>
     public IReadOnlyList<PanelSpec> Panels { get; init; } = [];
+    /// <summary>File extensions the bench opens (<c>".md"</c>), when the user drops such a file on the window or opens
+    /// NoorMD with it. The first bench that lists a type gets those files.</summary>
+    public IReadOnlyList<string> FileTypes { get; init; } = [];
 }
 
 public sealed record MenuSpec(string Title, IReadOnlyList<MenuItemSpec> Items);

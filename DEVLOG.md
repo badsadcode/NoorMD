@@ -289,6 +289,24 @@ The fun bug of the day: the editor had quietly taken over Ctrl+S (strikethrough!
 Press Save and your sentence got a line through it. The tests caught it before anyone else did, and the bench
 now gets those keys first.
 
+## Day 26, later — 3.0.6: "we miss helper buttons" 🔘
+
+The human opened 3.0.5, looked around, and asked the obvious question: *where are the buttons?* The Markdown bench
+had moved in without its toolbar, a bit like moving house and leaving the light switches behind. Then came the
+follow-up that set the plan for the next few days: *"i want all features from 2.0, just in this new container 😉"*.
+
+So now there's a checklist, and 3.0.6 ticks off its first part. The formatting bar is back, with the same icons
+2.0 had (the human sent a screenshot, just in case we'd forgotten what they looked like). Find and replace is back.
+So are bigger and smaller text, line widths, line numbers, and a divider in side-by-side view you can drag.
+
+There are new things too. Drop a file on the window and it opens. Right-click a tab and you get the usual
+suspects: close the others, show in Explorer, reload. Name a new document before you save it. And if another
+program changes your file while you're away, NoorMD tells you when you come back, instead of quietly saving over
+it later.
+
+The bug of the day: the table button did nothing at all if you had some text selected. Toast UI just shrugged.
+Now the cursor hops to the end of your selection first, and the table appears.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their

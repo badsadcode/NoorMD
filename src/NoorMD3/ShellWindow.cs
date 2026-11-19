@@ -218,6 +218,13 @@ public sealed class ShellWindow : Window
         if (ShellApp.Router == null) return;
         if (!string.Equals(new Uri(e.Source).GetLeftPart(UriPartial.Authority), Origin, StringComparison.OrdinalIgnoreCase)) return;   // only our page
         using var doc = JsonDocument.Parse(e.WebMessageAsJson);
+        // Files dropped on the page come with the message as WebView2 file objects: their paths are the user's choice.
+        if (doc.RootElement.TryGetProperty("cmd", out var c) && c.GetString() == "files.dropped" && e.AdditionalObjects is { } objects)
+        {
+            var paths = objects.OfType<CoreWebView2File>().Select(f => f.Path).ToList();
+            await ShellApp.OpenFilesAsync(paths, this);
+            return;
+        }
         var reply = await ShellApp.Router.HandleAsync(doc.RootElement, WindowCommand);
         if (_web.CoreWebView2 != null) _web.CoreWebView2.PostWebMessageAsJson(reply.ToJsonString());
     }
@@ -236,6 +243,8 @@ public sealed class ShellWindow : Window
                 break;
             case "title": if (m.TryGetProperty("text", out var t) && t.GetString() is { } text) Title = text.Length > 200 ? text[..200] : text; break;
             case "minimize": WindowState = WindowState.Minimized; break;
+            // The page has started: files NoorMD was opened with (Explorer's "Open with", or the command line) go to their benches.
+            case "files.pending": if (this == ShellApp.Main) _ = ShellApp.OpenFilesAsync(ShellApp.TakePendingFiles(), this); break;
             case "toggleMax": WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; break;
             case "close": Close(); break;
             // Floating panels (DESIGN.md, section 3.4): the main window opens and closes them; a floating window asks

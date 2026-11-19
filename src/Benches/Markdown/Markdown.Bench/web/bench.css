@@ -175,3 +175,28 @@
 .md-heading .lbl { flex: 1; text-align: left; color: var(--text); }
 .md-heading .caret { font-size: 10px; }
 .md-sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
+
+/* Find and replace */
+.md-findbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface); flex: none; }
+.md-findbar[hidden], .md-find-replace[hidden] { display: none; }
+.md-find-input { width: 220px; }
+.md-find-count { color: var(--muted); font-size: 12px; min-width: 64px; }
+.md-find-case { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; }
+.md-find-replace { display: inline-flex; align-items: center; gap: 6px; }
+.md-find-close { margin-left: auto; }
+::highlight(noor-find) { background-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+::highlight(noor-find-current) { background-color: var(--accent); color: var(--on-accent); }
+
+/* The Markdown view: line numbers, no word wrap (2.0's options) */
+.md-bench.source-line-numbers { --gutter: 3.4em; }
+.md-bench.source-line-numbers .md-docs .toastui-editor-md-container .ProseMirror { counter-reset: noor-line; }
+.md-bench.source-line-numbers .md-docs .toastui-editor-md-container .ProseMirror > div { counter-increment: noor-line; }
+.md-bench.source-line-numbers .md-docs .toastui-editor-md-container .ProseMirror > div::before {
+  content: counter(noor-line); position: absolute; left: calc(-1 * var(--gutter)); width: calc(var(--gutter) - 1.1em);
+  text-align: right; color: var(--tok-gutter); opacity: .7; font-variant-numeric: tabular-nums; pointer-events: none; user-select: none;
+}
+.md-bench.source-nowrap .md-docs .toastui-editor-md-container .ProseMirror { white-space: pre !important; overflow-wrap: normal; overflow-x: auto !important; }
+.md-bench.source-nowrap .md-docs .toastui-editor-md-container .ProseMirror > div { width: max-content; min-width: 100%; }
+.md-bench.no-spellcheck ::spelling-error, .md-bench.no-spellcheck ::grammar-error { text-decoration: none; }
+.md-bench.resizing { cursor: col-resize; user-select: none; }
+.md-bench.resizing .toastui-editor-md-preview { pointer-events: none; }

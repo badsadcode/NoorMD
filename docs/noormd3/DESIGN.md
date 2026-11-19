@@ -108,8 +108,24 @@ inspiration from its concept art, but NoorMD has its own face).
      NoorMD (or a crash) loses nothing: the documents come back with their changes. The shell learned what this
      needed: a bench's File / Edit / View items join the shell's menus, a bench can claim Ctrl+W (Ctrl+Shift+W
      still closes the bench), a bench may hold its closing for unsaved work, and file dialogs for benches.
-   - **3.0.6: the Music bench**, the library and the player as a dockable panel.
-   - **3.0.7:** the mini player in the status bar, Send to between benches, the command palette.
+   - **Before Music: everything 2.0's Markdown editor had**, in the new bench ("all features from 2.0, just in
+     this new container"). The checklist (✓ = in):
+     - **3.0.6 (done), editing comfort:** ✓ the formatting bar (2.0's icons; paragraph style picker, Ctrl+Shift+0–6)
+       · ✓ find and replace (Ctrl+F / Ctrl+H) · ✓ indent / outdent · ✓ text size (Ctrl+= / Ctrl+- / Ctrl+0) and line
+       width (comfortable / wide / full) · ✓ the Markdown view's line numbers, word wrap, synced scrolling and a
+       draggable divider in side by side · ✓ spellcheck on/off · ✓ naming a new document before its first save · ✓
+       files dropped on the window open (and files NoorMD is opened with: a bench says which file types it opens,
+       the shell hands them over) · ✓ the document tab's menu (close others, close to the right, name, copy the
+       path, show in Explorer, reload from disk) · ✓ noticing a file changed on disk when you come back to it.
+       (Pictures from disk inside the editor: 2.0 didn't have it, so it went to the ideas inbox.)
+     - **3.0.7, writing tools and sharing:** the writing goal and statistics (a panel) · snapshots (version history:
+       take, look, bring back, delete) · export to HTML and PDF, print, copy the Markdown, the export layouts ·
+       the editor's settings (fonts, sizes, which view new documents open in) · a welcome document.
+     - **With the Vault bench** (later in stage 1): vaults, the explorer, wiki links, backlinks, tags, pack and
+       share, search across notes.
+     - **With the Music bench:** music beside your notes, the mini player.
+   - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
+     bar, Send to between benches, the command palette.
    - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place
      (bench windows, settings patched per window so they don't overwrite each other); the page side waits until
      after part 4.

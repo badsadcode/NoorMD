@@ -151,6 +151,20 @@ async function closeBench(id, { force = false } = {}) {
   renderTabs(); save();
 }
 
+/** Files the window handed to a bench (dropped, or opened NoorMD with): the bench comes to the front and its page hears them. */
+async function openFilesIn(id, paths) {
+  const inst = await openBench(id);
+  if (inst && inst.emit) inst.emit('shell.open', { paths });
+}
+// Files dropped anywhere on the window: WebView2 hands them to the window with their paths.
+document.addEventListener('dragover', (e) => { if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; } });
+document.addEventListener('drop', (e) => {
+  if (!e.dataTransfer || !e.dataTransfer.files.length) return;
+  e.preventDefault();
+  const host = window.chrome && window.chrome.webview;
+  if (host && typeof host.postMessageWithAdditionalObjects === 'function') host.postMessageWithAdditionalObjects({ target: 'window', cmd: 'files.dropped' }, e.dataTransfer.files);
+});
+
 // ---------------------------------------------------------------- a bench's context: what its module may use
 function makeContext(id, inst) {
   const styles = new Set();
@@ -180,7 +194,9 @@ function makeContext(id, inst) {
   };
 }
 hostListeners.push((m) => {
-  if (m.event === 'bench' && open.has(m.bench)) open.get(m.bench).emit(m.name, m.payload);
+  if (m.event === 'open' && !floatId) openFilesIn(m.bench, m.paths || []);
+  else if (m.event === 'open.none' && !floatId) toast(`No bench opens ${(m.names || []).slice(0, 3).join(', ')}${(m.names || []).length > 3 ? '…' : ''}.`, { error: true });
+  else if (m.event === 'bench' && open.has(m.bench)) open.get(m.bench).emit(m.name, m.payload);
   else if (m.event === 'shell.keep' && !floatId && m.payload && open.has(m.payload.bench)) { open.get(m.payload.bench).layout.state[m.payload.key] = m.payload.value; save(); }
   else if (m.event === 'float.closed' && !floatId) dockBack(floats.find((f) => f.id === m.id), { windowGone: true });
   else if (m.event === 'float.moved' && !floatId) { const f = floats.find((x) => x.id === m.id); if (f) { Object.assign(f, { x: Math.round(m.x), y: Math.round(m.y), w: Math.round(m.w), h: Math.round(m.h) }); save(); } }
@@ -546,9 +562,16 @@ function benchCommand(cmd) {
 }
 /** A bench's menu called File, Edit or View joins the shell's menu of that name (its items first). */
 const SHARED_MENUS = ['File', 'Edit', 'View'];
+/** A bench menu item for the shell's menus; its module may tick it (checked(command) → true / false). */
+function benchItem(it) {
+  if (!it.command) return '-';
+  const inst = open.get(active), ask = inst && inst.mounted && inst.mounted.checked;
+  const ticked = ask ? inst.mounted.checked(it.command) : undefined;
+  return { label: it.label, keys: it.keys, run: () => benchCommand(it.command), ...(typeof ticked === 'boolean' ? { checked: () => !!inst.mounted.checked(it.command) } : {}) };
+}
 function benchItems(m, title) {
   const mm = (m.menus || []).find((x) => x.title === title);
-  return mm ? [...mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-')), '-'] : [];
+  return mm ? [...mm.items.map(benchItem), '-'] : [];
 }
 const claims = (keys) => SHORTCUTS().has(keys);
 function appMenus() {
@@ -564,7 +587,7 @@ function appMenus() {
       '-', { label: 'Reset the layout', disabled: active === 'home', run: () => { inst.layout = normaliseLayout({ state: inst.layout.state }, m); renderDocks(inst); save(); } },
       { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
-    ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-'))]),
+    ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map(benchItem)]),
     ['Tools', () => [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
     ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
       { header: floats.length ? `Floating panels (${floats.length})` : 'Floating panels' }, ...floats.map((f) => { const sp = specOf(f.ref); return { label: `${sp ? sp.spec.icon + '  ' + sp.spec.title : f.ref} · dock it back`, run: () => dockBack(f) }; }),
@@ -758,6 +781,7 @@ async function start() {
   if (floats.length) save();
   if (problems.length) toast(`${problems.length} bench${problems.length === 1 ? '' : 'es'} couldn't be loaded: Tools › Benches says why.`, { error: true });
   window.__noor = { open, order: () => order, active: () => active, settings: () => settings, floats: () => floats }; // for tests
+  windowCall('files.pending');   // files NoorMD was opened with
 }
 /** A floating panel's own window: a small title bar (the panel, its bench, Dock back) and the panel, run by its
     bench's web module here, in step with the main window through the bench's events. */

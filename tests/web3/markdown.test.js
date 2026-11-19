@@ -76,11 +76,13 @@ const MOCK = (manifests) => {
       case 'md.drafts': return Object.values(drafts).filter((d) => !(a.except || []).includes(d.id)).map((d) => ({ id: d.id, title: d.title, path: d.path || null, words: 1 }));
       case 'md.recentList': return recent.map((p) => ({ path: p, name: name(p), folder: p.slice(0, p.length - name(p).length - 1), exists: !!disk[p] }));
       case 'md.recentForget': put('mock.recent', a.path ? recent.filter((x) => x !== a.path) : []); return null;
-      case 'md.changed': return false;
+      case 'md.changed': { const d = docs[a.doc]; return !!(d && d.path && disk[d.path] && disk[d.path].stamp !== d.stamp); }
+      case 'md.reveal': (window.__revealed = window.__revealed || []).push(a.doc); return null;
       case 'md.pickImage': return { url: 'images/cat%20photo.png', name: 'cat photo' };
       default: throw new Error(`no ${m.cmd}`);
     }
   };
+  window.__mockSend = send;   // the window telling the page something (files handed over, …)
   window.chrome = { webview: {
     postMessage(m) { log.push(m); let reply; try { reply = { id: m.id, ok: true, result: answer(m) }; } catch (e) { reply = { id: m.id, ok: false, error: e.message }; } send(reply); },
     addEventListener(type, fn) { if (type === 'message') listeners.push(fn); },
@@ -353,6 +355,120 @@ const state = (page) => page.evaluate(ST);
     await page.click('.md-empty .md-recent-item .n:text-is("plan.md")');
     await waitFn(page, () => document.querySelectorAll('.md-tab').length === 1);
     check('…and one click opens it again', (await page.textContent('.md-tab .name')) === 'plan.md');
+
+    // ---------------------------------------------------------------- find and replace (plan.md is open again)
+    await page.click('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror h1');
+    await page.keyboard.press('Control+f');
+    check('Ctrl+F opens the find bar, with the cursor in it', await page.isVisible('.md-findbar') && await page.evaluate(() => document.activeElement.classList.contains('md-find-input')));
+    await page.keyboard.type('paragraph');
+    await page.waitForTimeout(100);
+    check('…and counts the matches', (await page.textContent('.md-find-count')) === '1 of 40', await page.textContent('.md-find-count'));
+    await page.keyboard.press('Enter');
+    check('Enter: the next one', (await page.textContent('.md-find-count')) === '2 of 40');
+    await page.keyboard.press('Shift+Enter');
+    check('Shift+Enter: back', (await page.textContent('.md-find-count')) === '1 of 40');
+    check('the matches are highlighted (and the document isn\'t touched)', await page.evaluate(() => CSS.highlights.has('noor-find-current')) && !(await state(page)).docs[0].dirty);
+    await page.keyboard.press('Escape');
+    check('Esc closes it', await page.isHidden('.md-findbar') && await page.evaluate(() => !CSS.highlights.has('noor-find')));
+    await page.keyboard.press('Control+h');
+    check('Ctrl+H: find and replace, with the last search', await page.isVisible('.md-find-replace') && (await page.inputValue('.md-find-input')) === 'paragraph');
+    await page.fill('.md-find-replace input', 'line');
+    await page.click('.md-find-replace .nui-btn:text-is("All")');
+    await page.waitForTimeout(150);
+    let pt = (await state(page)).docs[0].text;
+    check('Replace all: every one replaced, in one go', !pt.includes('paragraph') && (pt.match(/A line to scroll past/g) || []).length === 40);
+    await page.keyboard.press('Escape');
+    await page.click('.md-tools .md-tool[data-cmd="edit.undo"]');
+    await page.waitForTimeout(150);
+    check('…and one Undo brings them all back', ((await state(page)).docs[0].text.match(/A paragraph to scroll past/g) || []).length === 40);
+
+    // ---------------------------------------------------------------- text size, line width, the Markdown view's options
+    const docSize = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector('.md-pane:not([hidden]) .toastui-editor-contents')).fontSize));
+    const before = await docSize();
+    await page.keyboard.press('Control+=');
+    await page.keyboard.press('Control+=');
+    await page.waitForTimeout(50);
+    check('Ctrl+= makes the text bigger', (await docSize()) === before + 2, [before, await docSize()]);
+    await page.keyboard.press('Control+0');
+    await page.waitForTimeout(50);
+    check('Ctrl+0: back to normal', (await docSize()) === before);
+    await clickMenu('View', 'Line width: wide');
+    check('View › Line width: wide', (await state(page)).prefs.width === 'wide' && await page.evaluate(() => getComputedStyle(document.querySelector('.md-bench')).getPropertyValue('--measure').trim() === '1100px'));
+    await page.click('[data-menu]:text-is("View")');
+    check('…and the View menu ticks it (and the view the document is in)', (await page.getAttribute('.nui-menu .mi:has-text("Line width: wide")', 'aria-checked')) === 'true' && (await page.getAttribute('.nui-menu .mi:has-text("Visual")', 'aria-checked')) === 'true');
+    await page.keyboard.press('Escape');
+    await clickMenu('View', 'Line width: comfortable');
+    await page.click('.md-modes button[data-mode="markdown"]');
+    await page.waitForTimeout(150);
+    check('the Markdown view numbers its lines', await page.evaluate(() => document.querySelector('.md-bench').classList.contains('source-line-numbers') && getComputedStyle(document.querySelector('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div'), '::before').content.includes('counter')));
+    await clickMenu('View', 'Line numbers (Markdown view)');
+    check('…until you turn them off', !(await page.evaluate(() => document.querySelector('.md-bench').classList.contains('source-line-numbers'))));
+    await clickMenu('View', 'Line numbers (Markdown view)');
+    await clickMenu('View', 'Word wrap (Markdown view)');
+    check('word wrap can go off (long lines scroll sideways)', await page.evaluate(() => getComputedStyle(document.querySelector('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror')).whiteSpace === 'pre'));
+    await clickMenu('View', 'Word wrap (Markdown view)');
+    await clickMenu('View', 'Spellcheck');
+    check('spellcheck can go off', await page.evaluate(() => document.querySelector('.md-pane:not([hidden]) .ProseMirror').getAttribute('spellcheck') === 'false'));
+    await clickMenu('View', 'Spellcheck');
+    await page.click('.md-modes button[data-mode="split"]');
+    await page.waitForTimeout(150);
+    const sp = await page.$('.md-pane:not([hidden]) .toastui-editor-md-splitter');
+    const spb = await sp.boundingBox();
+    await page.mouse.move(spb.x + spb.width / 2, spb.y + 200);
+    await page.mouse.down();
+    await page.mouse.move(spb.x + spb.width / 2 - 200, spb.y + 200, { steps: 5 });
+    await page.mouse.up();
+    check('side by side: the divider drags', (await state(page)).prefs.split < 0.42, (await state(page)).prefs.split);
+    await sp.dblclick();
+    check('…and a double-click puts it back in the middle', (await state(page)).prefs.split === 0.5);
+    await page.click('.md-modes button[data-mode="wysiwyg"]');
+    await page.waitForTimeout(150);
+
+    // ---------------------------------------------------------------- another program changes the open file
+    await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('mock.disk')); d['C:\\Notes\\plan.md'].stamp += 5; d['C:\\Notes\\plan.md'].text = '# Plan, rewritten elsewhere\n'; localStorage.setItem('mock.disk', JSON.stringify(d)); });
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForSelector('.md-banner:not([hidden])');
+    check('coming back to NoorMD: "changed by another program"', (await page.textContent('.md-banner')).includes('changed by another program'));
+    await page.click('.md-banner .nui-btn:text-is("Reload")');
+    await page.waitForSelector('.nui-dialog');
+    check('…with unsaved changes here, Reload asks first', (await page.textContent('.nui-dialog .body')).includes('throws away'));
+    await dialogButton('Reload');
+    await page.waitForTimeout(250);
+    check('Reload: the file as it is now, and nothing unsaved', (await state(page)).docs[0].text === '# Plan, rewritten elsewhere\n' && !(await state(page)).docs[0].dirty && await page.isHidden('.md-banner'));
+
+    // ---------------------------------------------------------------- the document tab's menu, naming a new document
+    await page.click('.md-tab .name:text-is("plan.md")', { button: 'right' });
+    const tabItems = await page.$$eval('.nui-menu .mi', (xs) => xs.map((m) => m.textContent + (m.getAttribute('aria-disabled') ? ' (off)' : '')));
+    check('right-click a tab: close, close others / to the right, name, copy the path, show in Explorer, reload', ['Close', 'Close the others', 'Close the ones to the right', 'Name it…', 'Copy the path', 'Show in Explorer', 'Reload from disk'].every((l) => tabItems.some((t) => t.startsWith(l))) && tabItems.some((t) => t.startsWith('Name it…') && t.endsWith('(off)')), tabItems);
+    await page.click('.nui-menu .mi:has-text("Show in Explorer")');
+    await page.waitForTimeout(50);
+    check('Show in Explorer asks the C# side for that document', (await page.evaluate(() => window.__revealed || [])).length === 1);
+    await page.keyboard.press('Control+n');
+    await page.waitForTimeout(200);
+    await page.dblclick('.md-tab[aria-selected=true] .name');
+    await page.waitForSelector('.nui-dialog');
+    await page.fill('.nui-dialog input', 'Shopping list');
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(100);
+    check('double-click a new document\'s tab to name it', (await page.textContent('.md-tab[aria-selected=true] .name')) === 'Shopping list');
+    await page.keyboard.type('Milk');
+    await queue('mock.saves', ['C:\\Notes\\Shopping list.md']);
+    await page.keyboard.press('Control+s');
+    await page.waitForTimeout(200);
+    check('…and its first save suggests that name', await page.evaluate(() => window.__calls.filter((c) => c.cmd === 'md.writeAs').pop().args.title === 'Shopping list'));
+    await page.click('.md-tab .name:text-is("Shopping list.md")', { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Close the others")');
+    await page.waitForTimeout(200);
+    check('Close the others', (await state(page)).docs.length === 1);
+
+    // ---------------------------------------------------------------- files dropped on the window (handed over by the C# side)
+    await setDisk({ ...(await disk()), 'C:\\Drop\\dropped.md': { text: '# Dropped in\n', format: 'UTF-8 · LF', stamp: 1 } });
+    await page.evaluate(() => window.__mockSend({ event: 'open', bench: 'noor.markdown', paths: ['C:\\Drop\\dropped.md'] }));
+    await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'dropped.md'));
+    check('a file dropped on the window opens in a tab', (await page.textContent('.md-tab[aria-selected=true] .name')) === 'dropped.md');
+    await page.evaluate(() => window.__mockSend({ event: 'open.none', names: ['song.xyz'] }));
+    await page.waitForTimeout(100);
+    check('…and one no bench opens says so', (await page.textContent('.nui-toasts')).includes('No bench opens song.xyz'));
 
     // ---------------------------------------------------------------- themes
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });

@@ -19,7 +19,7 @@ public sealed class MarkdownBench : BenchBase
         Name = "Markdown",
         Icon = "✎",
         Description = "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-        Version = "3.0.5",
+        Version = "3.0.6",
         Density = "roomy",
         Menus =
         [
@@ -33,8 +33,16 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Save as…", "md.saveAs", "Ctrl+Shift+S"),
                 new MenuItemSpec("Save all", "md.saveAll"),
                 MenuItemSpec.Separator,
+                new MenuItemSpec("Name the document…", "md.name"),
+                new MenuItemSpec("Reload from disk", "md.reload"),
+                new MenuItemSpec("Show in Explorer", "md.reveal"),
+                MenuItemSpec.Separator,
                 new MenuItemSpec("Close the document", "md.close", "Ctrl+W"),
                 new MenuItemSpec("Unsaved work from before…", "md.drafts"),
+            ]),
+            new MenuSpec("Edit", [
+                new MenuItemSpec("Find…", "md.find", "Ctrl+F"),
+                new MenuItemSpec("Replace…", "md.replace", "Ctrl+H"),
             ]),
             new MenuSpec("View", [
                 new MenuItemSpec("Visual", "md.mode.visual"),
@@ -42,6 +50,18 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Side by side", "md.mode.split"),
                 new MenuItemSpec("Next view", "md.mode.next", "Ctrl+E"),
                 new MenuItemSpec("Formatting bar", "md.toolbar"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Bigger text", "md.zoom.in", "Ctrl+="),
+                new MenuItemSpec("Smaller text", "md.zoom.out", "Ctrl+-"),
+                new MenuItemSpec("Normal text size", "md.zoom.reset", "Ctrl+0"),
+                new MenuItemSpec("Line width: comfortable", "md.width.comfortable"),
+                new MenuItemSpec("Line width: wide", "md.width.wide"),
+                new MenuItemSpec("Line width: full", "md.width.full"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Line numbers (Markdown view)", "md.lines"),
+                new MenuItemSpec("Word wrap (Markdown view)", "md.wrap"),
+                new MenuItemSpec("Scroll together (side by side)", "md.sync"),
+                new MenuItemSpec("Spellcheck", "md.spell"),
             ]),
             new MenuSpec("Format", [
                 new MenuItemSpec("Bold", "md.fmt.bold", "Ctrl+B"),
@@ -58,6 +78,9 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Numbered list", "md.fmt.ol"),
                 new MenuItemSpec("Task list", "md.fmt.task"),
                 new MenuItemSpec("Quote", "md.fmt.quote"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Indent (Tab)", "md.fmt.indent"),
+                new MenuItemSpec("Outdent (Shift+Tab)", "md.fmt.outdent"),
             ]),
             new MenuSpec("Insert", [
                 new MenuItemSpec("Link…", "md.ins.link"),
@@ -69,6 +92,7 @@ public sealed class MarkdownBench : BenchBase
             ]),
         ],
         Panels = [new PanelSpec("outline", "Outline", "☰", "left")],
+        FileTypes = DocumentFile.OpenableExtensions,
     };
 
     Documents? _docs;
@@ -82,6 +106,21 @@ public sealed class MarkdownBench : BenchBase
             Docs(host).Picked(paths);
             return new JsonArray(paths.Select(p => (JsonNode?)p).ToArray());
         });
+        // The shell hands over files the user dropped or opened NoorMD with: they count as picked.
+        Command(Contract.OpenCommand, (a, host, _) =>
+        {
+            var paths = a.TryGetProperty("paths", out var p) && p.ValueKind == JsonValueKind.Array ? p.EnumerateArray().Select(x => x.GetString() ?? "").Where(DocumentFile.IsOpenable).ToList() : [];
+            Docs(host).Picked(paths);
+            return Task.FromResult<JsonNode?>(null);
+        });
+        // Show in Explorer: the folder of a file the user has open, with the file selected.
+        Command("md.reveal", (a, host, _) => Run(() =>
+        {
+            var path = Docs(host).PathOf(Str(a, "doc"));
+            if (path == null || !File.Exists(path)) throw new BenchException("It isn't saved as a file yet.");
+            if (OperatingSystem.IsWindows()) System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = false });
+            return null;
+        }));
         Command("md.load", (a, host, _) => Run(() =>
         {
             var doc = Docs(host).Open(Str(a, "doc"), Str(a, "path"));

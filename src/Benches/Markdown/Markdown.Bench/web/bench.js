@@ -2,6 +2,7 @@
 // documents as tabs inside the bench, an outline panel. The C# side owns the files: this page never reads or writes
 // one itself, it asks (md.pick, md.load, md.write, md.writeAs, md.draft…).
 import { el, menu } from '/ui/js/noor-ui.js';
+import { createFind } from './find.js';
 import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks } from './mdtools.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
@@ -54,6 +55,11 @@ const TOOLS = [
   ['md.fmt.code', 'code', 'Inline code', '', 'code'], ['md.ins.codeblock', 'codeblock', 'Code block', '', 'codeBlock'], ['md.ins.table', 'table', 'Table', ''], ['md.ins.image', 'image', 'Image', ''], ['md.ins.hr', 'hr', 'Horizontal line', ''],
 ];
 
+// The editor's own options (2.0's preferences), kept with the bench.
+const PREF_DEFAULTS = { zoom: 0, width: 'comfortable', lineNumbers: true, wrap: true, sync: false, spell: true, split: 0.5 };
+const MEASURES = { comfortable: '780px', wide: '1100px', full: '100000px' };
+const WIDTHS = [['comfortable', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']];
+
 const newId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const normalizeText = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
 const isDark = () => getComputedStyle(document.documentElement).colorScheme.includes('dark');
@@ -78,11 +84,29 @@ export default {
     const docsEl = el('div', { class: 'md-docs' });
     const emptyEl = el('div', { class: 'md-empty' });
     const toolsEl = el('div', { class: 'md-tools', role: 'toolbar', 'aria-label': 'Formatting', hidden: !ctx.restore('toolbar', true) });
+    const find = createFind({ getEditor: () => cur && cur.editor, toast: (t) => ctx.toast(t) });
     const box = el('div', { class: 'md-bench' },
       el('div', { class: 'md-bar' }, tabsEl, el('button', { class: 'nui-icon md-new', title: 'New document (Ctrl+N)', 'aria-label': 'New document', onclick: () => newDoc() }, '+'), modesEl),
-      toolsEl, bannerEl, el('div', { class: 'md-docs-wrap', style: { position: 'relative', flex: '1 1 auto', minHeight: '0', display: 'flex' } }, docsEl, emptyEl));
+      toolsEl, find.bar, bannerEl, el('div', { class: 'md-docs-wrap', style: { position: 'relative', flex: '1 1 auto', minHeight: '0', display: 'flex' } }, docsEl, emptyEl));
     docsEl.style.flex = '1 1 auto';
     root.replaceChildren(box);
+
+    // ------------------------------------------------------------ options: text size, line width, the Markdown view
+    const prefs = { ...PREF_DEFAULTS, ...(ctx.restore('prefs', {}) || {}) };
+    function setPrefs(p) { Object.assign(prefs, p); ctx.keep('prefs', { ...prefs }); applyPrefs(); renderStatus(); }
+    function applyPrefs() {
+      const z = Math.max(-6, Math.min(12, Number(prefs.zoom) || 0));
+      box.style.setProperty('--doc-size', `calc(var(--font-size-doc, 15px) + ${1 + z}px)`);
+      box.style.setProperty('--source-size', `calc(var(--font-size-doc, 15px) + ${z - 1}px)`);
+      box.style.setProperty('--measure', MEASURES[prefs.width] || MEASURES.comfortable);
+      box.style.setProperty('--split', (Math.min(0.75, Math.max(0.25, Number(prefs.split) || 0.5)) * 100).toFixed(1) + '%');
+      box.classList.toggle('source-line-numbers', !!prefs.lineNumbers);
+      box.classList.toggle('source-nowrap', !prefs.wrap);
+      box.classList.toggle('no-spellcheck', !prefs.spell);
+      docsEl.querySelectorAll('.ProseMirror').forEach((n) => n.setAttribute('spellcheck', String(!!prefs.spell)));
+      for (const d of docs) if (d.editor && d.editor.eventEmitter) d.editor.eventEmitter.emit('toggleScrollSync', !!prefs.sync);
+    }
+    const zoomBy = (n) => setPrefs({ zoom: n === 0 ? 0 : Math.max(-6, Math.min(12, (Number(prefs.zoom) || 0) + n)) });
 
     // ------------------------------------------------------------ documents
     function makeDoc({ id = newId(), path = null, name = null, title = null, mode = null, format = 'UTF-8 · LF' } = {}) {
@@ -136,6 +160,24 @@ export default {
       d.editor.on('caretChange', () => { if (d === cur) renderTools(); });
       const conv = d.editor.convertor;
       if (conv && typeof conv.toMarkdownText === 'function') { const toMd = conv.toMarkdownText.bind(conv); conv.toMarkdownText = (...a) => unescapeWikiLinks(toMd(...a)); }
+      setupSplitter(d);
+    }
+
+    /** Side by side: the divider between source and preview drags (double-click: half and half; ← → from the keyboard). */
+    function setupSplitter(d) {
+      const splitter = d.pane.querySelector('.toastui-editor-md-splitter');
+      if (!splitter) return;
+      Object.assign(splitter, { tabIndex: 0, title: 'Drag to share the room · double-click: half and half' });
+      splitter.setAttribute('role', 'separator'); splitter.setAttribute('aria-orientation', 'vertical'); splitter.setAttribute('aria-label', 'Divider between source and preview');
+      const container = splitter.parentElement;
+      splitter.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); splitter.setPointerCapture(e.pointerId); box.classList.add('resizing');
+        const move = (m) => { const r = container.getBoundingClientRect(); prefs.split = Math.min(0.75, Math.max(0.25, (m.clientX - r.left) / r.width)); applyPrefs(); };
+        const up = () => { splitter.removeEventListener('pointermove', move); splitter.removeEventListener('pointerup', up); box.classList.remove('resizing'); setPrefs({ split: Math.round(prefs.split * 1000) / 1000 }); };
+        splitter.addEventListener('pointermove', move); splitter.addEventListener('pointerup', up);
+      });
+      splitter.addEventListener('dblclick', () => setPrefs({ split: 0.5 }));
+      splitter.addEventListener('keydown', (e) => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); setPrefs({ split: prefs.split + (e.key === 'ArrowLeft' ? -0.02 : 0.02) }); } });
     }
 
     /** The editor is made the first time its document is shown (many tabs open fast). */
@@ -161,6 +203,7 @@ export default {
         d.banner = { text: 'This file has Markdown the Visual view can\'t show exactly (raw HTML, footnotes, hard line breaks…), so it opened as Markdown and nothing gets rewritten.', acts: [['Use Visual anyway', () => setMode(d, 'wysiwyg', { force: true })], ['OK', () => hideBanner(d)]] };
       }
       applyTheme();
+      applyPrefs();
     }
 
     /** Loading the text counts as an undoable step in the editor; a document starts with no history. */
@@ -178,7 +221,7 @@ export default {
     }
     function afterChange(d) {
       renderTab(d);
-      if (d === cur) { renderTitle(); clearTimeout(statusTimer); statusTimer = setTimeout(renderStatus, 200); clearTimeout(outlineTimer); outlineTimer = setTimeout(sendOutline, 300); }
+      if (d === cur) { renderTitle(); clearTimeout(statusTimer); statusTimer = setTimeout(renderStatus, 200); clearTimeout(outlineTimer); outlineTimer = setTimeout(() => { sendOutline(); find.refresh(); }, 300); }
       clearTimeout(d.draftTimer);
       d.draftTimer = setTimeout(() => writeDraft(d), 600);
     }
@@ -204,8 +247,10 @@ export default {
       for (const x of docs) x.pane.hidden = x !== d;
       if (!d.mounted && toastOk !== null) mountDoc(d);   // (still loading the editor: it mounts when that's done)
       renderAll();
-      if (focus) setTimeout(() => focusEditor(), 0);
+      find.refresh();
+      if (focus && !find.isOpen()) setTimeout(() => focusEditor(), 0);
       keepSession();
+      checkDisk(d);
     }
     function focusEditor() { if (!cur) return; if (cur.editor) cur.editor.focus(); else if (cur.fallback) cur.fallback.focus(); }
 
@@ -220,7 +265,9 @@ export default {
     function renderTabs() {
       tabsEl.replaceChildren(...docs.map((d) => {
         const t = el('div', { class: 'md-tab', role: 'tab', 'data-doc': d.id, 'aria-selected': String(d === cur), title: d.path || 'Not saved yet',
-          onclick: () => showDoc(d), onauxclick: (e) => { if (e.button === 1) closeDoc(d); } });
+          onclick: () => showDoc(d), onauxclick: (e) => { if (e.button === 1) closeDoc(d); },
+          oncontextmenu: (e) => { e.preventDefault(); tabMenu(d, e.clientX, e.clientY); },
+          ondblclick: (e) => { if (!d.path && !e.target.closest('.x')) nameDoc(d); } });
         renderTabInto(t, d);
         dragTab(t, d);
         return t;
@@ -232,6 +279,33 @@ export default {
       t.replaceChildren(el('span', { class: 'name', text: nameOf(d) }), isDirty(d) ? el('span', { class: 'dot', title: 'Unsaved changes', text: '●' }) : '',
         el('span', { class: 'x', role: 'button', title: 'Close the document (Ctrl+W)', 'aria-label': `Close ${nameOf(d)}`, onclick: (e) => { e.stopPropagation(); closeDoc(d); } }, '✕'));
       t.title = d.path || 'Not saved yet';
+    }
+    function tabMenu(d, x, y) {
+      const i = docs.indexOf(d);
+      menu(x, y, [
+        { label: 'Close', keys: 'Ctrl+W', run: () => closeDoc(d) },
+        { label: 'Close the others', disabled: docs.length < 2, run: () => closeMany(docs.filter((o) => o !== d)) },
+        { label: 'Close the ones to the right', disabled: i >= docs.length - 1, run: () => closeMany(docs.slice(i + 1)) },
+        '-',
+        { label: 'Name it…', disabled: !!d.path, run: () => nameDoc(d) },
+        { label: 'Copy the path', disabled: !d.path, run: () => navigator.clipboard.writeText(d.path).then(() => ctx.toast('Path copied.')).catch((e) => ctx.toast(e.message, { error: true })) },
+        { label: 'Show in Explorer', disabled: !d.path, run: () => ctx.call('md.reveal', { doc: d.id }).catch((e) => ctx.toast(e.message, { error: true })) },
+        { label: 'Reload from disk', disabled: !d.path, run: () => reload(d) },
+      ], { anchor: tabsEl });
+    }
+    async function closeMany(list) { for (const d of [...list]) if (!(await closeDoc(d))) return false; return true; }
+    /** A new document's name: shown on its tab, and offered as the file name when it's first saved. */
+    async function nameDoc(d) {
+      let input;
+      const ok = await ctx.dialog('Name the document', el('label', { class: 'md-linkfield' }, el('span', { text: 'Its name (also the file name it gets when you first save it)' }),
+        input = el('input', { class: 'nui-field', type: 'text', value: d.title, onkeydown: (e) => { if (e.key === 'Enter') e.target.closest('.nui-dialog').querySelector('.nui-btn.primary').click(); } })),
+        [{ label: 'Cancel', value: null }, { label: 'Name it', value: true, primary: true }]);
+      const name = ok && input.value.trim();
+      if (!name || d.path) return;
+      d.title = name.slice(0, 120);
+      renderTab(d); if (d === cur) { renderTitle(); sendOutline(); }
+      keepSession();
+      if (isDirty(d)) writeDraft(d);
     }
     function renderTab(d) { const t = tabsEl.querySelector(`.md-tab[data-doc="${d.id}"]`); if (t) renderTabInto(t, d); }
     /** Tabs reorder by dragging. */
@@ -441,9 +515,10 @@ export default {
         }
       } catch (e) { ctx.toast(`“${nameOf(d)}” wasn't saved: ${e.message}`, { error: true }); writeDraft(d); return false; }
       if (!r || !r.path) { if (isDirty(d)) writeDraft(d); return false; }
-      d.path = r.path; d.name = r.name; d.format = r.format || d.format; d.savedGen = gen;
+      d.path = r.path; d.name = r.name; d.format = r.format || d.format; d.savedGen = gen; d.diskNoticed = false;
+      if (d.banner && /changed by another program/.test(d.banner.text)) d.banner = null;
       if (d.gen !== gen) writeDraft(d);   // typed while it was saving: those words are still unsaved
-      renderTab(d); if (d === cur) { renderTitle(); renderStatus(); sendOutline(); }
+      renderTab(d); if (d === cur) { renderTitle(); renderStatus(); sendOutline(); renderBanner(); }
       keepSession();
       return true;
     }
@@ -475,6 +550,34 @@ export default {
       keepSession();
       return true;
     }
+
+    /** The file as it is on disk now, replacing what's in the editor (asks first when that has unsaved changes). */
+    async function reload(d) {
+      if (!d || !d.path) return;
+      if (isDirty(d)) {
+        const ok = await ctx.dialog('Reload from disk', el('p', { text: `Reloading “${nameOf(d)}” throws away the changes you haven't saved.` }), [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]);
+        if (!ok) return;
+      }
+      let r;
+      try { r = await ctx.call('md.load', { doc: d.id, path: d.path }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      clearTimeout(d.draftTimer);
+      try { d.editor && d.editor.destroy(); } catch { /* gone */ }
+      d.pane.replaceChildren(); d.editor = null; d.fallback = null; d.mounted = false;
+      d.pending = r.markdown; d.format = r.format; d.gen = 0; d.savedGen = 0; d.banner = null; d.diskNoticed = false;
+      if (d === cur) mountDoc(d);
+      renderAll(); writeDraft(d);
+    }
+    /** Another program changed (or moved) the file since it was opened or saved here: say so, once. */
+    async function checkDisk(d) {
+      if (!d || !d.path || d.diskNoticed) return;
+      const changedOnDisk = await ctx.call('md.changed', { doc: d.id }).catch(() => false);
+      if (!changedOnDisk || !docs.includes(d) || d.diskNoticed) return;
+      d.diskNoticed = true;
+      d.banner = { text: `“${nameOf(d)}” was changed by another program.${isDirty(d) ? ' You have unsaved changes here too.' : ''}`, acts: [['Reload', () => reload(d)], ['Keep mine', () => hideBanner(d)]] };
+      if (d === cur) renderBanner();
+    }
+    const onWindowFocus = () => { if (cur) checkDisk(cur); };
+    window.addEventListener('focus', onWindowFocus);
 
     async function recentDialog() {
       const list = await ctx.call('md.recentList').catch(() => []);
@@ -589,7 +692,10 @@ export default {
         if (el2) { el2.scrollIntoView({ block: 'start' }); const view = ed.wwEditor && ed.wwEditor.view; if (view) { try { const pos = view.posAtDOM(el2, 0); ed.setSelection(pos, pos); } catch { /* place only */ } } ed.focus(); }
       }
     }
+    let markReady;
+    const ready = new Promise((r) => { markReady = r; });
     const offs = [
+      ctx.on('shell.open', (p) => ready.then(async () => { for (const path of (p && p.paths) || []) await openPath(path); })),
       ctx.on('outline.ask', () => ctx.emit('outline', lastOutline)),
       ctx.on('outline.go', (p) => goToHeading(p && p.index)),
     ];
@@ -601,7 +707,8 @@ export default {
 
     // ------------------------------------------------------------ keys the bench's commands win over the editor
     // TOAST UI binds Ctrl+S (strikethrough), Ctrl+O (numbered list) and others; in this bench those are Save and Open.
-    const OWN_KEYS = { 'ctrl+s': 'md.save', 'ctrl+shift+s': 'md.saveAs', 'ctrl+o': 'md.open', 'ctrl+shift+o': 'md.recent', 'ctrl+n': 'md.new', 'ctrl+w': 'md.close', 'ctrl+e': 'md.mode.next' };
+    const OWN_KEYS = { 'ctrl+s': 'md.save', 'ctrl+shift+s': 'md.saveAs', 'ctrl+o': 'md.open', 'ctrl+shift+o': 'md.recent', 'ctrl+n': 'md.new', 'ctrl+w': 'md.close', 'ctrl+e': 'md.mode.next',
+      'ctrl+f': 'md.find', 'ctrl+h': 'md.replace', 'ctrl+=': 'md.zoom.in', 'ctrl++': 'md.zoom.in', 'ctrl+shift++': 'md.zoom.in', 'ctrl+-': 'md.zoom.out', 'ctrl+0': 'md.zoom.reset' };
     let commands = null;
     const ownKey = (e) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
@@ -624,6 +731,7 @@ export default {
       if (cur && !cur.mounted) { mountDoc(cur); renderAll(); }
       if (!ok) ctx.toast('The visual editor didn\'t load; documents open as plain Markdown.', { error: true });
       await restoreSession();
+      markReady();
     });
 
     commands = {
@@ -639,6 +747,19 @@ export default {
       'md.mode.markdown': () => cur && setMode(cur, 'markdown'),
       'md.mode.split': () => cur && setMode(cur, 'split'),
       'md.mode.next': nextMode,
+      'md.find': () => find.show(false),
+      'md.replace': () => find.show(true),
+      'md.zoom.in': () => zoomBy(1), 'md.zoom.out': () => zoomBy(-1), 'md.zoom.reset': () => zoomBy(0),
+      'md.width.comfortable': () => setPrefs({ width: 'comfortable' }), 'md.width.wide': () => setPrefs({ width: 'wide' }), 'md.width.full': () => setPrefs({ width: 'full' }),
+      'md.width.next': () => { const i = WIDTHS.findIndex((w) => w[0] === prefs.width); setPrefs({ width: WIDTHS[(i + 1) % WIDTHS.length][0] }); ctx.toast(`Line width: ${WIDTHS[(i + 1) % WIDTHS.length][1]}`); },
+      'md.lines': () => setPrefs({ lineNumbers: !prefs.lineNumbers }),
+      'md.wrap': () => setPrefs({ wrap: !prefs.wrap }),
+      'md.sync': () => setPrefs({ sync: !prefs.sync }),
+      'md.spell': () => { setPrefs({ spell: !prefs.spell }); ctx.toast(prefs.spell ? 'Spellcheck on' : 'Spellcheck off'); },
+      'md.fmt.indent': exec('indent'), 'md.fmt.outdent': exec('outdent'),
+      'md.name': () => cur && !cur.path && nameDoc(cur),
+      'md.reload': () => cur && reload(cur),
+      'md.reveal': () => cur && ctx.call('md.reveal', { doc: cur.id }).catch((e) => ctx.toast(e.message, { error: true })),
       'md.toolbar': () => { toolsEl.hidden = !toolsEl.hidden; ctx.keep('toolbar', !toolsEl.hidden); },
       'md.fmt.bold': exec('bold'), 'md.fmt.italic': exec('italic'), 'md.fmt.strike': exec('strike'), 'md.fmt.code': exec('code'),
       'md.fmt.h1': exec('heading', { level: 1 }), 'md.fmt.h2': exec('heading', { level: 2 }), 'md.fmt.h3': exec('heading', { level: 3 }),
@@ -648,9 +769,17 @@ export default {
       'md.ins.date': () => insertText(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })),
       'edit.undo': exec('undo'), 'edit.redo': exec('redo'),
     };
+    applyPrefs();
+    const CHECKS = {
+      'md.mode.visual': () => !!cur && cur.mode === 'wysiwyg', 'md.mode.markdown': () => !!cur && cur.mode === 'markdown', 'md.mode.split': () => !!cur && cur.mode === 'split',
+      'md.toolbar': () => !toolsEl.hidden, 'md.lines': () => !!prefs.lineNumbers, 'md.wrap': () => !!prefs.wrap, 'md.sync': () => !!prefs.sync, 'md.spell': () => !!prefs.spell,
+      'md.width.comfortable': () => prefs.width === 'comfortable', 'md.width.wide': () => prefs.width === 'wide', 'md.width.full': () => prefs.width === 'full',
+    };
     return {
       focus: focusEditor,
       commands,
+      /** Menu items with a tick (the shell asks). */
+      checked: (cmd) => (CHECKS[cmd] ? CHECKS[cmd]() : undefined),
       /** Closing the bench: unsaved documents are either saved or kept (drafts) for when it opens again. */
       async canClose() {
         const dirty = docs.filter(isDirty);
@@ -664,12 +793,12 @@ export default {
       },
       unmount() {
         // Documents stay as they are (drafts and the kept session bring them back): only the editors go.
-        themeWatch.disconnect(); offs.forEach((f) => f()); box.removeEventListener('keydown', ownKey, true);
+        themeWatch.disconnect(); offs.forEach((f) => f()); window.removeEventListener('focus', onWindowFocus); find.close(); box.removeEventListener('keydown', ownKey, true);
         for (const d of docs) { clearTimeout(d.draftTimer); try { d.editor && d.editor.destroy(); } catch { /* gone */ } }
         clearTimeout(statusTimer); clearTimeout(outlineTimer);
       },
       // For tests.
-      _state: () => ({ docs: docs.map((d) => ({ id: d.id, name: nameOf(d), path: d.path, mode: d.mode, dirty: isDirty(d), text: md(d), format: d.format })), current: cur ? cur.id : null, ready: toastOk !== null }),
+      _state: () => ({ prefs: { ...prefs }, find: find._state(), docs: docs.map((d) => ({ id: d.id, name: nameOf(d), path: d.path, mode: d.mode, dirty: isDirty(d), text: md(d), format: d.format })), current: cur ? cur.id : null, ready: toastOk !== null }),
     };
   },
   panels: {

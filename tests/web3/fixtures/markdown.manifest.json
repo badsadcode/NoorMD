@@ -3,7 +3,7 @@
   "name": "Markdown",
   "icon": "\u270E",
   "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-  "version": "3.0.5",
+  "version": "3.0.6",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",
@@ -52,6 +52,26 @@
           "keys": null
         },
         {
+          "label": "Name the document\u2026",
+          "command": "md.name",
+          "keys": null
+        },
+        {
+          "label": "Reload from disk",
+          "command": "md.reload",
+          "keys": null
+        },
+        {
+          "label": "Show in Explorer",
+          "command": "md.reveal",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
           "label": "Close the document",
           "command": "md.close",
           "keys": "Ctrl\u002BW"
@@ -60,6 +80,21 @@
           "label": "Unsaved work from before\u2026",
           "command": "md.drafts",
           "keys": null
+        }
+      ]
+    },
+    {
+      "title": "Edit",
+      "items": [
+        {
+          "label": "Find\u2026",
+          "command": "md.find",
+          "keys": "Ctrl\u002BF"
+        },
+        {
+          "label": "Replace\u2026",
+          "command": "md.replace",
+          "keys": "Ctrl\u002BH"
         }
       ]
     },
@@ -89,6 +124,66 @@
         {
           "label": "Formatting bar",
           "command": "md.toolbar",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Bigger text",
+          "command": "md.zoom.in",
+          "keys": "Ctrl\u002B="
+        },
+        {
+          "label": "Smaller text",
+          "command": "md.zoom.out",
+          "keys": "Ctrl\u002B-"
+        },
+        {
+          "label": "Normal text size",
+          "command": "md.zoom.reset",
+          "keys": "Ctrl\u002B0"
+        },
+        {
+          "label": "Line width: comfortable",
+          "command": "md.width.comfortable",
+          "keys": null
+        },
+        {
+          "label": "Line width: wide",
+          "command": "md.width.wide",
+          "keys": null
+        },
+        {
+          "label": "Line width: full",
+          "command": "md.width.full",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Line numbers (Markdown view)",
+          "command": "md.lines",
+          "keys": null
+        },
+        {
+          "label": "Word wrap (Markdown view)",
+          "command": "md.wrap",
+          "keys": null
+        },
+        {
+          "label": "Scroll together (side by side)",
+          "command": "md.sync",
+          "keys": null
+        },
+        {
+          "label": "Spellcheck",
+          "command": "md.spell",
           "keys": null
         }
       ]
@@ -165,6 +260,21 @@
           "label": "Quote",
           "command": "md.fmt.quote",
           "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Indent (Tab)",
+          "command": "md.fmt.indent",
+          "keys": null
+        },
+        {
+          "label": "Outdent (Shift\u002BTab)",
+          "command": "md.fmt.outdent",
+          "keys": null
         }
       ]
     },
@@ -211,5 +321,12 @@
       "icon": "\u2630",
       "dock": "left"
     }
+  ],
+  "fileTypes": [
+    ".md",
+    ".markdown",
+    ".mdown",
+    ".mkd",
+    ".txt"
   ]
 }

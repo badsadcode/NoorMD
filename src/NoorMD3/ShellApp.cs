@@ -31,6 +31,23 @@ public static class ShellApp
         Assets = new ShellAssets(Path.Combine(AppContext.BaseDirectory, "wwwroot"), Registry);
     }
 
+    static List<string> _pending = [];
+    /// <summary>Files NoorMD was started with, opened once the main page is ready.</summary>
+    public static void SetPendingFiles(IEnumerable<string> paths) => _pending = paths.ToList();
+    public static List<string> TakePendingFiles() { var p = _pending; _pending = []; return p; }
+
+    /// <summary>Hands files to the benches that open them; each bench's page (in the window they came to) opens them.</summary>
+    public static async Task OpenFilesAsync(IReadOnlyCollection<string> paths, ShellWindow window)
+    {
+        if (paths.Count == 0 || Router == null) return;
+        var (opened, unknown) = await Router.OpenFilesAsync(paths);
+        var target = Main ?? window;
+        foreach (var (bench, files) in opened) target.Post(JsonSerializer.Serialize(new { @event = "open", bench, paths = files }));
+        if (unknown.Count > 0) target.Post(JsonSerializer.Serialize(new { @event = "open.none", names = unknown }));
+        if (opened.Count > 0 && target.WindowState == WindowState.Minimized) target.WindowState = WindowState.Normal;
+        target.Activate();
+    }
+
     /// <summary>One browser process for all windows (they share its storage, and start faster).</summary>
     public static Task<CoreWebView2Environment> Environment_() => _env ??= CoreWebView2Environment.CreateAsync(null, Path.Combine(DataRoot, "WebView2"));
 

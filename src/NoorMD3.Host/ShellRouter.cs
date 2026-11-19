@@ -22,6 +22,33 @@ public sealed class ShellRouter
         Settings = ShellSettings.Load(settingsPath);
     }
 
+    /// <summary>Files the user dropped on a window or opened NoorMD with: each goes to the bench that opens its type
+    /// (told through <see cref="Contract.OpenCommand"/>). Returns which bench got which files, and the files no bench
+    /// opens.</summary>
+    public async Task<(List<(string Bench, string[] Paths)> Opened, List<string> Unknown)> OpenFilesAsync(IEnumerable<string> paths, CancellationToken cancel = default)
+    {
+        var groups = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var unknown = new List<string>();
+        foreach (var raw in paths)
+        {
+            if (string.IsNullOrWhiteSpace(raw) || !Path.IsPathFullyQualified(raw) || !File.Exists(raw)) continue;
+            var ext = Path.GetExtension(raw);
+            var bench = _benches.Benches.FirstOrDefault(b => b.Manifest.FileTypes.Contains(ext, StringComparer.OrdinalIgnoreCase));
+            if (bench == null) { unknown.Add(Path.GetFileName(raw)); continue; }
+            if (!groups.TryGetValue(bench.Manifest.Id, out var list)) groups[bench.Manifest.Id] = list = [];
+            list.Add(Path.GetFullPath(raw));
+        }
+        var opened = new List<(string, string[])>();
+        foreach (var (id, list) in groups)
+        {
+            var bench = _benches.Find(id)!;
+            var args = JsonSerializer.SerializeToElement(new { paths = list });
+            try { await bench.HandleAsync(Contract.OpenCommand, args, _hostFor(id), cancel); opened.Add((id, list.ToArray())); }
+            catch (BenchException) { unknown.AddRange(list.Select(Path.GetFileName)!); }
+        }
+        return (opened, unknown);
+    }
+
     public async Task<JsonObject> HandleAsync(JsonElement request, Func<string, JsonElement, JsonNode?>? window = null, CancellationToken cancel = default)
     {
         window ??= Window;
@@ -38,6 +65,7 @@ public sealed class ShellRouter
             else if (target.StartsWith("bench:", StringComparison.Ordinal))
             {
                 var bench = _benches.Find(target[6..]) ?? throw new BenchException($"There is no bench \"{target[6..]}\".");
+                if (cmd.StartsWith("shell.", StringComparison.Ordinal)) throw new BenchException($"\"{cmd}\" is the shell's to send.");
                 result = await bench.HandleAsync(cmd, args, _hostFor(bench.Manifest.Id), cancel);
             }
             else throw new BenchException($"Unknown target \"{target}\".");
