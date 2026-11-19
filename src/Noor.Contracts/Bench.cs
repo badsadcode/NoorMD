@@ -125,7 +125,8 @@ public sealed record MenuItemSpec(string? Label = null, string? Command = null, 
     public string? Submenu { get; init; }
 }
 
-/// <param name="Dock"><c>left</c>, <c>right</c> or <c>bottom</c>.</param>
+/// <param name="Dock"><c>left</c>, <c>right</c> or <c>bottom</c>; or <c>none</c>: not docked in its own bench at first (View › Panels shows it, and
+/// other benches can be offered it).</param>
 public sealed record PanelSpec(string Id, string Title, string Icon = "▤", string Dock = "right");
 
 /// <summary>The usual way to write a bench: web files embedded in the DLL under <c>web/</c>

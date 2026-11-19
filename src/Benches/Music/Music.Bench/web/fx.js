@@ -16,7 +16,7 @@ const PRESETS = {
   night: { label: 'Late night (soft)', gains: [-3, -2, -1, 0, 1, 1, 1, 0, -1, -2] },
 };
 const TARGETS = [[-14, 'Streaming (−14 LUFS)'], [-16, 'Balanced (−16 LUFS)'], [-18, 'ReplayGain (−18 LUFS)'], [-23, 'Quiet (−23 LUFS)']];
-const DEFAULTS = { eqOn: false, preset: 'flat', gains: PRESETS.flat.gains.slice(), preventClipping: true, normalize: false, target: -14 };
+const DEFAULTS = { eqOn: false, preset: 'flat', gains: PRESETS.flat.gains.slice(), preventClipping: true, normalize: false, target: -14, autoMeasure: true };
 
 let settings = { ...DEFAULTS, gains: DEFAULTS.gains.slice() };
 let ctx = null, source = null, norm = null, filters = [], preamp = null, limiter = null;
@@ -31,6 +31,7 @@ function load(saved) {
     gains: Array.isArray(s.gains) && s.gains.length === BANDS.length ? s.gains.map(clampGain) : DEFAULTS.gains.slice(),
     preventClipping: s.preventClipping !== false, normalize: !!s.normalize,
     target: TARGETS.some(([t]) => t === s.target) ? s.target : -14,
+    autoMeasure: s.autoMeasure !== false,
   };
   if (needsGraph()) ensureGraph();
   apply();

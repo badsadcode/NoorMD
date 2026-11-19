@@ -361,6 +361,14 @@ function makeContext(id, inst) {
       t.layout.state[key] = true;
       if (whereIs(t, ref) || isFloating(ref)) { save(); return; }
       await showPanel(t, ref);
+      // An offered panel is something to work with (the music player beside the writing): about half its side, not a sliver.
+      const at = whereIs(t, ref);
+      if (at) {
+        const others = t.layout.docks[at.side].filter((g) => g !== at.group).reduce((n, g) => n + (g.size || 1), 0);
+        at.group.size = Math.max(1, others);
+        if (at.side === 'right') t.layout.rw = Math.max(t.layout.rw, 340); else if (at.side === 'left') t.layout.lw = Math.max(t.layout.lw, 340);
+        renderDocks(t);
+      }
       save();
     },
     /** Tells every bench's page (in every window) something: publish('doc.current', { path }). */
@@ -404,10 +412,15 @@ const SIDE_DEFAULT = { lw: 240, rw: 280, bh: 180 };
 const SIDES = ['left', 'right', 'bottom'];
 const refOf = (owner, pid) => `${owner}:${pid}`;
 const splitRef = (ref) => { const i = ref.lastIndexOf(':'); return [ref.slice(0, i), ref.slice(i + 1)]; };
-function specOf(ref) { const [owner, pid] = splitRef(ref); const m = manifestOf(owner); const spec = m && (m.panels || []).find((p) => p.id === pid); return spec ? { owner, pid, spec, bench: m } : null; }
+function specOf(ref) {
+  const [owner, pid] = splitRef(ref); const m = manifestOf(owner); const found = m && (m.panels || []).find((p) => p.id === pid);
+  const spec = found && !SIDES.includes(found.dock) ? { ...found, dock: 'right' } : found;   // "none" docks right when shown
+  return spec ? { owner, pid, spec, bench: m } : null;
+}
 function defaultDocks(m) {
   const docks = { left: [], right: [], bottom: [] };
-  for (const p of m.panels || []) docks[p.dock].push({ panels: [refOf(m.id, p.id)], active: refOf(m.id, p.id), size: 1 });
+  // Dock "none": not shown in its own bench at first (View › Panels shows it; other benches can be offered it).
+  for (const p of m.panels || []) if (docks[p.dock]) docks[p.dock].push({ panels: [refOf(m.id, p.id)], active: refOf(m.id, p.id), size: 1 });
   return docks;
 }
 function normaliseLayout(l, m) {

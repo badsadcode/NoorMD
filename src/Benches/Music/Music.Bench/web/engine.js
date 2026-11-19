@@ -5,7 +5,8 @@
 // in the library's session, so they come back next time. From NoorMD 2.0's music.js (queue and playback).
 import { NoorFx } from './fx.js';
 
-const media = (id) => `/media/noor.music/track/${id}`;
+let version = 0;   // bumped after a track's file is edited, so the audio is fetched afresh
+const media = (id) => `/media/noor.music/track/${id}${version ? `?v=${version}` : ''}`;
 
 export function createEngine(ctx) {
   const audio = new Audio();
@@ -14,9 +15,12 @@ export function createEngine(ctx) {
   const q = { ids: [], order: [], pos: -1, shuffle: false, repeat: 'off', volume: 0.8 };
   const cache = new Map();       // id → track row
   let started = false, restorePosition = null, saveTimer = 0, errors = 0, playedId = null, lastTimeSent = 0;
+  let released = null;           // { id, at, playing } while a track's file is being edited
+  let measuring = false;
 
   const currentId = () => (q.pos >= 0 && q.pos < q.order.length ? q.ids[q.order[q.pos]] : null);
   const upcoming = (n) => q.order.slice(Math.max(0, q.pos), q.pos + n).map((i) => q.ids[i]);
+  const around = (n) => q.order.slice(Math.max(0, q.pos - 3), q.pos + n).map((i) => q.ids[i]);   // Up next shows the last three played too
   function shuffledOrder(n, keepFirst) {
     const order = [...Array(n).keys()].filter((i) => i !== keepFirst);
     for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
@@ -26,9 +30,10 @@ export function createEngine(ctx) {
   // ---------------------------------------------------------------- what the pages hear
   function state() {
     const id = currentId();
-    const items = q.order.slice(Math.max(0, q.pos), q.pos + 150).map((i, k) => {
+    const from = Math.max(0, q.pos - 3);
+    const items = q.order.slice(from, q.pos + 150).map((i, k) => {
       const r = cache.get(q.ids[i]);
-      return { pos: q.pos + k, id: q.ids[i], title: r ? r.displayTitle : '…', artist: r ? r.artist : null, duration: r ? r.duration : 0 };
+      return { pos: from + k, id: q.ids[i], title: r ? r.displayTitle : '…', artist: r ? r.artist : null, fileName: r ? r.fileName : '', duration: r ? r.duration : 0 };
     });
     return {
       id, track: id != null ? cache.get(id) || null : null, playing: !audio.paused && !!audio.getAttribute('src'),
@@ -58,7 +63,7 @@ export function createEngine(ctx) {
     const start = Math.max(0, Math.min(ids.length - 1, startIndex | 0));
     q.order = q.shuffle ? shuffledOrder(ids.length, start) : ids.map((_, i) => i);
     q.pos = q.order.indexOf(start);
-    await loadTracks(upcoming(200));
+    await loadTracks(around(200));
     loadCurrent(autoplay);
     save();
   }
@@ -70,7 +75,30 @@ export function createEngine(ctx) {
     if (autoplay) audio.play().catch((e) => { if (e.name !== 'AbortError') console.warn(e); });
     playedId = null;
     announce(); media_();
-    loadTracks(upcoming(60)).then(announce);
+    loadTracks(around(60)).then(announce);
+    autoMeasure();
+  }
+
+  // Evening out the loudness, and nothing known about this track: measure it (and the next two) quietly, here. The
+  // files are only read.
+  async function autoMeasure() {
+    const fx = NoorFx.settings;
+    if (!fx.normalize || fx.autoMeasure === false || measuring) return;
+    const want = upcoming(3).filter((id) => { const r = cache.get(id); return r && !Number.isFinite(r.loudness) && !Number.isFinite(r.rgGain); });
+    if (!want.length) return;
+    measuring = true;
+    try {
+      for (const id of want) {
+        try {
+          const m = await NoorFx.analyze(media(id));
+          if (!Number.isFinite(m.lufs)) continue;
+          await ctx.call('music.loudness.set', { id, lufs: Math.round(m.lufs * 100) / 100, peak: Math.round(m.peak * 10000) / 10000 });
+          if (cache.has(id)) cache.set(id, { ...cache.get(id), loudness: m.lufs, peak: m.peak });
+          if (id === currentId()) { NoorFx.setTrack(cache.get(id)); announce(); }
+          ctx.emit('measured', { id, loudness: m.lufs, peak: m.peak });
+        } catch (e) { if (e && e.name === 'AbortError') break; }
+      }
+    } finally { measuring = false; }
   }
   function next(auto = false, afterError = false) {
     if (!q.order.length) return;
@@ -141,7 +169,7 @@ export function createEngine(ctx) {
       NoorFx.load(s.fx);
       restorePosition = Number.isFinite(s.position) ? s.position : null;
       audio.volume = q.volume;
-      await loadTracks(upcoming(200));
+      await loadTracks(around(200));
       if (currentId() != null) { audio.src = media(currentId()); NoorFx.setTrack(cache.get(currentId())); }
     } else NoorFx.load(null);
     audio.volume = q.volume;
@@ -233,7 +261,32 @@ export function createEngine(ctx) {
         ctx.toast('🎲 ' + (r ? r.displayTitle : 'A random track'), { ms: 1600 });
         break;
       }
-      case 'fx': NoorFx.update(m.patch || {}); save(); break;
+      case 'fx': NoorFx.update(m.patch || {}); if (cache.get(currentId())) NoorFx.setTrack(cache.get(currentId())); save(); autoMeasure(); break;
+      // A track's file is about to be renamed or retagged: let go of it (and remember where it was).
+      case 'release': {
+        const id = currentId();
+        if (id == null || (Array.isArray(m.ids) && !m.ids.includes(id))) break;
+        released = { id, at: audio.currentTime || 0, playing: !audio.paused };
+        audio.pause(); audio.removeAttribute('src'); audio.load();
+        break;
+      }
+      // …and done: fresh rows for those tracks, and the released one back where it was (unless it moves on).
+      case 'reload': {
+        version++;
+        const ids = Array.isArray(m.ids) ? m.ids : [...cache.keys()];
+        ids.forEach((id) => cache.delete(id));
+        await loadTracks([...new Set([...ids.filter((id) => q.ids.includes(id)), ...upcoming(60)])]);
+        const r = released; released = null;
+        if (m.next) { next(); break; }
+        if (r && r.id === currentId()) {
+          restorePosition = r.at;
+          audio.src = media(r.id);
+          NoorFx.setTrack(cache.get(r.id));
+          if (r.playing) audio.play().catch(() => {});
+        }
+        announce(); media_();
+        break;
+      }
       case 'trackChanged': {
         // A track's row changed (triage, loudness measured): its cached row follows.
         if (Array.isArray(m.rows)) for (const r of m.rows) if (cache.has(r.id)) cache.set(r.id, { ...cache.get(r.id), ...r });

@@ -26,9 +26,15 @@ public sealed class MusicBench : BenchBase, IBenchMedia
                 new MenuItemSpec("Look for new music (rescan)", "music.rescanUi"),
                 MenuItemSpec.Separator,
                 new MenuItemSpec("New playlist…", "music.newPlaylist"),
+                new MenuItemSpec("New smart collection…", "music.newSmart"),
+                new MenuItemSpec("Import a playlist…", "music.importPlaylist"),
             ]),
             new MenuSpec("Edit", [
                 new MenuItemSpec("Find in the library", "music.focusSearch", "Ctrl+F"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Edit the track…", "music.editTrack", "F2"),
+                new MenuItemSpec("Edit the selected tracks… (Batch Organizer)", "music.batch"),
+                new MenuItemSpec("Undo the last track edit", "music.undoEdit"),
             ]),
             new MenuSpec("Playback", [
                 new MenuItemSpec("Play / pause", "music.toggle"),
@@ -41,13 +47,15 @@ public sealed class MusicBench : BenchBase, IBenchMedia
                 MenuItemSpec.Separator,
                 new MenuItemSpec("Show the playing track", "music.reveal.playing"),
                 new MenuItemSpec("Favourite the playing track ★", "music.favCurrent"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Sound: equalizer and loudness…", "music.sound"),
             ]),
         ],
         Panels =
         [
-            new PanelSpec("player", "Now playing", "♫", "right"),
-            new PanelSpec("queue", "Up next", "☰", "right"),
-            new PanelSpec("sound", "Sound", "🎚", "right"),
+            // The player and the library in one panel, to keep beside your writing (as in NoorMD 2.0). Not docked in
+            // the Music bench itself (its tab has all of it); it docks in Markdown when you first play something.
+            new PanelSpec("player", "Music", "♫", "none"),
         ],
     };
 
@@ -400,7 +408,7 @@ public sealed class MusicBench : BenchBase, IBenchMedia
     static JsonNode? Row(TrackRow t) => new JsonObject
     {
         ["id"] = t.Id, ["title"] = t.Title, ["displayTitle"] = t.DisplayTitle, ["artist"] = t.Artist, ["album"] = t.Album, ["genre"] = t.Genre, ["year"] = t.Year,
-        ["duration"] = t.Duration, ["triage"] = (int)t.Triage, ["missing"] = t.Missing, ["fileName"] = t.FileName, ["hasArt"] = t.HasArtwork, ["readError"] = t.ReadError,
+        ["duration"] = t.Duration, ["triage"] = (int)t.Triage, ["missing"] = t.Missing, ["fileName"] = t.FileName, ["folder"] = t.Folder, ["hasArt"] = t.HasArtwork, ["readError"] = t.ReadError,
         ["rgGain"] = Num(t.ReplayGainDb), ["rgPeak"] = Num(t.ReplayGainPeak), ["loudness"] = Num(t.Loudness), ["peak"] = Num(t.Peak), ["plays"] = t.PlayCount,
     };
     static JsonNode? Num(double? v) => v is double d && double.IsFinite(d) ? d : null;

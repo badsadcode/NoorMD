@@ -40,6 +40,18 @@
           "command": "music.newPlaylist",
           "keys": null,
           "submenu": null
+        },
+        {
+          "label": "New smart collection\u2026",
+          "command": "music.newSmart",
+          "keys": null,
+          "submenu": null
+        },
+        {
+          "label": "Import a playlist\u2026",
+          "command": "music.importPlaylist",
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -50,6 +62,30 @@
           "label": "Find in the library",
           "command": "music.focusSearch",
           "keys": "Ctrl\u002BF",
+          "submenu": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null,
+          "submenu": null
+        },
+        {
+          "label": "Edit the track\u2026",
+          "command": "music.editTrack",
+          "keys": "F2",
+          "submenu": null
+        },
+        {
+          "label": "Edit the selected tracks\u2026 (Batch Organizer)",
+          "command": "music.batch",
+          "keys": null,
+          "submenu": null
+        },
+        {
+          "label": "Undo the last track edit",
+          "command": "music.undoEdit",
+          "keys": null,
           "submenu": null
         }
       ]
@@ -116,6 +152,18 @@
           "command": "music.favCurrent",
           "keys": null,
           "submenu": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null,
+          "submenu": null
+        },
+        {
+          "label": "Sound: equalizer and loudness\u2026",
+          "command": "music.sound",
+          "keys": null,
+          "submenu": null
         }
       ]
     }
@@ -123,21 +171,9 @@
   "panels": [
     {
       "id": "player",
-      "title": "Now playing",
+      "title": "Music",
       "icon": "\u266B",
-      "dock": "right"
-    },
-    {
-      "id": "queue",
-      "title": "Up next",
-      "icon": "\u2630",
-      "dock": "right"
-    },
-    {
-      "id": "sound",
-      "title": "Sound",
-      "icon": "\uD83C\uDF9A",
-      "dock": "right"
+      "dock": "none"
     }
   ],
   "fileTypes": []
