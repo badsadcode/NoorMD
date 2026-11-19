@@ -137,6 +137,11 @@ table.lib tr:hover td { background: var(--hover); } table.lib tr.playing td { co
 .float .fbar b { color: var(--text); font-weight: 600; flex: 1; }
 .toast { position: fixed; z-index: 70; right: 16px; bottom: 40px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r2); box-shadow: 0 10px 30px rgba(0,0,0,.35); max-width: 360px; }
 
+.sendstrip { position: fixed; z-index: 45; left: 8px; right: 8px; bottom: 34px; display: flex; gap: 10px; align-items: center; padding: 12px 14px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); box-shadow: 0 -10px 40px rgba(0,0,0,.35); animation: up .18s ease-out; }
+@keyframes up { from { transform: translateY(20px); opacity: 0; } }
+.sendstrip .sthing { display: flex; align-items: center; gap: 12px; padding-right: 8px; }
+.scard { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 150px; padding: 10px; border-radius: var(--r2); border: 1px solid var(--border); background: var(--surface); }
+.scard small { color: var(--muted); font-size: 11px; } .scard:hover, .scard.sel { border-color: var(--accent); background: var(--sel); } .scard.later { opacity: .5; }
 /* mock-up controls */
 .mockctl { position: fixed; z-index: 80; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 99px; background: color-mix(in srgb, var(--surface2) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12px; color: var(--muted); backdrop-filter: blur(6px); }
 .mockctl select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 99px; padding: 3px 8px; font: inherit; }
@@ -163,7 +168,7 @@ body.dirC .phead { border-bottom: 0; padding: 8px 8px 0; }
 body.dirC .doctabs { background: var(--panel); padding: 8px 10px 0; }
 </style>
 </head>
-<body class="dirA" data-theme="dark">
+<body class="dirC" data-theme="dark">
 <div class="app">
   <header class="titlebar">
     <div class="logo">N</div>
@@ -190,6 +195,7 @@ body.dirC .doctabs { background: var(--panel); padding: 8px 10px 0; }
 <div class="mockctl">
   <span>Mock-up</span>
   <select id="dir" title="Layout direction">
+    <option value="auto">Per bench (decided: Code compact, the rest roomy)</option>
     <option value="dirA">A · Cards (concept-art inspired)</option>
     <option value="dirB">B · Flat and dense</option>
     <option value="dirC">C · Roomy, writing first</option>
@@ -209,6 +215,9 @@ const el = (tag, attrs = {}, ...kids) => { const e = document.createElement(tag)
 // ---------------------------------------------------------------- the benches (stage 1)
 const SWATCH = ['linear-gradient(135deg,#2c5364,#203a43)', 'linear-gradient(135deg,#7f5a83,#0d324d)', 'linear-gradient(135deg,#f6d365,#fda085)', 'linear-gradient(135deg,#5ee7df,#b490ca)', 'linear-gradient(135deg,#355c3a,#a8c66c)', 'linear-gradient(135deg,#232526,#414345)', 'linear-gradient(135deg,#ee9ca7,#ffdde1)', 'linear-gradient(135deg,#43cea2,#185a9d)', 'linear-gradient(135deg,#c79081,#dfa579)', 'linear-gradient(135deg,#4b6cb7,#182848)', 'linear-gradient(135deg,#ffafbd,#ffc3a0)', 'linear-gradient(135deg,#0f2027,#2c5364)'];
 const rows = (list) => list.map(([t, m, cls]) => el('div', { class: 'row ' + (cls || '') }, t, m ? el('span', { class: 'm' }, m) : null));
+let direction = 'auto';
+const DENSITY = { code: 'dirB' }; // every other bench: roomy (dirC)
+const applyDirection = () => { document.body.className = direction === 'auto' ? (DENSITY[active] || 'dirC') : direction; };
 const BENCHES = {
   markdown: { name: 'Markdown', icon: '✎', menus: ['Format', 'Insert'], status: 'Visual · 412 words · Saved',
     docs: [['NoorRoads.md', true], ['Mechs ideas.md'], ['Untitled']], title: 'NoorRoads.md',
@@ -228,7 +237,7 @@ const BENCHES = {
     panels: { left: [], right: [] },
     content: () => el('div', { style: 'padding:16px;max-width:640px' }, [['Groove Salad', 'SomaFM · ambient', 1, 0], ['Deep Space One', 'SomaFM · space', 0, 1], ['Radio Paradise', 'eclectic', 0, 2], ['Lofi Hip Hop', 'beats', 0, 3]].map(([n, d, on, k]) => el('div', { class: 'station' + (on ? ' on' : '') }, el('i', { style: 'background:' + SWATCH[k] }), el('div', {}, el('b', {}, n), el('div', { style: 'color:var(--muted);font-size:12px' }, d)), on ? el('span', { class: 'm', style: 'margin-left:auto;color:var(--accent)' }, '● Live') : null))) },
   gallery: { name: 'Gallery', icon: '▦', menus: ['Pictures', 'Slideshow'], status: 'Textures · 48 pictures · right-click a picture: Send to…', title: 'Albums/Textures',
-    panels: { left: [['albums', '▤', 'Albums', () => rows([['▾ All pictures', '3,120'], ['Textures', '48', 'indent1 sel'], ['References', '212', 'indent1'], ['Screenshots', '860', 'indent1']])]], right: [['details', 'ⓘ', 'Details', () => [el('div', { style: `aspect-ratio:4/3;border-radius:var(--r2);background:${SWATCH[4]};margin-bottom:8px` }), ...rows([['leafy_grass.png', ''], ['Size', '2048 × 2048'], ['Rating', '★★★★☆']]), el('div', { style: 'padding:8px' }, el('button', { class: 'btn', onclick: (e) => sendMenu(e.clientX, e.clientY) }, 'Send to… ▾'))]]] },
+    panels: { left: [['albums', '▤', 'Albums', () => rows([['▾ All pictures', '3,120'], ['Textures', '48', 'indent1 sel'], ['References', '212', 'indent1'], ['Screenshots', '860', 'indent1']])]], right: [['details', 'ⓘ', 'Details', () => [el('div', { style: `aspect-ratio:4/3;border-radius:var(--r2);background:${SWATCH[4]};margin-bottom:8px` }), ...rows([['leafy_grass.png', ''], ['Size', '2048 × 2048'], ['Rating', '★★★★☆']]), el('div', { style: 'padding:8px' }, el('button', { class: 'btn', onclick: (e) => sendMenu(e.clientX, e.clientY) }, 'Send to…'))]], ['send', '➤', 'Send to', () => [el('div', { class: 'h' }, 'leafy_grass.png can go to'), ...SEND_TARGETS.map(([ic, n, what, later]) => el('div', { class: 'row' + (later ? '' : ''), style: later ? 'opacity:.5' : '', title: later ? 'Comes to 3.0 later, with its bench' : '', onclick: () => sendStrip('leafy_grass.png') }, el('span', {}, ic), el('b', { style: 'font-weight:500' }, n), el('span', { class: 'm' }, later ? 'later' : what)))]]] },
     content: () => el('div', { class: 'grid' }, ['moss_rock', 'bark_oak', 'sand_dune', 'river_pebbles', 'leafy_grass', 'slate', 'rose_petal', 'sea_glass', 'clay', 'night_sky', 'peach', 'deep_water'].map((n, i) => el('div', { class: 'thumb' + (i === 4 ? ' sel' : ''), style: 'background:' + SWATCH[i], oncontextmenu: (e) => { e.preventDefault(); sendMenu(e.clientX, e.clientY); } }, el('small', {}, n + '.png')))) },
   calendar: { name: 'Calendar', icon: '▣', menus: ['Calendar'], status: 'November 2026 · 3 reminders', title: 'November 2026',
     panels: { left: [], right: [['agenda', '☷', 'Agenda', () => [el('div', { class: 'h' }, 'Today'), ...rows([['19:00 Stream: devlog', '', 'sel']]), el('div', { class: 'h' }, 'This week'), ...rows([['Fri: NoorEngine M8 review'], ['Sat: Mum\'s birthday 🎂']])]]] },
@@ -237,6 +246,15 @@ const BENCHES = {
     panels: { left: [['tree', '▤', 'Explorer', () => [el('div', { class: 'h' }, 'NoorFPS-lite'), ...rows([['▾ 📁 Scripts'], ['📄 player.luau', 'M', 'indent1 sel'], ['📄 Weapon.cs', null, 'indent1'], ['📄 hud.luau', 'U', 'indent1'], ['▸ 📁 Scenes'], ['▸ 📁 Assets'], ['📄 project.noorproj']])]], ['search', '⌕', 'Search', () => [el('div', { class: 'field' }, '⌕ Search in folder…')]], ['git', '⎇', 'Git', () => rows([['M player.luau'], ['U hud.luau']])]], right: [], bottom: [['problems', '⚠', 'Problems', () => rows([['⚠ player.luau:22 — unused local "dt"'], ['ⓘ Weapon.cs:8 — can be readonly']])], ['term', '>_', 'Terminal', () => el('div', { class: 'code', style: 'padding:4px 8px' }, '> noor_cli validate .\n✓ 12 scenes, 48 assets, 0 errors')]] },
     content: () => { const lines = ['<span class="c">-- player.luau: a first-person player (NoorEngine)</span>', '<span class="k">local</span> speed: <span class="f">number</span> = <span class="n">5.5</span>', '<span class="k">local</span> jump = <span class="n">4.2</span>', '', '<span class="k">function</span> <span class="f">on_update</span>(self, dt: <span class="f">number</span>)', '  <span class="k">local</span> move = noor.input.<span class="f">axis2</span>(<span class="s">"move"</span>)', '  <span class="k">local</span> t = self.transform', '  t.position += t:<span class="f">forward</span>() * move.y * speed * dt', '  t.position += t:<span class="f">right</span>() * move.x * speed * dt', '', '  <span class="k">if</span> noor.input.<span class="f">pressed</span>(<span class="s">"jump"</span>) <span class="k">and</span> self.character.grounded <span class="k">then</span>', '    self.character:<span class="f">jump</span>(jump)', '  <span class="k">end</span>', '<span class="k">end</span>']; const c = el('div', { class: 'code' }); lines.forEach((l) => c.append(el('div', { html: l || ' ' }))); return c; } },
 };
+const SEND_TARGETS = [['▦', 'NoorPhoto', 'edit or paint it', 1], ['▚', 'NoorSprite', 'turn it into pixels', 1], ['◈', 'NoorMaterial', 'use it as a texture', 1], ['✎', 'Markdown', 'insert it into a note', 0], ['◫', 'Vault', 'save a copy', 0], ['⬡', 'NoorEngine', 'export (Interchange)', 1]];
+function sendStrip(name) {
+  document.querySelectorAll('.sendstrip').forEach((x) => x.remove());
+  const strip = el('div', { class: 'sendstrip' },
+    el('div', { class: 'sthing' }, el('div', { style: `width:64px;height:64px;border-radius:var(--r2);background:${SWATCH[4]}` }), el('div', {}, el('b', {}, name), el('div', { style: 'color:var(--muted);font-size:12px' }, '2048 × 2048 · image')), el('span', { style: 'font-size:20px;color:var(--muted)' }, '›')),
+    ...SEND_TARGETS.map(([ic, n, what, later], i) => el('button', { class: 'scard' + (i === 3 ? ' sel' : '') + (later ? ' later' : ''), title: later ? 'Comes to 3.0 later, with its bench' : '', onclick: () => { strip.remove(); toast(later ? `${n} comes to 3.0 later, with its bench (stage 2 or 3).` : `Sent ${name} to ${n} (${what}).`); } }, el('div', { style: 'font-size:20px' }, ic), el('b', {}, n), el('small', {}, later ? 'with its bench, later' : what))),
+    el('button', { class: 'iconbtn', style: 'margin-left:auto', title: 'Close (Esc)', onclick: () => strip.remove() }, '✕'));
+  document.body.append(strip);
+}
 const MORE_BENCHES = [['NoorForm', 'Trees, rocks, plants'], ['NoorMesh', 'Modelling'], ['NoorForge', 'Texturing'], ['NoorMaterial', 'PBR materials'], ['NoorSprite', 'Pixel art'], ['NoorPhoto', 'Photo and painting'], ['NoorSound', 'Sound design']];
 
 // ---------------------------------------------------------------- state
@@ -254,8 +272,9 @@ const activeTab = {};
 // ---------------------------------------------------------------- rendering
 function render() {
   const b = BENCHES[active];
+  applyDirection();
   // main menu: the app's items, then the bench's own menus, then Help
-  const mm = $('#mainmenu'); mm.replaceChildren(...['File', 'Edit', 'View', ...b.menus, 'Help'].map((m) => el('button', { onclick: (e) => mainMenu(m, e.currentTarget) }, m)));
+  const mm = $('#mainmenu'); mm.replaceChildren(...['File', 'Edit', 'View', ...b.menus, 'Tools', 'Window', 'Help'].map((m) => el('button', { onclick: (e) => mainMenu(m, e.currentTarget) }, m)));
   $('#wintitle').innerHTML = `<b>${b.name}</b> · ${b.title} — NoorMD`;
   // bench tabs
   $('#benchtabs').replaceChildren(...open.map((id) => el('button', { class: 'btab' + (id === active ? ' active' : ''), title: `${BENCHES[id].name} (Ctrl+${open.indexOf(id) + 1})`, onclick: () => { active = id; render(); } }, el('span', { class: 'ic' }, BENCHES[id].icon), BENCHES[id].name, (BENCHES[id].docs || []).some((d) => d[1]) ? el('span', { class: 'dot', title: 'Unsaved changes' }) : null, el('span', { class: 'x', title: 'Close the bench', onclick: (e) => { e.stopPropagation(); open = open.filter((x) => x !== id); if (active === id) active = open[0]; render(); toast(`${BENCHES[id].name} closed. Its documents and layout are kept for next time.`); } }, '✕'))), el('button', { class: 'btab add', title: 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
@@ -308,7 +327,7 @@ document.querySelectorAll('.dock').forEach((dock) => {
 });
 // the bench area gets wider docks when something is dragged over an empty side
 const style = document.createElement('style');
-style.textContent = 'body.dragging .bench { --lw: 240px !important; --rw: 260px !important; --bh: 150px !important; } body.dragging .dock:empty { border: 2px dashed var(--border); }';
+style.textContent = 'body.dragging .bench { --lw: 240px !important; --rw: 260px !important; --bh: 150px !important; } body.dragging .dock:empty { border: 2px dashed var(--border); } body:has(.sendstrip) .mockctl, body:has(.sendstrip) .toast { display: none; }';
 document.head.append(style);
 
 // ---------------------------------------------------------------- floating windows (a second window, simulated)
@@ -344,6 +363,8 @@ const MENUS = {
   File: () => [{ t: 'New', k: 'Ctrl+N' }, { t: 'Open…', k: 'Ctrl+O' }, { t: 'Open recent ▸' }, '-', { t: 'Save', k: 'Ctrl+S' }, { t: 'Save as…', k: 'Ctrl+Shift+S' }, '-', { t: 'Send to… ▸', run: () => sendMenu(80, 60) }, { t: 'Export…', k: 'Ctrl+E' }, '-', { t: 'Settings', k: 'Ctrl+,' }, { t: 'Exit', k: 'Alt+F4' }],
   Edit: () => [{ t: 'Undo', k: 'Ctrl+Z' }, { t: 'Redo', k: 'Ctrl+Y' }, '-', { t: 'Cut', k: 'Ctrl+X' }, { t: 'Copy', k: 'Ctrl+C' }, { t: 'Paste', k: 'Ctrl+V' }, '-', { t: 'Find', k: 'Ctrl+F' }, { t: 'Command palette…', k: 'Ctrl+Shift+P', run: palette }],
   View: () => [{ h: 'Panels of ' + BENCHES[active].name }, ...['left', 'right', 'bottom'].flatMap((s) => (BENCHES[active].panels[s] || []).map((p) => ({ t: (layoutOf(active)[s].flat().includes(p[0]) || layoutOf(active).left.flat().includes(p[0]) || layoutOf(active).right.flat().includes(p[0]) || layoutOf(active).bottom.flat().includes(p[0]) ? '✓ ' : '   ') + p[2], run: () => { if (![...layoutOf(active).left, ...layoutOf(active).right, ...layoutOf(active).bottom].flat().includes(p[0])) { layoutOf(active)[s].push([p[0]]); render(); } } }))), '-', { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, { t: 'Focus mode', k: 'F11' }, { t: 'Theme ▸' }, { t: 'Zoom in', k: 'Ctrl+=' }],
+  Tools: () => [{ t: 'Settings', k: 'Ctrl+,' }, { t: 'Benches… (install, update, turn off)' }, { t: 'Command palette…', k: 'Ctrl+Shift+P', run: palette }, { t: 'Keyboard shortcuts…' }],
+  Window: () => [{ h: 'Layouts' }, { t: 'Save this layout…' }, { t: 'Switch layout ▸' }, { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, '-', { h: 'Floating windows' }, ...(floats.length ? floats.map((f) => ({ t: `${panelDef(f.bench, f.pid)[2]} (${BENCHES[f.bench].name}) → dock again`, run: () => { floats = floats.filter((x) => x !== f); layoutOf(f.bench).right.push([f.pid]); render(); } })) : [{ t: 'None: ⧉ on a panel floats it', off: true }]), { t: 'Bring all windows to this monitor' }, '-', { t: 'Focus mode', k: 'F11' }],
   Help: () => [{ t: 'Welcome' }, { t: 'Shortcuts', k: 'F1' }, { t: 'What\'s new in 3.0' }, '-', { t: 'About NoorMD' }],
 };
 function mainMenu(name, btn) {
@@ -351,7 +372,8 @@ function mainMenu(name, btn) {
   const items = MENUS[name] ? MENUS[name]() : [{ h: `${BENCHES[active].name}'s own menu` }, { t: `${name} items of ${BENCHES[active].name}` }, { t: 'Each bench adds its own menus here' }, { t: '…and they change when you switch bench' }];
   menu(r.left, r.bottom + 2, items); btn.classList.add('open');
 }
-function sendMenu(x, y) {
+function sendMenu(x, y) { closeMenus(); sendStrip('leafy_grass.png'); }
+function sendMenuOld(x, y) {
   menu(x, y, [{ h: 'Send "leafy_grass.png" to…' }, { t: '▦ NoorPhoto (edit or paint it)' }, { t: '▚ NoorSprite (as pixels)' }, { t: '◈ NoorMaterial (as a texture)' }, { t: '✎ Markdown (insert the picture)' }, '-', { h: 'In NoorMD 2.0 for now' }, { t: 'NoorForge', off: true }, { t: 'NoorMesh', off: true }]);
 }
 function benchPicker(btn) {
@@ -375,12 +397,13 @@ let toastTimer;
 function toast(text) { document.querySelectorAll('.toast').forEach((t) => t.remove()); const t = el('div', { class: 'toast' }, text); document.body.append(t); clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 4200); }
 
 // ---------------------------------------------------------------- controls
-$('#dir').addEventListener('change', (e) => { document.body.className = e.target.value; });
+$('#dir').addEventListener('change', (e) => { direction = e.target.value; applyDirection(); });
 $('#theme').addEventListener('change', (e) => { document.body.dataset.theme = e.target.value; });
 $('#palbtn').addEventListener('click', palette);
 $('#help').addEventListener('click', () => toast('Try: switch benches with the tabs (Ctrl+1…9), drag a panel\'s tab to another side or onto another panel, ⧉ floats a panel, ＋ opens a bench, the menus change with the bench, right-click a Gallery picture for Send to…, Ctrl+Shift+P for commands.'));
 $('#mini').addEventListener('click', (e) => { const s = e.currentTarget.firstChild; s.textContent = s.textContent.includes('▶') ? '❚❚ ' : '▶︎ '; });
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') document.querySelectorAll('.sendstrip').forEach((x) => x.remove());
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); palette(); }
   else if (e.ctrlKey && /^[1-9]$/.test(e.key) && open[Number(e.key) - 1]) { e.preventDefault(); active = open[Number(e.key) - 1]; render(); }
 });

@@ -25,6 +25,19 @@ home, one look and one way of working.
 7. **NoorEngine first for game assets**, through Noor Interchange, with Godot, Unity, Unreal and plain
    glTF as the other targets.
 
+**Decided so far (19 Nov):**
+- **Density per bench, one design language.** Code (and later the pro tools: Mesh, Forge, Sprite…) uses the
+  compact density (mock-up direction B); writing and media (Markdown, Vault, Music, Video, Gallery, Calendar)
+  use the roomy one (direction C). Same controls, menus, colours and words; only spacing and sizes change.
+  You can override it per bench in Settings.
+- **The menus:** File, Edit, View, then the bench's own menus, then **Tools** and **Window**, then Help.
+- **Send to** as a panel and a card strip (section 5.3).
+- **NoorCode** keeps its name: in NoorMD it's the outside code editor, in NoorEngine the built-in one.
+- **The logo:** the N with a page and picture / video / brush tiles (`references/logo-concept.png`), redrawn
+  as an SVG.
+- Your concept pictures are in `references/` as mood boards (they are AI-drawn, so their details are
+  illustrations, not specs).
+
 **Not goals for now:** porting every bench at once; changing what works mechanically (the Markdown editor,
 the Vault, the players, the Gallery are good as they are inside); a look copied from NoorEditor (we take
 inspiration from its concept art, but NoorMD has its own face).
@@ -153,6 +166,16 @@ language, logging, and the shared players.
 - Dragging something from one bench onto another bench's tab or panel uses the same system.
 - The shell keeps a short history of sends ("Sent 'Oak_01' to NoorMesh, 2 min ago").
 
+### 5.3 How it looks
+
+- **The Send to panel** (dockable like any other): what is selected, and the benches that can take it, each
+  with what it will do ("NoorMesh: create a 3D model", "NoorEngine: export (Interchange)", "Vault: save a
+  copy"). Benches still in 2.0 are listed greyed out, so you know they exist.
+- **The send strip:** choosing Send to… (from the File menu, a right-click or Ctrl+Shift+S… shortcut to be
+  chosen) slides a strip up from the bottom: the thing on the left, big cards for the targets on the right.
+  Enter or a click sends; Esc closes it.
+- See `references/concept-1-send-panel.png` and `references/concept-3-send-strip.png`.
+
 ### 5.2 Exchange types
 
 | Type | What it is | Example givers → takers |
@@ -189,6 +212,10 @@ engine is described one way. A new kind is added to the Interchange spec first.
 └────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **Main menu:** File, Edit, View · the bench's own menus (Markdown: Format, Insert; Music: Playback,
+  Library; NoorCode: Selection, Go, Run…) · **Tools** (Settings, Benches…, Command palette, Keyboard
+  shortcuts) · **Window** (layouts: save, switch, reset; floating windows and which monitor; Focus mode) ·
+  Help.
 - **Bench tabs:** one per open bench, in the order you like; `+` opens a bench you don't have open
   (a list with icons and what each does). Ctrl+Tab cycles documents, Ctrl+1…9 jump to benches.
 - **Document tabs** inside the bench, with the dirty mark; a bench that has a single view (Music, Radio,
@@ -203,6 +230,8 @@ engine is described one way. A new kind is added to the Interchange spec first.
 
 ### 6.2 The design language
 
+- **Density:** two sets of sizes, *compact* and *roomy*, chosen by each bench (section 1), so a code
+  editor can be dense and a note can breathe in the same app.
 - **Tokens:** a 4 px spacing grid; three control sizes (24, 28, 32 px); radii (4, 8, 12); one type scale
   (11, 12, 13, 15, 18, 24); elevation by surface colour, not heavy shadows.
 - **Themes:** the nine themes carry over (Dark, Light, Nocturne, Ember, Evergreen, Rosewood, Parchment,
@@ -274,7 +303,7 @@ engine is described one way. A new kind is added to the Interchange spec first.
    into the last session?
 4. **Docking scope:** can any panel go into any bench (a music queue beside your notes), or only its own
    bench's panels? (Proposal: any panel from an open bench can be docked anywhere; it keeps working.)
-5. **NoorCode's name:** NoorCode (like NoorEngine's built-in one) or a name of its own.
+5. **Densities for the rest:** Music, Video, Gallery and Calendar roomy (proposed); confirm.
 6. **Moving the generators to C#:** NoorBuildings, NoorShipyard, NoorMechs, NoorRoads and NoorVegetation
    are planned to become core + command-line tool + bench in C#. Where do they live: in this repository,
    or each in its own and only their benches here?
