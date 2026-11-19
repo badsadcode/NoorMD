@@ -39,6 +39,7 @@ public sealed class VaultFileOps(string root)
     private static void CheckName(string name)
     {
         if (VaultPaths.NameProblem(name) is { } problem) throw new VaultOperationException(problem);
+        if (name.IndexOfAny(['#', '[', ']', '|', '^']) >= 0) throw new VaultOperationException("Names in a vault can't contain # [ ] | ^ (links to the note would break).");
     }
 
     private static void CheckFree(string full)
@@ -83,7 +84,8 @@ public sealed class VaultFileOps(string root)
         var isFolder = Directory.Exists(full);
         var target = Path.Combine(Path.GetDirectoryName(full)!, newName);
         if (string.Equals(full, target, StringComparison.Ordinal)) return new VaultMove(full, target, isFolder);
-        var caseOnly = string.Equals(full, target, StringComparison.OrdinalIgnoreCase);
+        // Only the letters' case changes: on Windows that's the same file; on a case-sensitive disk "A.md" can be another one.
+        var caseOnly = string.Equals(full, target, StringComparison.OrdinalIgnoreCase) && SameEntry(full!, target);
         if (!caseOnly) CheckFree(target);
         MovePath(full, target, isFolder, caseOnly);
         return new VaultMove(full, target, isFolder);
@@ -157,6 +159,18 @@ public sealed class VaultFileOps(string root)
         foreach (var file in Directory.EnumerateFiles(from)) File.Copy(file, Path.Combine(to, Path.GetFileName(file)), overwrite: false);
     }
 
+    /// <summary>True when two spellings name the same file or folder (a case-insensitive disk).</summary>
+    private static bool SameEntry(string a, string b)
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(a)!;
+            var names = Directory.EnumerateFileSystemEntries(dir).Select(Path.GetFileName).ToList();
+            return !names.Contains(Path.GetFileName(b), StringComparer.Ordinal) || !names.Contains(Path.GetFileName(a), StringComparer.Ordinal);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
+    }
+
     private static void MovePath(string from, string to, bool isFolder, bool caseOnly)
     {
         try
@@ -165,8 +179,9 @@ public sealed class VaultFileOps(string root)
             {
                 // Windows treats "a.md" → "A.md" as the same name: go through a temporary name.
                 var tmp = from + ".noormd-rename-" + Guid.NewGuid().ToString("N")[..8];
-                if (isFolder) { Directory.Move(from, tmp); Directory.Move(tmp, to); }
-                else { File.Move(from, tmp); File.Move(tmp, to); }
+                if (isFolder) Directory.Move(from, tmp); else File.Move(from, tmp);
+                try { if (isFolder) Directory.Move(tmp, to); else File.Move(tmp, to); }
+                catch { if (isFolder) Directory.Move(tmp, from); else File.Move(tmp, from); throw; }   // put it back
             }
             else if (isFolder) Directory.Move(from, to);
             else File.Move(from, to, overwrite: false);

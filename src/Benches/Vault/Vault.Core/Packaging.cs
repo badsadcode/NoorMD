@@ -61,7 +61,7 @@ public static class PackagePlanner
         "*.tmp", "*.noormd-tmp", "~$*", "*.swp", "Thumbs.db", ".DS_Store", "desktop.ini",
     ];
 
-    private static readonly Regex MdTarget = new(@"!?\[[^\]]*\]\(\s*" + VaultLinks.MdTargetPattern + @"(?:\s+""[^""]*"")?\s*\)", RegexOptions.Compiled);
+    private static readonly Regex MdTarget = new(@"!?\[[^\]]*\]\(\s*" + VaultLinks.MdTargetPattern + @"(?:\s+(?:""[^""]*""|'[^'\n]*'|\([^()\n]*\)))?\s*\)", RegexOptions.Compiled);
     private static readonly Regex WikiTarget = new(@"!?\[\[([^\]\|#\n]+)", RegexOptions.Compiled); // links and ![[embeds]]
     private static readonly Regex HtmlSrc = new(@"<img[^>]+src\s*=\s*[""']([^""']+)[""']", RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
@@ -95,6 +95,7 @@ public static class PackagePlanner
             if (full == null) { plan.Warnings.Add($"“{sel}” is not inside the Vault and was skipped."); continue; }
             if (File.Exists(full)) { Consider(VaultPaths.ToRelative(fullRoot, full)!, PackReason.Selected); continue; }
             if (!Directory.Exists(full)) { plan.Warnings.Add($"“{sel}” no longer exists."); continue; }
+            if (full != fullRoot && new DirectoryInfo(full).Attributes.HasFlag(FileAttributes.ReparsePoint)) { plan.Excluded.Add(new ExcludedFile(sel.TrimEnd('/') + "/", "link to elsewhere (not followed)")); continue; }
             Walk(full, VaultPaths.ToRelative(fullRoot, full)!, rules, plan, rel => Consider(rel, PackReason.Selected), ct);
         }
 
@@ -108,7 +109,7 @@ public static class PackagePlanner
             if (item.Size > VaultIndex.MaxNoteBytes) continue;
             string text;
             try { text = Markdown.Core.TextFileCodec.Decode(File.ReadAllBytes(item.Full)).Text; }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { plan.Warnings.Add($"Could not read “{rel}” to check its links."); continue; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { plan.Warnings.Add($"Could not read “{rel}” to check its links."); continue; }
             foreach (var target in LinkTargets(text))
             {
                 var resolved = ResolveLocal(fullRoot, rel, target, allFiles);
@@ -158,6 +159,7 @@ public static class PackagePlanner
         {
             ct.ThrowIfCancellationRequested();
             var childRel = rel.Length == 0 ? item.Name : rel + "/" + item.Name;
+            if (item.Name.StartsWith('.')) { plan.Excluded.Add(new ExcludedFile(childRel + (item is DirectoryInfo ? "/" : ""), "hidden")); continue; }
             if (item is DirectoryInfo d)
             {
                 if (Rule(childRel + "/", rules) is { } rule) { plan.Excluded.Add(new ExcludedFile(childRel + "/", rule)); continue; }

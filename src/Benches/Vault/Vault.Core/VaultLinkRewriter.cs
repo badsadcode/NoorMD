@@ -11,7 +11,7 @@ namespace Vault.Core;
 /// </summary>
 public static partial class VaultLinkRewriter
 {
-    [GeneratedRegex(@"(!?\[(?:[^\]\\]|\\.)*\]\()(\s*)(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)((?:\s+""[^""\n]*"")?\s*\))")]
+    [GeneratedRegex(@"(!?\[(?:[^\]\\]|\\.)*\]\()(\s*)(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)((?:\s+(?:""[^""\n]*""|'[^'\n]*'|\([^()\n]*\)))?\s*\))")]
     private static partial Regex MdLinkRx();
 
     [GeneratedRegex(@"(!?\[\[)([^\]\|#\n]+)((?:#[^\]\|\n]*)?(?:\|[^\]\n]*)?\]\])")]
@@ -55,7 +55,7 @@ public static partial class VaultLinkRewriter
                 if (string.Equals(targetAfter, resolved, StringComparison.Ordinal) && string.Equals(noteAfter, noteBefore, StringComparison.Ordinal)) return m.Value;
                 var rel = decoded.StartsWith('/') ? "/" + targetAfter : Relative(noteAfter, targetAfter);
                 // Keep the link's style: angle brackets as written; otherwise spaces need %20 to stay a valid link.
-                var written = angle ? "<" + rel + anchor + ">" : (path.Contains('%') || rel.Contains(' ') ? Encode(rel) : rel) + anchor;
+                var written = angle ? "<" + rel + anchor + ">" : (path.Contains('%') || rel.IndexOfAny([' ', '#', '(', ')', '<', '>']) >= 0 ? Encode(rel) : rel) + anchor;
                 if (written == raw) return m.Value;
                 changed++;
                 return m.Groups[1].Value + m.Groups[2].Value + written + m.Groups[4].Value;
@@ -65,6 +65,7 @@ public static partial class VaultLinkRewriter
                 var resolved = ResolveWiki(noteBefore, trimmed, notesBefore, filesBefore);
                 if (resolved == null) return null;
                 var targetAfter = Moved(moves, resolved);
+                if (string.Equals(ResolveWiki(noteAfter, trimmed, notesAfter, filesAfter), targetAfter, StringComparison.OrdinalIgnoreCase)) return null;   // still finds it
                 var hasExt = System.IO.Path.HasExtension(trimmed) && (VaultPaths.IsNote(trimmed) || !VaultPaths.IsNote(resolved));
                 var byPath = trimmed.Contains('/') || trimmed.Contains('\\');
                 string Form(string p, bool path) { var t = path ? p : p[(p.LastIndexOf('/') + 1)..]; return hasExt ? t : t[..^System.IO.Path.GetExtension(t).Length]; }
@@ -76,9 +77,11 @@ public static partial class VaultLinkRewriter
             }
             s = WikiLinkRx().Replace(s, m =>
             {
-                if (NewWikiTarget(m.Groups[2].Value.Trim()) is not { } candidate) return m.Value;
+                var inner = m.Groups[2].Value.Trim();
+                var tableBar = inner.EndsWith('\\') && m.Groups[3].Value.StartsWith('|');   // [[Note\|alias]] inside a table
+                if (NewWikiTarget(tableBar ? inner[..^1] : inner) is not { } candidate) return m.Value;
                 changed++;
-                return m.Groups[1].Value + candidate + m.Groups[3].Value;
+                return m.Groups[1].Value + candidate + (tableBar ? "\\" : "") + m.Groups[3].Value;
             });
             // \[\[Note\]\] (brackets escaped by an editor): rewritten as a plain [[wiki link]] when it changes.
             s = EscapedWikiRx().Replace(s, m =>

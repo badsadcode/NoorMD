@@ -37,7 +37,17 @@ public static class VaultPaths
         if (rel.Length == 0) return fullRoot;
         if (rel.Split('/').Any(s => s is "" or "." or "..")) return null;
         var full = System.IO.Path.GetFullPath(System.IO.Path.Combine(fullRoot, rel.Replace('/', System.IO.Path.DirectorySeparatorChar)));
-        return full.StartsWith(fullRoot + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) ? full : null;
+        if (!full.StartsWith(fullRoot + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
+        // A folder on the way that is a link to somewhere else (a symlink or junction) would lead out of the Vault.
+        var walk = fullRoot;
+        var segs = rel.Split('/');
+        for (int i = 0; i < segs.Length; i++)
+        {
+            walk = System.IO.Path.Combine(walk, segs[i]);
+            try { if (Directory.Exists(walk) && new DirectoryInfo(walk).Attributes.HasFlag(FileAttributes.ReparsePoint)) return null; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+        }
+        return full;
     }
 
     /// <summary>The Vault-relative path of a full path inside the Vault, or null.</summary>
@@ -201,6 +211,7 @@ public sealed class VaultIndex
             {
                 try { text = TextFileCodec.NormalizeNewlines(TextFileCodec.Decode(File.ReadAllBytes(full)).Text); }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { continue; } // locked: try again next time
+                catch (InvalidDataException) { text = ""; } // not text (binary, UTF-16 without a mark): indexed as empty
             }
             var note = new Note(e.Path, e.ModifiedUtc, e.Size, text, text.Split('\n').Select(TextFold.Fold).ToArray(), VaultTags.Extract(text));
             lock (_lock) _notes[e.Path] = note;
@@ -313,7 +324,7 @@ public static class VaultLinks
 {
     /// <summary>A Markdown link target: &lt;with spaces&gt;, or a path where parentheses come in pairs ("Plan (v2).md").</summary>
     public const string MdTargetPattern = @"(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)";
-    private static readonly System.Text.RegularExpressions.Regex MdLink = new(@"(?<!!)\[[^\]]*\]\(\s*" + MdTargetPattern + @"(?:\s+""[^""]*"")?\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
+    private static readonly System.Text.RegularExpressions.Regex MdLink = new(@"(?<!!)\[[^\]]*\]\(\s*" + MdTargetPattern + @"(?:\s+(?:""[^""]*""|'[^'\n]*'|\([^()\n]*\)))?\s*\)", System.Text.RegularExpressions.RegexOptions.Compiled);
     private static readonly System.Text.RegularExpressions.Regex WikiLink = new(@"(?<!!)\[\[([^\]\|#]+)(?:#[^\]\|]*)?(?:\|[^\]]*)?\]\]", System.Text.RegularExpressions.RegexOptions.Compiled);
 
     // \[\[Note\]\]: a wiki link typed in an editor that escaped the brackets (older NoorMD Visual mode did this).
@@ -349,10 +360,13 @@ public static class VaultLinks
         {
             var t = target.Replace('\\', '/').Trim('/');
             if (t.Length == 0) return null;
-            var withExt = VaultPaths.IsNote(t) ? t : t + ".md";
-            var exact = notes.FirstOrDefault(n => string.Equals(n, withExt, StringComparison.OrdinalIgnoreCase));
-            if (exact != null) return exact;
-            var byName = notes.Where(n => n.EndsWith("/" + withExt, StringComparison.OrdinalIgnoreCase) || string.Equals(n, withExt, StringComparison.OrdinalIgnoreCase)).ToList();
+            var forms = VaultPaths.IsNote(t) ? [t] : VaultPaths.NoteExtensions.Select(e => t + e).ToArray();
+            foreach (var withExt in forms)
+            {
+                var exact = notes.FirstOrDefault(n => string.Equals(n, withExt, StringComparison.OrdinalIgnoreCase));
+                if (exact != null) return exact;
+            }
+            var byName = notes.Where(n => forms.Any(f => n.EndsWith("/" + f, StringComparison.OrdinalIgnoreCase) || string.Equals(n, f, StringComparison.OrdinalIgnoreCase))).ToList();
             if (byName.Count == 0) return null;
             var fromFolder = fromNote.Contains('/') ? fromNote[..fromNote.LastIndexOf('/')] : "";
             return byName.OrderBy(n => n.StartsWith(fromFolder + "/", StringComparison.OrdinalIgnoreCase) || fromFolder.Length == 0 ? 0 : 1)

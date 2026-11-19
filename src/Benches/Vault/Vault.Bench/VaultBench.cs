@@ -246,7 +246,7 @@ public sealed class VaultBench : BenchBase
         Command("vault.search", async (a, host, _) =>
         {
             var v = V(host); await v.Ready;
-            return new JsonArray(v.Index.Search(Str(a, "q"), 200).Select(h => (JsonNode?)new JsonObject
+            return new JsonArray(VaultQuery.Search(v.Index, Str(a, "q"), 200).Select(h => (JsonNode?)new JsonObject
             {
                 ["path"] = h.Path, ["name"] = h.Name, ["line"] = h.Line, ["snippet"] = h.Snippet, ["nameMatch"] = h.NameMatch,
             }).ToArray());
@@ -262,8 +262,106 @@ public sealed class VaultBench : BenchBase
             return new JsonObject
             {
                 ["inVault"] = true, ["path"] = rel,
-                ["refs"] = new JsonArray(v.Index.Backlinks(rel).Select(r => (JsonNode?)new JsonObject { ["source"] = r.Source, ["name"] = Path.GetFileNameWithoutExtension(r.Source), ["line"] = r.Line, ["snippet"] = r.Snippet }).ToArray()),
+                ["refs"] = new JsonArray(VaultQuery.Backlinks(v.Index, rel).Select(r => (JsonNode?)new JsonObject { ["source"] = r.Source, ["name"] = Path.GetFileNameWithoutExtension(r.Source), ["line"] = r.Line, ["snippet"] = r.Snippet }).ToArray()),
+                ["mentions"] = new JsonArray(VaultQuery.UnlinkedMentions(v.Index, rel).Select(m => (JsonNode?)new JsonObject
+                {
+                    ["source"] = m.Source, ["name"] = Path.GetFileNameWithoutExtension(m.Source), ["line"] = m.Line, ["column"] = m.Column, ["text"] = m.Text, ["snippet"] = m.Snippet,
+                }).ToArray()),
+                ["outgoing"] = new JsonArray(VaultQuery.Outgoing(v.Index, rel).Select(o => (JsonNode?)new JsonObject
+                {
+                    ["target"] = o.Target, ["path"] = o.Resolved, ["name"] = o.Resolved != null ? Path.GetFileNameWithoutExtension(o.Resolved) : VaultLinks.SplitWiki(o.Target).Target, ["line"] = o.Line,
+                }).ToArray()),
                 ["tags"] = new JsonArray(v.Index.TagsOf(rel).Select(t => (JsonNode?)t).ToArray()),
+                ["properties"] = Props(v.Index.TextOf(rel) ?? ""),
+                ["bookmarked"] = List(host).IsBookmarked(v.Root, rel),
+            };
+        });
+        // "Link it": an unlinked mention becomes a link, in that note's file (not in one open with unsaved changes).
+        Command("vault.linkMention", async (a, host, _) =>
+        {
+            var v = V(host);
+            var source = Str(a, "source"); var target = Str(a, "target");
+            var full = v.Full(source);
+            if (full == null || !File.Exists(full) || v.Index.TextOf(target) == null) throw new BenchException("That note isn't there any more.");
+            if (Skip(a).Contains(full)) throw new BenchException($"“{Path.GetFileNameWithoutExtension(source)}” is open with unsaved changes: save it first.");
+            var line = a.TryGetProperty("line", out var l) && l.ValueKind == JsonValueKind.Number ? l.GetInt32() : 0;
+            var col = a.TryGetProperty("column", out var c) && c.ValueKind == JsonValueKind.Number ? c.GetInt32() : -1;
+            var doc = Run(() => DocumentFile.Load(full));
+            var linked = VaultQuery.LinkMention(doc.Markdown, line, col, Str(a, "text"), Path.GetFileNameWithoutExtension(target))
+                ?? throw new BenchException("That note changed since: look again.");
+            Run(() => DocumentFile.Save(full, linked, doc.Format, null));
+            await v.RescanAsync();
+            return new JsonObject { ["updated"] = full };
+        });
+        Command("vault.random", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            var notes = v.Index.NotePaths().Where(p => !p.StartsWith("Templates/", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (notes.Count == 0) throw new BenchException("This vault has no notes yet.");
+            var pick = notes[Random.Shared.Next(notes.Count)];
+            await host.OpenFilesAsync([v.Full(pick)!]);
+            return new JsonObject { ["path"] = pick };
+        });
+        // Bookmarks: notes (and folders) you keep coming back to, kept per vault.
+        Command("vault.bookmarks", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(List(host).Bookmarks(v.Root).Select(p => (JsonNode?)new JsonObject
+            {
+                ["path"] = p, ["name"] = VaultPaths.IsNote(p) ? Path.GetFileNameWithoutExtension(p) : p.Split('/').Last(),
+                ["folder"] = !VaultPaths.IsNote(p), ["exists"] = v.Full(p) is { } f && (File.Exists(f) || Directory.Exists(f)),
+            }).ToArray());
+        });
+        Command("vault.bookmark", (a, host, _) =>
+        {
+            var v = V(host);
+            var path = Str(a, "path");
+            if (path.Length > 0 && Path.IsPathFullyQualified(path)) path = v.Rel(path) ?? throw new BenchException("That file isn't in the open vault.");
+            if (v.Full(path) == null) throw new BenchException("That isn't in the open vault.");
+            List(host).SetBookmark(v.Root, path, Bool(a, "on"));
+            host.Post("bookmarks");
+            return Task.FromResult<JsonNode?>(null);
+        });
+        // A note cut out of another (Extract to a new note): made next to it, with the text.
+        Command("vault.extract", async (a, host, _) =>
+        {
+            var v = V(host);
+            var fromRel = Str(a, "from").Length > 0 ? v.Rel(Str(a, "from")) : "";
+            if (fromRel == null) throw new BenchException("That document isn't in the open vault.");
+            var folder = fromRel.Contains('/') ? fromRel[..fromRel.LastIndexOf('/')] : "";
+            var name = Str(a, "name").Trim();
+            var rel = Run(() => v.Ops.CreateNote(folder, VaultPaths.IsNote(name) ? name : name + ".md", Str(a, "markdown")));
+            await v.RescanAsync();
+            return new JsonObject { ["path"] = rel, ["name"] = Path.GetFileNameWithoutExtension(rel) };
+        });
+        // Pack & Share: the plan (what goes in), then the ZIP.
+        Command("vault.packPlan", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            var o = PackOptions(a);
+            var plan = await Task.Run(() => PackagePlanner.Build(v.Root, o));
+            return new JsonObject
+            {
+                ["files"] = new JsonArray(plan.Files.Take(3000).Select(f => (JsonNode?)new JsonObject { ["entry"] = f.Entry, ["size"] = f.Size, ["dependency"] = f.Reason == PackReason.Dependency }).ToArray()),
+                ["fileCount"] = plan.Files.Count, ["bytes"] = plan.TotalBytes,
+                ["excludedCount"] = plan.Excluded.Count,
+                ["dependencies"] = new JsonArray(plan.Dependencies.Select(d => (JsonNode?)new JsonObject { ["path"] = d.Path, ["from"] = d.LinkedFrom, ["included"] = d.Included }).ToArray()),
+                ["unresolved"] = new JsonArray(plan.Unresolved.Take(300).Select(u => (JsonNode?)new JsonObject { ["from"] = u.From, ["target"] = u.Target, ["problem"] = u.Problem }).ToArray()),
+                ["warnings"] = new JsonArray(plan.Warnings.Select(w => (JsonNode?)w).ToArray()),
+                ["suggestedName"] = SuggestedZip(v, o),
+            };
+        });
+        Command("vault.packCreate", async (a, host, cancel) =>
+        {
+            var v = V(host); await v.Ready;
+            var o = PackOptions(a);
+            var output = await host.PickSaveFileAsync(o.Handoff ? "Save the AI handoff package" : "Save the ZIP package", SuggestedZip(v, o), [new("ZIP archive", [".zip"])]);
+            if (output == null) return null;
+            var result = await Task.Run(() => ZipPackager.Create(PackagePlanner.Build(v.Root, o, cancel), output, null, cancel), cancel);
+            return new JsonObject
+            {
+                ["path"] = result.Path, ["entries"] = result.Entries, ["bytes"] = result.Bytes,
+                ["failures"] = new JsonArray(result.Failures.Select(f => (JsonNode?)new JsonObject { ["entry"] = f.Entry, ["problem"] = f.Problem }).ToArray()),
             };
         });
         Command("vault.tags", async (a, host, _) =>
@@ -373,9 +471,10 @@ public sealed class VaultBench : BenchBase
 
     /// <summary>After a rename or move: every bench hears about it (open documents follow), and the page learns which
     /// notes had their links rewritten.</summary>
-    static async Task<JsonNode?> Moved(IBenchHost host, VaultSession v, IReadOnlyList<VaultMove> moves, LinkResult links)
+    async Task<JsonNode?> Moved(IBenchHost host, VaultSession v, IReadOnlyList<VaultMove> moves, LinkResult links)
     {
         await v.RescanAsync();
+        List(host).Moved(v.Root, moves.Select(m => (v.Rel(m.OldFull) ?? "", v.Rel(m.NewFull) ?? "")).Where(m => m.Item1.Length > 0));
         await host.FilesMovedAsync(moves.Select(m => new FileMove(m.OldFull, m.NewFull)).ToList());
         return new JsonObject
         {
@@ -384,6 +483,36 @@ public sealed class VaultBench : BenchBase
             ["skipped"] = new JsonArray(links.Skipped.Select(s => (JsonNode?)s).ToArray()),
             ["updated"] = new JsonArray(links.Updated.Select(s => (JsonNode?)s).ToArray()),
         };
+    }
+
+    static JsonObject Props(string text)
+    {
+        var o = new JsonObject();
+        foreach (var (k, vals) in VaultNotes.FrontMatter(text)) o[k] = new JsonArray(vals.Select(x => (JsonNode?)x).ToArray());
+        return o;
+    }
+
+    static PackageOptions PackOptions(JsonElement a)
+    {
+        var o = new PackageOptions
+        {
+            Selection = Strs(a, "selection"),
+            IncludeAttachments = !a.TryGetProperty("attachments", out var at) || at.ValueKind != JsonValueKind.False,
+            IncludeDependencies = Bool(a, "dependencies"),
+            SkipDependencies = Strs(a, "skipDependencies"),
+            PreserveStructure = !a.TryGetProperty("preserve", out var pr) || pr.ValueKind != JsonValueKind.False,
+            Manifest = Bool(a, "manifest"),
+            Handoff = Bool(a, "handoff"),
+            HandoffNote = Str(a, "note") is { Length: > 0 and < 20_000 } n ? n : null,
+        };
+        return o;
+    }
+
+    static string SuggestedZip(VaultSession v, PackageOptions o)
+    {
+        var baseName = o.Selection.Count == 1 && o.Selection[0].Length > 0 ? Path.GetFileNameWithoutExtension(o.Selection[0].TrimEnd('/')) : v.Name;
+        if (o.Handoff) baseName += " (handoff)";
+        return DocumentFile.SafeFileName(baseName, ".zip");
     }
 
     static JsonNode GraphJson(VaultGraph g, string? center) => new JsonObject
@@ -417,7 +546,12 @@ public sealed class VaultBench : BenchBase
 /// <summary>The vaults opened lately (newest first), and the one open when NoorMD closed.</summary>
 sealed class VaultList(string file)
 {
-    sealed class Data { public string? Last { get; set; } public List<string> Recent { get; set; } = []; }
+    sealed class Data
+    {
+        public string? Last { get; set; }
+        public List<string> Recent { get; set; } = [];
+        public Dictionary<string, List<string>> Bookmarks { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    }
     readonly Data _d = Load(file);
 
     public string? Last => _d.Last;
@@ -431,6 +565,29 @@ sealed class VaultList(string file)
         _d.Last = root; Save();
     }
     public void Closed() { _d.Last = null; Save(); }
+
+    public IReadOnlyList<string> Bookmarks(string root) => _d.Bookmarks.TryGetValue(root, out var l) ? l : [];
+    public bool IsBookmarked(string root, string rel) => Bookmarks(root).Contains(rel, StringComparer.OrdinalIgnoreCase);
+    public void SetBookmark(string root, string rel, bool on)
+    {
+        if (!_d.Bookmarks.TryGetValue(root, out var l)) _d.Bookmarks[root] = l = [];
+        l.RemoveAll(x => string.Equals(x, rel, StringComparison.OrdinalIgnoreCase));
+        if (on) l.Insert(0, rel);
+        Save();
+    }
+    /// <summary>Bookmarks follow renames and moves.</summary>
+    public void Moved(string root, IEnumerable<(string From, string To)> moves)
+    {
+        if (!_d.Bookmarks.TryGetValue(root, out var l)) return;
+        bool changed = false;
+        foreach (var (from, to) in moves)
+            for (int i = 0; i < l.Count; i++)
+            {
+                if (string.Equals(l[i], from, StringComparison.OrdinalIgnoreCase)) { l[i] = to; changed = true; }
+                else if (l[i].StartsWith(from + "/", StringComparison.OrdinalIgnoreCase)) { l[i] = to + l[i][from.Length..]; changed = true; }
+            }
+        if (changed) Save();
+    }
     public void Forget(string root) { _d.Recent.RemoveAll(p => string.Equals(p, root, StringComparison.OrdinalIgnoreCase)); if (string.Equals(_d.Last, root, StringComparison.OrdinalIgnoreCase)) _d.Last = null; Save(); }
 
     static Data Load(string file)

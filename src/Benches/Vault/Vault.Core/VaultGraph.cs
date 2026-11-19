@@ -19,6 +19,7 @@ public static partial class VaultNotes
         var result = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
         if (!text.StartsWith("---\n", StringComparison.Ordinal) && !text.StartsWith("---\r\n", StringComparison.Ordinal)) return result;
         var lines = text.Replace("\r\n", "\n").Split('\n');
+        if (Array.FindIndex(lines, 1, l => l.Trim() == "---") < 0) return result;   // no end: a --- rule, not front matter
         string? listKey = null;
         for (int i = 1; i < lines.Length && i < 400; i++)
         {
@@ -71,7 +72,7 @@ public static partial class VaultNotes
         }
         return output;
     }
-    [GeneratedRegex(@"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")] private static partial Regex Heading();
+    [GeneratedRegex(@"^\s{0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$")] private static partial Regex Heading();
 
     /// <summary>Every alias in the vault → the note it names (first one wins when two notes share an alias).</summary>
     public static Dictionary<string, string> AliasMap(VaultIndex index)
@@ -162,7 +163,7 @@ public static partial class VaultNotes
 
     /// <summary>Fills a template's blanks: {{title}}, {{date}}, {{time}}, {{date:yyyy-MM-dd}}.</summary>
     public static string FillTemplate(string template, string title, DateTime now) =>
-        DateBlank().Replace(template.Replace("{{title}}", title).Replace("{{date}}", now.ToString("yyyy-MM-dd")).Replace("{{time}}", now.ToString("HH:mm")),
+        DateBlank().Replace(template.Replace("{{title}}", title).Replace("{{date}}", now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture)).Replace("{{time}}", now.ToString("HH:mm", System.Globalization.CultureInfo.InvariantCulture)),
             m => { try { return now.ToString(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture); } catch (FormatException) { return m.Value; } });
     [GeneratedRegex(@"\{\{date:([^}]{1,40})\}\}")] private static partial Regex DateBlank();
 }

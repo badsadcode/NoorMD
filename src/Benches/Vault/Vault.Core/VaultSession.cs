@@ -89,13 +89,14 @@ public sealed class VaultSession : IDisposable
             if (differs) Changed?.Invoke();
         }
         catch (OperationCanceledException) { }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { }
         finally { _scanGate.Release(); }
     }
 
     public string? Full(string? rel) => VaultPaths.Resolve(Root, rel);
     public string? Rel(string full) => VaultPaths.ToRelative(Root, full);
-    IReadOnlyList<string> FilesNow() => Entries.Where(e => !e.IsFolder).Select(e => e.Path).ToList();
+    // Read fresh from disk: the last scan can be up to a moment old (a note made just now, a scan still running).
+    IReadOnlyList<string> FilesNow() => VaultScanner.Scan(Root, Excluded).Where(e => !e.IsFolder).Select(e => e.Path).ToList();
 
     // ------------------------------------------------------------------ wiki links
 
@@ -106,9 +107,9 @@ public sealed class VaultSession : IDisposable
     /// Daily/2026-11-19.md. Made from Templates/Daily note.md when there is one. Returns (vault path, made now).</summary>
     public (string Path, bool Made) DailyNote(DateTime day)
     {
-        var date = day.ToString("yyyy-MM-dd");
+        var date = day.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
         var journal = Entries.Any(e => e.IsFolder && string.Equals(e.Path, "Journal", StringComparison.OrdinalIgnoreCase));
-        var folder = journal ? $"Journal/{day:yyyy}" : "Daily";
+        var folder = journal ? $"Journal/{day.ToString("yyyy", System.Globalization.CultureInfo.InvariantCulture)}" : "Daily";
         var rel = $"{folder}/{date}.md";
         if (Full(rel) is { } existing && File.Exists(existing)) return (rel, false);
         Directory.CreateDirectory(Full(folder)!);
@@ -140,11 +141,14 @@ public sealed class VaultSession : IDisposable
         var clean = target.Replace('\\', '/').Trim('/');
         var name = clean.Split('/').Last().Trim();
         if (VaultPaths.NameProblem(name) is { } problem) throw new VaultOperationException($"“{target}” can't be a note's name: {problem}");
-        if (System.IO.Path.HasExtension(name) && !VaultPaths.IsNote(name)) throw new VaultOperationException($"“{name}” isn't in this vault.");
+        if (System.IO.Path.HasExtension(name) && !VaultPaths.IsNote(name) && Attachment(name)) throw new VaultOperationException($"“{name}” isn't in this vault.");
         var folder = clean.Contains('/') ? clean[..clean.LastIndexOf('/')] : fromRel.Contains('/') ? fromRel[..fromRel.LastIndexOf('/')] : "";
         if (folder.Length > 0 && Full(folder) == null) throw new VaultOperationException($"“{target}” points outside the vault.");
         return (folder, name);
     }
+
+    // A link like [[photo.png]] names a file, not a note to make; "v1.2 notes" is a note.
+    static bool Attachment(string name) => System.IO.Path.GetExtension(name).Length is > 1 and <= 5 && System.IO.Path.GetExtension(name)[1..].All(char.IsLetterOrDigit) && !System.IO.Path.GetExtension(name)[1..].All(char.IsAsciiDigit);
 
     /// <summary>Creates the note a [[link]] points to (and its folder), with a heading; returns its vault path.</summary>
     public string CreateNoteForLink(string fromRel, string target)
@@ -160,7 +164,7 @@ public sealed class VaultSession : IDisposable
 
     Dictionary<string, string> Expand(IEnumerable<(string OldRel, string NewRel)> planned, IReadOnlyList<string> filesBefore)
     {
-        var folders = new HashSet<string>(Entries.Where(e => e.IsFolder).Select(e => e.Path), StringComparer.OrdinalIgnoreCase);
+        var folders = new HashSet<string>(filesBefore.SelectMany(f => { var parts = f.Split('/'); return Enumerable.Range(1, parts.Length - 1).Select(n => string.Join('/', parts.Take(n))); }), StringComparer.OrdinalIgnoreCase);
         return VaultLinkRewriter.ExpandMoves(planned.Where(p => !string.Equals(p.OldRel, p.NewRel, StringComparison.Ordinal)).Select(p => (p.OldRel, p.NewRel, folders.Contains(p.OldRel))), filesBefore);
     }
 

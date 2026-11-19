@@ -26,6 +26,8 @@ public sealed class VaultTests : IDisposable
         public Task<string?> PickFolderAsync(string title) => Task.FromResult(Folders.Count > 0 ? Folders.Dequeue() : null);
         public Task OpenFilesAsync(IReadOnlyList<string> paths) { Opened.AddRange(paths); return Task.CompletedTask; }
         public Task FilesMovedAsync(IReadOnlyList<FileMove> moves) { Moves.AddRange(moves); return Task.CompletedTask; }
+        public string? SaveAs;
+        public Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<FileFilter> filters) => Task.FromResult(SaveAs);
     }
 
     static JsonElement J(object o) => JsonSerializer.SerializeToElement(o);
@@ -236,5 +238,135 @@ public sealed class VaultTests : IDisposable
         Assert.Equal(to, (string)moved!.AsArray()[0]!["path"]!);
         await md.HandleAsync("md.write", J(new { doc = "0123abcd", markdown = "# A, renamed\n" }), host, default);
         Assert.Equal("# A, renamed\n", File.ReadAllText(to));
+    }
+
+    // ------------------------------------------------------------------ 3.0.10
+
+    async Task<(VaultBench Bench, Host Host, string Root)> HandMadeVault()
+    {
+        var root = Path.Combine(_dir, "Hand made");
+        Directory.CreateDirectory(Path.Combine(root, "Notes"));
+        File.WriteAllText(Path.Combine(root, "Ada Lovelace.md"), "---\naliases: [Ada]\nstatus: draft\n---\n# Ada Lovelace\n\nShe wrote about the Engine. #people\n");
+        File.WriteAllText(Path.Combine(root, "Engine.md"), "# Engine\n\nAda Lovelace saw it first.\nSee [[Notes/Plan]] and `Ada Lovelace` in code.\n");
+        File.WriteAllText(Path.Combine(root, "Notes", "Plan.md"), "# Plan\n\nTalk to Ada about [[Engine]].\n[[Missing one]]\n");
+        File.WriteAllText(Path.Combine(root, ".netrc"), "machine example password hunter2\n");
+        var host = new Host(Path.Combine(_dir, "data"));
+        var bench = new VaultBench();
+        host.Folders.Enqueue(root);
+        await bench.HandleAsync("vault.openFolder", J(new { }), host, default);
+        return (bench, host, root);
+    }
+
+    static List<string> Paths(JsonNode? hits) => hits!.AsArray().Select(h => (string)h!["path"]!).Distinct().ToList();
+
+    [Fact]
+    public async Task Search_operators_find_by_tag_property_path_phrase_and_leave_out()
+    {
+        var (bench, host, _) = await HandMadeVault();
+        async Task<List<string>> Q(string q) => Paths(await bench.HandleAsync("vault.search", J(new { q }), host, default));
+        Assert.Equal(["Ada Lovelace.md"], await Q("tag:people"));
+        Assert.Equal(["Ada Lovelace.md"], await Q("#people"));
+        Assert.Equal(["Ada Lovelace.md"], await Q("status:draft"));
+        Assert.Equal(["Notes/Plan.md"], await Q("path:notes"));
+        Assert.Equal(["Engine.md"], await Q("\"saw it first\""));
+        var engine = await Q("engine -tag:people");
+        Assert.Contains("Engine.md", engine);
+        Assert.Contains("Notes/Plan.md", engine);
+        Assert.DoesNotContain("Ada Lovelace.md", engine);
+        Assert.Equal(["Engine.md"], await Q("file:engine"));
+    }
+
+    [Fact]
+    public async Task Unlinked_mentions_become_links_and_outgoing_links_are_listed()
+    {
+        var (bench, host, root) = await HandMadeVault();
+        var bl = await bench.HandleAsync("vault.backlinks", J(new { path = Path.Combine(root, "Ada Lovelace.md") }), host, default);
+        var mentions = bl!["mentions"]!.AsArray();
+        Assert.Equal(2, mentions.Count);   // the one in `code` doesn't count
+        var inEngine = mentions.Single(m => (string)m!["source"]! == "Engine.md")!;
+        Assert.Equal(3, (int)inEngine["line"]!);
+        Assert.Equal("draft", (string)bl["properties"]!["status"]![0]!);
+
+        await bench.HandleAsync("vault.linkMention", J(new { source = "Engine.md", target = "Ada Lovelace.md", line = 3, column = (int)inEngine["column"]!, text = (string)inEngine["text"]! }), host, default);
+        Assert.Contains("[[Ada Lovelace]] saw it first.", File.ReadAllText(Path.Combine(root, "Engine.md")));
+        var inPlan = (await bench.HandleAsync("vault.backlinks", J(new { path = Path.Combine(root, "Ada Lovelace.md") }), host, default))!["mentions"]!.AsArray().Single()!;
+        await bench.HandleAsync("vault.linkMention", J(new { source = "Notes/Plan.md", target = "Ada Lovelace.md", line = (int)inPlan["line"]!, column = (int)inPlan["column"]!, text = "Ada" }), host, default);
+        Assert.Contains("Talk to [[Ada Lovelace|Ada]] about", File.ReadAllText(Path.Combine(root, "Notes", "Plan.md")));
+        // A stale mention (the text moved) is refused; so is a file open with unsaved changes.
+        await Assert.ThrowsAsync<BenchException>(() => bench.HandleAsync("vault.linkMention", J(new { source = "Engine.md", target = "Ada Lovelace.md", line = 3, column = 0, text = "Ada Lovelace" }), host, default));
+
+        var now = await bench.HandleAsync("vault.backlinks", J(new { path = Path.Combine(root, "Ada Lovelace.md") }), host, default);
+        Assert.Equal(2, now!["refs"]!.AsArray().Count);
+        Assert.Empty(now["mentions"]!.AsArray());
+        var outgoing = (await bench.HandleAsync("vault.backlinks", J(new { path = Path.Combine(root, "Notes", "Plan.md") }), host, default))!["outgoing"]!.AsArray();
+        Assert.Contains(outgoing, o => (string?)o!["path"] == "Engine.md");
+        Assert.Contains(outgoing, o => o!["path"] == null && (string)o["name"]! == "Missing one");
+    }
+
+    [Fact]
+    public async Task Bookmarks_follow_renames_random_note_extract_and_pack()
+    {
+        var (bench, host, root) = await HandMadeVault();
+        await bench.HandleAsync("vault.bookmark", J(new { path = "Engine.md", on = true }), host, default);
+        await bench.HandleAsync("vault.rename", J(new { path = "Engine.md", name = "Motor", updateLinks = true }), host, default);
+        var marks = await bench.HandleAsync("vault.bookmarks", J(new { }), host, default);
+        Assert.Equal("Motor.md", (string)marks!.AsArray().Single()!["path"]!);
+        Assert.True((bool)(await bench.HandleAsync("vault.backlinks", J(new { path = Path.Combine(root, "Motor.md") }), host, default))!["bookmarked"]!);
+        await bench.HandleAsync("vault.bookmark", J(new { path = "Motor.md", on = false }), host, default);
+        Assert.Empty((await bench.HandleAsync("vault.bookmarks", J(new { }), host, default))!.AsArray());
+
+        var random = await bench.HandleAsync("vault.random", J(new { }), host, default);
+        Assert.StartsWith(root, Assert.Single(host.Opened));
+        Assert.NotNull((string?)random!["path"]);
+
+        var made = await bench.HandleAsync("vault.extract", J(new { from = Path.Combine(root, "Notes", "Plan.md"), name = "Big idea", markdown = "Cut out.\n" }), host, default);
+        Assert.Equal("Notes/Big idea.md", (string)made!["path"]!);
+        Assert.Equal("Cut out.\n", File.ReadAllText(Path.Combine(root, "Notes", "Big idea.md")));
+
+        var plan = await bench.HandleAsync("vault.packPlan", J(new { selection = new[] { "Notes/Plan.md" }, dependencies = true }), host, default);
+        Assert.Contains(plan!["dependencies"]!.AsArray(), d => (string)d!["path"]! == "Motor.md");
+        var whole = await bench.HandleAsync("vault.packPlan", J(new { }), host, default);
+        Assert.DoesNotContain(whole!["files"]!.AsArray(), f => ((string)f!["entry"]!).Contains(".netrc"));
+        host.SaveAs = Path.Combine(_dir, "out.zip");
+        var zip = await bench.HandleAsync("vault.packCreate", J(new { selection = new[] { "Notes" } }), host, default);
+        Assert.True(File.Exists(host.SaveAs));
+        Assert.Equal(2, (int)zip!["entries"]!);
+    }
+
+    [Fact]
+    public void Review_fixes_in_the_vault_core()
+    {
+        var root = Path.Combine(_dir, "core"); Directory.CreateDirectory(root);
+        // A note that isn't text doesn't stop the index.
+        File.WriteAllBytes(Path.Combine(root, "A.md"), [0x61, 0, 0x62, 0]);
+        File.WriteAllText(Path.Combine(root, "B.md"), "# B\n[[Doc]]\n");
+        File.WriteAllText(Path.Combine(root, "Doc.markdown"), "# C#\n## Learn F# ##\n");
+        var index = new VaultIndex(root);
+        index.Update(VaultScanner.Scan(root, []));
+        Assert.Equal("# B\n[[Doc]]\n", index.TextOf("B.md"));
+        // [[Doc]] finds Doc.markdown; "# C#" keeps its #.
+        Assert.Equal("Doc.markdown", VaultLinks.Resolve("B.md", new VaultLink("Doc", true), index.NotePaths()));
+        Assert.Equal(["C#", "Learn F#"], VaultNotes.Headings(index.TextOf("Doc.markdown")!).Select(h => h.Text));
+        // Colours and anchors aren't tags; a --- rule isn't front matter.
+        Assert.Equal(["real"], VaultTags.Extract("Red is #a1b2c3, see <a href=\"#top\">up</a> #real"));
+        Assert.Empty(VaultNotes.FrontMatter("---\naliases: x\nbody text\n"));
+
+        // Moving one note leaves the other links alone (no case changes, table \| kept); 'titles' are understood.
+        var text = "see [[note]]\n| [[Note\\|alias]] | x |\n[o](Other.md 'T')\n";
+        var r = VaultLinkRewriter.Rewrite(text, "A.md", new Dictionary<string, string> { ["Other.md"] = "Other2.md" }, ["A.md", "Note.md", "Other.md"]);
+        Assert.Equal("see [[note]]\n| [[Note\\|alias]] | x |\n[o](Other2.md 'T')\n", r.Text);
+        Assert.Equal(1, r.Changed);
+        var hash = VaultLinkRewriter.Rewrite("[x](Other.md)", "A.md", new Dictionary<string, string> { ["Other.md"] = "a)b.md" }, ["A.md", "Other.md"]);
+        Assert.Equal("[x](a%29b.md)", hash.Text);
+
+        // Folder links inside the vault don't lead out of it.
+        var outside = Path.Combine(_dir, "outside"); Directory.CreateDirectory(outside);
+        try { Directory.CreateSymbolicLink(Path.Combine(root, "link"), outside); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return; }   // no right to make links here
+        Assert.Null(VaultPaths.Resolve(root, "link/x.md"));
+        var ops = new VaultFileOps(root);
+        Assert.ThrowsAny<Exception>(() => ops.CreateNote("link", "x.md", ""));
+        Assert.False(File.Exists(Path.Combine(outside, "x.md")));
+        Assert.Throws<VaultOperationException>(() => ops.Rename("B.md", "C#.md"));
     }
 }

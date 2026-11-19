@@ -9,7 +9,7 @@ namespace Vault.Core;
 /// </summary>
 public static partial class VaultTags
 {
-    [GeneratedRegex(@"(?<![\p{L}\p{N}_&/#\]\)\(`])#([\p{L}\p{N}_\-/]*[\p{L}_\-][\p{L}\p{N}_\-/]*)")]
+    [GeneratedRegex(@"(?<![\p{L}\p{N}_&/#\]\)\(`""'?=])#([\p{L}\p{N}_\-/]*[\p{L}_\-][\p{L}\p{N}_\-/]*)")]
     private static partial Regex InlineTag();
 
     public static IReadOnlyList<string> Extract(string text)
@@ -20,6 +20,7 @@ public static partial class VaultTags
         {
             var t = raw.Trim().TrimStart('#').Trim('/').Trim();
             if (t.Length == 0 || t.Length > 100 || t.Any(char.IsWhiteSpace) || t.All(char.IsAsciiDigit)) return;
+            if (t.Length is 3 or 6 or 8 && t.All(char.IsAsciiHexDigit) && t.Any(char.IsAsciiDigit)) return;   // a colour (#a1b2c3), not a tag
             if (seen.Add(t)) found.Add(t);
         }
         var lines = text.Replace("\r\n", "\n").Split('\n');
