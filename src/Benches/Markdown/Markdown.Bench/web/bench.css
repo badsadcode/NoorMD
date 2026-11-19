@@ -9,12 +9,13 @@
   --tok-code-bg: var(--surface); --tok-quote: var(--muted); --tok-list: var(--accent); --tok-gutter: var(--muted);
   position: relative; height: 100%; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden;
 }
-.md-bar { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); min-height: calc(var(--ctl) + 10px); border-bottom: 1px solid var(--border); background: var(--surface); flex: none; }
+.md-bar { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); min-height: calc(var(--ctl) + 10px); border-bottom: 1px solid var(--border); background: linear-gradient(90deg, var(--glow, transparent), transparent 65%), var(--surface); flex: none; }
 .md-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 auto; scrollbar-width: none; align-self: stretch; }
 .md-tabs::-webkit-scrollbar { display: none; }
-.md-tab { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; max-width: 220px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; cursor: default; user-select: none; }
-.md-tab:hover { color: var(--text); background: var(--hover); }
-.md-tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+.md-tab { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; max-width: 220px; color: var(--muted); font-size: 12.5px; border: 1px solid transparent; border-bottom: 0; border-radius: 9px 9px 0 0; white-space: nowrap; cursor: default; user-select: none; }
+.md-tab:hover { color: var(--text); background: color-mix(in srgb, var(--surface2) 60%, transparent); }
+.md-tab[aria-selected=true] { color: var(--text); font-weight: 600; background: var(--panel); border-color: var(--border); }
+.md-tab[aria-selected=true]::before { content: ""; position: absolute; left: 10px; right: 10px; top: 0; height: 2px; border-radius: 2px; background: var(--accent); }
 .md-tab .name { overflow: hidden; text-overflow: ellipsis; }
 .md-tab .dot { color: var(--accent); font-size: 10px; }
 .md-tab .x { width: 20px; height: 20px; border-radius: var(--r1); display: grid; place-items: center; font-size: 11px; opacity: .6; }
@@ -178,7 +179,7 @@
 .md-sep { width: 1px; height: 18px; background: var(--border); margin: 0 6px; }
 
 /* Find and replace */
-.md-findbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px var(--space-2); border-bottom: 1px solid var(--border); background: var(--surface); flex: none; }
+.md-findbar { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 6px var(--space-2); border-bottom: 1px solid var(--border); background: linear-gradient(90deg, var(--glow, transparent), transparent 65%), var(--surface); flex: none; }
 .md-findbar[hidden], .md-find-replace[hidden] { display: none; }
 .md-find-input { width: 220px; }
 .md-find-count { color: var(--muted); font-size: 12px; min-width: 64px; }
