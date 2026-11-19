@@ -11,6 +11,19 @@ web services.
 grew twenty benches in nineteen days. What's being
 polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
+## NoorMD 3.0 (being built)
+
+NoorMD 3.0 is the next version, being built beside this one: one window with benches as tabs, a main menu that
+follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
+to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
+
+- **3.0.1** (the newest): the new window and title bar, bench tabs, the main menu, resizable side panels, Home and
+  Settings, with one demo bench (the Sandbox). Download `NoorMD-3.0.x-win-x64-portable.zip`, extract it, run
+  `NoorMD3.exe`. It keeps its own settings, so it doesn't touch 2.0.
+- Builds: `bash scripts/publish-noormd3.sh`; tests: `dotnet test tests/NoorMD3.Tests` and `node tests/web3/shell.test.js`.
+
+Until a bench has moved to 3.0, use it in 2.0, described below.
+
 ## Download and run
 
 1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.162 at the time of writing). Use the build attached to the GitHub Actions

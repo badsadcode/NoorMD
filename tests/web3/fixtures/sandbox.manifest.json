@@ -1,0 +1,56 @@
+{
+  "id": "noor.sandbox",
+  "name": "Sandbox",
+  "icon": "\u2726",
+  "description": "A scratchpad that proves the bench contract: type, and its C# side counts.",
+  "version": "3.0.1",
+  "contractVersion": 1,
+  "density": "roomy",
+  "entry": "bench.js",
+  "menus": [
+    {
+      "title": "Sandbox",
+      "items": [
+        {
+          "label": "Count the words (C#)",
+          "command": "sandbox.count",
+          "keys": "Ctrl\u002BShift\u002BC"
+        },
+        {
+          "label": "Say hello from C#",
+          "command": "sandbox.hello",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Clear the page",
+          "command": "sandbox.clear",
+          "keys": null
+        },
+        {
+          "label": "Insert sample text",
+          "command": "sandbox.sample",
+          "keys": null
+        }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "stats",
+      "title": "Statistics",
+      "icon": "\u2211",
+      "dock": "right"
+    },
+    {
+      "id": "about",
+      "title": "About",
+      "icon": "\u24D8",
+      "dock": "left"
+    }
+  ]
+}

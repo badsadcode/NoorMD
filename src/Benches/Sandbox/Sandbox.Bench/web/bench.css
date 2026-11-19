@@ -1,0 +1,4 @@
+/* The Sandbox's own styles: everything else comes from the shared design system (Noor.UI). */
+.sb-page { height: 100%; display: flex; }
+.sb-text { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: var(--text); font: var(--font-size-doc) / 1.6 var(--font-ui); padding: var(--space-6) max(var(--space-6), calc((100% - 760px) / 2)); }
+.sb-about { margin: 0; line-height: 1.5; }

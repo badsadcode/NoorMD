@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | 2.0.0-preview.162 (15 November 2026) |
+| Latest release | NoorMD 3.0.1 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -183,6 +183,59 @@ status bar now keeps count — "4/8 vertices · 4/12 edges · 1/6 faces" — in 
 240 texts across the app never got translated, because they end in a number. That one went into the inbox. The full test run also kept tripping over NoorPhoto's text box: typing straight after
 dragging one could miss it, because it only took the keyboard a moment later. It takes it at once now.
 
+---
+
+# Part two: NoorMD 3.0 🏗️
+
+## Day 25 — 19 November: "We need to talk" 😬
+
+Every developer fears that sentence. This time it was the human saying it to the AI, and then: *"Don't change
+anything yet."*
+
+What followed was not a breakup but a renovation. Twenty benches had grown up in twenty different weeks, and it
+showed. Each had its own idea of where buttons go, and getting from one to another meant going back to Markdown
+first, like changing trains at a single station for every journey. The verdict: **the insides are good, the house
+needs a rebuild.** One window, benches as tabs, panels you can drag anywhere (even onto your second monitor), and
+benches that talk to each other ("Send to…").
+
+The name took a minute. "NoorMD 2.0" was the obvious choice, until someone pointed out the current app already calls
+itself 2.0.0-preview.162. *"Hm, then 3.0 😉"*. And while we were at it, "3.0.0-preview.N" was voted out in favour
+of plain numbers: 3.0.1, 3.0.2, 3.0.3…
+
+Things decided over one long, cheerful afternoon:
+
+- **Two looks, one family:** code gets a compact, dense look; writing and media get a roomy, calm one.
+- **The music player can sit beside your notes**, the video player can pop out, and any panel can visit any bench.
+- **Every bench becomes its own building block**, so one day the tree generator can work inside NoorEngine too.
+  The plans for NoorBuildings, NoorShipyard, NoorMechs, NoorRoads and NoorVegetation fit right in.
+- **The main menu goes in the title bar** — or on its own row. The human couldn't decide (*"Oh decisions decisions 😃
+  HOW TO LIVE?!?"*), so it's a setting.
+- **Ideas that can wait go to the inbox.** The human asked to be stopped when they start throwing ideas.
+  The AI has been told to say so. It hasn't had to yet.
+
+There were mock-ups, three of them, in nine themes. The human brought AI-drawn concept pictures and a new logo: an N
+with a page, a picture, a play button and a brush. The AI declared them mood boards, because one of them had invented
+a menu item that doesn't exist.
+
+## Day 25, later — The title bar test ✅
+
+Before building a house, you check the ground. 3.0 draws its own title bar instead of using Windows' one, and that's
+the kind of thing that can go wrong in fifty small ways: windows that won't snap to the screen edge, maximise buttons
+that ignore Windows 11's snap layouts, windows that spill onto the second monitor.
+
+So a tiny test program went out with a checklist of fourteen things to try. The result came back: **fourteen out of
+fourteen**, first try, on two monitors. The only complaint was that the scrollbar didn't match the theme. It was
+noted, solemnly, in the design rules.
+
+## Day 25, evening — NoorMD 3.0.1, the skeleton
+
+The first real piece of 3.0: the new window, bench tabs, the main menu that changes with the bench, side panels you
+can resize by dragging their edges, Home, and Settings (theme, where the menu goes, compact or roomy per bench).
+
+There's only one bench in it so far, and it's a small one: the **Sandbox**, a scratchpad whose whole job is to prove
+that a bench can live in its own building block and still talk to the rest. You type, and the counting happens in a
+different part of the program. It works. The Sandbox will be retired with honours when the real benches move in.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -196,8 +249,8 @@ dragging one could miss it, because it only took the keyboard a moment later. It
 
 ## What's next
 
-Less sprawl, more polish: one bench at a time, finished properly before the next. See
-[docs/POLISH_PLAN.md](docs/POLISH_PLAN.md). The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
+**NoorMD 3.0**, piece by piece: docking and floating windows next, then the Markdown and Music benches move in.
+The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 
 *To be continued…*

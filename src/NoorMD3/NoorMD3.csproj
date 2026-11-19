@@ -1,0 +1,33 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the shell (docs/noormd3/DESIGN.md). A frameless window with a WebView2 page (the title bar test's
+       window), the shell's logic from NoorMD3.Host, and the benches as DLLs. NoorMD 2.0 (src/NoorMD) is not touched. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NoorMD3</RootNamespace>
+    <AssemblyName>NoorMD3</AssemblyName>
+    <Version>3.0.1</Version>
+    <Product>NoorMD</Product>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>..\NoorMD\Assets\NoorMD.ico</ApplicationIcon>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Noor.Contracts\Noor.Contracts.csproj" />
+    <ProjectReference Include="..\NoorMD3.Host\NoorMD3.Host.csproj" />
+    <!-- Stage 1: the benches are built and shipped with the app (DESIGN.md, section 3.3). -->
+    <ProjectReference Include="..\Benches\Sandbox\Sandbox.Bench\Sandbox.Bench.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Noor.UI\css\**\*" Link="wwwroot\ui\css\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Noor.UI\js\**\*" Link="wwwroot\ui\js\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

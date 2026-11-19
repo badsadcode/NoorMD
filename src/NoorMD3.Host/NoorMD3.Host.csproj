@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the shell's logic with no window (settings, the bench registry, messages, files), so it is tested
+       on any machine. The WPF exe (src/NoorMD3) is a thin window around it. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NoorMD3.Host</RootNamespace>
+    <Version>3.0.1</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Noor.Contracts\Noor.Contracts.csproj" />
+  </ItemGroup>
+</Project>

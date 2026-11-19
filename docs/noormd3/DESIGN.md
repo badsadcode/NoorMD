@@ -86,7 +86,8 @@ inspiration from its concept art, but NoorMD has its own face).
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 
-Each step is released as a preview of 3.0 for you to try, like the 2.0 previews.
+Each step is released for you to try. **Versions are plain numbers:** 3.0.1, 3.0.2, 3.0.3… (each release bumps
+the last number); **3.1.0** when stage 1 is done, **3.2.0** when stage 2 is, and so on.
 
 Until a bench moves to 3.0, you use it in 2.0. Both apps can be installed side by side.
 
@@ -282,7 +283,9 @@ engine is described one way. A new kind is added to the Interchange spec first.
 - **Document tabs** inside the bench, with the dirty mark; a bench that has a single view (Music, Radio,
   Calendar) has none.
 - **Panels** dock left, right and bottom, tabbed together or split, and **any panel of an open bench can go
-  into any bench** (it keeps working: the queue still plays, the file tree still opens files); each has a small header with its icon
+  into any bench** (it keeps working: the queue still plays, the file tree still opens files);
+  **resizable**: drag the edge between two panels, or between a panel and the document, to give either more
+  room; double-click an edge to reset it; sizes are saved with the bench's layout; each has a small header with its icon
   tabs, like the concept art. Dragging a panel shows drop zones (left / right / top / bottom / as a tab /
   out into its own window).
 - **Status bar:** the bench's own status on the left; app-wide things on the right: background jobs, the

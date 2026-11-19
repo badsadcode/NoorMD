@@ -19,6 +19,7 @@ def inline(t):
     t = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', link, t)
     return t
 lines = md.split('\n'); body = []; i = 0; toc = []
+seen_title = False
 def flush_para(buf):
     if buf: body.append('<p>' + inline(' '.join(x.strip() for x in buf)) + '</p>')
 para = []
@@ -28,7 +29,8 @@ while i < len(lines):
     if ln.startswith('#'):
         flush_para(para); para = []
         lvl = len(ln) - len(ln.lstrip('#')); text = ln[lvl:].strip()
-        if lvl == 1:   # the title and the line under it are in the page's header
+        if lvl == 1 and not seen_title:   # the title and the line under it are in the page's header (later # headings start a part)
+            seen_title = True
             i += 1
             while i < len(lines) and not lines[i].strip(): i += 1
             while i < len(lines) and lines[i].strip(): i += 1

@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>NoorMD</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/ui/css/noor.css">
+<link rel="stylesheet" href="/shell.css">
+</head>
+<body class="density-roomy">
+<div class="app" id="app">
+  <header class="titlebar drag" id="titlebar">
+    <button class="logo" id="logo" title="Home (Ctrl+Shift+H)" aria-label="Home">N</button>
+    <nav class="menubar" id="menubar" aria-label="Main menu"></nav>
+    <div class="wintitle drag" id="wintitle">NoorMD</div>
+    <div class="winspace" id="winspace" aria-hidden="true"></div>
+  </header>
+  <div class="menurow" id="menurow" hidden></div>
+  <nav class="benchtabs" id="benchtabs" aria-label="Benches"></nav>
+  <main class="benches" id="benches"></main>
+  <footer class="statusbar" id="statusbar">
+    <span id="status-bench"></span>
+    <span class="sp"></span>
+    <span id="status-app" class="nui-muted"></span>
+  </footer>
+</div>
+<script type="module" src="/shell.js"></script>
+</body>
+</html>

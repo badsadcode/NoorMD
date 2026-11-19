@@ -1,0 +1,101 @@
+/* Noor.UI — NoorMD 3.0's design system. Colours come from the theme (the nine themes of NoorMD 2.0); sizes from
+   the density (roomy for writing and media, compact for code and pro tools). */
+
+/* ---------------------------------------------------------------- themes */
+:root, [data-theme=dark] { color-scheme: dark; --bg:#0b0d12; --panel:#11151d; --surface:#181e29; --surface2:#212837; --border:#2a3240; --text:#e9edf5; --muted:#8996aa; --accent:#b19aff; --accent2:#7f66db; --on-accent:#211835; }
+[data-theme=light] { color-scheme: light; --bg:#f3f5f9; --panel:#ffffff; --surface:#f7f8fb; --surface2:#e9edf4; --border:#dae0e9; --text:#202838; --muted:#5f6b80; --accent:#6a4ed0; --accent2:#6145c1; --on-accent:#ffffff; }
+[data-theme=nocturne] { color-scheme: dark; --bg:#070b14; --panel:#0c1220; --surface:#121a2c; --surface2:#1a2438; --border:#223049; --text:#e4ecf7; --muted:#8a9bb5; --accent:#5fd4e6; --accent2:#2fa8bd; --on-accent:#04161b; }
+[data-theme=ember] { color-scheme: dark; --bg:#0f0c0a; --panel:#16120f; --surface:#201a15; --surface2:#2a221b; --border:#3a2f25; --text:#f2e9e1; --muted:#a8978a; --accent:#f2a65a; --accent2:#d17f2f; --on-accent:#241404; }
+[data-theme=evergreen] { color-scheme: dark; --bg:#080f0c; --panel:#0d1612; --surface:#14201a; --surface2:#1b2a22; --border:#26382e; --text:#e3efe8; --muted:#8ea89a; --accent:#6fd6a0; --accent2:#3fae78; --on-accent:#05180e; }
+[data-theme=rosewood] { color-scheme: dark; --bg:#120a0f; --panel:#191017; --surface:#23171f; --surface2:#2e1f29; --border:#3d2a37; --text:#f3e6ee; --muted:#ae94a5; --accent:#f08bb4; --accent2:#c95f8c; --on-accent:#2a0b19; }
+[data-theme=parchment] { color-scheme: light; --bg:#f1eadd; --panel:#fbf7ef; --surface:#f5efe3; --surface2:#ebe2d1; --border:#ddd1bc; --text:#2c241b; --muted:#6b5d4c; --accent:#9a4a1c; --accent2:#7d3a12; --on-accent:#ffffff; }
+[data-theme=glacier] { color-scheme: light; --bg:#eef3f8; --panel:#ffffff; --surface:#f5f8fb; --surface2:#e4ecf4; --border:#d3dee9; --text:#15233a; --muted:#526581; --accent:#1f63c6; --accent2:#1752a8; --on-accent:#ffffff; }
+[data-theme=contrast] { color-scheme: dark; --bg:#000000; --panel:#000000; --surface:#0d0d0d; --surface2:#1a1a1a; --border:#8c8c8c; --text:#ffffff; --muted:#d0d0d0; --accent:#ffd84a; --accent2:#ffc400; --on-accent:#000000; }
+
+/* ---------------------------------------------------------------- tokens */
+:root {
+  --hover: color-mix(in srgb, var(--text) 7%, transparent);
+  --pressed: color-mix(in srgb, var(--text) 12%, transparent);
+  --sel: color-mix(in srgb, var(--accent) 22%, transparent);
+  --danger: #e5484d; --warning: #f5a524; --success: #3fb950;
+  --font-ui: "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-code: "Cascadia Code", "Cascadia Mono", Consolas, monospace;
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-6: 24px; --space-8: 32px;
+  --r1: 4px; --r2: 8px; --r3: 12px;
+  --shadow: 0 12px 32px rgba(0, 0, 0, .35);
+}
+/* roomy: writing and media */
+.density-roomy { --ctl: 30px; --font-size: 13.5px; --font-size-doc: 15px; --gap: 12px; --pad: 14px; --panel-r: var(--r3); --row: 30px; }
+/* compact: code and pro tools */
+.density-compact { --ctl: 24px; --font-size: 12.5px; --font-size-doc: 13px; --gap: 0px; --pad: 8px; --panel-r: 0px; --row: 24px; }
+
+/* ---------------------------------------------------------------- base */
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: var(--font-size, 13px) / 1.45 var(--font-ui); -webkit-font-smoothing: antialiased; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { background: none; border: 0; cursor: default; padding: 0; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--r1); }
+::selection { background: color-mix(in srgb, var(--accent) 35%, transparent); }
+
+/* themed scrollbars (found in the title bar test: the default ones ignored the theme) */
+* { scrollbar-color: color-mix(in srgb, var(--text) 22%, transparent) transparent; scrollbar-width: thin; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--text) 20%, transparent); border-radius: 99px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background-color: color-mix(in srgb, var(--text) 32%, transparent); }
+::-webkit-scrollbar-corner { background: transparent; }
+
+/* ---------------------------------------------------------------- controls */
+.nui-btn { height: var(--ctl); padding: 0 var(--space-3); border-radius: var(--r2); background: var(--surface2); border: 1px solid var(--border); display: inline-flex; align-items: center; gap: var(--space-2); white-space: nowrap; }
+.nui-btn:hover { border-color: color-mix(in srgb, var(--accent) 50%, var(--border)); }
+.nui-btn:active { background: var(--pressed); }
+.nui-btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+.nui-btn.quiet { background: transparent; border-color: transparent; }
+.nui-btn.quiet:hover { background: var(--hover); }
+.nui-btn:disabled { opacity: .45; pointer-events: none; }
+.nui-icon { width: var(--ctl); height: var(--ctl); border-radius: var(--r2); display: inline-grid; place-items: center; color: var(--muted); flex: none; }
+.nui-icon:hover { background: var(--hover); color: var(--text); }
+.nui-icon[aria-pressed=true] { background: var(--sel); color: var(--text); }
+.nui-field, .nui-select { height: var(--ctl); padding: 0 var(--space-2); border-radius: var(--r2); background: var(--surface); border: 1px solid var(--border); color: var(--text); min-width: 0; }
+.nui-field:focus, .nui-select:focus { border-color: var(--accent); outline: none; }
+.nui-muted { color: var(--muted); }
+.nui-h { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: var(--space-3) 0 var(--space-1); }
+.nui-list { display: flex; flex-direction: column; gap: 1px; }
+.nui-row { display: flex; align-items: center; gap: var(--space-2); min-height: var(--row); padding: 0 var(--space-2); border-radius: var(--r1); }
+.nui-row:hover { background: var(--hover); }
+.nui-row.sel, .nui-row[aria-selected=true] { background: var(--sel); }
+.nui-row > :last-child:not(:first-child) { margin-left: auto; }
+.nui-seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r2); overflow: hidden; }
+.nui-seg button { padding: 0 var(--space-3); height: calc(var(--ctl) - 2px); }
+.nui-seg button[aria-pressed=true] { background: var(--sel); }
+.nui-card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); padding: var(--space-4); }
+kbd { font: 11px var(--font-ui); color: var(--muted); }
+
+/* menus (at a point, and the main menu's drop-downs) */
+.nui-menu { position: fixed; z-index: 1000; min-width: 230px; max-height: calc(100vh - 16px); overflow: auto; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r2); box-shadow: var(--shadow); font-size: 13px; }
+.nui-menu .mi { display: flex; align-items: center; gap: 10px; width: 100%; padding: 6px 10px; border-radius: var(--r1); text-align: left; }
+.nui-menu .mi:hover, .nui-menu .mi:focus { background: var(--sel); outline: none; }
+.nui-menu .mi[aria-disabled=true] { opacity: .45; }
+.nui-menu .mi kbd { margin-left: auto; padding-left: 24px; }
+.nui-menu .mi .chk { width: 14px; text-align: center; }
+.nui-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
+.nui-menu .mh { padding: 4px 10px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+
+/* dialogs */
+.nui-scrim { position: fixed; inset: 0; z-index: 900; background: rgba(0, 0, 0, .45); display: grid; place-items: center; }
+.nui-dialog { width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border); border-radius: var(--r3); box-shadow: var(--shadow); }
+.nui-dialog header { display: flex; align-items: center; padding: var(--space-3) var(--space-3) var(--space-3) var(--space-4); border-bottom: 1px solid var(--border); font-weight: 600; }
+.nui-dialog header span { flex: 1; }
+.nui-dialog .body { padding: var(--space-4); overflow: auto; display: flex; flex-direction: column; gap: var(--space-3); }
+.nui-dialog footer { display: flex; justify-content: flex-end; gap: var(--space-2); padding: var(--space-3) var(--space-4); border-top: 1px solid var(--border); }
+.nui-setting { display: flex; align-items: center; gap: var(--space-3); }
+.nui-setting > span:first-child { flex: 1; }
+.nui-setting small { display: block; color: var(--muted); }
+
+/* toasts */
+.nui-toasts { position: fixed; z-index: 1100; right: 16px; bottom: 40px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; pointer-events: none; }
+.nui-toast { max-width: 380px; padding: 10px 14px; background: var(--panel); border: 1px solid var(--border); border-left: 3px solid var(--accent); border-radius: var(--r2); box-shadow: var(--shadow); pointer-events: auto; animation: nui-in .16s ease-out; }
+.nui-toast.error { border-left-color: var(--danger); }
+@keyframes nui-in { from { transform: translateY(8px); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

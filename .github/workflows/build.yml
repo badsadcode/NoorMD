@@ -44,6 +44,34 @@ jobs:
           name: ui-screenshots
           path: ui-screenshots
 
+  noormd3:
+    name: NoorMD 3.0 (shell, contract, Sandbox; C# and Chromium)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: C# tests (contract, registry, settings, router, files)
+        run: dotnet test tests/NoorMD3.Tests -c Release
+      - name: The shell builds (Windows target)
+        run: dotnet build src/NoorMD3 -c Release
+      - name: Install Playwright
+        working-directory: tests/web
+        run: |
+          npm install --no-audit --no-fund
+          for i in 1 2 3; do npx playwright install --with-deps chromium && break; [ $i = 3 ] && exit 1; echo "Retrying the browser install ($i)…"; sudo apt-get update -q || true; sleep 20; done
+      - name: The shell page (Chromium)
+        run: node tests/web3/shell.test.js --screenshots noormd3-screenshots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: noormd3-screenshots
+          path: noormd3-screenshots
+
   godot:
     name: Godot import of exported trees (Godot 4.4, headless)
     runs-on: ubuntu-latest

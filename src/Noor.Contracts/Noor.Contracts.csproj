@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the bench contract. What a bench provides and what the shell offers it (docs/noormd3/DESIGN.md, section 4).
+       Plain .NET, no UI: a bench DLL references only this (and its own core). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Noor.Contracts</RootNamespace>
+    <Version>3.0.1</Version>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,110 @@
+using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace Noor.Contracts;
+
+/// <summary>The version of the bench contract. A bench says which one it was built for; the shell loads benches whose
+/// version it knows (<see cref="Supported"/>) and reports the others instead of loading them.</summary>
+public static class Contract
+{
+    public const int Version = 1;
+    public static readonly IReadOnlySet<int> Supported = new HashSet<int> { 1 };
+}
+
+/// <summary>A bench: its manifest, its web interface (files packed inside its DLL) and its commands (the C# side).</summary>
+public interface IBench
+{
+    BenchManifest Manifest { get; }
+
+    /// <summary>One of the bench's web files (<c>bench.js</c>, a stylesheet, a picture…), or null when there is none by that path.</summary>
+    Stream? OpenAsset(string path);
+
+    /// <summary>Runs a command the bench's page (or the shell) asked for. Returns its result (JSON), or throws
+    /// <see cref="BenchException"/> with a message the user can read.</summary>
+    Task<JsonNode?> HandleAsync(string command, JsonElement args, IBenchHost host, CancellationToken cancel);
+}
+
+/// <summary>What the shell offers a bench's C# side.</summary>
+public interface IBenchHost
+{
+    /// <summary>Sends an event to the bench's page (its module gets it through <c>ctx.on(name, …)</c>).</summary>
+    void Post(string name, object? payload = null);
+
+    /// <summary>A folder only this bench writes to (its own settings, caches), created on first use.</summary>
+    string DataFolder { get; }
+
+    void Log(string message);
+}
+
+/// <summary>A failure to show the user as it is ("That file is not a NoorMD note").</summary>
+public sealed class BenchException(string message) : Exception(message);
+
+/// <summary>Who a bench is and what it brings: shown in the bench tabs, the menus, Home and Settings.</summary>
+public sealed record BenchManifest
+{
+    /// <summary>Lower case, dotted, unique: <c>noor.markdown</c>.</summary>
+    public required string Id { get; init; }
+    public required string Name { get; init; }
+    /// <summary>A short glyph shown in its tab and on Home (an emoji or a symbol).</summary>
+    public string Icon { get; init; } = "◆";
+    public string Description { get; init; } = "";
+    public string Version { get; init; } = "1.0.0";
+    public int ContractVersion { get; init; } = Contract.Version;
+    /// <summary><c>roomy</c> (writing, media) or <c>compact</c> (code, pro tools); the user can override it per bench.</summary>
+    public string Density { get; init; } = "roomy";
+    /// <summary>The bench's web module, a path among its assets.</summary>
+    public string Entry { get; init; } = "bench.js";
+    /// <summary>The bench's own menus, shown between View and Tools while it's active.</summary>
+    public IReadOnlyList<MenuSpec> Menus { get; init; } = [];
+    /// <summary>The panels it can show, and where they go by default.</summary>
+    public IReadOnlyList<PanelSpec> Panels { get; init; } = [];
+}
+
+public sealed record MenuSpec(string Title, IReadOnlyList<MenuItemSpec> Items);
+
+/// <summary>A menu item runs a command: the bench's page handles it if its module has it, else its C# side.
+/// A null <see cref="Command"/> is a separator.</summary>
+public sealed record MenuItemSpec(string? Label = null, string? Command = null, string? Keys = null)
+{
+    public static readonly MenuItemSpec Separator = new();
+}
+
+/// <param name="Dock"><c>left</c>, <c>right</c> or <c>bottom</c>.</param>
+public sealed record PanelSpec(string Id, string Title, string Icon = "▤", string Dock = "right");
+
+/// <summary>The usual way to write a bench: web files embedded in the DLL under <c>web/</c>
+/// (<c>&lt;EmbeddedResource Include="web\**" /&gt;</c>), commands as methods registered in the constructor.</summary>
+public abstract class BenchBase : IBench
+{
+    readonly Dictionary<string, Func<JsonElement, IBenchHost, CancellationToken, Task<JsonNode?>>> _commands = new(StringComparer.Ordinal);
+    readonly Assembly _assembly;
+    readonly Dictionary<string, string> _assets;   // "bench.js" → manifest resource name
+
+    protected BenchBase()
+    {
+        _assembly = GetType().Assembly;
+        var root = _assembly.GetName().Name + ".web.";
+        _assets = new(StringComparer.OrdinalIgnoreCase);
+        foreach (var name in _assembly.GetManifestResourceNames())
+            if (name.StartsWith(root, StringComparison.Ordinal)) _assets[name[root.Length..]] = name;
+    }
+
+    public abstract BenchManifest Manifest { get; }
+
+    /// <summary>Registers a command (its id as the menu items and the page name it).</summary>
+    protected void Command(string id, Func<JsonElement, IBenchHost, CancellationToken, Task<JsonNode?>> run) => _commands[id] = run;
+    protected void Command(string id, Func<JsonElement, JsonNode?> run) => _commands[id] = (a, _, _) => Task.FromResult(run(a));
+
+    public IReadOnlyCollection<string> Commands => _commands.Keys;
+
+    public virtual Stream? OpenAsset(string path)
+    {
+        // Embedded resources flatten folders into dots: "web/css/x.css" is "Asm.web.css.x.css".
+        var key = path.Replace('\\', '/').TrimStart('/').Replace('/', '.');
+        return _assets.TryGetValue(key, out var res) ? _assembly.GetManifestResourceStream(res) : null;
+    }
+
+    public virtual Task<JsonNode?> HandleAsync(string command, JsonElement args, IBenchHost host, CancellationToken cancel) =>
+        _commands.TryGetValue(command, out var run) ? run(args, host, cancel) : throw new BenchException($"{Manifest.Name} has no command \"{command}\".");
+}

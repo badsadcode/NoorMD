@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the Sandbox, a small bench that proves the contract (its web files packed in the DLL, a C# command,
+       a menu, a panel). It goes away when the real benches arrive. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Sandbox.Bench</RootNamespace>
+    <AssemblyName>Sandbox.Bench</AssemblyName>
+    <Version>3.0.1</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />
+    <EmbeddedResource Include="web\**" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,75 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+using Noor.Contracts;
+
+namespace NoorMD3.Host;
+
+/// <summary>The page's requests, answered: <c>{ id, target: "shell" | "bench:&lt;id&gt;", cmd, args }</c> →
+/// <c>{ id, ok, result | error }</c>. The shell's own commands (settings, the bench list) are here; a bench's go to it.</summary>
+public sealed class ShellRouter
+{
+    readonly BenchRegistry _benches;
+    readonly Func<string, IBenchHost> _hostFor;
+    readonly string _settingsPath;
+    public ShellSettings Settings { get; private set; }
+    /// <summary>Window commands (minimise, maximise, the buttons' colours…), handled by the window.</summary>
+    public Func<string, JsonElement, JsonNode?>? Window { get; set; }
+
+    public ShellRouter(BenchRegistry benches, string settingsPath, Func<string, IBenchHost> hostFor)
+    {
+        _benches = benches; _settingsPath = settingsPath; _hostFor = hostFor;
+        Settings = ShellSettings.Load(settingsPath);
+    }
+
+    public async Task<JsonObject> HandleAsync(JsonElement request, CancellationToken cancel = default)
+    {
+        var id = request.TryGetProperty("id", out var i) ? i.Clone() : default;
+        var reply = new JsonObject { ["id"] = id.ValueKind == JsonValueKind.Undefined ? null : JsonNode.Parse(id.GetRawText()) };
+        try
+        {
+            var target = request.GetProperty("target").GetString() ?? "";
+            var cmd = request.GetProperty("cmd").GetString() ?? "";
+            var args = request.TryGetProperty("args", out var a) ? a : default;
+            JsonNode? result;
+            if (target == "shell") result = Shell(cmd, args);
+            else if (target == "window") result = Window?.Invoke(cmd, args);
+            else if (target.StartsWith("bench:", StringComparison.Ordinal))
+            {
+                var bench = _benches.Find(target[6..]) ?? throw new BenchException($"There is no bench \"{target[6..]}\".");
+                result = await bench.HandleAsync(cmd, args, _hostFor(bench.Manifest.Id), cancel);
+            }
+            else throw new BenchException($"Unknown target \"{target}\".");
+            reply["ok"] = true; reply["result"] = result;
+        }
+        catch (BenchException ex) { reply["ok"] = false; reply["error"] = ex.Message; }
+        catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or JsonException or FormatException)
+        {
+            reply["ok"] = false; reply["error"] = "That request wasn't understood: " + ex.Message;
+        }
+        return reply;
+    }
+
+    JsonNode? Shell(string cmd, JsonElement args)
+    {
+        switch (cmd)
+        {
+            case "start":
+                return new JsonObject
+                {
+                    ["version"] = typeof(ShellRouter).Assembly.GetName().Version?.ToString(3),
+                    ["contract"] = Contract.Version,
+                    ["settings"] = JsonNode.Parse(Settings.ToJson().GetRawText()),
+                    ["benches"] = JsonSerializer.SerializeToNode(_benches.Benches.Select(b => b.Manifest).OrderBy(m => m.Name), Json),
+                    ["problems"] = JsonSerializer.SerializeToNode(_benches.Problems),
+                };
+            case "settings.save":
+                Settings = ShellSettings.FromJson(args);
+                Settings.Save(_settingsPath);
+                return JsonNode.Parse(Settings.ToJson().GetRawText());
+            default:
+                throw new BenchException($"The shell has no command \"{cmd}\".");
+        }
+    }
+
+    static readonly JsonSerializerOptions Json = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+}
