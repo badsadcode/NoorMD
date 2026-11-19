@@ -64,6 +64,8 @@ const MOCK = (manifests) => {
     const a = m.args || {};
     if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.8', contract: 1, settings: get('mock.settings', defaults), benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { put('mock.settings', a); return a; }
+    if (m.target === 'shell' && m.cmd === 'settings.patch') { const cur = get('mock.settings', defaults); for (const [k, v] of Object.entries(a)) { if (k === 'layouts') cur.layouts = { ...(cur.layouts || {}), ...v }; else cur[k] = v; } put('mock.settings', cur); return cur; }
+    if (m.target === 'shell' && m.cmd === 'settings.get') return get('mock.settings', defaults);
     if (m.target === 'window') return null;
     if (m.target === 'bench:noor.markdown') {
       const d = disk();
@@ -523,7 +525,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await page.waitForTimeout(150);
     await page.evaluate(() => { window.__noor.open.get('noor.vault').mounted.commands['vault.pack'](); });
     await page.waitForSelector('.nui-dialog .vt-pack-sum b');
-    check('Pack & Share: what goes in, how big, and links that lead nowhere', (await page.textContent('.vt-pack-sum')).includes('files') && (await page.textContent('.vt-pack-details')).includes('lead nowhere'));
+    check('Pack & Share: what goes in, how big, and links that lead nowhere', (await page.textContent('.vt-pack-sum')).includes('files') && (await page.textContent('.vt-pack-details')).includes('leads nowhere'));
     await page.click('.vt-pack-opts label:has-text("AI assistant") input');
     await page.waitForSelector('.vt-pack-note');
     await page.fill('.vt-pack-note', 'Summarise my trains notes.');

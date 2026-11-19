@@ -48,6 +48,8 @@ const MOCK = (manifests) => {
     const a = m.args || {};
     if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.5', contract: 1, settings: get('mock.settings', defaults), benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { put('mock.settings', a); return a; }
+    if (m.target === 'shell' && m.cmd === 'settings.patch') { const cur = get('mock.settings', defaults); for (const [k, v] of Object.entries(a)) { if (k === 'layouts') cur.layouts = { ...(cur.layouts || {}), ...v }; else cur[k] = v; } put('mock.settings', cur); return cur; }
+    if (m.target === 'shell' && m.cmd === 'settings.get') return get('mock.settings', defaults);
     if (m.target === 'window' && m.cmd === 'print') { window.__printed = (document.getElementById('print-root') || {}).innerHTML || ''; return null; }
     if (m.target === 'window') return null;
     if (m.target === 'bench:noor.clock') return [];
@@ -600,6 +602,32 @@ const state = (page) => page.evaluate(ST);
     await page.waitForTimeout(100);
     check('a light theme: the editor turns light', !(await page.$('.md-pane:not([hidden]) .toastui-editor-defaultUI.toastui-editor-dark')));
     await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+
+    // ---------------------------------------------------------------- in a window of its own (3.0.11): unsaved work comes along
+    await page.evaluate(() => { window.__noor.open.get('noor.markdown').mounted.commands['md.new'](); });
+    await page.waitForTimeout(400);
+    await page.evaluate(() => { const ed = window.__noor.open.get('noor.markdown').mounted._editor(); ed.focus(); ed.insertText('Carried across windows.'); });
+    await page.waitForTimeout(200);
+    const carried = (await state(page)).docs.find((d) => d.text.includes('Carried across windows.'));
+    await page.evaluate(() => window.__noor.moveToWindow('noor.markdown'));
+    await waitFn(page, () => !!document.querySelector('.btab.away[data-bench="noor.markdown"]'));
+    check('Move to a new window: the Markdown bench leaves the main window (its tab points to its window)', !(await page.$('section.bench[data-bench="noor.markdown"] .md-tab')));
+    const mw = await context.newPage();
+    mw.on('pageerror', (e) => errors.push('bench window: ' + e));
+    await mw.goto(url + '?bench=noor.markdown');
+    await waitFn(mw, () => { const i = window.__noor && window.__noor.open.get('noor.markdown'); return i && i.mounted && i.mounted._state && i.mounted._state().docs.some((d) => d.text.includes('Carried across windows.')); });
+    const there = await state(mw);
+    const doc2 = there.docs.find((d) => d.text.includes('Carried across windows.'));
+    check('…in its window, the unsaved document is there, still unsaved, with the same tabs', !!carried && doc2 && doc2.dirty && doc2.id === carried.id && there.docs.length === (await page.evaluate(() => JSON.parse(localStorage.getItem('mock.settings')).layouts['noor.markdown'].state.docs.length)));
+    check('…without a "came back with unsaved changes" message (it just moved)', !(await mw.isVisible('.nui-toast:has-text("came back")')));
+    await mw.evaluate(() => { const ed = window.__noor.open.get('noor.markdown').mounted._editor(); ed.focus(); ed.moveCursorToEnd(); ed.insertText(' And more, written there.'); });
+    await mw.waitForTimeout(200);
+    await mw.evaluate(() => window.__noor.goBackToMain());
+    await mw.waitForTimeout(300);
+    await mw.close();
+    await page.evaluate(() => window.__noor.comeBack('noor.markdown'));
+    await waitFn(page, () => { const i = window.__noor.open.get('noor.markdown'); return i && i.mounted && i.mounted._state && i.mounted._state().docs.some((d) => d.text.includes('And more, written there.')); });
+    check('Back to the main window: the document comes back with what was written there', (await state(page)).docs.find((d) => d.text.includes('And more, written there.')).dirty === true);
 
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });

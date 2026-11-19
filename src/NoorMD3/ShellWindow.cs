@@ -46,6 +46,7 @@ public sealed class ShellWindow : Window
     bool IsMain => FloatId == null && BenchId == null;
     readonly JsonNode? _floatSpec;
     bool _closingQuietly;            // closed by the main window (it knows already): don't report it back
+    bool _backReady;                 // a bench's window: its page has kept the bench's work, it may close now
     readonly System.Windows.Threading.DispatcherTimer _moved = new() { Interval = TimeSpan.FromMilliseconds(400) };
 
     public ShellWindow(string? floatId = null, JsonNode? floatSpec = null, string? benchId = null)
@@ -75,8 +76,19 @@ public sealed class ShellWindow : Window
         }
         ShellApp.Windows.Add(this);
         Closed += (_, _) => ShellApp.Windows.Remove(this);
-        Closing += (_, _) =>
+        Closing += (_, e) =>
         {
+            // A bench's own window asks its page first: the bench keeps its documents, then goes back to the main
+            // window as a tab (the page answers with "bench.back"; a page that doesn't answer is closed anyway).
+            if (BenchId != null && !_closingQuietly && !_backReady && _webReady)
+            {
+                e.Cancel = true;
+                Post(JsonSerializer.Serialize(new { @event = "benchwindow.closing" }));
+                var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(4) };
+                t.Tick += (_, _) => { t.Stop(); _backReady = true; Close(); };
+                t.Start();
+                return;
+            }
             if (IsMain) { foreach (var f in ShellApp.Windows.Where(w => !w.IsMain).ToArray()) { f._closingQuietly = true; f.Close(); } }
             else if (_closingQuietly) { }
             else if (FloatId != null) ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "float.closed", id = FloatId }));
@@ -304,7 +316,7 @@ public sealed class ShellWindow : Window
                 w.KeepOnScreen();
                 break;
             }
-            case "bench.back": Close(); break;   // reported to the main window: the bench goes back there as a tab
+            case "bench.back": _backReady = true; Close(); break;   // reported to the main window: the bench goes back there as a tab
             case "bench.close":
             {
                 var bench = m.GetProperty("bench").GetString();

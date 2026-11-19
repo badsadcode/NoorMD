@@ -168,9 +168,13 @@ inspiration from its concept art, but NoorMD has its own face).
        publishing and syncing to anyone's server (a vault is a plain folder: sync it with whatever you like).
    - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
      bar, Send to between benches, the command palette.
-   - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place
-     (bench windows, settings patched per window so they don't overwrite each other); the page side waits until
-     after part 4.
+   - **3.0.11 (done): a whole bench in a window of its own.** Drag its tab down out of the tab row (or right-click ›
+     Move to a new window, or Window › Move … to a new window). The bench's view and docked panels go there, with its
+     documents (unsaved work as drafts, never-saved tabs with their text); its tab stays in the main window with ↗
+     and takes you there. ⇱ Back to the main window, closing the window, or right-click › Bring it back return it as a
+     tab, as it was. The main window keeps the bench's module running quietly (no view), so its panels docked in
+     other benches keep working; a bench window runs the modules of panels docked in it the same way. Each window
+     writes only its own part of the settings (settings.patch); benches in windows open again at the next start.
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 

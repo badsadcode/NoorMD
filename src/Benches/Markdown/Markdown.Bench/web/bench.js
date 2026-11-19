@@ -138,6 +138,7 @@ const samePath = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 export default {
   mount(root, ctx) {
+    const arrived = !!ctx.justMoved;   // moved here from another window (its documents come along, nothing to announce)
     ctx.useStyle(here('vendor/toastui/toastui-editor.css'));
     ctx.useStyle(here('vendor/toastui/toastui-editor-dark.css'));
     ctx.useStyle(here('bench.css'));
@@ -541,8 +542,11 @@ export default {
     }
 
     // ------------------------------------------------------------ the session: open documents come back next time
-    function keepSession() {
-      ctx.keep('docs', docs.map((d) => ({ id: d.id, path: d.path, name: d.name, title: d.title, mode: d.mode })));
+    function keepSession(moving = false) {
+      // Moving to another window, a document that was never saved and has no changes (the welcome, a new one) takes
+      // its text along: it has no file and no draft to come back from.
+      const carry = (d) => (moving && !d.path && !isDirty(d) && md(d).length <= 20000 ? { text: md(d) } : {});
+      ctx.keep('docs', docs.map((d) => ({ id: d.id, path: d.path, name: d.name, title: d.title, mode: d.mode, ...carry(d) })));
       ctx.keep('active', cur ? cur.id : null);
     }
     async function restoreSession() {
@@ -557,6 +561,10 @@ export default {
             const d = makeDoc({ id: k.id, path: draft.path, name: draft.name, title: draft.title || k.title, mode: k.mode, format: draft.format });
             d.pending = draft.markdown; d.gen = 1; back++;
             addDoc(d, { show: false });
+          } else if (!k.path && typeof k.text === 'string') {
+            const d = makeDoc({ id: k.id, title: k.title, mode: k.mode });
+            d.pending = k.text;
+            addDoc(d, { show: false });
           } else if (k.path) {
             const r = await ctx.call('md.load', { doc: k.id, path: k.path });
             const d = makeDoc({ id: k.id, path: r.path, name: r.name, mode: k.mode, format: r.format });
@@ -567,7 +575,7 @@ export default {
       }
       if (!docs.length && !ctx.restore('welcomed', false)) { ctx.keep('welcomed', true); openWelcome({ focus: false }); }
       showDoc(byId(want) || docs[0] || null, { focus: false });
-      if (back) ctx.toast(`${back === 1 ? 'A document' : back + ' documents'} came back with unsaved changes.`);
+      if (back && !arrived) ctx.toast(`${back === 1 ? 'A document' : back + ' documents'} came back with unsaved changes.`);
       // Drafts nobody owns (left by a crash): offer them.
       const orphans = await ctx.call('md.drafts', { except: docs.map((d) => d.id) }).catch(() => []);
       if (orphans.length) offerOrphans(orphans);
@@ -1239,6 +1247,8 @@ export default {
       /** Menu items with a tick (the shell asks). */
       checked: (cmd) => (CHECKS[cmd] ? CHECKS[cmd]() : undefined),
       /** Closing the bench: unsaved documents are either saved or kept (drafts) for when it opens again. */
+      /** Moving to another window (the shell asks first): unsaved work goes to drafts now, so it comes along. */
+      async suspend() { await Promise.all(docs.map(writeDraft)); keepSession(true); },
       async canClose() {
         const dirty = docs.filter(isDirty);
         if (!dirty.length) return true;

@@ -17,7 +17,7 @@ public sealed class VaultBench : BenchBase
         Name = "Vault",
         Icon = "🗄",
         Description = "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
-        Version = "3.0.10",
+        Version = "3.0.11",
         Density = "roomy",
         Menus =
         [

@@ -397,6 +397,25 @@ Last, **Pack & Share** came over from 2.0: a ZIP of some notes and everything th
 at the other end. One tick makes it a package for an AI assistant, with a short guide to how the notes connect
 and a box for what you'd like it to do. Hidden files like passwords stay out, and nothing is ever uploaded.
 
+## Day 28, later — 3.0.11: a bench of its own 🪟
+
+The human tried to drag the Markdown tab out of the window, the way you'd pull a tab out of a browser. Nothing
+happened. Fair enough: that part had been sitting on the to-do list since the floating panels arrived, half built
+(the window could do it, the page couldn't).
+
+Now it can. Grab a bench's tab, pull it down out of the tab row, let go, and the bench gets a window of its own:
+its editor, its panels, its menus, the lot. Put it on the second monitor. Its tab stays behind in the main window
+with a little ↗, and clicking it takes you to the window. When you're done, **⇱ Back to the main window** (or just
+close the window) and it slots back in as a tab, as it was.
+
+The tricky bit was the documents. A Markdown tab with unsaved changes has to survive the trip, and so does the
+welcome document nobody ever saved (the first test found that one missing, which is exactly why there are tests).
+Before a bench moves, it puts its unsaved work into drafts; the new window picks everything up from there, and it
+doesn't greet you with "documents came back with unsaved changes", because nothing came *back*: it just moved.
+
+Also: when the Vault's Explorer is docked beside your writing and the Markdown bench moves out, the Explorer moves
+with it and keeps working, because the Vault quietly runs in the new window too, without a face of its own.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -410,7 +429,8 @@ and a box for what you'd like it to do. Hidden files like passwords stay out, an
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Music bench next (the library and the player, as a panel you can dock anywhere),
+**NoorMD 3.0**, piece by piece: the Music bench next (the library and the player, as a panel you can dock anywhere, or a
+window of its own),
 then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).

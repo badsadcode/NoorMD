@@ -40,17 +40,26 @@ const MOCK = (manifests) => {
   const defaults = { theme: 'dark', menuPosition: 'title', density: {}, openBenches: [], activeBench: null, layouts: {}, welcomed: false };
   const words = (t) => (t.match(/[\p{L}\p{N}](?:[\p{L}\p{N}'’-]|\.(?=\p{N}))*/gu) || []).length;
   const send = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 5);
-  const me = new URLSearchParams(location.search).get('float') || 'main';
+  const qs = new URLSearchParams(location.search);
+  const me = qs.get('float') || (qs.get('bench') ? 'bench:' + qs.get('bench') : 'main');
   const channel = new BroadcastChannel('mock-noormd3');
   channel.onmessage = (e) => { const d = e.data; if ((d.to && d.to === me) || (!d.to && d.from !== me)) { if (d.msg.event === 'mock.closed') window.__closed = true; send(d.msg); } };
   const answer = (m) => {
     if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.4', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { localStorage.setItem('mock.settings', JSON.stringify(m.args)); return m.args; }
+    // Each window patches its own part of the settings ("layouts" merged per bench).
+    if (m.target === 'shell' && m.cmd === 'settings.patch') { const cur = store() || { ...defaults }; for (const [k, v] of Object.entries(m.args)) { if (k === 'layouts') cur.layouts = { ...(cur.layouts || {}), ...v }; else cur[k] = v; } localStorage.setItem('mock.settings', JSON.stringify(cur)); (window.__patches = window.__patches || []).push(m.args); return cur; }
+    if (m.target === 'shell' && m.cmd === 'settings.get') return store() || defaults;
     // The window's floating panels: a BroadcastChannel stands in for the window passing events between pages.
     if (m.target === 'window' && m.cmd === 'float.open') { localStorage.setItem('mock.float.' + m.args.id, JSON.stringify(m.args)); (window.__floatOpens = window.__floatOpens || []).push(m.args); return { id: m.args.id }; }
     if (m.target === 'window' && m.cmd === 'float.get') return JSON.parse(localStorage.getItem('mock.float.' + me));
     if (m.target === 'window' && m.cmd === 'float.dock') { channel.postMessage({ to: 'main', msg: { event: 'float.closed', id: me } }); window.__docked = true; return null; }
     if (m.target === 'window' && m.cmd === 'float.close') { (window.__floatCloses = window.__floatCloses || []).push(m.args.id); channel.postMessage({ to: m.args.id, msg: { event: 'mock.closed' } }); return null; }
+    // Benches in windows of their own (3.0.11): the test opens the window's page itself.
+    if (m.target === 'window' && m.cmd === 'bench.open') { (window.__benchOpens = window.__benchOpens || []).push(m.args); return null; }
+    if (m.target === 'window' && m.cmd === 'bench.focus') { (window.__benchFocus = window.__benchFocus || []).push(m.args.bench); return null; }
+    if (m.target === 'window' && m.cmd === 'bench.back') { window.__wentBack = true; channel.postMessage({ to: 'main', msg: { event: 'benchwindow.closed', bench: me.slice(6) } }); return null; }
+    if (m.target === 'window' && m.cmd === 'bench.close') { (window.__benchCloses = window.__benchCloses || []).push(m.args.bench); channel.postMessage({ to: 'bench:' + m.args.bench, msg: { event: 'mock.closed' } }); return null; }
     if (m.target === 'window' && m.cmd === 'bus.emit') { channel.postMessage({ from: me, msg: { event: 'bench', bench: m.args.bench, name: m.args.name, payload: m.args.payload } }); return null; }
     if (m.target === 'window' && m.cmd === 'broadcast') { channel.postMessage({ from: me, msg: { event: m.args.name, payload: m.args.payload } }); return null; }
     if (m.target === 'window') return null;
@@ -291,6 +300,56 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     check('Get over here! (Ctrl+Shift+G): every floating panel back in the main window, where it came from', (await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && (await docks()).bottom.some((g) => g.panels.includes('noor.clock:stopwatch')) && await page.isVisible('.nui-toast:has-text("Get over here! 2 panels pulled back in.")') && (await page.evaluate(() => window.__floatCloses.length)) >= 2);
     check('…and their windows were told to close', await fp2.evaluate(() => window.__closed === true));
     await fp2.close();
+    // ---- a bench in a window of its own (3.0.11)
+    await page.click('.btab[data-bench="noor.sandbox"]', { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Move to a new window")');
+    await waitFn(page, () => (window.__benchOpens || []).length === 1);
+    check('right-click a bench tab › Move to a new window: the window is asked for one, with the Sandbox', (await page.evaluate(() => window.__benchOpens[0].bench)) === 'noor.sandbox');
+    check('…its tab stays, pointing there (↗), and another bench comes to the front', await page.isVisible('.btab.away[data-bench="noor.sandbox"] .aw') && (await page.evaluate(() => window.__noor.active())) !== 'noor.sandbox');
+    check('…the main window keeps no view of it (just its module, for its panels elsewhere)', (await page.evaluate(() => document.querySelector('section.bench[data-bench="noor.sandbox"] .view').children.length)) === 0);
+    check('…and remembers it for the next start', await page.evaluate(() => (JSON.parse(localStorage.getItem('mock.settings')).windows || []).some((w) => w.bench === 'noor.sandbox')));
+    const bw = await context.newPage();
+    bw.on('pageerror', (e) => errors.push('bench window: ' + e));
+    await bw.goto(url + '?bench=noor.sandbox');
+    await bw.waitForSelector('.sb-text');
+    check('the bench\'s window: the Sandbox, its name, and the way back', (await bw.textContent('.btab.bw-name')).includes('Sandbox') && await bw.isVisible('.btab.bw-back'));
+    check('…with its panels, the Clock\'s stopwatch included (the Clock runs there quietly for it)', await bw.isVisible('.pbody[data-ref="noor.sandbox:stats"]') && await bw.isVisible('.pbody[data-ref="noor.clock:stopwatch"] .ck-go') && !(await bw.$('.btab[data-bench="noor.clock"]')));
+    await bw.fill('.sb-text', 'Written in its own window.');
+    await bw.waitForFunction(() => /Words\s*5/.test(document.querySelector('.pbody[data-ref="noor.sandbox:stats"]').textContent), null, { timeout: 4000 }).catch(() => {});
+    check('…it works there (the count follows the typing)', /Words\s*5/.test(await bw.textContent('.pbody[data-ref="noor.sandbox:stats"]')));
+    await bw.click('[data-menu]:text-is("File")');
+    check('…its File menu: back to the main window, or close the bench (no Home, no Exit)', await bw.isVisible('.nui-menu .mi:has-text("Back to the main window")') && !(await bw.isVisible('.nui-menu .mi:has-text("Exit")')));
+    await bw.keyboard.press('Escape');
+    await page.click('.btab[data-bench="noor.sandbox"]');
+    check('clicking its tab in the main window goes to its window', (await page.evaluate(() => window.__benchFocus || [])).includes('noor.sandbox'));
+    await bw.click('.btab.bw-back');
+    await waitFn(page, () => window.__noor.active() === 'noor.sandbox' && !document.querySelector('.btab.away'));
+    check('⇱ Back to the main window: the Sandbox is a tab here again, in front, with its view', await page.isVisible('section.bench[data-bench="noor.sandbox"] .sb-text') && await bw.evaluate(() => window.__wentBack === true));
+    await waitFn(page, () => !(JSON.parse(localStorage.getItem('mock.settings')).windows || []).length).catch(() => {});
+    check('…and isn\'t remembered as windowed any more', await page.evaluate(() => !(JSON.parse(localStorage.getItem('mock.settings')).windows || []).length));
+    check('…what was written in its window came along (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'Written in its own window.');
+    await page.fill('.sb-text', 'NoorMD 3.0 is one home. Benches talk! Three more words.');
+    await page.waitForTimeout(500);   // (the Sandbox keeps its text when it has counted it)
+    await bw.close();
+    // Dragging the tab out of the window does it too; right-click › Bring it back asks the window to send it back.
+    const [tx, ty] = await tabCenter('.btab[data-bench="noor.sandbox"]');
+    await page.mouse.move(tx, ty); await page.mouse.down();
+    await page.mouse.move(tx + 10, ty + 40, { steps: 3 });
+    await page.mouse.move(tx + 40, ty + 260, { steps: 6 });
+    check('dragging a bench tab down out of the tab row: the ghost says it gets a window of its own', /window of its own/.test(await page.textContent('.dock-ghost')));
+    await page.mouse.up();
+    await waitFn(page, () => (window.__benchOpens || []).length === 2);
+    check('…let go: it moves to a window there', await page.isVisible('.btab.away[data-bench="noor.sandbox"]'));
+    const bw2 = await context.newPage();
+    bw2.on('pageerror', (e) => errors.push('bench window 2: ' + e));
+    await bw2.goto(url + '?bench=noor.sandbox');
+    await bw2.waitForSelector('.sb-text');
+    await page.click('.btab[data-bench="noor.sandbox"]', { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Bring it back into this window")');
+    await waitFn(page, () => !document.querySelector('.btab.away'));
+    check('right-click › Bring it back: the window sends it back (it keeps its work first)', await bw2.evaluate(() => window.__wentBack === true) && await page.isVisible('section.bench[data-bench="noor.sandbox"] .sb-text'));
+    await bw2.close();
+
     // A floating panel comes back after a restart: the Clock's small clock floats until the restart check below.
     await openMenu('View'); await pick('Clock (Clock)');
     await page.waitForSelector(`${sb} .pbody[data-ref="noor.clock:now"]`);
@@ -371,7 +430,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     check('…and the floating Clock opens in its window again', (await page.evaluate(() => window.__noor.floats().map((f) => f.ref))).join() === 'noor.clock:now' && (await page.evaluate(() => (window.__floatOpens || []).map((f) => f.ref))).includes('noor.clock:now'));
     await page.keyboard.press('Control+Shift+G');
     await waitFn(page, () => window.__noor.floats().length === 0);
-    check('…the Sandbox\'s text kept (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'NoorMD 3.0 is one home. Benches talk! Three more words.');
+    check('…the Sandbox\'s text kept (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'NoorMD 3.0 is one home. Benches talk! Three more words.', await page.inputValue('.sb-text'));
     check('…its layout kept (About still hidden, the left side 260 px)', !(await page.isVisible('.pbody[data-ref="noor.sandbox:about"]')) && (await page.$eval('section.bench[data-bench="noor.sandbox"]', (b) => getComputedStyle(b).getPropertyValue('--lw').trim())) === '0px');
     check('…the theme and the menu row kept', (await page.getAttribute('html', 'data-theme')) === 'parchment' && await page.isVisible('#menurow'));
 

@@ -17,7 +17,10 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.10** (the newest): the Vault's last part: properties (a small form for a note's front matter), notes
+- **3.0.11** (the newest): a bench in a window of its own (two monitors!). Drag a bench's tab down out of the
+  tab row, or right-click it › Move to a new window. Its documents and panels go with it; ⇱ Back to the main
+  window (or closing that window) brings it back as a tab.
+- **3.0.10**: the Vault's last part: properties (a small form for a note's front matter), notes
   that mention this one without a link (one click links them), the links going out of a note, bookmarks, a random
   note, Extract to a new note, search operators (tag:idea, path:Projects, "exact words", -skip, status:done), and
   Pack & Share (a ZIP of notes and what they link to, for a friend or an AI assistant). Plus 15 bugs fixed in the

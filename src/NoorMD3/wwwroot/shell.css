@@ -162,3 +162,10 @@ body.floating .wintitle { justify-content: flex-start; }
 /* Files dragged over the window: a quiet frame says "drop here" */
 body.dropping::after { content: 'Drop to open'; position: fixed; inset: 8px; border: 2px dashed var(--accent); border-radius: var(--r3); background: color-mix(in srgb, var(--accent) 8%, transparent);
   display: grid; place-items: center; font-size: 18px; font-weight: 600; color: var(--text); pointer-events: none; z-index: 9999; }
+
+/* 3.0.11: benches in windows of their own */
+.btab.away { font-style: italic; }
+.btab.away .aw { color: var(--accent); font-style: normal; font-size: 12px; }
+.btab.bw-name { cursor: default; }
+.btab.bw-back { color: var(--muted); border: 1px dashed var(--border); }
+.btab.bw-back:hover { color: var(--text); border-style: solid; }

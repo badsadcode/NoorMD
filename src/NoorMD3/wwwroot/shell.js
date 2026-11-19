@@ -39,6 +39,9 @@ let focusMode = false;
 // Panels floating in windows of their own: { id, ref, x, y, w, h, from: { bench, side } } (kept in the settings).
 let floats = [];
 const floatId = new URLSearchParams(location.search).get('float');   // set in a floating panel's own window
+const benchWinId = new URLSearchParams(location.search).get('bench');   // set in a bench's own window (3.0.11)
+// Benches moved into windows of their own (main window): id → { bench, x, y, w, h } (kept in the settings).
+const windowed = new Map();
 
 const HOME = { id: 'home', name: 'Home', icon: '⌂', density: 'roomy', menus: [], panels: [] };
 const manifestOf = (id) => (id === 'home' ? HOME : benches.get(id));
@@ -48,13 +51,26 @@ let saveTimer = 0;
 function save() {
   if (floatId) return;   // a floating window's page doesn't own the settings
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    settings.openBenches = order.filter((id) => id !== 'home');
-    settings.activeBench = active;
-    settings.floats = floats.map((f) => ({ ...f }));
-    for (const [id, inst] of open) if (id !== 'home') settings.layouts[id] = inst.layout;
-    call('shell', 'settings.save', settings).catch((e) => toast('Settings couldn\'t be saved: ' + e.message, { error: true }));
-  }, 300);
+  saveTimer = setTimeout(saveNow, 300);
+}
+/** Writes this window's part of the settings now. Each window patches only its own part: a bench's window its
+    bench's layout; the main window everything else (and the layouts of the benches it shows). */
+function saveNow() {
+  clearTimeout(saveTimer);
+  if (floatId) return Promise.resolve();
+  const fail = (e) => toast('Settings couldn\'t be saved: ' + e.message, { error: true });
+  if (benchWinId) {
+    const inst = open.get(benchWinId);
+    return inst && !inst.ghost ? call('shell', 'settings.patch', { layouts: { [benchWinId]: inst.layout } }).catch(fail) : Promise.resolve();
+  }
+  settings.openBenches = order.filter((id) => id !== 'home');
+  settings.activeBench = active;
+  settings.floats = floats.map((f) => ({ ...f }));
+  settings.windows = [...windowed.values()];
+  const layouts = {};
+  for (const [id, inst] of open) if (id !== 'home' && !inst.away && !inst.ghost) layouts[id] = settings.layouts[id] = inst.layout;
+  const { theme, menuPosition, density, openBenches, activeBench, welcomed } = settings;
+  return call('shell', 'settings.patch', { theme, menuPosition, density, openBenches, activeBench, welcomed: !!welcomed, floats: settings.floats, windows: settings.windows, layouts }).catch(fail);
 }
 
 // ---------------------------------------------------------------- the theme and the look
@@ -64,7 +80,7 @@ function applyTheme() {
   const cs = getComputedStyle(document.documentElement), v = (k) => cs.getPropertyValue(k).trim();
   const light = cs.colorScheme === 'light' || ['light', 'parchment', 'glacier'].includes(settings.theme);
   windowCall('theme', { bg: v('--bg'), fg: v('--text'), hover: light ? '#1A000000' : '#22FFFFFF', pressed: light ? '#2E000000' : '#38FFFFFF' });
-  if (!floatId && floats.length) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density } });   // floating windows follow
+  if (!floatId && !benchWinId && (floats.length || windowed.size)) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density, menuPosition: settings.menuPosition } });   // the other windows follow
 }
 function applyMenuPosition() {
   const row = settings.menuPosition === 'row';
@@ -72,44 +88,65 @@ function applyMenuPosition() {
   (row ? $('#menurow') : $('#menubar')).append(...[...$('#menubar').children, ...$('#menurow').children]);
 }
 function applyDensity() {
-  if (!floatId && floats.length) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density } });
+  if (!floatId && !benchWinId && (floats.length || windowed.size)) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density, menuPosition: settings.menuPosition } });
   document.body.classList.toggle('density-compact', densityOf(active) === 'compact');
   document.body.classList.toggle('density-roomy', densityOf(active) !== 'compact');
 }
 
 // ---------------------------------------------------------------- opening, switching and closing benches
-async function openBench(id, { activate = true, quiet = false } = {}) {
-  if (open.has(id)) { if (activate) activate_(id); return open.get(id); }
+/** Opens a bench as a tab. A ghost only runs its module (for its panels docked elsewhere: no view, no tab); an away
+    bench is in a window of its own (its tab here points there, and its module runs here for its panels). */
+async function openBench(id, { activate = true, quiet = false, ghost = false, away = false, justMoved = false } = {}) {
+  if (open.has(id)) {
+    const inst = open.get(id);
+    if (inst.ghost && !ghost) { inst.ghost = false; mountView(inst); await renderDocks(inst); if (!order.includes(id)) order.push(id); renderTabs(); }
+    if (activate) activate_(id);
+    return inst;
+  }
   const m = manifestOf(id);
   if (!m) { toast(`There is no bench "${id}".`, { error: true }); return null; }
-  const inst = { manifest: m, status: '', title: '', placed: new Map(), bus: new Map(), layout: normaliseLayout(settings.layouts[id], m) };
+  const inst = { manifest: m, status: '', title: '', placed: new Map(), bus: new Map(), layout: normaliseLayout(settings.layouts[id], m), ghost, away };
   inst.root = el('section', { class: 'bench', hidden: true, 'data-bench': id, 'aria-label': m.name });
   inst.left = el('div', { class: 'side left' }); inst.right = el('div', { class: 'side right' }); inst.bottom = el('div', { class: 'side bottom' });
   inst.main = el('div', { class: 'main' }, inst.view = el('div', { class: 'view' }));
   inst.root.append(inst.left, resizer(inst, 'l'), inst.main, resizer(inst, 'r'), resizer(inst, 'b'), inst.bottom, inst.right);
   $('#benches').append(inst.root);
   open.set(id, inst);
-  if (!order.includes(id)) order.push(id);
+  if (!ghost && !order.includes(id)) order.push(id);
   if (id === 'home') renderHome(inst);
   else {
     inst.ctx = makeContext(id, inst);
+    inst.ctx.justMoved = justMoved;   // it arrives from another window: it knows not to greet you as if NoorMD just started
     try {
-      const mod = (await import(`/benches/${id}/${m.entry}`)).default;
-      inst.module = mod;
-      inst.mounted = mod.mount ? (mod.mount(inst.view, inst.ctx) || {}) : {};
+      inst.module = (await import(`/benches/${id}/${m.entry}`)).default;
     } catch (e) {
-      inst.view.replaceChildren(el('div', { class: 'home' }, el('h1', { text: `${m.name} couldn't start` }), el('p', { class: 'lead', text: e.message })));
+      inst.loadError = e;
       console.error(e);
     }
+    if (!ghost && !away) mountView(inst);
   }
-  await renderDocks(inst);
+  if (!ghost && !away) await renderDocks(inst);
   renderTabs();
-  if (activate) activate_(id);
-  if (!quiet) save(); else save();
+  if (activate && !ghost && !away) activate_(id);
+  save();
   return inst;
+}
+/** The bench's view, mounted by its module (again, when it comes back from a window of its own). */
+function mountView(inst) {
+  const m = inst.manifest;
+  if (inst.loadError || !inst.module) {
+    inst.view.replaceChildren(el('div', { class: 'home' }, el('h1', { text: `${m.name} couldn't start` }), el('p', { class: 'lead', text: inst.loadError ? inst.loadError.message : '' })));
+    inst.mounted = {};
+    return;
+  }
+  try { inst.mounted = inst.module.mount ? (inst.module.mount(inst.view, inst.ctx) || {}) : {}; }
+  catch (e) { inst.mounted = {}; inst.view.replaceChildren(el('div', { class: 'home' }, el('h1', { text: `${m.name} couldn't start` }), el('p', { class: 'lead', text: e.message }))); console.error(e); }
 }
 
 function activate_(id) {
+  const target = open.get(id);
+  if (target && target.away) { windowCall('bench.focus', { bench: id }); return; }   // it's in a window of its own
+  if (target && target.ghost) return;
   active = id;
   for (const [bid, inst] of open) inst.root.hidden = bid !== id;
   applyDensity();
@@ -132,6 +169,7 @@ async function closeBench(id, { force = false } = {}) {
   for (const p of inst.placed.values()) try { p.result && p.result.unmount && p.result.unmount(); } catch (e) { console.error(e); }
   inst.root.remove();
   open.delete(id);
+  if (windowed.has(id)) { windowed.delete(id); windowCall('bench.close', { bench: id }); }
   // Its panels docked in other benches go with it (they need it running).
   let left = 0;
   for (const other of open.values()) {
@@ -145,14 +183,77 @@ async function closeBench(id, { force = false } = {}) {
   const i = order.indexOf(id);
   order = order.filter((x) => x !== id);
   if (active === id) {
-    const next = order[Math.min(i, order.length - 1)];
+    const here = order.filter((x) => !(open.get(x) || {}).away);
+    const next = here[Math.min(i, here.length - 1)];
     if (next) activate_(next); else openBench('home');
   }
   renderTabs(); save();
 }
 
+// ---------------------------------------------------------------- a bench in a window of its own (3.0.11)
+/** Moves a bench out of the main window into a window of its own: its view and docked panels go there (its documents
+    come along: the bench keeps them for a moment first), and its tab here points to that window. */
+async function moveToWindow(id, at) {
+  const inst = open.get(id);
+  if (!inst || id === 'home' || inst.away || inst.ghost || floatId || benchWinId) return;
+  if (inst.mounted && inst.mounted.suspend) { try { await inst.mounted.suspend(); } catch (e) { console.error(e); } }
+  // The window's page starts from what the bench kept and its layout, so they're written first.
+  await call('shell', 'settings.patch', { layouts: { [id]: inst.layout } }).catch(() => {});
+  goAway(inst);
+  const w = Math.round(Math.max(720, Math.min(window.outerWidth * 0.8, 1600))), h = Math.round(Math.max(460, Math.min(window.outerHeight * 0.85, 1100)));
+  const place = { bench: id, w, h, x: Math.round(at ? at.x : window.screenX + 70), y: Math.round(at ? at.y : window.screenY + 70) };
+  windowed.set(id, place);
+  if (active === id) { const next = order.find((x) => x !== id && !(open.get(x) || {}).away); if (next) activate_(next); else await openBench('home'); }
+  await saveNow();
+  windowCall('bench.open', place);
+  renderTabs(); renderMenus();
+}
+function goAway(inst) {
+  try { inst.mounted && inst.mounted.unmount && inst.mounted.unmount(); } catch (e) { console.error(e); }
+  inst.mounted = null;
+  for (const p of inst.placed.values()) try { p.result && p.result.unmount && p.result.unmount(); } catch (e) { console.error(e); }
+  inst.placed.clear();
+  for (const box of [inst.view, inst.left, inst.right, inst.bottom]) box.replaceChildren();
+  inst.root.hidden = true;
+  inst.away = true;
+}
+/** The bench's window closed (or asked to go back): the bench comes back here as a tab, as it was there. */
+async function comeBack(id) {
+  const inst = open.get(id);
+  windowed.delete(id);
+  if (!inst || !inst.away) { save(); renderTabs(); return; }
+  const s = await call('shell', 'settings.get').catch(() => null);
+  if (s && s.layouts && s.layouts[id]) { settings.layouts[id] = s.layouts[id]; inst.layout = normaliseLayout(s.layouts[id], inst.manifest); }
+  inst.away = false;
+  inst.ctx.justMoved = true;
+  mountView(inst);
+  await renderDocks(inst);
+  activate_(id);
+  save();
+}
+/** Asks a bench's window to send the bench back here (it keeps its documents first, then closes). */
+function bringBack(id) { windowCall('broadcast', { name: 'benchwindow.closing', payload: { bench: id } }); }
+/** In a bench's own window: the bench goes back to the main window (its documents kept for a moment first). */
+let goingBack = false;
+async function goBackToMain() {
+  if (!benchWinId || goingBack) return;
+  goingBack = true;
+  const inst = open.get(benchWinId);
+  if (inst && inst.mounted && inst.mounted.suspend) { try { await inst.mounted.suspend(); } catch (e) { console.error(e); } }
+  await saveNow();
+  windowCall('bench.back');
+}
+/** In a bench's own window: closing the bench itself (not just the window). */
+async function closeFromWindow() {
+  const inst = open.get(benchWinId);
+  if (inst && inst.mounted && inst.mounted.canClose) { let ok = true; try { ok = await inst.mounted.canClose(); } catch (e) { console.error(e); } if (!ok) return; }
+  goingBack = true;
+  windowCall('broadcast', { name: 'benchwindow.closebench', payload: { bench: benchWinId } });
+}
+
 /** Files the window handed to a bench (dropped, or opened NoorMD with): the bench comes to the front and its page hears them. */
 async function openFilesIn(id, paths) {
+  if (windowed.has(id)) { windowCall('broadcast', { name: 'bench.openFiles', payload: { bench: id, paths } }); windowCall('bench.focus', { bench: id }); return; }
   const inst = await openBench(id);
   if (inst && inst.emit) inst.emit('shell.open', { paths });
 }
@@ -218,7 +319,7 @@ function makeContext(id, inst) {
     /** Adds the bench's stylesheet once. */
     useStyle(href) { if (styles.has(href)) return; styles.add(href); document.head.append(el('link', { rel: 'stylesheet', href })); },
     /** Small things to bring back next time (kept with the bench's layout). */
-    keep(key, value) { inst.layout.state[key] = value; if (floatId) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
+    keep(key, value) { inst.layout.state[key] = value; if (floatId || inst.ghost || inst.away) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
     /** Docks one of this bench's panels in another bench, once (if the user hides it there, it stays hidden). */
@@ -227,7 +328,7 @@ function makeContext(id, inst) {
       const ref = refOf(id, pid), key = 'shell.offered:' + ref;
       for (let i = 0; i < 20 && !open.has(target); i++) await new Promise((r) => setTimeout(r, 100));
       const t = open.get(target);
-      if (!t || t.layout.state[key]) return;
+      if (!t || t.away || t.ghost || t.layout.state[key]) return;
       t.layout.state[key] = true;
       if (whereIs(t, ref) || isFloating(ref)) { save(); return; }
       await showPanel(t, ref);
@@ -252,13 +353,18 @@ function makeContext(id, inst) {
 hostListeners.push((m) => {
   if (m.event === 'topic' && m.payload) deliverTopic(m.payload.topic, m.payload.payload);
   else if (m.event === 'moved') for (const inst of open.values()) { if (inst.emit) inst.emit('shell.moved', { moves: m.moves || [] }); }
-  else if (m.event === 'open' && !floatId) openFilesIn(m.bench, m.paths || []);
+  else if (m.event === 'open' && !floatId && !benchWinId) openFilesIn(m.bench, m.paths || []);
+  else if (m.event === 'bench.openFiles' && benchWinId && m.payload && m.payload.bench === benchWinId) { const inst = open.get(benchWinId); if (inst && inst.emit) inst.emit('shell.open', { paths: m.payload.paths || [] }); }
+  else if (m.event === 'benchwindow.closed' && !floatId && !benchWinId) comeBack(m.bench);
+  else if (m.event === 'benchwindow.moved' && !floatId && !benchWinId) { const w = windowed.get(m.bench); if (w) { Object.assign(w, { x: Math.round(m.x), y: Math.round(m.y), w: Math.round(m.w), h: Math.round(m.h) }); save(); } }
+  else if (m.event === 'benchwindow.closebench' && !floatId && !benchWinId && m.payload) closeBench(m.payload.bench, { force: true });
+  else if (m.event === 'benchwindow.closing' && benchWinId && (!m.payload || m.payload.bench === benchWinId)) goBackToMain();
   else if (m.event === 'open.none' && !floatId) toast(`No bench opens ${(m.names || []).slice(0, 3).join(', ')}${(m.names || []).length > 3 ? '…' : ''}.`, { error: true });
   else if (m.event === 'bench' && open.has(m.bench)) open.get(m.bench).emit(m.name, m.payload);
-  else if (m.event === 'shell.keep' && !floatId && m.payload && open.has(m.payload.bench)) { open.get(m.payload.bench).layout.state[m.payload.key] = m.payload.value; save(); }
+  else if (m.event === 'shell.keep' && !floatId && m.payload && open.has(m.payload.bench) && !open.get(m.payload.bench).ghost && !open.get(m.payload.bench).away) { open.get(m.payload.bench).layout.state[m.payload.key] = m.payload.value; save(); }
   else if (m.event === 'float.closed' && !floatId) dockBack(floats.find((f) => f.id === m.id), { windowGone: true });
   else if (m.event === 'float.moved' && !floatId) { const f = floats.find((x) => x.id === m.id); if (f) { Object.assign(f, { x: Math.round(m.x), y: Math.round(m.y), w: Math.round(m.w), h: Math.round(m.h) }); save(); } }
-  else if (m.event === 'settings' && floatId && m.payload) { Object.assign(settings, m.payload); applyTheme(); applyDensity(); }
+  else if (m.event === 'settings' && (floatId || benchWinId) && m.payload) { Object.assign(settings, m.payload); applyTheme(); applyDensity(); if (benchWinId) { applyMenuPosition(); renderMenus(); } }
   else if (m.event === 'window') { $('#winspace').style.width = Math.max(0, m.buttonsWidth || 0) + 'px'; document.body.classList.toggle('maximized', !!m.maximized); }
 });
 
@@ -324,8 +430,9 @@ async function renderDocks(inst) {
   for (const ref of placedRefs(inst)) {
     const s = specOf(ref);
     if (!s) { removeRef(inst, ref); continue; }
-    if (!open.has(s.owner)) await openBench(s.owner, { activate: false, quiet: true });
+    if (!open.has(s.owner)) await openBench(s.owner, { activate: false, quiet: true, ghost: !!benchWinId });
   }
+  if (inst.away) return;
   const sides = { left: inst.left, right: inst.right, bottom: inst.bottom };
   for (const side of SIDES) {
     const box = sides[side];
@@ -392,7 +499,7 @@ function movePanel(inst, ref, target) {
 async function showPanel(inst, ref, side) {
   if (whereIs(inst, ref)) return;
   const s = specOf(ref); if (!s) return;
-  if (!open.has(s.owner)) await openBench(s.owner, { activate: false, quiet: true });
+  if (!open.has(s.owner)) await openBench(s.owner, { activate: false, quiet: true, ghost: !!benchWinId });
   movePanel(inst, ref, { side: side || s.spec.dock });
   if (s.owner !== inst.manifest.id) toast(`${s.spec.title}${s.bench.name !== s.spec.title ? ` from ${s.bench.name}` : ''} is docked here now, and keeps working.`);
 }
@@ -404,7 +511,7 @@ function panelMenu(inst, ref, x, y) {
   menu(x, y, [{ header: `${s.spec.title}${s.owner !== inst.manifest.id ? ` · from ${s.bench.name}` : ''}` },
     ...SIDES.filter((sd) => sd !== at.side).map((sd) => ({ label: `Move to the ${sideName[sd].toLowerCase()}`, run: () => movePanel(inst, ref, { side: sd }) })),
     ...(at.group.panels.length > 1 ? [{ label: 'Into its own group', run: () => movePanel(inst, ref, { side: at.side, gi: at.gi, where: 'after' }) }] : []),
-    '-', { label: 'Float in its own window', run: () => floatPanel(inst, ref) }, { label: 'Hide', run: () => hidePanel(inst, ref) }]);
+    '-', ...(benchWinId ? [] : [{ label: 'Float in its own window', run: () => floatPanel(inst, ref) }]), { label: 'Hide', run: () => hidePanel(inst, ref) }]);
 }
 
 // ---------------------------------------------------------------- floating panels (3.0.4)
@@ -519,7 +626,7 @@ function startPanelDrag(e, inst, ref, tab) {
     }
     drag.ghost.style.left = m.clientX + 12 + 'px'; drag.ghost.style.top = m.clientY + 12 + 'px';
     // Out of the window: it'll float in a window of its own, there.
-    const outside = !floatId && (m.clientX < 0 || m.clientY < 0 || m.clientX > innerWidth || m.clientY > innerHeight);
+    const outside = !floatId && !benchWinId && (m.clientX < 0 || m.clientY < 0 || m.clientX > innerWidth || m.clientY > innerHeight);
     drag.target = outside ? { float: true, x: m.screenX - 40, y: m.screenY - 16 } : dropTarget(inst, ref, m.clientX, m.clientY, drag.zones);
     drag.ghost.textContent = outside ? `${drag.label}  ↗ its own window` : drag.label;
     const t = drag.target && !drag.target.float ? drag.target : null;
@@ -637,7 +744,9 @@ function appMenus() {
   // Undo and redo go to the bench when it has its own (an editor with its own history), else to the page.
   const edit = (c) => () => { const own = inst && inst.mounted && inst.mounted.commands && inst.mounted.commands['edit.' + c]; if (own) own(); else document.execCommand(c); };
   const menus = [
-    ['File', () => [...benchItems(m, 'File'), { label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
+    ['File', () => benchWinId
+      ? [...benchItems(m, 'File'), { label: 'Back to the main window', run: goBackToMain }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: closeFromWindow }]
+      : [...benchItems(m, 'File'), { label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
     ['Edit', () => [...benchItems(m, 'Edit'), { label: 'Undo', keys: 'Ctrl+Z', run: edit('undo') }, { label: 'Redo', keys: 'Ctrl+Y', run: edit('redo') }, '-', { label: 'Cut', keys: 'Ctrl+X', run: edit('cut') }, { label: 'Copy', keys: 'Ctrl+C', run: edit('copy') }, { label: 'Paste', keys: 'Ctrl+V', run: () => navigator.clipboard.readText().then((t) => document.execCommand('insertText', false, t)).catch(() => {}) }, { label: 'Select all', keys: 'Ctrl+A', run: edit('selectAll') }]],
     ['View', () => [...benchItems(m, 'View'),
       ...(m.panels.length ? [{ header: `Panels of ${m.name}` }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; })] : [{ header: 'No panels of its own' }]),
@@ -646,10 +755,12 @@ function appMenus() {
       { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
     ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map(benchItem)]),
-    ['Tools', () => [...benchItems(m, 'Tools'), { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
-    ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
+    ['Tools', () => [...benchItems(m, 'Tools'), ...(benchWinId ? [] : [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }])]],
+    ['Window', () => benchWinId ? [{ label: 'Back to the main window', run: goBackToMain }] : [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
+      { label: `Move ${m.name} to a new window`, disabled: active === 'home' || !open.get(active), run: () => moveToWindow(active) },
+      ...[...windowed.keys()].map((id) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name} · bring it back`, run: () => bringBack(id) })), '-',
       { header: floats.length ? `Floating panels (${floats.length})` : 'Floating panels' }, ...floats.map((f) => { const sp = specOf(f.ref); return { label: `${sp ? sp.spec.icon + '  ' + sp.spec.title : f.ref} · dock it back`, run: () => dockBack(f) }; }),
-      { label: 'Get over here!', keys: 'Ctrl+Shift+G', disabled: !floats.length, run: getOverHere }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
+      { label: 'Get over here!', keys: 'Ctrl+Shift+G', disabled: !floats.length, run: getOverHere }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}${(open.get(id) || {}).away ? '  ↗' : ''}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
     ['Help', () => [...benchItems(m, 'Help'), { label: 'About NoorMD', run: aboutDialog }]],
   ];
   return menus;
@@ -683,23 +794,56 @@ function toggleMainMenu(i, button) {
 
 // ---------------------------------------------------------------- tabs, title, status
 function renderTabs() {
+  if (benchWinId) { renderBenchWindowBar(); return; }
   const tabs = order.map((id, i) => {
-    const m = manifestOf(id);
-    return el('button', { class: 'btab', role: 'tab', 'aria-selected': String(id === active), 'data-bench': id, title: `${m.name}${i < 9 ? ` (Ctrl+${i + 1})` : ''}`, onclick: () => { if (!tabDragEnded) activate_(id); }, onauxclick: (e) => { if (e.button === 1) closeBench(id); } },
-      el('span', { class: 'ic', text: m.icon }), m.name,
+    const m = manifestOf(id), away = !!(open.get(id) || {}).away;
+    return el('button', { class: 'btab' + (away ? ' away' : ''), role: 'tab', 'aria-selected': String(id === active), 'data-bench': id,
+      title: away ? `${m.name} is in a window of its own: click to go there (right-click: bring it back)` : `${m.name}${i < 9 ? ` (Ctrl+${i + 1})` : ''} · drag it out of the window for a window of its own`,
+      onclick: () => { if (!tabDragEnded) activate_(id); }, onauxclick: (e) => { if (e.button === 1) closeBench(id); },
+      oncontextmenu: (e) => { e.preventDefault(); tabMenu(id, e.clientX, e.clientY); } },
+      el('span', { class: 'ic', text: m.icon }), m.name, away ? el('span', { class: 'aw', 'aria-hidden': 'true', text: '↗' }) : null,
       el('span', { class: 'x', role: 'button', title: `Close ${m.name}`, 'aria-label': `Close ${m.name}`, onclick: (e) => { e.stopPropagation(); closeBench(id); } }, '✕'));
   });
-  tabs.forEach((t) => t.addEventListener('pointerdown', (e) => startTabDrag(e, t.dataset.bench)));
+  tabs.forEach((t) => t.addEventListener('pointerdown', (e) => startTabDrag(e, t.dataset.bench, t)));
   $('#benchtabs').replaceChildren(el('div', { role: 'tablist', style: { display: 'contents' } }, ...tabs), el('button', { class: 'btab add', title: 'Open a bench', 'aria-label': 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
 }
-/** Drag a bench tab left or right to put it elsewhere in the row (the order is kept). */
+function tabMenu(id, x, y) {
+  const m = manifestOf(id), inst = open.get(id);
+  if (!m || !inst) return;
+  menu(x, y, [{ header: m.name },
+    ...(id === 'home' ? [] : inst.away
+      ? [{ label: 'Go to its window', run: () => windowCall('bench.focus', { bench: id }) }, { label: 'Bring it back into this window', run: () => bringBack(id) }]
+      : [{ label: 'Move to a new window', run: () => moveToWindow(id) }]),
+    '-', { label: `Close ${m.name}`, run: () => closeBench(id) }]);
+}
+/** In a bench's own window, the tab row: the bench, and the way back. */
+function renderBenchWindowBar() {
+  const m = manifestOf(benchWinId);
+  if (!m) return;
+  $('#benchtabs').replaceChildren(el('div', { class: 'btab bw-name', 'aria-selected': 'true' }, el('span', { class: 'ic', text: m.icon }), m.name),
+    el('button', { class: 'btab bw-back', title: 'Put this bench back into the main window as a tab (closing this window does too)', onclick: goBackToMain }, '⇱  Back to the main window'));
+}
+/** Drag a bench tab left or right to put it elsewhere in the row (the order is kept); out of the window, it gets a
+    window of its own there. */
 let tabDragEnded = false;
-function startTabDrag(e, id) {
+function startTabDrag(e, id, tab) {
   if (e.button !== 0 || e.target.closest('.x')) return;
-  const x0 = e.clientX;
-  let dragging = false;
+  const x0 = e.clientX, y0 = e.clientY;
+  let dragging = false, ghost = null, outside = false, outAt = null;
+  const canLeave = id !== 'home' && !(open.get(id) || {}).away && !floatId && !benchWinId;
+  try { tab.setPointerCapture(e.pointerId); } catch { /* the pointer is gone */ }   // keep hearing the mouse outside the window
   const move = (m) => {
-    if (!dragging) { if (Math.abs(m.clientX - x0) < 8) return; dragging = true; document.body.classList.add('tab-dragging'); }
+    if (!dragging) { if (Math.abs(m.clientX - x0) < 8 && Math.abs(m.clientY - y0) < 8) return; dragging = true; document.body.classList.add('tab-dragging'); }
+    // Far enough out of the tab row (or out of the window): it'll get a window of its own, there.
+    const row = $('#benchtabs').getBoundingClientRect();
+    outside = canLeave && (m.clientX < 0 || m.clientY < 0 || m.clientX > innerWidth || m.clientY > innerHeight || m.clientY > row.bottom + 90);
+    if (outside) {
+      if (!ghost) { ghost = el('div', { class: 'dock-ghost', text: `${manifestOf(id).icon}  ${manifestOf(id).name}  ↗ a window of its own` }); document.body.append(ghost); }
+      ghost.style.left = m.clientX + 12 + 'px'; ghost.style.top = m.clientY + 12 + 'px';
+      outAt = { x: m.screenX - 80, y: m.screenY - 20 };
+      return;
+    }
+    if (ghost) { ghost.remove(); ghost = null; }
     // Where the mouse is among the other tabs' middles decides the new place.
     const others = [...document.querySelectorAll('#benchtabs .btab[data-bench]')].filter((t) => t.dataset.bench !== id);
     let at = others.findIndex((t) => { const r = t.getBoundingClientRect(); return m.clientX < r.left + r.width / 2; });
@@ -710,9 +854,11 @@ function startTabDrag(e, id) {
   };
   const up = () => {
     document.removeEventListener('pointermove', move, true); document.removeEventListener('pointerup', up, true);
+    if (ghost) { ghost.remove(); ghost = null; }
     if (!dragging) return;
     document.body.classList.remove('tab-dragging');
     tabDragEnded = true; setTimeout(() => { tabDragEnded = false; }, 0);
+    if (outside) { moveToWindow(id, outAt); return; }
     renderTabs(); renderMenus(); save();
   };
   document.addEventListener('pointermove', move, true); document.addEventListener('pointerup', up, true);
@@ -799,6 +945,9 @@ document.addEventListener('keydown', (e) => {
   const k = keyName(e);
   if (k === 'ctrl+,') { e.preventDefault(); settingsDialog(); }
   else if (k === 'ctrl+shift+h') { e.preventDefault(); openBench('home'); }
+  else if (benchWinId && (k === 'ctrl+shift+w' || (k === 'ctrl+w' && !claims('ctrl+w')))) { e.preventDefault(); closeFromWindow(); }
+  else if (benchWinId && ['ctrl+,', 'ctrl+shift+h', 'ctrl+tab', 'ctrl+shift+tab', 'ctrl+shift+g', 'ctrl+shift+pageup', 'ctrl+shift+pagedown'].includes(k)) { e.preventDefault(); }
+  else if (benchWinId && /^ctrl\+[1-9]$/.test(k)) { e.preventDefault(); }
   else if (k === 'ctrl+shift+w' || (k === 'ctrl+w' && !claims('ctrl+w'))) { e.preventDefault(); if (active) closeBench(active); }
   else if (k === 'f11') { e.preventDefault(); toggleFocus(); }
   else if (k === 'f10') { e.preventDefault(); const b = document.querySelector('[data-menu="0"]'); if (b) toggleMainMenu(0, b); }
@@ -818,6 +967,7 @@ $('#logo').addEventListener('click', () => openBench('home'));
 // ---------------------------------------------------------------- start
 async function start() {
   if (floatId) { await startFloat(); return; }
+  if (benchWinId) { await startBenchWindow(); return; }
   let s;
   try { s = await call('shell', 'start'); }
   catch (e) { $('#benches').replaceChildren(el('div', { class: 'home' }, el('h1', { text: 'NoorMD couldn\'t start' }), el('p', { class: 'lead', text: e.message }))); return; }
@@ -826,10 +976,16 @@ async function start() {
   benches = new Map(s.benches.map((m) => [m.id, m]));
   applyTheme(); applyMenuPosition();
   const firstStart = !settings.welcomed;
-  for (const id of settings.openBenches || []) if (benches.has(id)) await openBench(id, { activate: false });
+  // Benches in windows of their own: their tabs point there, and their windows open again.
+  for (const w of settings.windows || []) if (w && benches.has(w.bench)) windowed.set(w.bench, { bench: w.bench, x: w.x, y: w.y, w: w.w, h: w.h });
+  for (const id of settings.openBenches || []) if (benches.has(id)) await openBench(id, { activate: false, away: windowed.has(id) });
+  for (const id of windowed.keys()) if (!open.has(id)) await openBench(id, { activate: false, away: true });
   if (firstStart || !order.length) { settings.welcomed = true; await openBench('home', { activate: false }); }
-  const want = settings.activeBench && open.has(settings.activeBench) ? settings.activeBench : firstStart ? 'home' : order[0];
+  const here = order.filter((id) => !(open.get(id) || {}).away);
+  if (!here.length) await openBench('home', { activate: false });
+  const want = settings.activeBench && open.has(settings.activeBench) && !open.get(settings.activeBench).away ? settings.activeBench : firstStart ? 'home' : order.find((id) => !(open.get(id) || {}).away);
   activate_(want);
+  for (const w of windowed.values()) windowCall('bench.open', w);
   // The floating panels come back (their benches opened quietly if need be).
   for (const f of (settings.floats || []).filter((x) => x && typeof x.ref === 'string' && specOf(x.ref))) {
     const owner = splitRef(f.ref)[0];
@@ -840,7 +996,7 @@ async function start() {
   }
   if (floats.length) save();
   if (problems.length) toast(`${problems.length} bench${problems.length === 1 ? '' : 'es'} couldn't be loaded: Tools › Benches says why.`, { error: true });
-  window.__noor = { open, order: () => order, active: () => active, settings: () => settings, floats: () => floats }; // for tests
+  window.__noor = { open, order: () => order, active: () => active, settings: () => settings, floats: () => floats, windowed: () => windowed, moveToWindow, comeBack }; // for tests
   windowCall('files.pending');   // files NoorMD was opened with
 }
 /** A floating panel's own window: a small title bar (the panel, its bench, Dock back) and the panel, run by its
@@ -874,6 +1030,23 @@ async function startFloat() {
     if (def && def.mount) def.mount(body, inst.ctx);
   } catch (e) { body.replaceChildren(el('p', { class: 'nui-muted', text: `This panel couldn't start: ${e.message}` })); }
   window.__noor = { open, float: f };
+}
+/** A bench's own window: the bench with its panels and menus, a bar with the way back, and the rest of NoorMD in
+    the main window (benches whose panels are docked here run quietly, without views of their own). */
+async function startBenchWindow() {
+  document.body.classList.add('benchwin');
+  let s;
+  try { s = await call('shell', 'start'); }
+  catch (e) { $('#benches').replaceChildren(el('div', { class: 'home' }, el('h1', { text: 'This window couldn\'t start' }), el('p', { class: 'lead', text: e.message }))); return; }
+  settings = s.settings; version = s.version;
+  settings.layouts = settings.layouts || {}; settings.density = settings.density || {};
+  benches = new Map(s.benches.map((m) => [m.id, m]));
+  applyTheme(); applyMenuPosition();
+  if (!benches.has(benchWinId)) { $('#benches').replaceChildren(el('div', { class: 'home' }, el('h1', { text: 'This bench isn\'t there any more.' }))); return; }
+  await openBench(benchWinId, { activate: false, justMoved: true });
+  activate_(benchWinId);
+  renderBenchWindowBar();
+  window.__noor = { open, order: () => order, active: () => active, settings: () => settings, benchWindow: benchWinId, goBackToMain };
 }
 function renderTitleGuard() { return !!floatId; }
 void keyOf;
