@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Clock.Bench</RootNamespace>
     <AssemblyName>Clock.Bench</AssemblyName>
-    <Version>3.0.11</Version>
+    <Version>3.0.12</Version>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />

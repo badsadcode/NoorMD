@@ -46,6 +46,40 @@ function resumeCtx() { if (ctx && ctx.state === 'suspended') ctx.resume().catch(
 
 
 
+/** Builds the graph once. Returns false when Web Audio isn't available (playback then simply has no effects). */
+function ensureGraph() {
+  if (ctx) return true;
+  if (!audioEl || !(window.AudioContext || window.webkitAudioContext)) return false;
+  try {
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    source = ctx.createMediaElementSource(audioEl);
+    norm = ctx.createGain();
+    filters = BANDS.map((f, i) => {
+      const b = ctx.createBiquadFilter();
+      b.type = i === 0 ? 'lowshelf' : i === BANDS.length - 1 ? 'highshelf' : 'peaking';
+      b.frequency.value = f;
+      b.Q.value = 1.1;
+      return b;
+    });
+    preamp = ctx.createGain();
+    limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -1; limiter.knee.value = 0; limiter.ratio.value = 20; limiter.attack.value = 0.002; limiter.release.value = 0.12;
+    let node = source.connect(norm);
+    for (const f of filters) node = node.connect(f);
+    node.connect(preamp).connect(limiter).connect(ctx.destination);
+    // Browsers start an AudioContext suspended until the user interacts; resume on the next interaction.
+    const resume = () => { if (ctx && ctx.state === 'suspended') ctx.resume().catch(() => {}); };
+    ['pointerdown', 'keydown'].forEach((t) => window.addEventListener(t, resume, true));
+    audioEl.addEventListener('play', resume);
+    resume();
+    return true;
+  } catch (err) {
+    console.warn('Sound effects unavailable:', err);
+    ctx = null;
+    return false;
+  }
+}
+
 /** Preamp that keeps the EQ's boosts from clipping: the largest boost, taken back off the whole signal. */
 function autoPreamp() {
   if (!settings.eqOn || !settings.preventClipping) return 0;

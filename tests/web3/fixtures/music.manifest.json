@@ -3,7 +3,7 @@
   "name": "Music",
   "icon": "\u266B",
   "description": "Your music library and a player that keeps playing beside your work: queue, playlists, favourites, equalizer.",
-  "version": "3.0.11",
+  "version": "3.0.12",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",

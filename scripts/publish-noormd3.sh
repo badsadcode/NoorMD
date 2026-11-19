@@ -11,6 +11,7 @@ if [ "${SKIP_TESTS:-0}" != "1" ]; then
   node tests/web3/shell.test.js
   node tests/web3/markdown.test.js
   node tests/web3/vault.test.js
+  node tests/web3/music.test.js
 fi
 dotnet publish src/NoorMD3 -c Release -r win-x64 --self-contained true -o "$OUT/portable"
 dotnet publish src/NoorMD3 -c Release -r win-x64 --self-contained false -o "$OUT/small"

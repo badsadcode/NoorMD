@@ -102,6 +102,8 @@ export default {
     ctx.setStatusWidget(mini.node);
     this._mini = mini;
   },
+  /** For tests: the player (main window only). */
+  _engine: () => engine,
   /** The bench closed: the music stops (its window's mini player goes too). */
   closed() {
     if (engine) { engine.stop(); engine = null; }
@@ -248,8 +250,16 @@ export default {
       focus = i;
       drawRows();
     }
-    list.addEventListener('click', (e) => { const row = e.target.closest('.mu-row'); if (row) { select(Number(row.dataset.i), e); list.focus(); } });
-    list.addEventListener('dblclick', (e) => { const row = e.target.closest('.mu-row'); if (row) playFrom(Number(row.dataset.i)); });
+    // A click redraws the rows, so a double-click is told from two clicks on the same row (the browser's own
+    // dblclick would go to a row that's no longer there).
+    let lastClick = { i: -1, t: 0 };
+    list.addEventListener('click', (e) => {
+      const row = e.target.closest('.mu-row'); if (!row) return;
+      const i = Number(row.dataset.i), now = Date.now();
+      if (lastClick.i === i && now - lastClick.t < 450 && !e.shiftKey && !e.ctrlKey) { lastClick = { i: -1, t: 0 }; playFrom(i); return; }
+      lastClick = { i, t: now };
+      select(i, e); list.focus();
+    });
     list.addEventListener('dragstart', (e) => {
       const row = e.target.closest('.mu-row'); if (!row) return;
       const i = Number(row.dataset.i);

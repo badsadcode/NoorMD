@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NoorMD3</RootNamespace>
     <AssemblyName>NoorMD3</AssemblyName>
-    <Version>3.0.11</Version>
+    <Version>3.0.12</Version>
     <Product>NoorMD</Product>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>

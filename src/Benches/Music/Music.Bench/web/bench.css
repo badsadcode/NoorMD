@@ -45,10 +45,10 @@
 .mu-folder .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Now playing */
-.mu-np { display: grid; gap: 8px; padding: 12px; justify-items: center; text-align: center; }
+.mu-np { display: grid; gap: 8px; padding: 12px; justify-items: center; text-align: center; height: 100%; overflow: auto; box-sizing: border-box; align-content: start; }
 .mu-art { width: 44px; height: 44px; border-radius: var(--r2); background: var(--sel); display: grid; place-items: center; overflow: hidden; position: relative; color: var(--muted); }
 .mu-art img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-.mu-art.big { width: min(220px, 70%); aspect-ratio: 1; height: auto; font-size: 54px; border-radius: var(--r3); }
+.mu-art.big { width: min(150px, 55%); aspect-ratio: 1; height: auto; font-size: 54px; border-radius: var(--r3); }
 .mu-np-cover { width: 100%; display: grid; justify-items: center; }
 .mu-np-title { font-weight: 650; font-size: 15px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mu-np-sub { font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

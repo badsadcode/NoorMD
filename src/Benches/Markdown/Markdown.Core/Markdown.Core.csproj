@@ -7,6 +7,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Markdown.Core</RootNamespace>
     <AssemblyName>Markdown.Core</AssemblyName>
-    <Version>3.0.11</Version>
+    <Version>3.0.12</Version>
   </PropertyGroup>
 </Project>

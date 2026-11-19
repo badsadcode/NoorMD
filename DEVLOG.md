@@ -416,6 +416,29 @@ doesn't greet you with "documents came back with unsaved changes", because nothi
 Also: when the Vault's Explorer is docked beside your writing and the Markdown bench moves out, the Explorer moves
 with it and keeps working, because the Vault quietly runs in the new window too, without a face of its own.
 
+## Day 28, evening — 3.0.12: music, beside everything else 🎵
+
+The Music bench arrived the same way the Vault did: 2.0's code copied over, then read carefully before anything new.
+The reviewer found sixteen bugs in it. A few were the sneaky kind:
+
+- While the library was looking through a big folder, the list could freeze for up to half a minute, because the
+  database made readers queue behind the scan. Now the list stays quick while it scans.
+- Delete a song, then add a new one, and the new song could quietly turn up in the old song's playlist (it got the
+  old one's number). Numbers are never reused now.
+- Remove a folder that sat inside another music folder, and its songs lost their stars and playlists. Not any more.
+
+The fun part: **the music keeps playing whichever bench you're in.** The player lives in the main window, and
+everything else just talks to it: the library, the *Now playing* panel, *Up next*, the equalizer, and a tiny
+**mini player in the status bar**, which stays there while you write. It works across windows too, so the Music
+bench can sit on your second monitor while you write on the first.
+
+Double-click a song, press 1 to make it a favourite, drag songs onto a playlist, turn on the equalizer (there's a
+"Late night (soft)" preset), and let NoorMD even out the loudness so one track doesn't blast after a quiet one.
+Your queue, volume and sound settings are still there next time.
+
+There was one bug of my own too: copying the equalizer over, I left out the one function that connects it to the
+sound. Everything looked right and nothing happened. The test caught it. 🎚️
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -429,8 +452,8 @@ with it and keeps working, because the Vault quietly runs in the new window too,
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Music bench next (the library and the player, as a panel you can dock anywhere, or a
-window of its own),
+**NoorMD 3.0**, piece by piece: the Music bench's second part next (editing tags and names with undo, the Batch
+Organizer, smart collections, playlists in and out),
 then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).

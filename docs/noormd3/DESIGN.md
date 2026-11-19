@@ -166,8 +166,19 @@ inspiration from its concept art, but NoorMD has its own face).
        and 15 bugs fixed (see the devlog).
      - Ideas borrowed from Obsidian are ideas only (its code isn't open, and we don't take code anyway). Not taken:
        publishing and syncing to anyone's server (a vault is a plain folder: sync it with whatever you like).
-   - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
-     bar, Send to between benches, the command palette.
+   - **The Music bench**, in two parts (like the Vault). Music.Core is 2.0's NoorMD.Media music code, copied (and
+     reviewed: 16 bugs found, the library and player ones fixed in part one).
+     - **3.0.12 (done), part one:** ✓ the library as the bench's view (sections: all, favourite / keep / maybe /
+       skip, not marked, missing; playlists; folders; search; sort by column; a long list drawn as it scrolls) ·
+       ✓ the player in the main window, so music keeps playing in any bench or window; every page talks to it
+       through events · ✓ panels: Now playing, Up next, Sound (10-band equalizer, presets, limiter, loudness
+       normalisation, measuring) · ✓ the mini player in the status bar · ✓ marks (keys 0–4), playlists (make, add,
+       drag tracks onto one, rename, delete) · ✓ media keys and Windows' media overlay · ✓ the session (queue,
+       volume, sound) kept · ✓ audio streamed with ranges through the bench contract (IBenchMedia).
+     - **3.0.13, part two:** editing tags and renaming with undo (and the review's three tag-editing bugs: a
+       half-saved edit journaled as failed, an undo marked done when restoring tags failed, multi-value tags cut to
+       one on undo), the Batch Organizer, smart collections, M3U import and export, artwork (show, save).
+   - Then the mini player's big brother (a bigger player window), Send to between benches, the command palette.
    - **3.0.11 (done): a whole bench in a window of its own.** Drag its tab down out of the tab row (or right-click ›
      Move to a new window, or Window › Move … to a new window). The bench's view and docked panels go there, with its
      documents (unsaved work as drafts, never-saved tabs with their text); its tab stays in the main window with ↗

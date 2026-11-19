@@ -17,7 +17,10 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.11** (the newest): a bench in a window of its own (two monitors!). Drag a bench's tab down out of the
+- **3.0.12** (the newest): the Music bench, part one. Your music folders become a library (search, sort, favourites,
+  playlists), and the player keeps playing whichever bench you're in, with a mini player in the status bar, Now
+  playing / Up next / Sound panels (equalizer, loudness evened out between tracks), and media keys.
+- **3.0.11**: a bench in a window of its own (two monitors!). Drag a bench's tab down out of the
   tab row, or right-click it › Move to a new window. Its documents and panels go with it; ⇱ Back to the main
   window (or closing that window) brings it back as a tab.
 - **3.0.10**: the Vault's last part: properties (a small form for a note's front matter), notes
