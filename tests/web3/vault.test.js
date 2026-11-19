@@ -500,7 +500,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
 
     // Extract to a new note
     await page.evaluate(() => { const ed = window.__noor.open.get('noor.markdown').mounted._editor(); const ls = ed.getMarkdown().split('\n'); const i = ls.findIndex((l) => l.startsWith('She met')); ed.setSelection([i + 1, 1], [i + 1, ls[i].length + 1]); });
-    await page.evaluate(() => window.__noor.open.get('noor.markdown').mounted.commands['md.extract']());
+    await page.evaluate(() => { window.__noor.open.get('noor.markdown').mounted.commands['md.extract'](); });
     await page.waitForSelector('.nui-dialog .md-linkfield input');
     check('Extract: the name is guessed from the selection', (await page.inputValue('.nui-dialog .md-linkfield input')) === 'She met [[Engine]] and [[Nowhere]]'.replace(/[[\]]/g, ' ').replace(/\s+/g, ' ').trim());
     await page.fill('.nui-dialog .md-linkfield input', 'Meeting');
