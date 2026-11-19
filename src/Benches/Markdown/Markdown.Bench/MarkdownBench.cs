@@ -41,6 +41,7 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Markdown", "md.mode.markdown"),
                 new MenuItemSpec("Side by side", "md.mode.split"),
                 new MenuItemSpec("Next view", "md.mode.next", "Ctrl+E"),
+                new MenuItemSpec("Formatting bar", "md.toolbar"),
             ]),
             new MenuSpec("Format", [
                 new MenuItemSpec("Bold", "md.fmt.bold", "Ctrl+B"),
@@ -51,7 +52,7 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Heading 1", "md.fmt.h1"),
                 new MenuItemSpec("Heading 2", "md.fmt.h2"),
                 new MenuItemSpec("Heading 3", "md.fmt.h3"),
-                new MenuItemSpec("Paragraph", "md.fmt.p"),
+                new MenuItemSpec("Paragraph (plain text)", "md.fmt.p"),
                 MenuItemSpec.Separator,
                 new MenuItemSpec("Bulleted list", "md.fmt.ul"),
                 new MenuItemSpec("Numbered list", "md.fmt.ol"),
@@ -61,6 +62,7 @@ public sealed class MarkdownBench : BenchBase
             new MenuSpec("Insert", [
                 new MenuItemSpec("Link…", "md.ins.link"),
                 new MenuItemSpec("Table", "md.ins.table"),
+                new MenuItemSpec("Image…", "md.ins.image"),
                 new MenuItemSpec("Code block", "md.ins.codeblock"),
                 new MenuItemSpec("Horizontal line", "md.ins.hr"),
                 new MenuItemSpec("Today's date", "md.ins.date"),
@@ -139,11 +141,35 @@ public sealed class MarkdownBench : BenchBase
                 ["id"] = s.Id, ["path"] = s.Path, ["title"] = s.Title, ["savedUtc"] = s.SavedUtc, ["words"] = s.Words,
             }).ToArray()));
         });
+        // A picture for the document: written relative to the document's folder when it's beside or below it.
+        Command("md.pickImage", async (a, host, _) =>
+        {
+            var picked = await host.PickFilesAsync("Insert an image", ImageFilters);
+            if (picked.Count == 0) return null;
+            var docPath = Docs(host).PathOf(Str(a, "doc"));
+            return new JsonObject { ["url"] = ImageUrl(picked[0], docPath), ["name"] = Path.GetFileNameWithoutExtension(picked[0]) };
+        });
         Command("md.recentList", (a, host, _) => Task.FromResult<JsonNode?>(new JsonArray(Docs(host).Recent.Paths.Select(p => (JsonNode?)new JsonObject
         {
             ["path"] = p, ["name"] = Path.GetFileName(p), ["folder"] = Path.GetDirectoryName(p), ["exists"] = File.Exists(p),
         }).ToArray())));
         Command("md.recentForget", (a, host, _) => Run(() => { var p = Str(a, "path"); if (p.Length == 0) Docs(host).Recent.Clear(); else Docs(host).Recent.Remove(p); return null; }));
+    }
+
+    public static readonly IReadOnlyList<FileFilter> ImageFilters = [new("Pictures", [".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif"])];
+
+    /// <summary>How a picture is written in the document: "images/a.png" beside it, else a file:/// address.</summary>
+    public static string ImageUrl(string image, string? docPath)
+    {
+        var full = Path.GetFullPath(image);
+        if (docPath != null)
+        {
+            var folder = Path.GetDirectoryName(Path.GetFullPath(docPath))!;
+            var rel = Path.GetRelativePath(folder, full);
+            if (!rel.StartsWith("..", StringComparison.Ordinal) && !Path.IsPathRooted(rel))
+                return string.Join('/', rel.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Select(Uri.EscapeDataString));
+        }
+        return new Uri(full).AbsoluteUri;
     }
 
     static JsonNode Saved(Documents d, string id)

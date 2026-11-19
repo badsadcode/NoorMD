@@ -1,7 +1,7 @@
 // The Markdown bench's web module (contract v1). NoorMD 2.0's editor (TOAST UI: Visual, Markdown, side by side),
 // documents as tabs inside the bench, an outline panel. The C# side owns the files: this page never reads or writes
 // one itself, it asks (md.pick, md.load, md.write, md.writeAs, md.draft…).
-import { el } from '/ui/js/noor-ui.js';
+import { el, menu } from '/ui/js/noor-ui.js';
 import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks } from './mdtools.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
@@ -23,6 +23,36 @@ function loadToast() {
     document.head.append(s);
   }));
 }
+
+// Toolbar icons (NoorMD 2.0's own, 24×24 strokes).
+const ICONS = {
+  new: 'M6 3h8l4 4v14H6zM14 3v4h4M12 11v6M9 14h6', open: 'M4 19V5h7l2 3h7v11z', save: 'M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6',
+  image: 'M4 5h16v14H4zM4 16l5-5 4 4 2-2 5 5M15 9h.01',
+  undo: 'M9 7 4 12l5 5M4 12h11a5 5 0 0 1 0 10h-3', redo: 'm15 7 5 5-5 5M20 12H9a5 5 0 0 0 0 10h3',
+  bold: 'M7 4h6a4 4 0 0 1 0 8H7zM7 12h7a4 4 0 0 1 0 8H7z', italic: 'M10 4h8M6 20h8M14 4l-4 16',
+  strike: 'M5 12h14M16 6.5C15 5 13.6 4.5 12 4.5c-2.5 0-4 1.3-4 3.2 0 1.6 1 2.4 2.6 3M8 17.5c1 1.5 2.4 2 4 2 2.6 0 4.2-1.3 4.2-3.3 0-.7-.2-1.3-.5-1.7',
+  code: 'm8 8-4 4 4 4M16 8l4 4-4 4', link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  ul: 'M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01',
+  ol: 'M10 6h10M10 12h10M10 18h10M4 4h1.5v4M3.5 10.5c.5-.7 2.5-.7 2.5.6 0 1-2.5 2-2.5 2.9H6M3.5 16h2.3l-1.3 1.6c1 0 1.6.4 1.6 1.1 0 1.2-2 1.3-2.6.6',
+  task: 'M4 5h5v5H4zM4 14h5v5H4zM5.5 16.5l1 1 2-2.5M13 7.5h7M13 16.5h7', quote: 'M7 7H4v6h3l-1 4M17 7h-3v6h3l-1 4',
+  codeblock: 'M4 4h16v16H4zM9 10l-2 2 2 2M15 10l2 2-2 2', table: 'M4 5h16v14H4zM4 10h16M4 15h16M10 5v14', hr: 'M4 12h16',
+  heading: 'M6 4v16M18 4v16M6 12h12',
+};
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('aria-hidden', 'true');
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', ICONS[name]); svg.append(path);
+  return svg;
+}
+// [command, icon, label, keys, the editor's toolbar-state key that lights it up]
+const TOOLS = [
+  ['md.new', 'new', 'New document', 'Ctrl+N'], ['md.open', 'open', 'Open', 'Ctrl+O'], ['md.save', 'save', 'Save', 'Ctrl+S'], '|',
+  ['edit.undo', 'undo', 'Undo', 'Ctrl+Z'], ['edit.redo', 'redo', 'Redo', 'Ctrl+Y'], '|', 'heading', '|',
+  ['md.fmt.bold', 'bold', 'Bold', 'Ctrl+B', 'strong'], ['md.fmt.italic', 'italic', 'Italic', 'Ctrl+I', 'emph'], ['md.fmt.strike', 'strike', 'Strikethrough', '', 'strike'], ['md.ins.link', 'link', 'Link', ''], '|',
+  ['md.fmt.ul', 'ul', 'Bulleted list', '', 'bulletList'], ['md.fmt.ol', 'ol', 'Numbered list', '', 'orderedList'], ['md.fmt.task', 'task', 'Task list', '', 'taskList'], ['md.fmt.quote', 'quote', 'Quote', '', 'blockQuote'], '|',
+  ['md.fmt.code', 'code', 'Inline code', '', 'code'], ['md.ins.codeblock', 'codeblock', 'Code block', '', 'codeBlock'], ['md.ins.table', 'table', 'Table', ''], ['md.ins.image', 'image', 'Image', ''], ['md.ins.hr', 'hr', 'Horizontal line', ''],
+];
 
 const newId = () => [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, '0')).join('');
 const normalizeText = (s) => String(s ?? '').replace(/\r\n?/g, '\n');
@@ -47,9 +77,10 @@ export default {
     const bannerEl = el('div', { class: 'md-banner', hidden: true });
     const docsEl = el('div', { class: 'md-docs' });
     const emptyEl = el('div', { class: 'md-empty' });
+    const toolsEl = el('div', { class: 'md-tools', role: 'toolbar', 'aria-label': 'Formatting', hidden: !ctx.restore('toolbar', true) });
     const box = el('div', { class: 'md-bench' },
       el('div', { class: 'md-bar' }, tabsEl, el('button', { class: 'nui-icon md-new', title: 'New document (Ctrl+N)', 'aria-label': 'New document', onclick: () => newDoc() }, '+'), modesEl),
-      bannerEl, el('div', { class: 'md-docs-wrap', style: { position: 'relative', flex: '1 1 auto', minHeight: '0', display: 'flex' } }, docsEl, emptyEl));
+      toolsEl, bannerEl, el('div', { class: 'md-docs-wrap', style: { position: 'relative', flex: '1 1 auto', minHeight: '0', display: 'flex' } }, docsEl, emptyEl));
     docsEl.style.flex = '1 1 auto';
     root.replaceChildren(box);
 
@@ -101,6 +132,8 @@ export default {
         events: { change: () => changed(d) },
       });
       // Visual mode writes a typed [[wiki link]] as \[\[…\]\]; keep it a real link in the saved Markdown.
+      d.editor.eventEmitter.listen('changeToolbarState', (p) => { if (d === cur) { fmtState = (p && p.toolbarState) || {}; renderTools(); } });
+      d.editor.on('caretChange', () => { if (d === cur) renderTools(); });
       const conv = d.editor.convertor;
       if (conv && typeof conv.toMarkdownText === 'function') { const toMd = conv.toMarkdownText.bind(conv); conv.toMarkdownText = (...a) => unescapeWikiLinks(toMd(...a)); }
     }
@@ -177,7 +210,8 @@ export default {
     function focusEditor() { if (!cur) return; if (cur.editor) cur.editor.focus(); else if (cur.fallback) cur.fallback.focus(); }
 
     function renderAll() {
-      renderTabs(); renderModes(); renderBanner(); renderTitle(); renderStatus(); sendOutline();
+      fmtState = {};
+      renderTabs(); renderModes(); renderTools(); renderBanner(); renderTitle(); renderStatus(); sendOutline();
       emptyEl.hidden = docs.length > 0;
       if (!docs.length) renderEmpty();
     }
@@ -219,6 +253,62 @@ export default {
         document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
       });
     }
+
+    // ------------------------------------------------------------ the formatting bar
+    let fmtState = {};
+    const headingNames = ['Text', 'Heading 1', 'Heading 2', 'Heading 3', 'Heading 4', 'Heading 5', 'Heading 6'];
+    function buildTools() {
+      const kids = [];
+      for (const t of TOOLS) {
+        if (t === '|') { kids.push(el('span', { class: 'md-sep', 'aria-hidden': 'true' })); continue; }
+        if (t === 'heading') {
+          kids.push(el('button', { class: 'md-tool md-heading', 'data-cmd': 'heading', 'aria-haspopup': 'menu', title: 'Paragraph style (Ctrl+Shift+0…6)', onmousedown: (e) => e.preventDefault(), onclick: (e) => headingMenu(e.currentTarget) },
+            icon('heading'), el('span', { class: 'lbl', text: 'Text' }), el('span', { class: 'caret', 'aria-hidden': 'true', text: '▾' })));
+          continue;
+        }
+        const [cmd, ic, label, keys, stateKey] = t;
+        kids.push(el('button', { class: 'md-tool', 'data-cmd': cmd, 'data-state': stateKey || '', title: keys ? `${label} (${keys})` : label, 'aria-label': label, ...(stateKey ? { 'aria-pressed': 'false' } : {}),
+          onmousedown: (e) => e.preventDefault(),   // the editor keeps its selection
+          onclick: () => commands && commands[cmd]() }, icon(ic)));
+      }
+      toolsEl.replaceChildren(...kids);
+    }
+    function headingMenu(button) {
+      const r = button.getBoundingClientRect(), now = headingLevel();
+      menu(r.left, r.bottom + 2, headingNames.map((n, lvl) => ({ label: n, keys: `Ctrl+Shift+${lvl}`, checked: () => lvl === now, run: () => setHeading(lvl) })), { anchor: toolsEl });
+    }
+    /** The heading level where the cursor is (0: plain text). */
+    function headingLevel() {
+      const ed = cur && cur.editor;
+      if (!ed) return 0;
+      try {
+        if (ed.isWysiwygMode()) {
+          const view = ed.wwEditor && ed.wwEditor.view;
+          const node = view && view.state.selection.$from.parent;
+          return node && node.type.name === 'heading' ? node.attrs.level : 0;
+        }
+        const [[line]] = ed.getSelection();
+        const text = ed.getMarkdown().split('\n')[line - 1] || '';
+        const m = text.match(/^\s{0,3}(#{1,6})\s/);
+        return m ? m[1].length : 0;
+      } catch { return 0; }
+    }
+    function setHeading(level) {
+      if (!cur || !cur.editor) return;
+      cur.editor.focus();
+      try { cur.editor.exec('heading', { level }); } catch (e) { console.error(e); }
+      renderTools();
+    }
+    function renderTools() {
+      const on = !!(cur && cur.editor);
+      for (const b of toolsEl.querySelectorAll('.md-tool')) {
+        b.disabled = !on && !['md.new', 'md.open'].includes(b.dataset.cmd);
+        if (b.dataset.state) b.setAttribute('aria-pressed', String(on && !!fmtState[b.dataset.state]));
+      }
+      const lbl = toolsEl.querySelector('.md-heading .lbl');
+      if (lbl) lbl.textContent = headingNames[on ? headingLevel() : 0];
+    }
+    buildTools();
 
     function renderModes() {
       for (const b of modesEl.querySelectorAll('button')) { b.setAttribute('aria-pressed', String(!!cur && cur.mode === b.dataset.mode)); b.disabled = !cur || !cur.editor; }
@@ -444,6 +534,33 @@ export default {
 
     // ------------------------------------------------------------ formatting
     const exec = (name, payload) => () => { if (!cur || !cur.editor) return; cur.editor.focus(); try { cur.editor.exec(name, payload); } catch (e) { console.error(e); } };
+    /** Visual view inserts a table only at a plain cursor: a selection collapses to its end first. */
+    function insertTable() {
+      if (!cur || !cur.editor) return;
+      const ed = cur.editor;
+      ed.focus();
+      try {
+        if (ed.isWysiwygMode()) { const [, to] = ed.getSelection(); ed.setSelection(to, to); }
+        ed.exec('addTable', { rowCount: 3, columnCount: 3 });
+      } catch (e) { console.error(e); }
+    }
+    async function insertImage() {
+      if (!cur || !cur.editor) return;
+      const selected = cur.editor.getSelectedText ? cur.editor.getSelectedText() : '';
+      let url, alt;
+      const choose = async () => {
+        const r = await ctx.call('md.pickImage', { doc: cur.id }).catch((e) => { ctx.toast(e.message, { error: true }); return null; });
+        if (r) { url.value = r.url; if (!alt.value) alt.value = r.name; }
+      };
+      const ok = await ctx.dialog('Insert an image', el('div', { class: 'md-linkfield' },
+        el('span', { text: 'Picture (a web address, or a file: next to the document it\'s written as a relative path)' }),
+        el('div', { style: { display: 'flex', gap: '8px' } }, url = el('input', { class: 'nui-field', type: 'text', placeholder: 'https:// or images/picture.png', style: { flex: '1' } }), el('button', { class: 'nui-btn', onclick: choose }, 'Choose a file…')),
+        el('span', { text: 'Description (for screen readers, and shown when the picture is missing)' }), alt = el('input', { class: 'nui-field', type: 'text', value: selected })),
+        [{ label: 'Cancel', value: null }, { label: 'Insert', value: true, primary: true }]);
+      cur.editor.focus();
+      const u = ok && url.value.trim();
+      if (u) cur.editor.exec('addImage', { imageUrl: u, altText: alt.value.trim() || 'image' });
+    }
     async function insertLink() {
       if (!cur || !cur.editor) return;
       const selected = cur.editor.getSelectedText ? cur.editor.getSelectedText() : '';
@@ -489,6 +606,9 @@ export default {
     const ownKey = (e) => {
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
       const k = ['ctrl', e.shiftKey && 'shift', e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase()].filter(Boolean).join('+');
+      // Ctrl+Shift+0…6: paragraph style (by key position, whatever the keyboard layout prints there).
+      const digit = /^Digit([0-6])$/.exec(e.code || '');
+      if (e.shiftKey && digit && cur && cur.editor) { e.preventDefault(); e.stopPropagation(); setHeading(Number(digit[1])); return; }
       const cmd = OWN_KEYS[k];
       if (!cmd || !commands) return;
       e.preventDefault(); e.stopPropagation();
@@ -519,11 +639,12 @@ export default {
       'md.mode.markdown': () => cur && setMode(cur, 'markdown'),
       'md.mode.split': () => cur && setMode(cur, 'split'),
       'md.mode.next': nextMode,
+      'md.toolbar': () => { toolsEl.hidden = !toolsEl.hidden; ctx.keep('toolbar', !toolsEl.hidden); },
       'md.fmt.bold': exec('bold'), 'md.fmt.italic': exec('italic'), 'md.fmt.strike': exec('strike'), 'md.fmt.code': exec('code'),
       'md.fmt.h1': exec('heading', { level: 1 }), 'md.fmt.h2': exec('heading', { level: 2 }), 'md.fmt.h3': exec('heading', { level: 3 }),
       'md.fmt.p': exec('heading', { level: 0 }),   // level 0: back to a plain paragraph
       'md.fmt.ul': exec('bulletList'), 'md.fmt.ol': exec('orderedList'), 'md.fmt.task': exec('taskList'), 'md.fmt.quote': exec('blockQuote'),
-      'md.ins.link': insertLink, 'md.ins.table': exec('addTable', { rowCount: 3, columnCount: 3 }), 'md.ins.codeblock': exec('codeBlock'), 'md.ins.hr': exec('hr'),
+      'md.ins.link': insertLink, 'md.ins.table': insertTable, 'md.ins.image': insertImage, 'md.ins.codeblock': exec('codeBlock'), 'md.ins.hr': exec('hr'),
       'md.ins.date': () => insertText(new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })),
       'edit.undo': exec('undo'), 'edit.redo': exec('redo'),
     };

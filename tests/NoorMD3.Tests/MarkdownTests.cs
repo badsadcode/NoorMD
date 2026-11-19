@@ -161,6 +161,16 @@ public sealed class MarkdownTests : IDisposable
     }
 
     [Fact]
+    public void Pictures_are_written_relative_to_the_document_when_they_sit_beside_or_below_it()
+    {
+        var doc = Path.Combine(_dir, "notes", "plan.md");
+        Assert.Equal("images/cat%20photo.png", MarkdownBench.ImageUrl(Path.Combine(_dir, "notes", "images", "cat photo.png"), doc));
+        Assert.Equal("a.png", MarkdownBench.ImageUrl(Path.Combine(_dir, "notes", "a.png"), doc));
+        Assert.StartsWith("file:///", MarkdownBench.ImageUrl(Path.Combine(_dir, "elsewhere", "b.png"), doc));
+        Assert.StartsWith("file:///", MarkdownBench.ImageUrl(Path.Combine(_dir, "c.png"), null));
+    }
+
+    [Fact]
     public void Only_markdown_and_text_files_open()
     {
         var docs = new Documents(Path.Combine(_dir, "data"));

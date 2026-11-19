@@ -85,6 +85,11 @@
           "label": "Next view",
           "command": "md.mode.next",
           "keys": "Ctrl\u002BE"
+        },
+        {
+          "label": "Formatting bar",
+          "command": "md.toolbar",
+          "keys": null
         }
       ]
     },
@@ -132,7 +137,7 @@
           "keys": null
         },
         {
-          "label": "Paragraph",
+          "label": "Paragraph (plain text)",
           "command": "md.fmt.p",
           "keys": null
         },
@@ -174,6 +179,11 @@
         {
           "label": "Table",
           "command": "md.ins.table",
+          "keys": null
+        },
+        {
+          "label": "Image\u2026",
+          "command": "md.ins.image",
           "keys": null
         },
         {

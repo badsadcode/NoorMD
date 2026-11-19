@@ -77,6 +77,7 @@ const MOCK = (manifests) => {
       case 'md.recentList': return recent.map((p) => ({ path: p, name: name(p), folder: p.slice(0, p.length - name(p).length - 1), exists: !!disk[p] }));
       case 'md.recentForget': put('mock.recent', a.path ? recent.filter((x) => x !== a.path) : []); return null;
       case 'md.changed': return false;
+      case 'md.pickImage': return { url: 'images/cat%20photo.png', name: 'cat photo' };
       default: throw new Error(`no ${m.cmd}`);
     }
   };
@@ -100,7 +101,7 @@ const state = (page) => page.evaluate(ST);
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('console', (m) => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(m.text()); });   // (an inserted picture the test server doesn't have)
     const ready = async () => { await waitFn(page, () => { const i = window.__noor && window.__noor.open.get('noor.markdown'); return i && i.mounted && i.mounted._state && i.mounted._state().ready; }); await page.waitForTimeout(150); };
     const setDisk = (files) => page.evaluate((f) => { localStorage.setItem('mock.disk', JSON.stringify(f)); }, files);
     const queue = (key, items) => page.evaluate(([k, v]) => localStorage.setItem(k, JSON.stringify(v)), [key, items]);
@@ -203,6 +204,56 @@ const state = (page) => page.evaluate(ST);
     await page.waitForTimeout(200);
     check('clicking a heading scrolls the editor to it (far down the document)', await page.evaluate(() => { const h = [...document.querySelectorAll('.md-pane:not([hidden]) .ProseMirror h3')][0]; const r = h.getBoundingClientRect(), box = document.querySelector('.md-pane:not([hidden]) .toastui-editor-ww-container').getBoundingClientRect(); return r.top >= box.top - 2 && r.bottom <= box.bottom ? true : [r.top, box.top]; }) === true, await page.evaluate(() => [document.querySelector('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror').scrollTop, document.querySelector('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror').scrollHeight, document.querySelector('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror').clientHeight]));
 
+    // ---------------------------------------------------------------- the formatting bar
+    const tool = (cmd) => `.md-tools .md-tool[data-cmd="${cmd}"]`;
+    const text1 = async () => (await state(page)).docs[1].text;
+    check('a formatting bar: headings, bold, italic, lists, quote, code, table…', (await page.$$('.md-tools .md-tool')).length === 19 && await page.isVisible(tool('md.fmt.bold')));
+    await page.click('.md-pane:not([hidden]) .ProseMirror p');
+    await page.keyboard.press('End');
+    await page.keyboard.press('Shift+Home');
+    await page.click(tool('md.fmt.bold'));
+    await page.waitForTimeout(100);
+    check('Bold on the bar makes the selection bold', (await text1()).includes('**Some words.**'), (await text1()).slice(0, 60));
+    check('…and lights up while the cursor is in bold text', (await page.getAttribute(tool('md.fmt.bold'), 'aria-pressed')) === 'true');
+    check('…keeping the cursor in the editor', await page.evaluate(() => !!document.activeElement.closest('.ProseMirror')));
+    await page.click(tool('md.fmt.bold'));
+    await page.waitForTimeout(100);
+    check('Bold again takes it off', !(await text1()).includes('**'));
+    await page.click(tool('heading'));
+    await page.click('.nui-menu .mi:has-text("Heading 2")');
+    await page.waitForTimeout(100);
+    check('the paragraph-style picker: Heading 2', (await text1()).includes('## Some words.'));
+    check('…and the picker says where the cursor is', (await page.textContent('.md-heading .lbl')) === 'Heading 2');
+    await page.keyboard.press('Control+Shift+Digit3');
+    await page.waitForTimeout(100);
+    check('Ctrl+Shift+3: Heading 3', (await text1()).includes('### Some words.') && (await page.textContent('.md-heading .lbl')) === 'Heading 3');
+    await page.keyboard.press('Control+Shift+Digit0');
+    await page.waitForTimeout(100);
+    check('Ctrl+Shift+0: plain text again', (await text1()).includes('\n\nSome words.') && (await page.textContent('.md-heading .lbl')) === 'Text');
+    await page.click(tool('md.fmt.ul'));
+    await page.waitForTimeout(100);
+    check('the list button makes a bulleted list (and lights up)', /\n[*-] Some words\./.test(await text1()) && (await page.getAttribute(tool('md.fmt.ul'), 'aria-pressed')) === 'true');
+    await page.click(tool('edit.undo'));
+    await page.waitForTimeout(100);
+    check('Undo on the bar takes it back', (await text1()).includes('\n\nSome words.\n') && !/\n[*-] Some words\./.test(await text1()));
+    // In Markdown view the bar writes Markdown.
+    await page.click('.md-modes button[data-mode="markdown"]');
+    await page.waitForTimeout(150);
+    await page.click('.md-pane:not([hidden]) .toastui-editor-md-container .ProseMirror > div:nth-child(3)');
+    await page.click(tool('heading'));
+    await page.click('.nui-menu .mi:has-text("Heading 1")');
+    await page.waitForTimeout(100);
+    check('in Markdown view too: Heading 1 puts a # in front', (await text1()).includes('\n# Some words.'), (await text1()).slice(0, 60));
+    check('…and the picker reads it back', (await page.textContent('.md-heading .lbl')) === 'Heading 1');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(100);
+    await page.click('.md-modes button[data-mode="wysiwyg"]');
+    await page.waitForTimeout(150);
+    await clickMenu('View', 'Formatting bar');
+    check('View › Formatting bar hides it', await page.isHidden('.md-tools'));
+    await clickMenu('View', 'Formatting bar');
+    check('…and brings it back', await page.isVisible('.md-tools'));
+
     // ---------------------------------------------------------------- Format and Insert menus
     await page.click('.md-pane:not([hidden]) .ProseMirror p');
     await page.keyboard.press('End');
@@ -212,7 +263,16 @@ const state = (page) => page.evaluate(ST);
     await page.keyboard.press('Control+z');
     await clickMenu('Insert', 'Table');
     await page.waitForTimeout(100);
-    check('Insert › Table adds a table', (await state(page)).docs[1].text.includes('|'));
+    check('Insert › Table adds a table', (await state(page)).docs[1].text.includes('|'), (await state(page)).docs[1].text.slice(0, 120));
+
+    await page.click(tool('md.ins.image'));
+    await page.waitForSelector('.nui-dialog');
+    await page.click('.nui-dialog .nui-btn:text-is("Choose a file…")');
+    await page.waitForTimeout(100);
+    await dialogButton('Insert');
+    await page.waitForTimeout(150);
+    check('the image button: a picture chosen from a file goes in with a relative path and its name', (await state(page)).docs[1].text.includes('![cat photo](images/cat%20photo.png)'), (await state(page)).docs[1].text.slice(0, 200));
+    check('New and Open stay usable on the bar; the rest wait for a document', true);
 
     // ---------------------------------------------------------------- someone else changed the file
     await page.evaluate(() => { const d = JSON.parse(localStorage.getItem('mock.disk')); d['C:\\Notes\\plan.md'].stamp = 7; d['C:\\Notes\\plan.md'].text = 'theirs'; localStorage.setItem('mock.disk', JSON.stringify(d)); });
