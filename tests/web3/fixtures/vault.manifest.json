@@ -34,7 +34,17 @@
         {
           "label": "New note",
           "command": "vault.newNote",
-          "keys": "Ctrl\u002BAlt\u002BN"
+          "keys": null
+        },
+        {
+          "label": "New note from a template\u2026",
+          "command": "vault.fromTemplate",
+          "keys": null
+        },
+        {
+          "label": "Today\u0027s note",
+          "command": "vault.today",
+          "keys": null
         },
         {
           "label": "New folder",
@@ -65,6 +75,26 @@
           "label": "Search the vault",
           "command": "vault.focusSearch",
           "keys": "Ctrl\u002BShift\u002BF"
+        },
+        {
+          "label": "Go to a note\u2026",
+          "command": "vault.switcher",
+          "keys": "Ctrl\u002BP"
+        }
+      ]
+    },
+    {
+      "title": "View",
+      "items": [
+        {
+          "label": "The vault\u0027s home",
+          "command": "vault.showHome",
+          "keys": null
+        },
+        {
+          "label": "The map",
+          "command": "vault.showMap",
+          "keys": null
         }
       ]
     }
@@ -92,6 +122,12 @@
       "id": "search",
       "title": "Search",
       "icon": "\u2315",
+      "dock": "right"
+    },
+    {
+      "id": "localmap",
+      "title": "Local map",
+      "icon": "\u2733",
       "dock": "right"
     }
   ],

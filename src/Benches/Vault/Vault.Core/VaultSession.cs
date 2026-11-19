@@ -100,7 +100,38 @@ public sealed class VaultSession : IDisposable
     // ------------------------------------------------------------------ wiki links
 
     /// <summary>The note a [[link]] in <paramref name="fromRel"/> leads to, or null when there's none yet.</summary>
-    public string? ResolveWiki(string fromRel, string target) => VaultLinks.Resolve(fromRel, new VaultLink(target, true), Index.NotePaths());
+    public string? ResolveWiki(string fromRel, string target) => VaultNotes.Resolve(fromRel, new VaultLink(VaultLinks.SplitWiki(target).Target, true), Index.NotePaths(), VaultNotes.AliasMap(Index));
+
+    /// <summary>The daily note for a day: Journal/2026/2026-11-19.md when the vault has a Journal folder, else
+    /// Daily/2026-11-19.md. Made from Templates/Daily note.md when there is one. Returns (vault path, made now).</summary>
+    public (string Path, bool Made) DailyNote(DateTime day)
+    {
+        var date = day.ToString("yyyy-MM-dd");
+        var journal = Entries.Any(e => e.IsFolder && string.Equals(e.Path, "Journal", StringComparison.OrdinalIgnoreCase));
+        var folder = journal ? $"Journal/{day:yyyy}" : "Daily";
+        var rel = $"{folder}/{date}.md";
+        if (Full(rel) is { } existing && File.Exists(existing)) return (rel, false);
+        Directory.CreateDirectory(Full(folder)!);
+        var template = Templates().FirstOrDefault(t => System.IO.Path.GetFileNameWithoutExtension(t).Contains("daily", StringComparison.OrdinalIgnoreCase));
+        var text = template != null && Full(template) is { } tf && File.Exists(tf)
+            ? VaultNotes.FillTemplate(DocumentFile.Load(tf).Markdown, date, day)
+            : $"# {day:dddd, d MMMM yyyy}\n\n";
+        Ops.CreateNote(folder, date + ".md", text);
+        return (rel, true);
+    }
+
+    /// <summary>The vault's templates: notes in a top folder called Templates.</summary>
+    public IReadOnlyList<string> Templates() =>
+        Index.NotePaths().Where(p => p.StartsWith("Templates/", StringComparison.OrdinalIgnoreCase)).OrderBy(p => p, StringComparer.OrdinalIgnoreCase).ToList();
+
+    /// <summary>A new note from a template, its blanks filled ({{title}}, {{date}}, {{time}}).</summary>
+    public string NewFromTemplate(string templateRel, string folderRel, string name)
+    {
+        var tf = Full(templateRel);
+        if (tf == null || !File.Exists(tf) || !templateRel.StartsWith("Templates/", StringComparison.OrdinalIgnoreCase)) throw new VaultOperationException("That template isn't there any more.");
+        var title = System.IO.Path.GetFileNameWithoutExtension(name);
+        return Ops.CreateNote(folderRel, name, VaultNotes.FillTemplate(DocumentFile.Load(tf).Markdown, title, DateTime.Now));
+    }
 
     /// <summary>Where a [[link]] to a note that doesn't exist yet would create it: "Projects/Alpha" from the vault's
     /// top, a bare name next to the note the link is in. Checks the name; returns (folder, name).</summary>

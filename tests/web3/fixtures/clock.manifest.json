@@ -24,7 +24,7 @@
         {
           "label": "Start / stop the stopwatch",
           "command": "clock.toggle",
-          "keys": "Ctrl\u002BAlt\u002BS"
+          "keys": "F9"
         },
         {
           "label": "Reset the stopwatch",

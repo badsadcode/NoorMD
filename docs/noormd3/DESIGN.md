@@ -125,6 +125,8 @@ inspiration from its concept art, but NoorMD has its own face).
        document (first start, and Help). The shell learned printing (a print area benches fill) and Tools / Help
        items from benches.
      - **With the Music bench:** music beside your notes, the mini player.
+   - **No Ctrl+Alt shortcuts**: Ctrl+Alt is AltGr on many keyboards (ą ę ś ł ń ż on Polish ones), so the shell never
+     treats it as a shortcut.
    - **Modular, always** (your rule): every module is its own Core (no interface, reusable) and Bench, so each can
      grow without breaking the others. Benches are polished and upgraded as they move in.
    - **Next: the Vault bench** (before Music). Vault.Core: a vault is a folder you pick; an index of notes,

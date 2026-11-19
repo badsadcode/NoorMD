@@ -782,6 +782,8 @@ function keyName(e) {
 }
 document.addEventListener('keydown', (e) => {
   if (dialogIsOpen()) return;
+  // Ctrl+Alt is AltGr on many keyboards (ą ę ś ł ż… on Polish ones): never a shortcut, always typing.
+  if (e.ctrlKey && e.altKey) return;
   const k = keyName(e);
   if (k === 'ctrl+,') { e.preventDefault(); settingsDialog(); }
   else if (k === 'ctrl+shift+h') { e.preventDefault(); openBench('home'); }

@@ -18,7 +18,7 @@ public sealed class ClockBench : BenchBase
         Menus = [new MenuSpec("Clock", [
             new MenuItemSpec("Add a time zone…", "clock.add"),
             MenuItemSpec.Separator,
-            new MenuItemSpec("Start / stop the stopwatch", "clock.toggle", "Ctrl+Alt+S"),
+            new MenuItemSpec("Start / stop the stopwatch", "clock.toggle", "F9"),   // (not Ctrl+Alt: that is AltGr on many keyboards, ś on Polish ones)
             new MenuItemSpec("Reset the stopwatch", "clock.reset"),
         ])],
         Panels = [new PanelSpec("now", "Clock", "◷", "right"), new PanelSpec("stopwatch", "Stopwatch", "⏱", "bottom")],

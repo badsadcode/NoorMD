@@ -162,6 +162,60 @@ public sealed class VaultTests : IDisposable
     }
 
     [Fact]
+    public async Task The_map_aliases_headings_previews_daily_notes_and_templates()
+    {
+        var (bench, host, root) = await NewVault();
+        File.WriteAllText(Path.Combine(root, "Permanent", "Ada Lovelace.md"), "---\naliases: [Ada, \"The Countess\"]\n---\n# Ada Lovelace\n\n## Engines\n\nAnalytical.\n\n## Poetry\n\nScience.\n");
+        File.WriteAllText(Path.Combine(root, "Index", "People.md"), "# People\n\n- [[Ada]] wrote the first program.\n- [[Ada Lovelace#Engines]]\n- [[Somebody new]]\n");
+        await bench.HandleAsync("vault.newFolder", J(new { parent = "", name = "x" }), host, default);   // (a rescan)
+
+        // The map: notes, links (an alias counts), and a note still to make.
+        var g = await bench.HandleAsync("vault.graph", J(new { }), host, default);
+        var edges = g!["edges"]!.AsArray().Select(e => ((string)e![0]!, (string)e[1]!)).ToList();
+        Assert.Contains(edges, e => e == ("Index/People.md", "Permanent/Ada Lovelace.md"));
+        var missing = g["nodes"]!.AsArray().Where(n => (bool)n!["missing"]!).Select(n => (string)n!["name"]!).ToList();
+        Assert.Equal(["Somebody new"], missing);
+        Assert.Equal("Permanent", (string)g["nodes"]!.AsArray().Single(n => (string)n!["path"]! == "Permanent/Ada Lovelace.md")!["folder"]!);
+        // The local map: Ada and her neighbours only.
+        var local = await bench.HandleAsync("vault.graph", J(new { center = Path.Combine(root, "Permanent", "Ada Lovelace.md"), depth = 1 }), host, default);
+        var names = local!["nodes"]!.AsArray().Select(n => (string)n!["path"]!).ToList();
+        Assert.Contains("Index/People.md", names);
+        Assert.DoesNotContain("Templates/Literature note.md", names);
+
+        // Aliases: [[Ada]] opens Ada Lovelace; suggestions know them.
+        var r = await bench.HandleAsync("vault.openLink", J(new { from = Path.Combine(root, "Index", "People.md"), target = "The Countess" }), host, default);
+        Assert.Equal("Permanent/Ada Lovelace.md", (string)r!["opened"]!);
+        var notes = await bench.HandleAsync("vault.notes", J(new { }), host, default);
+        Assert.Contains("Ada", notes!.AsArray().Single(n => (string)n!["name"]! == "Ada Lovelace")!["aliases"]!.AsArray().Select(x => (string)x!));
+        // Headings: for [[Ada Lovelace#…]]; following one says which heading.
+        var hs = await bench.HandleAsync("vault.headings", J(new { from = "", target = "Ada Lovelace" }), host, default);
+        Assert.Equal(["Ada Lovelace", "Engines", "Poetry"], hs!.AsArray().Select(h => (string)h!["text"]!));
+        var withHeading = await bench.HandleAsync("vault.openLink", J(new { from = "", target = "Ada Lovelace#Engines" }), host, default);
+        Assert.Equal("Engines", (string)withHeading!["heading"]!);
+        // A hover preview: the section after the heading, not the whole note.
+        var pv = await bench.HandleAsync("vault.preview", J(new { from = "", target = "Ada#Engines" }), host, default);
+        Assert.StartsWith("## Engines", (string)pv!["markdown"]!);
+        Assert.DoesNotContain("Poetry", (string)pv["markdown"]!);
+        Assert.True((bool)(await bench.HandleAsync("vault.preview", J(new { from = "", target = "Nobody" }), host, default))!["missing"]!);
+
+        // Today's note: no Journal folder in a Zettelkasten vault, so Daily/.
+        var today = DateTime.Now.ToString("yyyy-MM-dd");
+        var daily = await bench.HandleAsync("vault.daily", J(new { }), host, default);
+        Assert.Equal($"Daily/{today}.md", (string)daily!["path"]!);
+        Assert.True((bool)daily["made"]!);
+        Assert.False((bool)(await bench.HandleAsync("vault.daily", J(new { }), host, default))!["made"]!);   // the second time it's just opened
+
+        // A note from a template: its blanks filled.
+        var t = await bench.HandleAsync("vault.templates", J(new { }), host, default);
+        Assert.Contains("Templates/Literature note.md", t!.AsArray().Select(x => (string)x!["path"]!));
+        await bench.HandleAsync("vault.newFromTemplate", J(new { template = "Templates/Literature note.md", folder = "Literature", name = "How to take notes" }), host, default);
+        var made = File.ReadAllText(Path.Combine(root, "Literature", "How to take notes.md"));
+        Assert.Contains("# How to take notes", made);
+        Assert.DoesNotContain("{{", made);
+        Assert.Equal("2026-01-02 09:05 Fri", VaultNotes.FillTemplate("{{date}} {{time}} {{date:ddd}}", "x", new DateTime(2026, 1, 2, 9, 5, 0)));
+    }
+
+    [Fact]
     public async Task A_page_cant_open_a_vault_the_user_never_picked()
     {
         var host = new Host(Path.Combine(_dir, "data"));

@@ -279,6 +279,9 @@ public sealed class VaultIndex
 
     public IReadOnlyList<string> NotePaths() { lock (_lock) return _notes.Keys.ToList(); }
 
+    /// <summary>A note's text as last read (empty for one too big to read), or null when there's no such note.</summary>
+    public string? TextOf(string path) { lock (_lock) return _notes.TryGetValue(path, out var n) ? n.Text : null; }
+
     /// <summary>Every tag in the Vault with the number of notes using it (the spelling used most often wins).</summary>
     public List<VaultTagCount> Tags()
     {

@@ -26,7 +26,9 @@ public sealed class VaultBench : BenchBase
                 new MenuItemSpec("Open a folder as a vault…", "vault.openFolder"),
                 new MenuItemSpec("Recent vaults…", "vault.recentDialog"),
                 MenuItemSpec.Separator,
-                new MenuItemSpec("New note", "vault.newNote", "Ctrl+Alt+N"),
+                new MenuItemSpec("New note", "vault.newNote"),
+                new MenuItemSpec("New note from a template…", "vault.fromTemplate"),
+                new MenuItemSpec("Today's note", "vault.today"),
                 new MenuItemSpec("New folder", "vault.newFolder"),
                 MenuItemSpec.Separator,
                 new MenuItemSpec("Show the vault in Explorer", "vault.reveal"),
@@ -34,6 +36,11 @@ public sealed class VaultBench : BenchBase
             ]),
             new MenuSpec("Edit", [
                 new MenuItemSpec("Search the vault", "vault.focusSearch", "Ctrl+Shift+F"),
+                new MenuItemSpec("Go to a note…", "vault.switcher", "Ctrl+P"),
+            ]),
+            new MenuSpec("View", [
+                new MenuItemSpec("The vault's home", "vault.showHome"),
+                new MenuItemSpec("The map", "vault.showMap"),
             ]),
         ],
         Panels =
@@ -42,6 +49,7 @@ public sealed class VaultBench : BenchBase
             new PanelSpec("backlinks", "Backlinks", "↩", "right"),
             new PanelSpec("tags", "Tags", "#", "right"),
             new PanelSpec("search", "Search", "⌕", "right"),
+            new PanelSpec("localmap", "Local map", "✳", "right"),
         ],
     };
 
@@ -146,7 +154,88 @@ public sealed class VaultBench : BenchBase
             var v = Session(host);
             if (v == null) return new JsonArray();
             await v.Ready;
-            return new JsonArray(v.Index.NotePaths().OrderBy(p => p, StringComparer.OrdinalIgnoreCase).Select(p => (JsonNode?)new JsonObject { ["path"] = p, ["name"] = Path.GetFileNameWithoutExtension(p) }).ToArray());
+            return new JsonArray(v.Index.NotePaths().OrderBy(p => p, StringComparer.OrdinalIgnoreCase).Select(p => (JsonNode?)new JsonObject
+            {
+                ["path"] = p, ["name"] = Path.GetFileNameWithoutExtension(p),
+                ["aliases"] = new JsonArray(VaultNotes.Aliases(v.Index.TextOf(p) ?? "").Select(x => (JsonNode?)x).ToArray()),
+            }).ToArray());
+        });
+        // The map: every note and the links between them; or just the notes around one (the local map).
+        Command("vault.graph", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            var g = VaultNotes.Graph(v.Index);
+            var center = Str(a, "center");
+            if (center.Length > 0)
+            {
+                var rel = Path.IsPathFullyQualified(center) ? v.Rel(center) : center;
+                if (string.IsNullOrEmpty(rel) || v.Index.TextOf(rel) == null) return new JsonObject { ["inVault"] = false };
+                g = VaultNotes.Around(g, rel, a.TryGetProperty("depth", out var dep) && dep.ValueKind == JsonValueKind.Number ? dep.GetInt32() : 1);
+                return GraphJson(g, rel);
+            }
+            return GraphJson(g, null);
+        });
+        // A [[link]]'s note, for a hover preview (the start of it, or the section after a #heading).
+        Command("vault.preview", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v == null) return null;
+            await v.Ready;
+            var from = Str(a, "from"); var fromRel = from.Length > 0 ? v.Rel(from) ?? "" : "";
+            var target = Str(a, "target");
+            var rel = v.ResolveWiki(fromRel, target);
+            if (rel == null) return new JsonObject { ["missing"] = true, ["name"] = VaultLinks.SplitWiki(target).Target };
+            var text = v.Index.TextOf(rel) ?? "";
+            var tail = VaultLinks.SplitWiki(target).Tail;
+            var heading = tail.StartsWith('#') ? tail[1..].Split('|')[0].Trim() : "";
+            if (heading.Length > 0)
+            {
+                var hs = VaultNotes.Headings(text);
+                var h = hs.FirstOrDefault(x => string.Equals(x.Text, heading, StringComparison.OrdinalIgnoreCase));
+                if (h != null)
+                {
+                    var lines = text.Split('\n');
+                    var next = hs.FirstOrDefault(x => x.Line > h.Line && x.Level <= h.Level);
+                    text = string.Join('\n', lines[(h.Line - 1)..(next != null ? next.Line - 1 : lines.Length)]);
+                }
+            }
+            if (text.Length > 6000) text = text[..6000] + "\n\n…";
+            return new JsonObject { ["path"] = rel, ["name"] = Path.GetFileNameWithoutExtension(rel), ["markdown"] = text, ["heading"] = heading };
+        });
+        // A note's headings, for [[Note#…]] suggestions.
+        Command("vault.headings", async (a, host, _) =>
+        {
+            var v = Session(host);
+            if (v == null) return new JsonArray();
+            await v.Ready;
+            var from = Str(a, "from"); var fromRel = from.Length > 0 ? v.Rel(from) ?? "" : "";
+            var rel = v.ResolveWiki(fromRel, Str(a, "target"));
+            if (rel == null) return new JsonArray();
+            return new JsonArray(VaultNotes.Headings(v.Index.TextOf(rel) ?? "").Select(h => (JsonNode?)new JsonObject { ["level"] = h.Level, ["text"] = h.Text, ["line"] = h.Line }).ToArray());
+        });
+        Command("vault.templates", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            return new JsonArray(v.Templates().Select(t => (JsonNode?)new JsonObject { ["path"] = t, ["name"] = Path.GetFileNameWithoutExtension(t) }).ToArray());
+        });
+        Command("vault.newFromTemplate", async (a, host, _) =>
+        {
+            var v = V(host);
+            var name = Str(a, "name");
+            var rel = Run(() => v.NewFromTemplate(Str(a, "template"), Str(a, "folder"), VaultPaths.IsNote(name) ? name : name + ".md"));
+            await v.RescanAsync();
+            await host.OpenFilesAsync([v.Full(rel)!]);
+            return new JsonObject { ["path"] = rel };
+        });
+        // Today's note (or another day's): opened, made first if need be.
+        Command("vault.daily", async (a, host, _) =>
+        {
+            var v = V(host); await v.Ready;
+            var day = DateTime.TryParse(Str(a, "date"), System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var d) ? d : DateTime.Now;
+            var (rel, made) = Run(() => v.DailyNote(day));
+            if (made) await v.RescanAsync();
+            await host.OpenFilesAsync([v.Full(rel)!]);
+            return new JsonObject { ["path"] = rel, ["made"] = made };
         });
         Command("vault.recentNotes", async (a, host, _) =>
         {
@@ -207,7 +296,10 @@ public sealed class VaultBench : BenchBase
             if (fromRel == null) return new JsonObject { ["outside"] = true };
             var target = Str(a, "target");
             var rel = v.ResolveWiki(fromRel, target);
-            if (rel != null) { await host.OpenFilesAsync([v.Full(rel)!]); return new JsonObject { ["opened"] = rel }; }
+            var tail = VaultLinks.SplitWiki(target).Tail;
+            var heading = tail.StartsWith('#') ? tail[1..].Split('|')[0].Trim() : "";
+            if (rel != null) { await host.OpenFilesAsync([v.Full(rel)!]); return new JsonObject { ["opened"] = rel, ["full"] = v.Full(rel), ["heading"] = heading }; }
+            target = VaultLinks.SplitWiki(target).Target;
             return Run(() => { var (folder, name) = v.PlaceForNewLink(fromRel, target); return new JsonObject { ["missing"] = true, ["folder"] = folder, ["name"] = name }; });
         });
         Command("vault.createLink", async (a, host, _) =>
@@ -293,6 +385,18 @@ public sealed class VaultBench : BenchBase
             ["updated"] = new JsonArray(links.Updated.Select(s => (JsonNode?)s).ToArray()),
         };
     }
+
+    static JsonNode GraphJson(VaultGraph g, string? center) => new JsonObject
+    {
+        ["inVault"] = true, ["center"] = center,
+        ["nodes"] = new JsonArray(g.Nodes.Select(n => (JsonNode?)new JsonObject
+        {
+            ["path"] = n.Path, ["name"] = n.Name, ["links"] = n.Links, ["missing"] = n.Missing,
+            ["folder"] = n.Missing || !n.Path.Contains('/') ? "" : n.Path[..n.Path.IndexOf('/')],
+            ["tags"] = new JsonArray(n.Tags.Select(t => (JsonNode?)t).ToArray()),
+        }).ToArray()),
+        ["edges"] = new JsonArray(g.Edges.Select(e => (JsonNode?)new JsonArray(e.From, e.To)).ToArray()),
+    };
 
     static string Str(JsonElement a, string name) =>
         a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
