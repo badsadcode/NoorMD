@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0, stage 1 step 1: the title bar spike (see docs/noormd3/DESIGN.md, section 2.1).
+       A frameless WPF window whose title bar is drawn by a web page, with native window buttons so
+       Windows 11 shows snap layouts. Standalone: it doesn't touch NoorMD 2.0. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>NoorMD3.TitleBar</RootNamespace>
+    <AssemblyName>NoorMD3-TitleBarTest</AssemblyName>
+    <Version>3.0.0-spike.1</Version>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4191.47" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>NoorMD 3.0 — title bar test</title>
+<style>
+:root, [data-theme=dark] { --bg:#0b0d12; --panel:#11151d; --surface:#181e29; --surface2:#212837; --border:#2a3240; --text:#e9edf5; --muted:#8996aa; --accent:#b19aff; --accent2:#7f66db; --on-accent:#211835; }
+[data-theme=light] { --bg:#f3f5f9; --panel:#ffffff; --surface:#f7f8fb; --surface2:#e9edf4; --border:#dae0e9; --text:#202838; --muted:#5f6b80; --accent:#6a4ed0; --accent2:#6145c1; --on-accent:#ffffff; }
+[data-theme=nocturne] { --bg:#070b14; --panel:#0c1220; --surface:#121a2c; --surface2:#1a2438; --border:#223049; --text:#e4ecf7; --muted:#8a9bb5; --accent:#5fd4e6; --accent2:#2fa8bd; --on-accent:#04161b; }
+[data-theme=ember] { --bg:#0f0c0a; --panel:#16120f; --surface:#201a15; --surface2:#2a221b; --border:#3a2f25; --text:#f2e9e1; --muted:#a8978a; --accent:#f2a65a; --accent2:#d17f2f; --on-accent:#241404; }
+[data-theme=parchment] { --bg:#f1eadd; --panel:#fbf7ef; --surface:#f5efe3; --surface2:#ebe2d1; --border:#ddd1bc; --text:#2c241b; --muted:#6b5d4c; --accent:#9a4a1c; --accent2:#7d3a12; --on-accent:#ffffff; }
+[data-theme=contrast] { --bg:#000000; --panel:#000000; --surface:#0d0d0d; --surface2:#1a1a1a; --border:#8c8c8c; --text:#ffffff; --muted:#d0d0d0; --accent:#ffd84a; --accent2:#ffc400; --on-accent:#000000; }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--text); font: 13px/1.45 "Segoe UI Variable", "Segoe UI", system-ui, sans-serif; display: flex; flex-direction: column; overflow: hidden; user-select: none; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: default; }
+
+/* the title bar: 38 px, the window's own buttons (native) sit in the space on the right */
+.titlebar { height: 38px; flex: none; display: flex; align-items: center; gap: 2px; padding-left: 10px; background: var(--bg); }
+body.mode-region .drag { app-region: drag; -webkit-app-region: drag; }
+.titlebar button, .titlebar .chip, .titlebar select { app-region: no-drag; -webkit-app-region: no-drag; }
+.logo { width: 20px; height: 20px; border-radius: 6px; background: linear-gradient(135deg, var(--accent), var(--accent2)); display: grid; place-items: center; color: var(--on-accent); font-weight: 800; font-size: 12px; margin-right: 6px; flex: none; }
+.menu button { padding: 4px 9px; border-radius: 4px; opacity: .85; }
+.menu button:hover, .menu button.open { background: color-mix(in srgb, var(--text) 8%, transparent); opacity: 1; }
+.title { flex: 1; align-self: stretch; display: flex; align-items: center; justify-content: center; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.title b { color: var(--text); font-weight: 600; margin-right: 4px; }
+.chip { display: flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; background: var(--surface); color: var(--muted); font-size: 12px; margin-right: 8px; white-space: nowrap; }
+.chip i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.spacer { flex: none; width: 138px; height: 100%; }
+
+.popup { position: fixed; z-index: 10; min-width: 220px; padding: 5px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 12px 32px rgba(0,0,0,.35); }
+.popup div { padding: 6px 10px; border-radius: 4px; display: flex; } .popup div:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); } .popup kbd { margin-left: auto; color: var(--muted); font: 11px inherit; }
+
+main { flex: 1; overflow: auto; padding: 24px 32px; user-select: text; }
+h1 { margin: 0 0 4px; font-size: 22px; } .lead { color: var(--muted); margin: 0 0 18px; max-width: 760px; }
+.cols { display: grid; grid-template-columns: minmax(380px, 1.3fr) minmax(300px, 1fr); gap: 20px; }
+.card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+.card h2 { font-size: 14px; margin: 0 0 10px; }
+label.check { display: flex; gap: 10px; align-items: flex-start; padding: 5px 4px; border-radius: 6px; }
+label.check:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+label.check input { margin-top: 3px; accent-color: var(--accent); }
+label.check small { display: block; color: var(--muted); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.btn { padding: 5px 12px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); }
+.btn.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+select { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 4px 8px; font: inherit; }
+.log { font: 12px/1.5 Consolas, monospace; color: var(--muted); max-height: 220px; overflow: auto; white-space: pre-wrap; }
+.state { font: 12px Consolas, monospace; color: var(--muted); }
+textarea { width: 100%; min-height: 70px; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 8px; font: inherit; }
+</style>
+</head>
+<body class="mode-region" data-theme="dark">
+  <header class="titlebar drag" id="titlebar">
+    <div class="logo">N</div>
+    <nav class="menu" id="menu"><button>File</button><button>Edit</button><button>View</button><button>Window</button><button>Help</button></nav>
+    <div class="title drag" id="title"><b>Title bar test</b> · NoorMD 3.0</div>
+    <div class="chip" title="Stands in for the now-playing chip: it's a button, so it doesn't drag"><i></i>Nordic Pines — Lumen</div>
+    <div class="spacer" id="spacer" title="The window's own buttons are drawn here by Windows-side code"></div>
+  </header>
+  <main>
+    <h1>The title bar test</h1>
+    <p class="lead">NoorMD 3.0 will draw its own title bar. Before building anything on it, this little program checks it
+      behaves like a real Windows title bar. Please try each item and tick it if it works. Then press <b>Copy the results</b>
+      and paste them to Sage.</p>
+    <div class="cols">
+      <section class="card">
+        <h2>Try these</h2>
+        <div id="checks"></div>
+        <h2 style="margin-top:14px">Anything odd?</h2>
+        <textarea id="notes" placeholder="e.g. the buttons are 2 px too low on my second monitor"></textarea>
+        <div class="row"><button class="btn primary" id="copy">Copy the results</button><span id="copied" class="state"></span></div>
+      </section>
+      <section>
+        <div class="card">
+          <h2>Settings for the test</h2>
+          <div class="row">Dragging by
+            <select id="mode"><option value="region">WebView2's app-region (the plan)</option><option value="message">asking the window (the fallback)</option></select>
+          </div>
+          <div class="row">Theme
+            <select id="theme"><option>dark</option><option>light</option><option>nocturne</option><option>ember</option><option>parchment</option><option>contrast</option></select>
+            <small class="state">(the native buttons should follow)</small>
+          </div>
+          <div class="state" id="state">waiting for the window…</div>
+        </div>
+        <div class="card" style="margin-top:14px">
+          <h2>What the window reports</h2>
+          <div class="log" id="log"></div>
+        </div>
+      </section>
+    </div>
+  </main>
+<script>
+'use strict';
+const $ = (s) => document.querySelector(s);
+const post = (m) => window.chrome && chrome.webview && chrome.webview.postMessage(m);
+const CHECKS = [
+  ['drag', 'Drag the title bar: the window moves', 'Drag on the empty part or the title text, not on the menu or the chip.'],
+  ['dragtop', 'Drag it to the top of the screen: it maximises', 'And to the left or right edge: it fills that half.'],
+  ['dragoff', 'Drag a maximised window down: it restores under the mouse', ''],
+  ['dbl', 'Double-click the title bar: maximise / restore', ''],
+  ['sysmenu', 'Right-click the title bar: the window menu (Restore, Move, Size, Minimise, Maximise, Close)', 'Alt+Space should open it too.'],
+  ['snap', 'Hover over maximise: Windows 11 shows the snap layouts', 'The little grid of layouts. Windows 10 has none (that\'s fine).'],
+  ['buttons', 'Minimise, maximise / restore and close work, with hover colours', 'Close turns red on hover.'],
+  ['keys', 'Win+↑ / Win+↓ / Win+← / Win+→ work', ''],
+  ['resize', 'Resize from every edge and corner, including the top edge above the buttons', ''],
+  ['maxfit', 'Maximised, nothing spills onto the other monitor and nothing is cut off', 'Check the buttons and the bottom of the page.'],
+  ['dpi', 'Move it to the other monitor (if they have different scaling): the buttons stay aligned and sharp', ''],
+  ['theme', 'Switch the theme here: the native buttons follow it', ''],
+  ['taskbar', 'The taskbar shows it, and clicking it there minimises / restores', ''],
+  ['shadow', 'It has a shadow and (Windows 11) rounded corners', ''],
+];
+let saved = {}; try { saved = JSON.parse(localStorage.getItem('tb.checks') || '{}'); } catch { /* none */ }
+$('#checks').append(...CHECKS.map(([id, t, hint]) => { const l = document.createElement('label'); l.className = 'check'; l.innerHTML = `<input type="checkbox" ${saved[id] ? 'checked' : ''}><span>${t}${hint ? `<small>${hint}</small>` : ''}</span>`; l.querySelector('input').onchange = (e) => { saved[id] = e.target.checked; try { localStorage.setItem('tb.checks', JSON.stringify(saved)); } catch { /* not kept */ } }; return l; }));
+try { $('#notes').value = localStorage.getItem('tb.notes') || ''; } catch { /* none */ }
+$('#notes').oninput = () => { try { localStorage.setItem('tb.notes', $('#notes').value); } catch { /* not kept */ } };
+let lastState = null;
+const log = (t) => { const l = $('#log'); l.textContent = `${new Date().toLocaleTimeString()}  ${t}\n` + l.textContent; };
+
+// The theme: the page's colours, and the native buttons told to follow.
+function applyTheme(name) {
+  document.body.dataset.theme = name;
+  const cs = getComputedStyle(document.body), v = (k) => cs.getPropertyValue(k).trim();
+  const light = ['light', 'parchment'].includes(name);
+  post({ type: 'theme', bg: v('--bg'), fg: v('--text'), hover: light ? '#1A000000' : '#22FFFFFF', pressed: light ? '#2E000000' : '#38FFFFFF' });
+}
+$('#theme').onchange = (e) => applyTheme(e.target.value);
+
+// Dragging: by app-region (WebView2 handles drag, double-click and the window menu), or by asking the window.
+function setMode(m) {
+  document.body.classList.toggle('mode-region', m === 'region');
+  log(m === 'region' ? 'dragging: app-region (WebView2)' : 'dragging: asking the window (WM_NCLBUTTONDOWN)');
+}
+$('#mode').onchange = (e) => setMode(e.target.value);
+const onDragArea = (e) => e.target.closest('.drag') && !e.target.closest('button, .chip, select');
+$('#titlebar').addEventListener('pointerdown', (e) => { if (!document.body.classList.contains('mode-region') && e.button === 0 && e.detail === 1 && onDragArea(e)) post({ type: 'drag' }); });
+$('#titlebar').addEventListener('dblclick', (e) => { if (!document.body.classList.contains('mode-region') && onDragArea(e)) post({ type: 'toggleMax' }); });
+$('#titlebar').addEventListener('contextmenu', (e) => { e.preventDefault(); if (!document.body.classList.contains('mode-region') && onDragArea(e)) post({ type: 'sysmenu' }); });
+
+// A menu, to check that buttons in the title bar don't drag.
+document.querySelectorAll('#menu button').forEach((b) => b.addEventListener('click', () => {
+  document.querySelectorAll('.popup').forEach((p) => p.remove());
+  const r = b.getBoundingClientRect(), p = document.createElement('div');
+  p.className = 'popup'; p.style.left = r.left + 'px'; p.style.top = r.bottom + 2 + 'px';
+  p.innerHTML = ['New<kbd>Ctrl+N</kbd>', 'Open…<kbd>Ctrl+O</kbd>', 'Save<kbd>Ctrl+S</kbd>', 'Settings<kbd>Ctrl+,</kbd>'].map((x) => `<div>${x}</div>`).join('');
+  document.body.append(p);
+  setTimeout(() => document.addEventListener('pointerdown', (e) => { if (!p.contains(e.target)) p.remove(); }, { once: true }), 0);
+}));
+
+$('#copy').onclick = async () => {
+  const lines = ['NoorMD 3.0 title bar test', `Windows ${lastState ? lastState.os : '?'}, scale ${lastState ? Math.round(lastState.scale * 100) + '%' : '?'}, dragging by ${$('#mode').value}`, ...CHECKS.map(([id, t]) => `${saved[id] ? '[x]' : '[ ]'} ${t}`), '', 'Notes: ' + ($('#notes').value || '—')];
+  try { await navigator.clipboard.writeText(lines.join('\n')); $('#copied').textContent = 'Copied ✓'; } catch { $('#notes').value += '\n\n' + lines.join('\n'); $('#copied').textContent = 'Couldn\'t copy: the results are in the box above'; }
+};
+
+window.chrome && chrome.webview && chrome.webview.addEventListener('message', (e) => {
+  const m = e.data;
+  if (m.type === 'state') {
+    lastState = m;
+    $('#spacer').style.width = Math.max(0, m.buttonsWidth) + 'px';
+    $('#state').textContent = `${m.maximized ? 'maximised' : 'normal'} · ${Math.round(m.scale * 100)}% (${m.dpi} dpi) · buttons ${Math.round(m.buttonsWidth)} px · Windows ${m.os}`;
+  } else if (m.type === 'log') log(m.text);
+});
+applyTheme('dark');
+setMode('region');
+post({ type: 'ready' });
+</script>
+</body>
+</html>
