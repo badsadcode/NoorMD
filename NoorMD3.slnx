@@ -5,6 +5,9 @@
     <Project Path="src/NoorMD3/NoorMD3.csproj" />
   </Folder>
   <Folder Name="/src/Benches/" />
+  <Folder Name="/src/Benches/Clock/">
+    <Project Path="src/Benches/Clock/Clock.Bench/Clock.Bench.csproj" />
+  </Folder>
   <Folder Name="/src/Benches/Sandbox/">
     <Project Path="src/Benches/Sandbox/Sandbox.Bench/Sandbox.Bench.csproj" />
   </Folder>

@@ -1,0 +1,51 @@
+{
+  "id": "noor.clock",
+  "name": "Clock",
+  "icon": "\u25F7",
+  "description": "World clocks, and a clock and a stopwatch to dock beside your work in any bench.",
+  "version": "3.0.2",
+  "contractVersion": 1,
+  "density": "roomy",
+  "entry": "bench.js",
+  "menus": [
+    {
+      "title": "Clock",
+      "items": [
+        {
+          "label": "Add a time zone\u2026",
+          "command": "clock.add",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Start / stop the stopwatch",
+          "command": "clock.toggle",
+          "keys": "Ctrl\u002BAlt\u002BS"
+        },
+        {
+          "label": "Reset the stopwatch",
+          "command": "clock.reset",
+          "keys": null
+        }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "now",
+      "title": "Clock",
+      "icon": "\u25F7",
+      "dock": "right"
+    },
+    {
+      "id": "stopwatch",
+      "title": "Stopwatch",
+      "icon": "\u23F1",
+      "dock": "bottom"
+    }
+  ]
+}

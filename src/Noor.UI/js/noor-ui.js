@@ -47,10 +47,14 @@ export function menu(x, y, items, { onClose, anchor } = {}) {
     else if (e.key === 'ArrowUp') { e.preventDefault(); (buttons[(i - 1 + buttons.length) % buttons.length] || buttons[0])?.focus(); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
   };
-  const onDown = (e) => { if (!box.contains(e.target) && !(anchor && anchor.contains(e.target))) closeMenu(); };
+  // A click outside closes this menu (and only this one: a menu replaced within the same moment, e.g. F10 then →,
+  // must not leave its listener behind to close the next).
+  let closed = false;
+  const self = { box, close() { closed = true; document.removeEventListener('pointerdown', onDown, true); box.remove(); onClose && onClose(); } };
+  const onDown = (e) => { if (closed || openMenu !== self) { document.removeEventListener('pointerdown', onDown, true); return; } if (!box.contains(e.target) && !(anchor && anchor.contains(e.target))) closeMenu(); };
   box.addEventListener('keydown', onKey);
-  setTimeout(() => document.addEventListener('pointerdown', onDown, true), 0);
-  openMenu = { box, close() { document.removeEventListener('pointerdown', onDown, true); box.remove(); onClose && onClose(); } };
+  setTimeout(() => { if (!closed) document.addEventListener('pointerdown', onDown, true); }, 0);
+  openMenu = self;
   (buttons[0] || box).focus({ preventScroll: true });
   return openMenu;
 }

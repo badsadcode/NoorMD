@@ -14,5 +14,6 @@
     <ProjectReference Include="..\..\src\Noor.Contracts\Noor.Contracts.csproj" />
     <ProjectReference Include="..\..\src\NoorMD3.Host\NoorMD3.Host.csproj" />
     <ProjectReference Include="..\..\src\Benches\Sandbox\Sandbox.Bench\Sandbox.Bench.csproj" />
+    <ProjectReference Include="..\..\src\Benches\Clock\Clock.Bench\Clock.Bench.csproj" />
   </ItemGroup>
 </Project>

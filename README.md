@@ -17,8 +17,10 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.1** (the newest): the new window and title bar, bench tabs, the main menu, resizable side panels, Home and
-  Settings, with one demo bench (the Sandbox). Download `NoorMD-3.0.x-win-x64-portable.zip`, extract it, run
+- **3.0.2** (the newest): docking. Drag panels by their tabs to any side, stack them as tabs, resize the edges
+  between them, and dock a panel from one bench into another (try the Clock's stopwatch beside the Sandbox).
+- **3.0.1**: the new window and title bar, bench tabs, the main menu, resizable side panels, Home and Settings,
+  with one demo bench (the Sandbox). Download `NoorMD-3.0.x-win-x64-portable.zip`, extract it, run
   `NoorMD3.exe`. It keeps its own settings, so it doesn't touch 2.0.
 - Builds: `bash scripts/publish-noormd3.sh`; tests: `dotnet test tests/NoorMD3.Tests` and `node tests/web3/shell.test.js`.
 

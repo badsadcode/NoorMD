@@ -83,6 +83,13 @@ inspiration from its concept art, but NoorMD has its own face).
 2. **The shell,** proven with two benches, **Markdown and Music**: bench tabs, the main menu following the
    bench, docking (any panel anywhere), floating windows on two monitors, the status bar with the mini
    player, the command palette, Home, settings and themes, the bench contract and the exchange.
+   - **3.0.1 (done):** the window, the main menu following the bench, bench tabs, resizable sides, Home, Settings,
+     the contract, Noor.UI and the Sandbox.
+   - **3.0.2 (done):** docking. Panels in groups of tabs on each side; drag a panel by its tab (drop zones show
+     where it lands: a side, before or after a group, or into a group as a tab; Esc cancels); right-click a tab to
+     move it from the keyboard; resizable edges between groups; any panel of any bench docks anywhere (its bench
+     opens quietly to run it, and closing that bench takes its panels with it); layouts kept per bench. A second
+     demo bench, the Clock, gives panels worth borrowing.
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 

@@ -36,6 +36,7 @@ public sealed class ShellTests : IDisposable
     public void The_sandbox_is_found_and_its_web_module_comes_out_of_its_dll()
     {
         var reg = BenchRegistry.FromAssemblies([typeof(SandboxBench).Assembly]);
+        Assert.Equal(2, BenchRegistry.FromAssemblies([typeof(SandboxBench).Assembly, typeof(Clock.Bench.ClockBench).Assembly]).Benches.Count);
         var bench = Assert.Single(reg.Benches);
         Assert.Equal("noor.sandbox", bench.Manifest.Id);
         Assert.Empty(reg.Problems);
@@ -144,6 +145,15 @@ public sealed class ShellTests : IDisposable
     }
 
     [Fact]
+    public void Clock_lists_time_zones_by_their_iana_names()
+    {
+        var zones = Clock.Bench.ClockBench.Zones().AsArray();
+        Assert.NotEmpty(zones);
+        Assert.All(zones, z => Assert.Contains("/", (string)z!["id"]! + "/"));
+        Assert.Contains(zones, z => (string)z!["id"]! is "Europe/Warsaw" or "Europe/Berlin" or "Etc/UTC" or "UTC");
+    }
+
+    [Fact]
     public void Sandbox_counts_words_sentences_and_reading_time()
     {
         var r = SandboxBench.Count("NoorMD 3.0 is one home. Benches talk!");
@@ -158,16 +168,19 @@ public sealed class ShellTests : IDisposable
 
 public sealed class FixtureTests
 {
-    /// <summary>The browser tests (tests/web3) use the Sandbox's manifest as the shell would send it; this keeps that copy true.
-    /// Run with NOORMD3_WRITE_FIXTURES=1 to write it again after changing the manifest.</summary>
-    [Fact]
-    public void The_web_tests_copy_of_the_sandbox_manifest_is_current()
+    /// <summary>The browser tests (tests/web3) use the benches' manifests as the shell would send them; this keeps those copies true.
+    /// Run with NOORMD3_WRITE_FIXTURES=1 to write them again after changing a manifest.</summary>
+    [Theory]
+    [InlineData("sandbox")]
+    [InlineData("clock")]
+    public void The_web_tests_copies_of_the_manifests_are_current(string name)
     {
-        var json = System.Text.Json.JsonSerializer.Serialize(new SandboxBench().Manifest, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, WriteIndented = true });
+        IBench bench = name == "sandbox" ? new SandboxBench() : new Clock.Bench.ClockBench();
+        var json = System.Text.Json.JsonSerializer.Serialize(bench.Manifest, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, WriteIndented = true });
         var dir = AppContext.BaseDirectory;
         while (dir != null && !File.Exists(Path.Combine(dir, "NoorMD.sln"))) dir = Path.GetDirectoryName(dir);
         Assert.NotNull(dir);
-        var path = Path.Combine(dir!, "tests", "web3", "fixtures", "sandbox.manifest.json");
+        var path = Path.Combine(dir!, "tests", "web3", "fixtures", name + ".manifest.json");
         if (Environment.GetEnvironmentVariable("NOORMD3_WRITE_FIXTURES") == "1") File.WriteAllText(path, json + "\n");
         Assert.Equal(json.Trim(), File.ReadAllText(path).Trim());
     }

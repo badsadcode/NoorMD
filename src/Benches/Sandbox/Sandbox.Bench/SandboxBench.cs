@@ -15,7 +15,7 @@ public sealed partial class SandboxBench : BenchBase
         Name = "Sandbox",
         Icon = "✦",
         Description = "A scratchpad that proves the bench contract: type, and its C# side counts.",
-        Version = "3.0.1",
+        Version = "3.0.2",
         Density = "roomy",
         Menus = [new MenuSpec("Sandbox", [
             new MenuItemSpec("Count the words (C#)", "sandbox.count", "Ctrl+Shift+C"),

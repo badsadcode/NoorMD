@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.1 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 3.0.2 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -235,6 +235,19 @@ can resize by dragging their edges, Home, and Settings (theme, where the menu go
 There's only one bench in it so far, and it's a small one: the **Sandbox**, a scratchpad whose whole job is to prove
 that a bench can live in its own building block and still talk to the rest. You type, and the counting happens in a
 different part of the program. It works. The Sandbox will be retired with honours when the real benches move in.
+
+## Day 25, night — 3.0.2: panels that move ✋
+
+Panels can now be picked up by their tabs and dropped anywhere: on a side, above or below another panel, or right
+into it as a tab. While you drag, the window shows where it'll land; Esc changes your mind for you.
+
+And the big one: **any panel can visit any bench.** To prove it there's a second tiny bench, a **Clock**, whose
+stopwatch can sit under your writing in the Sandbox and keep ticking. It's the same stopwatch everywhere: start it in
+one bench, and it's running in the other.
+
+The tests found a real bug on the way. Open one menu and then flick to the next with the arrow keys quickly enough,
+and the first menu left a little "close on click" helper behind. Later it would close the next menu just before
+your click landed, like a waiter whisking your plate away mid-bite. It's been spoken to.
 
 ## Things we learned along the way
 

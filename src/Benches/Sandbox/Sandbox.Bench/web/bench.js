@@ -1,6 +1,8 @@
 // The Sandbox's web module (contract v1): the shell imports it and calls mount() for the bench's main view and
 // panels[id].mount() for its panels. Menu commands run here when the module has them, else on the C# side.
 const css = new URL('bench.css', import.meta.url).href;
+// The last count, so a Statistics panel shown later (or in another place) starts with it instead of zeros.
+let last = { words: 0, characters: 0, sentences: 0, minutes: 0 };
 
 export default {
   mount(el, ctx) {
@@ -13,7 +15,7 @@ export default {
     const count = async () => {
       ctx.keep('text', area.value);
       const r = await ctx.call('sandbox.count', { text: area.value });
-      ctx.emit('counted', r);
+      last = r; ctx.emit('counted', r);
       ctx.setStatus(`${r.words} word${r.words === 1 ? '' : 's'} · ${r.minutes} min read`);
     };
     area.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(count, 250); });
@@ -36,7 +38,7 @@ export default {
         el.innerHTML = '<div class="nui-list sb-stats"></div>';
         const list = el.firstChild;
         const show = (r) => { list.innerHTML = [['Words', r.words], ['Characters', r.characters], ['Sentences', r.sentences], ['Reading time', `${r.minutes} min`]].map(([k, v]) => `<div class="nui-row"><span>${k}</span><span class="nui-muted">${v}</span></div>`).join(''); };
-        show({ words: 0, characters: 0, sentences: 0, minutes: 0 });
+        show(last);
         const off = ctx.on('counted', show);
         return { unmount: off };
       },

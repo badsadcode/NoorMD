@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NoorMD3</RootNamespace>
     <AssemblyName>NoorMD3</AssemblyName>
-    <Version>3.0.1</Version>
+    <Version>3.0.2</Version>
     <Product>NoorMD</Product>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -24,6 +24,7 @@
     <ProjectReference Include="..\NoorMD3.Host\NoorMD3.Host.csproj" />
     <!-- Stage 1: the benches are built and shipped with the app (DESIGN.md, section 3.3). -->
     <ProjectReference Include="..\Benches\Sandbox\Sandbox.Bench\Sandbox.Bench.csproj" />
+    <ProjectReference Include="..\Benches\Clock\Clock.Bench\Clock.Bench.csproj" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

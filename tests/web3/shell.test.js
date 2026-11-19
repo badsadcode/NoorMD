@@ -8,9 +8,10 @@ const path = require('path');
 const { chromium } = require(path.join(__dirname, '..', 'web', 'node_modules', 'playwright'));
 
 const ROOT = path.join(__dirname, '..', '..');
-const MOUNTS = [['/ui/', 'src/Noor.UI/'], ['/benches/noor.sandbox/', 'src/Benches/Sandbox/Sandbox.Bench/web/'], ['/', 'src/NoorMD3/wwwroot/']];
+const MOUNTS = [['/ui/', 'src/Noor.UI/'], ['/benches/noor.sandbox/', 'src/Benches/Sandbox/Sandbox.Bench/web/'], ['/benches/noor.clock/', 'src/Benches/Clock/Clock.Bench/web/'], ['/', 'src/NoorMD3/wwwroot/']];
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
 const SANDBOX = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'sandbox.manifest.json'), 'utf8'));
+const CLOCK = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'clock.manifest.json'), 'utf8'));
 
 let failed = 0, passed = 0;
 function check(name, ok, extra) {
@@ -32,7 +33,7 @@ function serve() {
 
 // The window, as far as the page can tell: the shell's commands, the Sandbox's C# side, the window's own commands.
 // Settings live in localStorage so a reload is a restart.
-const MOCK = (manifest) => {
+const MOCK = (manifests) => {
   const log = (window.__calls = []);
   const listeners = [];
   const store = () => { try { return JSON.parse(localStorage.getItem('mock.settings')); } catch { return null; } };
@@ -40,9 +41,10 @@ const MOCK = (manifest) => {
   const words = (t) => (t.match(/[\p{L}\p{N}](?:[\p{L}\p{N}'’-]|\.(?=\p{N}))*/gu) || []).length;
   const send = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 5);
   const answer = (m) => {
-    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.1', contract: 1, settings: store() || defaults, benches: [manifest], problems: [] };
+    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.2', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { localStorage.setItem('mock.settings', JSON.stringify(m.args)); return m.args; }
     if (m.target === 'window') return null;
+    if (m.target === 'bench:noor.clock' && m.cmd === 'clock.zones') return [{ id: 'UTC', name: 'UTC', offset: 0 }, { id: 'Europe/Warsaw', name: 'Warsaw', offset: 60 }, { id: 'Asia/Tokyo', name: 'Tokyo', offset: 540 }];
     if (m.target === 'bench:noor.sandbox' && m.cmd === 'sandbox.count') { const t = (m.args && m.args.text) || '', w = words(t); return { words: w, characters: t.length, sentences: (t.match(/[.!?]+(\s|$)/g) || []).length, minutes: w ? Math.max(1, Math.round(w / 230)) : 0 }; }
     if (m.target === 'bench:noor.sandbox' && m.cmd === 'sandbox.hello') { send({ event: 'bench', bench: 'noor.sandbox', name: 'hello', payload: { at: '12:34:56' } }); return { message: 'Hello from C# (mock).' }; }
     throw new Error(`no ${m.target} ${m.cmd}`);
@@ -61,7 +63,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
   const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {});
   try {
     const context = await browser.newContext({ viewport: { width: 1400, height: 860 } });
-    await context.addInitScript(MOCK, SANDBOX);
+    await context.addInitScript(MOCK, [SANDBOX, CLOCK]);
     const page = await context.newPage();
     const errors = [];
     page.on('pageerror', (e) => errors.push(String(e)));
@@ -76,17 +78,17 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.goto(url);
     await waitFn(page, () => window.__noor && window.__noor.active() === 'home');
     check('first start: Home is open and in front', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home' && /Good (morning|afternoon|evening|night)/.test(await page.textContent('.home h1')));
-    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.1');
+    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.2');
     check('…the window got the theme\'s colours for its native buttons', (await calls()).some((c) => c.target === 'window' && c.cmd === 'theme' && c.args.bg === '#0b0d12'));
     check('…the main menu: File, Edit, View, Tools, Window, Help', (await menuTitles()).join() === 'File,Edit,View,Tools,Window,Help', await menuTitles());
-    check('…Home offers the Sandbox', await page.isVisible('.home .card:has-text("Sandbox")'));
+    check('…Home offers the Sandbox and the Clock', await page.isVisible('.home .card:has-text("Sandbox")') && await page.isVisible('.home .card:has-text("Clock")'));
 
     // ---- opening the Sandbox: its tab, its menu between View and Tools, its panels, its module from its folder
     await page.click('.home .card:has-text("Sandbox")');
     await waitFn(page, () => window.__noor.active() === 'noor.sandbox' && document.querySelector('.sb-text'));
     check('Sandbox opens as a tab, in front', (await page.$$eval('.btab[aria-selected=true]', (t) => t.map((x) => x.dataset.bench))).join() === 'noor.sandbox');
     check('…the menu follows it: Sandbox sits between View and Tools', (await menuTitles()).join() === 'File,Edit,View,Sandbox,Tools,Window,Help', await menuTitles());
-    check('…its panels: About on the left, Statistics on the right', await page.isVisible('[data-bench="noor.sandbox"] .side.left [data-panel=about]') && await page.isVisible('[data-bench="noor.sandbox"] .side.right [data-panel=stats]'));
+    check('…its panels: About on the left, Statistics on the right', await page.isVisible('section.bench[data-bench="noor.sandbox"] .side.left .pbody[data-ref="noor.sandbox:about"]') && await page.isVisible('section.bench[data-bench="noor.sandbox"] .side.right .pbody[data-ref="noor.sandbox:stats"]'));
     check('…the title bar names it', (await page.textContent('#wintitle')).startsWith('Sandbox'));
 
     // ---- a round trip to its C# side
@@ -94,7 +96,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.keyboard.type('NoorMD 3.0 is one home. Benches talk!');
     await waitFn(page, () => /7 words/.test(document.querySelector('#status-bench').textContent));
     check('typing: the C# side counts, the status bar says so', /7 words · 1 min read/.test(await status()), await status());
-    check('…and the Statistics panel shows it (an event inside the bench)', /Words\s*7/.test(await page.textContent('[data-panel=stats] .pbody')) && /Sentences\s*2/.test(await page.textContent('[data-panel=stats] .pbody')), await page.textContent('[data-panel=stats] .pbody'));
+    check('…and the Statistics panel shows it (an event inside the bench)', /Words\s*7/.test(await page.textContent('.pbody[data-ref="noor.sandbox:stats"]')) && /Sentences\s*2/.test(await page.textContent('.pbody[data-ref="noor.sandbox:stats"]')), await page.textContent('.pbody[data-ref="noor.sandbox:stats"]'));
     await openMenu('Sandbox'); await pick('Say hello from C#');
     await page.waitForSelector('.nui-toast:has-text("Hello from C# (mock).")');
     await page.waitForSelector('.nui-toast:has-text("waved at 12:34:56")');
@@ -120,17 +122,102 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
 
     // ---- View: panels and density
     await openMenu('View'); await pick('Statistics');
-    check('View › Statistics hides the panel', !(await page.isVisible('[data-panel=stats]')));
+    check('View › Statistics hides the panel', !(await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]')));
     await openMenu('View');
     check('…the View menu shows it unticked', (await page.getAttribute('.nui-menu .mi:has-text("Statistics")', 'aria-checked')) === 'false');
     await pick('Statistics');
-    check('…and ticks it back', await page.isVisible('[data-panel=stats]'));
-    await page.click('[data-panel=about] header .nui-icon');
-    check('✕ on a panel hides it', !(await page.isVisible('[data-panel=about]')));
+    check('…and ticks it back', await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]'));
+    await page.click('.pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]');
+    check('✕ on a panel hides it', !(await page.isVisible('.pbody[data-ref="noor.sandbox:about"]')));
     await openMenu('View'); await pick('Compact');
     check('View › Compact: the bench turns compact', await page.evaluate(() => document.body.classList.contains('density-compact')));
     await openMenu('View'); await pick('Roomy');
     check('…and roomy again', await page.evaluate(() => document.body.classList.contains('density-roomy')));
+
+
+    // ---- docking (3.0.2): drag a panel by its tab; groups of tabs; edges between groups; Esc cancels
+    const sb = 'section.bench[data-bench="noor.sandbox"]';
+    const docks = () => page.evaluate(() => window.__noor.open.get('noor.sandbox').layout.docks);
+    const tabCenter = async (sel) => { const b = await (await page.$(sel)).boundingBox(); return [b.x + b.width / 2, b.y + b.height / 2]; };
+    const dragTo = async (fromSel, x, y, { cancel = false } = {}) => {
+      const [fx, fy] = await tabCenter(fromSel);
+      await page.mouse.move(fx, fy); await page.mouse.down();
+      await page.mouse.move(fx + 20, fy + 10, { steps: 3 });
+      await page.mouse.move(x, y, { steps: 8 });
+      if (cancel) { await page.keyboard.press('Escape'); await page.mouse.up(); return; }
+      await page.mouse.up();
+    };
+    await openMenu('View'); await pick('About');   // About back (it was hidden above)
+    // Statistics onto the About group, in its middle: tabbed together on the left; the right side goes away.
+    const aboutBox = await (await page.$(`${sb} .pgroup:has(.ptab[data-ref="noor.sandbox:about"])`)).boundingBox();
+    await dragTo(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, aboutBox.x + aboutBox.width / 2, aboutBox.y + aboutBox.height / 2);
+    let d = await docks();
+    check('dragging Statistics into the About group: two tabs on the left, the right side empty', d.left.length === 1 && d.left[0].panels.join() === 'noor.sandbox:about,noor.sandbox:stats' && d.right.length === 0 && (await page.$eval(sb, (b) => getComputedStyle(b).getPropertyValue('--rw').trim())) === '0px', d);
+    check('…the dropped one is in front; a click on the other tab brings it forward', await page.isVisible(`${sb} [data-ref="noor.sandbox:stats"].pbody`) && !(await page.isVisible(`${sb} [data-ref="noor.sandbox:about"].pbody`)));
+    await page.click(`${sb} .ptab[data-ref="noor.sandbox:about"]`);
+    check('…(About in front now)', await page.isVisible(`${sb} [data-ref="noor.sandbox:about"].pbody`) && !(await page.isVisible(`${sb} [data-ref="noor.sandbox:stats"].pbody`)));
+    check('…the panel kept what it showed (moved, not restarted)', /Words\s*7/.test(await page.textContent(`${sb} [data-ref="noor.sandbox:stats"].pbody`)));
+    // Statistics to the main view's bottom edge: a bottom side appears.
+    const main = await (await page.$(`${sb} .main`)).boundingBox();
+    await dragTo(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, main.x + main.width / 2, main.y + main.height - 15);
+    d = await docks();
+    check('dragging it to the bottom edge: it docks at the bottom', d.bottom.length === 1 && d.bottom[0].panels.join() === 'noor.sandbox:stats' && d.left[0].panels.join() === 'noor.sandbox:about' && await page.isVisible(`${sb} .side.bottom [data-ref="noor.sandbox:stats"]`), d);
+    // While dragging, drop zones show; Esc cancels and nothing moves.
+    const [sx, sy] = await tabCenter(`${sb} .ptab[data-ref="noor.sandbox:stats"]`);
+    await page.mouse.move(sx, sy); await page.mouse.down(); await page.mouse.move(sx + 30, sy - 30, { steps: 4 });
+    check('…while dragging, the drop zones and the ghost show', (await page.$$('.dock-zone')).length === 3 && await page.isVisible('.dock-ghost'));
+    await page.mouse.move(main.x + 10, main.y + main.height / 2, { steps: 4 });
+    check('…over the left edge, the landing spot shows', await page.isVisible('.dock-mark'));
+    await page.keyboard.press('Escape'); await page.mouse.up();
+    d = await docks();
+    check('…Esc cancels: still at the bottom, the zones gone', d.bottom.length === 1 && !(await page.$('.dock-zone')) && !(await page.$('.dock-ghost')), d);
+    // Right-click a tab: Move to the left (a new group under About), then an edge between the two groups.
+    await page.click(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Move to the left")');
+    d = await docks();
+    check('right-click › Move to the left: a second group on the left, the bottom gone', d.left.length === 2 && d.left[1].panels.join() === 'noor.sandbox:stats' && d.bottom.length === 0, d);
+    const gr = await (await page.$(`${sb} .side.left .gresizer`)).boundingBox();
+    await page.mouse.move(gr.x + gr.width / 2, gr.y + gr.height / 2); await page.mouse.down();
+    await page.mouse.move(gr.x + gr.width / 2, gr.y + gr.height / 2 + 120, { steps: 5 }); await page.mouse.up();
+    d = await docks();
+    check('dragging the edge between the two groups gives the top one more room', d.left[0].size > d.left[1].size * 1.5, d.left.map((g) => g.size));
+    await page.dblclick(`${sb} .side.left .gresizer`);
+    d = await docks();
+    check('…double-click shares it evenly again', d.left[0].size === 1 && d.left[1].size === 1);
+    // Back where it started, for the checks below: Statistics on the right.
+    await page.click(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Move to the right")');
+
+    // ---- any panel in any bench: the Clock's stopwatch docked in the Sandbox
+    await openMenu('View');
+    check('View lists the panels from other benches', await page.isVisible('.nui-menu .mi:has-text("Stopwatch (Clock)")') && await page.isVisible('.nui-menu .mi:has-text("Clock (Clock)")'));
+    await pick('Stopwatch (Clock)');
+    await page.waitForSelector(`${sb} .side.bottom [data-ref="noor.clock:stopwatch"] .ck-go`);
+    check('…the Stopwatch docks in the Sandbox (at the bottom, its usual side), its tab says where it\'s from', /Stopwatch\s*Clock/.test(await page.textContent(`${sb} .ptab[data-ref="noor.clock:stopwatch"]`)));
+    check('…the Clock opened quietly to run it (a tab, but the Sandbox stays in front)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).includes('noor.clock') && await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
+    await page.click(`${sb} [data-ref="noor.clock:stopwatch"] .ck-go`);
+    await page.waitForTimeout(250);
+    check('…it works here: Start, and it counts', (await page.textContent(`${sb} [data-ref="noor.clock:stopwatch"] .ck-go`)) === 'Stop' && (await page.textContent(`${sb} [data-ref="noor.clock:stopwatch"] .ck-wt`)) !== '00:00.00');
+    await page.click('.btab[data-bench="noor.clock"]');
+    await page.waitForTimeout(100);
+    check('…and it\'s the same stopwatch in the Clock bench (running there too)', (await page.textContent('section.bench[data-bench="noor.clock"] [data-ref="noor.clock:stopwatch"] .ck-go')) === 'Stop');
+    await openMenu('Clock'); await pick('Start / stop the stopwatch');
+    check('…the Clock menu stops it everywhere', (await page.textContent(`${sb} [data-ref="noor.clock:stopwatch"] .ck-go`)) === 'Go on');
+    // The Clock's main view: time zones from its C# side.
+    await page.click('section.bench[data-bench="noor.clock"] .ck-add');
+    await page.waitForSelector('.nui-dialog select');
+    await page.selectOption('.nui-dialog select', 'Europe/Warsaw');
+    await page.click('.nui-dialog button:text-is("Add")');
+    check('Clock › Add a time zone: the list comes from its C# side, the zone is added', /Europe\/Warsaw|Europe Warsaw/.test(await page.textContent('section.bench[data-bench="noor.clock"] .ck-zones')));
+    // Closing the Clock takes its panels out of the other benches.
+    await page.click('.btab[data-bench="noor.clock"] .x');
+    await page.click('.btab[data-bench="noor.sandbox"]');
+    check('closing the Clock: its stopwatch leaves the Sandbox, and says so', !(await page.$(`${sb} [data-ref="noor.clock:stopwatch"]`)) && await page.isVisible('.nui-toast:has-text("panels left the other benches")'));
+    // Dock it back for the restart check below.
+    await openMenu('View'); await pick('Stopwatch (Clock)');
+    await page.waitForSelector(`${sb} [data-ref="noor.clock:stopwatch"] .ck-go`);
+    await page.click('.btab[data-bench="noor.sandbox"]');
+    await page.click(`${sb} .pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]`);   // About hidden again, as before
 
     // ---- the main menu from the keyboard
     await page.click('.sb-text');
@@ -163,16 +250,17 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     // ---- Home again, switching, Window menu, focus mode
     await page.keyboard.press('Control+Shift+H');
     await waitFn(page, () => window.__noor.active() === 'home');
-    check('Ctrl+Shift+H: Home in front (its tab stayed beside the Sandbox)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home,noor.sandbox');
+    check('Ctrl+Shift+H: Home in front (its tab stayed beside the others)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home,noor.sandbox,noor.clock');
     await page.keyboard.press('Control+2');
     check('Ctrl+2: the second tab', await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
     await page.keyboard.press('Control+Tab');
-    check('Ctrl+Tab: the next one (round to the first)', await page.evaluate(() => window.__noor.active()) === 'home');
+    check('Ctrl+Tab: the next one', await page.evaluate(() => window.__noor.active()) === 'noor.clock');
     await openMenu('Window');
     check('Window lists the open benches with their shortcuts', /Home\s*Ctrl\+1/.test(await page.textContent('.nui-menu')) && /Sandbox\s*Ctrl\+2/.test(await page.textContent('.nui-menu')), await page.textContent('.nui-menu'));
     await pick('Sandbox');
+    check('…picking one switches to it (a menu opened after F10 and → no longer swallows the click)', await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
     await page.keyboard.press('F11');
-    check('F11: focus mode hides the tabs, the panels and the status bar', !(await page.isVisible('#benchtabs')) && !(await page.isVisible('[data-panel=stats]')) && !(await page.isVisible('#statusbar')));
+    check('F11: focus mode hides the tabs, the panels and the status bar', !(await page.isVisible('#benchtabs')) && !(await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]')) && !(await page.isVisible('#statusbar')));
     await page.keyboard.press('Escape');
     check('…Esc leaves it', await page.isVisible('#benchtabs'));
 
@@ -180,14 +268,15 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.waitForTimeout(400);
     await page.reload();
     await waitFn(page, () => window.__noor && window.__noor.active() === 'noor.sandbox' && document.querySelector('.sb-text'));
-    check('restart: the same bench in front (Home isn\'t part of the session)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'noor.sandbox');
+    check('restart: the same benches, the Sandbox in front (Home isn\'t part of the session)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).sort().join() === 'noor.clock,noor.sandbox' && await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
+    check('…the borrowed Stopwatch is back in the Sandbox, working', await page.isVisible(`section.bench[data-bench="noor.sandbox"] [data-ref="noor.clock:stopwatch"] .ck-go`));
     check('…the Sandbox\'s text kept (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'NoorMD 3.0 is one home. Benches talk!');
-    check('…its layout kept (About still hidden, the left side 260 px)', !(await page.isVisible('[data-panel=about]')) && (await page.$eval('section.bench[data-bench="noor.sandbox"]', (b) => getComputedStyle(b).getPropertyValue('--lw').trim())) === '0px');
+    check('…its layout kept (About still hidden, the left side 260 px)', !(await page.isVisible('.pbody[data-ref="noor.sandbox:about"]')) && (await page.$eval('section.bench[data-bench="noor.sandbox"]', (b) => getComputedStyle(b).getPropertyValue('--lw').trim())) === '0px');
     check('…the theme and the menu row kept', (await page.getAttribute('html', 'data-theme')) === 'parchment' && await page.isVisible('#menurow'));
 
     // ---- closing
     await page.click('.btab[data-bench="noor.sandbox"] .x');
-    check('✕ on the tab closes the bench', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home');
+    check('✕ on the tab closes the bench', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'noor.clock');
     await page.keyboard.press('Control+w');
     await waitFn(page, () => window.__noor.active() === 'home');
     check('closing the last tab brings Home back (never an empty window)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home');
@@ -205,6 +294,21 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
       await page.click('.sb-text'); await page.keyboard.type('NoorMD 3.0 is one home for every bench. Each bench is its own DLL, and they talk to each other.');
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(dir, 'noormd3-sandbox.png') });
+      // Docking: the Clock's panels borrowed into the Sandbox, Statistics tabbed with About, and a drag in progress.
+      await openMenu('View'); await pick('Stopwatch (Clock)');
+      await page.waitForSelector('[data-ref="noor.clock:stopwatch"] .ck-go');
+      await page.click('.btab[data-bench="noor.sandbox"]');
+      await openMenu('View'); await pick('Clock (Clock)');
+      await page.waitForSelector('.pbody[data-ref="noor.clock:now"]');
+      await page.click('section.bench[data-bench="noor.sandbox"] [data-ref="noor.clock:stopwatch"] .ck-go');
+      await page.waitForTimeout(1300);
+      await page.screenshot({ path: path.join(dir, 'noormd3-docking.png') });
+      const t = await (await page.$('section.bench[data-bench="noor.sandbox"] .ptab[data-ref="noor.sandbox:stats"]')).boundingBox();
+      const a = await (await page.$('section.bench[data-bench="noor.sandbox"] .pgroup:has(.ptab[data-ref="noor.sandbox:about"])')).boundingBox();
+      await page.mouse.move(t.x + 20, t.y + 10); await page.mouse.down();
+      await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2, { steps: 10 });
+      await page.screenshot({ path: path.join(dir, 'noormd3-dragging.png') });
+      await page.mouse.up();
     }
     check('no page errors', errors.length === 0, errors);
   } finally {

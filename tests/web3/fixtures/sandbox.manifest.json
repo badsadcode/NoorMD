@@ -3,7 +3,7 @@
   "name": "Sandbox",
   "icon": "\u2726",
   "description": "A scratchpad that proves the bench contract: type, and its C# side counts.",
-  "version": "3.0.1",
+  "version": "3.0.2",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",

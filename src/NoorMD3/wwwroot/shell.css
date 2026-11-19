@@ -77,3 +77,36 @@ body { overflow: hidden; user-select: none; }
 /* status bar */
 .statusbar { display: flex; align-items: center; gap: 14px; padding: 0 12px; background: var(--bg); border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .statusbar .sp { flex: 1; }
+
+/* ---------------------------------------------------------------- docking (3.0.2): groups of panels as tabs */
+.side { gap: 0; }
+.pgroup { min-height: 60px; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border: 1px solid var(--border); border-radius: var(--panel-r); overflow: hidden; }
+.side.bottom .pgroup { min-width: 120px; min-height: 0; }
+.pgroup > header { display: flex; align-items: center; gap: 2px; padding: 4px; border-bottom: 1px solid var(--border); min-width: 0; overflow: hidden; }
+.pgroup > header .sp { flex: 1; min-width: 4px; }
+.ptab { display: flex; align-items: center; gap: 6px; padding: 3px 9px; border-radius: var(--r2); color: var(--muted); font-size: 12px; white-space: nowrap; cursor: grab; touch-action: none; }
+.ptab:hover { color: var(--text); background: var(--hover); }
+.ptab[aria-selected=true] { background: var(--sel); color: var(--text); }
+.ptab .pfrom { opacity: .65; font-size: 10.5px; }
+.pgroup > .gbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pgroup > .gbody > .pbody { flex: 1; min-height: 0; overflow: auto; padding: var(--pad); }
+.pgroup > .gbody > .pbody[hidden] { display: none; }
+.gresizer { flex: none; height: var(--gap); min-height: 6px; cursor: row-resize; position: relative; }
+.gresizer.h { height: auto; width: var(--gap); min-width: 6px; cursor: col-resize; }
+.gresizer::after { content: ""; position: absolute; inset: 0; margin: auto; width: 40px; height: 2px; border-radius: 2px; }
+.gresizer.h::after { width: 2px; height: 40px; }
+.gresizer:hover::after, .gresizer.dragging::after { background: var(--accent); }
+.density-compact .pgroup { border-width: 0; }
+.density-compact .side.left .pgroup { border-right: 1px solid var(--border); }
+.density-compact .side.right .pgroup { border-left: 1px solid var(--border); }
+.density-compact .side.bottom .pgroup { border-top: 1px solid var(--border); }
+.density-compact .pgroup > header { background: var(--surface); padding: 2px; }
+.density-compact .gresizer { min-height: 4px; height: 4px; background: var(--border); }
+.density-compact .gresizer.h { min-width: 4px; width: 4px; }
+
+/* dragging a panel: the ghost under the mouse, the drop zones, and where it will land */
+body.dock-dragging, body.dock-dragging * { cursor: grabbing !important; user-select: none; }
+.dock-ghost { position: fixed; z-index: 1200; pointer-events: none; padding: 5px 10px; border-radius: var(--r2); background: var(--panel); border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 12px; }
+.dock-zone { position: fixed; z-index: 1100; pointer-events: none; border: 1px dashed color-mix(in srgb, var(--accent) 55%, transparent); border-radius: var(--r2); background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.dock-mark { position: fixed; z-index: 1150; pointer-events: none; border-radius: var(--r2); background: color-mix(in srgb, var(--accent) 22%, transparent); outline: 2px solid var(--accent); transition: all .08s ease-out; }
+.dock-mark[hidden] { display: none; }
