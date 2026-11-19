@@ -22,7 +22,7 @@ public static class M3u
             var line = raw.Trim().TrimStart('﻿');
             if (line.Length == 0 || line.StartsWith('#')) continue;
             string path;
-            if (Uri.TryCreate(line, UriKind.Absolute, out var uri) && uri.IsFile) path = uri.LocalPath;
+            if (line.StartsWith("file:", StringComparison.OrdinalIgnoreCase) && Uri.TryCreate(line, UriKind.Absolute, out var uri) && uri.IsFile) path = uri.LocalPath;
             else if (line.Contains("://")) continue; // streams/URLs are not local files
             else path = System.IO.Path.IsPathRooted(line) ? line : System.IO.Path.Combine(dir, line.Replace('/', System.IO.Path.DirectorySeparatorChar).Replace('\\', System.IO.Path.DirectorySeparatorChar));
             try { result.Add(System.IO.Path.GetFullPath(path)); } catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) { }
@@ -38,6 +38,7 @@ public static class M3u
         {
             var rel = System.IO.Path.GetRelativePath(dir, e.Path);
             var path = rel.StartsWith("..", StringComparison.Ordinal) && System.IO.Path.GetPathRoot(e.Path) != System.IO.Path.GetPathRoot(dir) ? e.Path : rel;
+            if (path.StartsWith('#')) path = "." + System.IO.Path.DirectorySeparatorChar + path;   // not a comment
             var title = (e.Title ?? System.IO.Path.GetFileNameWithoutExtension(e.Path)).Replace('\n', ' ').Replace('\r', ' ');
             sb.Append("#EXTINF:").Append(((int)Math.Round(e.Duration)).ToString(CultureInfo.InvariantCulture)).Append(',').Append(title).Append('\n');
             sb.Append(path).Append('\n');

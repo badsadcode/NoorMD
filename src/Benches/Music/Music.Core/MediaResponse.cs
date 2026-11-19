@@ -30,12 +30,17 @@ public sealed record MediaResponse(int Status, string Reason, byte[] Body, strin
 
     public static MediaResponse Build(string path, string? rangeHeader, string contentType)
     {
-        var info = new FileInfo(path);
-        if (!info.Exists) return new MediaResponse(404, "Not Found", [], "Content-Type: text/plain");
-        var length = info.Length;
-        var common = $"Content-Type: {contentType}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff";
+        FileStream fs;
+        try { fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new MediaResponse(404, "Not Found", [], "Content-Type: text/plain"); }
+        using var _ = fs;
+        // The length of the file as it is now (it may have been re-tagged since it was listed).
+        var length = fs.Length;
+        var stamp = File.GetLastWriteTimeUtc(path).ToString("R", CultureInfo.InvariantCulture);
+        var common = $"Content-Type: {contentType}\r\nAccept-Ranges: bytes\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nLast-Modified: {stamp}";
         var range = RangeRequest.Parse(rangeHeader, length);
-        using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        // Without a range, a very big file is answered in chunks anyway (the player asks for the rest).
+        if (range == null && length > MaxChunk * 64L) range = (0, length - 1);
         if (range == null)
         {
             var all = new byte[length];
@@ -48,7 +53,8 @@ public sealed record MediaResponse(int Status, string Reason, byte[] Body, strin
         var count = (int)(end - start + 1);
         var buf = new byte[count];
         fs.Position = start;
-        fs.ReadExactly(buf);
+        try { fs.ReadExactly(buf); }
+        catch (EndOfStreamException) { return new MediaResponse(416, "Range Not Satisfiable", [], $"{common}\r\nContent-Range: bytes */{fs.Length.ToString(CultureInfo.InvariantCulture)}"); }
         var inv = CultureInfo.InvariantCulture;
         return new MediaResponse(206, "Partial Content", buf, $"{common}\r\nContent-Length: {count.ToString(inv)}\r\nContent-Range: bytes {start.ToString(inv)}-{end.ToString(inv)}/{length.ToString(inv)}");
     }

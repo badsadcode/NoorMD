@@ -221,21 +221,25 @@ public static class RangeRequest
         if (!header.StartsWith("bytes=", StringComparison.OrdinalIgnoreCase) || header.Contains(',')) return null;
         var spec = header[6..].Trim();
         var dash = spec.IndexOf('-');
-        if (dash < 0 || length <= 0) return (-1, -1);
+        if (dash < 0) return null;            // not a range we understand: the whole file
+        if (length <= 0) return null;
         var a = spec[..dash].Trim();
         var b = spec[(dash + 1)..].Trim();
         long start, end;
         if (a.Length == 0)
         {
-            if (!long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out var suffix) || suffix <= 0) return (-1, -1);
+            if (!long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out var suffix)) return null;
+            if (suffix <= 0) return (-1, -1);
             start = Math.Max(0, length - suffix);
             end = length - 1;
         }
         else
         {
-            if (!long.TryParse(a, NumberStyles.None, CultureInfo.InvariantCulture, out start)) return (-1, -1);
-            end = b.Length == 0 ? length - 1 : long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out var e) ? Math.Min(e, length - 1) : -1;
-            if (end < 0 || start > end || start >= length) return (-1, -1);
+            if (!long.TryParse(a, NumberStyles.None, CultureInfo.InvariantCulture, out start)) return null;
+            if (b.Length == 0) end = length - 1;
+            else if (!long.TryParse(b, NumberStyles.None, CultureInfo.InvariantCulture, out var e) || e < start) return null;   // malformed: ignored
+            else end = Math.Min(e, length - 1);
+            if (start >= length) return (-1, -1);
         }
         return (start, end);
     }

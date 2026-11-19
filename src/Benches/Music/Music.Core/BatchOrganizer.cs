@@ -116,6 +116,7 @@ public sealed class BatchOrganizer(MusicLibrary library)
     {
         ValidateSpec(spec);
         if (ids.Count > MaxTracks) throw new ArgumentException($"A batch can hold at most {MaxTracks:N0} tracks.");
+        ids = ids.Distinct().ToList();   // a track listed twice (a playlist can) is done once
         var rows = library.GetMany(ids).ToDictionary(t => t.Id);
         var r = spec.Rename;
         Regex? find = r.Enabled && !string.IsNullOrEmpty(r.Find)
@@ -413,7 +414,7 @@ public sealed class BatchOrganizer(MusicLibrary library)
     public static string Tidy(string s)
     {
         s = System.Text.RegularExpressions.Regex.Replace(s, @"\s+", " ");
-        s = System.Text.RegularExpressions.Regex.Replace(s, @"(\s*[-–_·.,]\s*){2,}", m => " " + m.Value.Trim()[0] + " ");
+        s = System.Text.RegularExpressions.Regex.Replace(s, @"(\s+[-–·](?=\s)){2,}", m => " " + m.Value.Trim()[0]);
         s = System.Text.RegularExpressions.Regex.Replace(s, @"\(\s*\)|\[\s*\]", "");
         s = s.Trim().Trim('-', '–', '_', '·', ',').Trim();
         return System.Text.RegularExpressions.Regex.Replace(s, @"\s{2,}", " ");

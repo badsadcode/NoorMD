@@ -16,6 +16,8 @@ public sealed record SmartRules(bool MatchAll, IReadOnlyList<SmartRule> Rules, s
 /// <summary>Turns smart rules into a parameterised SQL condition. Fields and operators are whitelisted; values are always parameters.</summary>
 public static class SmartSql
 {
+    /// <summary>The seed for "random" limits: fixed while NoorMD runs, so a list's pages and its count agree.</summary>
+    static readonly long RandomSeed = Random.Shared.NextInt64(100_003, 2_000_000_011);
     private enum Kind { Text, Number, Date, Flag, Triage }
 
     private static readonly Dictionary<string, (Kind Kind, string Column)> Fields = new(StringComparer.Ordinal)
@@ -83,7 +85,8 @@ public static class SmartSql
         {
             if (limit is < 1 or > MaxLimit) throw new ArgumentException($"The limit must be between 1 and {MaxLimit:N0}.");
             if (!LimitSorts.TryGetValue(rules.LimitSort ?? "plays", out var order)) throw new ArgumentException($"Unknown sort \"{rules.LimitSort}\".");
-            var nulls = order == "random()" ? "" : $"{order} IS NULL, ";
+            if (order == "random()") order = $"((t.id * {RandomSeed}) % 2147483647)";   // stable within a session
+            var nulls = order.StartsWith("((t.id", StringComparison.Ordinal) ? "" : $"{order} IS NULL, ";
             where = $"t.id IN (SELECT t.id FROM tracks t WHERE {where} ORDER BY {nulls}{order}{(rules.LimitDesc ? " DESC" : "")}, t.id LIMIT {limit})";
         }
         return (where, args);

@@ -125,4 +125,39 @@ public sealed class MusicTests : IDisposable
         Assert.Null(bench.ServeMedia("track/../../secret", null));    // never a path
         Assert.Null(bench.ServeMedia($"art/{id}", null));             // no artwork: nothing
     }
+
+    [Fact]
+    public async Task Review_fixes_in_the_music_core()
+    {
+        // A Range header that makes no sense means "the whole file" (not an error).
+        Assert.Null(Music.Core.RangeRequest.Parse("bytes=abc", 100));
+        Assert.Null(Music.Core.RangeRequest.Parse("bytes=5-2", 100));
+        Assert.Equal((90L, 99L), Music.Core.RangeRequest.Parse("bytes=-10", 100));
+        Assert.Equal((-1L, -1L), Music.Core.RangeRequest.Parse("bytes=200-", 100));
+        // Tidying names: only separators left side by side by empty placeholders.
+        Assert.Equal("...And Justice for All", Music.Core.BatchOrganizer.Tidy("...And Justice for All"));
+        Assert.Equal("Live at Wembley... 1986", Music.Core.BatchOrganizer.Tidy("Live at Wembley... 1986"));
+        Assert.Equal("Artist - Title", Music.Core.BatchOrganizer.Tidy("Artist -  - Title"));
+        Assert.Equal("Title", Music.Core.BatchOrganizer.Tidy(" - Title"));
+        // A playlist entry starting with # isn't read back as a comment; plain paths aren't URL-decoded.
+        var dir = Path.Combine(_dir, "pl"); Directory.CreateDirectory(dir);
+        var hit = Path.Combine(dir, "#1 Hit.wav"); Wav(hit, 0.2);
+        var m3u = Path.Combine(dir, "list.m3u8");
+        Music.Core.M3u.Write(m3u, [new Music.Core.M3u.Entry(hit, 0.2, "Hit")]);
+        Assert.Equal([Path.GetFullPath(hit)], Music.Core.M3u.Read(m3u));
+        File.WriteAllText(m3u, Path.Combine(dir, "100% a%20b.wav") + "\n");
+        Assert.Equal([Path.Combine(dir, "100% a%20b.wav")], Music.Core.M3u.Read(m3u));
+
+        // Removing a folder inside another library folder: its tracks stay (with their marks).
+        var (bench, host) = await Library();
+        var sub = (await bench.HandleAsync("music.status", J(new { }), host, default))!["folders"]![0]!["path"]!.ToString();
+        host.Folders.Enqueue(Path.Combine(sub, "Ada"));
+        var inner = (long)(await bench.HandleAsync("music.addFolder", J(new { }), host, default))!["folderId"]!;
+        for (int i = 0; i < 100 && (bool)(await bench.HandleAsync("music.status", J(new { }), host, default))!["scanning"]!; i++) await Task.Delay(50);
+        var ada = (await bench.HandleAsync("music.ids", J(new { search = "engines" }), host, default))!.AsArray().Select(x => (long)x!).Single();
+        await bench.HandleAsync("music.setTriage", J(new { ids = new[] { ada }, value = 1 }), host, default);
+        var after = await bench.HandleAsync("music.removeFolder", J(new { id = inner }), host, default);
+        Assert.Equal(3, (int)after!["stats"]!["total"]!);
+        Assert.Equal(1, (int)after["stats"]!["favorite"]!);
+    }
 }

@@ -50,7 +50,7 @@ public sealed class MusicLibrary
     {
         DatabasePath = databasePath;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(databasePath)!);
-        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Shared, Pooling = true }.ToString();
+        _connectionString = new SqliteConnectionStringBuilder { DataSource = databasePath, Mode = SqliteOpenMode.ReadWriteCreate, Cache = SqliteCacheMode.Private, Pooling = true, DefaultTimeout = 30 }.ToString();
         using var c = Open();
         Exec(c, "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;");
         var version = Convert.ToInt32(Scalar(c, "PRAGMA user_version"), CultureInfo.InvariantCulture);
@@ -59,7 +59,7 @@ public sealed class MusicLibrary
             Exec(c, """
                 CREATE TABLE IF NOT EXISTS folders (id INTEGER PRIMARY KEY, path TEXT NOT NULL, path_key TEXT NOT NULL UNIQUE, recursive INTEGER NOT NULL DEFAULT 1, last_scan TEXT);
                 CREATE TABLE IF NOT EXISTS tracks (
-                  id INTEGER PRIMARY KEY, folder_id INTEGER, path TEXT NOT NULL, path_key TEXT NOT NULL UNIQUE,
+                  id INTEGER PRIMARY KEY AUTOINCREMENT, folder_id INTEGER, path TEXT NOT NULL, path_key TEXT NOT NULL UNIQUE,
                   size INTEGER NOT NULL DEFAULT 0, mtime INTEGER NOT NULL DEFAULT 0, fingerprint TEXT,
                   title TEXT, artist TEXT, album TEXT, album_artist TEXT, genre TEXT, year INTEGER, track_no INTEGER, comment TEXT,
                   duration REAL NOT NULL DEFAULT 0, has_art INTEGER NOT NULL DEFAULT 0, read_error TEXT,
@@ -92,6 +92,7 @@ public sealed class MusicLibrary
     {
         var c = new SqliteConnection(_connectionString);
         c.Open();
+        using (var busy = c.CreateCommand()) { busy.CommandText = "PRAGMA busy_timeout = 10000"; busy.ExecuteNonQuery(); }
         c.CreateFunction("noor_fold", (string? v) => v == null ? null : TextFold.Fold(v), isDeterministic: true); // accent/case-insensitive smart rules
         return c;
     }
@@ -106,7 +107,8 @@ public sealed class MusicLibrary
         return cmd;
     }
 
-    public static string PathKey(string path) => System.IO.Path.GetFullPath(path).ToUpperInvariant();
+    public static string PathKey(string path) =>
+        OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() ? System.IO.Path.GetFullPath(path).ToUpperInvariant() : System.IO.Path.GetFullPath(path);
     private static string Iso(DateTime d) => d.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     private static DateTime ParseIso(string s) => DateTime.Parse(s, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind);
 
@@ -138,6 +140,20 @@ public sealed class MusicLibrary
     {
         using var c = Open();
         using var tx = c.BeginTransaction();
+        var others = new List<(long Id, string Key)>();
+        using (var f = Cmd(c, "SELECT id, path_key FROM folders WHERE id <> $f", tx, ("$f", folderId)))
+        using (var r = f.ExecuteReader()) while (r.Read()) others.Add((r.GetInt64(0), r.GetString(1)));
+        var moved = new List<(long Track, long Folder)>();
+        using (var t = Cmd(c, "SELECT id, path_key FROM tracks WHERE folder_id = $f", tx, ("$f", folderId)))
+        using (var r = t.ExecuteReader())
+            while (r.Read())
+            {
+                var key = r.GetString(1);
+                var parent = others.Where(o => key.StartsWith(o.Key.TrimEnd(System.IO.Path.DirectorySeparatorChar) + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal)).OrderByDescending(o => o.Key.Length).Select(o => (long?)o.Id).FirstOrDefault();
+                if (parent is long p) moved.Add((r.GetInt64(0), p));
+            }
+        foreach (var (track, folder) in moved)
+            using (var u = Cmd(c, "UPDATE tracks SET folder_id = $p WHERE id = $id", tx, ("$p", folder), ("$id", track))) u.ExecuteNonQuery();
         using (var a = Cmd(c, "DELETE FROM playlist_items WHERE track_id IN (SELECT id FROM tracks WHERE folder_id = $f)", tx, ("$f", folderId))) a.ExecuteNonQuery();
         using (var b = Cmd(c, "DELETE FROM tracks WHERE folder_id = $f", tx, ("$f", folderId))) b.ExecuteNonQuery();
         using (var d = Cmd(c, "DELETE FROM folders WHERE id = $f", tx, ("$f", folderId))) d.ExecuteNonQuery();
@@ -189,6 +205,7 @@ public sealed class MusicLibrary
         var seen = new HashSet<long>();
         using var c = Open();
         SqliteTransaction? tx = c.BeginTransaction();
+        var batchClock = System.Diagnostics.Stopwatch.StartNew();   // a slow disk still commits often (the list stays responsive)
         try
         {
             // Mark vanished files missing *first*, so files moved within this scan can be relinked to them.
@@ -254,8 +271,9 @@ public sealed class MusicLibrary
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { errors++; }
 
-                if (processed % 250 == 0)
+                if (processed % 250 == 0 || batchClock.ElapsedMilliseconds > 1500)
                 {
+                    batchClock.Restart();
                     tx.Commit(); tx.Dispose(); tx = c.BeginTransaction();
                     progress?.Report(new ScanProgress(folderId, "indexing", files.Count, processed, added, updated, relinked, 0, errors));
                 }
@@ -310,9 +328,16 @@ public sealed class MusicLibrary
         using var c = Open();
         // Another row may still hold the new path: a file that used to live there (missing, or deleted in Explorer
         // and not rescanned yet). NoorMD has just put this file there, so that row is stale: drop it.
-        using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id", null, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
+        DropStale(c, null, PathKey(info.FullName), id);
         WriteTrack(c, null, id, null, info.FullName, info.Length, info.LastWriteTimeUtc.Ticks, Fingerprint.Compute(info.FullName), TagIO.Read(info.FullName));
         return Get(id)!;
+    }
+
+    /// <summary>Drops a row that still holds a path NoorMD has just put another track at (with its playlist entries).</summary>
+    private static void DropStale(SqliteConnection c, SqliteTransaction? tx, string key, long keepId)
+    {
+        using (var p = Cmd(c, "DELETE FROM playlist_items WHERE track_id IN (SELECT id FROM tracks WHERE path_key = $k AND id <> $id)", tx, ("$k", key), ("$id", keepId))) p.ExecuteNonQuery();
+        using (var t = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id", tx, ("$k", key), ("$id", keepId))) t.ExecuteNonQuery();
     }
 
     /// <summary>
@@ -329,7 +354,7 @@ public sealed class MusicLibrary
         foreach (var (id, path) in items)
         {
             var info = new FileInfo(path);
-            using (var stale = Cmd(c, "DELETE FROM tracks WHERE path_key = $k AND id <> $id", tx, ("$k", PathKey(info.FullName)), ("$id", id))) stale.ExecuteNonQuery();
+            DropStale(c, tx, PathKey(info.FullName), id);
             WriteTrack(c, tx, id, null, info.FullName, info.Length, info.LastWriteTimeUtc.Ticks, Fingerprint.Compute(info.FullName), TagIO.Read(info.FullName));
         }
         tx.Commit();
@@ -403,7 +428,7 @@ public sealed class MusicLibrary
             order = q.Sort == "playlist" || !Sorts.ContainsKey(q.Sort) ? "pi.position" : Sorts[q.Sort];
         }
         else order = Sorts.TryGetValue(q.Sort, out var o) ? o : Sorts["title"];
-        if (q.Descending) order = string.Join(", ", order.Split(", ").Select(p => p + " DESC"));
+        if (q.Descending) order = string.Join(", ", order.Split(", ").Select(p => p.EndsWith(" IS NULL", StringComparison.Ordinal) || p.EndsWith("= 0", StringComparison.Ordinal) ? p : p + " DESC"));
         var whereSql = where.Count == 0 ? "" : "WHERE " + string.Join(" AND ", where);
         var cols = string.Join(", ", Columns.Split(", ").Select(col => "t." + col));
 
@@ -533,10 +558,13 @@ public sealed class MusicLibrary
         using (var find = Cmd(c, "SELECT id FROM tracks WHERE path_key = $k", null, ("$k", PathKey(full))))
             if (find.ExecuteScalar() is long existing) return existing;
         var info = new FileInfo(full);
-        using var ins = Cmd(c, "INSERT INTO tracks(folder_id, path, path_key, added) VALUES (NULL, $p, $k, $a) RETURNING id", null, ("$p", full), ("$k", PathKey(full)), ("$a", Iso(DateTime.UtcNow)));
+        if (!info.Exists) throw new FileNotFoundException($"“{info.Name}” isn't there.", full);
+        using var tx = c.BeginTransaction();
+        using var ins = Cmd(c, "INSERT INTO tracks(folder_id, path, path_key, added) VALUES (NULL, $p, $k, $a) RETURNING id", tx, ("$p", full), ("$k", PathKey(full)), ("$a", Iso(DateTime.UtcNow)));
         var id = (long)ins.ExecuteScalar()!;
-        WriteScanned(c, null, id, 0, full, info, info.LastWriteTimeUtc.Ticks);
-        using (var fix = Cmd(c, "UPDATE tracks SET folder_id = NULL WHERE id = $id", null, ("$id", id))) fix.ExecuteNonQuery();
+        WriteScanned(c, tx, id, 0, full, info, info.LastWriteTimeUtc.Ticks);
+        using (var fix = Cmd(c, "UPDATE tracks SET folder_id = NULL WHERE id = $id", tx, ("$id", id))) fix.ExecuteNonQuery();
+        tx.Commit();
         return id;
     }
 
