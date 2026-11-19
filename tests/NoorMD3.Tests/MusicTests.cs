@@ -21,6 +21,11 @@ public sealed class MusicTests : IDisposable
         public string DataFolder { get { Directory.CreateDirectory(data); return data; } }
         public void Log(string message) { }
         public Task<string?> PickFolderAsync(string title) => Task.FromResult(Folders.Count > 0 ? Folders.Dequeue() : null);
+        public readonly Queue<string?> SaveAs = new();
+        public readonly Queue<string> Open = new();
+        public Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<FileFilter> filters) => Task.FromResult(SaveAs.Count > 0 ? SaveAs.Dequeue() : null);
+        public Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<FileFilter> filters, bool multiple = false) =>
+            Task.FromResult<IReadOnlyList<string>>(Open.Count > 0 ? [Open.Dequeue()] : []);
     }
 
     static JsonElement J(object o) => JsonSerializer.SerializeToElement(o);
@@ -118,6 +123,68 @@ public sealed class MusicTests : IDisposable
         Assert.Equal(36, total + errors);          // each junk file is either indexed (tagless) or counted as unreadable
         if (errors > 0) Assert.False(string.IsNullOrEmpty((string?)s["lastScan"]!["message"]));
         Assert.Contains("scan", host.Posted);
+    }
+
+    [Fact]
+    public async Task Tags_names_batches_smart_collections_and_playlist_files()
+    {
+        var (bench, host) = await Library();
+        async Task<JsonNode?> H(string cmd, object args) => await bench.HandleAsync(cmd, J(args), host, default);
+        var rows = (await H("music.query", new { sort = "title", offset = 0, limit = 50 }))!["rows"]!.AsArray();
+        var waltz = (long)rows.First(r => (string)r!["displayTitle"]! == "Waltz")!["id"]!;
+
+        // Edit: new tags and a new name, then undo it all.
+        Assert.Empty((await H("music.edit.validate", new { id = waltz, fileName = "Blue Danube.wav" }))!.AsArray());
+        Assert.NotEmpty((await H("music.edit.validate", new { id = waltz, fileName = "Engines.wav/../x.wav" }))!.AsArray());
+        var ed = await H("music.edit.apply", new { id = waltz, updateTags = true, tags = new { title = "The Blue Danube", artist = "Strauss" }, rename = true, fileName = "Blue Danube.wav" });
+        Assert.True((bool)ed!["ok"]!, ed.ToJsonString());
+        Assert.True(File.Exists(Path.Combine(_dir, "Music", "Blue Danube.wav")) && !File.Exists(Path.Combine(_dir, "Music", "Waltz.wav")));
+        var t = await H("music.track", new { id = waltz });
+        Assert.Equal("The Blue Danube", (string)t!["tags"]!["title"]!);
+        Assert.Equal("Strauss", (string)t["tags"]!["artist"]!);
+        var st = await H("music.status", new { });
+        Assert.Equal("Blue Danube.wav", (string)st!["undo"]!["newName"]!);
+        var un = await H("music.undo", new { });
+        Assert.True((bool)un!["ok"]!, un.ToJsonString());
+        Assert.True(File.Exists(Path.Combine(_dir, "Music", "Waltz.wav")));
+        Assert.Null((string?)(await H("music.track", new { id = waltz }))!["tags"]!["artist"]);
+        await Assert.ThrowsAsync<BenchException>(() => H("music.undo", new { }));   // nothing left to undo
+
+        // Batch: preview, apply (prefix + an artist for all), undo.
+        var all = rows.Select(r => (long)r!["id"]!).ToArray();
+        var spec = new { tags = new { artist = new { mode = "set", value = "Ada" } }, rename = new { enabled = true, template = "{OriginalName}", prefix = "x " } };
+        var pv = await H("music.batch.preview", new { ids = all, spec });
+        Assert.Equal(3, (int)pv!["willChange"]!);
+        Assert.Contains(pv["items"]!.AsArray(), i => ((string)i!["newName"]!).StartsWith("x "));
+        var ap = await H("music.batch.apply", new { ids = all, spec });
+        Assert.Equal(3, (int)ap!["done"]!);
+        Assert.True(File.Exists(Path.Combine(_dir, "Music", "x Waltz.wav")));
+        var bu = await H("music.batch.undo", new { batchId = (long)ap["batchId"]! });
+        Assert.Equal(3, (int)bu!["done"]!);
+        Assert.True(File.Exists(Path.Combine(_dir, "Music", "Waltz.wav")) && File.Exists(Path.Combine(_dir, "Music", "Ada", "Poetry.wav")));
+
+        // Smart collections: count, save, query by them, delete.
+        var rules = new { matchAll = true, rules = new object[] { new { field = "duration", op = "gt", value = 1.2 } } };
+        Assert.Equal(2, (int)(await H("music.smart.count", new { rules }))!);
+        var saved = await H("music.smart.save", new { name = "Longer ones", rules });
+        var sid = (long)saved!["id"]!;
+        Assert.Equal(2, (int)saved["smart"]![0]!["count"]!);
+        Assert.Equal(2, (int)(await H("music.query", new { smartId = sid, offset = 0, limit = 50 }))!["total"]!);
+        await Assert.ThrowsAsync<BenchException>(() => H("music.smart.save", new { name = "", rules }));
+        Assert.Empty((await H("music.smart.delete", new { id = sid }))!.AsArray());
+
+        // Playlists out to .m3u8 and back in; cover art: none here, said plainly.
+        var pl = (long)(await H("music.playlist.create", new { name = "Mix", ids = all }))!["id"]!;
+        var m3u = Path.Combine(_dir, "mix.m3u8");
+        host.SaveAs.Enqueue(m3u);
+        Assert.Equal(3, (int)(await H("music.playlist.export", new { id = pl }))!["count"]!);
+        Assert.Contains("Waltz.wav", File.ReadAllText(m3u));
+        host.Open.Enqueue(m3u);
+        var im = await H("music.playlist.import", new { });
+        Assert.Equal(3, (int)im!["added"]!);
+        Assert.Equal(0, (int)im["missing"]!);
+        Assert.True((bool)(await H("music.playlist.import", new { }))!["cancelled"]!);   // the dialog was closed
+        await Assert.ThrowsAsync<BenchException>(() => H("music.art.save", new { id = waltz }));
     }
 
     [Fact]

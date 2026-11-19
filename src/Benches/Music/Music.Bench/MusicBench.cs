@@ -59,6 +59,10 @@ public sealed class MusicBench : BenchBase, IBenchMedia
     readonly object _gate = new();
 
     ScanProgress? _lastScan;
+    TrackEditor? _editor;
+    BatchOrganizer? _batch;
+    TrackEditor Editor(IBenchHost host) { var lib = Lib(host); lock (_gate) return _editor ??= new TrackEditor(lib); }
+    BatchOrganizer Batch(IBenchHost host) { var lib = Lib(host); lock (_gate) return _batch ??= new BatchOrganizer(lib); }
     MusicLibrary Lib(IBenchHost host)
     {
         _host = host;
@@ -97,12 +101,12 @@ public sealed class MusicBench : BenchBase, IBenchMedia
         Command("music.cancelScan", (a, host, _) => { _scanCts?.Cancel(); return Task.FromResult<JsonNode?>(null); });
         Command("music.query", (a, host, _) =>
         {
-            var q = MusicRequests.Query(a);
+            var q = WithSmart(host, MusicRequests.Query(a), a);
             var res = Lib(host).Query(q);
             return Task.FromResult<JsonNode?>(new JsonObject { ["total"] = res.Total, ["offset"] = q.Offset, ["rows"] = new JsonArray(res.Rows.Select(Row).ToArray()) });
         });
         Command("music.ids", (a, host, _) =>
-            Task.FromResult<JsonNode?>(new JsonArray(Lib(host).QueryIds(MusicRequests.Query(a) with { Offset = 0, Limit = 50_000 }).Select(i => (JsonNode?)i).ToArray())));
+            Task.FromResult<JsonNode?>(new JsonArray(Lib(host).QueryIds(WithSmart(host, MusicRequests.Query(a), a) with { Offset = 0, Limit = 50_000 }).Select(i => (JsonNode?)i).ToArray())));
         Command("music.tracks", (a, host, _) =>
             Task.FromResult<JsonNode?>(new JsonArray(Lib(host).GetMany(MusicRequests.Ids(a, "ids").Take(2000)).Select(Row).ToArray())));
         Command("music.track", (a, host, _) =>
@@ -156,6 +160,110 @@ public sealed class MusicBench : BenchBase, IBenchMedia
             var ids = a.ValueKind == JsonValueKind.Object && a.TryGetProperty("ids", out var _ids) ? MusicRequests.Ids(a, "ids") : null;
             return Task.FromResult<JsonNode?>(new JsonArray(Lib(host).Unmeasured(ids, (int)Math.Clamp(OptLong(a, "limit") ?? 50_000, 1, 50_000)).Select(i => (JsonNode?)i).ToArray()));
         });
+        // ------------------------------------------------------------ editing a track's tags and file name (journaled; undoable)
+        Command("music.edit.validate", (a, host, _) =>
+            Task.FromResult<JsonNode?>(new JsonArray(Editor(host).Validate(Long(a, "id"), Opt(a, "fileName", 1000)).Select(p => (JsonNode?)p).ToArray())));
+        Command("music.edit.apply", async (a, host, ct) =>
+        {
+            var id = Long(a, "id");
+            var tags = Run(() => MusicRequests.Tags(a));
+            var rename = a.TryGetProperty("rename", out var rn) && rn.ValueKind == JsonValueKind.True ? Opt(a, "fileName", 1000) : null;
+            return EditResult(host, await Task.Run(() => Run(() => Editor(host).Apply(id, tags, rename)), ct));
+        });
+        Command("music.undo", async (a, host, ct) =>
+        {
+            var last = Editor(host).LastUndoable() ?? throw new BenchException("There is no track edit to undo.");
+            if (last.BatchId is long batchId) return BatchResult(host, await Task.Run(() => Run(() => Batch(host).Undo(batchId)), ct));
+            return EditResult(host, await Task.Run(() => Run(() => Editor(host).Undo(last.Id)), ct));
+        });
+        Command("music.suggestName", (a, host, _) => Task.FromResult<JsonNode?>(SafeRename.SuggestName(Opt(a, "title", 500), Opt(a, "artist", 500))));
+
+        // ------------------------------------------------------------ the batch organizer (preview first; every change undoable)
+        Command("music.batch.preview", async (a, host, ct) =>
+        {
+            var ids = MusicRequests.Ids(a, "ids");
+            var spec = Run(() => MusicRequests.Batch(a));
+            var pv = await Task.Run(() => Run(() => Batch(host).Preview(ids, spec)), ct);
+            return new JsonObject
+            {
+                ["willChange"] = pv.WillChange, ["unchanged"] = pv.Unchanged, ["blocked"] = pv.Blocked,
+                ["items"] = new JsonArray(pv.Items.Select(i => (JsonNode?)new JsonObject
+                {
+                    ["id"] = i.TrackId, ["folder"] = i.Folder, ["oldName"] = i.OldName, ["newName"] = i.NewName, ["renames"] = i.Renames, ["ok"] = i.Ok,
+                    ["tags"] = new JsonArray(i.TagChanges.Select(c => (JsonNode?)new JsonObject { ["field"] = c.Field, ["old"] = c.Old, ["new"] = c.New }).ToArray()),
+                    ["problems"] = Strings(i.Problems), ["warnings"] = Strings(i.Warnings),
+                }).ToArray()),
+            };
+        });
+        Command("music.batch.apply", async (a, host, ct) =>
+        {
+            var ids = MusicRequests.Ids(a, "ids");
+            var spec = Run(() => MusicRequests.Batch(a));
+            return BatchResult(host, await Task.Run(() => Run(() => Batch(host).Apply(ids, spec)), ct));
+        });
+        Command("music.batch.undo", async (a, host, ct) => BatchResult(host, await Task.Run(() => Run(() => Batch(host).Undo(Long(a, "batchId"))), ct)));
+
+        // ------------------------------------------------------------ smart collections (rules, kept up to date)
+        Command("music.smart.save", (a, host, _) =>
+        {
+            var rules = Run(() => SmartSql.FromPayload(a.TryGetProperty("rules", out var r) ? r : default));
+            var name = Opt(a, "name", 200)?.Trim() ?? "";
+            if (name.Length == 0) throw new BenchException("Give the smart collection a name.");
+            var id = Run(() => Lib(host).SaveSmart(OptLong(a, "id"), name, rules));
+            host.Post("playlists");
+            return Task.FromResult<JsonNode?>(new JsonObject { ["id"] = id, ["smart"] = Smart(host) });
+        });
+        Command("music.smart.count", (a, host, _) =>
+            Task.FromResult<JsonNode?>(Run(() => Lib(host).Query(new LibraryQuery(Smart: SmartSql.FromPayload(a.TryGetProperty("rules", out var r) ? r : default), Limit: 1)).Total)));
+        Command("music.smart.delete", (a, host, _) => { Lib(host).DeleteSmart(Long(a, "id")); host.Post("playlists"); return Task.FromResult<JsonNode?>(Smart(host)); });
+
+        // ------------------------------------------------------------ files out and in (only through the system dialogs)
+        Command("music.art.save", async (a, host, ct) =>
+        {
+            var t = Lib(host).Get(Long(a, "id")) ?? throw new BenchException("That track is no longer in the library.");
+            var art = TagIO.ReadArtwork(t.Path) ?? FolderArt.Read(t.Folder) ?? throw new BenchException("This track has no cover picture.");
+            var ext = art.MimeType switch { "image/png" => ".png", "image/webp" => ".webp", "image/gif" => ".gif", _ => ".jpg" };
+            var path = await host.PickSaveFileAsync("Save the cover as a picture", SafeRename.SuggestName(t.Album ?? t.DisplayTitle, t.Artist) + " cover" + ext, [new FileFilter("Picture", [ext])]);
+            if (path == null) return new JsonObject { ["cancelled"] = true };
+            await Task.Run(() => Markdown.Core.AtomicFile.WriteAllBytes(path, art.Data), ct);
+            return new JsonObject { ["path"] = path };
+        });
+        Command("music.playlist.import", async (a, host, ct) =>
+        {
+            var picked = await host.PickFilesAsync("Import a playlist", [new FileFilter("Playlists", [".m3u", ".m3u8"])]);
+            if (picked.Count == 0) return new JsonObject { ["cancelled"] = true };
+            var file = picked[0];
+            var lib = Lib(host);
+            var r = await Task.Run(() =>
+            {
+                var ids = new List<long>();
+                int missing = 0, unsupported = 0;
+                foreach (var p in M3u.Read(file))
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!AudioFormats.IsAudio(p)) { unsupported++; continue; }
+                    if (!File.Exists(p)) { missing++; continue; }
+                    try { ids.Add(lib.AddFile(p)); } catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { missing++; }
+                }
+                var id = lib.CreatePlaylist(Path.GetFileNameWithoutExtension(file));
+                lib.SetPlaylistItems(id, ids);
+                return new JsonObject { ["playlistId"] = id, ["added"] = ids.Count, ["missing"] = missing, ["unsupported"] = unsupported };
+            }, ct);
+            host.Post("playlists"); host.Post("changed", new { });
+            return r;
+        });
+        Command("music.playlist.export", async (a, host, ct) =>
+        {
+            var lib = Lib(host);
+            var id = Long(a, "id");
+            var name = lib.PlaylistName(id) ?? throw new BenchException("That playlist no longer exists.");
+            var path = await host.PickSaveFileAsync("Export the playlist", SafeRename.SuggestName(name, null) + ".m3u8", [new FileFilter("M3U8 playlist", [".m3u8"])]);
+            if (path == null) return null;
+            var tracks = lib.GetMany(lib.PlaylistTrackIds(id));
+            await Task.Run(() => M3u.Write(path, tracks.Select(t => new M3u.Entry(t.Path, t.Duration, t.Artist == null ? t.DisplayTitle : $"{t.Artist} - {t.DisplayTitle}"))), ct);
+            return new JsonObject { ["path"] = path, ["count"] = tracks.Count };
+        });
+
         Command("music.reveal", (a, host, _) =>
         {
             var t = Lib(host).Get(Long(a, "id")) ?? throw new BenchException("That track is no longer in the library.");
@@ -238,9 +346,51 @@ public sealed class MusicBench : BenchBase, IBenchMedia
             ["stats"] = StatsJson(lib.Stats()),
             ["playlists"] = Playlists(host),
             ["scanning"] = _scanTask is { IsCompleted: false },
+            ["smart"] = Smart(host),
+            ["undo"] = DescribeUndo(host),
             ["lastScan"] = _lastScan is { } ls ? new JsonObject { ["phase"] = ls.Phase, ["discovered"] = ls.Discovered, ["added"] = ls.Added, ["errors"] = ls.Errors, ["message"] = ls.Message } : null,
         };
     }
+    LibraryQuery WithSmart(IBenchHost host, LibraryQuery q, JsonElement a)
+    {
+        if (OptLong(a, "smartId") is not long sid) return q;
+        var sc = Lib(host).Smart(sid) ?? throw new BenchException("That smart collection no longer exists.");
+        return q with { Smart = sc.Rules };
+    }
+    JsonArray Smart(IBenchHost host)
+    {
+        var lib = Lib(host);
+        return new(lib.SmartCollections().Select(sc => (JsonNode?)new JsonObject
+        {
+            ["id"] = sc.Id, ["name"] = sc.Name, ["matchAll"] = sc.Rules.MatchAll, ["limit"] = sc.Rules.Limit, ["limitSort"] = sc.Rules.LimitSort, ["limitDesc"] = sc.Rules.LimitDesc,
+            ["rules"] = new JsonArray(sc.Rules.Rules.Select(r => (JsonNode?)new JsonObject { ["field"] = r.Field, ["op"] = r.Op, ["value"] = r.Value }).ToArray()),
+            ["count"] = lib.Query(new LibraryQuery(Smart: sc.Rules, Limit: 1)).Total,
+        }).ToArray());
+    }
+    JsonNode? DescribeUndo(IBenchHost host)
+    {
+        if (Editor(host).LastUndoable() is not { } j) return null;
+        if (j.BatchId is long b)
+            return new JsonObject { ["id"] = j.Id, ["utc"] = j.Utc.ToString("o"), ["batchId"] = b, ["count"] = Lib(host).BatchJournal(b).Count(e => e.Status is "done" or "partial") };
+        return new JsonObject { ["id"] = j.Id, ["utc"] = j.Utc.ToString("o"), ["oldName"] = Path.GetFileName(j.OldPath), ["newName"] = Path.GetFileName(j.NewPath) };
+    }
+    JsonNode EditResult(IBenchHost host, Music.Core.EditResult r)
+    {
+        host.Post("changed", new { trackId = r.Track?.Id });
+        return new JsonObject { ["ok"] = r.Ok, ["tagsSaved"] = r.TagsSaved, ["renamed"] = r.Renamed, ["problems"] = Strings(r.Problems), ["track"] = r.Track == null ? null : Detail(r.Track), ["undo"] = DescribeUndo(host) };
+    }
+    JsonNode BatchResult(IBenchHost host, Music.Core.BatchResult r)
+    {
+        host.Post("changed", new { });
+        return new JsonObject
+        {
+            ["batchId"] = r.BatchId, ["done"] = r.Done, ["failed"] = r.Failed, ["skipped"] = r.Skipped,
+            ["items"] = new JsonArray(r.Items.Select(i => (JsonNode?)new JsonObject { ["id"] = i.TrackId, ["oldName"] = i.OldName, ["newName"] = i.NewName, ["status"] = i.Status, ["message"] = i.Message }).ToArray()),
+            ["undo"] = DescribeUndo(host),
+        };
+    }
+    static JsonArray Strings(IEnumerable<string> xs) => new(xs.Select(x => (JsonNode?)x).ToArray());
+
     static JsonObject StatsJson(LibraryStats s) => new()
     {
         ["total"] = s.Total, ["missing"] = s.Missing, ["favorite"] = s.Favorite, ["keep"] = s.Keep, ["maybe"] = s.Maybe, ["skip"] = s.Skip, ["untriaged"] = s.Untriaged,
@@ -258,7 +408,8 @@ public sealed class MusicBench : BenchBase, IBenchMedia
     static JsonNode Detail(TrackRow t) => new JsonObject
     {
         ["id"] = t.Id, ["path"] = t.Path, ["fileName"] = t.FileName, ["folder"] = t.Folder, ["displayTitle"] = t.DisplayTitle, ["triage"] = (int)t.Triage,
-        ["missing"] = t.Missing || !File.Exists(t.Path), ["hasArt"] = t.HasArtwork, ["duration"] = t.Duration, ["playCount"] = t.PlayCount,
+        ["missing"] = t.Missing || !File.Exists(t.Path), ["hasArt"] = t.HasArtwork, ["readError"] = t.ReadError, ["duration"] = t.Duration, ["playCount"] = t.PlayCount,
+        ["readOnly"] = File.Exists(t.Path) && new FileInfo(t.Path).IsReadOnly,
         ["tags"] = new JsonObject { ["title"] = t.Title, ["artist"] = t.Artist, ["album"] = t.Album, ["albumArtist"] = t.AlbumArtist, ["genre"] = t.Genre, ["year"] = t.Year, ["trackNumber"] = t.TrackNumber, ["comment"] = t.Comment },
     };
 
@@ -270,6 +421,12 @@ public sealed class MusicBench : BenchBase, IBenchMedia
         a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt64(out var n) ? n : null;
     static double? OptDouble(JsonElement a, string name) =>
         a.ValueKind == JsonValueKind.Object && a.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : null;
+    static string? Opt(JsonElement a, string name, int max)
+    {
+        if (a.ValueKind != JsonValueKind.Object || !a.TryGetProperty(name, out var v) || v.ValueKind != JsonValueKind.String) return null;
+        var t = v.GetString()!;
+        return t.Length > max ? throw new BenchException($"“{name}” is too long.") : t;
+    }
     static long Long(JsonElement a, string name) => OptLong(a, name) ?? throw new BenchException($"Missing “{name}”.");
     static T Run<T>(Func<T> fn)
     {

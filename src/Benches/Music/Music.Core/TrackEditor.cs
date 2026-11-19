@@ -58,9 +58,9 @@ public sealed class TrackEditor(MusicLibrary library)
         if (wantsTags)
         {
             try { TagIO.Write(path, tags!); tagsSaved = true; }
-            catch (MetadataException ex)
+            catch (Exception ex) when (ex is MetadataException or IOException or UnauthorizedAccessException)
             {
-                library.JournalFinish(journal, "failed", path, null, null, ex.Message);
+                library.JournalFinish(journal, "failed", path, null, null, ex.Message);   // nothing changed: never left half-open
                 return new EditResult(false, false, path, track, [ex.Message + (plan != null ? " The file was not renamed either." : "")], journal);
             }
         }
@@ -74,7 +74,10 @@ public sealed class TrackEditor(MusicLibrary library)
         }
 
         // The journal first: whatever happens to the library row, the edit can be undone.
-        library.JournalFinish(journal, problems.Count == 0 ? "done" : "partial", path, Fingerprint.Compute(path), TagIO.Read(path), problems.Count == 0 ? null : string.Join(" ", problems));
+        string? fp = null; TrackTags? nowTags = null;
+        try { fp = Fingerprint.Compute(path); nowTags = TagIO.Read(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* undo then skips the "changed since?" check it can't make */ }
+        library.JournalFinish(journal, problems.Count == 0 ? "done" : "partial", path, fp, nowTags, problems.Count == 0 ? null : string.Join(" ", problems));
         TrackRow? row;
         try { row = library.Refresh(trackId, path); }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
@@ -116,10 +119,17 @@ public sealed class TrackEditor(MusicLibrary library)
         {
             var restore = TagEdit.RestoreTo(entry.OldTags, entry.NewTags);
             try { if (!restore.IsEmpty) TagIO.Write(path, restore); tagsSaved = true; }
-            catch (MetadataException ex) { problems.Add("The name was restored but the old tags could not be written back: " + ex.Message); }
+            catch (Exception ex) when (ex is MetadataException or IOException or UnauthorizedAccessException) { problems.Add((renamed ? "The name was restored but the old tags" : "The old tags") + " could not be written back: " + ex.Message); }
         }
-        var row = library.Refresh(entry.TrackId, path);
+        // The journal first (the file is already back): a library hiccup must not leave this change "undoable" twice.
         library.JournalFinish(journalId, "undone", entry.NewPath, entry.NewFingerprint, null, problems.Count == 0 ? null : string.Join(" ", problems));
+        TrackRow? row;
+        try { row = library.Refresh(entry.TrackId, path); }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException)
+        {
+            problems.Add("The library could not be updated (a rescan fixes it): " + ex.Message);
+            row = library.Get(entry.TrackId);
+        }
         return new EditResult(tagsSaved, renamed, path, row, problems, journalId);
     }
 
