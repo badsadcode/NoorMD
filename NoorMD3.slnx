@@ -8,6 +8,10 @@
   <Folder Name="/src/Benches/Clock/">
     <Project Path="src/Benches/Clock/Clock.Bench/Clock.Bench.csproj" />
   </Folder>
+  <Folder Name="/src/Benches/Markdown/">
+    <Project Path="src/Benches/Markdown/Markdown.Core/Markdown.Core.csproj" />
+    <Project Path="src/Benches/Markdown/Markdown.Bench/Markdown.Bench.csproj" />
+  </Folder>
   <Folder Name="/src/Benches/Sandbox/">
     <Project Path="src/Benches/Sandbox/Sandbox.Bench/Sandbox.Bench.csproj" />
   </Folder>

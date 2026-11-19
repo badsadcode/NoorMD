@@ -49,5 +49,25 @@ public static class ShellApp
         public void Post(string name, object? payload = null) =>
             Application.Current.Dispatcher.BeginInvoke(() => Broadcast(new { @event = "bench", bench = id, name, payload }));
         public void Log(string message) => System.Diagnostics.Debug.WriteLine($"[{id}] {message}");
+
+        static string FilterText(IReadOnlyList<Noor.Contracts.FileFilter> filters) =>
+            string.Join("|", filters.Select(f => $"{f.Name}|{string.Join(";", f.Extensions.Select(e => "*" + e))}"));
+
+        /// <summary>Dialogs belong to the window the user is looking at (a floating one, or the main one).</summary>
+        static Window? Owner() => Application.Current.Windows.OfType<Window>().FirstOrDefault(w => w.IsActive) ?? Main;
+
+        public Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<Noor.Contracts.FileFilter> filters, bool multiple = false) =>
+            Application.Current.Dispatcher.InvokeAsync<IReadOnlyList<string>>(() =>
+            {
+                var d = new Microsoft.Win32.OpenFileDialog { Title = title, Filter = FilterText(filters), FilterIndex = filters.Count, Multiselect = multiple, CheckFileExists = true };
+                return d.ShowDialog(Owner()) == true ? d.FileNames : [];
+            }).Task;
+
+        public Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<Noor.Contracts.FileFilter> filters) =>
+            Application.Current.Dispatcher.InvokeAsync<string?>(() =>
+            {
+                var d = new Microsoft.Win32.SaveFileDialog { Title = title, Filter = FilterText(filters), FileName = suggestedName, AddExtension = true, DefaultExt = filters.Count > 0 && filters[0].Extensions.Count > 0 ? filters[0].Extensions[0] : "", OverwritePrompt = true };
+                return d.ShowDialog(Owner()) == true ? d.FileName : null;
+            }).Task;
     }
 }

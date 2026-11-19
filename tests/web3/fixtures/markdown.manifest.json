@@ -1,0 +1,205 @@
+{
+  "id": "noor.markdown",
+  "name": "Markdown",
+  "icon": "\u270E",
+  "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
+  "version": "3.0.5",
+  "contractVersion": 1,
+  "density": "roomy",
+  "entry": "bench.js",
+  "menus": [
+    {
+      "title": "File",
+      "items": [
+        {
+          "label": "New document",
+          "command": "md.new",
+          "keys": "Ctrl\u002BN"
+        },
+        {
+          "label": "Open\u2026",
+          "command": "md.open",
+          "keys": "Ctrl\u002BO"
+        },
+        {
+          "label": "Open recent\u2026",
+          "command": "md.recent",
+          "keys": "Ctrl\u002BShift\u002BO"
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Save",
+          "command": "md.save",
+          "keys": "Ctrl\u002BS"
+        },
+        {
+          "label": "Save as\u2026",
+          "command": "md.saveAs",
+          "keys": "Ctrl\u002BShift\u002BS"
+        },
+        {
+          "label": "Save all",
+          "command": "md.saveAll",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Close the document",
+          "command": "md.close",
+          "keys": "Ctrl\u002BW"
+        },
+        {
+          "label": "Unsaved work from before\u2026",
+          "command": "md.drafts",
+          "keys": null
+        }
+      ]
+    },
+    {
+      "title": "View",
+      "items": [
+        {
+          "label": "Visual",
+          "command": "md.mode.visual",
+          "keys": null
+        },
+        {
+          "label": "Markdown",
+          "command": "md.mode.markdown",
+          "keys": null
+        },
+        {
+          "label": "Side by side",
+          "command": "md.mode.split",
+          "keys": null
+        },
+        {
+          "label": "Next view",
+          "command": "md.mode.next",
+          "keys": "Ctrl\u002BE"
+        }
+      ]
+    },
+    {
+      "title": "Format",
+      "items": [
+        {
+          "label": "Bold",
+          "command": "md.fmt.bold",
+          "keys": "Ctrl\u002BB"
+        },
+        {
+          "label": "Italic",
+          "command": "md.fmt.italic",
+          "keys": "Ctrl\u002BI"
+        },
+        {
+          "label": "Strikethrough",
+          "command": "md.fmt.strike",
+          "keys": null
+        },
+        {
+          "label": "Inline code",
+          "command": "md.fmt.code",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Heading 1",
+          "command": "md.fmt.h1",
+          "keys": null
+        },
+        {
+          "label": "Heading 2",
+          "command": "md.fmt.h2",
+          "keys": null
+        },
+        {
+          "label": "Heading 3",
+          "command": "md.fmt.h3",
+          "keys": null
+        },
+        {
+          "label": "Paragraph",
+          "command": "md.fmt.p",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Bulleted list",
+          "command": "md.fmt.ul",
+          "keys": null
+        },
+        {
+          "label": "Numbered list",
+          "command": "md.fmt.ol",
+          "keys": null
+        },
+        {
+          "label": "Task list",
+          "command": "md.fmt.task",
+          "keys": null
+        },
+        {
+          "label": "Quote",
+          "command": "md.fmt.quote",
+          "keys": null
+        }
+      ]
+    },
+    {
+      "title": "Insert",
+      "items": [
+        {
+          "label": "Link\u2026",
+          "command": "md.ins.link",
+          "keys": null
+        },
+        {
+          "label": "Table",
+          "command": "md.ins.table",
+          "keys": null
+        },
+        {
+          "label": "Code block",
+          "command": "md.ins.codeblock",
+          "keys": null
+        },
+        {
+          "label": "Horizontal line",
+          "command": "md.ins.hr",
+          "keys": null
+        },
+        {
+          "label": "Today\u0027s date",
+          "command": "md.ins.date",
+          "keys": null
+        }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "outline",
+      "title": "Outline",
+      "icon": "\u2630",
+      "dock": "left"
+    }
+  ]
+}

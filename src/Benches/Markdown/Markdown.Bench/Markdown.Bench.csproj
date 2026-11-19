@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the Markdown bench (its interface: web files packed in the DLL; its logic: Markdown.Core). -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Markdown.Bench</RootNamespace>
+    <AssemblyName>Markdown.Bench</AssemblyName>
+    <Version>3.0.4</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\..\Noor.Contracts\Noor.Contracts.csproj" />
+    <ProjectReference Include="..\Markdown.Core\Markdown.Core.csproj" />
+    <EmbeddedResource Include="web\**" />
+  </ItemGroup>
+</Project>

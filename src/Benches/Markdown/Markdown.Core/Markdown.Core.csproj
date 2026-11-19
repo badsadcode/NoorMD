@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- NoorMD 3.0: the Markdown bench's logic, no interface (files, encodings, drafts, recent files). Other apps can use
+       it too. The file code is a copy of NoorMD.Core's, so NoorMD 2.0 stays untouched. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Markdown.Core</RootNamespace>
+    <AssemblyName>Markdown.Core</AssemblyName>
+    <Version>3.0.4</Version>
+  </PropertyGroup>
+</Project>

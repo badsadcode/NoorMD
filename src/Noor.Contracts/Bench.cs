@@ -35,7 +35,19 @@ public interface IBenchHost
     string DataFolder { get; }
 
     void Log(string message);
+
+    /// <summary>Asks the user to pick files to open (the shell's own dialog, over the shell's window). A bench reads
+    /// only files the user picked or named; an empty list means they cancelled.</summary>
+    Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<FileFilter> filters, bool multiple = false) =>
+        Task.FromResult<IReadOnlyList<string>>([]);
+
+    /// <summary>Asks the user where to save; null means they cancelled.</summary>
+    Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<FileFilter> filters) =>
+        Task.FromResult<string?>(null);
 }
+
+/// <summary>A line in a file dialog's type list: <c>new("Markdown", [".md", ".markdown"])</c>.</summary>
+public sealed record FileFilter(string Name, IReadOnlyList<string> Extensions);
 
 /// <summary>A failure to show the user as it is ("That file is not a NoorMD note").</summary>
 public sealed class BenchException(string message) : Exception(message);

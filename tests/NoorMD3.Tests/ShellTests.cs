@@ -209,9 +209,10 @@ public sealed class FixtureTests
     [Theory]
     [InlineData("sandbox")]
     [InlineData("clock")]
+    [InlineData("markdown")]
     public void The_web_tests_copies_of_the_manifests_are_current(string name)
     {
-        IBench bench = name == "sandbox" ? new SandboxBench() : new Clock.Bench.ClockBench();
+        IBench bench = name switch { "sandbox" => new SandboxBench(), "clock" => new Clock.Bench.ClockBench(), _ => new Markdown.Bench.MarkdownBench() };
         var json = System.Text.Json.JsonSerializer.Serialize(bench.Manifest, new System.Text.Json.JsonSerializerOptions { PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase, WriteIndented = true });
         var dir = AppContext.BaseDirectory;
         while (dir != null && !File.Exists(Path.Combine(dir, "NoorMD.sln"))) dir = Path.GetDirectoryName(dir);
