@@ -161,6 +161,8 @@ public sealed class ShellTests : IDisposable
         Assert.Equal(2, (int)r["sentences"]!);
         Assert.Equal(1, (int)r["minutes"]!);
         Assert.Equal(0, (int)SandboxBench.Count("")["minutes"]!);
+        Assert.Equal(3, (int)SandboxBench.Count("Thank You Sage !!! Thank You Sage!!! And again ?")["sentences"]!);   // with or without a space before
+        Assert.Equal(1, (int)SandboxBench.Count("Version 3.0 is out.")["sentences"]!);
         Assert.Equal(460, (int)SandboxBench.Count(string.Join(' ', Enumerable.Repeat("word", 460)))["words"]!);
         Assert.Equal(2, (int)SandboxBench.Count(string.Join(' ', Enumerable.Repeat("word", 460)))["minutes"]!);
     }

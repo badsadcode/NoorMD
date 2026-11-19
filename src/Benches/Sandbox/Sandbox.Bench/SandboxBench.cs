@@ -53,5 +53,6 @@ public sealed partial class SandboxBench : BenchBase
     }
 
     [GeneratedRegex(@"[\p{L}\p{N}](?:[\p{L}\p{N}'’\-]|\.(?=\p{N}))*")] private static partial Regex WordRx();
-    [GeneratedRegex(@"(?<=[\p{L}\p{N})""'’])[.!?]+(?=\s|$)")] private static partial Regex SentenceEndRx();
+    // "word!" and "word !" both end a sentence (people type it both ways); "3.0" doesn't (no space or end after it).
+    [GeneratedRegex(@"(?<=[\p{L}\p{N})""'’]\s*)[.!?…]+(?=\s|$)")] private static partial Regex SentenceEndRx();
 }
