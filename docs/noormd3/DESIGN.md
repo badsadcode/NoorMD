@@ -150,8 +150,16 @@ inspiration from its concept art, but NoorMD has its own face).
        and close when deleted. The shell learned: benches pick folders, hand files to the bench that opens them,
        announce moved files; pages share topics (the document on screen, unsaved ones); one NoorMD at a time (a
        second start hands its files over); files dropped anywhere on the window open.
-     - **3.0.9, the Vault, part two:** the visual map, the quick switcher (Ctrl+P), daily notes, templates (the
-       wizard's Templates folder), properties, unlinked mentions, Pack & Share.
+     - **3.0.9, the Vault, part two (a nice, convenient tool):** the visual map of the vault and a **local map**
+       panel (the note on screen and its neighbours) · the quick switcher (Ctrl+P) · daily notes · templates (the
+       wizard's Templates folder; {{title}}, {{date}}) · **hover preview** (Ctrl over a [[link]]) · **links to
+       headings** ([[Note#Heading]], suggested after #) · **aliases** (aliases: in a note's properties) · **callouts**
+       (> [!tip], > [!warning] drawn as coloured boxes).
+     - **3.0.10, the Vault, part three:** properties (front matter as a small form) · unlinked mentions · Pack &
+       Share · search operators (tag:, path:, "exact", -skip) · bookmarks · outgoing links beside backlinks ·
+       extract a selection to a new note · random note.
+     - Ideas borrowed from Obsidian are ideas only (its code isn't open, and we don't take code anyway). Not taken:
+       publishing and syncing to anyone's server (a vault is a plain folder: sync it with whatever you like).
    - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
      bar, Send to between benches, the command palette.
    - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place

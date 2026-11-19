@@ -68,6 +68,11 @@ starting it (asked for on 19 Nov).
 
 ## NoorMD 3.0 (Markdown bench)
 
+- Embeds: ![[Note]] and ![[Note#Section]] showing another note inside this one (tricky in Visual view).
+- A table view of notes by their properties (status, deadline, tags), sortable: PARA and game design vaults.
+- NoorCanvas: an endless board of note cards and arrows (stories, quests, level flow); its own bench, maybe one
+  that talks to NoorEngine.
+- Saved layouts ("workspaces"): one click between "writing with these panels" and "planning with the map".
 - Pictures from disk shown inside the editor (relative paths beside the document). 2.0 didn't do it either; it
   needs the document's folder served to the page.
 
