@@ -142,8 +142,13 @@ table.lib tr:hover td { background: var(--hover); } table.lib tr.playing td { co
 .sendstrip .sthing { display: flex; align-items: center; gap: 12px; padding-right: 8px; }
 .scard { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 150px; padding: 10px; border-radius: var(--r2); border: 1px solid var(--border); background: var(--surface); }
 .scard small { color: var(--muted); font-size: 11px; } .scard:hover, .scard.sel { border-color: var(--accent); background: var(--sel); } .scard.later { opacity: .5; }
+.homegrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.homecard { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 14px; border-radius: var(--r2); border: 1px solid var(--border); background: var(--surface); text-align: left; }
+.homecard:hover { border-color: var(--accent); background: var(--sel); } .homecard small { color: var(--muted); }
+.menurow { display: flex; align-items: center; padding: 0 8px; background: var(--bg); }
+.menurow button { padding: 4px 9px; border-radius: var(--r1); } .menurow button:hover, .menurow button.open { background: var(--hover); }
 /* mock-up controls */
-.mockctl { position: fixed; z-index: 80; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 99px; background: color-mix(in srgb, var(--surface2) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12px; color: var(--muted); backdrop-filter: blur(6px); }
+.mockctl { white-space: nowrap; position: fixed; z-index: 80; left: 50%; bottom: 36px; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; padding: 6px 8px 6px 14px; border-radius: 99px; background: color-mix(in srgb, var(--surface2) 92%, transparent); border: 1px solid var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12px; color: var(--muted); backdrop-filter: blur(6px); }
 .mockctl select { background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 99px; padding: 3px 8px; font: inherit; }
 .mockctl button { padding: 3px 9px; border-radius: 99px; } .mockctl button:hover { background: var(--hover); color: var(--text); }
 
@@ -171,7 +176,7 @@ body.dirC .doctabs { background: var(--panel); padding: 8px 10px 0; }
 <body class="dirC" data-theme="dark">
 <div class="app">
   <header class="titlebar">
-    <div class="logo">N</div>
+    <div class="logo" id="logo" title="Home (Ctrl+Shift+H) · About" style="cursor:pointer">N</div>
     <nav class="mainmenu" id="mainmenu"></nav>
     <div class="wintitle" id="wintitle"></div>
     <div class="nowplaying" id="nowplaying" title="Playing in Music: click for the mini player"><i></i><span>Nordic Pines — Lumen</span></div>
@@ -203,6 +208,7 @@ body.dirC .doctabs { background: var(--panel); padding: 8px 10px 0; }
   <select id="theme" title="Theme">
     <option>dark</option><option>light</option><option>nocturne</option><option>ember</option><option>evergreen</option><option>rosewood</option><option>parchment</option><option>glacier</option><option>contrast</option>
   </select>
+  <select id="menupos" title="Where the main menu goes (a setting)"><option value="title">Menu in the title bar</option><option value="row">Menu on its own row</option></select>
   <button id="palbtn" title="Ctrl+Shift+P">⌘ Commands</button>
   <button id="help" title="What to try">?</button>
 </div>
@@ -246,6 +252,20 @@ const BENCHES = {
     panels: { left: [['tree', '▤', 'Explorer', () => [el('div', { class: 'h' }, 'NoorFPS-lite'), ...rows([['▾ 📁 Scripts'], ['📄 player.luau', 'M', 'indent1 sel'], ['📄 Weapon.cs', null, 'indent1'], ['📄 hud.luau', 'U', 'indent1'], ['▸ 📁 Scenes'], ['▸ 📁 Assets'], ['📄 project.noorproj']])]], ['search', '⌕', 'Search', () => [el('div', { class: 'field' }, '⌕ Search in folder…')]], ['git', '⎇', 'Git', () => rows([['M player.luau'], ['U hud.luau']])]], right: [], bottom: [['problems', '⚠', 'Problems', () => rows([['⚠ player.luau:22 — unused local "dt"'], ['ⓘ Weapon.cs:8 — can be readonly']])], ['term', '>_', 'Terminal', () => el('div', { class: 'code', style: 'padding:4px 8px' }, '> noor_cli validate .\n✓ 12 scenes, 48 assets, 0 errors')]] },
     content: () => { const lines = ['<span class="c">-- player.luau: a first-person player (NoorEngine)</span>', '<span class="k">local</span> speed: <span class="f">number</span> = <span class="n">5.5</span>', '<span class="k">local</span> jump = <span class="n">4.2</span>', '', '<span class="k">function</span> <span class="f">on_update</span>(self, dt: <span class="f">number</span>)', '  <span class="k">local</span> move = noor.input.<span class="f">axis2</span>(<span class="s">"move"</span>)', '  <span class="k">local</span> t = self.transform', '  t.position += t:<span class="f">forward</span>() * move.y * speed * dt', '  t.position += t:<span class="f">right</span>() * move.x * speed * dt', '', '  <span class="k">if</span> noor.input.<span class="f">pressed</span>(<span class="s">"jump"</span>) <span class="k">and</span> self.character.grounded <span class="k">then</span>', '    self.character:<span class="f">jump</span>(jump)', '  <span class="k">end</span>', '<span class="k">end</span>']; const c = el('div', { class: 'code' }); lines.forEach((l) => c.append(el('div', { html: l || ' ' }))); return c; } },
 };
+// The players as panels: they can be docked into any bench (and the video one pops out).
+const playerPanel = ['player', '♫', 'Player', () => [el('div', { style: 'display:flex;gap:12px;align-items:center' }, el('div', { class: 'cover', style: 'width:64px;height:64px' }), el('div', {}, el('b', {}, 'Nordic Pines'), el('div', { style: 'color:var(--muted);font-size:12px' }, 'Lumen · Northlight'))), el('div', { class: 'bar', style: 'margin:12px 0 6px' }), el('div', { style: 'display:flex;justify-content:space-between;color:var(--muted);font-size:11px' }, el('span', {}, '1:12'), el('span', {}, '3:40')), el('div', { style: 'display:flex;gap:6px;justify-content:center;margin:8px 0' }, el('button', { class: 'iconbtn' }, '⤮'), el('button', { class: 'iconbtn' }, '⏮'), el('button', { class: 'btn primary', style: 'width:44px' }, '❚❚'), el('button', { class: 'iconbtn' }, '⏭'), el('button', { class: 'iconbtn' }, '↻')), el('div', { class: 'h' }, 'Up next'), ...rows([['Lantern Road', '4:12'], ['Cinder Bloom', '2:58']])]];
+const videoPanel = ['vplayer', '▶', 'Video player', () => [el('div', { class: 'video', style: 'margin:0;font-size:28px' }, '▶'), el('div', { style: 'display:flex;align-items:center;gap:6px;margin-top:8px' }, el('button', { class: 'iconbtn' }, '❚❚'), el('div', { class: 'bar' }), el('span', { style: 'color:var(--muted);font-size:11px' }, '3:10'), el('button', { class: 'iconbtn', title: 'Pop out: its own always-on-top window', onclick: () => floatPanel('vplayer') }, '⧉'))]];
+BENCHES.music.panels.right.unshift(playerPanel);
+BENCHES.video.panels.right.unshift(videoPanel);
+BENCHES.home = { name: 'Home', icon: '⌂', menus: [], status: 'Welcome back', title: 'Home', panels: { left: [], right: [] },
+  content: () => el('div', { class: 'doc', style: 'max-width:980px' },
+    el('h1', {}, 'Good evening 🙂'), el('div', { class: 'meta' }, 'NoorMD comes back to your last session; Home is here on the first launch, when nothing is open, and with Ctrl+Shift+H.'),
+    el('h2', {}, 'Recent'), el('div', { class: 'homegrid' }, [['✎', 'NoorRoads.md', 'Vault · Ideas', 'vault'], ['</>', 'player.luau', 'NoorFPS-lite', 'code'], ['◫', 'Ideas', 'vault', 'vault'], ['▦', 'Textures', 'Gallery album', 'gallery']].map(([ic, n, w, b]) => el('button', { class: 'homecard', onclick: () => go(b) }, el('span', { style: 'font-size:18px' }, ic), el('b', {}, n), el('small', {}, w)))),
+    el('h2', {}, 'Open a bench'), el('div', { class: 'homegrid' }, Object.keys(BENCHES).filter((id) => id !== 'home').map((id) => el('button', { class: 'homecard', onclick: () => go(id) }, el('span', { style: 'font-size:18px' }, BENCHES[id].icon), el('b', {}, BENCHES[id].name)))),
+    el('h2', {}, 'What\'s new in 3.0'), el('p', {}, 'Benches as tabs, panels anywhere (even in another bench, or floating on your second monitor), Send to… between benches, NoorCode.')) };
+function go(id) { if (!open.includes(id)) open.push(id); active = id; render(); }
+// Panels from other benches that a bench shows by default (any panel can go anywhere; these are just examples).
+const GUESTS = { vault: { right: ['player'] }, markdown: { right: ['vplayer'] } };
 const SEND_TARGETS = [['▦', 'NoorPhoto', 'edit or paint it', 1], ['▚', 'NoorSprite', 'turn it into pixels', 1], ['◈', 'NoorMaterial', 'use it as a texture', 1], ['✎', 'Markdown', 'insert it into a note', 0], ['◫', 'Vault', 'save a copy', 0], ['⬡', 'NoorEngine', 'export (Interchange)', 1]];
 function sendStrip(name) {
   document.querySelectorAll('.sendstrip').forEach((x) => x.remove());
@@ -263,10 +283,12 @@ let active = 'vault';
 const layout = {}; // bench → { left: [[panelId…]], right: [...], bottom: [...] } (groups of tabbed panels)
 let floats = [];
 function layoutOf(id) {
-  if (!layout[id]) { const p = BENCHES[id].panels; layout[id] = { left: (p.left || []).length ? [p.left.map((x) => x[0])] : [], right: (p.right || []).map((x) => [x[0]]), bottom: (p.bottom || []).length ? [p.bottom.map((x) => x[0])] : [] }; }
+  if (!layout[id]) { const p = BENCHES[id].panels; layout[id] = { left: (p.left || []).length ? [p.left.map((x) => x[0])] : [], right: (p.right || []).map((x) => [x[0]]), bottom: (p.bottom || []).length ? [p.bottom.map((x) => x[0])] : [] }; const g = GUESTS[id]; if (g) for (const [side, ids] of Object.entries(g)) ids.forEach((x) => layout[id][side].push([x])); }
   return layout[id];
 }
-const panelDef = (bench, pid) => { for (const side of ['left', 'right', 'bottom']) for (const p of BENCHES[bench].panels[side] || []) if (p[0] === pid) return p; return null; };
+// Any panel of any bench (panels can be docked into other benches).
+const ownerOf = (pid) => Object.keys(BENCHES).find((b) => ['left', 'right', 'bottom'].some((s) => (BENCHES[b].panels[s] || []).some((p) => p[0] === pid)));
+const panelDef = (bench, pid) => { const b = ownerOf(pid); if (!b) return null; for (const side of ['left', 'right', 'bottom']) for (const p of BENCHES[b].panels[side] || []) if (p[0] === pid) return p; return null; };
 const activeTab = {};
 
 // ---------------------------------------------------------------- rendering
@@ -277,7 +299,7 @@ function render() {
   const mm = $('#mainmenu'); mm.replaceChildren(...['File', 'Edit', 'View', ...b.menus, 'Tools', 'Window', 'Help'].map((m) => el('button', { onclick: (e) => mainMenu(m, e.currentTarget) }, m)));
   $('#wintitle').innerHTML = `<b>${b.name}</b> · ${b.title} — NoorMD`;
   // bench tabs
-  $('#benchtabs').replaceChildren(...open.map((id) => el('button', { class: 'btab' + (id === active ? ' active' : ''), title: `${BENCHES[id].name} (Ctrl+${open.indexOf(id) + 1})`, onclick: () => { active = id; render(); } }, el('span', { class: 'ic' }, BENCHES[id].icon), BENCHES[id].name, (BENCHES[id].docs || []).some((d) => d[1]) ? el('span', { class: 'dot', title: 'Unsaved changes' }) : null, el('span', { class: 'x', title: 'Close the bench', onclick: (e) => { e.stopPropagation(); open = open.filter((x) => x !== id); if (active === id) active = open[0]; render(); toast(`${BENCHES[id].name} closed. Its documents and layout are kept for next time.`); } }, '✕'))), el('button', { class: 'btab add', title: 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
+  $('#benchtabs').replaceChildren(...open.map((id) => el('button', { class: 'btab' + (id === active ? ' active' : ''), title: `${BENCHES[id].name} (Ctrl+${open.indexOf(id) + 1})`, onclick: () => { active = id; render(); } }, el('span', { class: 'ic' }, BENCHES[id].icon), BENCHES[id].name, (BENCHES[id].docs || []).some((d) => d[1]) ? el('span', { class: 'dot', title: 'Unsaved changes' }) : null, el('span', { class: 'x', title: 'Close the bench', onclick: (e) => { e.stopPropagation(); open = open.filter((x) => x !== id); if (!open.length) open = ['home']; if (active === id) active = open[0]; render(); toast(`${BENCHES[id].name} closed. Its documents and layout are kept for next time.`); } }, '✕'))), el('button', { class: 'btab add', title: 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
   // center: document tabs + content
   const center = $('#center');
   center.replaceChildren();
@@ -300,7 +322,7 @@ function panelGroup(group, side) {
   const key = group.join('+');
   const cur = group.includes(activeTab[key]) ? activeTab[key] : group[0];
   const def = panelDef(active, cur);
-  const head = el('div', { class: 'phead' }, ...group.map((pid) => { const d = panelDef(active, pid); return el('div', { class: 'ptab' + (pid === cur ? ' active' : ''), draggable: 'true', title: `${d[2]}: drag to another side, or onto another panel to tab them together`, onclick: () => { activeTab[key] = pid; render(); }, ondragstart: (e) => { e.dataTransfer.setData('text/plain', pid); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') }, el('span', {}, d[1]), d[2]); }),
+  const head = el('div', { class: 'phead' }, ...group.map((pid) => { const d = panelDef(active, pid); return el('div', { class: 'ptab' + (pid === cur ? ' active' : ''), draggable: 'true', title: `${d[2]}: drag to another side, or onto another panel to tab them together`, onclick: () => { activeTab[key] = pid; render(); }, ondragstart: (e) => { e.dataTransfer.setData('text/plain', pid); document.body.classList.add('dragging'); }, ondragend: () => document.body.classList.remove('dragging') }, el('span', {}, d[1]), d[2], ownerOf(pid) !== active ? el('small', { style: 'opacity:.6' }, ' · ' + BENCHES[ownerOf(pid)].name) : null); }),
     el('span', { class: 'sp' }),
     el('button', { class: 'iconbtn', title: 'Float this panel in its own window (put it on your second monitor)', onclick: () => floatPanel(cur) }, '⧉'),
     el('button', { class: 'iconbtn', title: 'Close the panel (View menu brings it back)', onclick: () => { removePanel(cur); render(); } }, '✕'));
@@ -362,9 +384,9 @@ function menu(x, y, items) {
 const MENUS = {
   File: () => [{ t: 'New', k: 'Ctrl+N' }, { t: 'Open…', k: 'Ctrl+O' }, { t: 'Open recent ▸' }, '-', { t: 'Save', k: 'Ctrl+S' }, { t: 'Save as…', k: 'Ctrl+Shift+S' }, '-', { t: 'Send to… ▸', run: () => sendMenu(80, 60) }, { t: 'Export…', k: 'Ctrl+E' }, '-', { t: 'Settings', k: 'Ctrl+,' }, { t: 'Exit', k: 'Alt+F4' }],
   Edit: () => [{ t: 'Undo', k: 'Ctrl+Z' }, { t: 'Redo', k: 'Ctrl+Y' }, '-', { t: 'Cut', k: 'Ctrl+X' }, { t: 'Copy', k: 'Ctrl+C' }, { t: 'Paste', k: 'Ctrl+V' }, '-', { t: 'Find', k: 'Ctrl+F' }, { t: 'Command palette…', k: 'Ctrl+Shift+P', run: palette }],
-  View: () => [{ h: 'Panels of ' + BENCHES[active].name }, ...['left', 'right', 'bottom'].flatMap((s) => (BENCHES[active].panels[s] || []).map((p) => ({ t: (layoutOf(active)[s].flat().includes(p[0]) || layoutOf(active).left.flat().includes(p[0]) || layoutOf(active).right.flat().includes(p[0]) || layoutOf(active).bottom.flat().includes(p[0]) ? '✓ ' : '   ') + p[2], run: () => { if (![...layoutOf(active).left, ...layoutOf(active).right, ...layoutOf(active).bottom].flat().includes(p[0])) { layoutOf(active)[s].push([p[0]]); render(); } } }))), '-', { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, { t: 'Focus mode', k: 'F11' }, { t: 'Theme ▸' }, { t: 'Zoom in', k: 'Ctrl+=' }],
+  View: () => [{ h: 'Panels of ' + BENCHES[active].name }, ...['left', 'right', 'bottom'].flatMap((s) => (BENCHES[active].panels[s] || []).map((p) => ({ t: (layoutOf(active)[s].flat().includes(p[0]) || layoutOf(active).left.flat().includes(p[0]) || layoutOf(active).right.flat().includes(p[0]) || layoutOf(active).bottom.flat().includes(p[0]) ? '✓ ' : '   ') + p[2], run: () => { if (![...layoutOf(active).left, ...layoutOf(active).right, ...layoutOf(active).bottom].flat().includes(p[0])) { layoutOf(active)[s].push([p[0]]); render(); } } }))), '-', { h: 'Panels from other benches' }, ...Object.keys(BENCHES).filter((b) => b !== active && b !== 'home').flatMap((b) => ['left', 'right', 'bottom'].flatMap((s) => (BENCHES[b].panels[s] || []).map((p) => ({ b, p })))).filter(({ p }) => ['player', 'vplayer', 'queue', 'files', 'agenda', 'send', 'tree'].includes(p[0])).map(({ b, p }) => ({ t: `${p[1]}  ${p[2]} (${BENCHES[b].name})`, run: () => { const L = layoutOf(active); if (![...L.left, ...L.right, ...L.bottom].flat().includes(p[0])) { L.right.push([p[0]]); render(); toast(`${p[2]} from ${BENCHES[b].name} docked here, and it keeps working.`); } } })), '-', { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, { t: 'Focus mode', k: 'F11' }, { t: 'Theme ▸' }, { t: 'Zoom in', k: 'Ctrl+=' }],
   Tools: () => [{ t: 'Settings', k: 'Ctrl+,' }, { t: 'Benches… (install, update, turn off)' }, { t: 'Command palette…', k: 'Ctrl+Shift+P', run: palette }, { t: 'Keyboard shortcuts…' }],
-  Window: () => [{ h: 'Layouts' }, { t: 'Save this layout…' }, { t: 'Switch layout ▸' }, { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, '-', { h: 'Floating windows' }, ...(floats.length ? floats.map((f) => ({ t: `${panelDef(f.bench, f.pid)[2]} (${BENCHES[f.bench].name}) → dock again`, run: () => { floats = floats.filter((x) => x !== f); layoutOf(f.bench).right.push([f.pid]); render(); } })) : [{ t: 'None: ⧉ on a panel floats it', off: true }]), { t: 'Bring all windows to this monitor' }, '-', { t: 'Focus mode', k: 'F11' }],
+  Window: () => [{ t: 'Home', k: 'Ctrl+Shift+H', run: () => go('home') }, '-', { h: 'Layouts' }, { t: 'Save this layout…' }, { t: 'Switch layout ▸' }, { t: 'Reset this bench\'s layout', run: () => { delete layout[active]; floats = floats.filter((f) => f.bench !== active); render(); } }, '-', { h: 'Floating windows' }, ...(floats.length ? floats.map((f) => ({ t: `${panelDef(f.bench, f.pid)[2]} (${BENCHES[f.bench].name}) → dock again`, run: () => { floats = floats.filter((x) => x !== f); layoutOf(f.bench).right.push([f.pid]); render(); } })) : [{ t: 'None: ⧉ on a panel floats it', off: true }]), { t: 'Bring all windows to this monitor' }, '-', { t: 'Focus mode', k: 'F11' }],
   Help: () => [{ t: 'Welcome' }, { t: 'Shortcuts', k: 'F1' }, { t: 'What\'s new in 3.0' }, '-', { t: 'About NoorMD' }],
 };
 function mainMenu(name, btn) {
@@ -400,10 +422,13 @@ function toast(text) { document.querySelectorAll('.toast').forEach((t) => t.remo
 $('#dir').addEventListener('change', (e) => { direction = e.target.value; applyDirection(); });
 $('#theme').addEventListener('change', (e) => { document.body.dataset.theme = e.target.value; });
 $('#palbtn').addEventListener('click', palette);
+$('#logo').addEventListener('click', () => go('home'));
+$('#menupos').addEventListener('change', (e) => { const row = e.target.value === 'row'; const mm = $('#mainmenu'); if (row) { let r = $('#menurow'); if (!r) { r = el('div', { id: 'menurow', class: 'menurow' }); $('.titlebar').after(r); } r.append(mm); $('.app').style.gridTemplateRows = '38px 30px auto 1fr 26px'; } else { $('.logo').after(mm); const r = $('#menurow'); if (r) r.remove(); $('.app').style.gridTemplateRows = ''; } });
 $('#help').addEventListener('click', () => toast('Try: switch benches with the tabs (Ctrl+1…9), drag a panel\'s tab to another side or onto another panel, ⧉ floats a panel, ＋ opens a bench, the menus change with the bench, right-click a Gallery picture for Send to…, Ctrl+Shift+P for commands.'));
 $('#mini').addEventListener('click', (e) => { const s = e.currentTarget.firstChild; s.textContent = s.textContent.includes('▶') ? '❚❚ ' : '▶︎ '; });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') document.querySelectorAll('.sendstrip').forEach((x) => x.remove());
+  if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'h') { e.preventDefault(); go('home'); }
   if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'p') { e.preventDefault(); palette(); }
   else if (e.ctrlKey && /^[1-9]$/.test(e.key) && open[Number(e.key) - 1]) { e.preventDefault(); active = open[Number(e.key) - 1]; render(); }
 });

@@ -35,6 +35,18 @@ home, one look and one way of working.
 - **NoorCode** keeps its name: in NoorMD it's the outside code editor, in NoorEngine the built-in one.
 - **The logo:** the N with a page and picture / video / brush tiles (`references/logo-concept.png`), redrawn
   as an SVG.
+- **Players beside your work:** the music player and the video player are panels like any other, so they can
+  sit at the side of any bench; the video player also pops out into its own window. The mini player stays
+  in the status bar. Music, Video, Gallery and Calendar are roomy.
+- **Any panel in any bench:** a panel from an open bench can be docked anywhere (the music queue beside your
+  notes, the Gallery's pictures beside NoorCode) and keeps working there.
+- **Bench tabs only for open benches:** a bench gets a tab when you open it and loses it when you close it.
+- **Starting up:** NoorMD comes back to your last session. A **Home** screen (recent files and vaults, open a
+  bench, what's new) shows on the first launch and when no bench is open, and opens any time from the logo
+  menu, Window › Home or Ctrl+Shift+H.
+- **Where the main menu goes is a setting:** in the title bar (the default, saving a row) or on its own row
+  under it. Easy to switch in Settings › Appearance, so you can try both.
+- **The generators live in this repository**, each as core + command-line tool + bench (section 3.2).
 - Your concept pictures are in `references/` as mood boards (they are AI-drawn, so their details are
   illustrations, not specs).
 
@@ -93,7 +105,30 @@ Outside the app, for the same generators:
   real work apart from the window (the music library, the Vault, the calendar, the tree and rock
   builders, the GLB writer). They are split along those lines into per-bench cores as each bench moves.
 
-### 3.2 Loading benches
+### 3.2 Where the code lives
+
+Everything stays in this repository, beside 2.0 (which isn't touched):
+
+```text
+src/
+  NoorMD/ NoorMD.Core/ NoorMD.Media/      2.0, as it is
+  NoorMD3/                                3.0's shell (the exe)
+  Noor.Contracts/                         the bench contract and exchange types
+  Noor.UI/                                the web design system (tokens, controls, dock, menus, icons)
+  Benches/
+    Markdown/   Markdown.Core/  Markdown.Bench/
+    Vault/      Vault.Core/     Vault.Bench/
+    Music/ Video/ Radio/ Gallery/ Calendar/ NoorCode/
+    NoorForm/   NoorForm.Core/  NoorForm.Bench/  NoorForm.Cli/      stage 2
+    NoorBuildings/ NoorShipyard/ NoorMechs/ NoorRoads/ NoorVegetation/   each the same three parts
+tests/
+  per core: unit tests · per bench: UI tests against a mock shell · the shell's own · "bench rules" for all
+```
+
+Cores move out of `NoorMD.Core` / `NoorMD.Media` by copying what a bench needs into its own core (2.0 keeps
+its copy until it's retired), so 3.0 work can never break 2.0.
+
+### 3.3 Loading benches
 
 - **Step 1 (stage 1):** every bench is its own project and DLL, built and shipped with the app. The shell
   finds them through their manifests. That gives the clean structure with no plugin risks.
@@ -104,7 +139,7 @@ Outside the app, for the same generators:
 
 A DLL can do anything your account can, so 3.0 never loads an unknown bench silently.
 
-### 3.3 Windows and floating panels
+### 3.4 Windows and floating panels
 
 - The main window and every floating window are WPF windows, each with **its own WebView2**, all in one
   WebView2 environment (one browser process, shared storage).
@@ -115,7 +150,7 @@ A DLL can do anything your account can, so 3.0 never loads an unknown bench sile
 - The layout (which panels, where, which window, which monitor) is saved per bench, and per monitor setup:
   unplug the second screen and its windows come back to the first instead of vanishing.
 
-### 3.4 The title bar
+### 3.5 The title bar
 
 - The window has no Windows frame (`WindowChrome` with the caption area at zero); the page draws the title
   bar. WebView2's non-client region support (`app-region: drag`) makes it draggable, with Aero Snap and a
@@ -123,7 +158,8 @@ A DLL can do anything your account can, so 3.0 never loads an unknown bench sile
 - **Windows 11 snap layouts** (hovering over maximise) need the maximise button to answer the system's hit
   test as `HTMAXBUTTON`; the shell does that natively over the page's button. It is the one fiddly part, and
   it is tested on its own first (a spike) before the rest is built on it.
-- Content: the app icon, the **main menu** (in the title bar, like VS Code, to save a row), the active
+- Content: the app icon (its menu: Home, About), the **main menu** (in the title bar by default, or on its own
+  row: a setting), the active
   bench and document ("Vault · Ideas/NoorRoads.md"), a small "now playing" when music or radio plays, and
   minimise / maximise / close.
 
@@ -166,16 +202,6 @@ language, logging, and the shared players.
 - Dragging something from one bench onto another bench's tab or panel uses the same system.
 - The shell keeps a short history of sends ("Sent 'Oak_01' to NoorMesh, 2 min ago").
 
-### 5.3 How it looks
-
-- **The Send to panel** (dockable like any other): what is selected, and the benches that can take it, each
-  with what it will do ("NoorMesh: create a 3D model", "NoorEngine: export (Interchange)", "Vault: save a
-  copy"). Benches still in 2.0 are listed greyed out, so you know they exist.
-- **The send strip:** choosing Send to… (from the File menu, a right-click or Ctrl+Shift+S… shortcut to be
-  chosen) slides a strip up from the bottom: the thing on the left, big cards for the targets on the right.
-  Enter or a click sends; Esc closes it.
-- See `references/concept-1-send-panel.png` and `references/concept-3-send-strip.png`.
-
 ### 5.2 Exchange types
 
 | Type | What it is | Example givers → takers |
@@ -194,6 +220,16 @@ language, logging, and the shared players.
 
 Model kinds use **the same names as Noor Interchange**, so what moves between benches and what goes to the
 engine is described one way. A new kind is added to the Interchange spec first.
+
+### 5.3 How it looks
+
+- **The Send to panel** (dockable like any other): what is selected, and the benches that can take it, each
+  with what it will do ("NoorMesh: create a 3D model", "NoorEngine: export (Interchange)", "Vault: save a
+  copy"). Benches still in 2.0 are listed greyed out, so you know they exist.
+- **The send strip:** choosing Send to… (from the File menu, a right-click or Ctrl+Shift+S… shortcut to be
+  chosen) slides a strip up from the bottom: the thing on the left, big cards for the targets on the right.
+  Enter or a click sends; Esc closes it.
+- See `references/concept-1-send-panel.png` and `references/concept-3-send-strip.png`.
 
 ## 6. The layout and the design language
 
@@ -216,15 +252,21 @@ engine is described one way. A new kind is added to the Interchange spec first.
   Library; NoorCode: Selection, Go, Run…) · **Tools** (Settings, Benches…, Command palette, Keyboard
   shortcuts) · **Window** (layouts: save, switch, reset; floating windows and which monitor; Focus mode) ·
   Help.
-- **Bench tabs:** one per open bench, in the order you like; `+` opens a bench you don't have open
+- **Bench tabs:** one per open bench (a closed bench has no tab), in the order you like; `+` opens a bench you don't have open
   (a list with icons and what each does). Ctrl+Tab cycles documents, Ctrl+1…9 jump to benches.
 - **Document tabs** inside the bench, with the dirty mark; a bench that has a single view (Music, Radio,
   Calendar) has none.
-- **Panels** dock left, right and bottom, tabbed together or split; each has a small header with its icon
+- **Panels** dock left, right and bottom, tabbed together or split, and **any panel of an open bench can go
+  into any bench** (it keeps working: the queue still plays, the file tree still opens files); each has a small header with its icon
   tabs, like the concept art. Dragging a panel shows drop zones (left / right / top / bottom / as a tab /
   out into its own window).
 - **Status bar:** the bench's own status on the left; app-wide things on the right: background jobs, the
   mini player (music, radio and a video's sound keep playing whichever bench you're in), notifications.
+- **Players beside your work:** Music's *Player* panel (cover, controls, queue) and Video's *Player* panel
+  can be docked into any bench; the video player pops out into its own always-on-top window (⧉), as
+  today. Closing the panel doesn't stop the music: the mini player in the status bar keeps it.
+- **Home:** recent files, vaults and folders; open a bench; pinned items; what's new. Shown on the first
+  launch and when nothing is open; otherwise one click away (the logo menu, Window › Home, Ctrl+Shift+H).
 - **Command palette** (Ctrl+Shift+P): every command of every open bench, by name.
 - **Focus mode** (F11) hides the panels and tabs, as today.
 
@@ -296,14 +338,10 @@ engine is described one way. A new kind is added to the Interchange spec first.
 
 ## 10. Open questions
 
-1. **Bench tabs:** shown always, or hidden in a single-bench session? Can two copies of one bench be open
-   (two Vaults side by side), or does that go through floating windows only?
-2. **Title-bar menu:** in the title bar (saves a row, like VS Code), or its own row under it?
-3. **The first screen:** a start page (recent files and vaults, open benches, what's new), or straight
-   into the last session?
-4. **Docking scope:** can any panel go into any bench (a music queue beside your notes), or only its own
-   bench's panels? (Proposal: any panel from an open bench can be docked anywhere; it keeps working.)
-5. **Densities for the rest:** Music, Video, Gallery and Calendar roomy (proposed); confirm.
-6. **Moving the generators to C#:** NoorBuildings, NoorShipyard, NoorMechs, NoorRoads and NoorVegetation
-   are planned to become core + command-line tool + bench in C#. Where do they live: in this repository,
-   or each in its own and only their benches here?
+1. **Two copies of one bench** (two Vaults side by side): allowed, or through floating panels only? (Proposal:
+   one copy per bench; its panels can be floated and docked anywhere, which covers most of it.)
+2. **The Home screen's contents:** recent files, vaults and folders, pinned items, open a bench, what's new.
+   Anything else you'd want there (today's calendar, what's playing, NoorEngine projects)?
+3. **What comes first in stage 1:** proposal: (a) a spike for the title bar and snap layouts, (b) the shell
+   with docking and floating windows, using two simple benches (Markdown and Music) to prove the contract,
+   (c) the rest of the stage 1 benches, (d) NoorCode.
