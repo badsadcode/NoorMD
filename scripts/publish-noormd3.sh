@@ -9,6 +9,7 @@ rm -rf "${OUT:?}" && mkdir -p "$OUT"
 if [ "${SKIP_TESTS:-0}" != "1" ]; then
   dotnet test tests/NoorMD3.Tests -c Release
   node tests/web3/shell.test.js
+  node tests/web3/markdown.test.js
 fi
 dotnet publish src/NoorMD3 -c Release -r win-x64 --self-contained true -o "$OUT/portable"
 dotnet publish src/NoorMD3 -c Release -r win-x64 --self-contained false -o "$OUT/small"

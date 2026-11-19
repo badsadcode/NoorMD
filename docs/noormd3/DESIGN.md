@@ -100,6 +100,16 @@ inspiration from its concept art, but NoorMD has its own face).
      it came from. Floating windows come back after a restart, and onto a monitor that's there if theirs isn't.
      Window › **Get over here!** (Ctrl+Shift+G) pulls every floating panel back at once, with ropes and grappling
      hooks (an easter egg; skipped when the system asks for less motion).
+   - **3.0.5 (done): the Markdown bench**, the first real one. NoorMD 2.0's editor (Visual, Markdown, side by
+     side; Visual never quietly rewrites a file), documents as tabs inside the bench, an Outline panel, File /
+     Format / Insert menus. Its C# side (Markdown.Core, no interface) owns the files: it opens only what you picked
+     (or picked once before: the recent list), saves back in the file's own encoding and line endings, and notices
+     another program's changes before replacing them. Unsaved work is a draft that outlives the app, so closing
+     NoorMD (or a crash) loses nothing: the documents come back with their changes. The shell learned what this
+     needed: a bench's File / Edit / View items join the shell's menus, a bench can claim Ctrl+W (Ctrl+Shift+W
+     still closes the bench), a bench may hold its closing for unsaved work, and file dialogs for benches.
+   - **3.0.6: the Music bench**, the library and the player as a dockable panel.
+   - **3.0.7:** the mini player in the status bar, Send to between benches, the command palette.
    - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place
      (bench windows, settings patched per window so they don't overwrite each other); the page side waits until
      after part 4.

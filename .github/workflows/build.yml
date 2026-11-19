@@ -66,6 +66,8 @@ jobs:
           for i in 1 2 3; do npx playwright install --with-deps chromium && break; [ $i = 3 ] && exit 1; echo "Retrying the browser install ($i)…"; sudo apt-get update -q || true; sleep 20; done
       - name: The shell page (Chromium)
         run: node tests/web3/shell.test.js --screenshots noormd3-screenshots
+      - name: The Markdown bench (Chromium)
+        run: node tests/web3/markdown.test.js --screenshots noormd3-screenshots
       - uses: actions/upload-artifact@v4
         if: always()
         with:

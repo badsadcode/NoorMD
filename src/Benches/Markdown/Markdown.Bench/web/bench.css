@@ -1,0 +1,163 @@
+/* The Markdown bench. Colours come from the shell's theme tokens, so every theme dresses the editor. */
+.md-bench {
+  --measure: 780px; --split: 50%; --gutter: 0px;
+  --doc-font: var(--font-ui); --doc-size: calc(var(--font-size-doc, 15px) + 1px);
+  --source-font: var(--font-code); --source-size: var(--font-size-doc, 14px); --source-lh: 1.65; --font-mono: var(--font-code);
+  --tok-heading: color-mix(in srgb, var(--accent) 75%, var(--text)); --tok-delim: color-mix(in srgb, var(--muted) 80%, transparent);
+  --tok-link: color-mix(in srgb, var(--accent) 60%, #6aa8ff); --tok-code: color-mix(in srgb, var(--warning) 70%, var(--text));
+  --tok-code-bg: var(--surface); --tok-quote: var(--muted); --tok-list: var(--accent); --tok-gutter: var(--muted);
+  position: relative; height: 100%; display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--panel); overflow: hidden;
+}
+.md-bar { display: flex; align-items: center; gap: var(--space-2); padding: 0 var(--space-2); min-height: calc(var(--ctl) + 10px); border-bottom: 1px solid var(--border); background: var(--surface); flex: none; }
+.md-tabs { display: flex; align-items: stretch; gap: 2px; overflow-x: auto; min-width: 0; flex: 1 1 auto; scrollbar-width: none; align-self: stretch; }
+.md-tabs::-webkit-scrollbar { display: none; }
+.md-tab { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 12px; max-width: 220px; color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; cursor: default; user-select: none; }
+.md-tab:hover { color: var(--text); background: var(--hover); }
+.md-tab[aria-selected=true] { color: var(--text); border-bottom-color: var(--accent); }
+.md-tab .name { overflow: hidden; text-overflow: ellipsis; }
+.md-tab .dot { color: var(--accent); font-size: 10px; }
+.md-tab .x { width: 20px; height: 20px; border-radius: var(--r1); display: grid; place-items: center; font-size: 11px; opacity: .6; }
+.md-tab .x:hover { opacity: 1; background: var(--pressed); }
+.md-tab.dragging { opacity: .5; }
+.md-new { flex: none; }
+.md-modes { flex: none; }
+.md-modes button { color: var(--muted); }
+.md-modes button + button { border-left: 1px solid var(--border); }
+.md-modes button[aria-pressed=true] { color: var(--text); }
+.md-linkfield { display: grid; gap: var(--space-2); min-width: min(440px, 76vw); }
+.md-modes button:disabled { opacity: .4; }
+.md-banner { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; padding: 8px var(--space-4); border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--warning) 12%, var(--panel)); flex: none; }
+.md-banner .acts { display: flex; gap: var(--space-2); margin-left: auto; }
+.md-docs { position: relative; flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; container-type: inline-size; container-name: noor-editor; }
+.md-pane { position: absolute; inset: 0; }
+.md-pane[hidden] { display: none; }
+.md-fallback { display: flex; flex-direction: column; height: 100%; padding: var(--space-4); gap: var(--space-2); }
+.md-fallback textarea { flex: 1; font: var(--source-size) / 1.6 var(--font-code); background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--r2); padding: var(--space-3); }
+.md-empty { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; gap: var(--space-4); padding: var(--space-6); overflow: auto; }
+.md-empty[hidden] { display: none; }
+.md-empty h2 { margin: 0; font-size: 22px; font-weight: 650; }
+.md-empty p { margin: 0; color: var(--muted); }
+.md-empty .acts { display: flex; gap: var(--space-2); justify-content: center; }
+.md-empty .recent { display: grid; gap: 2px; text-align: left; min-width: min(460px, 80vw); margin-top: var(--space-2); }
+.md-recent-item { display: grid; grid-template-columns: 1fr auto; align-items: center; padding: 6px 10px; border-radius: var(--r2); cursor: default; }
+.md-recent-item:hover { background: var(--hover); }
+.md-recent-item .n { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-recent-item .f { grid-column: 1; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-recent-item .x { grid-row: 1 / span 2; grid-column: 2; }
+.md-recent-item.gone .n { text-decoration: line-through; color: var(--muted); }
+.md-recent-list { display: grid; gap: 2px; max-height: 52vh; overflow: auto; min-width: min(520px, 80vw); }
+
+/* The outline panel */
+.md-outline { padding: var(--space-2); overflow: auto; height: 100%; box-sizing: border-box; }
+.md-outline .doc { color: var(--muted); font-size: 12px; padding: 2px 8px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-outline button { display: block; width: 100%; text-align: left; padding: 4px 8px; border-radius: var(--r1); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-outline button:hover { background: var(--hover); }
+.md-outline button.l1 { font-weight: 650; }
+.md-outline button.l3 { padding-left: 22px; color: var(--muted); } .md-outline button.l4, .md-outline button.l5, .md-outline button.l6 { padding-left: 34px; color: var(--muted); font-size: 12px; }
+.md-outline button.l2 { padding-left: 14px; }
+.md-outline .none { color: var(--muted); padding: var(--space-3) 8px; }
+
+/* TOAST UI, dressed in the theme (from NoorMD 2.0's editor styles) */
+.md-docs .toastui-editor-md-splitter { display: none !important; }
+.md-docs .toastui-editor-defaultUI { height: 100% !important; }
+.md-docs .toastui-editor-defaultUI { border: 0 !important; font-family: inherit !important; width: 100%; min-width: 0; }
+.md-docs .toastui-editor-defaultUI-toolbar { background: var(--panel) !important; border-bottom: 1px solid var(--border) !important; padding: 6px 12px !important; height: auto !important; border-radius: 0 !important; }
+.md-docs .toastui-editor-toolbar-divider { background: var(--border) !important; }
+/* Let the toolbar wrap instead of clipping when a narrow window or the split pane leaves little room. */
+.md-docs .toastui-editor-defaultUI-toolbar { display: flex !important; flex-wrap: wrap; row-gap: 4px; }
+.md-docs .toastui-editor-md-preview-highlight::after { background-color: color-mix(in srgb, var(--accent) 12%, transparent) !important; }
+.md-docs .toastui-editor-mode-switch { display: none !important; }
+.md-docs .toastui-editor-main { min-width: 0; width: 100%; overflow: hidden; }
+.md-docs .toastui-editor-main, .md-docs .toastui-editor-ww-container, .md-docs .toastui-editor-md-container, .md-docs .toastui-editor-md-preview { background: var(--panel) !important; }
+.md-docs .toastui-editor-contents { font-family: var(--doc-font) !important; font-size: var(--doc-size) !important; line-height: 1.8 !important; color: var(--text) !important; }
+.md-docs .toastui-editor-contents h1, .md-docs .toastui-editor-contents h2, .md-docs .toastui-editor-contents h3,
+.md-docs .toastui-editor-contents h4, .md-docs .toastui-editor-contents h5, .md-docs .toastui-editor-contents h6 { border: 0 !important; color: var(--text) !important; letter-spacing: -.02em; }
+.md-docs .toastui-editor-contents p, .md-docs .toastui-editor-contents li, .md-docs .toastui-editor-contents td, .md-docs .toastui-editor-contents th { color: var(--text) !important; }
+.md-docs .toastui-editor-contents a { color: var(--accent) !important; }
+.md-docs .toastui-editor-contents blockquote { border-left: 3px solid var(--accent) !important; background: var(--surface) !important; padding: 10px 18px !important; }
+.md-docs .toastui-editor-contents blockquote p { color: var(--muted) !important; }
+.md-docs .toastui-editor-contents pre { background: var(--surface) !important; border-radius: 8px; }
+.md-docs .toastui-editor-contents pre code, .md-docs .toastui-editor-contents code { font-family: var(--font-mono) !important; }
+.md-docs .toastui-editor-contents :not(pre) > code { background: var(--surface2) !important; color: var(--text) !important; }
+.md-docs .toastui-editor-contents table { border-color: var(--border) !important; }
+.md-docs .toastui-editor-contents th { background: var(--surface2) !important; }
+.md-docs .toastui-editor-contents td, .md-docs .toastui-editor-contents th { border-color: var(--border) !important; }
+.md-docs .toastui-editor-contents img { max-width: 100%; }
+.md-docs .ProseMirror-selectednode { outline: 2px solid var(--accent); }
+
+/* Comfortable measure (line width) for Visual and Markdown-only modes; "full" removes it.
+   Percentage padding resolves against the pane width, so the text column stays centred while
+   the scrollbar remains at the pane edge. */
+.md-docs .toastui-editor-ww-container .toastui-editor-contents {
+  width: 100% !important; max-width: none !important; margin: 0 !important; padding-top: 26px !important; padding-bottom: 40vh !important;
+  padding-left: max(28px, calc((100% - var(--measure)) / 2)) !important; padding-right: max(28px, calc((100% - var(--measure)) / 2)) !important;
+  overflow-wrap: break-word;
+}
+
+/* ---------- Markdown source editor ----------
+   Source is plain text: one monospaced font, one size and one line height for every line.
+   TOAST UI's own syntax stylesheet enlarges and bolds heading tokens (.toastui-editor-md-heading1..6)
+   and puts code blocks in a different font; everything below resets that and keeps only colour. */
+.md-docs .toastui-editor-md-container > .toastui-editor { position: relative; isolation: isolate; overflow: hidden; background: var(--panel) !important; }
+.md-docs .toastui-editor-md-container .ProseMirror {
+  position: relative; z-index: 1; height: 100% !important; box-sizing: border-box; background: transparent !important;
+  font-family: var(--source-font) !important; font-size: var(--source-size) !important; line-height: var(--source-lh) !important;
+  font-weight: 400 !important; font-variant-ligatures: none; tab-size: 4;
+  max-width: none !important; margin: 0 !important; color: var(--text) !important; caret-color: var(--accent);
+  padding: 18px 24px 18px calc(24px + var(--gutter)) !important;
+  white-space: pre-wrap !important; overflow-wrap: anywhere;
+}
+.md-docs .toastui-editor-md-container .ProseMirror *,
+.md-docs .toastui-editor-md-container .ProseMirror [class*="toastui-editor-md-heading"] {
+  font-family: inherit !important; font-size: inherit !important; line-height: inherit !important; font-weight: inherit !important;
+  margin: 0 !important; padding: 0 !important; border: 0 !important;
+}
+.md-pane.mode-markdown .toastui-editor-md-container .ProseMirror {
+  padding-left: calc(max(24px, (100% - var(--measure) - var(--gutter)) / 2) + var(--gutter)) !important;
+  padding-right: max(24px, calc((100% - var(--measure) - var(--gutter)) / 2)) !important;
+}
+/* Scroll room below the last line as a spacer, not padding: padding taller than a short pane
+   (stacked Split) would make the box overflow its pane. */
+.md-docs .toastui-editor-md-container .ProseMirror::after { content: ''; display: block; height: 35vh; pointer-events: none; }
+.md-docs .toastui-editor-md-container .ProseMirror > div { position: relative; min-height: calc(var(--source-size) * var(--source-lh)); }
+
+/* Subtle token colours only — the raw characters are never hidden, replaced or resized. */
+.md-docs .ProseMirror .toastui-editor-md-heading { color: var(--tok-heading) !important; font-weight: 650 !important; }
+.md-docs .ProseMirror .toastui-editor-md-delimiter, .md-docs .ProseMirror .toastui-editor-md-meta,
+.md-docs .ProseMirror .toastui-editor-md-table, .md-docs .ProseMirror .toastui-editor-md-thematic-break { color: var(--tok-delim) !important; }
+.md-docs .ProseMirror .toastui-editor-md-strong { color: var(--text) !important; font-weight: 700 !important; }
+.md-docs .ProseMirror .toastui-editor-md-emph { font-style: italic; }
+.md-docs .ProseMirror .toastui-editor-md-strike { text-decoration: line-through; }
+.md-docs .ProseMirror .toastui-editor-md-link, .md-docs .ProseMirror .toastui-editor-md-link-desc { color: var(--tok-link) !important; text-decoration: none !important; }
+.md-docs .ProseMirror .toastui-editor-md-link-url, .md-docs .ProseMirror .toastui-editor-md-link-url * { color: var(--tok-delim) !important; text-decoration: none !important; }
+.md-docs .ProseMirror .toastui-editor-md-code, .md-docs .ProseMirror .toastui-editor-md-code-block { color: var(--tok-code) !important; background: transparent !important; }
+.md-docs .ProseMirror .toastui-editor-md-block-quote, .md-docs .ProseMirror .toastui-editor-md-block-quote * { color: var(--tok-quote) !important; }
+.md-docs .ProseMirror .toastui-editor-md-list-item-style { color: var(--tok-list) !important; font-weight: 400 !important; }
+.md-docs .ProseMirror .toastui-editor-md-list-item .toastui-editor-md-meta { color: var(--tok-delim) !important; }
+.md-docs .toastui-editor-md-container .toastui-editor-md-code-block-line-background { background: var(--tok-code-bg) !important; }
+.md-docs .toastui-editor-md-container .ProseMirror ::selection { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+.md-docs .toastui-editor-md-preview .toastui-editor-contents { max-width: none !important; width: 100% !important; margin: 0 !important; padding: 22px 26px 40vh !important; overflow-wrap: anywhere; }
+.md-docs .toastui-editor-md-preview .toastui-editor-contents pre { max-width: 100%; overflow-x: auto; }
+.md-docs .toastui-editor-md-preview .toastui-editor-contents table { display: block; overflow-x: auto; max-width: 100%; }
+
+/* Markdown-only: the source pane takes the full width; TOAST's Write/Preview tabs are hidden. */
+.md-pane.mode-markdown .toastui-editor-md-preview, .md-pane.mode-markdown .toastui-editor-tabs { display: none !important; }
+.md-pane.mode-markdown .toastui-editor-md-container > .toastui-editor { width: 100% !important; display: block !important; }
+
+/* Split: two independently scrolling panes and a draggable divider (ratio kept in --split). */
+.md-pane.mode-split .toastui-editor-md-container { display: flex !important; width: 100% !important; min-width: 0 !important; position: relative; }
+.md-pane.mode-split .toastui-editor-md-container > .toastui-editor { flex: 0 0 var(--split) !important; width: var(--split) !important; min-width: 0 !important; }
+.md-pane.mode-split .toastui-editor-md-preview { display: block !important; flex: 1 1 0 !important; width: auto !important; min-width: 0 !important; overflow-y: auto; overflow-x: hidden; border-left: 1px solid var(--border); padding: 0 !important; }
+.md-pane.mode-split .toastui-editor-md-splitter { display: block !important; left: var(--split) !important; width: 10px !important; margin-left: -5px; background: transparent !important; cursor: col-resize; z-index: 30; touch-action: none; }
+/* A visible grip so the divider is discoverable without hovering. */
+.md-pane.mode-split .toastui-editor-md-splitter::after {
+  content: ''; position: absolute; left: 50%; top: 50%; width: 4px; height: 44px; transform: translate(-50%, -50%);
+  border-radius: 4px; background: color-mix(in srgb, var(--muted) 55%, transparent);
+}
+.md-pane.mode-split .toastui-editor-md-splitter:hover::after, .md-pane.mode-split .toastui-editor-md-splitter:focus-visible::after { background: var(--accent); }
+
+.md-banner[hidden] { display: none; }
+/* The shell's menus do the formatting; TOAST UI's own (empty) toolbar takes no room. */
+.md-docs .toastui-editor-defaultUI-toolbar, .md-docs .toastui-editor-toolbar { display: none !important; }
+.md-docs .toastui-editor-defaultUI .toastui-editor-main { border-top: 0 !important; }

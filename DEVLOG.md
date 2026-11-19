@@ -269,6 +269,26 @@ the rope. It plays for less than a second, and politely sits out if your compute
 Building it, a safety check stopped one of the AI's own commands because it *might* have deleted something. It
 didn't. But it's nice to know someone's watching the AI too.
 
+## Day 26 — 3.0.5: the first real bench ✍️
+
+The Sandbox did its job. It proved that a bench can live in its own DLL and talk to the shell, and that its panels can
+go on holiday to another monitor. Now the first real bench has moved in: **Markdown**, the one this whole app started as.
+
+Moving it was a bit like moving house with a very fussy grandfather clock. The editor came over from 2.0 in one
+piece, along with all its old quirks and the rules it lives by. The most important rule is that **looking at a file
+never changes it**. Open a note in Visual view, glance at it, switch back, and your Markdown is exactly as you left
+it, down to the last asterisk. A file with raw HTML in it opens in Markdown view with a little note explaining why,
+so nothing gets "helpfully" rewritten.
+
+New in the new house: documents are tabs inside the bench, there's an Outline panel you can dock anywhere (or float
+onto that second monitor), and **unsaved work survives closing the app**. Close NoorMD with three half-written
+notes, open it tomorrow, and there they are, still unsaved and still yours. If another program changes a file
+while you're editing it, the bench asks before it replaces anything.
+
+The fun bug of the day: the editor had quietly taken over Ctrl+S (strikethrough!) and Ctrl+O (numbered list!).
+Press Save and your sentence got a line through it. The tests caught it before anyone else did, and the bench
+now gets those keys first.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -282,7 +302,7 @@ didn't. But it's nice to know someone's watching the AI too.
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: docking and floating windows next, then the Markdown and Music benches move in.
+**NoorMD 3.0**, piece by piece: the Music bench moves in next, then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

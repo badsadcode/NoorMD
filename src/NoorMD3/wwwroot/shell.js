@@ -119,9 +119,15 @@ function activate_(id) {
   save();
 }
 
-function closeBench(id) {
+async function closeBench(id, { force = false } = {}) {
   const inst = open.get(id);
   if (!inst) return;
+  // A bench may hold on (unsaved work): its canClose() answers, usually after asking the user.
+  if (!force && inst.mounted && inst.mounted.canClose) {
+    let ok = true;
+    try { ok = await inst.mounted.canClose(); } catch (e) { console.error(e); }
+    if (!ok || !open.has(id)) return;
+  }
   try { inst.mounted && inst.mounted.unmount && inst.mounted.unmount(); } catch (e) { console.error(e); }
   for (const p of inst.placed.values()) try { p.result && p.result.unmount && p.result.unmount(); } catch (e) { console.error(e); }
   inst.root.remove();
@@ -538,25 +544,34 @@ function benchCommand(cmd) {
   const run = local ? Promise.resolve().then(() => local()) : inst.ctx.call(cmd);
   run.catch((e) => toast(e.message, { error: true }));
 }
+/** A bench's menu called File, Edit or View joins the shell's menu of that name (its items first). */
+const SHARED_MENUS = ['File', 'Edit', 'View'];
+function benchItems(m, title) {
+  const mm = (m.menus || []).find((x) => x.title === title);
+  return mm ? [...mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-')), '-'] : [];
+}
+const claims = (keys) => SHORTCUTS().has(keys);
 function appMenus() {
   const inst = open.get(active), m = manifestOf(active) || HOME;
-  const edit = (c) => () => document.execCommand(c);
-  return [
-    ['File', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
-    ['Edit', () => [{ label: 'Undo', keys: 'Ctrl+Z', run: edit('undo') }, { label: 'Redo', keys: 'Ctrl+Y', run: edit('redo') }, '-', { label: 'Cut', keys: 'Ctrl+X', run: edit('cut') }, { label: 'Copy', keys: 'Ctrl+C', run: edit('copy') }, { label: 'Paste', keys: 'Ctrl+V', run: () => navigator.clipboard.readText().then((t) => document.execCommand('insertText', false, t)).catch(() => {}) }, { label: 'Select all', keys: 'Ctrl+A', run: edit('selectAll') }]],
-    ['View', () => [
+  // Undo and redo go to the bench when it has its own (an editor with its own history), else to the page.
+  const edit = (c) => () => { const own = inst && inst.mounted && inst.mounted.commands && inst.mounted.commands['edit.' + c]; if (own) own(); else document.execCommand(c); };
+  const menus = [
+    ['File', () => [...benchItems(m, 'File'), { label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
+    ['Edit', () => [...benchItems(m, 'Edit'), { label: 'Undo', keys: 'Ctrl+Z', run: edit('undo') }, { label: 'Redo', keys: 'Ctrl+Y', run: edit('redo') }, '-', { label: 'Cut', keys: 'Ctrl+X', run: edit('cut') }, { label: 'Copy', keys: 'Ctrl+C', run: edit('copy') }, { label: 'Paste', keys: 'Ctrl+V', run: () => navigator.clipboard.readText().then((t) => document.execCommand('insertText', false, t)).catch(() => {}) }, { label: 'Select all', keys: 'Ctrl+A', run: edit('selectAll') }]],
+    ['View', () => [...benchItems(m, 'View'),
       ...(m.panels.length ? [{ header: `Panels of ${m.name}` }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; })] : [{ header: 'No panels of its own' }]),
       ...(active === 'home' ? [] : (() => { const others = [...benches.values()].filter((b) => b.id !== m.id && (b.panels || []).length); return others.length ? ['-', { header: 'Panels from other benches' }, ...others.flatMap((b) => b.panels.map((p) => { const ref = refOf(b.id, p.id); return { label: `${p.icon}  ${p.title} (${b.name})`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; }))] : []; })()),
       '-', { label: 'Reset the layout', disabled: active === 'home', run: () => { inst.layout = normaliseLayout({ state: inst.layout.state }, m); renderDocks(inst); save(); } },
       { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
-    ...(m.menus || []).map((mm) => [mm.title, () => mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-'))]),
+    ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-'))]),
     ['Tools', () => [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
     ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
       { header: floats.length ? `Floating panels (${floats.length})` : 'Floating panels' }, ...floats.map((f) => { const sp = specOf(f.ref); return { label: `${sp ? sp.spec.icon + '  ' + sp.spec.title : f.ref} · dock it back`, run: () => dockBack(f) }; }),
       { label: 'Get over here!', keys: 'Ctrl+Shift+G', disabled: !floats.length, run: getOverHere }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
     ['Help', () => [{ label: 'About NoorMD', run: aboutDialog }]],
   ];
+  return menus;
 }
 let menuOpenIndex = -1;
 function renderMenus() {
@@ -591,7 +606,7 @@ function renderTabs() {
     const m = manifestOf(id);
     return el('button', { class: 'btab', role: 'tab', 'aria-selected': String(id === active), 'data-bench': id, title: `${m.name}${i < 9 ? ` (Ctrl+${i + 1})` : ''}`, onclick: () => { if (!tabDragEnded) activate_(id); }, onauxclick: (e) => { if (e.button === 1) closeBench(id); } },
       el('span', { class: 'ic', text: m.icon }), m.name,
-      el('span', { class: 'x', role: 'button', title: `Close ${m.name} (Ctrl+W)`, 'aria-label': `Close ${m.name}`, onclick: (e) => { e.stopPropagation(); closeBench(id); } }, '✕'));
+      el('span', { class: 'x', role: 'button', title: `Close ${m.name}`, 'aria-label': `Close ${m.name}`, onclick: (e) => { e.stopPropagation(); closeBench(id); } }, '✕'));
   });
   tabs.forEach((t) => t.addEventListener('pointerdown', (e) => startTabDrag(e, t.dataset.bench)));
   $('#benchtabs').replaceChildren(el('div', { role: 'tablist', style: { display: 'contents' } }, ...tabs), el('button', { class: 'btab add', title: 'Open a bench', 'aria-label': 'Open a bench', onclick: (e) => benchPicker(e.currentTarget) }, '＋'));
@@ -701,7 +716,7 @@ document.addEventListener('keydown', (e) => {
   const k = keyName(e);
   if (k === 'ctrl+,') { e.preventDefault(); settingsDialog(); }
   else if (k === 'ctrl+shift+h') { e.preventDefault(); openBench('home'); }
-  else if (k === 'ctrl+w') { e.preventDefault(); if (active) closeBench(active); }
+  else if (k === 'ctrl+shift+w' || (k === 'ctrl+w' && !claims('ctrl+w'))) { e.preventDefault(); if (active) closeBench(active); }
   else if (k === 'f11') { e.preventDefault(); toggleFocus(); }
   else if (k === 'f10') { e.preventDefault(); const b = document.querySelector('[data-menu="0"]'); if (b) toggleMainMenu(0, b); }
   else if (k === 'ctrl+tab') { e.preventDefault(); cycle(1); }
@@ -711,7 +726,8 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'ctrl+shift+pagedown') { e.preventDefault(); moveTab(1); }
   else if (/^ctrl\+[1-9]$/.test(k) && order[Number(k.slice(5)) - 1]) { e.preventDefault(); activate_(order[Number(k.slice(5)) - 1]); }
   else if (k === 'escape' && focusMode && !menuIsOpen()) { e.preventDefault(); toggleFocus(); }
-  else { const run = SHORTCUTS().get(k); if (run) { e.preventDefault(); run(); } }
+  // A key the bench's editor already handled (Ctrl+B in a text editor) isn't run a second time.
+  else if (!e.defaultPrevented) { const run = SHORTCUTS().get(k); if (run) { e.preventDefault(); run(); } }
 });
 document.addEventListener('contextmenu', (e) => { if (!e.target.closest('input, textarea, [contenteditable]')) e.preventDefault(); });
 $('#logo').addEventListener('click', () => openBench('home'));

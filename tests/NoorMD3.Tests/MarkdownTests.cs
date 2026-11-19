@@ -146,6 +146,20 @@ public sealed class MarkdownTests : IDisposable
         await Assert.ThrowsAsync<BenchException>(() => new MarkdownBench().HandleAsync("md.draft", J(new { doc = id, markdown = "x" }), host, default));
     }
 
+    [Theory]
+    [InlineData("bench.js")]
+    [InlineData("mdtools.js")]
+    [InlineData("bench.css")]
+    [InlineData("vendor/toastui/toastui-editor-all.min.js")]
+    [InlineData("vendor/toastui/toastui-editor.css")]
+    [InlineData("vendor/toastui/toastui-editor-dark.css")]
+    public void The_editor_ships_inside_the_DLL(string asset)
+    {
+        using var s = new MarkdownBench().OpenAsset(asset);
+        Assert.NotNull(s);
+        Assert.True(s!.Length > 100);
+    }
+
     [Fact]
     public void Only_markdown_and_text_files_open()
     {
