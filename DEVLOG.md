@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.14 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 2.0.0-preview.163 (19 November 2026) |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -463,6 +463,18 @@ left, right or bottom." The new player panel was told to stay out of the Music b
 something, and the page understood that, but the part of NoorMD that checks every bench at start didn't. All the
 tests had checked the page; none had asked that gatekeeper about the real benches. Now one does, every time.
 
+## Day 28, late — preview.163: home is where the menus are 🧭
+
+Then came the honest moment: "I stopped feeling the new design. I got used to 2.0." So 3.0 takes a break, and 2.0,
+the one with twenty benches and all the little habits, is the app again. Only tidier.
+
+First job: the menus. The Tools menu had quietly grown into a list of seventeen benches, Media mixed music with video
+and streaming, and View said things like "Toggle compact layout". Now every bench has its own home in a new
+**Benches** menu (grouped: media, writing, pictures, 3D, sound), its long description shows when you hover, Media
+keeps music up top with Video, Radio and Stream in their own little submenus, the tab commands moved to File, and
+everything with a tick just says what it shows: Toolbar, Sidebar, Mini player. Same commands, same shortcuts, fewer
+places to look. All 2,284 checks agree. 🧹
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -476,7 +488,8 @@ tests had checked the page; none had asked that gatekeeper about the real benche
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the bigger player window, Send to between benches and the command palette next.
+**NoorMD 2.0, tidier:** a consistency pass (the same buttons, dialogs and words everywhere), 3.0's music fixes brought
+home (scans that never stop early, a progress bar, undo that keeps every artist), and then benches as DLLs.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

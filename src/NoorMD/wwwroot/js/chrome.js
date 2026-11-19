@@ -231,20 +231,26 @@ window.NoorChrome = (() => {
 
   // ---------------------------------------------------------------- menus
 
+  // One layout for every menu: what you make or open first, then saving and sharing, then the rest; checkable items
+  // (✓) say plainly what they show ("Sidebar", not "Toggle sidebar"); a bench's menu item is its short name, and its
+  // longer description is the tooltip. Ids and shortcuts are the commands' own (app.js).
+  const B = (id, label) => ({ id, label, title: true });   // a bench: short name in the menu, description on hover
   const MENUS = [
     ['File', 'f', () => [
-      { id: 'doc.new' }, { id: 'doc.open' }, { id: 'vault.open' }, { label: 'Open recent', sub: recentItems }, '-',
+      { id: 'doc.new', label: 'New document' }, { id: 'tab.new', label: 'New tab' }, { id: 'doc.open', label: 'Open…' }, { label: 'Open recent', sub: recentItems }, '-',
       { id: 'doc.save' }, { id: 'doc.saveAs' }, { id: 'doc.saveAll' }, '-',
-      { label: 'Export', sub: () => [{ id: 'export.markdown' }, { id: 'export.html' }, { id: 'export.pdf' }] }, { id: 'print' }, '-',
-      { id: 'doc.reload' }, { id: 'doc.reveal' }, { id: 'tab.close' }, { id: 'app.newWindow' }, '-', { id: 'app.exit' },
+      { label: 'Export', sub: () => [{ id: 'export.markdown', label: 'Markdown copy…' }, { id: 'export.html', label: 'HTML…' }, { id: 'export.pdf', label: 'PDF…' }] }, { id: 'print' }, '-',
+      { id: 'recovery.show' }, { id: 'doc.reload' }, { id: 'doc.reveal' }, { id: 'tab.copyPath' }, '-',
+      { id: 'tab.switch' }, { id: 'tab.pin' }, { id: 'tab.close' }, { id: 'tab.closeOthers' }, { id: 'tab.closeRight' }, { id: 'session.restore' }, '-',
+      { id: 'app.newWindow' }, { id: 'app.exit' },
     ]],
     ['Edit', 'e', () => [
       { id: 'edit.undo' }, { id: 'edit.redo' }, '-', { id: 'edit.cut' }, { id: 'edit.copy' }, { id: 'edit.paste' }, { id: 'edit.selectAll' }, '-',
-      { id: 'find.show' }, { id: 'find.replace' }, { id: 'vault.search' }, '-', { id: 'source.copy' }, { id: 'spell.toggle' }, '-', { id: 'prefs.show' },
+      { id: 'find.show' }, { id: 'find.replace' }, { id: 'vault.search' }, '-', { id: 'source.copy' }, { id: 'spell.toggle', label: 'Spellcheck' }, '-', { id: 'prefs.show', label: 'Preferences…' },
     ]],
     ['Insert', 'i', () => [
-      { id: 'insert.link' }, { id: 'insert.image' }, { id: 'insert.table' }, { id: 'insert.codeblock' }, { id: 'insert.hr' }, { id: 'fmt.task' }, '-',
-      { id: 'vault.insertLink' }, { label: 'Sketch (opens NoorSketch)', run: () => api.run('sketch.new') }, '-', { id: 'cal.fromText' },
+      { id: 'insert.link', label: 'Link…' }, { id: 'vault.insertLink' }, { id: 'insert.image', label: 'Image…' }, { id: 'insert.table', label: 'Table…' }, { id: 'insert.codeblock', label: 'Code block' }, { id: 'insert.hr', label: 'Horizontal rule' }, { id: 'fmt.task' }, '-',
+      { label: 'Sketch (opens NoorSketch)', run: () => api.run('sketch.new') }, { id: 'cal.fromText' },
     ]],
     ['Format', 'o', () => [
       { id: 'heading.0' }, { id: 'heading.1' }, { id: 'heading.2' }, { id: 'heading.3' }, { label: 'More headings', sub: () => [{ id: 'heading.4' }, { id: 'heading.5' }, { id: 'heading.6' }] }, '-',
@@ -252,32 +258,44 @@ window.NoorChrome = (() => {
       { id: 'fmt.quote' }, { id: 'fmt.ul' }, { id: 'fmt.ol' }, { id: 'fmt.task' }, { id: 'fmt.indent' }, { id: 'fmt.outdent' },
     ]],
     ['View', 'v', () => [
-      { id: 'view.toolbar' }, { id: 'view.sidebar' }, { id: 'music.toggle' }, { id: 'music.mini' }, '-',
+      { id: 'view.toolbar', label: 'Toolbar' }, { id: 'view.sidebar', label: 'Sidebar' }, { id: 'view.sidebarRight' }, { id: 'music.mini', label: 'Mini player' }, '-',
       { id: 'view.visual' }, { id: 'view.markdown' }, { id: 'view.split' }, '-',
-      { id: 'view.focus' }, { id: 'layout.compact' },
+      { id: 'view.focus', label: 'Focus mode' }, { id: 'layout.compact', label: 'Compact layout' }, '-',
       { label: 'Layout', sub: () => [
         ...NoorDock.PRESETS.map((p) => ({ label: p.name, title: p.description, run: () => NoorDock.applyPreset(p.id) })), '-',
-        { id: 'layout.show' }, { id: 'layout.save' }, '-', { id: 'view.sidebarRight' },
+        { id: 'layout.show' }, { id: 'layout.save' },
       ] },
-      { label: 'Line width', sub: () => [{ id: 'width.comfortable' }, { id: 'width.wide' }, { id: 'width.full' }] },
-      { label: 'Zoom', sub: () => [{ id: 'font.bigger' }, { id: 'font.smaller' }, { id: 'font.reset' }] },
-      { label: 'Markdown source', sub: () => [{ id: 'source.lineNumbers' }, { id: 'source.wrap' }, { id: 'source.sync' }] }, '-',
-      { id: 'theme.pick' }, { id: 'theme.next' }, '-', { id: 'toolbar.customize' },
+      { label: 'Line width', sub: () => [{ id: 'width.comfortable', label: 'Comfortable' }, { id: 'width.wide', label: 'Wide' }, { id: 'width.full', label: 'Full width' }, '-', { id: 'width.cycle', label: 'Next' }] },
+      { label: 'Zoom', sub: () => [{ id: 'font.bigger', label: 'Bigger text' }, { id: 'font.smaller', label: 'Smaller text' }, { id: 'font.reset', label: 'Normal size' }] },
+      { label: 'Markdown source', sub: () => [{ id: 'source.lineNumbers', label: 'Line numbers' }, { id: 'source.wrap', label: 'Word wrap' }, { id: 'source.sync', label: 'Synchronised scrolling (Split)' }] }, '-',
+      { label: 'Theme', sub: () => [{ id: 'theme.pick', label: 'Choose a theme…' }, { id: 'theme.next', label: 'Next theme' }] }, { id: 'toolbar.customize' },
     ]],
-    ['Workspace', 'w', () => [
-      { id: 'vault.open' }, { id: 'vault.create' }, { label: 'Recent vaults', sub: () => api.recentVaults() }, { id: 'vault.close' }, { id: 'vault.reveal' }, { id: 'vault.addPreset' }, '-',
-      { id: 'vault.explorer' }, { id: 'vault.tags' }, { id: 'vault.search' }, { id: 'tab.switch' }, { id: 'vault.backlinks' }, { id: 'vault.refresh' }, '-',
-      { id: 'vault.pack' }, '-', { id: 'tab.closeOthers' }, { id: 'tab.pin' }, { id: 'recovery.show' }, { id: 'session.restore' },
+    ['Vault', 'a', () => [
+      { id: 'vault.open' }, { id: 'vault.create' }, { label: 'Recent vaults', sub: () => api.recentVaults() }, { id: 'vault.close' }, '-',
+      { id: 'vault.explorer', label: 'Explorer' }, { id: 'vault.tags', label: 'Tags' }, { id: 'vault.backlinks', label: 'Notes linking here' }, { id: 'vault.search' }, '-',
+      { id: 'vault.pack' }, { id: 'vault.addPreset' }, { id: 'vault.reveal' }, { id: 'vault.refresh' }, { id: 'vault.settings' },
     ]],
     ['Media', 'm', () => [
-      { id: 'music.toggle' }, { id: 'video.toggle' }, { id: 'stream.toggle' }, { label: 'Stream', sub: () => [{ id: 'stream.nowplaying' }, { id: 'stream.credits' }, { id: 'stream.supporters' }, { id: 'stream.log' }] }, '-', { id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }, { id: 'video.addFolder' }, '-',
-      { id: 'music.play' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random' }, '-', { id: 'music.shuffle' }, { id: 'music.repeat' }, '-',
-      { id: 'music.edit' }, { id: 'music.batch' }, { id: 'music.undo' }, '-', { id: 'music.sound' }, { id: 'music.smart' },
-      { label: 'Triage current track', sub: () => [{ id: 'music.fav' }, { id: 'music.keep' }, { id: 'music.maybe' }, { id: 'music.skip' }, { id: 'music.clearTriage' }] },
+      B('music.toggle', 'NoorMusic'), '-',
+      { id: 'music.play', label: 'Play / pause' }, { id: 'music.next' }, { id: 'music.prev' }, { id: 'music.random', label: 'A random track' }, { id: 'music.shuffle' }, { id: 'music.repeat', label: 'Repeat (off / all / one)' }, '-',
+      { label: 'Mark the playing track', sub: () => [{ id: 'music.fav', label: '★ Favourite' }, { id: 'music.keep', label: '✓ Keep' }, { id: 'music.maybe', label: '? Maybe' }, { id: 'music.skip', label: '✕ Skip' }, '-', { id: 'music.clearTriage', label: 'Take the mark off' }] },
+      { id: 'music.edit', label: 'Edit the playing track…' }, { id: 'music.batch' }, { id: 'music.undo' }, '-',
+      { id: 'music.sound' }, { id: 'music.smart' }, { label: 'Music library', sub: () => [{ id: 'music.addFolder' }, { id: 'music.folders' }, { id: 'music.import' }] }, '-',
+      { label: 'Video', sub: () => [B('video.toggle', 'NoorVideo'), { id: 'video.addFolder' }] },
+      { label: 'Radio', sub: () => [B('radio.toggle', 'NoorRadio'), { id: 'radio.playpause', label: 'Play / stop' }, { id: 'radio.find', label: 'Find stations online…' }] },
+      { label: 'Stream', sub: () => [B('stream.toggle', 'NoorStream'), '-', { id: 'stream.nowplaying' }, { id: 'stream.credits' }, { id: 'stream.supporters' }, { id: 'stream.log' }, '-', { id: 'mic.toggle' }, { id: 'mic.settings' }] },
+    ]],
+    // Every bench, by what it's for: its short name here, what it does on hover.
+    ['Benches', 'b', () => [
+      B('music.toggle', 'NoorMusic'), B('video.toggle', 'NoorVideo'), B('radio.toggle', 'NoorRadio'), B('gallery.toggle', 'NoorGallery'), B('stream.toggle', 'NoorStream'), '-',
+      B('cal.toggle', 'NoorCalendar'), B('voice.toggle', 'NoorVoice'), { label: 'NoorSketch', sub: () => [{ id: 'sketch.new', label: 'New sketch' }, { id: 'sketch.open', label: 'Open a sketch…' }] }, B('apps.toggle', 'NoorHub'), '-',
+      B('photo.toggle', 'NoorPhoto'), B('ink.toggle', 'NoorInk'), B('sprite.toggle', 'NoorSprite'), '-',
+      B('mesh.toggle', 'NoorMesh'), B('forge.toggle', 'NoorForge'), B('texture.toggle', 'NoorMaterial'), B('assets.toggle', 'NoorForm'), '-',
+      B('sound.toggle', 'NoorSound'), B('seq.toggle', 'NoorSequencer'),
     ]],
     ['Tools', 't', () => [
-      { id: 'palette.show' }, { id: 'stats.show' }, { id: 'goal.set' }, '-', { id: 'snapshot.create' }, { id: 'history.show' }, '-',
-      { label: 'NoorSketch', sub: () => [{ id: 'sketch.new' }, { id: 'sketch.open' }] }, { id: 'apps.toggle' }, { id: 'radio.toggle' }, { id: 'sound.toggle' }, { id: 'texture.toggle' }, { id: 'seq.toggle' }, { id: 'assets.toggle' }, { id: 'forge.toggle' }, { id: 'sprite.toggle' }, { id: 'photo.toggle' }, { id: 'ink.toggle' }, { id: 'mesh.toggle' }, { id: 'cal.toggle' }, { id: 'gallery.toggle' }, { id: 'gallery.slideshow' }, { id: 'voice.toggle' }, { id: 'voice.record' },
+      { id: 'palette.show' }, '-', { id: 'stats.show' }, { id: 'goal.set', label: 'Writing goal…' }, '-', { id: 'snapshot.create', label: 'Save a snapshot' }, { id: 'history.show', label: 'Snapshots…' }, '-',
+      { id: 'voice.record' }, { id: 'gallery.slideshow' },
     ]],
     ['Help', 'h', () => [
       { id: 'shortcuts.show' }, { id: 'help.guide' }, '-', { id: 'help.diagnostics' }, { id: 'help.repo' }, { id: 'about.show' },
@@ -392,7 +410,7 @@ window.NoorChrome = (() => {
       const checkable = st.checked !== undefined && st.checked !== null;
       const b = el('button', {
         class: 'menu-item' + (it.sub ? ' has-sub' : ''), role: checkable ? 'menuitemcheckbox' : 'menuitem', tabindex: '-1',
-        'aria-checked': checkable ? String(!!st.checked) : null, disabled: it.disabled === true || st.enabled === false || undefined, title: it.title || null, 'data-cmd-id': it.id || null,
+        'aria-checked': checkable ? String(!!st.checked) : null, disabled: it.disabled === true || st.enabled === false || undefined, title: it.title === true ? (c ? c.label : null) : it.title || null, 'data-cmd-id': it.id || null,
       }, el('span', { class: 'menu-check', 'aria-hidden': 'true', text: checkable && st.checked ? '✓' : '' }), el('span', { class: 'menu-label', text: label }),
       el('span', { class: 'menu-keys', text: it.sub ? '▸' : keys }));
       if (it.sub) {

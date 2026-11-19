@@ -1013,7 +1013,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       const { page, errors } = await open(browser, url, { document: { markdown: '# Plan\n\nPlain words here.\n', path: 'C:\\docs\\plan.md', fileName: 'plan.md', title: 'plan' }, musicTracks: 4 });
       const md = () => page.evaluate(() => window.NoorMD.getState().markdown);
       const titles = await page.$$eval('#menubar .menu-title', (n) => n.map((x) => x.textContent));
-      check('menu bar has File, Edit, Insert, Format, View, Workspace, Media, Tools, Help', titles.join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help', titles);
+      check('menu bar has File, Edit, Insert, Format, View, Vault, Media, Benches, Tools, Help', titles.join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help', titles);
       await page.click('#editor .doc-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p');
       await page.keyboard.press('Alt+f');
       await page.waitForSelector('.menu-popup');
@@ -1050,7 +1050,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Insert table via dialog
       await page.keyboard.press('Control+End');
       await page.click('#menubar .menu-title[data-menu="2"]');
-      await page.click('.menu-popup .menu-item:has-text("Insert table")');
+      await page.click('.menu-popup .menu-item:has-text("Table…")');
       await page.fill('#table-rows', '2');
       await page.fill('#table-cols', '4');
       await page.keyboard.press('Enter');
@@ -1069,12 +1069,12 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
 
       // Hide / show toolbar from the View menu (setting persisted).
       await page.click('#menubar .menu-title[data-menu="4"]');
-      await page.click('.menu-popup .menu-item:has-text("Show toolbar")');
+      await page.click('.menu-popup .menu-item:has(.menu-label:text-is("Toolbar"))');
       await page.waitForTimeout(80);
-      check('View → Show toolbar hides it and the setting is saved', !(await page.isVisible('#toolbar')) && await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.showToolbar === false)));
+      check('View → Toolbar hides it and the setting is saved', !(await page.isVisible('#toolbar')) && await page.evaluate(() => window.__mock.log.some((m) => m.type === 'prefs.set' && m.payload.showToolbar === false)));
       await page.click('#menubar .menu-title[data-menu="4"]');
-      check('the menu item shows it unchecked', (await page.getAttribute('.menu-popup .menu-item:has-text("Show toolbar")', 'aria-checked')) === 'false');
-      await page.click('.menu-popup .menu-item:has-text("Show toolbar")');
+      check('the menu item shows it unchecked', (await page.getAttribute('.menu-popup .menu-item:has(.menu-label:text-is("Toolbar"))', 'aria-checked')) === 'false');
+      await page.click('.menu-popup .menu-item:has(.menu-label:text-is("Toolbar"))');
       check('…and brings it back', await page.isVisible('#toolbar'));
       // Customize: labels + hide a group
       await page.evaluate(() => window.NoorMD.runCommand('toolbar.customize'));
@@ -1335,7 +1335,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Cancel: no archive, form comes back.
       await page.evaluate(() => window.NoorMD.runCommand('vault.pack'));
       await page.waitForSelector('.pack-summary strong');
-      check('Workspace → Pack & Share offers the explorer selection or the whole Vault', await page.isVisible('#pk-scope-selection') && await page.isVisible('#pk-scope-vault'));
+      check('Vault → Pack & Share offers the explorer selection or the whole Vault', await page.isVisible('#pk-scope-selection') && await page.isVisible('#pk-scope-vault'));
       await page.check('#pk-scope-vault');
       await waitFn(page, () => window.__mock.state.vault.lastPlanRequest.paths.length === 0);
       await page.evaluate(() => { window.__mock.state.vault.packed = false; window.__mock.state.vault.packDelay = 1500; });
@@ -1515,7 +1515,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await waitFn(page, () => document.querySelector('#toolbar [data-cmd-id="music.shuffle"]')?.getAttribute('aria-pressed') === 'true', null, { timeout: 2000 }).catch(() => {});
       check('the toolbar Shuffle button shows the same state', (await page.getAttribute('#toolbar [data-cmd-id="music.shuffle"]', 'aria-pressed')) === 'true');
       await page.click('#menubar .menu-title[data-menu="6"]');
-      check('Media menu shows Shuffle checked and has “Jump to a random track”', (await page.getAttribute('.menu-popup .menu-item:has-text("Shuffle")', 'aria-checked')) === 'true' && (await page.textContent('.menu-popup')).includes('Jump to a random track'));
+      check('Media menu shows Shuffle checked and has “A random track”', (await page.getAttribute('.menu-popup .menu-item:has-text("Shuffle")', 'aria-checked')) === 'true' && (await page.textContent('.menu-popup')).includes('A random track'));
       await page.keyboard.press('Escape');
       const seen = new Set();
       // Random: keep clicking until every track has come up (each pick is 1 of 3, so 12 tries alone can miss one by chance).
@@ -6952,7 +6952,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+p');
       await waitFn(page, () => NoorSprite.isOpen() && NoorSprite._state());
       check('(NoorSprite in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sprite');
-      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
       check('F11: NoorSprite as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sprite,Layer,Frame,Palette,View,Tools,Help' && await page.isVisible('#menubar'));
@@ -6996,7 +6996,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorSprite still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSprite.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorSprite still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSprite.isOpen())));
       check('no page errors with NoorSprite as an app', errors.length === 0, errors);
       await page.close();
     }
@@ -7056,7 +7056,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorForm still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorAssets.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorForm still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorAssets.isOpen())));
       check('no page errors with NoorForm as an app', errors.length === 0, errors);
       await page.close();
     }
@@ -7072,7 +7072,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#soundbench:not([hidden]) #sb-pane .sb-macro');
       await waitFn(page, () => NoorSound._state().render !== null);
       check('(NoorSound in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sound');
-      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
       check('F11: NoorSound as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Sound,Play,View,Help' && await page.isVisible('#menubar'));
@@ -7129,7 +7129,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorSound still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSound.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorSound still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSound.isOpen())));
       check('no page errors with NoorSound as an app', errors.length === 0, errors);
       await page.close();
     }
@@ -7199,7 +7199,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorForge still open', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorForge.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorForge still open', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorForge.isOpen())));
       await page.evaluate(() => { try { localStorage.removeItem('noormd.forge.layout'); } catch { /* */ } });
       check('no page errors with NoorForge as an app', errors.length === 0, errors);
       await page.close();
@@ -7215,7 +7215,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.keyboard.press('Control+Alt+q');
       await waitFn(page, () => NoorSequencer.isOpen() && NoorSequencer._state().song && NoorSequencer._state().song.name === 'Cozy exploration');
       check('(NoorSequencer in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'sequencer');
-      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
       check('F11: NoorSequencer as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Song,Track,Pattern,Transport,View,Help' && await page.isVisible('#menubar'));
@@ -7260,7 +7260,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorSequencer still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSequencer.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorSequencer still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorSequencer.isOpen())));
       await page.evaluate(() => { try { ['noormd.seq.loop', 'noorsequencer.settings'].forEach((k) => localStorage.removeItem(k)); } catch { /* */ } });
       check('no page errors with NoorSequencer as an app', errors.length === 0, errors);
       await page.close();
@@ -7277,7 +7277,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       await page.waitForSelector('#texturebench:not([hidden]) .sb-layer');
       await waitFn(page, () => NoorTexture._state().render !== null);
       check('(NoorMaterial in the middle)', (await page.evaluate(() => NoorDock.centerActive())) === 'texture');
-      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help');
+      check('out of focus mode the menu bar is NoorMD\'s', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help');
       await page.keyboard.press('F11');
       await waitFn(page, () => document.body.classList.contains('bench-app'));
       check('F11: NoorMaterial as an app — its own menus at the top of the window', (await titles()).join() === 'File,Edit,Material,Layer,View,Help' && await page.isVisible('#menubar'));
@@ -7323,7 +7323,7 @@ const msgs = (page, type) => page.evaluate((t) => window.__mock.log.filter((m) =
       // Out of focus mode: NoorMD as it was.
       await page.keyboard.press('F11');
       await waitFn(page, () => !document.body.classList.contains('bench-app'));
-      check('F11 again: NoorMD\'s own menu bar back, NoorMaterial still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Workspace,Media,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
+      check('F11 again: NoorMD\'s own menu bar back, NoorMaterial still open in the middle', (await titles()).join() === 'File,Edit,Insert,Format,View,Vault,Media,Benches,Tools,Help' && !(await page.isVisible('#bench-title')) && (await page.evaluate(() => NoorTexture.isOpen())));
       check('no page errors with NoorMaterial as an app', errors.length === 0, errors);
       await page.close();
     }

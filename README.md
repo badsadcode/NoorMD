@@ -11,7 +11,11 @@ web services.
 grew twenty benches in nineteen days. What's being
 polished next is in the [polish plan](docs/POLISH_PLAN.md).
 
-## NoorMD 3.0 (being built)
+## NoorMD 3.0 (paused)
+
+**NoorMD 2.0 is the app again.** 3.0 (benches as separate DLLs, a new window) is paused: 2.0 gets tidier and more
+consistent instead, starting with its menus, and will learn to load benches from DLLs. What 3.0 built (the bench
+contract, the music fixes) moves over. The notes below describe 3.0 as it stands.
 
 NoorMD 3.0 is the next version, being built beside this one: one window with benches as tabs, a main menu that
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
@@ -65,7 +69,7 @@ Until a bench has moved to 3.0, use it in 2.0, described below.
 
 ## Download and run
 
-1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.162 at the time of writing). Use the build attached to the GitHub Actions
+1. Get the newest `NoorMD-2.0.0-preview.N-win-x64-portable.zip` (preview.163 at the time of writing). Use the build attached to the GitHub Actions
    run (artifact **NoorMD-win-x64**), or build it yourself (see below).
 2. Extract the zip to any folder, for example `C:\Tools\NoorMD`. Do not run it from inside
    the zip.
