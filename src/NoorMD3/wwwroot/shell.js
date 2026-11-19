@@ -165,6 +165,13 @@ document.addEventListener('drop', (e) => {
   if (host && typeof host.postMessageWithAdditionalObjects === 'function') host.postMessageWithAdditionalObjects({ target: 'window', cmd: 'files.dropped' }, e.dataTransfer.files);
 });
 
+/** The print area: when the page prints (or becomes a PDF), only this shows. */
+function setPrintContent(html) {
+  let root = document.getElementById('print-root');
+  if (!root) { root = el('div', { id: 'print-root' }); document.body.append(root); }
+  root.innerHTML = html;
+}
+
 // ---------------------------------------------------------------- a bench's context: what its module may use
 function makeContext(id, inst) {
   const styles = new Set();
@@ -189,6 +196,10 @@ function makeContext(id, inst) {
     keep(key, value) { inst.layout.state[key] = value; if (floatId) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
+    /** What the page prints (and a PDF shows): this HTML instead of the window. */
+    setPrintContent(html) { setPrintContent(html); },
+    /** Prints this HTML (the system's print dialog). */
+    print(html) { setPrintContent(html); windowCall('print'); },
     /** A dialog in the shell's style; resolves with the chosen button's value. */
     dialog: (title, body, buttons) => dialog(title, body, buttons),
   };
@@ -561,7 +572,7 @@ function benchCommand(cmd) {
   run.catch((e) => toast(e.message, { error: true }));
 }
 /** A bench's menu called File, Edit or View joins the shell's menu of that name (its items first). */
-const SHARED_MENUS = ['File', 'Edit', 'View'];
+const SHARED_MENUS = ['File', 'Edit', 'View', 'Tools', 'Help'];
 /** A bench menu item for the shell's menus; its module may tick it (checked(command) → true / false). */
 function benchItem(it) {
   if (!it.command) return '-';
@@ -588,11 +599,11 @@ function appMenus() {
       { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
     ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map(benchItem)]),
-    ['Tools', () => [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
+    ['Tools', () => [...benchItems(m, 'Tools'), { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
     ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
       { header: floats.length ? `Floating panels (${floats.length})` : 'Floating panels' }, ...floats.map((f) => { const sp = specOf(f.ref); return { label: `${sp ? sp.spec.icon + '  ' + sp.spec.title : f.ref} · dock it back`, run: () => dockBack(f) }; }),
       { label: 'Get over here!', keys: 'Ctrl+Shift+G', disabled: !floats.length, run: getOverHere }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
-    ['Help', () => [{ label: 'About NoorMD', run: aboutDialog }]],
+    ['Help', () => [...benchItems(m, 'Help'), { label: 'About NoorMD', run: aboutDialog }]],
   ];
   return menus;
 }

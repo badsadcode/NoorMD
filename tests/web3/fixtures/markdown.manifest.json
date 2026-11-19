@@ -3,7 +3,7 @@
   "name": "Markdown",
   "icon": "\u270E",
   "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-  "version": "3.0.6",
+  "version": "3.0.7",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",
@@ -44,6 +44,36 @@
         {
           "label": "Save all",
           "command": "md.saveAll",
+          "keys": null
+        },
+        {
+          "label": "Take a snapshot",
+          "command": "md.snap",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Export HTML\u2026",
+          "command": "md.exportHtml",
+          "keys": null
+        },
+        {
+          "label": "Export PDF\u2026",
+          "command": "md.exportPdf",
+          "keys": null
+        },
+        {
+          "label": "Print\u2026",
+          "command": "md.print",
+          "keys": null
+        },
+        {
+          "label": "Copy the Markdown",
+          "command": "md.copy",
           "keys": null
         },
         {
@@ -189,6 +219,31 @@
       ]
     },
     {
+      "title": "Tools",
+      "items": [
+        {
+          "label": "Writing goal\u2026",
+          "command": "md.goal",
+          "keys": null
+        },
+        {
+          "label": "Markdown settings\u2026",
+          "command": "md.settings",
+          "keys": null
+        }
+      ]
+    },
+    {
+      "title": "Help",
+      "items": [
+        {
+          "label": "The Markdown welcome document",
+          "command": "md.welcome",
+          "keys": null
+        }
+      ]
+    },
+    {
       "title": "Format",
       "items": [
         {
@@ -320,6 +375,18 @@
       "title": "Outline",
       "icon": "\u2630",
       "dock": "left"
+    },
+    {
+      "id": "stats",
+      "title": "Statistics",
+      "icon": "\u2211",
+      "dock": "right"
+    },
+    {
+      "id": "history",
+      "title": "History",
+      "icon": "\u27F2",
+      "dock": "right"
     }
   ],
   "fileTypes": [

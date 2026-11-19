@@ -94,6 +94,19 @@ function visualRoundTrip(md) {
   }
 }
 
+const SANITIZE = {
+  FORBID_TAGS: ['style', 'script', 'iframe', 'frame', 'object', 'embed', 'form', 'input', 'button', 'textarea', 'select', 'link', 'meta', 'base'],
+  FORBID_ATTR: ['contenteditable', 'srcset'],
+  ALLOW_DATA_ATTR: false,
+};
+
+/** HTML for export and print, sanitised: Markdown-embedded HTML is never trusted. */
+function renderSafe(md) {
+  const raw = renderRaw(md);
+  if (!window.DOMPurify) return '<pre>' + escapeHtml(md) + '</pre>';
+  return window.DOMPurify.sanitize(raw, SANITIZE);
+}
+
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
@@ -165,4 +178,4 @@ function unescapeWikiLinks(text) {
   return out;
 }
 
-export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml };
+export { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, escapeHtml, renderSafe };

@@ -47,6 +47,10 @@ public interface IBenchHost
     Task<IReadOnlyList<string>> PickFilesAsync(string title, IReadOnlyList<FileFilter> filters, bool multiple = false) =>
         Task.FromResult<IReadOnlyList<string>>([]);
 
+    /// <summary>Saves the bench's window page as a PDF, as it prints: the page shows only what it put in the shell's print
+    /// area (<c>ctx.setPrintContent</c>). Asks where to save; returns the path, or null when cancelled.</summary>
+    Task<string?> SavePageAsPdfAsync(string suggestedName) => Task.FromResult<string?>(null);
+
     /// <summary>Asks the user where to save; null means they cancelled.</summary>
     Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<FileFilter> filters) =>
         Task.FromResult<string?>(null);

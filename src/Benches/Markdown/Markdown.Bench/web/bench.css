@@ -1,3 +1,4 @@
+@import url('vendor/inter/inter.css');
 /* The Markdown bench. Colours come from the shell's theme tokens, so every theme dresses the editor. */
 .md-bench {
   --measure: 780px; --split: 50%; --gutter: 0px;
@@ -200,3 +201,29 @@
 .md-bench.no-spellcheck ::spelling-error, .md-bench.no-spellcheck ::grammar-error { text-decoration: none; }
 .md-bench.resizing { cursor: col-resize; user-select: none; }
 .md-bench.resizing .toastui-editor-md-preview { pointer-events: none; }
+
+/* Statistics and the writing goal */
+.md-stats, .md-history { padding: var(--space-2); overflow: auto; height: 100%; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; }
+.md-stats .doc, .md-history .doc { color: var(--muted); font-size: 12px; padding: 2px 4px 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-stats .none, .md-history .none { color: var(--muted); padding: var(--space-3) 4px; }
+.md-goal { display: grid; gap: 6px; padding: 8px; margin-bottom: 6px; border: 1px solid var(--border); border-radius: var(--r2); background: var(--surface); }
+.md-goal-text .pct { color: var(--muted); }
+.md-goal-bar { height: 6px; border-radius: 99px; background: var(--surface2); overflow: hidden; }
+.md-goal-bar .fill { height: 100%; background: var(--accent); border-radius: 99px; transition: width .3s; }
+.md-goal .nui-btn { justify-self: start; height: calc(var(--ctl) - 4px); }
+
+/* History (snapshots) */
+.md-snap-take { align-self: flex-start; }
+.md-snap-hint { font-size: 12px; margin: 4px 0 8px; }
+.md-snap { display: flex; align-items: center; gap: 2px; border-radius: var(--r2); }
+.md-snap:hover { background: var(--hover); }
+.md-snap-main { flex: 1; min-width: 0; display: grid; text-align: left; padding: 6px 8px; }
+.md-snap-main .l { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-snap-main .m { color: var(--muted); font-size: 12px; }
+.md-snap-preview { max-height: 55vh; overflow: auto; min-width: min(640px, 80vw); padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--r2); background: var(--surface); }
+
+/* Settings */
+.md-settings { display: grid; gap: 10px; min-width: min(440px, 80vw); }
+.md-setting { display: grid; grid-template-columns: 1fr 200px; align-items: center; gap: 12px; }
+.md-setting.check { grid-template-columns: auto 1fr; }
+.md-stats > *, .md-history > * { flex: none; }

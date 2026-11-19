@@ -17,7 +17,9 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.6** (the newest): the Markdown bench catches up with 2.0: the formatting bar, find and replace, text size
+- **3.0.7** (the newest): the rest of 2.0's editor: a Statistics panel with a writing goal, History (snapshots),
+  export to HTML and PDF, print, Markdown settings, and a welcome document. The Vault bench is next.
+- **3.0.6**: the Markdown bench catches up with 2.0: the formatting bar, find and replace, text size
   and line width, line numbers, files dropped on the window, the tab menu, and a heads-up when another program
   changes your file.
 - **3.0.5**: the Markdown bench, the first real one: documents as tabs, Visual / Markdown / side by

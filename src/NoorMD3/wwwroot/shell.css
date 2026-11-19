@@ -137,3 +137,24 @@ body.floating .wintitle { justify-content: flex-start; }
 .hook-card { position: fixed; left: 0; top: 0; z-index: 1301; pointer-events: none; padding: 4px 10px; border-radius: var(--r2); background: var(--panel); border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; opacity: 0; }
 .ptab.hooked, .btab.hooked { animation: hooked .7s ease-out; }
 @keyframes hooked { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }
+
+/* ---------------------------------------------------------------- printing: only the print area (ctx.setPrintContent) */
+#print-root { display: none; }
+@media print {
+  @page { margin: 18mm 16mm; }
+  html, body { background: #fff !important; color: #232737 !important; height: auto !important; overflow: visible !important; }
+  body > :not(#print-root) { display: none !important; }
+  #print-root { display: block; font: 11.5pt/1.65 "Segoe UI", system-ui, sans-serif; color: #232737; }
+  #print-root h1, #print-root h2, #print-root h3, #print-root h4 { line-height: 1.25; break-after: avoid; }
+  #print-root h1, #print-root h2 { border-bottom: 1px solid #e3e5ec; padding-bottom: .2em; }
+  #print-root a { color: #5b3fc4; }
+  #print-root img { max-width: 100%; }
+  #print-root pre, #print-root code { font-family: "Cascadia Code", Consolas, monospace; background: #f3f4f8; border-radius: 4px; }
+  #print-root code { padding: .1em .3em; font-size: .92em; }
+  #print-root pre { padding: 12px 14px; white-space: pre-wrap; break-inside: avoid; }
+  #print-root pre code { padding: 0; background: none; }
+  #print-root blockquote { border-left: 4px solid #917adf; margin-left: 0; padding: .1em 0 .1em 16px; color: #555; }
+  #print-root table { border-collapse: collapse; width: 100%; break-inside: avoid; }
+  #print-root td, #print-root th { border: 1px solid #dde0e8; padding: 6px 9px; text-align: left; }
+  #print-root th { background: #f6f7fa; }
+}

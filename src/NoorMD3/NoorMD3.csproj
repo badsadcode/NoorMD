@@ -9,7 +9,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>NoorMD3</RootNamespace>
     <AssemblyName>NoorMD3</AssemblyName>
-    <Version>3.0.6</Version>
+    <Version>3.0.7</Version>
     <Product>NoorMD</Product>
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
@@ -31,7 +31,7 @@
     <Content Include="wwwroot\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\Noor.UI\css\**\*" Link="wwwroot\ui\css\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <!-- Third-party notices for what the benches carry inside them (the Markdown bench: TOAST UI Editor, ProseMirror). -->
-    <Content Include="..\Benches\Markdown\Markdown.Bench\web\vendor\toastui\*.LICENSE.txt" Link="Licenses\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\Benches\Markdown\Markdown.Bench\web\vendor\**\*.LICENSE.txt" Link="Licenses\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="..\Noor.UI\js\**\*" Link="wwwroot\ui\js\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

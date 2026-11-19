@@ -3,7 +3,7 @@
 // one itself, it asks (md.pick, md.load, md.write, md.writeAs, md.draft…).
 import { el, menu } from '/ui/js/noor-ui.js';
 import { createFind } from './find.js';
-import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks } from './mdtools.js';
+import { visualRoundTrip, joinInlineBreaks, headings, stats, unescapeWikiLinks, renderSafe, escapeHtml } from './mdtools.js';
 
 const here = (p) => new URL(p, import.meta.url).href;
 const MODES = [['wysiwyg', 'Visual'], ['markdown', 'Markdown'], ['split', 'Side by side']];
@@ -24,6 +24,62 @@ function loadToast() {
     document.head.append(s);
   }));
 }
+
+/** DOMPurify (export and print), loaded the first time it's needed. */
+let purifyLoading = null;
+function loadPurify() {
+  if (window.DOMPurify) return Promise.resolve(true);
+  return (purifyLoading ??= new Promise((resolve) => {
+    const s = document.createElement('script');
+    s.src = here('vendor/dompurify/purify.min.js');
+    s.onload = () => resolve(!!window.DOMPurify); s.onerror = () => resolve(false);
+    document.head.append(s);
+  }));
+}
+
+// The statistics as last sent, so a Statistics panel shown later starts with them.
+let lastStats = null;
+
+const FONTS = {
+  system: "var(--font-ui)",
+  inter: "'Inter Variable', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif",
+  serif: "Charter, 'Iowan Old Style', Georgia, Cambria, 'Times New Roman', serif",
+  mono: "var(--font-code)",
+};
+
+const WELCOME = `# Welcome to the Markdown bench ✨
+
+A calm place for ideas, notes, documentation and glorious little side projects.
+
+## Writing
+
+Write **bold**, *italic* and \`inline code\` without thinking about Markdown at all: the bar above does it, and so do
+the usual keys (Ctrl+B, Ctrl+I, Ctrl+Shift+1…6 for headings, Ctrl+Shift+0 for plain text).
+
+- **Visual**, **Markdown** and **side by side**: the buttons at the top right, or Ctrl+E.
+- Open files with Ctrl+O, or drop them on the window.
+- Unsaved work is kept as a draft, even when NoorMD closes.
+
+> Good ideas deserve a beautiful editor. Even the terrible ideas. Especially those.
+
+## Around the editor
+
+- [x] Open the Markdown bench
+- [ ] Try the **Outline**, **Statistics** and **History** panels (View menu): dock them anywhere, or float them
+- [ ] Take a snapshot before a big rewrite (History)
+- [ ] Find and replace with Ctrl+F and Ctrl+H
+
+| Keys | What they do |
+| --- | --- |
+| Ctrl+N / Ctrl+O / Ctrl+S | New, open, save |
+| Ctrl+E | Next view |
+| Ctrl+= / Ctrl+- | Bigger, smaller text |
+
+\`\`\`csharp
+// And yes, your code is welcome here.
+Console.WriteLine("Hello, NoorMD 3.0!");
+\`\`\`
+`;
 
 // Toolbar icons (NoorMD 2.0's own, 24×24 strokes).
 const ICONS = {
@@ -56,7 +112,7 @@ const TOOLS = [
 ];
 
 // The editor's own options (2.0's preferences), kept with the bench.
-const PREF_DEFAULTS = { zoom: 0, width: 'comfortable', lineNumbers: true, wrap: true, sync: false, spell: true, split: 0.5 };
+const PREF_DEFAULTS = { font: 'system', goal: 750, zoom: 0, width: 'comfortable', lineNumbers: true, wrap: true, sync: false, spell: true, split: 0.5 };
 const MEASURES = { comfortable: '780px', wide: '1100px', full: '100000px' };
 const WIDTHS = [['comfortable', 'Comfortable'], ['wide', 'Wide'], ['full', 'Full width']];
 
@@ -99,6 +155,7 @@ export default {
       box.style.setProperty('--doc-size', `calc(var(--font-size-doc, 15px) + ${1 + z}px)`);
       box.style.setProperty('--source-size', `calc(var(--font-size-doc, 15px) + ${z - 1}px)`);
       box.style.setProperty('--measure', MEASURES[prefs.width] || MEASURES.comfortable);
+      box.style.setProperty('--doc-font', FONTS[prefs.font] || FONTS.system);
       box.style.setProperty('--split', (Math.min(0.75, Math.max(0.25, Number(prefs.split) || 0.5)) * 100).toFixed(1) + '%');
       box.classList.toggle('source-line-numbers', !!prefs.lineNumbers);
       box.classList.toggle('source-nowrap', !prefs.wrap);
@@ -400,8 +457,21 @@ export default {
       ctx.setStatus(`${s.words.toLocaleString()} word${s.words === 1 ? '' : 's'} · ${s.words ? s.minutes : 0} min read · ${modeName(cur.mode)} · ${cur.format} · ${isDirty(cur) ? (cur.path ? 'Unsaved changes' : 'Not saved yet') : cur.path ? 'Saved' : 'Empty draft'}`);
     }
     function sendOutline() {
-      lastOutline = cur ? { title: nameOf(cur), items: headings(md(cur)) } : { title: '', items: [] };
+      const text = cur ? md(cur) : '';
+      const hs = cur ? headings(text) : [];
+      lastOutline = cur ? { title: nameOf(cur), items: hs } : { title: '', items: [] };
       ctx.emit('outline', lastOutline);
+      // The Statistics and History panels hear about the document on screen too.
+      if (cur) {
+        const st = stats(text);
+        const body = text.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, ' ');
+        lastStats = {
+          doc: cur.id, title: nameOf(cur), path: cur.path, words: st.words, characters: text.length,
+          charactersNoSpaces: text.replace(/\s/g, '').length, minutes: st.words ? st.minutes : 0,
+          headings: hs.length, paragraphs: body.split(/\n\s*\n/).filter((x) => x.trim()).length, goal: Math.max(1, Number(prefs.goal) || 750),
+        };
+      } else lastStats = null;
+      ctx.emit('stats', lastStats);
     }
 
     async function renderEmpty() {
@@ -444,6 +514,7 @@ export default {
           }
         } catch (e) { ctx.toast(`${k.name || k.title || 'A document'} couldn't come back: ${e.message}`, { error: true }); }
       }
+      if (!docs.length && !ctx.restore('welcomed', false)) { ctx.keep('welcomed', true); openWelcome({ focus: false }); }
       showDoc(byId(want) || docs[0] || null, { focus: false });
       if (back) ctx.toast(`${back === 1 ? 'A document' : back + ' documents'} came back with unsaved changes.`);
       // Drafts nobody owns (left by a crash): offer them.
@@ -473,6 +544,12 @@ export default {
     }
 
     // ------------------------------------------------------------ file commands
+    /** The welcome document: a new, unsaved document with the tour in it. */
+    function openWelcome({ focus = true } = {}) {
+      const d = makeDoc({ title: 'Welcome to Markdown', mode: 'wysiwyg' });
+      d.pending = WELCOME;
+      return addDoc(d, { show: focus });
+    }
     function newDoc() { return addDoc(makeDoc({ mode: ctx.restore('newMode', 'wysiwyg') })); }
 
     async function openFiles() {
@@ -555,8 +632,9 @@ export default {
     async function reload(d) {
       if (!d || !d.path) return;
       if (isDirty(d)) {
-        const ok = await ctx.dialog('Reload from disk', el('p', { text: `Reloading “${nameOf(d)}” throws away the changes you haven't saved.` }), [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]);
+        const ok = await ctx.dialog('Reload from disk', el('p', { text: `Reloading “${nameOf(d)}” throws away the changes you haven't saved (a snapshot keeps them in History, just in case).` }), [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]);
         if (!ok) return;
+        await takeSnapshot(d, 'Before reloading from disk', { quiet: true });
       }
       let r;
       try { r = await ctx.call('md.load', { doc: d.id, path: d.path }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
@@ -578,6 +656,100 @@ export default {
     }
     const onWindowFocus = () => { if (cur) checkDisk(cur); };
     window.addEventListener('focus', onWindowFocus);
+
+    // ------------------------------------------------------------ snapshots (History)
+    async function takeSnapshot(d = cur, label = null, { quiet = false } = {}) {
+      if (!d) return null;
+      try {
+        const s2 = await ctx.call('md.snapTake', { doc: d.id, markdown: md(d), title: nameOf(d), label: label || `Snapshot, ${new Date().toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}` });
+        if (!quiet) ctx.toast('Snapshot taken ✓');
+        ctx.emit('snaps.changed', { doc: d.id });
+        return s2;
+      } catch (e) { ctx.toast(e.message, { error: true }); return null; }
+    }
+    async function viewSnapshot(id) {
+      if (!cur) return;
+      const d = cur;
+      let s2;
+      try { s2 = await ctx.call('md.snapGet', { doc: d.id, id }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      await loadPurify();
+      const preview = el('div', { class: 'md-snap-preview toastui-editor-contents' });
+      preview.innerHTML = renderSafe(s2.markdown);
+      const what = await ctx.dialog(s2.label, el('div', {}, el('p', { class: 'nui-muted', text: `${new Date(s2.createdUtc).toLocaleString()} · ${s2.words} words` }), preview),
+        [{ label: 'Close', value: null }, { label: 'Copy its Markdown', value: 'copy' }, { label: 'Bring it back', value: 'restore', primary: true }]);
+      if (what === 'copy') navigator.clipboard.writeText(s2.markdown).then(() => ctx.toast('Copied.')).catch(() => {});
+      if (what === 'restore') restoreSnapshot(id, s2);
+    }
+    /** The snapshot's text replaces the document's, after a snapshot of what's there (the editor can't undo a whole-text swap). */
+    async function restoreSnapshot(id, got = null) {
+      if (!cur || !cur.editor) return;
+      const d = cur;
+      let s2 = got;
+      try { s2 = s2 || await ctx.call('md.snapGet', { doc: d.id, id }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      await takeSnapshot(d, `Before bringing back “${s2.label}”`, { quiet: true });
+      const ed = d.editor;
+      const text = ed.isWysiwygMode() ? joinInlineBreaks(s2.markdown) : s2.markdown;
+      ed.setMarkdown(text, false);
+      d.sourceBeforeVisual = null;
+      ed.focus();
+      ctx.toast(`Brought back “${s2.label}”. What you had is in History, as a snapshot.`);
+    }
+
+    // ------------------------------------------------------------ export and print
+    const exportTitle = (d) => (d.name ? d.name.replace(/\.(md|markdown|mdown|mkd|txt)$/i, '') : d.title);
+    async function exportHtml() {
+      if (!cur) return;
+      await loadPurify();
+      try { const r = await ctx.call('md.exportHtml', { title: exportTitle(cur), bodyHtml: renderSafe(md(cur)) }); if (r) ctx.toast(`Exported to ${r.path}`); }
+      catch (e) { ctx.toast(e.message, { error: true }); }
+    }
+    async function exportPdf() {
+      if (!cur) return;
+      await loadPurify();
+      ctx.setPrintContent(`<h1 class="print-title" hidden></h1>${renderSafe(md(cur))}`);
+      try { const r = await ctx.call('md.exportPdf', { title: exportTitle(cur) }); if (r) ctx.toast(`Exported to ${r.path}`); }
+      catch (e) { ctx.toast(e.message, { error: true }); }
+    }
+    async function printDoc() {
+      if (!cur) return;
+      await loadPurify();
+      ctx.print(renderSafe(md(cur)));
+    }
+    function copyMarkdown() {
+      if (!cur) return;
+      const text = md(cur);
+      navigator.clipboard.writeText(text).then(() => ctx.toast(`The Markdown is copied (${text.length.toLocaleString()} characters).`)).catch((e) => ctx.toast(e.message, { error: true }));
+    }
+
+    // ------------------------------------------------------------ the bench's settings
+    async function settingsDialog() {
+      const pick = (label, value, options) => {
+        const sel = el('select', { class: 'nui-select' }, ...options.map(([v, l]) => el('option', { value: v, selected: v === value || undefined }, l)));
+        return [el('label', { class: 'md-setting' }, el('span', { text: label }), sel), sel];
+      };
+      const [fontRow, font] = pick('Font for documents', prefs.font, [['system', 'System (Segoe UI)'], ['inter', 'Inter (NoorMD 2.0\'s)'], ['serif', 'Serif'], ['mono', 'Monospace']]);
+      const [modeRow, mode] = pick('New documents open in', ctx.restore('newMode', 'wysiwyg'), [['wysiwyg', 'Visual'], ['markdown', 'Markdown'], ['split', 'Side by side']]);
+      const [widthRow, width] = pick('Line width', prefs.width, WIDTHS);
+      const goal = el('input', { class: 'nui-field', type: 'number', min: '1', max: '1000000', step: '50', value: String(prefs.goal || 750) });
+      const toolbar = el('input', { type: 'checkbox', checked: !toolsEl.hidden || undefined });
+      const spell = el('input', { type: 'checkbox', checked: prefs.spell || undefined });
+      const ok = await ctx.dialog('Markdown settings', el('div', { class: 'md-settings' },
+        fontRow, modeRow, widthRow,
+        el('label', { class: 'md-setting' }, el('span', { text: 'Writing goal (words)' }), goal),
+        el('label', { class: 'md-setting check' }, toolbar, el('span', { text: 'Show the formatting bar' })),
+        el('label', { class: 'md-setting check' }, spell, el('span', { text: 'Spellcheck' }))),
+        [{ label: 'Cancel', value: false }, { label: 'Save', value: true, primary: true }]);
+      if (!ok) return;
+      ctx.keep('newMode', mode.value);
+      toolsEl.hidden = !toolbar.checked; ctx.keep('toolbar', toolbar.checked);
+      setPrefs({ font: font.value, width: width.value, goal: Math.max(1, Math.round(Number(goal.value) || 750)), spell: spell.checked });
+      sendOutline();
+    }
+    async function goalDialog() {
+      const goal = el('input', { class: 'nui-field', type: 'number', min: '1', step: '50', value: String(prefs.goal || 750) });
+      const ok = await ctx.dialog('Writing goal', el('label', { class: 'md-linkfield' }, el('span', { text: 'How many words are you aiming for in a document?' }), goal), [{ label: 'Cancel', value: false }, { label: 'Set the goal', value: true, primary: true }]);
+      if (ok) { setPrefs({ goal: Math.max(1, Math.round(Number(goal.value) || 750)) }); sendOutline(); }
+    }
 
     async function recentDialog() {
       const list = await ctx.call('md.recentList').catch(() => []);
@@ -695,6 +867,11 @@ export default {
     let markReady;
     const ready = new Promise((r) => { markReady = r; });
     const offs = [
+      ctx.on('stats.ask', () => ctx.emit('stats', lastStats)),
+      ctx.on('goal.set', () => goalDialog()),
+      ctx.on('snap.take', () => takeSnapshot()),
+      ctx.on('snap.view', (p) => p && viewSnapshot(p.id)),
+      ctx.on('snap.restore', (p) => p && restoreSnapshot(p.id)),
       ctx.on('shell.open', (p) => ready.then(async () => { for (const path of (p && p.paths) || []) await openPath(path); })),
       ctx.on('outline.ask', () => ctx.emit('outline', lastOutline)),
       ctx.on('outline.go', (p) => goToHeading(p && p.index)),
@@ -748,6 +925,10 @@ export default {
       'md.mode.split': () => cur && setMode(cur, 'split'),
       'md.mode.next': nextMode,
       'md.find': () => find.show(false),
+      'md.exportHtml': exportHtml, 'md.exportPdf': exportPdf, 'md.print': printDoc, 'md.copy': copyMarkdown,
+      'md.snap': () => takeSnapshot(),
+      'md.settings': settingsDialog, 'md.goal': goalDialog,
+      'md.welcome': () => openWelcome(),
       'md.replace': () => find.show(true),
       'md.zoom.in': () => zoomBy(1), 'md.zoom.out': () => zoomBy(-1), 'md.zoom.reset': () => zoomBy(0),
       'md.width.comfortable': () => setPrefs({ width: 'comfortable' }), 'md.width.wide': () => setPrefs({ width: 'wide' }), 'md.width.full': () => setPrefs({ width: 'full' }),
@@ -798,10 +979,65 @@ export default {
         clearTimeout(statusTimer); clearTimeout(outlineTimer);
       },
       // For tests.
-      _state: () => ({ prefs: { ...prefs }, find: find._state(), docs: docs.map((d) => ({ id: d.id, name: nameOf(d), path: d.path, mode: d.mode, dirty: isDirty(d), text: md(d), format: d.format })), current: cur ? cur.id : null, ready: toastOk !== null }),
+      _editor: () => cur && cur.editor,   // for tests
+      _state: () => ({ stats: lastStats, prefs: { ...prefs }, find: find._state(), docs: docs.map((d) => ({ id: d.id, name: nameOf(d), path: d.path, mode: d.mode, dirty: isDirty(d), text: md(d), format: d.format })), current: cur ? cur.id : null, ready: toastOk !== null }),
     };
   },
   panels: {
+    stats: {
+      mount(root, ctx) {
+        ctx.useStyle(here('bench.css'));
+        const box = el('div', { class: 'md-stats' });
+        root.replaceChildren(box);
+        const show = (st) => {
+          lastStats = st;
+          if (!st) { box.replaceChildren(el('div', { class: 'none', text: 'Open a document to see its numbers.' })); return; }
+          const pct = Math.min(100, Math.round((st.words / st.goal) * 100));
+          box.replaceChildren(
+            el('div', { class: 'doc', text: st.title }),
+            el('div', { class: 'md-goal', title: 'Click to change the goal' },
+              el('div', { class: 'md-goal-text' }, el('b', { text: st.words.toLocaleString() }), ` / ${st.goal.toLocaleString()} words`, el('span', { class: 'pct', text: pct >= 100 ? ' 🎉' : ` · ${pct}%` })),
+              el('div', { class: 'md-goal-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(pct) }, el('div', { class: 'fill', style: { width: pct + '%' } })),
+              el('button', { class: 'nui-btn quiet', onclick: () => ctx.emit('goal.set') }, 'Set the goal…')),
+            ...[['Words', st.words], ['Characters', st.characters], ['Characters without spaces', st.charactersNoSpaces], ['Paragraphs', st.paragraphs], ['Headings', st.headings], ['Reading time', `${st.minutes} min`]]
+              .map(([k, v]) => el('div', { class: 'nui-row' }, el('span', { text: k }), el('span', { class: 'nui-muted', text: typeof v === 'number' ? v.toLocaleString() : v }))));
+        };
+        show(lastStats);
+        const off = ctx.on('stats', show);
+        ctx.emit('stats.ask');
+        return { unmount: off };
+      },
+    },
+    history: {
+      mount(root, ctx) {
+        ctx.useStyle(here('bench.css'));
+        const box = el('div', { class: 'md-history' });
+        root.replaceChildren(box);
+        let doc = null, title = '';
+        const render = async () => {
+          if (!doc) { box.replaceChildren(el('div', { class: 'none', text: 'Open a document to see its snapshots.' })); return; }
+          const list = await ctx.call('md.snapList', { doc }).catch(() => []);
+          box.replaceChildren(
+            el('div', { class: 'doc', text: title }),
+            el('button', { class: 'nui-btn primary md-snap-take', onclick: () => ctx.emit('snap.take') }, 'Take a snapshot'),
+            el('p', { class: 'nui-muted md-snap-hint', text: 'A snapshot keeps the document as it is now, so you can look back at it or bring it back later. Up to 50 per document.' }),
+            ...(list.length ? list.map((s2) => el('div', { class: 'md-snap', 'data-snap': s2.id },
+              el('button', { class: 'md-snap-main', title: 'Look at it', onclick: () => ctx.emit('snap.view', { id: s2.id }) },
+                el('span', { class: 'l', text: s2.label }), el('span', { class: 'm', text: `${new Date(s2.createdUtc).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })} · ${s2.words.toLocaleString()} words` })),
+              el('button', { class: 'nui-icon', title: 'Bring it back', 'aria-label': `Bring back ${s2.label}`, onclick: () => ctx.emit('snap.restore', { id: s2.id }) }, '⟲'),
+              el('button', { class: 'nui-icon', title: 'Delete it', 'aria-label': `Delete ${s2.label}`, onclick: async () => { await ctx.call('md.snapDelete', { doc, id: s2.id }); ctx.emit('snaps.changed', { doc }); } }, '✕')))
+              : [el('div', { class: 'none', text: 'No snapshots yet.' })]));
+        };
+        const offs = [
+          ctx.on('stats', (st) => { const d = st ? st.doc : null; title = st ? st.title : ''; if (d !== doc) { doc = d; render(); } }),
+          ctx.on('snaps.changed', (p) => { if (p && p.doc === doc) render(); }),
+        ];
+        if (lastStats) { doc = lastStats.doc; title = lastStats.title; }
+        render();
+        ctx.emit('stats.ask');
+        return { unmount: () => offs.forEach((f) => f()) };
+      },
+    },
     outline: {
       mount(root, ctx) {
         ctx.useStyle(here('bench.css'));

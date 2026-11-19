@@ -48,6 +48,7 @@ const MOCK = (manifests) => {
     const a = m.args || {};
     if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.5', contract: 1, settings: get('mock.settings', defaults), benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { put('mock.settings', a); return a; }
+    if (m.target === 'window' && m.cmd === 'print') { window.__printed = (document.getElementById('print-root') || {}).innerHTML || ''; return null; }
     if (m.target === 'window') return null;
     if (m.target === 'bench:noor.clock') return [];
     if (m.target !== 'bench:noor.markdown') throw new Error(`no ${m.target} ${m.cmd}`);
@@ -77,6 +78,12 @@ const MOCK = (manifests) => {
       case 'md.recentList': return recent.map((p) => ({ path: p, name: name(p), folder: p.slice(0, p.length - name(p).length - 1), exists: !!disk[p] }));
       case 'md.recentForget': put('mock.recent', a.path ? recent.filter((x) => x !== a.path) : []); return null;
       case 'md.changed': { const d = docs[a.doc]; return !!(d && d.path && disk[d.path] && disk[d.path].stamp !== d.stamp); }
+      case 'md.snapList': return (get('mock.snaps', {})[a.doc] || []).map(({ markdown, ...s }) => s);
+      case 'md.snapTake': { const all = get('mock.snaps', {}); const s = { id: 'snap' + Date.now() + Math.random().toString(16).slice(2, 6), createdUtc: new Date().toISOString(), label: a.label, words: (a.markdown.match(/\S+/g) || []).length, markdown: a.markdown }; all[a.doc] = [s, ...(all[a.doc] || [])]; put('mock.snaps', all); const { markdown, ...info } = s; return info; }
+      case 'md.snapGet': { const s = (get('mock.snaps', {})[a.doc] || []).find((x) => x.id === a.id); if (!s) throw new Error('That snapshot isn\'t there any more.'); return s; }
+      case 'md.snapDelete': { const all = get('mock.snaps', {}); all[a.doc] = (all[a.doc] || []).filter((x) => x.id !== a.id); put('mock.snaps', all); return null; }
+      case 'md.exportHtml': window.__exported = a; return { path: 'C:\\Out\\' + a.title + '.html' };
+      case 'md.exportPdf': window.__pdf = { ...a, printed: (document.getElementById('print-root') || {}).innerHTML || '' }; return { path: 'C:\\Out\\' + a.title + '.pdf' };
       case 'md.reveal': (window.__revealed = window.__revealed || []).push(a.doc); return null;
       case 'md.pickImage': return { url: 'images/cat%20photo.png', name: 'cat photo' };
       default: throw new Error(`no ${m.cmd}`);
@@ -119,8 +126,17 @@ const state = (page) => page.evaluate(ST);
     await page.reload();
     await ready();
 
+    // ---------------------------------------------------------------- the very first start: the welcome document
+    await waitFn(page, () => document.querySelectorAll('.md-tab').length === 1);
+    check('the first time, the welcome document opens', (await page.textContent('.md-tab .name')) === 'Welcome to Markdown' && (await state(page)).docs[0].text.startsWith('# Welcome to the Markdown bench'));
+    check('…not as unsaved work', !(await state(page)).docs[0].dirty);
+    await page.keyboard.press('Control+w');
+    await page.waitForTimeout(200);
+    check('closing it asks nothing (nothing to lose)', !(await page.$('.nui-dialog')) && (await state(page)).docs.length === 0);
+
     // ---------------------------------------------------------------- an empty bench
-    check('the Markdown bench opens, with nothing open yet', (await page.textContent('.md-empty h2')) === 'Nothing open yet');
+    await page.waitForSelector('.md-empty h2');
+    check('the Markdown bench, with nothing open', (await page.textContent('.md-empty h2')) === 'Nothing open yet');
     check('…and says so in the status bar', (await page.textContent('#status-bench')).includes('Nothing open'));
 
     // ---------------------------------------------------------------- menus join the shell's
@@ -470,6 +486,99 @@ const state = (page) => page.evaluate(ST);
     await page.waitForTimeout(100);
     check('…and one no bench opens says so', (await page.textContent('.nui-toasts')).includes('No bench opens song.xyz'));
 
+    // ---------------------------------------------------------------- Statistics and the writing goal (dropped.md is on screen)
+    await page.click('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror h1');
+    await page.waitForTimeout(150);   // (ProseMirror takes the click's cursor in a moment; people are slower than Playwright)
+    await page.keyboard.press('Control+End');
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Enter');
+    await page.keyboard.type('One two three four five.');
+    await page.waitForTimeout(500);
+    const statRow = (k) => page.evaluate((key) => { const r = [...document.querySelectorAll('.md-stats .nui-row')].find((x) => x.firstChild.textContent === key); return r ? r.lastChild.textContent : null; }, k);
+    check('the Statistics panel counts the document on screen', (await statRow('Words')) === '7' && (await statRow('Headings')) === '1' && (await statRow('Paragraphs')) === '2', [await statRow('Words'), await statRow('Headings'), await statRow('Paragraphs')]);
+    check('…with the writing goal', (await page.textContent('.md-goal-text')).includes('7 / 750 words'));
+    await page.click('.md-goal .nui-btn');
+    await page.waitForSelector('.nui-dialog');
+    await page.fill('.nui-dialog input', '10');
+    await dialogButton('Set the goal');
+    await page.waitForTimeout(150);
+    check('Set the goal…: 7 of 10 words is 70%', (await page.textContent('.md-goal-text')).includes('7 / 10 words') && (await page.getAttribute('.md-goal-bar', 'aria-valuenow')) === '70');
+    await page.click('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror p');
+    await page.waitForTimeout(150);
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' Six seven eight.');
+    await page.waitForTimeout(500);
+    check('…and reaching it is a small party', (await page.textContent('.md-goal-text')).includes('🎉'));
+
+    // ---------------------------------------------------------------- History: snapshots
+    check('the History panel starts empty', (await page.textContent('.md-history')).includes('No snapshots yet'));
+    await page.click('.md-snap-take');
+    await page.waitForSelector('.md-snap');
+    check('Take a snapshot: it shows up in History', (await page.$$('.md-snap')).length === 1 && (await page.textContent('.md-snap .m')).includes('words'));
+    const snapText = (await state(page)).docs.find((d) => d.name === 'dropped.md').text;
+    await page.click('.md-pane:not([hidden]) .toastui-editor-ww-container .ProseMirror');
+    await page.keyboard.press('Control+End');
+    await page.keyboard.type(' A rewrite gone wrong.');
+    await page.waitForTimeout(200);
+    await page.click('.md-snap-main');
+    await page.waitForSelector('.nui-dialog .md-snap-preview');
+    check('clicking a snapshot shows it, rendered', (await page.textContent('.md-snap-preview h1')) === 'Dropped in');
+    await dialogButton('Bring it back');
+    await page.waitForTimeout(300);
+    let dtext = (await state(page)).docs.find((d) => d.name === 'dropped.md').text;
+    check('Bring it back: the document is as it was', dtext.trim() === snapText.trim() && !dtext.includes('gone wrong'), dtext);
+    check('…and what was there is kept as a snapshot too', (await page.$$('.md-snap')).length === 2 && (await page.textContent('.md-snap .l')).startsWith('Before bringing back'));
+    await page.click('.md-snap-main');   // the newest: what was there before
+    await page.waitForSelector('.nui-dialog .md-snap-preview');
+    await dialogButton('Bring it back');
+    await page.waitForTimeout(300);
+    check('…so bringing that one back undoes it', (await state(page)).docs.find((d) => d.name === 'dropped.md').text.includes('gone wrong'));
+    const nSnaps = (await page.$$('.md-snap')).length;
+    await page.click('.md-snap button[aria-label^="Delete"]');
+    await page.waitForTimeout(200);
+    check('a snapshot can be deleted', (await page.$$('.md-snap')).length === nSnaps - 1);
+
+    // ---------------------------------------------------------------- export, print, copy
+    await clickMenu('File', 'Export HTML…');
+    await waitFn(page, () => !!window.__exported);
+    let ex = await page.evaluate(() => window.__exported);
+    check('Export HTML: the document rendered, named after the file', ex.title === 'dropped' && ex.bodyHtml.includes('<h1') && ex.bodyHtml.includes('Dropped in'));
+    await page.evaluate(() => { const ed = document.querySelector('.md-pane:not([hidden]) .ProseMirror'); void ed; });
+    await setDisk({ ...(await disk()), 'C:\\Drop\\evil.md': { text: '# Hi\n\n<img src=x onerror="alert(1)"><script>alert(2)</script>\n', format: 'UTF-8 · LF', stamp: 1 } });
+    await page.evaluate(() => window.__mockSend({ event: 'open', bench: 'noor.markdown', paths: ['C:\\Drop\\evil.md'] }));
+    await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'evil.md'));
+    await page.evaluate(() => { window.__exported = null; });
+    await clickMenu('File', 'Export HTML…');
+    await waitFn(page, () => !!window.__exported);
+    ex = await page.evaluate(() => window.__exported);
+    check('…with any scripts in the Markdown taken out', !/onerror|<script/i.test(ex.bodyHtml), ex.bodyHtml);
+    await clickMenu('File', 'Export PDF…');
+    await waitFn(page, () => !!window.__pdf);
+    const pdf = await page.evaluate(() => window.__pdf);
+    check('Export PDF: the page prints just the document', pdf.title === 'evil' && pdf.printed.includes('<h1') && !/<script/i.test(pdf.printed));
+    await clickMenu('File', 'Print…');
+    await waitFn(page, () => window.__printed !== undefined);
+    check('Print: the system\'s print dialog, with the document in the print area', (await page.evaluate(() => window.__printed)).includes('Hi') && await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display === 'none'));
+    await page.evaluate(() => { document.getElementById('print-root') && 0; });
+    await page.emulateMedia({ media: 'print' });
+    check('…and when printing, only that shows', await page.evaluate(() => getComputedStyle(document.getElementById('print-root')).display === 'block' && getComputedStyle(document.getElementById('app')).display === 'none'));
+    await page.emulateMedia({ media: 'screen' });
+
+    // ---------------------------------------------------------------- settings, and the welcome document from Help
+    await clickMenu('Tools', 'Markdown settings…');
+    await page.waitForSelector('.md-settings');
+    await page.selectOption('.md-settings select >> nth=0', 'serif');
+    await page.selectOption('.md-settings select >> nth=1', 'markdown');
+    await dialogButton('Save');
+    await page.waitForTimeout(100);
+    check('Markdown settings: a serif font for documents', (await page.evaluate(() => getComputedStyle(document.querySelector('.md-pane:not([hidden]) .toastui-editor-contents')).fontFamily)).includes('Georgia'));
+    await page.keyboard.press('Control+n');
+    await page.waitForTimeout(200);
+    { const st = await state(page); check('…and new documents open in Markdown', st.docs.find((d) => d.id === st.current).mode === 'markdown'); }
+    await clickMenu('Help', 'The Markdown welcome document');
+    await page.waitForTimeout(200);
+    check('Help › the welcome document opens again any time', (await page.textContent('.md-tab[aria-selected=true] .name')) === 'Welcome to Markdown');
+
     // ---------------------------------------------------------------- themes
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
     await page.waitForTimeout(100);
@@ -481,7 +590,7 @@ const state = (page) => page.evaluate(ST);
       await setDisk({ ...(await disk()), 'C:\\Notes\\NoorMD 3.0.md': { text: '# NoorMD 3.0 ✨\n\nOne home for every bench. **Markdown** is the first real one.\n\n## What\'s in\n\n* Documents as tabs\n* Visual, Markdown and side by side\n* An outline that follows you around\n* Drafts that survive closing the app\n\n## Next\n\n> The Music bench. With a player you can dock anywhere.\n\n| Bench | Status |\n| --- | --- |\n| Markdown | here |\n| Music | next |\n', format: 'UTF-8 · LF', stamp: 1 } });
       await queue('mock.picks', [['C:\\Notes\\NoorMD 3.0.md']]);
       await page.keyboard.press('Control+o');
-      await waitFn(page, () => document.querySelectorAll('.md-tab').length === 2);
+      await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'NoorMD 3.0.md'));
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(SHOTS, 'noormd3-markdown.png') });
       await page.click('.md-modes button[data-mode="split"]');

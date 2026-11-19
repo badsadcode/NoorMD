@@ -118,12 +118,27 @@ inspiration from its concept art, but NoorMD has its own face).
        the shell hands them over) · ✓ the document tab's menu (close others, close to the right, name, copy the
        path, show in Explorer, reload from disk) · ✓ noticing a file changed on disk when you come back to it.
        (Pictures from disk inside the editor: 2.0 didn't have it, so it went to the ideas inbox.)
-     - **3.0.7, writing tools and sharing:** the writing goal and statistics (a panel) · snapshots (version history:
-       take, look, bring back, delete) · export to HTML and PDF, print, copy the Markdown, the export layouts ·
-       the editor's settings (fonts, sizes, which view new documents open in) · a welcome document.
-     - **With the Vault bench** (later in stage 1): vaults, the explorer, wiki links, backlinks, tags, pack and
-       share, search across notes.
+     - **3.0.7 (done), writing tools and sharing:** ✓ the Statistics panel with the writing goal · ✓ the History
+       panel: snapshots (take, look, bring back, delete; one is taken before bringing another back or reloading
+       over unsaved work) · ✓ export to HTML (sanitised, no scripts) and PDF, print, copy the Markdown · ✓ Markdown
+       settings (font, which view new documents open in, line width, goal, the bar, spellcheck) · ✓ the welcome
+       document (first start, and Help). The shell learned printing (a print area benches fill) and Tools / Help
+       items from benches.
      - **With the Music bench:** music beside your notes, the mini player.
+   - **Modular, always** (your rule): every module is its own Core (no interface, reusable) and Bench, so each can
+     grow without breaking the others. Benches are polished and upgraded as they move in.
+   - **Next: the Vault bench** (before Music). Vault.Core: a vault is a folder you pick; an index of notes,
+     headings, wiki links, tags and front matter; a watcher; full-text search; the link graph; links updated when
+     a note is renamed; Pack & Share. Vault.Bench: its tab is the vault's home (overview, search, recent notes);
+     its panels (Explorer, Backlinks, Tags, Search) dock into the Markdown bench or float; notes open as Markdown
+     tabs, and the Markdown bench learns wiki links ([[ suggests notes, Ctrl+click follows). Everything 2.0's
+     Vault had, plus:
+     - **a vault wizard** (your idea): the popular structures to start from (PARA, Zettelkasten, Johnny.Decimal,
+       a journal, a game design vault, a writer's vault, a project vault…), each with its folders and starter
+       templates;
+     - **templates** per vault; **a quick switcher** (Ctrl+P); **daily notes**; **unlinked mentions**;
+       **properties** (front matter as a small form, and filtering by it);
+     - **a visual map** of the vault (your bonus idea): notes and their links as a graph you can explore.
    - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
      bar, Send to between benches, the command palette.
    - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place

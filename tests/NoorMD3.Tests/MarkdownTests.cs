@@ -199,6 +199,33 @@ public sealed class MarkdownTests : IDisposable
     }
 
     [Fact]
+    public async Task Snapshots_follow_a_new_document_to_its_file_and_export_forbids_scripts()
+    {
+        var host = new Host(Path.Combine(_dir, "data"));
+        var bench = new MarkdownBench();
+        await bench.HandleAsync("md.snapTake", J(new { doc = A, markdown = "first draft", label = "Draft one", title = "Plan" }), host, default);
+        var target = Path.Combine(_dir, "plan.md");
+        host.Saves.Enqueue(target);
+        await bench.HandleAsync("md.writeAs", J(new { doc = A, markdown = "saved", title = "Plan" }), host, default);
+        var list = (await bench.HandleAsync("md.snapList", J(new { doc = A }), host, default))!.AsArray();
+        var snap = Assert.Single(list);
+        Assert.Equal("Draft one", (string)snap!["label"]!);
+        var got = await bench.HandleAsync("md.snapGet", J(new { doc = A, id = (string)snap["id"]! }), host, default);
+        Assert.Equal("first draft", (string)got!["markdown"]!);
+        // Another document opening the same file later sees the same history.
+        var reopened = new MarkdownBench();
+        await reopened.HandleAsync("md.load", J(new { doc = B, path = target }), host, default);
+        Assert.Single((await reopened.HandleAsync("md.snapList", J(new { doc = B }), host, default))!.AsArray());
+
+        var html = Path.Combine(_dir, "plan.html");
+        host.Saves.Enqueue(html);
+        await bench.HandleAsync("md.exportHtml", J(new { title = "Plan", bodyHtml = "<h1>Plan</h1>" }), host, default);
+        var text = File.ReadAllText(html);
+        Assert.Contains("<h1>Plan</h1>", text);
+        Assert.Contains("default-src 'none'", text);
+    }
+
+    [Fact]
     public void Only_markdown_and_text_files_open()
     {
         var docs = new Documents(Path.Combine(_dir, "data"));

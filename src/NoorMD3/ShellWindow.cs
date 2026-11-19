@@ -197,6 +197,25 @@ public sealed class ShellWindow : Window
         }
     }
 
+    /// <summary>The page as it prints (the shell's print area only), saved as a PDF: written beside the target first, then
+    /// moved into place, so a failure never leaves half a file.</summary>
+    public async Task<bool> PrintToPdfAsync(string path)
+    {
+        var core = _web.CoreWebView2;
+        if (core == null) return false;
+        var settings = core.Environment.CreatePrintSettings();
+        settings.ShouldPrintHeaderAndFooter = false;
+        settings.ShouldPrintBackgrounds = true;
+        var tmp = Path.Combine(Path.GetDirectoryName(path)!, $".{Path.GetFileName(path)}.{Guid.NewGuid():N}.noor-tmp");
+        try
+        {
+            if (!await core.PrintToPdfAsync(tmp, settings)) return false;
+            File.Move(tmp, path, overwrite: true);
+            return true;
+        }
+        finally { try { if (File.Exists(tmp)) File.Delete(tmp); } catch (IOException) { } }
+    }
+
     /// <summary>Sends a message (JSON) to this window's page, once it's there.</summary>
     public void Post(string json)
     {
@@ -243,6 +262,7 @@ public sealed class ShellWindow : Window
                 break;
             case "title": if (m.TryGetProperty("text", out var t) && t.GetString() is { } text) Title = text.Length > 200 ? text[..200] : text; break;
             case "minimize": WindowState = WindowState.Minimized; break;
+            case "print": _web.CoreWebView2?.ShowPrintUI(CoreWebView2PrintDialogKind.System); break;   // the page shows only its print area
             // The page has started: files NoorMD was opened with (Explorer's "Open with", or the command line) go to their benches.
             case "files.pending": if (this == ShellApp.Main) _ = ShellApp.OpenFilesAsync(ShellApp.TakePendingFiles(), this); break;
             case "toggleMax": WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; break;

@@ -19,7 +19,7 @@ public sealed class MarkdownBench : BenchBase
         Name = "Markdown",
         Icon = "✎",
         Description = "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-        Version = "3.0.6",
+        Version = "3.0.7",
         Density = "roomy",
         Menus =
         [
@@ -32,6 +32,12 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Save", "md.save", "Ctrl+S"),
                 new MenuItemSpec("Save as…", "md.saveAs", "Ctrl+Shift+S"),
                 new MenuItemSpec("Save all", "md.saveAll"),
+                new MenuItemSpec("Take a snapshot", "md.snap"),
+                MenuItemSpec.Separator,
+                new MenuItemSpec("Export HTML…", "md.exportHtml"),
+                new MenuItemSpec("Export PDF…", "md.exportPdf"),
+                new MenuItemSpec("Print…", "md.print"),
+                new MenuItemSpec("Copy the Markdown", "md.copy"),
                 MenuItemSpec.Separator,
                 new MenuItemSpec("Name the document…", "md.name"),
                 new MenuItemSpec("Reload from disk", "md.reload"),
@@ -63,6 +69,13 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Scroll together (side by side)", "md.sync"),
                 new MenuItemSpec("Spellcheck", "md.spell"),
             ]),
+            new MenuSpec("Tools", [
+                new MenuItemSpec("Writing goal…", "md.goal"),
+                new MenuItemSpec("Markdown settings…", "md.settings"),
+            ]),
+            new MenuSpec("Help", [
+                new MenuItemSpec("The Markdown welcome document", "md.welcome"),
+            ]),
             new MenuSpec("Format", [
                 new MenuItemSpec("Bold", "md.fmt.bold", "Ctrl+B"),
                 new MenuItemSpec("Italic", "md.fmt.italic", "Ctrl+I"),
@@ -91,7 +104,7 @@ public sealed class MarkdownBench : BenchBase
                 new MenuItemSpec("Today's date", "md.ins.date"),
             ]),
         ],
-        Panels = [new PanelSpec("outline", "Outline", "☰", "left")],
+        Panels = [new PanelSpec("outline", "Outline", "☰", "left"), new PanelSpec("stats", "Statistics", "∑", "right"), new PanelSpec("history", "History", "⟲", "right")],
         FileTypes = DocumentFile.OpenableExtensions,
     };
 
@@ -187,6 +200,41 @@ public sealed class MarkdownBench : BenchBase
             if (picked.Count == 0) return null;
             var docPath = Docs(host).PathOf(Str(a, "doc"));
             return new JsonObject { ["url"] = ImageUrl(picked[0], docPath), ["name"] = Path.GetFileNameWithoutExtension(picked[0]) };
+        });
+        // Snapshots: the document's version history.
+        Command("md.snapList", (a, host, _) => Run(() =>
+        {
+            var d = Docs(host);
+            return new JsonArray(d.Snapshots.List(d.SnapshotKey(Str(a, "doc"))).Select(s => (JsonNode?)new JsonObject
+            {
+                ["id"] = s.Id, ["createdUtc"] = s.CreatedUtc, ["label"] = s.Label, ["words"] = s.Words,
+            }).ToArray());
+        }));
+        Command("md.snapTake", (a, host, _) => Run(() =>
+        {
+            var d = Docs(host); var id = Str(a, "doc");
+            var s = d.Snapshots.Create(d.SnapshotKey(id), Str(a, "markdown"), Str(a, "label"), Str(a, "title"), d.PathOf(id));
+            return new JsonObject { ["id"] = s.Id, ["createdUtc"] = s.CreatedUtc, ["label"] = s.Label, ["words"] = s.Words };
+        }));
+        Command("md.snapGet", (a, host, _) => Run(() =>
+        {
+            var d = Docs(host);
+            var s = d.Snapshots.Get(d.SnapshotKey(Str(a, "doc")), Str(a, "id")) ?? throw new BenchException("That snapshot isn't there any more.");
+            return new JsonObject { ["id"] = s.Id, ["createdUtc"] = s.CreatedUtc, ["label"] = s.Label, ["words"] = s.Words, ["markdown"] = s.Markdown };
+        }));
+        Command("md.snapDelete", (a, host, _) => Run(() => { var d = Docs(host); d.Snapshots.Delete(d.SnapshotKey(Str(a, "doc")), Str(a, "id")); return null; }));
+        // Export: a web page (the body arrives sanitised; the file forbids scripts as well), a PDF, a Markdown copy.
+        Command("md.exportHtml", async (a, host, _) =>
+        {
+            var title = Str(a, "title");
+            var path = await host.PickSaveFileAsync("Export HTML", DocumentFile.SafeFileName(title, ".html"), [new("Web page", [".html"])]);
+            if (path == null) return null;
+            return await Run(() => { AtomicFile.WriteAllText(path, HtmlExport.Build(title, Str(a, "bodyHtml"))); return new JsonObject { ["path"] = path }; });
+        });
+        Command("md.exportPdf", async (a, host, _) =>
+        {
+            var path = await host.SavePageAsPdfAsync(DocumentFile.SafeFileName(Str(a, "title"), ".pdf"));
+            return path == null ? null : new JsonObject { ["path"] = path };
         });
         Command("md.recentList", (a, host, _) => Task.FromResult<JsonNode?>(new JsonArray(Docs(host).Recent.Paths.Select(p => (JsonNode?)new JsonObject
         {

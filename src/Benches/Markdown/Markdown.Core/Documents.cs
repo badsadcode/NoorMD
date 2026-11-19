@@ -16,7 +16,13 @@ public sealed class Documents
         Directory.CreateDirectory(dataFolder);
         Recent = new RecentFiles(System.IO.Path.Combine(dataFolder, "recent.json"));
         Drafts = new DraftStore(System.IO.Path.Combine(dataFolder, "drafts"));
+        Snapshots = new SnapshotStore(System.IO.Path.Combine(dataFolder, "snapshots"));
     }
+
+    public SnapshotStore Snapshots { get; }
+
+    /// <summary>Where a document's snapshots live: by its file once it has one, by its id before.</summary>
+    public string SnapshotKey(string id) => PathOf(Id(id)) is { } p ? SnapshotStore.KeyForPath(p) : SnapshotStore.KeyForUntitled(id);
 
     public RecentFiles Recent { get; }
     public DraftStore Drafts { get; }
@@ -31,6 +37,7 @@ public sealed class Documents
     public LoadedDocument Open(string id, string path)
     {
         Id(id);
+        if (!System.IO.Path.IsPathFullyQualified(path)) throw new UnauthorizedAccessException("Open that file with File › Open first.");
         if (!System.IO.Path.IsPathFullyQualified(path) || !MayOpen(path)) throw new UnauthorizedAccessException("Open that file with File › Open first.");
         if (!DocumentFile.IsOpenable(path)) throw new IOException($"\"{System.IO.Path.GetFileName(path)}\" isn't a Markdown or text file.");
         var doc = DocumentFile.Load(path);
@@ -72,7 +79,9 @@ public sealed class Documents
         Id(id);
         var full = System.IO.Path.GetFullPath(path);
         var d = _docs.TryGetValue(id, out var x) ? x : _docs[id] = new Doc();
+        var oldKey = SnapshotKey(id);
         d.Path = full;
+        Snapshots.Merge(oldKey, SnapshotKey(id), full);   // the history comes along to the new file
         d.Stamp = DocumentFile.Save(full, markdown, d.Format, null);
         _picked.Add(full);
         Drafts.Delete(id);

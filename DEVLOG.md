@@ -307,6 +307,24 @@ it later.
 The bug of the day: the table button did nothing at all if you had some text selected. Toast UI just shrugged.
 Now the cursor hops to the end of your selection first, and the table appears.
 
+## Day 26, evening — 3.0.7: the rest of the old editor 🧳
+
+The last boxes from 2.0's editor are unpacked. There's a **Statistics** panel with a writing goal: set 750 words,
+watch the bar fill up, and get a tiny 🎉 when you make it. There's a **History** panel that keeps snapshots of your
+document, so a brave rewrite is never a scary one. Bring an old version back and the one you had becomes a snapshot
+too, because regret goes both ways.
+
+Export to HTML and PDF is back, and so is printing. If a Markdown file hides a sneaky `<script>` tag, it gets
+thrown out on the way, so the exported page can't run anything. There's a settings dialog with fonts (Inter from
+2.0 included), and a welcome document that greets you on the very first start, then politely leaves when you close it.
+
+The fun moment: a test kept typing into the *start* of a heading instead of the end. The editor wasn't wrong, the
+test was just too quick for it. No human types that fast, so the test now waits a moment, like a polite person
+would.
+
+Meanwhile the plan grew a little: **the Vault comes next**, before Music. It gets a wizard to set up a vault in a
+popular style (PARA, Zettelkasten, a game design vault…) and, as a bonus, a map of how your notes link together.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -320,7 +338,8 @@ Now the cursor hops to the end of your selection first, and the table appears.
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Music bench moves in next, then the mini player, Send to and the command palette.
+**NoorMD 3.0**, piece by piece: the Vault bench moves in next (with a wizard and a map of your notes), then Music,
+then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

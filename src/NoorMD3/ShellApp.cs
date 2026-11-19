@@ -80,6 +80,13 @@ public static class ShellApp
                 return d.ShowDialog(Owner()) == true ? d.FileNames : [];
             }).Task;
 
+        public async Task<string?> SavePageAsPdfAsync(string suggestedName)
+        {
+            var path = await PickSaveFileAsync("Export PDF", suggestedName, [new("PDF document", [".pdf"])]);
+            if (path == null || Main == null) return null;
+            return await Application.Current.Dispatcher.InvokeAsync(() => Main.PrintToPdfAsync(path)).Task.Unwrap() ? path : throw new Noor.Contracts.BenchException("WebView2 couldn't make the PDF.");
+        }
+
         public Task<string?> PickSaveFileAsync(string title, string suggestedName, IReadOnlyList<Noor.Contracts.FileFilter> filters) =>
             Application.Current.Dispatcher.InvokeAsync<string?>(() =>
             {
