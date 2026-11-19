@@ -264,9 +264,9 @@ public sealed class VaultBench : BenchBase
         Command("vault.delete", async (a, host, _) =>
         {
             var v = V(host);
-            var n = Run(() => v.Delete(Strs(a, "paths")));
+            var gone = Run(() => v.Delete(Strs(a, "paths")));
             await v.RescanAsync();
-            return new JsonObject { ["deleted"] = n };
+            return new JsonObject { ["deleted"] = gone.Count, ["paths"] = new JsonArray(gone.Select(p => (JsonNode?)p).ToArray()) };
         });
         Command("vault.reveal", (a, host, _) => Task.FromResult(Run(() =>
         {

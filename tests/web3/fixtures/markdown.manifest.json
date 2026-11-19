@@ -3,7 +3,7 @@
   "name": "Markdown",
   "icon": "\u270E",
   "description": "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-  "version": "3.0.7",
+  "version": "3.0.8",
   "contractVersion": 1,
   "density": "roomy",
   "entry": "bench.js",

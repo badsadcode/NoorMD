@@ -139,6 +139,19 @@ inspiration from its concept art, but NoorMD has its own face).
      - **templates** per vault; **a quick switcher** (Ctrl+P); **daily notes**; **unlinked mentions**;
        **properties** (front matter as a small form, and filtering by it);
      - **a visual map** of the vault (your bonus idea): notes and their links as a graph you can explore.
+     - **3.0.8 (done), the Vault, part one:** ✓ Vault.Core (2.0's index, links, tags, presets, packaging, copied;
+       a watched vault session; renames and moves that rewrite links) · ✓ the wizard (Start simple, Popular
+       structures: PARA, Zettelkasten, Johnny.Decimal, Journal; For creators: Writer, Worldbuilding, Streamer, Game
+       development), with a live preview of the folders and starter notes · ✓ the vault's home (search, recently
+       changed notes, tags, recent vaults) · ✓ panels: Explorer (folders, filter, new / rename / move / delete to the
+       Recycle Bin, drag to move), Backlinks, Tags, Search, docking into the Markdown bench · ✓ the Markdown bench
+       learns wiki links ([[ suggests notes, Ctrl+click follows or offers to make the note) · ✓ open documents follow
+       renamed notes, documents without unsaved changes reload by themselves when a rename rewrites their links,
+       and close when deleted. The shell learned: benches pick folders, hand files to the bench that opens them,
+       announce moved files; pages share topics (the document on screen, unsaved ones); one NoorMD at a time (a
+       second start hands its files over); files dropped anywhere on the window open.
+     - **3.0.9, the Vault, part two:** the visual map, the quick switcher (Ctrl+P), daily notes, templates (the
+       wizard's Templates folder), properties, unlinked mentions, Pack & Share.
    - **Then the Music bench**, the library and the player as a dockable panel; then the mini player in the status
      bar, Send to between benches, the command palette.
    - **Later in stage 1: a whole bench in a window of its own** (drag its tab out). The window side is in place

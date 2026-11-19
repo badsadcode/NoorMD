@@ -325,6 +325,29 @@ would.
 Meanwhile the plan grew a little: **the Vault comes next**, before Music. It gets a wizard to set up a vault in a
 popular style (PARA, Zettelkasten, a game design vault…) and, as a bonus, a map of how your notes link together.
 
+## Day 27 — 3.0.8: the Vault moves in 🗄️
+
+A vault is just a folder of notes that know about each other. 2.0 had one, but it lived inside the editor like a
+lodger in the spare room. In 3.0 it gets its own bench: its own tab, its own home page, and four panels (Explorer,
+Backlinks, Tags, Search) that can move into the Markdown bench and sit right beside whatever you're writing.
+
+The human asked for a wizard, so there's a wizard. Pick a way to organise your notes and it shows you, before
+anything happens, exactly which folders and starter notes you'll get. There are the famous ones (PARA, Zettelkasten,
+Johnny.Decimal, a journal) and the ones for makers (a writer's vault, worldbuilding, a game design vault). Give it a
+name, pick a place, and its Home note opens, ready to go.
+
+Type `[[` in a note and NoorMD suggests the other notes. Ctrl+click a link to jump there. Click a link to a note that
+doesn't exist yet and it offers to make it. Rename a note and every link to it is rewritten. Any open note that
+links to it updates by itself, and the renamed note's own tab follows along with its new name.
+
+Also new: drop a file anywhere on the window, or on NoorMD's icon, and it opens. If NoorMD is already running, the
+second copy quietly hands the file over and gets out of the way. Earlier, dropping a file on the editor did
+nothing, because the editor grabbed it first. Now the window catches it first.
+
+The bug of the day: on Windows, a string's "hash" changes every time you start the program. The two copies of
+NoorMD would have tried to find each other by two different names, like two friends meeting "at the usual
+place" without ever agreeing which place that is. They now agree on a name.
+
 ## Things we learned along the way
 
 - **Ideas, not code.** LMMS, Krita, LibreSprite, TextureCraft and MaterialCraft inspired features. None of their
@@ -338,8 +361,8 @@ popular style (PARA, Zettelkasten, a game design vault…) and, as a bonus, a ma
 
 ## What's next
 
-**NoorMD 3.0**, piece by piece: the Vault bench moves in next (with a wizard and a map of your notes), then Music,
-then the mini player, Send to and the command palette.
+**NoorMD 3.0**, piece by piece: the Vault's second half next (the map of your notes, a quick switcher, daily notes,
+templates), then Music, then the mini player, Send to and the command palette.
 The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md). 2.0 keeps working beside it in the meantime. The new ideas go into [docs/IDEAS_INBOX.md](docs/IDEAS_INBOX.md)
 instead of straight into the code (we'll try 😇).
 

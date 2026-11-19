@@ -1,0 +1,99 @@
+{
+  "id": "noor.vault",
+  "name": "Vault",
+  "icon": "\uD83D\uDDC4",
+  "description": "A folder of linked notes: explorer, search, backlinks, tags, and a wizard to start one.",
+  "version": "3.0.8",
+  "contractVersion": 1,
+  "density": "roomy",
+  "entry": "bench.js",
+  "menus": [
+    {
+      "title": "File",
+      "items": [
+        {
+          "label": "New vault (wizard)\u2026",
+          "command": "vault.wizard",
+          "keys": null
+        },
+        {
+          "label": "Open a folder as a vault\u2026",
+          "command": "vault.openFolder",
+          "keys": null
+        },
+        {
+          "label": "Recent vaults\u2026",
+          "command": "vault.recentDialog",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "New note",
+          "command": "vault.newNote",
+          "keys": "Ctrl\u002BAlt\u002BN"
+        },
+        {
+          "label": "New folder",
+          "command": "vault.newFolder",
+          "keys": null
+        },
+        {
+          "label": null,
+          "command": null,
+          "keys": null
+        },
+        {
+          "label": "Show the vault in Explorer",
+          "command": "vault.reveal",
+          "keys": null
+        },
+        {
+          "label": "Close the vault",
+          "command": "vault.close",
+          "keys": null
+        }
+      ]
+    },
+    {
+      "title": "Edit",
+      "items": [
+        {
+          "label": "Search the vault",
+          "command": "vault.focusSearch",
+          "keys": "Ctrl\u002BShift\u002BF"
+        }
+      ]
+    }
+  ],
+  "panels": [
+    {
+      "id": "explorer",
+      "title": "Explorer",
+      "icon": "\uD83D\uDDC2",
+      "dock": "left"
+    },
+    {
+      "id": "backlinks",
+      "title": "Backlinks",
+      "icon": "\u21A9",
+      "dock": "right"
+    },
+    {
+      "id": "tags",
+      "title": "Tags",
+      "icon": "#",
+      "dock": "right"
+    },
+    {
+      "id": "search",
+      "title": "Search",
+      "icon": "\u2315",
+      "dock": "right"
+    }
+  ],
+  "fileTypes": []
+}

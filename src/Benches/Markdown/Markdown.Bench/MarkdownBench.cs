@@ -19,7 +19,7 @@ public sealed class MarkdownBench : BenchBase
         Name = "Markdown",
         Icon = "✎",
         Description = "Write: Markdown documents in Visual, Markdown or side-by-side view, with an outline.",
-        Version = "3.0.7",
+        Version = "3.0.8",
         Density = "roomy",
         Menus =
         [

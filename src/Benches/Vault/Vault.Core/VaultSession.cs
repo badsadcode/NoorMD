@@ -210,8 +210,8 @@ public sealed class VaultSession : IDisposable
         return (moves, links);
     }
 
-    /// <summary>Moves notes and folders to the Recycle Bin (Windows; elsewhere they're deleted). Returns how many.</summary>
-    public int Delete(IEnumerable<string> rels)
+    /// <summary>Moves notes and folders to the Recycle Bin (Windows; elsewhere they're deleted). Returns their full paths.</summary>
+    public IReadOnlyList<string> Delete(IEnumerable<string> rels)
     {
         var fulls = rels.Select(Full).Where(f => f != null && f != Root && (File.Exists(f) || Directory.Exists(f))).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         fulls = fulls.Where(f => !fulls.Any(o => f.StartsWith(o + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))).ToList();
@@ -227,7 +227,7 @@ public sealed class VaultSession : IDisposable
             else File.Delete(f);
         }
         ScheduleRescan(0);
-        return fulls.Count;
+        return fulls;
     }
 
     public void Dispose()

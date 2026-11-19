@@ -281,6 +281,7 @@ export default {
       if (d === cur) { renderTitle(); clearTimeout(statusTimer); statusTimer = setTimeout(renderStatus, 200); clearTimeout(outlineTimer); outlineTimer = setTimeout(() => { sendOutline(); find.refresh(); }, 300); }
       clearTimeout(d.draftTimer);
       d.draftTimer = setTimeout(() => writeDraft(d), 600);
+      publishDirty();
     }
     /** Unsaved work goes to a draft on the C# side; a saved (or undone back to saved) document has none. */
     function writeDraft(d) {
@@ -461,6 +462,7 @@ export default {
       const hs = cur ? headings(text) : [];
       lastOutline = cur ? { title: nameOf(cur), items: hs } : { title: '', items: [] };
       ctx.emit('outline', lastOutline);
+      publishCurrent();
       // The Statistics and History panels hear about the document on screen too.
       if (cur) {
         const st = stats(text);
@@ -596,7 +598,7 @@ export default {
       if (d.banner && /changed by another program/.test(d.banner.text)) d.banner = null;
       if (d.gen !== gen) writeDraft(d);   // typed while it was saving: those words are still unsaved
       renderTab(d); if (d === cur) { renderTitle(); renderStatus(); sendOutline(); renderBanner(); }
-      keepSession();
+      keepSession(); publishDirty();
       return true;
     }
     async function saveAll() {
@@ -629,33 +631,135 @@ export default {
     }
 
     /** The file as it is on disk now, replacing what's in the editor (asks first when that has unsaved changes). */
-    async function reload(d) {
-      if (!d || !d.path) return;
-      if (isDirty(d)) {
+    async function reload(d, { silent = false } = {}) {
+      if (!d || !d.path) return false;
+      if (isDirty(d) && !silent) {
         const ok = await ctx.dialog('Reload from disk', el('p', { text: `Reloading “${nameOf(d)}” throws away the changes you haven't saved (a snapshot keeps them in History, just in case).` }), [{ label: 'Cancel', value: false }, { label: 'Reload', value: true, primary: true }]);
-        if (!ok) return;
+        if (!ok) return false;
         await takeSnapshot(d, 'Before reloading from disk', { quiet: true });
       }
       let r;
-      try { r = await ctx.call('md.load', { doc: d.id, path: d.path }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      try { r = await ctx.call('md.load', { doc: d.id, path: d.path }); } catch (e) { if (!silent) ctx.toast(e.message, { error: true }); return false; }
       clearTimeout(d.draftTimer);
       try { d.editor && d.editor.destroy(); } catch { /* gone */ }
       d.pane.replaceChildren(); d.editor = null; d.fallback = null; d.mounted = false;
       d.pending = r.markdown; d.format = r.format; d.gen = 0; d.savedGen = 0; d.banner = null; d.diskNoticed = false;
       if (d === cur) mountDoc(d);
-      renderAll(); writeDraft(d);
+      renderAll(); writeDraft(d); publishDirty();
+      return true;
     }
     /** Another program changed (or moved) the file since it was opened or saved here: say so, once. */
-    async function checkDisk(d) {
+    async function checkDisk(d, { quiet = false } = {}) {
       if (!d || !d.path || d.diskNoticed) return;
       const changedOnDisk = await ctx.call('md.changed', { doc: d.id }).catch(() => false);
       if (!changedOnDisk || !docs.includes(d) || d.diskNoticed) return;
+      if (!isDirty(d) && await reload(d, { silent: true })) { if (!quiet) ctx.toast(`“${nameOf(d)}” changed on disk; it's up to date here.`); return; }
       d.diskNoticed = true;
       d.banner = { text: `“${nameOf(d)}” was changed by another program.${isDirty(d) ? ' You have unsaved changes here too.' : ''}`, acts: [['Reload', () => reload(d)], ['Keep mine', () => hideBanner(d)]] };
       if (d === cur) renderBanner();
     }
     const onWindowFocus = () => { if (cur) checkDisk(cur); };
     window.addEventListener('focus', onWindowFocus);
+
+    // ------------------------------------------------------------ what other benches hear (the Vault's panels follow along)
+    let lastCurrent = '', lastDirty = '';
+    function publishCurrent() {
+      const v = cur ? { id: cur.id, path: cur.path, title: nameOf(cur) } : null;
+      const key = JSON.stringify(v);
+      if (key !== lastCurrent) { lastCurrent = key; ctx.publish('doc.current', v); }
+    }
+    function publishDirty() {
+      const paths = docs.filter((d) => isDirty(d) && d.path).map((d) => d.path);
+      const key = paths.join('|');
+      if (key !== lastDirty) { lastDirty = key; ctx.publish('docs.dirty', { paths }); }
+    }
+
+    // ------------------------------------------------------------ wiki links: [[ suggests notes, Ctrl+click follows
+    const wiki = { box: null, items: [], index: 0, query: '', notes: null, notesAt: 0, seq: 0 };
+    async function vaultNotes() {
+      if (!ctx.hasBench || !ctx.hasBench('noor.vault')) return [];
+      if (wiki.notes && Date.now() - wiki.notesAt < 4000) return wiki.notes;
+      wiki.notes = await ctx.callBench('noor.vault', 'vault.notes').catch(() => []);
+      wiki.notesAt = Date.now();
+      return wiki.notes;
+    }
+    function caretText() {
+      const sel = window.getSelection();
+      if (!sel || !sel.rangeCount || !sel.isCollapsed || !cur) return null;
+      const n = sel.anchorNode;
+      if (!n || n.nodeType !== 3 || !cur.pane.contains(n)) return null;
+      return n.textContent.slice(0, sel.anchorOffset);
+    }
+    function closeWiki() { if (wiki.box) { wiki.box.remove(); wiki.box = null; } wiki.items = []; }
+    async function suggestWiki() {
+      const before = caretText();
+      const m = before && /\[\[([^[\]\n|#]{0,80})$/.exec(before);
+      if (!m) { closeWiki(); return; }
+      const seq = ++wiki.seq, q = m[1];
+      const notes = await vaultNotes();
+      if (seq !== wiki.seq) return;
+      const lq = q.toLowerCase();
+      const names = new Map();
+      for (const n of notes) names.set(n.name.toLowerCase(), (names.get(n.name.toLowerCase()) || 0) + 1);
+      const found = notes.filter((n) => n.name.toLowerCase().includes(lq) || n.path.toLowerCase().includes(lq))
+        .sort((a, b) => (b.name.toLowerCase().startsWith(lq) - a.name.toLowerCase().startsWith(lq)) || a.name.localeCompare(b.name)).slice(0, 8)
+        .map((n) => ({ ...n, insert: names.get(n.name.toLowerCase()) > 1 ? n.path.replace(/\.(md|markdown|mdown|mkd)$/i, '') : n.name }));
+      if (!found.length) { closeWiki(); return; }
+      wiki.items = found; wiki.index = 0; wiki.query = q;
+      const sel = window.getSelection();
+      const rects = sel.rangeCount ? sel.getRangeAt(0).getClientRects() : [];
+      const r = rects.length ? rects[0] : cur.pane.getBoundingClientRect();
+      if (!wiki.box) { wiki.box = el('div', { class: 'md-wiki', role: 'listbox', 'aria-label': 'Notes in the vault' }); document.body.append(wiki.box); }
+      wiki.box.style.left = Math.min(r.left, window.innerWidth - 320) + 'px';
+      wiki.box.style.top = (r.bottom + 4) + 'px';
+      drawWiki();
+    }
+    function drawWiki() {
+      if (!wiki.box) return;
+      wiki.box.replaceChildren(...wiki.items.map((n, i) => el('div', { class: 'md-wiki-item', role: 'option', 'aria-selected': String(i === wiki.index),
+        onmousedown: (e) => { e.preventDefault(); chooseWiki(i); } }, el('span', { class: 'n', text: n.name }), el('span', { class: 'p', text: n.path }))));
+    }
+    function chooseWiki(i) {
+      const n = wiki.items[i];
+      if (!n || !cur || !cur.editor) { closeWiki(); return; }
+      const ed = cur.editor, len = wiki.query.length;
+      closeWiki();
+      try {
+        if (ed.isWysiwygMode()) { const [, to] = ed.getSelection(); ed.replaceSelection(n.insert + ']]', to - len, to); }
+        else { const [, [l, c]] = ed.getSelection(); ed.replaceSelection(n.insert + ']]', [l, c - len], [l, c]); }
+      } catch (e) { console.error(e); }
+      ed.focus();
+    }
+    /** The [[link]] under the pointer (Ctrl+click): its target, or null. */
+    function linkAt(x, y) {
+      const range = document.caretRangeFromPoint ? document.caretRangeFromPoint(x, y) : null;
+      if (!range || range.startContainer.nodeType !== 3) return null;
+      const text = range.startContainer.textContent, at = range.startOffset;
+      for (const m of text.matchAll(/!?\[\[([^[\]\n]+?)\]\]/g)) {
+        if (at >= m.index && at <= m.index + m[0].length) return m[1].split('|')[0].split('#')[0].trim();
+      }
+      return null;
+    }
+    async function followLink(target) {
+      if (!ctx.hasBench || !ctx.hasBench('noor.vault')) { ctx.toast('Wiki links need the Vault bench.'); return; }
+      let r;
+      try { r = await ctx.callBench('noor.vault', 'vault.openLink', { from: cur && cur.path ? cur.path : '', target }); } catch (e) { ctx.toast(e.message, { error: true }); return; }
+      if (r.noVault) { ctx.toast('Open a vault (the Vault bench) to follow [[links]].'); return; }
+      if (r.outside) { ctx.toast('This document isn\'t in the open vault, so its [[links]] lead nowhere.'); return; }
+      if (r.missing) {
+        const where = r.folder ? `in “${r.folder}”` : 'at the top of the vault';
+        const ok = await ctx.dialog('Make the note?', el('p', { text: `There's no note called “${r.name.replace(/\.md$/i, '')}” yet. Make it ${where}?` }), [{ label: 'Cancel', value: false }, { label: 'Make it', value: true, primary: true }]);
+        if (ok) ctx.callBench('noor.vault', 'vault.createLink', { from: cur && cur.path ? cur.path : '', target }).catch((e) => ctx.toast(e.message, { error: true }));
+      }
+    }
+    docsEl.addEventListener('keyup', (e) => { if (!['ArrowUp', 'ArrowDown', 'Enter', 'Tab', 'Escape'].includes(e.key) || !wiki.box) suggestWiki(); });
+    docsEl.addEventListener('click', (e) => {
+      if (!(e.ctrlKey || e.metaKey)) { closeWiki(); return; }
+      const target = linkAt(e.clientX, e.clientY);
+      if (!target) return;
+      e.preventDefault(); e.stopPropagation();
+      followLink(target);
+    }, true);
 
     // ------------------------------------------------------------ snapshots (History)
     async function takeSnapshot(d = cur, label = null, { quiet = false } = {}) {
@@ -873,6 +977,31 @@ export default {
       ctx.on('snap.view', (p) => p && viewSnapshot(p.id)),
       ctx.on('snap.restore', (p) => p && restoreSnapshot(p.id)),
       ctx.on('shell.open', (p) => ready.then(async () => { for (const path of (p && p.paths) || []) await openPath(path); })),
+      ctx.on('shell.moved', (p) => {
+        for (const m of (p && p.moves) || []) {
+          for (const d of docs) {
+            if (!d.path) continue;
+            const lp = d.path.toLowerCase(), lf = m.from.toLowerCase();
+            const now = lp === lf ? m.to : lp.startsWith(lf + '\\') || lp.startsWith(lf + '/') ? m.to + d.path.slice(m.from.length) : null;
+            if (!now) continue;
+            d.path = now; d.name = now.split(/[\\/]/).pop(); d.diskNoticed = false;
+            renderTab(d);
+          }
+        }
+        renderTitle(); sendOutline(); keepSession(); publishDirty();
+      }),
+      ctx.subscribe('files.rewritten', (p) => {
+        const set = new Set(((p && p.paths) || []).map((x) => x.toLowerCase()));
+        for (const d of docs) if (d.path && set.has(d.path.toLowerCase())) { d.diskNoticed = false; checkDisk(d, { quiet: true }); }
+      }),
+      // Deleted in the Vault: documents without unsaved changes close; ones with changes stay (Save writes them again).
+      ctx.subscribe('files.deleted', async (p) => {
+        const gone = ((p && p.paths) || []).map((x) => x.toLowerCase());
+        const inside = (d) => d.path && gone.some((g) => d.path.toLowerCase() === g || d.path.toLowerCase().startsWith(g + '\\') || d.path.toLowerCase().startsWith(g + '/'));
+        let kept = 0;
+        for (const d of docs.filter(inside)) { if (isDirty(d)) kept++; else await closeDoc(d, { quiet: true }); }
+        if (kept) ctx.toast(`${kept === 1 ? 'A document' : kept + ' documents'} with unsaved changes stayed open; saving writes ${kept === 1 ? 'it' : 'them'} again.`);
+      }),
       ctx.on('outline.ask', () => ctx.emit('outline', lastOutline)),
       ctx.on('outline.go', (p) => goToHeading(p && p.index)),
     ];
@@ -888,6 +1017,13 @@ export default {
       'ctrl+f': 'md.find', 'ctrl+h': 'md.replace', 'ctrl+=': 'md.zoom.in', 'ctrl++': 'md.zoom.in', 'ctrl+shift++': 'md.zoom.in', 'ctrl+-': 'md.zoom.out', 'ctrl+0': 'md.zoom.reset' };
     let commands = null;
     const ownKey = (e) => {
+      if (wiki.box && ['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape'].includes(e.key) && !e.ctrlKey && !e.altKey) {
+        e.preventDefault(); e.stopPropagation();
+        if (e.key === 'Escape') closeWiki();
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { wiki.index = (wiki.index + (e.key === 'ArrowDown' ? 1 : -1) + wiki.items.length) % wiki.items.length; drawWiki(); }
+        else chooseWiki(wiki.index);
+        return;
+      }
       if (!e.ctrlKey || e.altKey || e.metaKey) return;
       const k = ['ctrl', e.shiftKey && 'shift', e.key.length === 1 ? e.key.toLowerCase() : e.key.toLowerCase()].filter(Boolean).join('+');
       // Ctrl+Shift+0…6: paragraph style (by key position, whatever the keyboard layout prints there).
@@ -974,7 +1110,7 @@ export default {
       },
       unmount() {
         // Documents stay as they are (drafts and the kept session bring them back): only the editors go.
-        themeWatch.disconnect(); offs.forEach((f) => f()); window.removeEventListener('focus', onWindowFocus); find.close(); box.removeEventListener('keydown', ownKey, true);
+        themeWatch.disconnect(); offs.forEach((f) => f()); closeWiki(); window.removeEventListener('focus', onWindowFocus); find.close(); box.removeEventListener('keydown', ownKey, true);
         for (const d of docs) { clearTimeout(d.draftTimer); try { d.editor && d.editor.destroy(); } catch { /* gone */ } }
         clearTimeout(statusTimer); clearTimeout(outlineTimer);
       },

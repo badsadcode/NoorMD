@@ -154,6 +154,7 @@ public sealed class VaultTests : IDisposable
         Assert.True(File.Exists(Path.Combine(root, "3 Resources", "Flying cats.md")));
         var del = await bench.HandleAsync("vault.delete", J(new { paths = new[] { "3 Resources/Flying cats.md", "Ideas box" } }), host, default);
         Assert.Equal(2, (int)del!["deleted"]!);
+        Assert.Equal(2, del["paths"]!.AsArray().Count);
         Assert.False(File.Exists(Path.Combine(root, "3 Resources", "Flying cats.md")));
 
         await Assert.ThrowsAsync<BenchException>(() => bench.HandleAsync("vault.openNote", J(new { path = "../outside.md" }), host, default));
