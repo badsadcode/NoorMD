@@ -12,7 +12,8 @@ public sealed class ShellRouter
     readonly Func<string, IBenchHost> _hostFor;
     readonly string _settingsPath;
     public ShellSettings Settings { get; private set; }
-    /// <summary>Window commands (minimise, maximise, the buttons' colours…), handled by the window.</summary>
+    /// <summary>Window commands (minimise, maximise, the buttons' colours, floating windows…), handled by the window the
+    /// request came from (passed to <see cref="HandleAsync"/>), or this one when none is.</summary>
     public Func<string, JsonElement, JsonNode?>? Window { get; set; }
 
     public ShellRouter(BenchRegistry benches, string settingsPath, Func<string, IBenchHost> hostFor)
@@ -21,8 +22,9 @@ public sealed class ShellRouter
         Settings = ShellSettings.Load(settingsPath);
     }
 
-    public async Task<JsonObject> HandleAsync(JsonElement request, CancellationToken cancel = default)
+    public async Task<JsonObject> HandleAsync(JsonElement request, Func<string, JsonElement, JsonNode?>? window = null, CancellationToken cancel = default)
     {
+        window ??= Window;
         var id = request.TryGetProperty("id", out var i) ? i.Clone() : default;
         var reply = new JsonObject { ["id"] = id.ValueKind == JsonValueKind.Undefined ? null : JsonNode.Parse(id.GetRawText()) };
         try
@@ -32,7 +34,7 @@ public sealed class ShellRouter
             var args = request.TryGetProperty("args", out var a) ? a : default;
             JsonNode? result;
             if (target == "shell") result = Shell(cmd, args);
-            else if (target == "window") result = Window?.Invoke(cmd, args);
+            else if (target == "window") result = window?.Invoke(cmd, args);
             else if (target.StartsWith("bench:", StringComparison.Ordinal))
             {
                 var bench = _benches.Find(target[6..]) ?? throw new BenchException($"There is no bench \"{target[6..]}\".");

@@ -124,6 +124,24 @@ public sealed class ShellTests : IDisposable
     }
 
     [Fact]
+    public async Task Window_commands_go_to_the_window_the_request_came_from_and_floats_are_kept()
+    {
+        var reg = BenchRegistry.FromAssemblies([typeof(SandboxBench).Assembly]);
+        var router = new ShellRouter(reg, Path.Combine(_dir, "w.json"), _ => new Host());
+        var seen = new List<string>();
+        var r = await router.HandleAsync(J("""{"id":1,"target":"window","cmd":"float.get"}"""), (cmd, _) => { seen.Add(cmd); return new JsonObject { ["ref"] = "noor.sandbox:stats" }; });
+        Assert.Equal(["float.get"], seen);
+        Assert.Equal("noor.sandbox:stats", (string)r["result"]!["ref"]!);
+        var none = await router.HandleAsync(J("""{"id":2,"target":"window","cmd":"close"}"""));
+        Assert.True((bool)none["ok"]!);   // no window: nothing happens, nothing breaks
+
+        var saved = await router.HandleAsync(J("""{"id":3,"target":"shell","cmd":"settings.save","args":{"floats":[{"ref":"noor.clock:now","x":1900,"y":120,"w":300,"h":240,"from":{"bench":"noor.sandbox","side":"right"}},{"noref":true},"junk"]}}"""));
+        Assert.Single(saved["result"]!["floats"]!.AsArray());
+        var back = ShellSettings.Load(Path.Combine(_dir, "w.json"));
+        Assert.Equal("noor.clock:now", Assert.Single(back.Floats).GetProperty("ref").GetString());
+    }
+
+    [Fact]
     public void Files_are_served_from_the_shell_folder_and_the_benches_and_nowhere_else()
     {
         var root = Path.Combine(_dir, "www");

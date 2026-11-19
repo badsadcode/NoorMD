@@ -13,7 +13,7 @@ one human with an endless supply of "oh, and also…", and one AI that kept sayi
 | | |
 | --- | --- |
 | First commit | 26 October 2026 — *"NoorMD Desktop: WPF + WebView2 Markdown studio"* |
-| Latest release | NoorMD 3.0.3 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
+| Latest release | NoorMD 3.0.4 (19 November 2026), and 2.0.0-preview.162 for everything not in 3.0 yet |
 | Busiest day | 28 October: **67 commits** (Sound Bench, Texture Bench, the whole Sequencer, a calendar and the first trees) |
 | Favourite hour to commit | 1 pm, apparently |
 | Benches | 20-ish, depending on how you count Voice Forge |
@@ -253,6 +253,21 @@ your click landed, like a waiter whisking your plate away mid-bite. It's been sp
 Sandbox (which counted it: ten words, one minute's read), and then found three things: bench tabs that wouldn't move,
 a focus mode that hid the panels but kept their chairs warm, and a scrollbar wearing last season's arrows. 3.0.3 fixed
 all three.
+
+## Day 25, late — 3.0.4: the party part 🥳
+
+"Part three sounds almost like party", said the human, and so it was. Panels can now leave home: drag one out of
+the window and it gets a little window of its own, ready for a second monitor. It isn't a copy that drifts off on
+its own, either. The floating Statistics keeps counting your words, the floating Stopwatch keeps the same time as
+the one at home, and when you change the theme, the floating windows change with it.
+
+Then came the idea of the day: a button that brings them all back, called **"Get over here!"**. Five minutes later came the
+follow-up: *"can it also draw small ropes with grappling hooks? 😛"* It can. Press Ctrl+Shift+G and a rope flies
+out of each panel's spot towards its floating window, hooks it, and reels it back in, the panel riding home along
+the rope. It plays for less than a second, and politely sits out if your computer is set to reduce motion.
+
+Building it, a safety check stopped one of the AI's own commands because it *might* have deleted something. It
+didn't. But it's nice to know someone's watching the AI too.
 
 ## Things we learned along the way
 

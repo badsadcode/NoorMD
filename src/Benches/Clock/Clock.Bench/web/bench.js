@@ -1,16 +1,21 @@
 // The Clock's web module: world clocks (main view), a small clock and a stopwatch (panels you can dock in any bench).
 const css = new URL('bench.css', import.meta.url).href;
 
-// The stopwatch is one for the whole bench, however many places its panel is shown in.
+// The stopwatch is one for the whole bench, however many places (and windows) its panel is shown in. Its state is in
+// wall-clock time, so a floating window (with its own copy of this module) can take it over through an event.
 const watch = { running: false, since: 0, banked: 0 };
-const elapsed = () => watch.banked + (watch.running ? performance.now() - watch.since : 0);
+const elapsed = () => watch.banked + (watch.running ? Date.now() - watch.since : 0);
+const snapshot = () => ({ running: watch.running, since: watch.since, banked: watch.banked });
+const adopt = (st) => { if (st && typeof st === 'object' && 'running' in st) Object.assign(watch, { running: !!st.running, since: Number(st.since) || 0, banked: Number(st.banked) || 0 }); };
 const fmtWatch = (ms) => { const t = Math.floor(ms / 10), cs = t % 100, s = Math.floor(t / 100) % 60, m = Math.floor(t / 6000); return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}.${String(cs).padStart(2, '0')}`; };
 const fmtTime = (zone, opts = {}) => new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', ...opts, timeZone: zone || undefined }).format(new Date());
 const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function every(ms, fn) { fn(); const t = setInterval(fn, ms); return () => clearInterval(t); }
-function toggle(ctx) { if (watch.running) { watch.banked = elapsed(); watch.running = false; } else { watch.since = performance.now(); watch.running = true; } ctx.emit('stopwatch'); }
-function reset(ctx) { watch.running = false; watch.banked = 0; ctx.emit('stopwatch'); }
+function toggle(ctx) { if (watch.running) { watch.banked = elapsed(); watch.running = false; } else { watch.since = Date.now(); watch.running = true; } ctx.emit('stopwatch', snapshot()); }
+function reset(ctx) { watch.running = false; watch.banked = 0; ctx.emit('stopwatch', snapshot()); }
+/** A stopwatch shown somewhere new asks for the current state; whoever has one answers. */
+function answerAsks(ctx) { return ctx.on('stopwatch.ask', () => { if (watch.running || watch.banked) ctx.emit('stopwatch', snapshot()); }); }
 
 export default {
   mount(el, ctx) {
@@ -32,8 +37,9 @@ export default {
     };
     el.querySelector('.ck-add').onclick = add;
     const stop = every(1000, draw);
+    const offAsk = answerAsks(ctx);
     ctx.setStatus(`${local} · ${zones.length} more time zone${zones.length === 1 ? '' : 's'}`);
-    return { commands: { 'clock.add': add, 'clock.toggle': () => toggle(ctx), 'clock.reset': () => reset(ctx) }, unmount: stop };
+    return { commands: { 'clock.add': add, 'clock.toggle': () => toggle(ctx), 'clock.reset': () => reset(ctx) }, unmount() { stop(); offAsk(); } };
   },
   panels: {
     now: {
@@ -49,12 +55,13 @@ export default {
         el.innerHTML = '<div class="ck-watch"><div class="ck-wt">00:00.00</div><button class="nui-btn primary ck-go">Start</button><button class="nui-btn ck-reset">Reset</button></div>';
         const t = el.querySelector('.ck-wt'), go = el.querySelector('.ck-go');
         let raf = 0;
-        const draw = () => { t.textContent = fmtWatch(elapsed()); go.textContent = watch.running ? 'Stop' : elapsed() ? 'Go on' : 'Start'; cancelAnimationFrame(raf); if (watch.running) raf = requestAnimationFrame(draw); };
+        const draw = (st) => { adopt(st); t.textContent = fmtWatch(elapsed()); go.textContent = watch.running ? 'Stop' : elapsed() ? 'Go on' : 'Start'; cancelAnimationFrame(raf); if (watch.running) raf = requestAnimationFrame(() => draw()); };
         go.onclick = () => toggle(ctx);
         el.querySelector('.ck-reset').onclick = () => reset(ctx);
-        const off = ctx.on('stopwatch', draw);
+        const off = ctx.on('stopwatch', draw), offAsk = answerAsks(ctx);
         draw();
-        return { unmount() { off(); cancelAnimationFrame(raf); } };
+        ctx.emit('stopwatch.ask');
+        return { unmount() { off(); offAsk(); cancelAnimationFrame(raf); } };
       },
     },
   },

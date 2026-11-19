@@ -40,9 +40,19 @@ const MOCK = (manifests) => {
   const defaults = { theme: 'dark', menuPosition: 'title', density: {}, openBenches: [], activeBench: null, layouts: {}, welcomed: false };
   const words = (t) => (t.match(/[\p{L}\p{N}](?:[\p{L}\p{N}'’-]|\.(?=\p{N}))*/gu) || []).length;
   const send = (data) => setTimeout(() => listeners.forEach((fn) => fn({ data })), 5);
+  const me = new URLSearchParams(location.search).get('float') || 'main';
+  const channel = new BroadcastChannel('mock-noormd3');
+  channel.onmessage = (e) => { const d = e.data; if ((d.to && d.to === me) || (!d.to && d.from !== me)) { if (d.msg.event === 'mock.closed') window.__closed = true; send(d.msg); } };
   const answer = (m) => {
-    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.3', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
+    if (m.target === 'shell' && m.cmd === 'start') return { version: '3.0.4', contract: 1, settings: store() || defaults, benches: manifests, problems: [] };
     if (m.target === 'shell' && m.cmd === 'settings.save') { localStorage.setItem('mock.settings', JSON.stringify(m.args)); return m.args; }
+    // The window's floating panels: a BroadcastChannel stands in for the window passing events between pages.
+    if (m.target === 'window' && m.cmd === 'float.open') { localStorage.setItem('mock.float.' + m.args.id, JSON.stringify(m.args)); (window.__floatOpens = window.__floatOpens || []).push(m.args); return { id: m.args.id }; }
+    if (m.target === 'window' && m.cmd === 'float.get') return JSON.parse(localStorage.getItem('mock.float.' + me));
+    if (m.target === 'window' && m.cmd === 'float.dock') { channel.postMessage({ to: 'main', msg: { event: 'float.closed', id: me } }); window.__docked = true; return null; }
+    if (m.target === 'window' && m.cmd === 'float.close') { (window.__floatCloses = window.__floatCloses || []).push(m.args.id); channel.postMessage({ to: m.args.id, msg: { event: 'mock.closed' } }); return null; }
+    if (m.target === 'window' && m.cmd === 'bus.emit') { channel.postMessage({ from: me, msg: { event: 'bench', bench: m.args.bench, name: m.args.name, payload: m.args.payload } }); return null; }
+    if (m.target === 'window' && m.cmd === 'broadcast') { channel.postMessage({ from: me, msg: { event: m.args.name, payload: m.args.payload } }); return null; }
     if (m.target === 'window') return null;
     if (m.target === 'bench:noor.clock' && m.cmd === 'clock.zones') return [{ id: 'UTC', name: 'UTC', offset: 0 }, { id: 'Europe/Warsaw', name: 'Warsaw', offset: 60 }, { id: 'Asia/Tokyo', name: 'Tokyo', offset: 540 }];
     if (m.target === 'bench:noor.sandbox' && m.cmd === 'sandbox.count') { const t = (m.args && m.args.text) || '', w = words(t); return { words: w, characters: t.length, sentences: (t.match(/[.!?]+(\s|$)/g) || []).length, minutes: w ? Math.max(1, Math.round(w / 230)) : 0 }; }
@@ -78,7 +88,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.goto(url);
     await waitFn(page, () => window.__noor && window.__noor.active() === 'home');
     check('first start: Home is open and in front', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).join() === 'home' && /Good (morning|afternoon|evening|night)/.test(await page.textContent('.home h1')));
-    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.3');
+    check('…the status bar names the version', (await page.textContent('#status-app')) === 'NoorMD 3.0.4');
     check('…the window got the theme\'s colours for its native buttons', (await calls()).some((c) => c.target === 'window' && c.cmd === 'theme' && c.args.bg === '#0b0d12'));
     check('…the main menu: File, Edit, View, Tools, Window, Help', (await menuTitles()).join() === 'File,Edit,View,Tools,Window,Help', await menuTitles());
     check('…Home offers the Sandbox and the Clock', await page.isVisible('.home .card:has-text("Sandbox")') && await page.isVisible('.home .card:has-text("Clock")'));
@@ -220,6 +230,73 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.click(`${sb} .pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]`);   // About hidden again, as before
 
 
+
+    // ---- floating panels (3.0.4): a panel in a window of its own, in step with the main window
+    const floats = () => page.evaluate(() => window.__noor.floats().map((f) => ({ ...f })));
+    await page.click(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Float in its own window")');
+    let fl = await floats();
+    check('right-click › Float in its own window: the window is asked to open one with Statistics', fl.length === 1 && fl[0].ref === 'noor.sandbox:stats' && (await page.evaluate(() => window.__floatOpens.length)) === 1 && (await page.evaluate(() => window.__floatOpens[0].title)) === 'Statistics', fl);
+    check('…it leaves the bench\'s sides; View still ticks it (it\'s shown, just elsewhere)', !(await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && (await (async () => { await openMenu('View'); const c = await page.getAttribute('.nui-menu .mi:has-text("Statistics")', 'aria-checked'); await page.keyboard.press('Escape'); return c; })()) === 'true');
+    const fp = await context.newPage();
+    fp.on('pageerror', (e) => errors.push('float: ' + e));
+    await fp.goto(url + '?float=' + fl[0].id);
+    await fp.waitForSelector('.floatpanel .pbody .nui-row');
+    await fp.waitForFunction(() => /Words\s*7/.test(document.querySelector('.floatpanel').textContent));
+    check('the floating window: just the panel, its name in the title bar, the last count asked for and shown', (await fp.textContent('#wintitle')).includes('Statistics') && !(await fp.isVisible('#benchtabs')) && !(await fp.isVisible('#statusbar')) && /Words\s*7/.test(await fp.textContent('.floatpanel')));
+    await page.click('.sb-text'); await page.keyboard.press('End'); await page.keyboard.type(' Three more words.');
+    await fp.waitForFunction(() => /Words\s*10/.test(document.querySelector('.floatpanel').textContent), null, { timeout: 4000 }).catch(() => {});
+    check('…typing in the main window updates it (the bench\'s events reach the floating window)', /Words\s*10/.test(await fp.textContent('.floatpanel')), await fp.textContent('.floatpanel'));
+    await page.keyboard.press('Control+,'); await page.waitForSelector('.nui-dialog');
+    await page.selectOption('.nui-dialog select', 'evergreen');
+    await fp.waitForFunction(() => document.documentElement.dataset.theme === 'evergreen', null, { timeout: 3000 }).catch(() => {});
+    check('…a theme picked in the main window: the floating window follows', (await fp.getAttribute('html', 'data-theme')) === 'evergreen');
+    await page.click('.nui-dialog button:text-is("Cancel")');
+    await fp.waitForFunction(() => document.documentElement.dataset.theme !== 'evergreen', null, { timeout: 3000 }).catch(() => {});
+    check('…and back when the change is cancelled', (await fp.getAttribute('html', 'data-theme')) === (await page.getAttribute('html', 'data-theme')));
+    await fp.click('.fdock');
+    await waitFn(page, () => window.__noor.floats().length === 0);
+    check('⇲ Dock back in the floating window: Statistics is back where it was', (await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && await page.isVisible(`${sb} .pbody[data-ref="noor.sandbox:stats"]`));
+    await fp.close();
+    // The Clock's stopwatch floating: started in its window, running in the Clock bench too.
+    await page.click(`${sb} .ptab[data-ref="noor.clock:stopwatch"]`, { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Float in its own window")');
+    fl = await floats();
+    const fp2 = await context.newPage();
+    fp2.on('pageerror', (e) => errors.push('float2: ' + e));
+    await fp2.goto(url + '?float=' + fl[0].id);
+    await fp2.waitForSelector('.floatpanel .ck-go');
+    await fp2.click('.floatpanel .ck-go');
+    await page.waitForTimeout(300);
+    check('the Stopwatch floating: started there, it\'s running in the Clock bench as well', (await fp2.textContent('.floatpanel .ck-go')) === 'Stop' && (await page.textContent('section.bench[data-bench="noor.clock"] [data-ref="noor.clock:stopwatch"] .ck-go')) === 'Stop');
+    await fp2.click('.floatpanel .ck-go');
+    // Dragging a tab out of the window floats it there.
+    const [ox, oy] = await tabCenter(`${sb} .ptab[data-ref="noor.sandbox:stats"]`);
+    await page.mouse.move(ox, oy); await page.mouse.down();
+    await page.mouse.move(ox + 30, oy, { steps: 3 });
+    await page.mouse.move(-25, oy, { steps: 6 });
+    check('…dragging a tab out of the window: the ghost says it\'ll get a window of its own', /its own window/.test(await page.textContent('.dock-ghost')));
+    await page.mouse.up();
+    fl = await floats();
+    check('…let go out there: it floats (two floating panels now)', fl.length === 2 && fl.some((f) => f.ref === 'noor.sandbox:stats'), fl);
+    await openMenu('Window');
+    check('Window lists the floating panels and Get over here!', /Floating panels \(2\)/.test(await page.textContent('.nui-menu')) && await page.isVisible('.nui-menu .mi:has-text("Get over here!")'));
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Control+Shift+G');
+    await page.waitForTimeout(120);
+    check('…the easter egg: ropes with grappling hooks fly out and reel the panels in', (await page.$$('.hooks .rope')).length === 2 && (await page.$$('.hooks .hook')).length === 2);
+    await page.waitForTimeout(1100);
+    check('…and tidy themselves away', !(await page.$('.hooks')) && !(await page.$('.hook-card')));
+    await waitFn(page, () => window.__noor.floats().length === 0);
+    check('Get over here! (Ctrl+Shift+G): every floating panel back in the main window, where it came from', (await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && (await docks()).bottom.some((g) => g.panels.includes('noor.clock:stopwatch')) && await page.isVisible('.nui-toast:has-text("Get over here! 2 panels pulled back in.")') && (await page.evaluate(() => window.__floatCloses.length)) >= 2);
+    check('…and their windows were told to close', await fp2.evaluate(() => window.__closed === true));
+    await fp2.close();
+    // A floating panel comes back after a restart: the Clock's small clock floats until the restart check below.
+    await openMenu('View'); await pick('Clock (Clock)');
+    await page.waitForSelector(`${sb} .pbody[data-ref="noor.clock:now"]`);
+    await page.click(`${sb} .ptab[data-ref="noor.clock:now"]`, { button: 'right' });
+    await page.click('.nui-menu .mi:has-text("Float in its own window")');
+
     // ---- reordering the bench tabs (3.0.3)
     const tabOrder = () => page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench));
     const before = await tabOrder();
@@ -291,7 +368,10 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await waitFn(page, () => window.__noor && window.__noor.active() === 'noor.sandbox' && document.querySelector('.sb-text'));
     check('restart: the same benches, the Sandbox in front (Home isn\'t part of the session)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).sort().join() === 'noor.clock,noor.sandbox' && await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
     check('…the borrowed Stopwatch is back in the Sandbox, working', await page.isVisible(`section.bench[data-bench="noor.sandbox"] [data-ref="noor.clock:stopwatch"] .ck-go`));
-    check('…the Sandbox\'s text kept (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'NoorMD 3.0 is one home. Benches talk!');
+    check('…and the floating Clock opens in its window again', (await page.evaluate(() => window.__noor.floats().map((f) => f.ref))).join() === 'noor.clock:now' && (await page.evaluate(() => (window.__floatOpens || []).map((f) => f.ref))).includes('noor.clock:now'));
+    await page.keyboard.press('Control+Shift+G');
+    await waitFn(page, () => window.__noor.floats().length === 0);
+    check('…the Sandbox\'s text kept (the bench\'s own state)', (await page.inputValue('.sb-text')) === 'NoorMD 3.0 is one home. Benches talk! Three more words.');
     check('…its layout kept (About still hidden, the left side 260 px)', !(await page.isVisible('.pbody[data-ref="noor.sandbox:about"]')) && (await page.$eval('section.bench[data-bench="noor.sandbox"]', (b) => getComputedStyle(b).getPropertyValue('--lw').trim())) === '0px');
     check('…the theme and the menu row kept', (await page.getAttribute('html', 'data-theme')) === 'parchment' && await page.isVisible('#menurow'));
 
@@ -333,6 +413,16 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
       await page.mouse.move(a.x + a.width / 2, a.y + a.height / 2, { steps: 10 });
       await page.screenshot({ path: path.join(dir, 'noormd3-dragging.png') });
       await page.mouse.up();
+      // Get over here!, mid-flight: two floating panels reeled back in.
+      for (const ref of ['noor.sandbox:stats', 'noor.clock:stopwatch']) {
+        await page.click(`section.bench[data-bench="noor.sandbox"] .ptab[data-ref="${ref}"]`, { button: 'right' });
+        await page.click('.nui-menu .mi:has-text("Float in its own window")');
+      }
+      await page.evaluate(() => { const fs = window.__noor.floats(); fs[0].x = window.screenX + window.innerWidth + 300; fs[0].y = window.screenY + 200; fs[1].x = window.screenX - 500; fs[1].y = window.screenY + 120; });
+      await page.keyboard.press('Control+Shift+G');
+      await page.waitForTimeout(560);
+      await page.screenshot({ path: path.join(dir, 'noormd3-get-over-here.png') });
+      await page.waitForTimeout(800);
     }
     check('no page errors', errors.length === 0, errors);
   } finally {

@@ -20,6 +20,7 @@ export default {
     };
     area.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(count, 250); });
     ctx.on('hello', (p) => ctx.toast(`The C# side waved at ${p.at} 👋`));
+    const offAsk = ctx.on('count.ask', () => ctx.emit('counted', last));   // a Statistics panel in another window asks
     count();
     return {
       focus: () => area.focus(),
@@ -29,7 +30,7 @@ export default {
         'sandbox.count': () => count().then(() => ctx.toast('Counted by the C# side.')),
         'sandbox.hello': async () => ctx.toast((await ctx.call('sandbox.hello')).message),
       },
-      unmount() { clearTimeout(timer); },
+      unmount() { clearTimeout(timer); offAsk(); },
     };
   },
   panels: {
@@ -39,7 +40,8 @@ export default {
         const list = el.firstChild;
         const show = (r) => { list.innerHTML = [['Words', r.words], ['Characters', r.characters], ['Sentences', r.sentences], ['Reading time', `${r.minutes} min`]].map(([k, v]) => `<div class="nui-row"><span>${k}</span><span class="nui-muted">${v}</span></div>`).join(''); };
         show(last);
-        const off = ctx.on('counted', show);
+        const off = ctx.on('counted', (r) => { last = r; show(r); });
+        ctx.emit('count.ask');
         return { unmount: off };
       },
     },

@@ -118,3 +118,22 @@ body.dock-dragging, body.dock-dragging * { cursor: grabbing !important; user-sel
 /* reordering the bench tabs by dragging them */
 .btab.moving { opacity: .55; }
 body.tab-dragging, body.tab-dragging * { cursor: grabbing !important; }
+
+/* ---------------------------------------------------------------- a floating panel's own window (3.0.4) */
+body.floating .app { grid-template-rows: 32px 0 0 1fr 0; }
+body.floating .menubar, body.floating .menurow, body.floating .benchtabs, body.floating .statusbar { display: none !important; }
+body.floating .titlebar { padding-left: 8px; gap: 4px; }
+body.floating .logo { width: 18px; height: 18px; border-radius: 6px; font-size: 10px; margin-right: 2px; }
+body.floating .wintitle { justify-content: flex-start; }
+.ftitle { display: flex; align-items: center; gap: 7px; } .ftitle b { color: var(--text); font-weight: 600; } .ftitle small { font-size: 11px; }
+.fdock { app-region: no-drag; -webkit-app-region: no-drag; flex: none; }
+.floatpanel { position: absolute; inset: 0; display: flex; flex-direction: column; background: var(--panel); border-top: 1px solid var(--border); }
+.floatpanel > .pbody { flex: 1; min-height: 0; overflow: auto; padding: var(--pad); }
+
+/* Get over here!: the rope, the hook and the panel riding back (an easter egg) */
+.hooks { position: fixed; inset: 0; width: 100vw; height: 100vh; z-index: 1300; pointer-events: none; overflow: visible; }
+.hooks .rope { fill: none; stroke: color-mix(in srgb, var(--accent) 80%, var(--text)); stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 7 3; }
+.hooks .hook { fill: none; stroke: var(--text); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.hook-card { position: fixed; left: 0; top: 0; z-index: 1301; pointer-events: none; padding: 4px 10px; border-radius: var(--r2); background: var(--panel); border: 1px solid var(--accent); box-shadow: var(--shadow); font-size: 12px; white-space: nowrap; opacity: 0; }
+.ptab.hooked, .btab.hooked { animation: hooked .7s ease-out; }
+@keyframes hooked { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--accent) 70%, transparent); } 100% { box-shadow: 0 0 0 10px transparent; } }

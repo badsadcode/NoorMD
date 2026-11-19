@@ -36,6 +36,9 @@ const open = new Map();        // id → instance { manifest, root, ctx, view, p
 let order = [];                // open bench ids, in tab order ('home' included when open)
 let active = null;             // the bench in front ('home' or an id)
 let focusMode = false;
+// Panels floating in windows of their own: { id, ref, x, y, w, h, from: { bench, side } } (kept in the settings).
+let floats = [];
+const floatId = new URLSearchParams(location.search).get('float');   // set in a floating panel's own window
 
 const HOME = { id: 'home', name: 'Home', icon: '⌂', density: 'roomy', menus: [], panels: [] };
 const manifestOf = (id) => (id === 'home' ? HOME : benches.get(id));
@@ -43,10 +46,12 @@ const densityOf = (id) => (id === 'home' ? 'roomy' : (settings.density && settin
 
 let saveTimer = 0;
 function save() {
+  if (floatId) return;   // a floating window's page doesn't own the settings
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     settings.openBenches = order.filter((id) => id !== 'home');
     settings.activeBench = active;
+    settings.floats = floats.map((f) => ({ ...f }));
     for (const [id, inst] of open) if (id !== 'home') settings.layouts[id] = inst.layout;
     call('shell', 'settings.save', settings).catch((e) => toast('Settings couldn\'t be saved: ' + e.message, { error: true }));
   }, 300);
@@ -59,6 +64,7 @@ function applyTheme() {
   const cs = getComputedStyle(document.documentElement), v = (k) => cs.getPropertyValue(k).trim();
   const light = cs.colorScheme === 'light' || ['light', 'parchment', 'glacier'].includes(settings.theme);
   windowCall('theme', { bg: v('--bg'), fg: v('--text'), hover: light ? '#1A000000' : '#22FFFFFF', pressed: light ? '#2E000000' : '#38FFFFFF' });
+  if (!floatId && floats.length) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density } });   // floating windows follow
 }
 function applyMenuPosition() {
   const row = settings.menuPosition === 'row';
@@ -66,6 +72,7 @@ function applyMenuPosition() {
   (row ? $('#menurow') : $('#menubar')).append(...[...$('#menubar').children, ...$('#menurow').children]);
 }
 function applyDensity() {
+  if (!floatId && floats.length) windowCall('broadcast', { name: 'settings', payload: { theme: settings.theme, density: settings.density } });
   document.body.classList.toggle('density-compact', densityOf(active) === 'compact');
   document.body.classList.toggle('density-roomy', densityOf(active) !== 'compact');
 }
@@ -126,6 +133,8 @@ function closeBench(id) {
     const mine = placedRefs(other).filter((r) => splitRef(r)[0] === id);
     if (mine.length) { mine.forEach((r) => removeRef(other, r)); renderDocks(other); left += mine.length; }
   }
+  for (const f of floats.filter((x) => splitRef(x.ref)[0] === id)) { windowCall('float.close', { id: f.id }); left++; }
+  floats = floats.filter((x) => splitRef(x.ref)[0] !== id);
   if (left) toast(`${inst.manifest.name}'s panels left the other benches with it (open it again and dock them back).`);
   const i = order.indexOf(id);
   order = order.filter((x) => x !== id);
@@ -139,8 +148,11 @@ function closeBench(id) {
 // ---------------------------------------------------------------- a bench's context: what its module may use
 function makeContext(id, inst) {
   const styles = new Set();
-  const emit = (name, payload) => (inst.bus.get(name) || []).forEach((fn) => { try { fn(payload); } catch (e) { console.error(e); } });
-  inst.emit = emit;
+  // An event reaches the bench's listeners here, and (through the window) in its other windows, so a floating
+  // panel and the main window stay in step. Events arriving from elsewhere only go to the listeners here.
+  const emitHere = (name, payload) => (inst.bus.get(name) || []).forEach((fn) => { try { fn(payload); } catch (e) { console.error(e); } });
+  const emit = (name, payload) => { emitHere(name, payload); windowCall('bus.emit', { bench: id, name, payload: payload === undefined ? null : payload }); };
+  inst.emit = emitHere;
   return {
     bench: inst.manifest,
     /** Runs a command on the bench's C# side. */
@@ -154,7 +166,7 @@ function makeContext(id, inst) {
     /** Adds the bench's stylesheet once. */
     useStyle(href) { if (styles.has(href)) return; styles.add(href); document.head.append(el('link', { rel: 'stylesheet', href })); },
     /** Small things to bring back next time (kept with the bench's layout). */
-    keep(key, value) { inst.layout.state[key] = value; save(); },
+    keep(key, value) { inst.layout.state[key] = value; if (floatId) windowCall('broadcast', { name: 'shell.keep', payload: { bench: id, key, value } }); else save(); },
     restore(key, fallback) { return key in inst.layout.state ? inst.layout.state[key] : fallback; },
     openBench: (bid) => openBench(bid),
     /** A dialog in the shell's style; resolves with the chosen button's value. */
@@ -163,6 +175,10 @@ function makeContext(id, inst) {
 }
 hostListeners.push((m) => {
   if (m.event === 'bench' && open.has(m.bench)) open.get(m.bench).emit(m.name, m.payload);
+  else if (m.event === 'shell.keep' && !floatId && m.payload && open.has(m.payload.bench)) { open.get(m.payload.bench).layout.state[m.payload.key] = m.payload.value; save(); }
+  else if (m.event === 'float.closed' && !floatId) dockBack(floats.find((f) => f.id === m.id), { windowGone: true });
+  else if (m.event === 'float.moved' && !floatId) { const f = floats.find((x) => x.id === m.id); if (f) { Object.assign(f, { x: Math.round(m.x), y: Math.round(m.y), w: Math.round(m.w), h: Math.round(m.h) }); save(); } }
+  else if (m.event === 'settings' && floatId && m.payload) { Object.assign(settings, m.payload); applyTheme(); applyDensity(); }
   else if (m.event === 'window') { $('#winspace').style.width = Math.max(0, m.buttonsWidth || 0) + 'px'; document.body.classList.toggle('maximized', !!m.maximized); }
 });
 
@@ -308,7 +324,101 @@ function panelMenu(inst, ref, x, y) {
   menu(x, y, [{ header: `${s.spec.title}${s.owner !== inst.manifest.id ? ` · from ${s.bench.name}` : ''}` },
     ...SIDES.filter((sd) => sd !== at.side).map((sd) => ({ label: `Move to the ${sideName[sd].toLowerCase()}`, run: () => movePanel(inst, ref, { side: sd }) })),
     ...(at.group.panels.length > 1 ? [{ label: 'Into its own group', run: () => movePanel(inst, ref, { side: at.side, gi: at.gi, where: 'after' }) }] : []),
-    '-', { label: 'Hide', run: () => hidePanel(inst, ref) }]);
+    '-', { label: 'Float in its own window', run: () => floatPanel(inst, ref) }, { label: 'Hide', run: () => hidePanel(inst, ref) }]);
+}
+
+// ---------------------------------------------------------------- floating panels (3.0.4)
+// A panel can float in a window of its own (for a second monitor). The window runs the panel from its own copy of
+// the bench's web module; events go between the windows, so both stay in step. Closing it docks the panel back.
+const isFloating = (ref) => floats.some((f) => f.ref === ref);
+const isShown = (inst, ref) => !!whereIs(inst, ref) || isFloating(ref);
+const newId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+function floatPanel(inst, ref, at) {
+  if (isFloating(ref)) return;
+  const s = specOf(ref), where = whereIs(inst, ref);
+  if (!s) return;
+  const p = inst.placed.get(ref);
+  const r = p && p.body.isConnected ? p.body.getBoundingClientRect() : { width: 320, height: 260 };
+  const w = Math.round(Math.max(280, Math.min(r.width, 640))), h = Math.round(Math.max(200, Math.min(r.height + 40, 720)));
+  const state = p && p.result && p.result.getState ? p.result.getState() : null;
+  const f = { id: newId(), ref, w, h, x: Math.round(at ? at.x : window.screenX + window.outerWidth - w - 60), y: Math.round(at ? at.y : window.screenY + 90), from: { bench: inst.manifest.id, side: where ? where.side : s.spec.dock } };
+  if (where) { removeRef(inst, ref); renderDocks(inst); }
+  floats.push(f);
+  openFloat(f, state);
+  save();
+}
+function openFloat(f, state) {
+  const s = specOf(f.ref), owner = s && open.get(s.owner);
+  if (!s || !owner) return;
+  windowCall('float.open', { id: f.id, ref: f.ref, x: f.x, y: f.y, w: f.w, h: f.h, title: s.spec.title, icon: s.spec.icon, benchName: s.bench.name, state: state === undefined ? null : state, benchState: owner.layout.state });
+}
+/** Puts a floating panel back where it came from (or into the bench in front), closing its window if it's open. */
+function dockBack(f, { windowGone = false } = {}) {
+  if (!f) return;
+  floats = floats.filter((x) => x !== f);
+  if (!windowGone) windowCall('float.close', { id: f.id });
+  const host = open.get(f.from && f.from.bench) || (active !== 'home' ? open.get(active) : null);
+  if (host && host.manifest.id !== 'home' && specOf(f.ref)) movePanel(host, f.ref, { side: (f.from && f.from.side) || specOf(f.ref).spec.dock });
+  save();
+}
+/** Window › Get over here!: every floating panel back in the main window, each where it came from. */
+function getOverHere() {
+  const n = floats.length;
+  if (!n) { toast('No panel is floating: everything is already here.'); return; }
+  // Where each floating window was, seen from this window (the rope flies that way).
+  const chrome = Math.max(0, window.outerHeight - window.innerHeight);
+  const pulls = floats.map((f) => ({ ref: f.ref, from: { x: f.x + f.w / 2 - window.screenX, y: f.y + 16 - window.screenY - chrome } }));
+  [...floats].forEach((f) => dockBack(f));
+  toast(n === 1 ? 'Get over here! One panel pulled back in.' : `Get over here! ${n} panels pulled back in.`);
+  requestAnimationFrame(() => grapplingHooks(pulls));
+}
+/** The easter egg: a rope with a hook flies from each panel's new place out towards its floating window, catches
+    it, and reels it in (a little card riding back along the rope). Skipped when the system asks for less motion. */
+function grapplingHooks(pulls) {
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const NS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'hooks'); svg.setAttribute('aria-hidden', 'true');
+  document.body.append(svg);
+  const items = pulls.map((p) => {
+    const tab = document.querySelector(`.bench:not([hidden]) .ptab[data-ref="${CSS.escape(p.ref)}"]`) || document.querySelector('.btab[aria-selected=true]');
+    if (!tab) return null;
+    const r = tab.getBoundingClientRect(), to = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    // The far end: the floating window's place, kept to the edge of this window when it was outside it.
+    const m = 6, far = { x: Math.max(m, Math.min(innerWidth - m, p.from.x)), y: Math.max(m, Math.min(innerHeight - m, p.from.y)) };
+    if (Math.hypot(far.x - to.x, far.y - to.y) < 60) far.x = Math.min(innerWidth - m, to.x + 220);
+    const rope = document.createElementNS(NS, 'path'); rope.setAttribute('class', 'rope');
+    const hook = document.createElementNS(NS, 'path'); hook.setAttribute('class', 'hook');
+    hook.setAttribute('d', 'M0,0 L-10,-6 M0,0 L-10,6 M0,0 L-14,0 M-6,-3.5 Q-2,-9 4,-8 M-6,3.5 Q-2,9 4,8');
+    svg.append(rope, hook);
+    const sp = specOf(p.ref);
+    const card = el('div', { class: 'hook-card', text: sp ? `${sp.spec.icon}  ${sp.spec.title}` : '' });
+    document.body.append(card);
+    return { to, far, rope, hook, card, tab, angle: Math.atan2(far.y - to.y, far.x - to.x) };
+  }).filter(Boolean);
+  const pulse = () => items.forEach((it) => { it.tab.classList.add('hooked'); setTimeout(() => it.tab.classList.remove('hooked'), 700); });
+  if (reduce || !items.length) { svg.remove(); items.forEach((it) => it.card.remove()); pulse(); return; }
+  const OUT = 330, HOLD = 120, BACK = 430, t0 = performance.now();
+  const ease = (x) => 1 - Math.pow(1 - x, 3);
+  const frame = (now) => {
+    const t = now - t0;
+    for (const it of items) {
+      let k, carrying = false;
+      if (t < OUT) k = ease(t / OUT);
+      else if (t < OUT + HOLD) k = 1 + Math.sin((t - OUT) / HOLD * Math.PI) * 0.025;   // the catch: a little tug
+      else { k = 1 - ease(Math.min(1, (t - OUT - HOLD) / BACK)); carrying = true; }
+      const tip = { x: it.to.x + (it.far.x - it.to.x) * k, y: it.to.y + (it.far.y - it.to.y) * k };
+      // A rope with a bit of slack while it flies, pulled straight as it reels in.
+      const sag = (carrying ? 4 : 14) * Math.sin(Math.min(1, k) * Math.PI), mx = (it.to.x + tip.x) / 2 - Math.sin(it.angle) * sag, my = (it.to.y + tip.y) / 2 + Math.cos(it.angle) * sag;
+      it.rope.setAttribute('d', `M${it.to.x},${it.to.y} Q${mx},${my} ${tip.x},${tip.y}`);
+      it.hook.setAttribute('transform', `translate(${tip.x},${tip.y}) rotate(${it.angle * 180 / Math.PI})`);
+      it.card.style.opacity = carrying ? '1' : '0';
+      it.card.style.transform = `translate(${tip.x}px, ${tip.y}px) translate(-50%, -50%)`;
+    }
+    if (t < OUT + HOLD + BACK) requestAnimationFrame(frame);
+    else { svg.remove(); items.forEach((it) => it.card.remove()); pulse(); }
+  };
+  requestAnimationFrame(frame);
 }
 
 // Dragging a panel by its tab: drop zones show where it lands (a side's edge, before or after a group, or into a
@@ -322,13 +432,17 @@ function startPanelDrag(e, inst, ref, tab) {
     if (!drag) {
       if (Math.hypot(m.clientX - x0, m.clientY - y0) < 6) return;
       const s = specOf(ref);
-      drag = { ghost: el('div', { class: 'dock-ghost', text: `${s.spec.icon}  ${s.spec.title}` }), mark: el('div', { class: 'dock-mark' }), zones: edgeZones(inst), target: null };
+      drag = { ghost: el('div', { class: 'dock-ghost', text: `${s.spec.icon}  ${s.spec.title}` }), mark: el('div', { class: 'dock-mark' }), zones: edgeZones(inst), target: null, label: `${s.spec.icon}  ${s.spec.title}` };
+      try { tab.setPointerCapture(e.pointerId); } catch { /* the pointer is gone */ }   // keep hearing the mouse outside the window
       document.body.append(drag.ghost, drag.mark, ...drag.zones.map((z) => z.el));
       document.body.classList.add('dock-dragging');
     }
     drag.ghost.style.left = m.clientX + 12 + 'px'; drag.ghost.style.top = m.clientY + 12 + 'px';
-    drag.target = dropTarget(inst, ref, m.clientX, m.clientY, drag.zones);
-    const t = drag.target;
+    // Out of the window: it'll float in a window of its own, there.
+    const outside = !floatId && (m.clientX < 0 || m.clientY < 0 || m.clientX > innerWidth || m.clientY > innerHeight);
+    drag.target = outside ? { float: true, x: m.screenX - 40, y: m.screenY - 16 } : dropTarget(inst, ref, m.clientX, m.clientY, drag.zones);
+    drag.ghost.textContent = outside ? `${drag.label}  ↗ its own window` : drag.label;
+    const t = drag.target && !drag.target.float ? drag.target : null;
     drag.mark.hidden = !t;
     if (t) Object.assign(drag.mark.style, { left: t.rect.left + 'px', top: t.rect.top + 'px', width: t.rect.width + 'px', height: t.rect.height + 'px' });
   };
@@ -340,7 +454,8 @@ function startPanelDrag(e, inst, ref, tab) {
     drag.ghost.remove(); drag.mark.remove(); drag.zones.forEach((z) => z.el.remove());
     document.body.classList.remove('dock-dragging');
     dragJustEnded = true; setTimeout(() => { dragJustEnded = false; }, 0);
-    if (commit && drag.target) movePanel(inst, ref, drag.target);
+    if (commit && drag.target && drag.target.float) floatPanel(inst, ref, drag.target);
+    else if (commit && drag.target) movePanel(inst, ref, drag.target);
   };
   const up = () => end(true);
   const key = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); end(false); } };
@@ -430,14 +545,16 @@ function appMenus() {
     ['File', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
     ['Edit', () => [{ label: 'Undo', keys: 'Ctrl+Z', run: edit('undo') }, { label: 'Redo', keys: 'Ctrl+Y', run: edit('redo') }, '-', { label: 'Cut', keys: 'Ctrl+X', run: edit('cut') }, { label: 'Copy', keys: 'Ctrl+C', run: edit('copy') }, { label: 'Paste', keys: 'Ctrl+V', run: () => navigator.clipboard.readText().then((t) => document.execCommand('insertText', false, t)).catch(() => {}) }, { label: 'Select all', keys: 'Ctrl+A', run: edit('selectAll') }]],
     ['View', () => [
-      ...(m.panels.length ? [{ header: `Panels of ${m.name}` }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => !!whereIs(inst, ref), run: () => (whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; })] : [{ header: 'No panels of its own' }]),
-      ...(active === 'home' ? [] : (() => { const others = [...benches.values()].filter((b) => b.id !== m.id && (b.panels || []).length); return others.length ? ['-', { header: 'Panels from other benches' }, ...others.flatMap((b) => b.panels.map((p) => { const ref = refOf(b.id, p.id); return { label: `${p.icon}  ${p.title} (${b.name})`, checked: () => !!whereIs(inst, ref), run: () => (whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; }))] : []; })()),
+      ...(m.panels.length ? [{ header: `Panels of ${m.name}` }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; })] : [{ header: 'No panels of its own' }]),
+      ...(active === 'home' ? [] : (() => { const others = [...benches.values()].filter((b) => b.id !== m.id && (b.panels || []).length); return others.length ? ['-', { header: 'Panels from other benches' }, ...others.flatMap((b) => b.panels.map((p) => { const ref = refOf(b.id, p.id); return { label: `${p.icon}  ${p.title} (${b.name})`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; }))] : []; })()),
       '-', { label: 'Reset the layout', disabled: active === 'home', run: () => { inst.layout = normaliseLayout({ state: inst.layout.state }, m); renderDocks(inst); save(); } },
       { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
       '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
     ...(m.menus || []).map((mm) => [mm.title, () => mm.items.map((it) => (it.command ? { label: it.label, keys: it.keys, run: () => benchCommand(it.command) } : '-'))]),
     ['Tools', () => [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }]],
-    ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
+    ['Window', () => [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
+      { header: floats.length ? `Floating panels (${floats.length})` : 'Floating panels' }, ...floats.map((f) => { const sp = specOf(f.ref); return { label: `${sp ? sp.spec.icon + '  ' + sp.spec.title : f.ref} · dock it back`, run: () => dockBack(f) }; }),
+      { label: 'Get over here!', keys: 'Ctrl+Shift+G', disabled: !floats.length, run: getOverHere }, '-', { header: 'Open benches' }, ...order.map((id, i) => ({ label: `${manifestOf(id).icon}  ${manifestOf(id).name}`, keys: i < 9 ? `Ctrl+${i + 1}` : '', checked: () => id === active, run: () => activate_(id) })), '-', { label: 'Next bench', keys: 'Ctrl+Tab', run: () => cycle(1) }, { label: 'Previous bench', keys: 'Ctrl+Shift+Tab', run: () => cycle(-1) }, '-', { label: 'Move the tab left', keys: 'Ctrl+Shift+PageUp', disabled: order.indexOf(active) <= 0, run: () => moveTab(-1) }, { label: 'Move the tab right', keys: 'Ctrl+Shift+PageDown', disabled: order.indexOf(active) >= order.length - 1, run: () => moveTab(1) }]],
     ['Help', () => [{ label: 'About NoorMD', run: aboutDialog }]],
   ];
 }
@@ -512,6 +629,7 @@ function moveTab(d) {
   renderTabs(); renderMenus(); save();
 }
 function renderTitle() {
+  if (renderTitleGuard()) return;   // a floating window keeps its own title
   const inst = open.get(active), m = manifestOf(active) || HOME;
   const sub = inst && inst.title ? inst.title : '';
   $('#wintitle').replaceChildren(el('b', { text: m.name }), sub ? `· ${sub} — NoorMD` : '— NoorMD');
@@ -588,6 +706,7 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'f10') { e.preventDefault(); const b = document.querySelector('[data-menu="0"]'); if (b) toggleMainMenu(0, b); }
   else if (k === 'ctrl+tab') { e.preventDefault(); cycle(1); }
   else if (k === 'ctrl+shift+tab') { e.preventDefault(); cycle(-1); }
+  else if (k === 'ctrl+shift+g' && !floatId) { e.preventDefault(); getOverHere(); }
   else if (k === 'ctrl+shift+pageup') { e.preventDefault(); moveTab(-1); }
   else if (k === 'ctrl+shift+pagedown') { e.preventDefault(); moveTab(1); }
   else if (/^ctrl\+[1-9]$/.test(k) && order[Number(k.slice(5)) - 1]) { e.preventDefault(); activate_(order[Number(k.slice(5)) - 1]); }
@@ -599,6 +718,7 @@ $('#logo').addEventListener('click', () => openBench('home'));
 
 // ---------------------------------------------------------------- start
 async function start() {
+  if (floatId) { await startFloat(); return; }
   let s;
   try { s = await call('shell', 'start'); }
   catch (e) { $('#benches').replaceChildren(el('div', { class: 'home' }, el('h1', { text: 'NoorMD couldn\'t start' }), el('p', { class: 'lead', text: e.message }))); return; }
@@ -611,8 +731,50 @@ async function start() {
   if (firstStart || !order.length) { settings.welcomed = true; await openBench('home', { activate: false }); }
   const want = settings.activeBench && open.has(settings.activeBench) ? settings.activeBench : firstStart ? 'home' : order[0];
   activate_(want);
+  // The floating panels come back (their benches opened quietly if need be).
+  for (const f of (settings.floats || []).filter((x) => x && typeof x.ref === 'string' && specOf(x.ref))) {
+    const owner = splitRef(f.ref)[0];
+    if (!open.has(owner)) await openBench(owner, { activate: false, quiet: true });
+    const ff = { id: newId(), ref: f.ref, x: f.x, y: f.y, w: f.w, h: f.h, from: f.from || { bench: active, side: specOf(f.ref).spec.dock } };
+    for (const inst of open.values()) if (inst.layout && inst.layout.docks && whereIs(inst, ff.ref)) { removeRef(inst, ff.ref); renderDocks(inst); }
+    floats.push(ff); openFloat(ff, null);
+  }
+  if (floats.length) save();
   if (problems.length) toast(`${problems.length} bench${problems.length === 1 ? '' : 'es'} couldn't be loaded: Tools › Benches says why.`, { error: true });
-  window.__noor = { open, order: () => order, active: () => active, settings: () => settings }; // for tests
+  window.__noor = { open, order: () => order, active: () => active, settings: () => settings, floats: () => floats }; // for tests
 }
+/** A floating panel's own window: a small title bar (the panel, its bench, Dock back) and the panel, run by its
+    bench's web module here, in step with the main window through the bench's events. */
+async function startFloat() {
+  document.body.classList.add('floating');
+  let s, f;
+  try { s = await call('shell', 'start'); f = await call('window', 'float.get'); }
+  catch (e) { $('#benches').replaceChildren(el('p', { class: 'nui-muted', style: { padding: '16px' }, text: 'This panel couldn\'t start: ' + e.message })); return; }
+  settings = s.settings; version = s.version;
+  settings.density = settings.density || {};
+  benches = new Map(s.benches.map((m) => [m.id, m]));
+  const sp = specOf(f.ref);
+  if (!sp) { $('#benches').replaceChildren(el('p', { class: 'nui-muted', style: { padding: '16px' }, text: 'This panel\'s bench isn\'t there any more.' })); return; }
+  active = sp.owner;
+  applyTheme(); applyDensity();
+  $('#menubar').replaceChildren();
+  $('#wintitle').replaceChildren(el('span', { class: 'ftitle' }, el('span', { text: sp.spec.icon }), el('b', { text: sp.spec.title }), sp.bench.name !== sp.spec.title ? el('small', { class: 'nui-muted', text: sp.bench.name }) : null));
+  $('#wintitle').after(el('button', { class: 'nui-icon fdock', title: 'Dock it back into the main window (closing this window does too)', 'aria-label': 'Dock back', onclick: () => windowCall('float.dock') }, '⇲'));
+  windowCall('title', { text: `${sp.spec.title} — NoorMD` });
+  const inst = { manifest: sp.bench, status: '', title: '', placed: new Map(), bus: new Map(), layout: { state: f.benchState || {} } };
+  open.set(sp.owner, inst);
+  inst.ctx = makeContext(sp.owner, inst);
+  inst.ctx.panelState = f.state;
+  const body = el('div', { class: 'pbody floatbody', 'data-ref': f.ref });
+  $('#benches').replaceChildren(el('section', { class: 'floatpanel' }, body));
+  try {
+    const mod = (await import(`/benches/${sp.owner}/${sp.bench.entry}`)).default;
+    inst.module = mod;
+    const def = mod.panels && mod.panels[sp.pid];
+    if (def && def.mount) def.mount(body, inst.ctx);
+  } catch (e) { body.replaceChildren(el('p', { class: 'nui-muted', text: `This panel couldn't start: ${e.message}` })); }
+  window.__noor = { open, float: f };
+}
+function renderTitleGuard() { return !!floatId; }
 void keyOf;
 start();

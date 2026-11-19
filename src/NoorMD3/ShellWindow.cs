@@ -23,7 +23,7 @@ namespace NoorMD3;
 /// </summary>
 public sealed class ShellWindow : Window
 {
-    const double TitleHeight = 38;   // the page's title bar, in DIPs
+    readonly double TitleHeight = 38;   // the page's title bar, in DIPs (32 in a floating panel's window)
     const double ButtonWidth = 46;
     const double Edge = 5;           // the resize border around the page while not maximised
 
@@ -38,16 +38,38 @@ public sealed class ShellWindow : Window
     int _hot, _down;                 // the hit-test code under the mouse / pressed (HTMINBUTTON, HTMAXBUTTON, HTCLOSE or 0)
     bool _trackingLeave;
     bool _webReady;
-    ShellRouter? _router;
-    ShellAssets? _assets;
     const string Origin = "https://noormd3.app";
-    static readonly string DataRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "NoorMD3");
+    /// <summary>Set when this window holds one floating panel (null: the main window).</summary>
+    public string? FloatId { get; }
+    readonly JsonNode? _floatSpec;
+    bool _closingQuietly;            // closed by the main window (it knows already): don't report it back
+    readonly System.Windows.Threading.DispatcherTimer _moved = new() { Interval = TimeSpan.FromMilliseconds(400) };
 
-    public ShellWindow()
+    public ShellWindow(string? floatId = null, JsonNode? floatSpec = null)
     {
+        FloatId = floatId; _floatSpec = floatSpec;
         Title = "NoorMD";
-        Width = 1200; Height = 760; MinWidth = 520; MinHeight = 320;
-        WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        if (floatId == null)
+        {
+            Width = 1200; Height = 760; MinWidth = 520; MinHeight = 320;
+            WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            ShellApp.Main = this;
+        }
+        else
+        {
+            TitleHeight = 32; MinWidth = 220; MinHeight = 140; ShowInTaskbar = false;
+            // Where it was, and how big, reported to the main window (which keeps it for the next start).
+            _moved.Tick += (_, _) => { _moved.Stop(); ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "float.moved", id = FloatId, x = Left, y = Top, w = Width, h = Height })); };
+            LocationChanged += (_, _) => { _moved.Stop(); _moved.Start(); };
+            SizeChanged += (_, _) => { _moved.Stop(); _moved.Start(); };
+        }
+        ShellApp.Windows.Add(this);
+        Closed += (_, _) => ShellApp.Windows.Remove(this);
+        Closing += (_, _) =>
+        {
+            if (FloatId == null) { foreach (var f in ShellApp.Windows.Where(w => w.FloatId != null).ToArray()) { f._closingQuietly = true; f.Close(); } }
+            else if (!_closingQuietly) ShellApp.Main?.Post(JsonSerializer.Serialize(new { @event = "float.closed", id = FloatId }));
+        };
         Background = new SolidColorBrush(Color.FromRgb(0x0B, 0x0D, 0x12));
         WindowStyle = WindowStyle.None;
         ResizeMode = ResizeMode.CanResize;
@@ -141,15 +163,9 @@ public sealed class ShellWindow : Window
     {
         try
         {
-            // The benches: every *.Bench.dll beside the app (stage 1: built and shipped with it).
-            foreach (var dll in Directory.EnumerateFiles(AppContext.BaseDirectory, "*.Bench.dll"))
-                try { System.Reflection.Assembly.LoadFrom(dll); } catch (Exception ex) when (ex is BadImageFormatException or FileLoadException) { }
-            var registry = BenchRegistry.FromAssemblies(AppDomain.CurrentDomain.GetAssemblies().Where(a => a.GetName().Name?.EndsWith(".Bench", StringComparison.Ordinal) == true));
-            _router = new ShellRouter(registry, Path.Combine(DataRoot, "settings.json"), id => new BenchHost(this, id)) { Window = WindowCommand };
-            _assets = new ShellAssets(Path.Combine(AppContext.BaseDirectory, "wwwroot"), registry);
-
-            var env = await CoreWebView2Environment.CreateAsync(null, Path.Combine(DataRoot, "WebView2"));
-            _web.DefaultBackgroundColor = System.Drawing.Color.FromArgb(255, 0x0B, 0x0D, 0x12);
+            ShellApp.Start();
+            var env = await ShellApp.Environment_();
+            _web.DefaultBackgroundColor = Background is SolidColorBrush sb0 ? System.Drawing.Color.FromArgb(255, sb0.Color.R, sb0.Color.G, sb0.Color.B) : System.Drawing.Color.FromArgb(255, 0x0B, 0x0D, 0x12);
             await _web.EnsureCoreWebView2Async(env);
             var core = _web.CoreWebView2;
             core.Settings.IsNonClientRegionSupportEnabled = true;   // app-region: drag in the page
@@ -161,7 +177,7 @@ public sealed class ShellWindow : Window
             core.NewWindowRequested += (_, e) => e.Handled = true;  // no stray browser windows
             core.WebMessageReceived += OnMessage;
             core.NavigationCompleted += (_, _) => { _webReady = true; ApplyHole(); };
-            core.Navigate(Origin + "/index.html");
+            core.Navigate(Origin + "/index.html" + (FloatId != null ? "?float=" + Uri.EscapeDataString(FloatId) : ""));
         }
         catch (Exception ex)
         {
@@ -169,11 +185,17 @@ public sealed class ShellWindow : Window
         }
     }
 
+    /// <summary>Sends a message (JSON) to this window's page, once it's there.</summary>
+    public void Post(string json)
+    {
+        if (_webReady && _web.CoreWebView2 != null) _web.CoreWebView2.PostWebMessageAsJson(json);
+    }
+
     /// <summary>The page's files: the shell's own and each bench's (from its DLL); nothing else is served.</summary>
     void OnResource(object? sender, CoreWebView2WebResourceRequestedEventArgs e)
     {
         var uri = new Uri(e.Request.Uri);
-        var found = _assets?.Open(uri.AbsolutePath);
+        var found = ShellApp.Assets?.Open(uri.AbsolutePath);
         e.Response = found is { } f
             ? _web.CoreWebView2.Environment.CreateWebResourceResponse(f.Body, 200, "OK", $"Content-Type: {f.ContentType}\r\nCache-Control: no-cache")
             : _web.CoreWebView2.Environment.CreateWebResourceResponse(null, 404, "Not Found", "");
@@ -181,10 +203,10 @@ public sealed class ShellWindow : Window
 
     async void OnMessage(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
-        if (_router == null) return;
+        if (ShellApp.Router == null) return;
         if (!string.Equals(new Uri(e.Source).GetLeftPart(UriPartial.Authority), Origin, StringComparison.OrdinalIgnoreCase)) return;   // only our page
         using var doc = JsonDocument.Parse(e.WebMessageAsJson);
-        var reply = await _router.HandleAsync(doc.RootElement);
+        var reply = await ShellApp.Router.HandleAsync(doc.RootElement, WindowCommand);
         if (_web.CoreWebView2 != null) _web.CoreWebView2.PostWebMessageAsJson(reply.ToJsonString());
     }
 
@@ -204,18 +226,52 @@ public sealed class ShellWindow : Window
             case "minimize": WindowState = WindowState.Minimized; break;
             case "toggleMax": WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized; break;
             case "close": Close(); break;
+            // Floating panels (DESIGN.md, section 3.4): the main window opens and closes them; a floating window asks
+            // for what it holds, and docks it back.
+            case "float.open":
+            {
+                if (FloatId != null) throw new BenchException("Only the main window opens floating panels.");
+                var id = m.GetProperty("id").GetString() ?? Guid.NewGuid().ToString("N");
+                var w = new ShellWindow(id, JsonNode.Parse(m.GetRawText())) { Owner = this, WindowStartupLocation = WindowStartupLocation.Manual };
+                w.Width = Math.Clamp(Num(m, "w", 320), 220, 2400); w.Height = Math.Clamp(Num(m, "h", 300), 140, 1600);
+                w.Left = Num(m, "x", Left + Width - w.Width - 40); w.Top = Num(m, "y", Top + 80);
+                w.Background = Background;
+                w.Show();
+                w.KeepOnScreen();
+                return new JsonObject { ["id"] = id };
+            }
+            case "float.get": return _floatSpec?.DeepClone();
+            case "float.dock": Close(); break;   // reported to the main window as closed: it docks the panel back
+            case "float.close":
+            {
+                var id = m.GetProperty("id").GetString();
+                foreach (var f in ShellApp.Windows.Where(x => x.FloatId == id).ToArray()) { f._closingQuietly = true; f.Close(); }
+                break;
+            }
+            case "bus.emit":
+                // A bench's event, heard in its other windows too (a floating panel and the main window stay in step).
+                ShellApp.Broadcast(new { @event = "bench", bench = m.GetProperty("bench").GetString(), name = m.GetProperty("name").GetString(), payload = m.TryGetProperty("payload", out var p) ? p : default }, except: this);
+                break;
+            case "broadcast":
+                ShellApp.Broadcast(new { @event = m.GetProperty("name").GetString(), payload = m.TryGetProperty("payload", out var bp) ? bp : default }, except: this);
+                break;
             default: throw new BenchException($"The window has no command \"{cmd}\".");
         }
         return null;
     }
 
-    /// <summary>A bench's way back to its page (events), and its own data folder.</summary>
-    sealed class BenchHost(ShellWindow w, string id) : IBenchHost
+    static double Num(JsonElement m, string key, double fallback) => m.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.Number && double.IsFinite(v.GetDouble()) ? v.GetDouble() : fallback;
+
+    /// <summary>A floating window whose place is on no monitor any more (the second screen unplugged) comes back
+    /// beside the main window.</summary>
+    void KeepOnScreen()
     {
-        public string DataFolder { get { var d = Path.Combine(DataRoot, "benches", id); Directory.CreateDirectory(d); return d; } }
-        public void Post(string name, object? payload = null) =>
-            w.Dispatcher.BeginInvoke(() => w._web.CoreWebView2?.PostWebMessageAsJson(JsonSerializer.Serialize(new { @event = "bench", bench = id, name, payload })));
-        public void Log(string message) => System.Diagnostics.Debug.WriteLine($"[{id}] {message}");
+        var dpi = VisualTreeHelper.GetDpi(this);
+        var pt = new POINT { X = (int)((Left + Width / 2) * dpi.DpiScaleX), Y = (int)((Top + 16) * dpi.DpiScaleY) };
+        if (MonitorFromPoint(pt, 0 /* MONITOR_DEFAULTTONULL */) != IntPtr.Zero) return;
+        var main = ShellApp.Main;
+        Left = main != null ? main.Left + Math.Max(20, main.ActualWidth - Width - 40) : 80;
+        Top = main != null ? main.Top + 80 : 80;
     }
 
     static Brush Parse(JsonElement m, string key, Brush fallback)
@@ -339,6 +395,7 @@ public sealed class ShellWindow : Window
     [StructLayout(LayoutKind.Sequential)] struct TRACKMOUSEEVENT { public uint cbSize; public uint dwFlags; public IntPtr hwndTrack; public uint dwHoverTime; }
     [StructLayout(LayoutKind.Sequential)] struct POINT { public int X, Y; }
     [DllImport("user32.dll")] static extern bool TrackMouseEvent(ref TRACKMOUSEEVENT e);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);
     [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, int msg, IntPtr w, IntPtr l);

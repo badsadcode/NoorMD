@@ -17,7 +17,9 @@ NoorMD 3.0 is the next version, being built beside this one: one window with ben
 follows the bench, panels you can resize, dock anywhere and float onto a second monitor, and benches that send things
 to each other. The plan is in [docs/noormd3/DESIGN.md](docs/noormd3/DESIGN.md).
 
-- **3.0.3** (the newest): bench tabs reorder by dragging (or Ctrl+Shift+PageUp / PageDown), focus mode uses the
+- **3.0.4** (the newest): floating windows. Drag a panel's tab out of the window to give it a window of its own
+  (for a second monitor); Window › Get over here! brings them all back.
+- **3.0.3**: bench tabs reorder by dragging (or Ctrl+Shift+PageUp / PageDown), focus mode uses the
   whole window, slim themed scrollbars.
 - **3.0.2**: docking. Drag panels by their tabs to any side, stack them as tabs, resize the edges
   between them, and dock a panel from one bench into another (try the Clock's stopwatch beside the Sandbox).

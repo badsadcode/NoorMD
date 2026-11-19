@@ -93,6 +93,13 @@ inspiration from its concept art, but NoorMD has its own face).
    - **3.0.3 (done):** your first round of notes: bench tabs reorder by dragging (and Ctrl+Shift+PageUp /
      PageDown), focus mode gives the page the whole window, the slim themed scrollbars everywhere, no "Clock ·
      Clock".
+   - **3.0.4 (done):** floating windows. Drag a panel's tab out of the window (or "Float in its own window") and it
+     opens in a small window of its own, for a second monitor. The window runs the panel from its own copy of the
+     bench's web module; the bench's events pass between windows (so a floating Statistics keeps counting, a
+     floating Stopwatch keeps time), and so do theme changes. Closing it, or ⇲ Dock back, puts the panel back where
+     it came from. Floating windows come back after a restart, and onto a monitor that's there if theirs isn't.
+     Window › **Get over here!** (Ctrl+Shift+G) pulls every floating panel back at once, with ropes and grappling
+     hooks (an easter egg; skipped when the system asks for less motion).
 3. **The rest of stage 1:** Vault, Video, Radio, Gallery, Calendar.
 4. **NoorCode.**
 

@@ -18,6 +18,9 @@ public sealed class ShellSettings
     public string? ActiveBench { get; set; }
     /// <summary>Bench id → its layout (side widths, hidden panels…), kept as the page wrote it.</summary>
     public Dictionary<string, JsonElement> Layouts { get; set; } = [];
+    /// <summary>The panels floating in windows of their own (each: its panel, where it was docked, the window's place),
+    /// kept as the page wrote them; they open again at the next start.</summary>
+    public List<JsonElement> Floats { get; set; } = [];
     /// <summary>True once Home has been shown at the first start.</summary>
     public bool Welcomed { get; set; }
 
@@ -31,6 +34,7 @@ public sealed class ShellSettings
         Density = (Density ?? []).Where(kv => BenchIds.IsValid(kv.Key) && kv.Value is "roomy" or "compact").ToDictionary(kv => kv.Key, kv => kv.Value);
         OpenBenches = (OpenBenches ?? []).Where(BenchIds.IsValid).Distinct().Take(64).ToList();
         if (ActiveBench != null && !BenchIds.IsValid(ActiveBench) && ActiveBench != "home") ActiveBench = null;
+        Floats = (Floats ?? []).Where(f => f.ValueKind == JsonValueKind.Object && f.TryGetProperty("ref", out var r) && r.ValueKind == JsonValueKind.String && f.GetRawText().Length < 4000).Take(24).Select(f => f.Clone()).ToList();
         Layouts = (Layouts ?? []).Where(kv => BenchIds.IsValid(kv.Key) && kv.Value.ValueKind == JsonValueKind.Object && kv.Value.GetRawText().Length < 64_000).ToDictionary(kv => kv.Key, kv => kv.Value.Clone());
         return this;
     }
