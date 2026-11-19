@@ -121,6 +121,8 @@ public sealed record MenuSpec(string Title, IReadOnlyList<MenuItemSpec> Items);
 public sealed record MenuItemSpec(string? Label = null, string? Command = null, string? Keys = null)
 {
     public static readonly MenuItemSpec Separator = new();
+    /// <summary>Items next to each other with the same submenu name are shown as one submenu (View › Text size ›).</summary>
+    public string? Submenu { get; init; }
 }
 
 /// <param name="Dock"><c>left</c>, <c>right</c> or <c>bottom</c>.</param>

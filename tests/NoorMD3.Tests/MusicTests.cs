@@ -83,6 +83,44 @@ public sealed class MusicTests : IDisposable
     }
 
     [Fact]
+    public async Task Broken_files_dont_stop_the_scan_and_are_reported()
+    {
+        // Junk in every shape a music folder can hold: whatever any one of them throws, the rest are still found.
+        var music = Path.Combine(_dir, "Mixed");
+        Directory.CreateDirectory(Path.Combine(music, "deep", "deeper"));
+        var rnd = new Random(7);
+        byte[] Junk(int n) { var b = new byte[n]; rnd.NextBytes(b); return b; }
+        File.WriteAllBytes(Path.Combine(music, "a-empty.mp3"), []);
+        File.WriteAllBytes(Path.Combine(music, "b-noise.flac"), Junk(5000));
+        File.WriteAllBytes(Path.Combine(music, "c-fake.ogg"), Encoding.ASCII.GetBytes("OggS").Concat(Junk(300)).ToArray());
+        File.WriteAllBytes(Path.Combine(music, "d-id3only.mp3"), Encoding.ASCII.GetBytes("ID3\u0004\0\0\u007f\u007f\u007f\u007f").Concat(Junk(40)).ToArray());
+        File.WriteAllBytes(Path.Combine(music, "e-cut.m4a"), [0, 0, 0, 0x20, (byte)'f', (byte)'t', (byte)'y', (byte)'p', (byte)'M', (byte)'4', (byte)'A']);
+        var head = new byte[44]; Encoding.ASCII.GetBytes("RIFF").CopyTo(head, 0); Encoding.ASCII.GetBytes("WAVE").CopyTo(head, 8);
+        File.WriteAllBytes(Path.Combine(music, "f-header.wav"), head);
+        for (int i = 0; i < 30; i++) Wav(Path.Combine(music, i % 3 == 0 ? "deep" : i % 3 == 1 ? Path.Combine("deep", "deeper") : "", $"Good {i:00}.wav"), 0.2);
+
+        var host = new Host(Path.Combine(_dir, "data"));
+        var bench = new MusicBench();
+        host.Folders.Enqueue(music);
+        await bench.HandleAsync("music.addFolder", J(new { }), host, default);
+        JsonNode? s = null;
+        for (int i = 0; i < 300; i++)
+        {
+            s = await bench.HandleAsync("music.status", J(new { }), host, default);
+            if (!(bool)s!["scanning"]! && s["lastScan"] is not null) break;
+            await Task.Delay(50);
+        }
+        Assert.Equal("done", (string)s!["lastScan"]!["phase"]!);
+        var found = await bench.HandleAsync("music.query", J(new { search = "Good", offset = 0, limit = 100 }), host, default);
+        Assert.Equal(30, (int)found!["total"]!);   // every good file, however deep, wherever the junk sorts
+        var total = (int)s["stats"]!["total"]!;
+        var errors = (int)s["lastScan"]!["errors"]!;
+        Assert.Equal(36, total + errors);          // each junk file is either indexed (tagless) or counted as unreadable
+        if (errors > 0) Assert.False(string.IsNullOrEmpty((string?)s["lastScan"]!["message"]));
+        Assert.Contains("scan", host.Posted);
+    }
+
+    [Fact]
     public async Task Playlists_the_session_and_loudness_are_kept()
     {
         var (bench, host) = await Library();

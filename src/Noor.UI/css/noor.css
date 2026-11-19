@@ -89,7 +89,12 @@ kbd { font: 11px var(--font-ui); color: var(--muted); }
 .nui-menu .mi:hover, .nui-menu .mi:focus { background: var(--surface2); outline: none; }
 .nui-menu .mi[aria-disabled=true] { opacity: .45; }
 .nui-menu .mi kbd { margin-left: auto; padding-left: 24px; }
-.nui-menu .mi .chk { width: 14px; text-align: center; }
+.nui-menu .mi .chk { width: 14px; text-align: center; flex: none; }
+.nui-menu .mi .lbl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nui-menu .mi .arrow { margin-left: auto; padding-left: 16px; color: var(--muted); }
+.nui-menu .mi kbd + .arrow { padding-left: 8px; }
+.nui-menu .mi.open { background: var(--surface2); }
+.nui-menu .mh.ticked { padding-left: 34px; }
 .nui-menu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 6px; }
 .nui-menu .mh { padding: 4px 10px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
 

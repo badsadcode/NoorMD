@@ -20,42 +20,87 @@ let openMenu = null;
 export function closeMenu() { if (openMenu) { const m = openMenu; openMenu = null; m.close(); } }
 
 /**
- * A menu at (x, y). Items: { label, keys, run, disabled, checked } | '-' | { header }.
- * Arrow keys move, Enter runs, Esc closes; onClose runs when it closes for any reason.
+ * A menu at (x, y). Items: { label, keys, run, disabled, checked } | { label, sub: items or () => items } | '-' |
+ * { header }. A submenu opens to the side on hover, click or →; ← and Esc close it. Arrow keys move, Enter runs, Esc
+ * closes; onClose runs when the menu closes for any reason. When any item can be ticked, every item keeps the tick's
+ * column, so the labels line up.
  */
 export function menu(x, y, items, { onClose, anchor } = {}) {
   closeMenu();
-  const box = el('div', { class: 'nui-menu', role: 'menu' });
-  const buttons = [];
-  for (const it of items) {
-    if (it === '-') { box.append(el('hr')); continue; }
-    if (it.header) { box.append(el('div', { class: 'mh', text: it.header })); continue; }
-    const dis = typeof it.disabled === 'function' ? it.disabled() : !!it.disabled;
-    const chk = typeof it.checked === 'function' ? it.checked() : it.checked;
-    const b = el('button', { class: 'mi', role: chk === undefined ? 'menuitem' : 'menuitemcheckbox', 'aria-checked': chk === undefined ? null : String(!!chk), 'aria-disabled': dis ? 'true' : null, tabindex: '-1' },
-      chk === undefined ? null : el('span', { class: 'chk', text: chk ? '✓' : '' }), el('span', { text: it.label }), it.keys ? el('kbd', { text: it.keys }) : null);
-    b.addEventListener('click', () => { if (dis) return; closeMenu(); it.run && it.run(); });
-    box.append(b); if (!dis) buttons.push(b);
+  const boxes = [];   // the menu and its open submenus, outermost first
+  let closed = false;
+  const timers = new Set();
+  const later = (fn, ms) => { const t = setTimeout(() => { timers.delete(t); if (!closed) fn(); }, ms); timers.add(t); return t; };
+  function build(list, level) {
+    const box = el('div', { class: 'nui-menu', role: 'menu' });
+    const buttons = [];
+    const ticks = list.some((it) => it && typeof it === 'object' && it.checked !== undefined);
+    let hoverTimer = 0;
+    const stopHover = () => { clearTimeout(hoverTimer); timers.delete(hoverTimer); };
+    for (const it of list) {
+      if (!it) continue;
+      if (it === '-') { box.append(el('hr')); continue; }
+      if (it.header) { box.append(el('div', { class: 'mh' + (ticks ? ' ticked' : ''), text: it.header })); continue; }
+      const dis = typeof it.disabled === 'function' ? it.disabled() : !!it.disabled;
+      const chk = typeof it.checked === 'function' ? it.checked() : it.checked;
+      const sub = it.sub;
+      const b = el('button', { class: 'mi' + (sub ? ' has-sub' : ''), role: sub ? 'menuitem' : chk === undefined ? 'menuitem' : 'menuitemcheckbox', 'aria-haspopup': sub ? 'menu' : null,
+        'aria-checked': chk === undefined || sub ? null : String(!!chk), 'aria-disabled': dis ? 'true' : null, tabindex: '-1' },
+      ticks ? el('span', { class: 'chk', text: chk ? '✓' : '' }) : null, el('span', { class: 'lbl', text: it.label }),
+      it.keys ? el('kbd', { text: it.keys }) : null, sub ? el('span', { class: 'arrow', text: '›' }) : null);
+      const openSub = (focusFirst) => {
+        if (closed) return;
+        while (boxes.length > level + 1) boxes.pop().box.remove();
+        if (dis) return;
+        const child = build(typeof sub === 'function' ? sub() : sub, level + 1);
+        document.body.append(child.box);
+        const br = b.getBoundingClientRect(), cr = child.box.getBoundingClientRect();
+        const left = br.right + cr.width + 4 <= innerWidth ? br.right + 2 : br.left - cr.width - 2;
+        child.box.style.left = Math.max(8, left) + 'px';
+        child.box.style.top = Math.max(8, Math.min(br.top - 6, innerHeight - cr.height - 8)) + 'px';
+        boxes.push(child);
+        box.querySelectorAll('.mi.open').forEach((m) => m.classList.remove('open'));
+        b.classList.add('open');
+        if (focusFirst) (child.buttons[0] || child.box).focus({ preventScroll: true });
+      };
+      if (sub) {
+        b.addEventListener('click', () => { stopHover(); openSub(true); });
+        b.addEventListener('pointerenter', () => { stopHover(); hoverTimer = later(() => openSub(false), 120); });
+        b._openSub = openSub;
+      } else {
+        b.addEventListener('pointerenter', () => { stopHover(); hoverTimer = later(() => { while (boxes.length > level + 1) boxes.pop().box.remove(); box.querySelectorAll('.mi.open').forEach((m) => m.classList.remove('open')); }, 160); });
+        b.addEventListener('click', () => { if (dis) return; closeMenu(); it.run && it.run(); });
+      }
+      box.append(b); if (!dis) buttons.push(b);
+    }
+    box.addEventListener('keydown', (e) => {
+      const i = buttons.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); (buttons[(i + 1) % buttons.length] || buttons[0])?.focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); (buttons[(i - 1 + buttons.length) % buttons.length] || buttons[0])?.focus(); }
+      else if (e.key === 'ArrowRight' && document.activeElement && document.activeElement._openSub) { e.preventDefault(); e.stopPropagation(); document.activeElement._openSub(true); }
+      else if ((e.key === 'ArrowLeft' || e.key === 'Escape') && level > 0) {
+        e.preventDefault(); e.stopPropagation();
+        while (boxes.length > level) boxes.pop().box.remove();
+        const parent = boxes[level - 1];
+        const opener = parent && parent.box.querySelector('.mi.open');
+        if (opener) { opener.classList.remove('open'); opener.focus(); }
+      } else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
+    });
+    return { box, buttons };
   }
-  document.body.append(box);
-  const r = box.getBoundingClientRect();
-  box.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
-  box.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
-  const onKey = (e) => {
-    const i = buttons.indexOf(document.activeElement);
-    if (e.key === 'ArrowDown') { e.preventDefault(); (buttons[(i + 1) % buttons.length] || buttons[0])?.focus(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); (buttons[(i - 1 + buttons.length) % buttons.length] || buttons[0])?.focus(); }
-    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeMenu(); }
-  };
+  const top = build(items, 0);
+  boxes.push(top);
+  document.body.append(top.box);
+  const r = top.box.getBoundingClientRect();
+  top.box.style.left = Math.max(8, Math.min(x, innerWidth - r.width - 8)) + 'px';
+  top.box.style.top = Math.max(8, Math.min(y, innerHeight - r.height - 8)) + 'px';
   // A click outside closes this menu (and only this one: a menu replaced within the same moment, e.g. F10 then →,
   // must not leave its listener behind to close the next).
-  let closed = false;
-  const self = { box, close() { closed = true; document.removeEventListener('pointerdown', onDown, true); box.remove(); onClose && onClose(); } };
-  const onDown = (e) => { if (closed || openMenu !== self) { document.removeEventListener('pointerdown', onDown, true); return; } if (!box.contains(e.target) && !(anchor && anchor.contains(e.target))) closeMenu(); };
-  box.addEventListener('keydown', onKey);
+  const self = { box: top.box, close() { closed = true; timers.forEach(clearTimeout); timers.clear(); document.removeEventListener('pointerdown', onDown, true); boxes.forEach((b) => b.box.remove()); boxes.length = 0; onClose && onClose(); } };
+  const onDown = (e) => { if (closed || openMenu !== self) { document.removeEventListener('pointerdown', onDown, true); return; } if (!boxes.some((b) => b.box.contains(e.target)) && !(anchor && anchor.contains(e.target))) closeMenu(); };
   setTimeout(() => { if (!closed) document.addEventListener('pointerdown', onDown, true); }, 0);
   openMenu = self;
-  (buttons[0] || box).focus({ preventScroll: true });
+  (top.buttons[0] || top.box).focus({ preventScroll: true });
   return openMenu;
 }
 export const menuIsOpen = () => !!openMenu;

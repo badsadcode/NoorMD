@@ -765,7 +765,21 @@ function benchItem(it) {
 }
 function benchItems(m, title) {
   const mm = (m.menus || []).find((x) => x.title === title);
-  return mm ? [...mm.items.map(benchItem), '-'] : [];
+  return mm ? [...groupItems(mm.items), '-'] : [];
+}
+/** A bench's items, with the ones that name the same submenu (next to each other) folded into it. */
+function groupItems(items) {
+  const out = [];
+  for (const it of items) {
+    if (it.submenu && it.command) {
+      const last = out[out.length - 1];
+      if (last && last._group === it.submenu) { last._items.push(it); continue; }
+      const group = { label: it.submenu, _group: it.submenu, _items: [it] };
+      group.sub = () => group._items.map(benchItem);
+      out.push(group);
+    } else out.push(benchItem(it));
+  }
+  return out;
 }
 const claims = (keys) => SHORTCUTS().has(keys);
 function appMenus() {
@@ -777,13 +791,21 @@ function appMenus() {
       ? [...benchItems(m, 'File'), { label: 'Back to the main window', run: goBackToMain }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: closeFromWindow }]
       : [...benchItems(m, 'File'), { label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, { label: 'Open a bench…', run: () => benchPicker() }, '-', { label: `Close ${m.name}`, keys: claims('ctrl+w') ? 'Ctrl+Shift+W' : 'Ctrl+W', run: () => closeBench(active), disabled: !active }, '-', { label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, '-', { label: 'Exit', keys: 'Alt+F4', run: () => windowCall('close') }]],
     ['Edit', () => [...benchItems(m, 'Edit'), { label: 'Undo', keys: 'Ctrl+Z', run: edit('undo') }, { label: 'Redo', keys: 'Ctrl+Y', run: edit('redo') }, '-', { label: 'Cut', keys: 'Ctrl+X', run: edit('cut') }, { label: 'Copy', keys: 'Ctrl+C', run: edit('copy') }, { label: 'Paste', keys: 'Ctrl+V', run: () => navigator.clipboard.readText().then((t) => document.execCommand('insertText', false, t)).catch(() => {}) }, { label: 'Select all', keys: 'Ctrl+A', run: edit('selectAll') }]],
-    ['View', () => [...benchItems(m, 'View'),
-      ...(m.panels.length ? [{ header: `Panels of ${m.name}` }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; })] : [{ header: 'No panels of its own' }]),
-      ...(active === 'home' ? [] : (() => { const others = [...benches.values()].filter((b) => b.id !== m.id && (b.panels || []).length); return others.length ? ['-', { header: 'Panels from other benches' }, ...others.flatMap((b) => b.panels.map((p) => { const ref = refOf(b.id, p.id); return { label: `${p.icon}  ${p.title} (${b.name})`, checked: () => isShown(inst, ref), run: () => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref)) }; }))] : []; })()),
-      '-', { label: 'Reset the layout', disabled: active === 'home', run: () => { inst.layout = normaliseLayout({ state: inst.layout.state }, m); renderDocks(inst); save(); } },
-      { header: 'Density' }, { label: 'Roomy', checked: () => densityOf(active) === 'roomy', disabled: active === 'home', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', disabled: active === 'home', run: () => setDensity(active, 'compact') },
-      '-', { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }]],
-    ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => mm.items.map(benchItem)]),
+    ['View', () => {
+      const toggle = (ref) => (isFloating(ref) ? dockBack(floats.find((f) => f.ref === ref)) : whereIs(inst, ref) ? hidePanel(inst, ref) : showPanel(inst, ref));
+      const others = active === 'home' ? [] : [...benches.values()].filter((b) => b.id !== m.id && (b.panels || []).length);
+      const panelItems = () => [
+        ...(m.panels.length ? [{ header: m.name }, ...m.panels.map((p) => { const ref = refOf(m.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => toggle(ref) }; })] : []),
+        ...others.flatMap((b) => [{ header: b.name }, ...b.panels.map((p) => { const ref = refOf(b.id, p.id); return { label: `${p.icon}  ${p.title}`, checked: () => isShown(inst, ref), run: () => toggle(ref) }; })]),
+      ];
+      return [...benchItems(m, 'View'),
+        { label: 'Panels', disabled: active === 'home' || (!m.panels.length && !others.length), sub: panelItems },
+        { label: 'Reset the layout', disabled: active === 'home', run: () => { inst.layout = normaliseLayout({ state: inst.layout.state }, m); renderDocks(inst); save(); } },
+        '-',
+        { label: 'Density', disabled: active === 'home', sub: () => [{ label: 'Roomy', checked: () => densityOf(active) === 'roomy', run: () => setDensity(active, 'roomy') }, { label: 'Compact', checked: () => densityOf(active) === 'compact', run: () => setDensity(active, 'compact') }] },
+        { label: 'Focus mode', keys: 'F11', checked: () => focusMode, run: toggleFocus }];
+    }],
+    ...(m.menus || []).filter((mm) => !SHARED_MENUS.includes(mm.title)).map((mm) => [mm.title, () => groupItems(mm.items)]),
     ['Tools', () => [...benchItems(m, 'Tools'), ...(benchWinId ? [] : [{ label: 'Settings…', keys: 'Ctrl+,', run: settingsDialog }, { label: 'Benches…', run: benchesDialog }])]],
     ['Window', () => benchWinId ? [{ label: 'Back to the main window', run: goBackToMain }] : [{ label: 'Home', keys: 'Ctrl+Shift+H', run: () => openBench('home') }, '-',
       { label: `Move ${m.name} to a new window`, disabled: active === 'home' || !open.get(active), run: () => moveToWindow(active) },

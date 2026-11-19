@@ -142,6 +142,53 @@ async function newPlaylist(ctx, ids = []) {
   if (!name) return null;
   try { const r = await ctx.call('music.playlist.create', { name, ids }); ctx.toast(ids.length ? `“${name}”: ${ids.length} track${ids.length === 1 ? '' : 's'}.` : `Playlist “${name}” made.`); return r.id; } catch (e) { fail(ctx)(e); return null; }
 }
+/** How the last look through the folders went, in a sentence (or '' when it went fine). */
+function lastScanNote(ls) {
+  if (!ls) return '';
+  if (ls.phase === 'error') return `The last look through your music stopped: ${ls.message || 'an error'}.`;
+  if (ls.phase === 'unavailable') return ls.message || 'A music folder wasn\'t available.';
+  if (ls.phase === 'cancelled') return 'The last look through your music was stopped before the end.';
+  if (ls.errors > 0) return `${ls.errors.toLocaleString()} file${ls.errors === 1 ? '' : 's'} couldn't be read${ls.message ? ` (the first: ${ls.message})` : ''}.`;
+  return '';
+}
+
+/** The scan banner: while NoorMD looks through the folders, a bar with the count climbing and a Stop button; afterwards,
+    a short note if anything went wrong. */
+function scanBanner(ctx, onFinished) {
+  const text = el('span', { class: 'mu-scan-text' });
+  const bar = el('div', { class: 'mu-scan-bar' }, el('i'));
+  const stop = el('button', { class: 'nui-btn small', title: 'Stop looking (what was found so far stays)', onclick: () => ctx.call('music.cancelScan', {}).catch(() => {}) }, 'Stop');
+  const close = el('button', { class: 'nui-icon', title: 'Hide this note', 'aria-label': 'Hide this note', onclick: () => { node.hidden = true; } }, '✕');
+  const node = el('div', { class: 'mu-scan', role: 'status', 'aria-live': 'polite', hidden: true }, el('div', { class: 'mu-scan-row' }, text, stop, close), bar);
+  let refreshAt = 0;
+  function busy(label, frac) {
+    node.hidden = false; node.classList.remove('note'); stop.hidden = false; close.hidden = true; bar.hidden = false;
+    text.textContent = label;
+    bar.classList.toggle('busy', frac == null);
+    bar.firstChild.style.width = frac == null ? '' : `${Math.max(2, Math.round(frac * 100))}%`;
+    ctx.setStatus(label);
+  }
+  function note(msg) {
+    stop.hidden = true; bar.hidden = true; close.hidden = false;
+    node.hidden = !msg; node.classList.add('note'); text.textContent = msg || '';
+  }
+  return {
+    node,
+    update(sp) {
+      if (sp.phase === 'discovering') busy(sp.discovered ? `Finding your music… ${sp.discovered.toLocaleString()} files so far` : 'Finding your music…', null);
+      else if (sp.phase === 'indexing') {
+        busy(`Reading your music… ${sp.processed.toLocaleString()} of ${sp.discovered.toLocaleString()}${sp.errors ? ` · ${sp.errors.toLocaleString()} unreadable` : ''}`, sp.discovered ? sp.processed / sp.discovered : null);
+        if (Date.now() > refreshAt) { refreshAt = Date.now() + 2000; onFinished(false); }   // the list fills in as it goes
+      } else { note(lastScanNote(sp)); onFinished(true); }
+    },
+    fromStatus(st) {
+      if (!st) return;
+      if (st.scanning) { if (node.hidden || node.classList.contains('note')) busy('Looking through your music…', null); }
+      else if (!node.hidden && !node.classList.contains('note')) note(lastScanNote(st.lastScan));
+    },
+  };
+}
+
 async function foldersDialog(ctx) {
   const s = await ctx.call('music.status').catch(() => null);
   if (!s) return;
@@ -152,7 +199,9 @@ async function foldersDialog(ctx) {
     el('button', { class: 'nui-icon', title: 'Remove it from the library (the files stay where they are)', 'aria-label': `Remove ${f.path}`, onclick: async () => draw(await ctx.call('music.removeFolder', { id: f.id })) }, '✕')))
     : [el('p', { class: 'nui-muted', text: 'No music folders yet.' })]));
   draw(s);
-  const what = await ctx.dialog('Music folders', el('div', { class: 'mu-folders-wrap' }, el('p', { class: 'nui-muted', text: 'The library is made from these folders (and their subfolders). Your files are only read: nothing is moved or changed.' }), list),
+  const last = lastScanNote(s.lastScan);
+  const what = await ctx.dialog('Music folders', el('div', { class: 'mu-folders-wrap' }, el('p', { class: 'nui-muted', text: 'The library is made from these folders (and their subfolders). Your files are only read: nothing is moved or changed.' }), list,
+    s.scanning ? el('p', { class: 'mu-folders-note', text: 'Looking through your music right now…' }) : last ? el('p', { class: 'mu-folders-note', text: last }) : ''),
     [{ label: 'Close', value: null }, { label: 'Add a folder…', value: 'add', primary: true }]);
   if (what === 'add') addFolder(ctx);
 }
@@ -177,7 +226,7 @@ export default {
   mount(root, ctx) {
     ctx.useStyle(here('bench.css'));
     const view = { search: '', triage: null, missingOnly: false, playlistId: null, sort: ctx.restore('sort', 'artist'), desc: !!ctx.restore('desc', false) };
-    let status = null, total = 0, rows = new Map(), pending = new Set(), sel = new Set(), anchor = -1, focus = -1, gen = 0, nowId = null, scanLine = '';
+    let status = null, total = 0, rows = new Map(), pending = new Set(), sel = new Set(), anchor = -1, focus = -1, gen = 0, nowId = null;
     const ROW = 32;
     const side = el('nav', { class: 'mu-side', 'aria-label': 'Library sections' });
     const search = el('input', { class: 'nui-field mu-search', type: 'search', placeholder: 'Search titles, artists, albums… (Ctrl+F)', 'aria-label': 'Search the library',
@@ -188,12 +237,13 @@ export default {
     const spacer = el('div', { class: 'mu-spacer' });
     const list = el('div', { class: 'mu-list', role: 'grid', tabindex: '0', 'aria-label': 'Tracks', 'aria-multiselectable': 'true' }, spacer);
     const empty = el('div', { class: 'mu-empty', hidden: true });
+    const scan = scanBanner(ctx, (finished) => { refreshStatus(); if (finished || total === 0) reload(); if (finished) setTimeout(refreshStatus, 300); });   // mid-scan, only an empty list refills (a selection stays put)
     const main = el('section', { class: 'mu-main' },
       el('div', { class: 'mu-bar' }, heading, search,
         el('button', { class: 'nui-btn primary', title: 'Play this list from the top', onclick: () => playFrom(0) }, '▶ Play'),
         el('button', { class: 'nui-btn', title: 'Play this list shuffled', onclick: async () => { const ids = await allIds(); if (ids.length) { doIt(ctx, { op: 'shuffle', on: true }); doIt(ctx, { op: 'playIds', ids, start: Math.floor(Math.random() * ids.length) }); } } }, '⇄ Shuffle'),
         el('button', { class: 'nui-btn', title: 'A random track from this list', onclick: async () => doIt(ctx, { op: 'random', ids: await allIds() }) }, '⚄')),
-      head, list, empty);
+      scan.node, head, list, empty);
     const box = el('div', { class: 'mu-bench' }, side, main);
     root.replaceChildren(box);
 
@@ -220,8 +270,7 @@ export default {
             ondrop: (e) => { e.currentTarget.classList.remove('drop'); const ids = JSON.parse(e.dataTransfer.getData('text/x-noor-tracks') || '[]'); if (ids.length) ctx.call('music.playlist.add', { id: p.id, ids }).then(() => ctx.toast(`Added to “${p.name}”.`)).catch(fail(ctx)); } })),
         el('div', { class: 'mu-side-h', text: 'Folders' }),
         el('button', { class: 'mu-sec', onclick: () => foldersDialog(ctx) }, el('span', { class: 'ic', text: '📁' }), el('span', { class: 'n', text: status ? `${status.folders.length} folder${status.folders.length === 1 ? '' : 's'}` : 'Folders' })),
-        el('button', { class: 'mu-sec', onclick: () => addFolder(ctx) }, el('span', { class: 'ic', text: '＋' }), el('span', { class: 'n', text: 'Add a folder…' })),
-        scanLine ? el('div', { class: 'mu-scan', text: scanLine }) : '');
+        el('button', { class: 'mu-sec', onclick: () => addFolder(ctx) }, el('span', { class: 'ic', text: '＋' }), el('span', { class: 'n', text: 'Add a folder…' })));
     }
     function setSection(s) {
       view.triage = s.triage ?? null; view.missingOnly = !!s.missingOnly; view.playlistId = s.playlistId ?? null;
@@ -381,8 +430,9 @@ export default {
     // ---------------------------------------------------------- keeping up
     async function refreshStatus() {
       try { status = await ctx.call('music.status'); } catch (e) { fail(ctx)(e); return; }
-      drawSide(); drawEmpty();
-      ctx.setStatus(`${status.stats.total.toLocaleString()} track${status.stats.total === 1 ? '' : 's'} in ${status.folders.length} folder${status.folders.length === 1 ? '' : 's'}${status.scanning ? ' · looking for music…' : ''}`);
+      drawSide(); drawEmpty(); scan.fromStatus(status);
+      if (status.scanning) return;   // the banner keeps the status bar up to date
+      ctx.setStatus(`${status.stats.total.toLocaleString()} track${status.stats.total === 1 ? '' : 's'} in ${status.folders.length} folder${status.folders.length === 1 ? '' : 's'}`);
     }
     let changeTimer = 0;
     const offs = [
@@ -390,11 +440,7 @@ export default {
       ctx.on('changed', () => { clearTimeout(changeTimer); changeTimer = setTimeout(() => { refreshStatus(); reload(); }, 250); }),
       ctx.on('playlists', () => { refreshStatus(); if (view.playlistId != null) reload(); }),
       ctx.on('triage', (p) => { for (const [i, r] of rows) if (p.ids.includes(r.id)) rows.set(i, { ...r, triage: p.value }); drawRows(); refreshStatus(); doIt(ctx, { op: 'trackChanged', rows: p.ids.map((id) => ({ id, triage: p.value })) }); }),
-      ctx.on('scan', (sp) => {
-        scanLine = sp.phase === 'error' ? `Couldn't finish: ${sp.message || 'error'}` : sp.phase === 'done' ? '' : `Looking for music… ${sp.processed.toLocaleString()} / ${sp.discovered.toLocaleString()}`;
-        drawSide();
-        if (sp.phase === 'done' || sp.phase === 'error') { refreshStatus(); reload(); }
-      }),
+      ctx.on('scan', (sp) => scan.update(sp)),
     ];
     drawHead();
     refreshStatus().then(reload);

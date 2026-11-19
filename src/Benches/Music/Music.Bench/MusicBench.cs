@@ -58,10 +58,17 @@ public sealed class MusicBench : BenchBase, IBenchMedia
     readonly List<long> _scanQueued = [];
     readonly object _gate = new();
 
+    ScanProgress? _lastScan;
     MusicLibrary Lib(IBenchHost host)
     {
         _host = host;
-        lock (_gate) return _music ??= new MusicLibrary(Path.Combine(host.DataFolder, "library.db"));
+        bool first;
+        MusicLibrary lib;
+        lock (_gate) { first = _music == null; lib = _music ??= new MusicLibrary(Path.Combine(host.DataFolder, "library.db")); }
+        // Each start looks through the folders again in the background (unchanged files are skipped at once), so a scan
+        // that was stopped (NoorMD closed half-way) carries on, and new music turns up by itself.
+        if (first) { var ids = lib.Folders().Select(f => f.Id).ToList(); if (ids.Count > 0) StartScan(host, ids); }
+        return lib;
     }
 
     public MusicBench()
@@ -196,7 +203,8 @@ public sealed class MusicBench : BenchBase, IBenchMedia
             var last = DateTime.MinValue;
             var progress = new Progress<ScanProgress>(sp =>
             {
-                if (sp.Phase is "indexing" && (DateTime.UtcNow - last).TotalMilliseconds < 400) return;
+                if (sp.Phase is "done" or "error" or "unavailable" or "cancelled") _lastScan = sp;
+                if (sp.Phase is "indexing" or "discovering" && sp.Discovered > 0 && (DateTime.UtcNow - last).TotalMilliseconds < 400) return;
                 last = DateTime.UtcNow;
                 host.Post("scan", sp);
             });
@@ -207,7 +215,7 @@ public sealed class MusicBench : BenchBase, IBenchMedia
                     if (ct.IsCancellationRequested) break;
                     try { lib.ScanFolder(id, progress, ct); }
                     catch (OperationCanceledException) { break; }
-                    catch (Exception ex) { host.Log("Music scan failed: " + ex.Message); host.Post("scan", new ScanProgress(id, "error", 0, 0, 0, 0, 0, 0, 1, ex.Message)); }
+                    catch (Exception ex) { host.Log("Music scan failed: " + ex.Message); var e = new ScanProgress(id, "error", 0, 0, 0, 0, 0, 0, 1, ex.Message); _lastScan = e; host.Post("scan", e); }
                 }
             }, ct).ContinueWith(_ =>
             {
@@ -230,6 +238,7 @@ public sealed class MusicBench : BenchBase, IBenchMedia
             ["stats"] = StatsJson(lib.Stats()),
             ["playlists"] = Playlists(host),
             ["scanning"] = _scanTask is { IsCompleted: false },
+            ["lastScan"] = _lastScan is { } ls ? new JsonObject { ["phase"] = ls.Phase, ["discovered"] = ls.Discovered, ["added"] = ls.Added, ["errors"] = ls.Errors, ["message"] = ls.Message } : null,
         };
     }
     static JsonObject StatsJson(LibraryStats s) => new()

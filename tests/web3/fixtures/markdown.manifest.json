@@ -14,102 +14,122 @@
         {
           "label": "New document",
           "command": "md.new",
-          "keys": "Ctrl\u002BN"
+          "keys": "Ctrl\u002BN",
+          "submenu": null
         },
         {
           "label": "Open\u2026",
           "command": "md.open",
-          "keys": "Ctrl\u002BO"
+          "keys": "Ctrl\u002BO",
+          "submenu": null
         },
         {
           "label": "Open recent\u2026",
           "command": "md.recent",
-          "keys": "Ctrl\u002BShift\u002BO"
+          "keys": "Ctrl\u002BShift\u002BO",
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Save",
           "command": "md.save",
-          "keys": "Ctrl\u002BS"
+          "keys": "Ctrl\u002BS",
+          "submenu": null
         },
         {
           "label": "Save as\u2026",
           "command": "md.saveAs",
-          "keys": "Ctrl\u002BShift\u002BS"
+          "keys": "Ctrl\u002BShift\u002BS",
+          "submenu": null
         },
         {
           "label": "Save all",
           "command": "md.saveAll",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Take a snapshot",
           "command": "md.snap",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Export HTML\u2026",
           "command": "md.exportHtml",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Export PDF\u2026",
           "command": "md.exportPdf",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Print\u2026",
           "command": "md.print",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Copy the Markdown",
           "command": "md.copy",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Name the document\u2026",
           "command": "md.name",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Reload from disk",
           "command": "md.reload",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Show in Explorer",
           "command": "md.reveal",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Close the document",
           "command": "md.close",
-          "keys": "Ctrl\u002BW"
+          "keys": "Ctrl\u002BW",
+          "submenu": null
         },
         {
           "label": "Unsaved work from before\u2026",
           "command": "md.drafts",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -119,27 +139,32 @@
         {
           "label": "Find\u2026",
           "command": "md.find",
-          "keys": "Ctrl\u002BF"
+          "keys": "Ctrl\u002BF",
+          "submenu": null
         },
         {
           "label": "Replace\u2026",
           "command": "md.replace",
-          "keys": "Ctrl\u002BH"
+          "keys": "Ctrl\u002BH",
+          "submenu": null
         },
         {
           "label": "Go to a document or note\u2026",
           "command": "md.switcher",
-          "keys": "Ctrl\u002BP"
+          "keys": "Ctrl\u002BP",
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Extract to a new note\u2026",
           "command": "md.extract",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -149,87 +174,104 @@
         {
           "label": "Visual",
           "command": "md.mode.visual",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Markdown",
           "command": "md.mode.markdown",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Side by side",
           "command": "md.mode.split",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Next view",
           "command": "md.mode.next",
-          "keys": "Ctrl\u002BE"
+          "keys": "Ctrl\u002BE",
+          "submenu": null
         },
         {
           "label": "Formatting bar",
           "command": "md.toolbar",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Bigger text",
           "command": "md.zoom.in",
-          "keys": "Ctrl\u002B="
+          "keys": "Ctrl\u002B=",
+          "submenu": "Text size"
         },
         {
           "label": "Smaller text",
           "command": "md.zoom.out",
-          "keys": "Ctrl\u002B-"
+          "keys": "Ctrl\u002B-",
+          "submenu": "Text size"
         },
         {
           "label": "Normal text size",
           "command": "md.zoom.reset",
-          "keys": "Ctrl\u002B0"
+          "keys": "Ctrl\u002B0",
+          "submenu": "Text size"
         },
         {
-          "label": "Line width: comfortable",
+          "label": "Comfortable",
           "command": "md.width.comfortable",
-          "keys": null
+          "keys": null,
+          "submenu": "Line width"
         },
         {
-          "label": "Line width: wide",
+          "label": "Wide",
           "command": "md.width.wide",
-          "keys": null
+          "keys": null,
+          "submenu": "Line width"
         },
         {
-          "label": "Line width: full",
+          "label": "Full",
           "command": "md.width.full",
-          "keys": null
+          "keys": null,
+          "submenu": "Line width"
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Line numbers (Markdown view)",
           "command": "md.lines",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Word wrap (Markdown view)",
           "command": "md.wrap",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Scroll together (side by side)",
           "command": "md.sync",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Spellcheck",
           "command": "md.spell",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -239,12 +281,14 @@
         {
           "label": "Writing goal\u2026",
           "command": "md.goal",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Markdown settings\u2026",
           "command": "md.settings",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -254,7 +298,8 @@
         {
           "label": "The Markdown welcome document",
           "command": "md.welcome",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -264,87 +309,104 @@
         {
           "label": "Bold",
           "command": "md.fmt.bold",
-          "keys": "Ctrl\u002BB"
+          "keys": "Ctrl\u002BB",
+          "submenu": null
         },
         {
           "label": "Italic",
           "command": "md.fmt.italic",
-          "keys": "Ctrl\u002BI"
+          "keys": "Ctrl\u002BI",
+          "submenu": null
         },
         {
           "label": "Strikethrough",
           "command": "md.fmt.strike",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Inline code",
           "command": "md.fmt.code",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Heading 1",
           "command": "md.fmt.h1",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Heading 2",
           "command": "md.fmt.h2",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Heading 3",
           "command": "md.fmt.h3",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Paragraph (plain text)",
           "command": "md.fmt.p",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Bulleted list",
           "command": "md.fmt.ul",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Numbered list",
           "command": "md.fmt.ol",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Task list",
           "command": "md.fmt.task",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Quote",
           "command": "md.fmt.quote",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Indent (Tab)",
           "command": "md.fmt.indent",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Outdent (Shift\u002BTab)",
           "command": "md.fmt.outdent",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -354,37 +416,44 @@
         {
           "label": "Link\u2026",
           "command": "md.ins.link",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Table",
           "command": "md.ins.table",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Image\u2026",
           "command": "md.ins.image",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Code block",
           "command": "md.ins.codeblock",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Callout (\u003E [!tip])",
           "command": "md.ins.callout",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Horizontal line",
           "command": "md.ins.hr",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Today\u0027s date",
           "command": "md.ins.date",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     }

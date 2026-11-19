@@ -192,7 +192,11 @@ public sealed class MusicLibrary
         foreach (var f in Directory.EnumerateFiles(root, "*", opts))
         {
             ct.ThrowIfCancellationRequested();
-            if (AudioFormats.IsAudio(f) && !System.IO.Path.GetFileName(f).StartsWith(".noormd-", StringComparison.Ordinal)) files.Add(f);
+            if (AudioFormats.IsAudio(f) && !System.IO.Path.GetFileName(f).StartsWith(".noormd-", StringComparison.Ordinal))
+            {
+                files.Add(f);
+                if (files.Count % 250 == 0) progress?.Report(new ScanProgress(folderId, "discovering", files.Count, 0, 0, 0, 0, 0, 0));
+            }
         }
 
         var known = new Dictionary<string, Known>();
@@ -202,6 +206,7 @@ public sealed class MusicLibrary
             while (r.Read()) known[r.GetString(1)] = new Known(r.GetInt64(0), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4) == 1);
 
         int processed = 0, added = 0, updated = 0, relinked = 0, errors = 0, missing = 0;
+        string? firstError = null;
         var seen = new HashSet<long>();
         using var c = Open();
         SqliteTransaction? tx = c.BeginTransaction();
@@ -269,7 +274,13 @@ public sealed class MusicLibrary
                         added++;
                     }
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { errors++; }
+                // One file that can't be read (locked, damaged, a tag library surprise) is skipped and counted: it never
+                // stops the scan (or every later scan would stop at the same file and never see the rest).
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    errors++;
+                    firstError ??= $"“{System.IO.Path.GetFileName(file)}”: {ex.Message}";
+                }
 
                 if (processed % 250 == 0 || batchClock.ElapsedMilliseconds > 1500)
                 {
@@ -282,7 +293,7 @@ public sealed class MusicLibrary
             missing -= relinked; // relinked tracks were only provisionally missing
             using (var ls = Cmd(c, "UPDATE folders SET last_scan = $t WHERE id = $id", tx, ("$t", Iso(DateTime.UtcNow)), ("$id", folderId))) ls.ExecuteNonQuery();
             tx.Commit();
-            var done = new ScanProgress(folderId, "done", files.Count, processed, added, updated, relinked, missing, errors);
+            var done = new ScanProgress(folderId, "done", files.Count, processed, added, updated, relinked, missing, errors, firstError);
             progress?.Report(done);
             return done;
         }

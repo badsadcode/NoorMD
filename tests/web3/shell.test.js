@@ -92,6 +92,9 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     const menuTitles = () => page.$$eval('#menubar button, #menurow button', (b) => b.map((x) => x.textContent));
     const openMenu = async (title) => { await page.click(`#menubar button:text-is("${title}"), #menurow button:text-is("${title}")`); await page.waitForSelector('.nui-menu'); };
     const pick = async (label) => { await page.click(`.nui-menu .mi:has-text("${label}")`); };
+    const sub = async (label) => { await page.click(`.nui-menu .mi.has-sub:has-text("${label}")`); await page.waitForTimeout(60); };
+    const inSub = (label) => page.locator('.nui-menu').last().locator('.mi', { hasText: label }).first();
+    const pickPanel = async (label) => { await sub('Panels'); await inSub(label).click(); };
 
     // ---- the first start: Home, the theme sent to the window, the version in the status bar
     await page.goto(url);
@@ -140,17 +143,17 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     check('…the edges resize from the keyboard too (← →)', (await page.$eval('section.bench[data-bench="noor.sandbox"]', (b) => getComputedStyle(b).getPropertyValue('--lw').trim())) === '260px');
 
     // ---- View: panels and density
-    await openMenu('View'); await pick('Statistics');
-    check('View › Statistics hides the panel', !(await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]')));
-    await openMenu('View');
-    check('…the View menu shows it unticked', (await page.getAttribute('.nui-menu .mi:has-text("Statistics")', 'aria-checked')) === 'false');
-    await pick('Statistics');
+    await openMenu('View'); await pickPanel('Statistics');
+    check('View › Panels › Statistics hides the panel', !(await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]')));
+    await openMenu('View'); await sub('Panels');
+    check('…the menu shows it unticked', (await inSub('Statistics').getAttribute('aria-checked')) === 'false');
+    await inSub('Statistics').click();
     check('…and ticks it back', await page.isVisible('.pbody[data-ref="noor.sandbox:stats"]'));
     await page.click('.pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]');
     check('✕ on a panel hides it', !(await page.isVisible('.pbody[data-ref="noor.sandbox:about"]')));
-    await openMenu('View'); await pick('Compact');
-    check('View › Compact: the bench turns compact', await page.evaluate(() => document.body.classList.contains('density-compact')));
-    await openMenu('View'); await pick('Roomy');
+    await openMenu('View'); await sub('Density'); await inSub('Compact').click();
+    check('View › Density › Compact: the bench turns compact', await page.evaluate(() => document.body.classList.contains('density-compact')));
+    await openMenu('View'); await sub('Density'); await inSub('Roomy').click();
     check('…and roomy again', await page.evaluate(() => document.body.classList.contains('density-roomy')));
 
 
@@ -166,7 +169,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
       if (cancel) { await page.keyboard.press('Escape'); await page.mouse.up(); return; }
       await page.mouse.up();
     };
-    await openMenu('View'); await pick('About');   // About back (it was hidden above)
+    await openMenu('View'); await pickPanel('About');   // About back (it was hidden above)
     // Statistics onto the About group, in its middle: tabbed together on the left; the right side goes away.
     const aboutBox = await (await page.$(`${sb} .pgroup:has(.ptab[data-ref="noor.sandbox:about"])`)).boundingBox();
     await dragTo(`${sb} .ptab[data-ref="noor.sandbox:stats"]`, aboutBox.x + aboutBox.width / 2, aboutBox.y + aboutBox.height / 2);
@@ -208,9 +211,9 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.click('.nui-menu .mi:has-text("Move to the right")');
 
     // ---- any panel in any bench: the Clock's stopwatch docked in the Sandbox
-    await openMenu('View');
-    check('View lists the panels from other benches', await page.isVisible('.nui-menu .mi:has-text("Stopwatch (Clock)")') && await page.isVisible('.nui-menu .mi:has-text("Clock (Clock)")'));
-    await pick('Stopwatch (Clock)');
+    await openMenu('View'); await sub('Panels');
+    check('View › Panels lists the panels from other benches too (under their names)', await inSub('Stopwatch').isVisible() && (await page.locator('.nui-menu').last().textContent()).includes('Clock'));
+    await inSub('Stopwatch').click();
     await page.waitForSelector(`${sb} .side.bottom [data-ref="noor.clock:stopwatch"] .ck-go`);
     check('…the Stopwatch docks in the Sandbox (at the bottom, its usual side), its tab says where it\'s from', /Stopwatch\s*Clock/.test(await page.textContent(`${sb} .ptab[data-ref="noor.clock:stopwatch"]`)));
     check('…the Clock opened quietly to run it (a tab, but the Sandbox stays in front)', (await page.$$eval('.btab[data-bench]', (t) => t.map((x) => x.dataset.bench))).includes('noor.clock') && await page.evaluate(() => window.__noor.active()) === 'noor.sandbox');
@@ -233,7 +236,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.click('.btab[data-bench="noor.sandbox"]');
     check('closing the Clock: its stopwatch leaves the Sandbox, and says so', !(await page.$(`${sb} [data-ref="noor.clock:stopwatch"]`)) && await page.isVisible('.nui-toast:has-text("panels left the other benches")'));
     // Dock it back for the restart check below.
-    await openMenu('View'); await pick('Stopwatch (Clock)');
+    await openMenu('View'); await pickPanel('Stopwatch');
     await page.waitForSelector(`${sb} [data-ref="noor.clock:stopwatch"] .ck-go`);
     await page.click('.btab[data-bench="noor.sandbox"]');
     await page.click(`${sb} .pgroup:has([data-ref="noor.sandbox:about"]) header button[aria-label^="Hide"]`);   // About hidden again, as before
@@ -246,7 +249,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await page.click('.nui-menu .mi:has-text("Float in its own window")');
     let fl = await floats();
     check('right-click › Float in its own window: the window is asked to open one with Statistics', fl.length === 1 && fl[0].ref === 'noor.sandbox:stats' && (await page.evaluate(() => window.__floatOpens.length)) === 1 && (await page.evaluate(() => window.__floatOpens[0].title)) === 'Statistics', fl);
-    check('…it leaves the bench\'s sides; View still ticks it (it\'s shown, just elsewhere)', !(await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && (await (async () => { await openMenu('View'); const c = await page.getAttribute('.nui-menu .mi:has-text("Statistics")', 'aria-checked'); await page.keyboard.press('Escape'); return c; })()) === 'true');
+    check('…it leaves the bench\'s sides; View still ticks it (it\'s shown, just elsewhere)', !(await docks()).right.some((g) => g.panels.includes('noor.sandbox:stats')) && (await (async () => { await openMenu('View'); await sub('Panels'); const c = await inSub('Statistics').getAttribute('aria-checked'); await page.keyboard.press('Escape'); await page.keyboard.press('Escape'); return c; })()) === 'true');
     const fp = await context.newPage();
     fp.on('pageerror', (e) => errors.push('float: ' + e));
     await fp.goto(url + '?float=' + fl[0].id);
@@ -351,7 +354,7 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
     await bw2.close();
 
     // A floating panel comes back after a restart: the Clock's small clock floats until the restart check below.
-    await openMenu('View'); await pick('Clock (Clock)');
+    await openMenu('View'); await pickPanel('Clock');
     await page.waitForSelector(`${sb} .pbody[data-ref="noor.clock:now"]`);
     await page.click(`${sb} .ptab[data-ref="noor.clock:now"]`, { button: 'right' });
     await page.click('.nui-menu .mi:has-text("Float in its own window")');
@@ -455,10 +458,10 @@ async function waitFn(page, fn, arg, timeout = 5000) { await page.waitForFunctio
       await page.waitForTimeout(400);
       await page.screenshot({ path: path.join(dir, 'noormd3-sandbox.png') });
       // Docking: the Clock's panels borrowed into the Sandbox, Statistics tabbed with About, and a drag in progress.
-      await openMenu('View'); await pick('Stopwatch (Clock)');
+      await openMenu('View'); await pickPanel('Stopwatch');
       await page.waitForSelector('[data-ref="noor.clock:stopwatch"] .ck-go');
       await page.click('.btab[data-bench="noor.sandbox"]');
-      await openMenu('View'); await pick('Clock (Clock)');
+      await openMenu('View'); await pickPanel('Clock');
       await page.waitForSelector('.pbody[data-ref="noor.clock:now"]');
       await page.click('section.bench[data-bench="noor.sandbox"] [data-ref="noor.clock:stopwatch"] .ck-go');
       await page.waitForTimeout(1300);

@@ -14,27 +14,32 @@
         {
           "label": "Add a music folder\u2026",
           "command": "music.addFolderUi",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Music folders\u2026",
           "command": "music.foldersUi",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Look for new music (rescan)",
           "command": "music.rescanUi",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "New playlist\u2026",
           "command": "music.newPlaylist",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -44,7 +49,8 @@
         {
           "label": "Find in the library",
           "command": "music.focusSearch",
-          "keys": "Ctrl\u002BF"
+          "keys": "Ctrl\u002BF",
+          "submenu": null
         }
       ]
     },
@@ -54,52 +60,62 @@
         {
           "label": "Play / pause",
           "command": "music.toggle",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Next",
           "command": "music.next",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Previous",
           "command": "music.prev",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "A random track",
           "command": "music.random",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Shuffle",
           "command": "music.shuffle",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Repeat: off / all / this track",
           "command": "music.repeat",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Show the playing track",
           "command": "music.reveal.playing",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Favourite the playing track \u2605",
           "command": "music.favCurrent",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     }

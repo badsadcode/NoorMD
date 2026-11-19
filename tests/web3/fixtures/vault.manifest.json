@@ -14,67 +14,80 @@
         {
           "label": "New vault (wizard)\u2026",
           "command": "vault.wizard",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Open a folder as a vault\u2026",
           "command": "vault.openFolder",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Recent vaults\u2026",
           "command": "vault.recentDialog",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "New note",
           "command": "vault.newNote",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "New note from a template\u2026",
           "command": "vault.fromTemplate",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Today\u0027s note",
           "command": "vault.today",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "A random note",
           "command": "vault.random",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "New folder",
           "command": "vault.newFolder",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Pack \u0026 Share\u2026",
           "command": "vault.pack",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Show the vault in Explorer",
           "command": "vault.reveal",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Close the vault",
           "command": "vault.close",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     },
@@ -84,12 +97,14 @@
         {
           "label": "Search the vault",
           "command": "vault.focusSearch",
-          "keys": "Ctrl\u002BShift\u002BF"
+          "keys": "Ctrl\u002BShift\u002BF",
+          "submenu": null
         },
         {
           "label": "Go to a note\u2026",
           "command": "vault.switcher",
-          "keys": "Ctrl\u002BP"
+          "keys": "Ctrl\u002BP",
+          "submenu": null
         }
       ]
     },
@@ -99,12 +114,14 @@
         {
           "label": "The vault\u0027s home",
           "command": "vault.showHome",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "The map",
           "command": "vault.showMap",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     }

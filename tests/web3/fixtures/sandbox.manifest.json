@@ -14,27 +14,32 @@
         {
           "label": "Count the words (C#)",
           "command": "sandbox.count",
-          "keys": "Ctrl\u002BShift\u002BC"
+          "keys": "Ctrl\u002BShift\u002BC",
+          "submenu": null
         },
         {
           "label": "Say hello from C#",
           "command": "sandbox.hello",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Clear the page",
           "command": "sandbox.clear",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Insert sample text",
           "command": "sandbox.sample",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     }

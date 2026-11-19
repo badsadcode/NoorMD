@@ -202,6 +202,8 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     const disk = () => page.evaluate(() => JSON.parse(localStorage.getItem('mock.disk') || '{}'));
     const dialogButton = (label) => page.click(`.nui-dialog .nui-btn:text-is("${label}")`);
     const clickMenu = async (title, item) => { await page.click(`[data-menu]:text-is("${title}")`); await page.click(`.nui-menu .mi:has-text("${item}")`); };
+    // View › Panels › a panel (the panel list is a submenu)
+    const clickPanel = async (item) => { await page.click('[data-menu]:text-is("View")'); await page.click('.nui-menu .mi.has-sub:has-text("Panels")'); await page.waitForTimeout(60); await page.locator('.nui-menu').last().locator('.mi', { hasText: item }).first().click(); };
     const R = 'C:\\Notes\\Ideas';
 
     await page.goto(url);
@@ -245,7 +247,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     const items = await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-item .nm', (xs) => xs.map((x) => x.textContent));
     check('the Explorer docks beside your writing and lists the vault', items.includes('Index') && items.includes('Permanent') && items.includes('Home'), items);
     check('…with the note on screen marked (its folder opened to show it)', (await page.textContent('section.bench[data-bench="noor.markdown"] .vt-item.current .nm')) === 'One idea per note');
-    await clickMenu('View', 'Backlinks (Vault)');
+    await clickPanel('Backlinks');
     await page.waitForSelector('section.bench[data-bench="noor.markdown"] .vt-list .vt-hit');
     const bl = await page.$$eval('section.bench[data-bench="noor.markdown"] .vt-list .vt-sechead', (xs) => xs.map((x) => x.textContent));
     check('Backlinks: what links to the note on screen', bl[0] === '▾ Links to this note2', bl);
@@ -437,7 +439,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await waitFn(page, () => [...document.querySelectorAll('.md-tab .name')].some((n) => n.textContent === 'Ideas about trains.md'));
     check('a new note from a template, its title filled in', ((await disk())[R + '\\Ideas about trains.md'] || {}).text === '# Ideas about trains\n');
     // The local map follows the note on screen
-    await clickMenu('View', 'Local map (Vault)');
+    await clickPanel('Local map');
     await page.waitForSelector('section.bench[data-bench="noor.markdown"] .vt-map-canvas');
     await page.click('.md-tab .name:text-is("Start here.md")');
     await page.waitForTimeout(500);
@@ -472,9 +474,9 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await page.click('.md-modes button[data-mode="markdown"]');
     await page.waitForTimeout(150);
     // (Properties is shown from the start, under Statistics and History: those make room.)
-    await clickMenu('View', 'Statistics');
-    await clickMenu('View', 'History');
-    await clickMenu('View', 'Local map (Vault)');
+    await clickPanel('Statistics');
+    await clickPanel('History');
+    await clickPanel('Local map');
     await page.waitForSelector(`${panel} .md-props .md-prop.add`);
     check('Properties: a note without any says what they are', (await page.textContent(`${panel} .md-props`)).includes('No properties yet'));
     await page.fill(`${panel} .md-prop.add input >> nth=0`, 'status');
@@ -498,7 +500,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(200);
     check('…and Ctrl+Z brings it back (Markdown view)', (await adaText()).includes('status: done'), await adaText());
-    await clickMenu('View', 'Properties');
+    await clickPanel('Properties');
 
     // Extract to a new note
     await page.evaluate(() => { const ed = window.__noor.open.get('noor.markdown').mounted._editor(); const ls = ed.getMarkdown().split('\n'); const i = ls.findIndex((l) => l.startsWith('She met')); ed.setSelection([i + 1, 1], [i + 1, ls[i].length + 1]); });

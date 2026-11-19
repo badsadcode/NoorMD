@@ -60,6 +60,7 @@ const MOCK = (manifests) => {
   const lib = () => get('mock.music', { tracks: TRACKS, playlists: [], folders: [{ id: 1, path: 'C:\\Music', tracks: 5 }], session: null });
   const save = (l) => put('mock.music', l);
   const ev = (name, payload) => send({ event: 'bench', bench: 'noor.music', name, payload: payload || {} });
+  window.__ev = ev;
   const stats = (l) => ({ total: l.tracks.length, missing: 0, favorite: l.tracks.filter((t) => t.triage === 1).length, keep: l.tracks.filter((t) => t.triage === 2).length, maybe: l.tracks.filter((t) => t.triage === 3).length, skip: l.tracks.filter((t) => t.triage === 4).length, untriaged: l.tracks.filter((t) => !t.triage).length });
   const rowsFor = (l, a) => {
     let rows = a.playlistId != null ? ((l.playlists.find((p) => p.id === a.playlistId) || { ids: [] }).ids.map((id) => l.tracks.find((t) => t.id === id)).filter(Boolean)) : l.tracks.slice();
@@ -81,7 +82,8 @@ const MOCK = (manifests) => {
     if (m.target !== 'bench:noor.music') throw new Error(`no ${m.target} ${m.cmd}`);
     const l = lib();
     switch (m.cmd) {
-      case 'music.status': return { folders: l.folders, stats: stats(l), playlists: l.playlists.map((p) => ({ id: p.id, name: p.name, count: p.ids.length })), scanning: false };
+      case 'music.status': return { folders: l.folders, stats: stats(l), playlists: l.playlists.map((p) => ({ id: p.id, name: p.name, count: p.ids.length })), scanning: !!window.__scanning, lastScan: window.__lastScan || null };
+      case 'music.cancelScan': window.__cancelled = true; return null;
       case 'music.query': { const rows = rowsFor(l, a); return { total: rows.length, offset: a.offset || 0, rows: rows.slice(a.offset || 0, (a.offset || 0) + (a.limit || 200)) }; }
       case 'music.ids': return rowsFor(l, a).map((t) => t.id);
       case 'music.tracks': return (a.ids || []).map((id) => l.tracks.find((t) => t.id === id)).filter(Boolean);
@@ -128,6 +130,28 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     // ---------------------------------------------------------------- the library
     check('the Music bench: the library, sorted by artist', (await titles()).join('|') === 'Analytical Engine|Bernoulli Numbers|Cogs and Wheels|Differences|Every Punch Card', await titles());
     check('…its sections (All music, Favourite…), with counts', (await page.textContent('.mu-sec.on')).includes('All music') && (await page.textContent('.mu-sec.on .c')) === '5');
+
+    // ---------------------------------------------------------------- looking through the folders
+    check('no scan banner when nothing is going on', await page.isHidden('.mu-scan'));
+    await page.evaluate(() => { window.__scanning = true; window.__ev('scan', { folderId: 1, phase: 'discovering', discovered: 500, processed: 0, errors: 0 }); });
+    await waitFn(page, () => { const b = document.querySelector('.mu-scan'); return b && !b.hidden && /Finding your music… 500 files/.test(b.textContent); });
+    check('while finding files: a banner with the count, a moving bar and Stop', await page.isVisible('.mu-scan .mu-scan-bar.busy') && await page.isVisible('.mu-scan button:text-is("Stop")'));
+    await page.evaluate(() => window.__ev('scan', { folderId: 1, phase: 'indexing', discovered: 9298, processed: 3120, errors: 2 }));
+    await waitFn(page, () => /3,120 of 9,298 · 2 unreadable/.test(document.querySelector('.mu-scan').textContent));
+    const pct = await page.$eval('.mu-scan-bar i', (i) => i.style.width);
+    check('while reading: "3,120 of 9,298", a bar that fills (34%), and the same in the status bar', pct === '34%' && /3,120 of 9,298/.test(await page.textContent('#status-bench')), [pct, await page.textContent('#status-bench')]);
+    await page.click('.mu-scan button:text-is("Stop")');
+    check('…Stop asks the library to stop', await page.evaluate(() => window.__cancelled === true));
+    await page.evaluate(() => { window.__scanning = false; window.__lastScan = { phase: 'done', discovered: 9298, added: 9296, errors: 2, message: '“broken.mp3”: Bad header' }; window.__ev('scan', { folderId: 1, phase: 'done', discovered: 9298, processed: 9298, errors: 2, message: '“broken.mp3”: Bad header' }); });
+    await waitFn(page, () => document.querySelector('.mu-scan.note') && !document.querySelector('.mu-scan').hidden);
+    const note = await page.textContent('.mu-scan');
+    check('afterwards: a note saying which files couldn\'t be read and why', /2 files couldn't be read \(the first: “broken.mp3”: Bad header\)/.test(note), note);
+    await page.click('.mu-scan .nui-icon');
+    check('…which can be closed', await page.isHidden('.mu-scan'));
+    await page.evaluate(() => window.__ev('scan', { folderId: 1, phase: 'done', discovered: 5, processed: 5, errors: 0 }));
+    await page.waitForTimeout(150);
+    check('a scan that went fine leaves no note', await page.isHidden('.mu-scan'));
+    await page.evaluate(() => { window.__lastScan = null; });
     await page.click('.mu-cols .h.t'); await page.click('.mu-cols .h.t');
     await page.waitForTimeout(150);
     check('clicking a column sorts by it (twice: the other way round)', (await titles())[0] === 'Every Punch Card', await titles());
@@ -145,20 +169,21 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     check('double-click: it plays (really: the audio runs), the list from there on is the queue', s.track === 'Bernoulli Numbers' && !s.paused && s.queue.total === 5 && s.queue.pos === 1, s);
     await page.waitForSelector('.mu-row.now');
     check('…the playing track is marked in the list', (await page.textContent('.mu-row.now .t')) === 'Bernoulli Numbers');
-    await page.waitForSelector('#status-widgets .mu-mini:not([hidden])');
-    check('…the mini player in the status bar shows it', (await page.textContent('.mu-mini-title')).includes('Bernoulli Numbers'));
+    await page.waitForSelector('#bottombar:not([hidden]) .mu-mp');
+    check('…the mini player along the bottom shows it', (await page.textContent('#bottombar .mu-mp-title')).includes('Bernoulli Numbers'));
     await page.waitForSelector('.mu-np-title:text-is("Bernoulli Numbers")');
     check('…and Now playing (a panel beside the library)', (await page.textContent('.mu-np-sub')).includes('Ada'));
-    await page.waitForFunction(() => Number(document.querySelector('.mu-seek').value) > 0);
-    check('…its position moves', Number(await page.inputValue('.mu-seek')) > 0);
-    check('Up next lists what comes after it', (await page.$$eval('.mu-queue .mu-q:not(.now) .t', (xs) => xs.map((x) => x.textContent))).join('|') === 'Cogs and Wheels|Differences|Every Punch Card');
+    await page.waitForFunction(() => Number(document.querySelector('.mu-np-seek .mu-range').value) > 0);
+    check('…its position moves', Number(await page.inputValue('.mu-np-seek .mu-range')) > 0);
+    await page.click('.mu-tab[data-tab="queue"]');
+    check('Up next lists what comes after it', (await page.$$eval('.mu-p-queue .mu-q:not(.now) .t', (xs) => xs.map((x) => x.textContent))).join('|') === 'Cogs and Wheels|Differences|Every Punch Card');
     await page.click('.mu-tp[title="Next"]');
     await waitFn(page, () => window.__noor.open.get('noor.music').module._engine()._state().track.displayTitle === 'Cogs and Wheels');
     check('⏭ Next: the next track', (await eng()).track === 'Cogs and Wheels');
     await page.hover('.mu-q:has-text("Every Punch Card")');
     await page.click('.mu-q:has-text("Every Punch Card") button[title="Take it out"]');
     await page.waitForTimeout(150);
-    check('Up next: ✕ takes a track out', !(await page.textContent('.mu-queue')).includes('Every Punch Card') && (await eng()).queue.total === 4);
+    check('Up next: ✕ takes a track out', !(await page.textContent('.mu-p-queue')).includes('Every Punch Card') && (await eng()).queue.total === 4);
 
     // ---------------------------------------------------------------- marks and playlists
     await page.click('.mu-row:has-text("Analytical Engine")');
@@ -181,19 +206,25 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await page.waitForTimeout(500);
     s = await eng();
     check('in another bench (Markdown), the music keeps playing', !s.paused && s.track === 'Cogs and Wheels', s);
-    check('…and the mini player is still in the status bar', await page.isVisible('#status-widgets .mu-mini'));
-    await page.click('.mu-mini-btn[title="Play / pause"]');
+    check('…and the mini player is still along the bottom', await page.isVisible('#bottombar .mu-mp'));
+    await page.click('#bottombar .mu-ib.play');
     await page.waitForTimeout(200);
     check('⏸ in the mini player pauses it', (await eng()).paused);
-    await page.click('.mu-mini-btn[title="Play / pause"]');
+    await page.click('#bottombar .mu-ib.play');
     await page.waitForTimeout(300);
     check('▶ carries on', !(await eng()).paused);
-    await page.click('.mu-mini-title');
+    await page.click('#bottombar button[aria-label="Hide the mini player"]');
+    await page.waitForTimeout(150);
+    check('✕ hides the mini player (the music keeps playing); a ♫ in the status bar is left', await page.isHidden('#bottombar') && await page.isVisible('#status-widgets .mu-mini-btn') && !(await eng()).paused);
+    await page.click('#status-widgets .mu-mini-btn');
+    await page.waitForSelector('#bottombar:not([hidden]) .mu-mp');
+    check('…♫ brings it back', await page.isHidden('#status-widgets .mu-mini-btn'));
+    await page.click('#bottombar .mu-mp-who');
     await page.waitForSelector('section.bench[data-bench="noor.music"]:not([hidden])');
     check('its title opens the Music bench', (await page.evaluate(() => window.__noor.active())) === 'noor.music');
 
     // ---------------------------------------------------------------- sound, the session
-    await page.click('.ptab:has-text("Sound")').catch(() => {});
+    await page.click('.mu-tab[data-tab="sound"]');
     await page.waitForSelector('.mu-sound .mu-check');
     await page.click('.mu-sound .mu-check:has-text("Equalizer") input');
     await page.waitForTimeout(200);
@@ -217,7 +248,7 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
 
     if (SHOTS) {
       fs.mkdirSync(SHOTS, { recursive: true });
-      await page.click('.ptab:has-text("Now playing")').catch(() => {});
+      await page.click('.mu-tab[data-tab="library"]').catch(() => {});
       await page.waitForTimeout(300);
       await page.screenshot({ path: path.join(SHOTS, 'noormd3-music.png') });
     }
@@ -230,15 +261,15 @@ async function waitFn(page, fn, arg, timeout = 8000) { await page.waitForFunctio
     await waitFn(page, () => { const i = window.__noor && window.__noor.open.get('noor.music'); const e = i && i.module && i.module._engine(); return e && e._state().track; });
     s = await eng();
     check('after a restart: the same track, queue and settings, paused (nothing starts by itself)', s.track === before && s.queue.total === 4 && s.repeat === 'all' && s.fx.eqOn === true && s.paused, s);
-    await page.waitForSelector('#status-widgets .mu-mini:not([hidden])');
-    check('…and the mini player shows it', (await page.textContent('.mu-mini-title')).includes(before));
+    await page.waitForSelector('#bottombar:not([hidden]) .mu-mp');
+    check('…and the mini player shows it', (await page.textContent('#bottombar .mu-mp-title')).includes(before));
 
     // ---------------------------------------------------------------- closing the bench stops the music
-    await page.click('.mu-mini-btn[title="Play / pause"]');
+    await page.click('#bottombar .mu-ib.play');
     await page.waitForTimeout(300);
     await page.click('.btab[data-bench="noor.music"] .x');
     await page.waitForTimeout(300);
-    check('closing the Music bench stops the music and takes the mini player away', !(await page.$('#status-widgets .mu-mini')) && (await page.evaluate(() => { const a = [...document.querySelectorAll('audio')]; return a.length; })) === 0);
+    check('closing the Music bench stops the music and takes the mini player away', !(await page.isVisible('#bottombar .mu-mp')) && (await page.evaluate(() => { const a = [...document.querySelectorAll('audio')]; return a.length; })) === 0);
 
     check('no errors on the page', errors.length === 0, errors);
   } finally {

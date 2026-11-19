@@ -14,22 +14,26 @@
         {
           "label": "Add a time zone\u2026",
           "command": "clock.add",
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": null,
           "command": null,
-          "keys": null
+          "keys": null,
+          "submenu": null
         },
         {
           "label": "Start / stop the stopwatch",
           "command": "clock.toggle",
-          "keys": "F9"
+          "keys": "F9",
+          "submenu": null
         },
         {
           "label": "Reset the stopwatch",
           "command": "clock.reset",
-          "keys": null
+          "keys": null,
+          "submenu": null
         }
       ]
     }

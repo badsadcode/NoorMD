@@ -10,7 +10,16 @@
 .mu-sec .ic { text-align: center; color: var(--muted); }
 .mu-sec .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mu-sec .c { color: var(--muted); font-size: 12px; }
-.mu-scan { font-size: 12px; color: var(--accent); padding: 8px; }
+.mu-scan { margin: 0 14px 8px; padding: 9px 12px; border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--border)); border-radius: var(--r2); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); display: flex; flex-direction: column; gap: 7px; }
+.mu-scan[hidden] { display: none; }
+.mu-scan.note { border-color: color-mix(in srgb, var(--warning) 45%, var(--border)); background: color-mix(in srgb, var(--warning) 8%, var(--surface)); }
+.mu-scan-row { display: flex; align-items: center; gap: 10px; font-size: 12.5px; }
+.mu-scan-text { flex: 1; min-width: 0; }
+.mu-scan-bar { height: 4px; border-radius: 99px; background: var(--surface2); overflow: hidden; position: relative; }
+.mu-scan-bar i { display: block; height: 100%; width: 0; border-radius: inherit; background: var(--accent); transition: width .3s; }
+.mu-scan-bar.busy i { width: 30%; position: absolute; animation: mu-scan-slide 1.2s ease-in-out infinite; }
+@keyframes mu-scan-slide { from { left: -30%; } to { left: 100%; } }
+.mu-folders-note { font-size: 12.5px; color: var(--muted); margin: 6px 0 0; }
 .mu-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
 .mu-bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px 8px; flex-wrap: wrap; }
 .mu-heading { display: flex; align-items: baseline; gap: 10px; flex: 1 1 200px; min-width: 0; }
